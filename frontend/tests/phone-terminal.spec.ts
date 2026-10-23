@@ -91,7 +91,7 @@ const card = (page: Page) => page.locator(".task-board .task-card-shell").filter
 // does.
 async function openGoblin(page: Page, relay: Relay, run: typeof RUNS[number]) {
   await card(page).click();
-  if (run.isSteppedIn) await stepIn(page, relay.say);
+  if (run.isSteppedIn) await stepIn(page, (message) => relay.say(message));
 }
 const terminal = (page: Page) => page.getByRole("region", { name: "Goblin terminal" });
 const keyboard = (page: Page, height: number, offset = 0) => page.evaluate(([height, offset]) => (window as unknown as { keyboard: (height: number, offset: number) => void }).keyboard(height, offset), [height, offset]);

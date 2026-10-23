@@ -634,9 +634,10 @@ While a session is resuming or stopping, its terminal slot reads **Resuming sess
 After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in the Task view retries, and the terminal connects once the resumed session is live, or once its goblin reports from the session the failed resume started, which finishes that resume.
 A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence in the header.
 A goblin's panel, and the CFO's, opens on its **Terminal** view, and a pill at the top switches to its **Task** view, on the pill's right, and back in one tap.
-A Claude Code session's pill has **Messages** first, which its panel opens on until you choose **Terminal**: its conversation as messages, with each tool call as one row that unfolds, **Copy** on each message, **Jump to latest**, and its own text size on **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**.
+A Claude Code session's **Terminal** view shows its conversation as messages, filling the panel, with each tool call as one row that unfolds, **Copy** on each message, **Jump to latest**, and its own text size on **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**.
 Under it is the message box, which types what you send into the session's terminal, keeps your draft, offers **Stop** while it works, and says **Answer in the terminal** when Claude Code asks something only its terminal shows.
-It lies in the terminal's own box, so switching between the two never resizes the terminal.
+When what you send opens one of Claude Code's own screens, a picker such as `/model` or a panel such as `/permissions`, its terminal steps into the messages' place with the keyboard in it, and steps out by itself once Claude Code is back at its input line, or at once with **Back to messages**.
+The terminal lies in the messages' own box, so no switch and no step resizes it.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no Terminal view, so each panel is its Task view alone, with no pill.
 The Task view shows **Workspace** with the repository, branch and exact working folder, **Harness** with the harness, model and effort selectors, **Connections** with MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**, each closed until you open it.
@@ -673,7 +674,7 @@ The Open window draws on its own window's grid and takes the terminal's size bac
 Whichever window you type into, or a board view that answers the program's terminal queries, gives the terminal its size.
 The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch shows the session on the view its panel opens on and hands that view the keyboard: its message box, or its terminal.
-The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's panel beside it and the keyboard in its message box, or in its terminal without a **Messages** view; a phone, or any window 40rem wide or less, shows the board alone and leaves the keyboard alone.
+The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's panel beside it and the keyboard in its message box, or in its terminal where it has no messages; a phone, or any window 40rem wide or less, shows the board alone and leaves the keyboard alone.
 That happens once: what you arrange afterwards is kept, and a browser that already keeps a panel width or a maximize choice is left as it is.
 That first open also starts a very quick tour, three steps in which the CFO points at its panel, the board and the Command Center; **Escape** or the X skips it, it shows once, and the **?** in the top bar replays it on any screen wider than a phone's.
 A terminal and the Task view both open beside the board, **Maximize** gives the panel the whole window and **Restore** brings the board back beside it, and on the Orchestration view the panel opens beside the graph.
@@ -767,7 +768,7 @@ Only an open Command Center item that asks you something alerts you: a question 
 A goblin blocked, failed or done is said on its card, never as an alert, and routine progress never alerts.
 A pause or stop that the CFO or you asked for is never shown as a failure: a stop that did not finish reads **Stop did not finish** on its card, a pause that did not finish shows what the goblin is doing, and the CFO hears of either.
 A goblin whose pause did not finish but whose terminal has ended since is paused, in the Paused section, and resumes.
-A goblin paused, resuming or starting has a message box, under its messages or, without a Messages view, in its Terminal view: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
+A goblin paused, resuming or starting has a message box in its Terminal view, under its messages or under its terminal: what you write there is queued and delivered once, typed into its terminal when it can take it or carried by its resume.
 The CFO has none: while it is off or restarting, its Terminal view only says so.
 Send or Enter sends it, and holding the box's microphone dictates into it as a terminal's dictation does.
 A message kept for a paused goblin's resume has a delete button until the resume carries it.

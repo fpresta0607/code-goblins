@@ -8,9 +8,14 @@ export const RUNS = [{ name: "under Terminal", harness: "codex", isSteppedIn: fa
 
 // stepIn steps the open session's terminal into its messages' place, as the
 // amber card's Answer in the terminal does once the relay, which say speaks
-// for, tells the view the harness asks at a screen of its own.
+// for, tells the view the harness asks at a screen of its own. The view may
+// not have connected yet, so the relay says it again until the card shows.
 export async function stepIn(page: Page, say: (message: object) => void): Promise<void> {
-  say({ type: "screen", asking: true, open: true });
-  await page.locator(".composer-asking").getByRole("button", { name: "Answer in the terminal" }).click();
+  const answer = page.locator(".composer-asking").getByRole("button", { name: "Answer in the terminal" });
+  await expect(async () => {
+    say({ type: "screen", asking: true, open: true });
+    await expect(answer).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+  await answer.click();
   await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
 }
