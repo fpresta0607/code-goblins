@@ -39,7 +39,8 @@ env:
   #   and the licence check runs tools/notices, which reads the notices and
   #   the console host's licence.
   # - browser runs when a file under its paths changed: the board's own
-  #   source, and the two files outside it that a spec reads.
+  #   source, and the two files outside it that a spec reads, or the change
+  #   reaches internal/afk, which a spec builds to render the report page.
   #   frontend/src/outside-reads.test.ts holds the list to what the specs
   #   read.
   # - a go job runs when the change reaches one of its packages: a package
@@ -84,7 +85,8 @@ env:
         "packages": ["./internal/boardweb", "./tools/notices"]
       },
       "browser": {
-        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"]
+        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"],
+        "packages": ["./internal/afk"]
       },
       "go": [
         {"shard": "chrome", "packages": "./internal/browserlogin ./internal/supervisor ./cmd/goblins-setup", "run": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
