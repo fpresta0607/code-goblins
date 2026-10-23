@@ -31,12 +31,13 @@ const (
 const relayMessage = 256 << 10
 
 // screenSettle is how long a terminal's output pauses before its relay reads
-// the screen, to tell its views whether the harness waits on an answer there,
-// which it reads too as a view opens. A turn's spinner draws more often than
-// this, so a turn costs no read, but
-// while a view was last told the harness waits, the screen is read this long
-// after the first output that follows, pause or not, so the view learns soon
-// that the answer was given and a turn runs.
+// the screen, to tell its views whether the harness waits on an answer there
+// and whether something of its own is open in its input line's place, which
+// it reads too as a view opens. A turn's spinner draws more often than this,
+// so a turn costs no read, but while a view was last told something is open,
+// the screen is read this long after the first output that follows, pause or
+// not, so the view learns soon that it closed, as the answer given or the
+// pick made.
 const screenSettle = 300 * time.Millisecond
 
 // screenAtOpen is how long after a view opens its relay reads the screen: at
@@ -64,19 +65,23 @@ type nativeRelay struct {
 	// held tells the view whether typing is held, and why, while the view has
 	// not been told that yet.
 	held []byte
-	// screen tells the view whether the harness waits on an answer at a
-	// screen of its own, while the view has not been told that yet, asking is
-	// what the view was last told, looking says a read of the screen is due,
-	// and opening that the read the view's opening made due has not begun,
-	// which no output postpones.
+	// screen tells the view what its harness's screen shows, while the view
+	// has not been told that yet, told is what the view was last told,
+	// looking says a read of the screen is due, and opening that the read the
+	// view's opening made due has not begun, which no output postpones.
 	screen  []byte
-	asking  *bool
+	told    *screenState
 	looking bool
 	opening bool
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
 }
+
+// screenState is what a view is told of its harness's screen: whether the
+// harness waits on an answer at a screen of its own, and whether something of
+// its own is open in its input line's place.
+type screenState struct{ asking, open bool }
 
 // relaySize is a size to tell the view once the output before it is sent.
 type relaySize struct {
@@ -151,10 +156,12 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // closed every view of a task a gate owned as it opened (#1304). For a
 // harness whose screens it knows, the relay reads the terminal's screen as
 // the view opens, once its output pauses, and soon after output follows a
-// screen that asked, and tells the view as
-// `{"type":"screen","asking":true}` when the harness waits on an answer at a
-// screen of its own, which only its terminal takes, as Claude Code's
-// permission prompt, and with false once it no longer does.
+// screen that had something open, and tells the view as
+// `{"type":"screen","asking":true,"open":true}` when that changes: asking
+// while the harness waits on an answer at a screen of its own, which only its
+// terminal takes, as Claude Code's permission prompt, and open while
+// something of its own is drawn in its input line's place, as a picker, a
+// panel or that question.
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -246,11 +253,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		asking := screens.IsAsking(rows)
+		state := screenState{asking: screens.IsAsking(rows), open: screens.IsOpen(rows)}
 		relay.mu.Lock()
-		if relay.asking == nil || *relay.asking != asking {
-			relay.asking = &asking
-			relay.screen = []byte(fmt.Sprintf(`{"type":"screen","asking":%t}`, asking))
+		if relay.told == nil || *relay.told != state {
+			relay.told = &state
+			relay.screen = []byte(fmt.Sprintf(`{"type":"screen","asking":%t,"open":%t}`, state.asking, state.open))
 		}
 		relay.mu.Unlock()
 		relay.signal()
@@ -291,7 +298,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			default:
 				relay.pending = append(relay.pending, event.Output...)
 				relay.received += int64(len(event.Output))
-				if !relay.opening && (!relay.looking || relay.asking == nil || !*relay.asking) {
+				if !relay.opening && (!relay.looking || relay.told == nil || !relay.told.open) {
 					relay.looking = true
 					look.Reset(screenSettle)
 				}
