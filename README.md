@@ -539,6 +539,7 @@ A queued card has **Remove** where they have Stop: a task that has not started h
 A task's panel carries its controls as labelled buttons, in one row under its header: **Start** and **Remove** for a queued task, and **Pause** or **Resume** and **Stop** for one that has started.
 A task reads one status, the same words and the same dot, on its card, its panel, its terminal pane and its Orchestration card: **Queued** while it waits in Tasks, **Starting** while it starts.
 Pause allows five seconds for a stopping point and handoff, then ends the task's processes, including its detached browser sessions, dev servers and tests.
+A goblin that writes no handoff in time still gets one: the pause writes it for the goblin from the task's branch and head, open pull requests, last status line and runs in the machine's heavy line, and says it did.
 Retiring a task with `cfo cleanup` ends the same processes once it has closed the task's terminal, and names each one it ended.
 So does `cfo switch`, and a resume, before the next harness starts.
 It ends the goblin's terminal first, which ends its agent and everything under it, so a busy goblin that misses its stopping point is still paused, with its session kept for its resume, even when the search for its other processes runs out of time on a machine short of memory. That search runs one priority class above normal, so it does not wait its turn behind the builds it is there to pause.
