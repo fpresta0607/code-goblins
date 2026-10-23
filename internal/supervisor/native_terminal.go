@@ -39,6 +39,10 @@ const relayMessage = 256 << 10
 // that the answer was given and a turn runs.
 const screenSettle = 300 * time.Millisecond
 
+// screenAtOpen is how long after a view opens its relay reads the screen: at
+// once, and a test holds the read back so output follows the opening first.
+var screenAtOpen time.Duration
+
 // nativeRelay is one view's side of a native terminal: the output read from
 // the host and not yet sent, the sizes the terminal took at their places in
 // it, and how much of what was sent the view has acknowledged. One goroutine
@@ -62,11 +66,13 @@ type nativeRelay struct {
 	held []byte
 	// screen tells the view whether the harness waits on an answer at a
 	// screen of its own, while the view has not been told that yet, asking is
-	// what the view was last told, and looking says a read of the screen is
-	// due.
+	// what the view was last told, looking says a read of the screen is due,
+	// and opening that the read the view's opening made due has not begun,
+	// which no output postpones.
 	screen  []byte
 	asking  *bool
 	looking bool
+	opening bool
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -220,13 +226,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true}
+	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true, opening: true}
 	if custody != nil {
 		relay.held = heldNotice(custody)
 	}
-	look := time.AfterFunc(0, func() {
+	look := time.AfterFunc(screenAtOpen, func() {
 		relay.mu.Lock()
 		relay.looking = false
+		relay.opening = false
 		relay.mu.Unlock()
 		if binding.harness == nil {
 			return
@@ -284,7 +291,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			default:
 				relay.pending = append(relay.pending, event.Output...)
 				relay.received += int64(len(event.Output))
-				if !relay.looking || relay.asking == nil || !*relay.asking {
+				if !relay.opening && (!relay.looking || relay.asking == nil || !*relay.asking) {
 					relay.looking = true
 					look.Reset(screenSettle)
 				}

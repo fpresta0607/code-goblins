@@ -148,6 +148,15 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "permission":
 			// Claude Code's permission prompt, drawn in its composer's place.
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
+		case line == "count":
+			// A row under the screen counts every 100 ms, 20 times, so the
+			// output never pauses while the rest of the screen stays, and
+			// then says it counted.
+			for frame := range 20 {
+				time.Sleep(100 * time.Millisecond)
+				fmt.Printf("\rcount %02d", frame)
+			}
+			fmt.Print("\rcounted \r\n")
 		case strings.HasPrefix(line, "turn for "):
 			// A turn whose spinner redraws its line every 100 ms, as Claude
 			// Code's does, so its output never pauses while it lasts. It
@@ -957,10 +966,13 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	}
 }
 
-// A view that opens while the harness already asks at a screen of its own,
-// with nothing more drawn, is told so as it opens, sooner than a read once
-// its history's output has paused would tell it.
+// A view that opens while the harness already asks at a screen of its own is
+// told so as it opens, though output that never pauses follows: no output
+// puts off the read its opening makes due, as its history's replay did.
 func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
+	// The read the opening makes due waits until output has followed it.
+	screenAtOpen = 250 * time.Millisecond
+	t.Cleanup(func() { screenAtOpen = 0 })
 	h, server := nativeBoard(t, "direct")
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
 	if err != nil {
@@ -975,15 +987,14 @@ func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
 	first.waitFor(t, "program ready")
 	first.send(t, websocket.MessageBinary, "permission\r")
 	first.waitFor(t, `{"type":"screen","asking":true}`)
+	first.send(t, websocket.MessageBinary, "count\r")
+	first.waitFor(t, "count 00")
 
 	second := openNativeView(t, server, viewQuery)
-	second.waitFor(t, `{"type":"history"`)
-	opened := time.Now()
 	second.waitFor(t, `{"type":"screen","asking":true}`)
 
-	// stall-accepted: it times the view's notice against its opening, and the read it rules out comes 300 ms after the history's output pauses, too short for a longer bound to tell apart.
-	if waited := time.Since(opened); waited >= screenSettle/2 {
-		t.Errorf("the view was told the harness asks %v after its history began, want it told as it opens, well before the %v its output's pause takes", waited, screenSettle)
+	if second.shows("counted") {
+		t.Error("the view was told the harness asks only once the output after its opening paused, want it told as it opens")
 	}
 }
 
