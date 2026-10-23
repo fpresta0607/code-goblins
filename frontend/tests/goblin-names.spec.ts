@@ -103,10 +103,10 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page);
       await jerry(page).locator(".card-title").click();
       await expect(page.locator("#panel-title")).toHaveText("Jerry - Code Designer");
-      // Its Terminal view names the task by its id, its Task view by its title.
+      // The compact header keeps the task id while the task list opens.
       await expect(page.locator(".panel-goblin-task")).toHaveText("nw-sync");
       await openTaskList(page);
-      await expect(page.locator(".panel-goblin-task")).toHaveText("Say why a billing sync fails");
+      await expect(page.locator(".panel-goblin-task")).toHaveText("nw-sync");
     });
 
     test("the canvas names each goblin with its avatar, and its task in its tip or under its name", async ({ page }) => {

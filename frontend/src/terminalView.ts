@@ -207,6 +207,13 @@ export class TerminalView {
     return true;
   }
 
+  submit(text: string): string | null {
+    if (!this.paste(text) || !this.enter()) return null
+    const submission = crypto.randomUUID()
+    this.send(JSON.stringify({ type: "submit", submission }))
+    return submission
+  }
+
   // escape presses Escape in the terminal, which interrupts a harness's turn.
   escape(): boolean {
     if (!this.isSendable()) return false;

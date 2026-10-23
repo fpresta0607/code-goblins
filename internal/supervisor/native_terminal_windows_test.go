@@ -145,6 +145,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
+		case line == "background":
+			footer = "1 shell"
+			drawComposer("", false)
+		case line == "/model":
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{" Select model", " ❯ 1. Default", "   2. Another model", " Enter to confirm · Esc to cancel"}, "\r\n") + "\r\n")
 		case line == "permission":
 			// Claude Code's permission prompt, drawn in its composer's place.
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
@@ -950,13 +955,13 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "harness\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
 
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
-	asking, back := `{"type":"screen","asking":true,"open":true}`, `{"type":"screen","asking":false,"open":false}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -987,13 +992,13 @@ func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "harness\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
 
 	v.send(t, websocket.MessageBinary, "panel\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":true}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":""}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
-	open, back := `{"type":"screen","asking":false,"open":true}`, `{"type":"screen","asking":false,"open":false}`
+	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -1004,6 +1009,86 @@ func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("the view was never told the panel closed and the harness was back at its composer")
 		}
+	}
+}
+
+func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "background\r")
+	v.waitFor(t, "1 shell")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+
+	v.send(t, websocket.MessageBinary, "/model\r")
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	v.send(t, websocket.MessageBinary, "harness\r")
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, `"open":false,"working":false`) > strings.LastIndex(screen, `"open":true,"working":false`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the model picker closed")
+		}
+	}
+
+	v.send(t, websocket.MessageBinary, "turn for 20s\r")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`)
+	if slices.Contains(terminal.lines(t), "turn ended") {
+		t.Error("the view learned of the turn only after its spinner stopped")
+	}
+}
+
+func TestANativeViewCorrelatesScreensWithSubmittedInput(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	for _, submission := range []string{"turn-one", "turn-two"} {
+		v.send(t, websocket.MessageBinary, "turn\r")
+		v.send(t, websocket.MessageText, `{"type":"submit","submission":"`+submission+`"}`)
+		v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"`+submission+`"}`)
+	}
+	v.send(t, websocket.MessageBinary, "harness\r/model\r")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"model"}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"model"}`)
+
+	second := openNativeView(t, server, viewQuery)
+	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+}
+
+func TestANativeViewRejectsAnInvalidSubmissionID(t *testing.T) {
+	for _, submission := range []string{"", strings.Repeat("x", 129)} {
+		t.Run(strconv.Itoa(len(submission)), func(t *testing.T) {
+			h, server := nativeBoard(t, "direct")
+			hostTask(t, h)
+			v := openNativeView(t, server, viewQuery)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"`+submission+`"}`)
+			if closed := v.waitForClose(t); closed.Code != websocket.StatusUnsupportedData {
+				t.Fatalf("invalid submission closed with %d, want unsupported data", closed.Code)
+			}
+		})
 	}
 }
 
@@ -1027,12 +1112,12 @@ func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
 	first := openNativeView(t, server, viewQuery)
 	first.waitFor(t, "program ready")
 	first.send(t, websocket.MessageBinary, "permission\r")
-	first.waitFor(t, `{"type":"screen","asking":true,"open":true}`)
+	first.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 	first.send(t, websocket.MessageBinary, "count\r")
 	first.waitFor(t, "count 00")
 
 	second := openNativeView(t, server, viewQuery)
-	second.waitFor(t, `{"type":"screen","asking":true,"open":true}`)
+	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 
 	if second.shows("counted") {
 		t.Error("the view was told the harness asks only once the output after its opening paused, want it told as it opens")
@@ -1055,7 +1140,7 @@ func TestANativeViewOfACFOOpenedWhileItStartsIsToldWhenItsHarnessAsks(t *testing
 
 	v.send(t, websocket.MessageBinary, "permission\r")
 
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 }
 
 // A view told the harness asks is told it no longer does while the turn the
@@ -1075,11 +1160,11 @@ func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraw
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
 
-	asking, back := `{"type":"screen","asking":true,"open":true}`, `{"type":"screen","asking":false,"open":false}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()

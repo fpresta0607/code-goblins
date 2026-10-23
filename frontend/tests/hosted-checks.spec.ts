@@ -37,8 +37,7 @@ async function open(page: Page) {
 const card = (page: Page, title: string) => page.locator(".task-card-shell").filter({ hasText: title });
 async function openPanel(page: Page, title: string) {
   await card(page, title).locator(".task-card").click();
-  await openTaskList(page);
-  return page.locator(".panel-header");
+  return openTaskList(page);
 }
 
 // The parts of a card's pull request row, as boxes: none covers another and
@@ -101,8 +100,7 @@ test("the panel shows the checks beside its pull request", async ({ page }) => {
   await open(page);
 
   await card(page, "Export the audit trail").locator(".task-card").click();
-  await openTaskList(page);
-  const header = page.locator(".panel-header");
+  const header = await openTaskList(page);
 
   await expect(header.locator(".hosted-checks")).toHaveText(["Checks passed", "Approved"]);
   await expect(header.locator("a.local-checks")).toHaveText("Local tests passed");

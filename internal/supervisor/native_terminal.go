@@ -30,14 +30,9 @@ const (
 // relayMessage bounds one output message to a view.
 const relayMessage = 256 << 10
 
-// screenSettle is how long a terminal's output pauses before its relay reads
-// the screen, to tell its views whether the harness waits on an answer there
-// and whether something of its own is open in its input line's place, which
-// it reads too as a view opens. A turn's spinner draws more often than this,
-// so a turn costs no read, but while a view was last told something is open,
-// the screen is read this long after the first output that follows, pause or
-// not, so the view learns soon that it closed, as the answer given or the
-// pick made.
+// screenSettle is how long after output the relay reads the screen to tell
+// its views whether the harness asks, has a screen open or runs a turn.
+// Further output does not postpone that read.
 const screenSettle = 300 * time.Millisecond
 
 // screenAtOpen is how long after a view opens its relay reads the screen: at
@@ -67,12 +62,11 @@ type nativeRelay struct {
 	held []byte
 	// screen tells the view what its harness's screen shows, while the view
 	// has not been told that yet, told is what the view was last told,
-	// looking says a read of the screen is due, and opening that the read the
-	// view's opening made due has not begun, which no output postpones.
-	screen  []byte
-	told    *screenState
-	looking bool
-	opening bool
+	// and looking says a read of the screen is due.
+	screen     []byte
+	told       *screenState
+	looking    bool
+	submission string
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -80,8 +74,13 @@ type nativeRelay struct {
 
 // screenState is what a view is told of its harness's screen: whether the
 // harness waits on an answer at a screen of its own, and whether something of
-// its own is open in its input line's place.
-type screenState struct{ asking, open bool }
+// its own is open in its input line's place or a turn is running.
+type screenState struct {
+	Asking     bool   `json:"asking"`
+	Open       bool   `json:"open"`
+	Working    bool   `json:"working"`
+	Submission string `json:"submission"`
+}
 
 // relaySize is a size to tell the view once the output before it is sent.
 type relaySize struct {
@@ -155,13 +154,12 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // the replayed history holds, so closing the view on input under custody
 // closed every view of a task a gate owned as it opened (#1304). For a
 // harness whose screens it knows, the relay reads the terminal's screen as
-// the view opens, once its output pauses, and soon after output follows a
-// screen that had something open, and tells the view as
-// `{"type":"screen","asking":true,"open":true}` when that changes: asking
+// the view opens and soon after output, and tells the view as
+// `{"type":"screen","asking":true,"open":true,"working":false}` when that changes: asking
 // while the harness waits on an answer at a screen of its own, which only its
 // terminal takes, as Claude Code's permission prompt, and open while
 // something of its own is drawn in its input line's place, as a picker, a
-// panel or that question.
+// panel or that question, and working while a turn runs.
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -233,14 +231,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true, opening: true}
+	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true}
 	if custody != nil {
 		relay.held = heldNotice(custody)
 	}
 	look := time.AfterFunc(screenAtOpen, func() {
 		relay.mu.Lock()
 		relay.looking = false
-		relay.opening = false
+		submission := relay.submission
 		relay.mu.Unlock()
 		if binding.harness == nil {
 			return
@@ -253,11 +251,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		state := screenState{asking: screens.IsAsking(rows), open: screens.IsOpen(rows)}
+		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: submission}
 		relay.mu.Lock()
-		if relay.told == nil || *relay.told != state {
+		if submission == relay.submission && (relay.told == nil || *relay.told != state) {
 			relay.told = &state
-			relay.screen = []byte(fmt.Sprintf(`{"type":"screen","asking":%t,"open":%t}`, state.asking, state.open))
+			relay.screen, _ = json.Marshal(struct {
+				Type string `json:"type"`
+				screenState
+			}{"screen", state})
 		}
 		relay.mu.Unlock()
 		relay.signal()
@@ -298,7 +299,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			default:
 				relay.pending = append(relay.pending, event.Output...)
 				relay.received += int64(len(event.Output))
-				if !relay.opening && (!relay.looking || relay.told == nil || !relay.told.open) {
+				if !relay.looking {
 					relay.looking = true
 					look.Reset(screenSettle)
 				}
@@ -407,14 +408,29 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 		if kind == websocket.MessageText {
 			var control struct {
-				Type  string `json:"type"`
-				Cols  int    `json:"cols"`
-				Rows  int    `json:"rows"`
-				Bytes int64  `json:"bytes"`
+				Type       string `json:"type"`
+				Cols       int    `json:"cols"`
+				Rows       int    `json:"rows"`
+				Bytes      int64  `json:"bytes"`
+				Submission string `json:"submission"`
 			}
-			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" {
-				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize or an acknowledgement.")
+			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" && control.Type != "submit" {
+				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize, an acknowledgement or a submission.")
 				return
+			}
+			if control.Type == "submit" {
+				if control.Submission == "" || len(control.Submission) > 128 {
+					_ = view.Close(websocket.StatusUnsupportedData, "A submission needs an ID of at most 128 bytes.")
+					return
+				}
+				relay.mu.Lock()
+				relay.submission = control.Submission
+				if !relay.looking {
+					relay.looking = true
+					look.Reset(screenSettle)
+				}
+				relay.mu.Unlock()
+				continue
 			}
 			if control.Type == "ack" {
 				relay.mu.Lock()

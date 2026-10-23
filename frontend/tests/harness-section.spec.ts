@@ -1,4 +1,4 @@
-import { expect, openTaskList, type Page, test } from "./site";
+import { expect, openTaskList, taskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-13: every harness control belongs in a category of
 // its own named Harness, for queued tasks, active goblins and the CFO.
@@ -71,7 +71,7 @@ for (const phase of ["queued", "paused"]) {
     await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
     await expect(engine.getByRole("combobox", { name: "Effort", exact: true })).toHaveValue("xhigh");
     await expect(engine.getByRole("button")).toHaveCount(0);
-    await expect(page.locator(".panel-task")).not.toContainText("No changes yet");
+    await expect(taskList(page)).not.toContainText("No changes yet");
     if (await connections(page).count()) {
       await connections(page).locator("> summary").click();
       await expect(connections(page)).not.toContainText("Codex");

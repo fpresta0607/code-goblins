@@ -129,7 +129,7 @@ export function App() {
   // session whose box last typed into its terminal, until its harness opens a
   // screen of its own or starts a turn.
   const [steppedIn, setSteppedIn] = useState("");
-  const [sentFrom, setSentFrom] = useState("");
+  const [sentFrom, setSentFrom] = useState<{ terminal: string; submission: string } | null>(null);
   const [compact, setCompact] = useState(() => matchMedia(SMALL_SCREEN).matches);
   const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
   // startingShown is whether this page already opened the terminal of a CFO
@@ -315,8 +315,11 @@ export function App() {
   // messages stay mounted from their first showing while the panel shows the
   // session, so a switch back reads nothing again and finds the place he read.
   const isSteppedIn = !!messagesSource && !!terminalKey && steppedIn === terminalKey;
-  if (sentFrom && (sentFrom !== terminalKey || isWorking)) setSentFrom("");
-  else if (sentFrom && live?.screen?.isOpen) { setSentFrom(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); }
+  if (sentFrom && (sentFrom.terminal !== terminalKey || live?.isReconnecting || live?.phase === "closed")) setSentFrom(null)
+  else if (sentFrom && live?.screen?.submission === sentFrom.submission) {
+    if (live.screen.isWorking) setSentFrom(null)
+    else if (live.screen.isOpen) { setSentFrom(null); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); }
+  }
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
   const stepIn = () => { setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
   const stepOut = () => { setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
@@ -448,7 +451,7 @@ export function App() {
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
             box={<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
-              focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={() => setSentFrom(terminalKey)} />} />}
+              focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />

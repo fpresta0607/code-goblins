@@ -111,8 +111,8 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
         // Assert: the header over the messages and the terminal carries no
         // buttons since 2026-10-17, the task list beside or under it does.
         expect(report.buttons).toEqual([]);
-        await openTaskList(page);
-        const listed = await page.locator(".panel-header-details").evaluate((details) => [...details.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility()).map((action) => action.getAttribute("aria-label") || action.textContent!.trim()));
+        const detailsHeader = await openTaskList(page);
+        const listed = await detailsHeader.evaluate((details) => [...details.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility()).map((action) => action.getAttribute("aria-label") || action.textContent!.trim()));
         expect(listed).toEqual(where === "a phone" ? PHONE_BUTTONS : BUTTONS);
         expect(report.broken).toEqual([]);
         expect(report.nameLines).toBe(1);
@@ -125,13 +125,13 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
   });
 }
 
-// A name cut to its one line, or a title cut to its two, shows in full in its
+// A name or task id cut to its line shows in full in its
 // tip; one shown whole has none.
-test("a name and a title cut short show in full in their tips", async ({ page }) => {
+test("a name and task id cut short show in full in their tips", async ({ page }) => {
   // Arrange
   const name = "Merge Maestro of the Connector Release Notes";
-  const title = "What's new in PrecisionDocs for the connector changes, with the release notes for every connector shipped this week and the steps each one needs";
-  await open(page, 360, { ...BERNIE, goblin_title: name, title });
+  const id = "pd-whats-new-connectors-release-notes-for-every-connector-shipped-this-week";
+  await open(page, 360, { ...BERNIE, goblin_title: name, id });
   await openTaskList(page);
   const header = page.locator(".panel-header");
 
@@ -141,10 +141,10 @@ test("a name and a title cut short show in full in their tips", async ({ page })
   // Assert
   await expect(page.getByRole("tooltip")).toHaveText("Bernie - " + name);
   await header.locator(".panel-goblin-task").hover();
-  await expect(page.getByRole("tooltip")).toHaveText(title);
+  await expect(page.getByRole("tooltip")).toHaveText(id);
 });
 
-test("a name and a title shown whole carry no tip", async ({ page }) => {
+test("a name and task id shown whole carry no tip", async ({ page }) => {
   // Arrange
   await open(page, "maximized");
   const header = page.locator(".panel-header");

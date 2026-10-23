@@ -504,6 +504,8 @@ A goblin's header over its messages or its terminal is compact and headed as the
 In both views the goblin's name keeps to one line and its task to at most two, each shown in full in its tip once cut short, and no word breaks.
 In a full header its buttons stay beside them only while all fit on one row, and otherwise take a row of their own under the task, starting where it starts (the Overlord, 2026-10-09: "Place buttons under when super long.").
 The task list holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened, beside the goblin's messages or its live native terminal.
+Its header details keep the link to a goblin this one waits on, both beside the conversation and in the Task fold.
+A tall Task fold scrolls within the panel while the messages or terminal below it keep room.
 The task list opens with one action row, the task's own controls as labelled buttons, the only place they are: Start and Remove for a queued task, and Pause and Stop for a task that has started, or Resume and Stop for a paused one; a waiting goblin offers no Resume, and a completed one none of them.
 A queued task is edited in its header, where its task line under the goblin's name carries a small pencil with the tip Edit task (the Overlord, 2026-10-10: "I get editing pencil a little icon"): the pencil, or a click on the task's text, turns that line into a box in the same type holding the task's title and detail, which grows with its text.
 The pencil is the one button on that line, for the keyboard and a screen reader, and closing the box hands the keyboard back to it.
@@ -951,8 +953,9 @@ The panel is held to the visual viewport, which the on-screen keyboard shrinks w
 `frontend/tests/phone-terminal.spec.ts` checks this at 390 by 844 and 360 by 800, with the keyboard played by a visual viewport the test shrinks.
 The panel's top row is one line at every width the panel can take, 360 px at its narrowest: its controls (Open in terminal and Maximize or Restore today, neither on a small screen), then the corner button, Close or Back.
 Nothing in the row overlaps or is cut, and nothing in it is drawn smaller to fit: an icon button stays 44 px square.
-The switch and the corner button always show; a control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else; a choice that gives the row room for every control again, so that More goes, hands the keyboard to the panel, and Escape still closes it or goes back.
-The switch gives up its words only when the row cannot hold them even with every control in More, and then shows its icons, each named by its tip and its accessible name; with its icons the row holds as many controls as fit again.
+The corner button always shows.
+A control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else.
+A choice that gives the row room for every control again, so that More goes, hands the keyboard to the panel, and Escape still closes it or goes back.
 The row is `PanelRow` in `frontend/src/panel-row.tsx`, used by every panel, and what fits is `rowFit` in `frontend/src/panel-fit.ts`.
 A control is a `PanelControl` (an id, a name for its tip and its menu item, an accessible name, an icon, an importance and what a press does); its importance is written beside the others in `PANEL_IMPORTANCE`, the highest staying in the row longest, and `App.tsx` builds the list.
 Until 2 October 2026 the row gave the controls half of what the switch left, so in a panel dragged narrow they were drawn over the switch.
@@ -1324,7 +1327,7 @@ Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size 
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
 Shift+Escape leaves the messages for the panel's top row, as it leaves a terminal, and Escape does what the corner button does.
 The messages lie where the terminal deck lies, under the panel's compact header, beside its task list, in the same flex and under the same rule (`frontend/src/panel-stage.tsx`), so their box is the terminal's.
-A switch between the views therefore never asks the terminal for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
+Stepping the terminal in or out therefore never asks it for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
 It stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.
 A stream that drops reconnects by itself and says Reconnecting meanwhile.
 A stream the supervisor ends says why, and one that drops five times, or that the supervisor refuses, says the messages cannot be read, each with Reconnect.
@@ -1350,11 +1353,14 @@ Escape closes Recent messages while it is open, from its button or from inside i
 What the box sends that opens a screen of the harness's own, a picker, a panel, a question, an editor, a sign-in or a script that asks for input, brings the session's live terminal into the messages' place: PR 4 of the message view plan, which the Overlord asked be proved first.
 The relay reads the screen as it does for the amber card and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`).
 The terminal steps in when the screen opens after a Send from the box and before the harness starts a turn, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
+The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`, so background work that makes the fleet busy does not cancel a Send waiting for its screen.
+Each Send marks its submitted input with an ID, which the relay attaches to screen reads begun after that marker, so a cached or in-flight reading from before the Send cannot cancel it.
+It reads soon after output even while a spinner keeps drawing, and a real harness turn read after that submission clears that Send before an unrelated screen can open.
 Every key is the terminal's while it is in, Escape included, and Shift+Escape leaves it for the panel's top row.
 It steps out by itself once the harness's input line is back, and Back to messages steps out at once, each handing the keyboard back to the box with his draft as he left it.
 A question that comes during a turn keeps the amber card, whose Answer in the terminal steps the terminal in.
 A step in or out asks the terminal for no new size, which `frontend/tests/terminal-steps-in.spec.ts` counts at the relay.
-Every terminal spec whose terminal a fixture page draws runs a second time stepped in, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
+Every terminal spec whose terminal a fixture page draws, including `terminal-held`, runs a second time stepped in, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
 A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box saying Not sent, and its terminal's own notice is behind them, while its task list names what brings it back.
 
 

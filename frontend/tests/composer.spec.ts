@@ -80,7 +80,7 @@ test("while the harness asks in its terminal an amber card says so and Send wait
   await openGoblin(page);
   await field(page).fill("yes");
 
-  relay.say({ type: "screen", asking: true, open: true });
+  relay.say({ type: "screen", asking: true, open: true, working: false });
 
   const asking = box(page).locator(".composer-asking");
   await expect(asking).toContainText("Waiting on you in the terminal");
@@ -89,7 +89,7 @@ test("while the harness asks in its terminal an amber card says so and Send wait
   await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
   expect(typed(relay), "nothing was typed into the harness's own screen").not.toContain("yes");
-  relay.say({ type: "screen", asking: false, open: false });
+  relay.say({ type: "screen", asking: false, open: false, working: false });
   await expect(field(page)).toBeFocused();
   await expect(box(page).locator(".composer-asking")).toHaveCount(0);
   await expect(send(page)).toBeEnabled();

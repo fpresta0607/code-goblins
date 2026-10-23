@@ -173,7 +173,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     if (!link) return;
     offerLink(link, {
       phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, screen,
-      send: (text) => !!current.current && current.current.paste(text) && current.current.enter(),
+      send: (text) => current.current?.submit(text) ?? null,
       escape: () => !!current.current?.escape(),
     });
     return () => offerLink(link, null);

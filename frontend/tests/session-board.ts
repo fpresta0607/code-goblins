@@ -25,6 +25,7 @@ export interface Relay {
   typed: string[];
   resizes: { cols: number; rows: number }[];
   views: number;
+  submissions: string[];
   // say tells the newest view a relay message; drop closes it as a relay
   // that went away does, which the view reconnects from.
   say: (message: object) => void;
@@ -32,7 +33,7 @@ export interface Relay {
 }
 
 export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main"): Promise<Relay> {
-  const relay: Relay = { typed: [], resizes: [], views: 0, say: () => {}, drop: () => {} };
+  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], say: () => {}, drop: () => {} };
   await page.addInitScript(() => {
     if (!localStorage.getItem("cfo-first-open")) localStorage.setItem("cfo-first-open", "shown");
     localStorage.setItem("cfo-voice-hint-v1", "dismissed");
@@ -64,12 +65,18 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   await page.route("**/api/dictation", (route) => route.request().method() === "GET" ? route.fulfill({ json: { engine: "test-model", state: "ready" } }) : route.fulfill({ json: { text: heard, engine: "test-model" } }));
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     relay.views++;
-    relay.say = (message) => socket.send(JSON.stringify(message));
+    let submission = ""
+    relay.say = (message) => socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message))
     relay.drop = () => socket.close({ code: 1001 });
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.onMessage((data) => {
       if (typeof data !== "string") { relay.typed.push(data.toString("utf8")); return; }
       const sent: unknown = JSON.parse(data);
+      if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "submit" && "submission" in sent && typeof sent.submission === "string") {
+        submission = sent.submission
+        relay.submissions.push(submission)
+        return
+      }
       if (typeof sent !== "object" || sent === null || !("type" in sent) || sent.type !== "resize" || !("cols" in sent) || !("rows" in sent)) return;
       const size = { cols: Number(sent.cols), rows: Number(sent.rows) };
       relay.resizes.push(size);
@@ -84,18 +91,16 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
 }
 
 export const card = (page: Page, name: string) => page.locator(".task-board .task-card-shell").filter({ hasText: name }).locator(".task-card");
-export const view = (page: Page, name: string) => page.locator(".context-pane .panel-pill").getByRole("button", { name, exact: true });
 export const box = (page: Page, name = NAME) => page.getByRole("region", { name: "Messages to " + name });
 export const field = (page: Page, name = NAME) => box(page, name).getByRole("textbox", { name: "Message " + name });
 export const send = (page: Page, name = NAME) => box(page, name).getByRole("button", { name: "Send", exact: true });
 export const typed = (relay: Relay) => relay.typed.join("");
 
-// openGoblin opens Zeke's panel from his card, on its Terminal view, which
-// shows his messages, with his terminal whole behind them.
+// openGoblin opens Zeke's panel from his card on his messages, with his
+// terminal whole behind them.
 export async function openGoblin(page: Page) {
   await card(page, NAME).click();
   await expect(page.locator("#panel-title")).toHaveText(NAME);
-  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
   await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
 }

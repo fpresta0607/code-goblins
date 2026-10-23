@@ -67,7 +67,7 @@ async function select(page: Page, name: string) {
   if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: name }) }).first().click();
   await expect(page.locator("#panel-title")).toContainText(name);
-  await openTaskList(page);
+  return openTaskList(page);
 }
 
 const panel = (page: Page) => page.locator(".goblin-panel");
@@ -110,13 +110,13 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
       for (const [name, status] of [["Bernie", "Paused by you"], ...PAUSES.map(([name, , status]) => [name, status])] as [string, string | RegExp][]) {
         // Act
-        await select(page, name);
+        const detailsHeader = await select(page, name);
 
         // Assert: the status says Paused and why, and no line under it says
         // so again.
         await expect(header.locator(".panel-status"), name).toHaveText(status);
-        await expect(header.locator(".panel-activity"), name).toHaveCount(0);
-        await expect(header, name).not.toContainText(/It (stays paused|resumes by itself)/);
+        await expect(detailsHeader.locator(".panel-activity"), name).toHaveCount(0);
+        await expect(detailsHeader, name).not.toContainText(/It (stays paused|resumes by itself)/);
       }
     });
 
@@ -129,7 +129,6 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       // and by him, and one paused before pauses had reasons.
       await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause)), paused("Old")], "Bernie");
       const header = panel(page).locator(".panel-header");
-      const details = header.locator(".raw-details-text");
       const cases: [string, string, string, RegExp][] = [
         ["Mabel", "Paused for memory", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
         ["Tansy", "Paused until Bernie delivers", did("Tansy"), /^It resumes by itself when Bernie - Merge Maestro finishes\.$/],
@@ -142,22 +141,23 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
       for (const [name, status, work, waits] of cases) {
         // Act
-        await select(page, name);
-        await header.locator(".raw-details > summary").click();
+        const detailsHeader = await select(page, name);
+        await detailsHeader.locator(".raw-details > summary").click();
+        const details = detailsHeader.locator(".raw-details-text");
         const text = await details.innerText();
 
         // Assert: what the goblin last reported, in sentences, then what it
         // waits for, with nothing of the pause's own record, as the panel's
         // prose and not as a terminal's lines.
         await expect(header.locator(".panel-status"), name).toContainText(status);
-        await expect(header.locator(".panel-activity"), name).toHaveCount(0);
+        await expect(detailsHeader.locator(".panel-activity"), name).toHaveCount(0);
         expect(text.startsWith(work + " "), name + ": " + text).toBe(true);
         expect(text.slice(work.length + 1), name).toMatch(waits);
         expect(text, name).not.toMatch(/;|deadline|handoff|did not finish|lifecycle|pid \d|[A-Za-z]:\\/);
         await expect(details.locator("p"), name).toHaveCount(1);
         expect(await details.evaluate((element) => getComputedStyle(element).fontFamily === getComputedStyle(document.body).fontFamily), name).toBe(true);
         read.push(text);
-        await header.locator(".raw-details > summary").click();
+        await detailsHeader.locator(".raw-details > summary").click();
       }
 
       // Assert: no two goblins' Details read the same.
@@ -171,7 +171,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       const summary = stopped.locator("> summary");
       const workspace = panel(page).locator(".panel-content > details").filter({ has: page.locator("> summary", { hasText: "Workspace" }) }).locator("> summary");
 
-      const details = panel(page).locator(".panel-header .raw-details > summary");
+      const details = (await openTaskList(page)).locator(".raw-details > summary");
 
       // Assert: no dropdown in the panel draws the browser's marker, and
       // Stopped resources and Details draw Workspace's caret, closed.
