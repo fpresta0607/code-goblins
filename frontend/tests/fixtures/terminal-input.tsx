@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { TerminalDeck } from "../../src/TerminalDeck";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
+import { SteppedIn } from "./stepped-in";
 
 const parameters = new URLSearchParams(location.search);
 const isCfo = parameters.get("role") === "cfo";
@@ -24,7 +25,7 @@ const render = (harness: string) => {
     <div style={{ display: "flex", height: 700, width: 1000 }} onKeyDown={(event) => {
       if (event.key === "Escape") document.body.dataset.escaped = "true";
     }}>
-      <TerminalDeck snapshot={snapshot} task={isCfo ? undefined : task} cfo={isCfo} shown connected focus={1} />
+      <SteppedIn><TerminalDeck snapshot={snapshot} task={isCfo ? undefined : task} cfo={isCfo} shown connected focus={1} /></SteppedIn>
     </div>,
   );
 };

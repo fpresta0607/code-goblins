@@ -28,19 +28,18 @@ async function serveSnapshots(page: Page, initial: Snapshot): Promise<(next: Sna
 }
 
 for (const workspace of ["Board", "Orchestration"]) {
+  // A Codex goblin's Terminal view is its terminal, which a Claude Code
+  // goblin's shows only stepped into its messages.
   test(`${workspace} keeps the selected terminal visible when its task moves into retired history`, async ({ page }) => {
     const snapshot = parseSnapshot({ healthy: true, instance: "ended-board-proof", cfo_runs: true, revision: 1,
-      tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend: "native", harness: "claude", generation: "s1", session: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", phase: "working", verified: false }],
-      sessions: [{ id: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "input-proof", role: "goblin", task_id: "input-proof", generation: "s1", harness: "claude", phase: "working" }],
+      tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend: "native", harness: "codex", generation: "s1", session: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", phase: "working", verified: false }],
+      sessions: [{ id: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "input-proof", role: "goblin", task_id: "input-proof", generation: "s1", harness: "codex", phase: "working" }],
     });
     const publish = await serveSnapshots(page, snapshot);
     await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
       socket.send(JSON.stringify({ type: "history", bytes: 0 }));
       socket.send(Buffer.from("READY\r\n"));
     });
-    // He chose the Terminal view, which a session then opens on, and which
-    // this spec is about.
-    await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
     await page.goto("/");
     if (workspace === "Board") {
       await page.locator(".task-card").filter({ hasText: "Terminal fixes and handoff" }).click();

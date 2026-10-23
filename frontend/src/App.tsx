@@ -357,7 +357,7 @@ export function App() {
   // own, beside the board; a refusal says so under the button for a moment.
   // A window on the PC is nothing to a phone, so a small screen has no such
   // button.
-  const shownWindow = snapshot && terminalShown && !child ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
+  const shownWindow = snapshot && (terminalShown || messagesShown) && !child ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
   const shownKey = JSON.stringify(shownWindow);
   const openWindow = async () => {
     if (!snapshot || !shownWindow) return;
