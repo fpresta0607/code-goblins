@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,8 @@ const (
 // the root a recurrence is matched by. It is an HTML comment, which GitHub
 // does not show.
 var rootMarker = regexp.MustCompile(`<!-- ops-root: (.+?) -->`)
+
+var rootSourceMarker = regexp.MustCompile(`<!-- ops-source: ([a-f0-9]{64}) -->`)
 
 // Root is a root issue to file: its title, what happens and why, the key a
 // recurrence is matched by, and the evidence of this sighting.
@@ -65,7 +68,10 @@ type OpenRoot struct {
 	Body   string
 	URL    string
 	// Key is the root its marker names, or "" for an issue filed by hand.
-	Key       string
+	Key string
+	// Source is the source repository's opaque identity, so a shared issue
+	// repository keeps projects distinct without publishing private names.
+	Source    string
 	Assignees []string
 	Labels    []string
 	// Association is how its author stands to the repository, as GitHub
@@ -133,7 +139,9 @@ func rootIdentifiers(text string) []string {
 // with the date and the new evidence, else it opens an issue with the label,
 // creating the label the first time. A read that fails files nothing, so a
 // root is never filed twice because its issue could not be seen.
-func (g GitHub) FileRoot(ctx context.Context, repository string, root Root, now time.Time) (FiledRoot, error) {
+// sourceRepository names the code repository for relative test identities,
+// which stays the same when issues are filed on another repository.
+func (g GitHub) FileRoot(ctx context.Context, repository, sourceRepository string, root Root, now time.Time) (FiledRoot, error) {
 	if strings.TrimSpace(root.Title) == "" {
 		return FiledRoot{}, errors.New("a root issue needs a title")
 	}
@@ -141,8 +149,16 @@ func (g GitHub) FileRoot(ctx context.Context, repository string, root Root, now 
 	if err != nil {
 		return FiledRoot{}, err
 	}
+	source := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.ToLower(sourceRepository))))
 	for _, issue := range open {
-		if !issue.matches(root, repository) {
+		if issue.Source != "" {
+			if issue.Source != source {
+				continue
+			}
+		} else if !strings.EqualFold(repository, sourceRepository) {
+			continue
+		}
+		if !issue.matches(root, sourceRepository) {
 			continue
 		}
 		seen := strings.TrimSpace(root.Evidence)
@@ -167,6 +183,7 @@ func (g GitHub) FileRoot(ctx context.Context, repository string, root Root, now 
 		body += "\n\n## Evidence\n\n" + now.UTC().Format("2006-01-02 15:04Z") + ": " + evidence
 	}
 	body = strings.TrimSpace(body) + "\n\n<!-- ops-root: " + root.RootKey() + " -->\n"
+	body += "<!-- ops-source: " + source + " -->\n"
 	out, err := g.api(ctx, "POST", "repos/"+repository+"/issues", "title="+strings.TrimSpace(root.Title), "body="+body, "labels[]="+RootLabel)
 	if err != nil {
 		return FiledRoot{}, err
@@ -205,6 +222,9 @@ func (g GitHub) OpenRoots(ctx context.Context, repository string) ([]OpenRoot, e
 			root := OpenRoot{Number: issue.Number, Title: issue.Title, Body: issue.Body, URL: issue.URL, Association: issue.Association}
 			if marker := rootMarker.FindStringSubmatch(issue.Body); marker != nil {
 				root.Key = marker[1]
+			}
+			if marker := rootSourceMarker.FindStringSubmatch(issue.Body); marker != nil {
+				root.Source = marker[1]
 			}
 			for _, assignee := range issue.Assignees {
 				root.Assignees = append(root.Assignees, assignee.Login)

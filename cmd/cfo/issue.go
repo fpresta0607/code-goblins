@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -73,7 +74,7 @@ func runIssue(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	return 0
 }
 
-// fileRoot files root on the repository of the project projectArg names,
+// fileRoot files root on the issue repository of the project projectArg names,
 // a name or a path, through the screen of what the issue may say: the one
 // filing path the command, a merge train and the supervisor share. It
 // refuses a repository the fleet does not own and one with issues turned
@@ -90,9 +91,17 @@ func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, ro
 	if err != nil {
 		return tickets.FiledRoot{}, err
 	}
-	repository, err := runtime.repositoryOf(ctx, checkout)
+	manifest, path, err := project.LoadForCheckout(h.Data, checkout)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return tickets.FiledRoot{}, fmt.Errorf("read the project record %s: %w", path, err)
+	}
+	sourceRepository, err := runtime.repositoryOf(ctx, checkout)
 	if err != nil {
 		return tickets.FiledRoot{}, err
+	}
+	repository := manifest.IssueRepository
+	if repository == "" {
+		repository = sourceRepository
 	}
 	commands := runtime.github
 	if commands == nil {
@@ -120,11 +129,11 @@ func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, ro
 		}
 		return tickets.FiledRoot{}, fmt.Errorf("refused: the issue would go on %s, which is %s, and %s; write it without that", repository, where, refusal)
 	}
-	return github.FileRoot(ctx, repository, root, now)
+	return github.FileRoot(ctx, repository, sourceRepository, root, now)
 }
 
-// refuseAnotherOwner refuses repository, which the checkout's origin names
-// and owner owns, unless the fleet owns it: owner is the account gh works as
+// refuseAnotherOwner refuses repository, which owner owns, unless the fleet
+// owns it: owner is the account gh works as
 // or one config/fleet.json's github_owners names, the rule the supervisor's
 // pull request watch keeps. A checkout of a fork may keep origin on the
 // fork's parent, another owner's repository, so the refusal names each
@@ -151,7 +160,7 @@ func refuseAnotherOwner(ctx context.Context, github tickets.GitHub, h home.Home,
 	if isFleets(owner) {
 		return nil
 	}
-	refusal := fmt.Sprintf("refused: the issue would go on %s, which origin names, and its owner %s is neither %s, the account gh works as, nor an owner config/fleet.json names", repository, owner, account)
+	refusal := fmt.Sprintf("refused: the issue would go on %s, and its owner %s is neither %s, the account gh works as, nor an owner config/fleet.json names", repository, owner, account)
 	remotes, err := github.Remotes(ctx, checkout)
 	if err != nil {
 		return fmt.Errorf("%s; %w", refusal, err)
@@ -185,7 +194,7 @@ func issueScreen(ctx context.Context, github tickets.GitHub, runtime commandRunt
 	if screen.IsPublic = isPublic; !isPublic {
 		return screen, nil
 	}
-	owner, name, _ := strings.Cut(repository, "/")
+	owner, _, _ := strings.Cut(repository, "/")
 	screen.Account = owner
 	var err error
 	if screen.People, err = tickets.Teammates(h.State); err != nil {
@@ -208,14 +217,18 @@ func issueScreen(ctx context.Context, github tickets.GitHub, runtime commandRunt
 			return tickets.Screen{}, err
 		}
 		for _, entry := range entries {
-			if entry.IsDir() && !strings.EqualFold(entry.Name(), name) && !strings.EqualFold(entry.Name(), filepath.Base(checkout)) {
+			if entry.IsDir() {
 				projects = append(projects, entry.Name())
 			}
 		}
 	}
 	text := strings.Join([]string{root.Title, root.Body, root.Evidence, root.Key}, "\n")
 	for _, project := range tickets.Mentioned(text, projects) {
-		if !isPublicProject(ctx, github, runtime, project) {
+		projectArg := project
+		if strings.EqualFold(project, filepath.Base(checkout)) {
+			projectArg = checkout
+		}
+		if !isPublicProject(ctx, github, runtime, projectArg) {
 			screen.Private = append(screen.Private, project)
 		}
 	}

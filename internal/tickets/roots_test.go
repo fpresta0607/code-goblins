@@ -78,7 +78,7 @@ func TestFileRootOpensALabelledIssueWithItsMarkerAndEvidence(t *testing.T) {
 	root := Root{Title: "conpty test fails under load", Body: "## What happens\nIt fails.", Key: "test:internal/conpty TestInputLeftUnread", Evidence: "run 7 of acme/widgets"}
 
 	// Act
-	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, root, rootNow)
+	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
 
 	// Assert
 	if err != nil {
@@ -126,7 +126,7 @@ func TestFileRootCommentsOnTheOpenIssueOfTheSameRoot(t *testing.T) {
 			fake := &rootGitHub{open: []map[string]any{tc.open}}
 
 			// Act
-			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, tc.root, rootNow)
+			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, tc.root, rootNow)
 
 			// Assert
 			if err != nil {
@@ -155,7 +155,7 @@ func TestFileRootOpensANewIssueWhenTheOpenOnesHaveOtherRoots(t *testing.T) {
 	}}
 
 	// Act
-	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, Root{Title: "conpty flakes", Key: "test:internal/conpty TestX"}, rootNow)
+	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "conpty flakes", Key: "test:internal/conpty TestX"}, rootNow)
 
 	// Assert
 	if err != nil {
@@ -263,7 +263,7 @@ func TestFileRootMatchesFailedOnceSightingsToManualTestRoots(t *testing.T) {
 			root := FailedOnceRoot("go (cmd-cfo): github.com/acme/widgets/cmd/cfo TestNativeHost", "run 9")
 
 			// Act
-			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, root, rootNow)
+			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
 
 			// Assert
 			if err != nil {
@@ -292,7 +292,7 @@ func TestFileRootFilesNothingWhenTheOpenIssuesCannotBeRead(t *testing.T) {
 	fake := &rootGitHub{listFails: true}
 
 	// Act
-	_, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, Root{Title: "x"}, rootNow)
+	_, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "x"}, rootNow)
 
 	// Assert
 	if err == nil {

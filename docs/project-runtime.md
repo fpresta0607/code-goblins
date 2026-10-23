@@ -56,6 +56,15 @@ Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, 
 A project without a manifest routes from the fleet table and gets no capsule.
 Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory, containing names and policy, never secret values.
 
+### Root issue repository
+
+The optional `issue_repository` field names the GitHub repository for operational root issues, as `owner/name`, for example `"issue_repository": "acme/private-ops"`.
+`cfo issue file`, merge trains and the supervisor file there; when the field is empty or absent, or the project has no record, they use the checkout's origin.
+Malformed values are refused before filing.
+The selected repository must still belong to the fleet and have issues enabled, and its visibility determines the public-data screening; credentials are screened on every destination.
+This setting grants no credentials, moves no existing issues and leaves code repository operations and test identities unchanged.
+New issues carry an opaque source identity so projects sharing one issue repository remain distinct; existing issues without that identity belong to the repository that holds them.
+
 ### Execution routing
 
 Board starts and automatic starts pass only the engine settings explicitly named by the backlog row or brief, with the row winning separately for each field.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -31,6 +32,7 @@ type issueGH struct {
 	remotes  map[string]map[string]string
 	open     string
 	writes   []string
+	reads    []string
 }
 
 func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -61,6 +63,7 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 	}
 	switch {
 	case method == "GET" && strings.Contains(path, "/issues?labels=ops-root"):
+		f.reads = append(f.reads, path)
 		open := f.open
 		if open == "" {
 			open = "[]"
@@ -73,17 +76,18 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 	case method == "POST":
 		f.writes = append(f.writes, path)
 		if strings.HasSuffix(path, "/issues") {
+			url := "https://github.com/" + strings.TrimPrefix(path, "repos/") + "/42"
 			opened, err := json.Marshal([]struct {
 				Number int    `json:"number"`
 				Title  string `json:"title"`
 				Body   string `json:"body"`
 				URL    string `json:"html_url"`
-			}{{42, fields["title"], fields["body"], "https://github.com/acme/widgets/issues/42"}})
+			}{{42, fields["title"], fields["body"], url}})
 			if err != nil {
 				return execx.Result{}, err
 			}
 			f.open = string(opened)
-			return execx.Result{Stdout: []byte(`{"number":42,"html_url":"https://github.com/acme/widgets/issues/42"}`)}, nil
+			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"number":42,"html_url":%q}`, url))}, nil
 		}
 		return execx.Result{Stdout: []byte(`{}`)}, nil
 	}
@@ -143,6 +147,190 @@ func writeBody(t *testing.T, text string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeIssueManifest(t *testing.T, h home.Home, checkout, text string) {
+	t.Helper()
+	path := project.Path(h.Data, filepath.Base(checkout))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRootFilingUsesTheProjectIssueRepository(t *testing.T) {
+	for _, configuration := range []struct{ name, manifest, repository string }{
+		{"no record", "", "acme/widgets"},
+		{"unset", `{"project":"widgets"}`, "acme/widgets"},
+		{"explicit", `{"project":"widgets","issue_repository":"acme/ops"}`, "acme/ops"},
+	} {
+		t.Run(configuration.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGH{private: map[string]bool{"acme/ops": true}}
+			runtime, h := issueRuntime(t, gh)
+			if configuration.manifest != "" {
+				writeIssueManifest(t, h, "widgets", configuration.manifest)
+			}
+			var stdout, stderr strings.Builder
+
+			// Act: file manually, then see the same test through the supervisor.
+			code := runIssue([]string{"file", "--project", "widgets", "--title", "native host ends in TestNativeHost", "--body-file", writeBody(t, "`TestNativeHost` in `cmd/cfo` fails before the host serves.")}, &stdout, &stderr, runtime)
+			if code != 0 {
+				t.Fatalf("manual filing exit = %d: %s", code, stderr.String())
+			}
+			filed, err := fileRootFrom(runtime, false)(context.Background(), "widgets", tickets.FailedOnceRoot("go (cmd-cfo): github.com/acme/widgets/cmd/cfo TestNativeHost", "run 9"))
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			prefix := "repos/" + configuration.repository
+			want := []string{prefix + "/labels", prefix + "/issues", prefix + "/issues/42/comments"}
+			if !filed.IsRecurrence || !slices.Equal(gh.writes, want) {
+				t.Fatalf("filed = %+v, writes = %v, want %v", filed, gh.writes, want)
+			}
+			if filed.URL != "https://github.com/"+configuration.repository+"/issues/42" {
+				t.Fatalf("filed URL = %s", filed.URL)
+			}
+			for _, read := range gh.reads {
+				if !strings.HasPrefix(read, prefix+"/issues?") {
+					t.Fatalf("read open issues from %s, want %s", read, configuration.repository)
+				}
+			}
+		})
+	}
+}
+
+func TestRootFilingRefusesAnInvalidProjectRecord(t *testing.T) {
+	for _, manifest := range []string{`{"project":"widgets","issue_repository":"acme/ops/extra"}`, `{"project":"widgets","issue_repository":42}`, `{"project":"widgets",`} {
+		t.Run(manifest, func(t *testing.T) {
+			// Arrange
+			gh := &issueGH{}
+			runtime, h := issueRuntime(t, gh)
+			writeIssueManifest(t, h, "widgets", manifest)
+
+			// Act
+			_, err := fileRootFrom(runtime, false)(context.Background(), "widgets", tickets.Root{Title: "a root"})
+			var stdout, stderr strings.Builder
+			code := runIssue([]string{"file", "--project", "widgets", "--title", "a root"}, &stdout, &stderr, runtime)
+
+			// Assert
+			if err == nil || code != 1 || len(gh.writes) != 0 || len(gh.reads) != 0 {
+				t.Fatalf("error = %v, reads = %v, writes = %v, want refusal before filing", err, gh.reads, gh.writes)
+			}
+		})
+	}
+}
+
+func TestRootFilingKeepsProjectsDistinctInASharedIssueRepository(t *testing.T) {
+	for _, root := range []tickets.Root{
+		{Title: "native host ends in TestNativeHost", Body: "TestNativeHost in cmd/cfo fails."},
+		{Title: "workflow fails", Key: "ci:build"},
+	} {
+		t.Run(root.Title, func(t *testing.T) {
+			// Arrange
+			gh := &issueGH{private: map[string]bool{"acme/ops": true}}
+			runtime, h := issueRuntime(t, gh)
+			for _, name := range []string{"widgets", "secret-project"} {
+				writeIssueManifest(t, h, name, fmt.Sprintf(`{"project":%q,"issue_repository":"acme/ops"}`, name))
+			}
+			if _, err := fileRoot(context.Background(), runtime, "widgets", root, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			gh.writes = nil
+			if root.Key == "" {
+				root = tickets.FailedOnceRoot("go (cmd-cfo): github.com/acme/secret-project/cmd/cfo TestNativeHost", "run 9")
+			}
+
+			// Act
+			filed, err := fileRootFrom(runtime, false)(context.Background(), "secret-project", root)
+
+			// Assert
+			want := []string{"repos/acme/ops/labels", "repos/acme/ops/issues"}
+			if err != nil || filed.IsRecurrence || !slices.Equal(gh.writes, want) {
+				t.Fatalf("filed = %+v, error = %v, writes = %v, want a separate root", filed, err, gh.writes)
+			}
+			gh.writes = nil
+			filed, err = fileRootFrom(runtime, false)(context.Background(), "secret-project", root)
+			if err != nil || !filed.IsRecurrence || !slices.Equal(gh.writes, []string{"repos/acme/ops/issues/42/comments"}) {
+				t.Fatalf("filed = %+v, error = %v, writes = %v, want the same project's recurrence", filed, err, gh.writes)
+			}
+		})
+	}
+}
+
+func TestRootFilingAllowsItsPublicCheckoutOutsideTheProjectsRoot(t *testing.T) {
+	// Arrange
+	gh := &issueGH{}
+	runtime, h := issueRuntime(t, gh)
+	projectsRoot, err := runtime.projectsRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(projectsRoot, "widgets")
+	runtime.projectsRoot = func() (string, error) { return "", nil }
+	writeIssueManifest(t, h, checkout, `{"project":"widgets"}`)
+
+	// Act
+	_, err = fileRoot(context.Background(), runtime, checkout, tickets.Root{Title: "widgets has a root"}, time.Now())
+
+	// Assert
+	if err != nil || len(gh.writes) != 2 {
+		t.Fatalf("error = %v, writes = %v, want the known public checkout's issue", err, gh.writes)
+	}
+}
+
+func TestRootFilingScreensTheSelectedIssueRepository(t *testing.T) {
+	for _, configuration := range []struct {
+		name, repository, body, refusal string
+		isPrivate, hasNoIssues          bool
+	}{
+		{name: "private destination", repository: "acme/ops", isPrivate: true, body: `Seen in secret-project at C:\dev\widgets.`},
+		{name: "public destination", repository: "acme/ops", body: `Seen at C:\dev\widgets.`, refusal: "which is public"},
+		{name: "private project", repository: "acme/ops", body: "Seen in secret-project.", refusal: "it names secret-project"},
+		{name: "teammate", repository: "acme/ops", body: "Jane Doe saw it.", refusal: "it names Jane Doe"},
+		{name: "private source project", repository: "acme/ops", body: "Seen in widgets.", refusal: "it names widgets"},
+		{name: "private source with same destination name", repository: "acme-org/widgets", body: "Seen in widgets.", refusal: "it names widgets"},
+		{name: "credential", repository: "acme/ops", isPrivate: true, body: "Sent made-up-value-0451", refusal: "it holds a credential value"},
+		{name: "issues disabled", repository: "acme/ops", hasNoIssues: true, body: "a root", refusal: "has issues turned off"},
+		{name: "another owner", repository: "stranger/ops", isPrivate: true, body: "a root", refusal: "its owner stranger is neither acme"},
+	} {
+		t.Run(configuration.name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("WIDGETS_API_TOKEN", "made-up-value-0451")
+			gh := &issueGH{
+				private:  map[string]bool{"acme/widgets": true, "acme/secret-project": true, configuration.repository: configuration.isPrivate},
+				noIssues: map[string]bool{configuration.repository: configuration.hasNoIssues},
+			}
+			runtime, h := issueRuntime(t, gh)
+			if err := os.WriteFile(filepath.Join(h.Root, "config", "fleet.json"), []byte(`{"github_owners":["acme-org"]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			writeIssueManifest(t, h, "widgets", fmt.Sprintf(`{"project":"widgets","issue_repository":%q}`, configuration.repository))
+			if err := tickets.RememberTeammates(h.State, []tickets.Actor{{Login: "jdoe", Name: "Jane Doe"}}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			_, err := fileRoot(context.Background(), runtime, "widgets", tickets.Root{Title: "a root", Body: configuration.body}, time.Now())
+
+			// Assert
+			if configuration.refusal == "" {
+				if err != nil || len(gh.writes) != 2 {
+					t.Fatalf("error = %v, writes = %v, want private issue filed", err, gh.writes)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), configuration.refusal) || len(gh.writes) != 0 {
+				t.Fatalf("error = %v, writes = %v, want refusal %q", err, gh.writes, configuration.refusal)
+			}
+			if strings.Contains(err.Error(), "made-up-value-0451") {
+				t.Fatal("refusal exposed a credential")
+			}
+		})
+	}
 }
 
 func TestIssueFileFilesANewRootOnTheProjectsRepository(t *testing.T) {
@@ -280,7 +468,7 @@ func TestIssueFileRefusesARepositoryTheFleetDoesNotOwn(t *testing.T) {
 		{
 			name:    "a fork whose origin is its parent",
 			remotes: map[string]string{"origin": "https://github.com/upstream/widgets.git", "fork": "https://github.com/acme/widgets.git", "gate": `C:\Users\someone\.no-mistakes\repos\f958ac41fb39.git`},
-			want:    []string{"refused: the issue would go on upstream/widgets, which origin names, and its owner upstream is neither acme, the account gh works as, nor an owner config/fleet.json names", "the fleet owns acme/widgets, which remote fork names"},
+			want:    []string{"refused: the issue would go on upstream/widgets, and its owner upstream is neither acme, the account gh works as, nor an owner config/fleet.json names", "the fleet owns acme/widgets, which remote fork names"},
 		},
 		{
 			name:      "a fork of an organization config/fleet.json names",
