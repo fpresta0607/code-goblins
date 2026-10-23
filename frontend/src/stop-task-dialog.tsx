@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { Task } from "./types";
 import { Avatar } from "./Avatar";
 import { personaFor } from "./workflow";
@@ -18,9 +19,15 @@ export function StopTaskDialog({ task, canPause, onPause, onStop, onClose }: {
     const source = document.activeElement;
     element?.showModal();
     element?.querySelector<HTMLButtonElement>(canPause ? ".primary" : ".stop-task-choices button:last-child")?.focus();
-    return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
+    return () => {
+      element?.close();
+      if (source instanceof HTMLElement && source.isConnected) {
+        const summary = source.closest("details:not([open])")?.querySelector<HTMLElement>(":scope > summary");
+        (summary || source).focus();
+      }
+    };
   }, [canPause]);
-  return <dialog ref={dialog} className="stop-task-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
+  return createPortal(<dialog ref={dialog} className="stop-task-dialog" aria-labelledby={title} aria-describedby={description} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <Avatar persona={personaFor(task)} />
     <h2 id={title}>{isQueued ? "Remove this task?" : "Stop this task?"}</h2>
     <p className="muted">{withoutHarness(task.title) || task.id}</p>
@@ -32,5 +39,5 @@ export function StopTaskDialog({ task, canPause, onPause, onStop, onClose }: {
       <button autoFocus={!canPause} onClick={onClose}>Cancel</button>
     </div>
     {canPause && <p className="muted">Pause keeps the task ready to resume.</p>}
-  </dialog>;
+  </dialog>, document.body);
 }
