@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +173,32 @@ func TestReapJSON(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"class":"stale_server"`) {
 		t.Fatalf("stdout = %q, want typed JSON", stdout.String())
+	}
+}
+
+func TestReapPrintsAndRecordsCleanupNotes(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		t.Run(format, func(t *testing.T) {
+			h := primaryHomeFixture(t)
+			notes := []string{"cleanup retired: warning: wake episode cannot be published"}
+			runtime := reapTestRuntime(h, func(context.Context, home.Home, reap.Options) (reap.Result, error) {
+				return reap.Result{Notes: notes}, nil
+			})
+			args := []string{"--apply"}
+			if format == "json" {
+				args = append(args, "--json")
+			}
+
+			var stdout, stderr bytes.Buffer
+			exit := runReap(args, &stdout, &stderr, runtime)
+
+			if exit != 0 || !strings.Contains(stdout.String(), notes[0]) {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q; want the cleanup warning printed", exit, stdout.String(), stderr.String())
+			}
+			record, err := reap.ReadRecord(h.State)
+			if err != nil || !slices.Equal(record.Notes, notes) {
+				t.Fatalf("record notes = %q, error = %v; want %q", record.Notes, err, notes)
+			}
+		})
 	}
 }
