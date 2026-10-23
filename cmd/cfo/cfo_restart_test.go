@@ -159,8 +159,8 @@ func fakeClaudeHome(t *testing.T) home.Home {
 	}
 	copyFile(t, self, filepath.Join(bin, "claude.exe"))
 	t.Setenv("PATH", bin)
-	t.Setenv("USERPROFILE", t.TempDir())
 	h := home.Home{Root: t.TempDir()}
+	useTranscriptHome(t, h.Root)
 	h.State = filepath.Join(h.Root, "state")
 	return h
 }
@@ -367,8 +367,6 @@ func TestRestartCFOStartsANewConversationWhenItsOwnCannotBeResumed(t *testing.T)
 func TestRestartCFOOnAConversationOverTheLimitStartsANewOne(t *testing.T) {
 	// Arrange
 	h := fakeClaudeHome(t)
-	userHome := t.TempDir()
-	t.Setenv("USERPROFILE", userHome)
 	before := nativeCFORunning(t, h, "large-session")
 	recordConversationOf(t, h.State, before, "claude", "large-session")
 	writeClaudeTranscript(t, h.Root, "large-session", requestLine(6, 2_300, 800_000, 4))
