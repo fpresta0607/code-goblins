@@ -12,6 +12,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 func waitForFolderPickerReady(ctx context.Context, dialog uintptr) error {
@@ -59,9 +61,11 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 				}()
 				defer func() {
 					cancel()
+					cleanup, stopCleanup := awake.WithTimeout(context.Background(), 5*time.Second)
+					defer stopCleanup()
 					select {
 					case <-stopped:
-					case <-time.After(5 * time.Second):
+					case <-cleanup.Done():
 						t.Error("folder picker did not stop after cancellation")
 					}
 				}()
@@ -86,7 +90,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 				}
 				shouldSelect := action == "select" || action == "select_after_ready"
 				if shouldSelect || action == "never_ready" {
-					readyContext, stopWaiting := context.WithTimeout(ctx, 10*time.Second)
+					readyContext, stopWaiting := awake.WithTimeout(ctx, 10*time.Second)
 					defer stopWaiting()
 					if err := waitForFolderPickerReady(readyContext, dialog); err != nil {
 						t.Fatal(err)
@@ -101,6 +105,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 							t.Fatal("disabled OK button hid the dialog")
 						}
 						if action == "never_ready" {
+							// stall-accepted: the disabled control is meant to outlast this deadline.
 							deadline, stop := context.WithTimeout(ctx, 250*time.Millisecond)
 							defer stop()
 							if err := waitForFolderPickerReady(deadline, dialog); !errors.Is(err, context.DeadlineExceeded) {
@@ -113,7 +118,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 						select {
 						case err := <-ready:
 							t.Fatalf("visible picker with disabled OK was treated as ready: %v", err)
-						case <-time.After(100 * time.Millisecond):
+						case <-time.After(100 * time.Millisecond): // stall-accepted: nothing should report ready while OK is disabled; a stall only lengthens this observation.
 						}
 						user32.NewProc("EnableWindow").Call(button, 1)
 						if err := <-ready; err != nil {
@@ -130,6 +135,8 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					}
 					user32.NewProc("PostMessageW").Call(dialog, 0x111, button, 0)
 				}
+				completion, stopCompletion := awake.WithTimeout(context.Background(), 10*time.Second)
+				defer stopCompletion()
 				select {
 				case got := <-result:
 					if action == "disconnect" {
@@ -157,7 +164,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					if action == "cancel" && got.path != "" {
 						t.Fatalf("cancel selected %q", got.path)
 					}
-				case <-time.After(10 * time.Second):
+				case <-completion.Done():
 					t.Fatal("folder picker did not close after one command")
 				}
 			})
