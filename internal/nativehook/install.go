@@ -439,16 +439,28 @@ func piExtension(c InstallConfig) string {
 	return `// CFO native hooks v1
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 export default function (pi: ExtensionAPI) {
   let turn = 0;
   const instance = randomUUID();
-  const fire = (name: string, ctx: ExtensionContext) => {
+  const fire = (name: string, ctx: ExtensionContext, tool?: ToolExecutionEndEvent) => {
     if (name === "agent_settled" && ctx.hasPendingMessages()) return;
     const payload = {hook_event_name: name, session_id: ctx.sessionManager.getSessionId(), cwd: ctx.cwd,
-      turn_id: instance + ":" + turn, model: ctx.model?.id, pending_messages: ctx.hasPendingMessages()};
+      turn_id: instance + ":" + turn, model: ctx.model?.id, pending_messages: ctx.hasPendingMessages(),
+      ...(tool && process.env.CFO_ROLE === "goblin" ? {tool_name: tool.toolName, tool_use_id: tool.toolCallId, tool_response: tool.result} : {})};
+    let input: string;
+    try {
+      input = JSON.stringify(payload);
+    } catch {
+      console.error("CFO native event could not be encoded");
+      return;
+    }
+    if (Buffer.byteLength(input, "utf8") > ` + strconv.Itoa(MaxInputBytes) + `) {
+      console.error("CFO native event exceeds 64 MiB");
+      return;
+    }
     const result = spawnSync(` + string(exe) + `, ` + string(args) + `, {
-      input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(TimeoutSeconds*1000) + `,
+      input, encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(TimeoutSeconds*1000) + `,
     });
     if (result.error || result.status !== 0) console.error("CFO native event could not be spooled");
   };
@@ -456,7 +468,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_before_compact", (_event, ctx) => fire("session_before_compact", ctx));
   pi.on("session_compact", (_event, ctx) => fire("session_compact", ctx));
   pi.on("agent_start", (_event, ctx) => { turn++; fire("agent_start", ctx); });
-  pi.on("tool_execution_end", (_event, ctx) => fire("tool_execution_end", ctx));
+  pi.on("tool_execution_end", (event, ctx) => fire("tool_execution_end", ctx, event));
   pi.on("agent_settled", (_event, ctx) => fire("agent_settled", ctx));
   pi.on("session_shutdown", (_event, ctx) => fire("session_shutdown", ctx));
 }

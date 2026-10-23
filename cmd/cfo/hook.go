@@ -48,7 +48,7 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 		if name == "goblin-key-alarm" {
-			return hookGoblinKeyAlarm(stdin)
+			return hookGoblinKeyAlarm(stdin, stderr)
 		}
 		return hookGoblinSeal(name, stdin, stdout, stderr)
 	}
