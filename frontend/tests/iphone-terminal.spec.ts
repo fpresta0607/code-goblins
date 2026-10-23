@@ -76,7 +76,7 @@ for (const run of RUNS) {
     // Act
     await card.focus();
     await page.keyboard.press("Enter");
-    if (run.isSteppedIn) await stepIn(page, say);
+    if (run.isSteppedIn) await stepIn(page, (message) => say(message));
     const terminal = page.getByRole("region", { name: "Goblin terminal" });
     await expect(terminal.locator(".xterm-rows")).toContainText("Exporting invoices");
     await terminal.locator(".xterm").click();
