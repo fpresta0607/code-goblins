@@ -41,6 +41,8 @@ import { TrainPanel } from "./train-panel";
 import { SMALL_SCREEN } from "./small-screen";
 import { useVisualViewport } from "./use-visual-viewport";
 import { MessagesView } from "./messages-view";
+import { Composer } from "./composer";
+import { liveCfoSession } from "./workflow";
 import { messagesQuery } from "./session-messages";
 import { goblinName } from "./task-words";
 
@@ -79,6 +81,12 @@ function store(key: string, value: string): boolean {
   try { localStorage.setItem(key, value); return true; } catch { return false; }
 }
 
+// The view a session's panel opens on, kept in this browser: its Messages
+// view, until he chooses the Terminal view, and then the last of the two he
+// chose. A session with no Messages view opens on its terminal.
+const PANEL_VIEW_KEY = "cfo-panel-view";
+const openingView = (): PanelView => stored(PANEL_VIEW_KEY) === "terminal" ? "terminal" : "messages";
+
 // The board's layout, kept in this browser: kanban unless stacked was chosen.
 const BOARD_LAYOUT_KEY = "cfo-board-layout";
 // The board's area at or under this width is one column whatever the layout:
@@ -99,8 +107,9 @@ export function App() {
   const [view, setView] = useState<"Board" | "Orchestration">("Board");
   const [boardLayout, setBoardLayout] = useState<BoardLayout>(() => stored(BOARD_LAYOUT_KEY) === "stacked" ? "stacked" : "kanban");
   const nextLayout: BoardLayout = boardLayout === "kanban" ? "stacked" : "kanban";
-  // A panel opens on its terminal, in either view.
-  const [panelView, setPanelView] = useState<PanelView>("terminal");
+  // A panel opens on the view this browser keeps (openingView), in either
+  // workspace view.
+  const [panelView, setPanelView] = useState<PanelView>(openingView);
   const [commandFocus, setCommandFocus] = useState<CommandFocus | null>(null);
   const [selected, setSelected] = useState<Selection | null>(null);
   // The CFO chosen by name, which the Board shows in the panel too.
@@ -116,6 +125,8 @@ export function App() {
   // The session whose Messages view was last shown, which stays mounted.
   const [messagesOpened, setMessagesOpened] = useState("");
   const [switchFocus, setSwitchFocus] = useState(0);
+  // A count each hand of the keyboard to a Messages view's box adds to.
+  const [boxFocus, setBoxFocus] = useState(0);
   const [compact, setCompact] = useState(() => matchMedia(SMALL_SCREEN).matches);
   const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
   // startingShown is whether this page already opened the terminal of a CFO
@@ -197,11 +208,10 @@ export function App() {
   useAppBadgeRenewal(snapshot?.instance || "");
   const effects = useActivity(snapshot, connected);
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
-  // A goblin opens on its Terminal view, unless the caller asks for a view
-  // (an alert opens the Task view, where its reason is), so a Claude Code
-  // session's Messages view is a tap away until the box to write in it
-  // arrives.
-  const select = (next: Selection, source: HTMLElement, panel: PanelView = "terminal") => {
+  // A goblin opens on its Messages view, or on the Terminal view where he
+  // last chose that (openingView), unless the caller asks for a view (an
+  // alert opens the Task view, where its reason is).
+  const select = (next: Selection, source: HTMLElement, panel: PanelView = openingView()) => {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
     const session = snapshot?.sessions.find((session) => session.id === next.session);
@@ -213,13 +223,22 @@ export function App() {
     setPaneOpen(true);
     requestAnimationFrame(() => pane.current?.focus({ preventScroll: true }));
   };
-  // A switch, by its keys or from the board, shows that terminal at once and
-  // hands it the keyboard, unless the caller keeps the keyboard where it is.
-  const switchTo = (key: string, takesKeyboard = true) => {
+  // keyboardTo hands the keyboard to the view the session of key shows on
+  // panel: its Messages view's box, or its terminal, where it has no Messages
+  // view or panel is the Terminal view.
+  const keyboardTo = (key: string, panel: PanelView) => {
+    const hasMessages = !!snapshot && !!(key === CFO_KEY ? messagesQuery(snapshot) : messagesQuery(snapshot, snapshot.tasks.find((each) => each.id === key)));
+    if (panel === "messages" && hasMessages) setBoxFocus((prior) => prior + 1);
+    else setSwitchFocus((prior) => prior + 1);
+  };
+  // A switch, by its keys or from the board, shows that session at once on
+  // the view it opens on and hands that view the keyboard, unless the caller
+  // keeps the keyboard where it is.
+  const switchTo = (key: string, takesKeyboard = true, panel: PanelView = openingView()) => {
     if (key === CFO_KEY) { setSelected(null); setCfoOpen(true); } else { setSelected({ task: key }); setCfoOpen(false); }
-    setPanelView("terminal");
+    setPanelView(panel);
     setPaneOpen(true);
-    if (takesKeyboard) setSwitchFocus((prior) => prior + 1);
+    if (takesKeyboard) keyboardTo(key, panel);
   };
   // The CFO's terminal, opened from its bar on the board or its card on the
   // canvas, hands focus back to that button when it closes.
@@ -228,15 +247,16 @@ export function App() {
   // A CFO starting in its terminal has not registered yet and may be asking
   // something there, such as Claude Code's sign-in, so the board opens that
   // terminal by itself, once.
-  if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY); }
+  if (snapshot?.cfo_starting && !startingShown) { setStartingShown(true); setView("Board"); switchTo(CFO_KEY, true, "terminal"); }
   // A CFO that was closed starts again in its terminal when it is reopened,
   // and that terminal opens by itself once more.
   if (snapshot?.cfo_closed && startingShown) setStartingShown(false);
-  // The tour starts on the Board with the CFO's terminal beside it, leaving
-  // the keyboard to the tour; its end hands the keyboard to that terminal,
-  // except in a window too narrow for the two side by side.
+  // The tour starts on the Board with the CFO's panel beside it, leaving the
+  // keyboard to the tour; its end hands the keyboard to that panel's view,
+  // the box under its messages or its terminal, except in a window too
+  // narrow for the two side by side.
   const startTour = () => { setView("Board"); switchTo(CFO_KEY, false); setTouring(true); };
-  const endTour = () => { setTouring(false); if (!compact) setSwitchFocus((prior) => prior + 1); };
+  const endTour = () => { setTouring(false); if (!compact) keyboardTo(CFO_KEY, panelView); };
   // A task the Overlord started opens on its terminal once its session is up;
   // a start that failed shows why on its card instead.
   const outcome = awaitingStart && snapshot ? startOutcome(awaitingStart, snapshot) : "wait";
@@ -278,12 +298,23 @@ export function App() {
   // Messages view shows its terminal in that view's place.
   const shownView: PanelView = child ? "terminal" : views.includes(panelView) ? panelView : panelView === "messages" && views.includes("terminal") ? "terminal" : "task";
   const terminalShown = showsPanel && !train && shownView === "terminal";
-  if (terminalShown && !terminalOpened) setTerminalOpened(true);
   // A session's Messages view stays mounted from its first showing while
   // its panel shows the session, so a switch back to it reads nothing again
-  // and finds the place he read.
+  // and finds the place he read. Its terminal lies laid out behind it in the
+  // same box, for its box to type through.
   const messagesShown = showsPanel && !train && shownView === "messages";
+  if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
   if (messagesShown && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
+  // The view he chooses on the pill of a session that has both Messages and
+  // Terminal, one of the two, is the one a session opens on from then on.
+  const chooseView = (next: PanelView) => {
+    setPanelView(next);
+    if (next !== "task" && views.includes("messages")) store(PANEL_VIEW_KEY, next);
+  };
+  // The session's own terminal, by the terminal deck's key, and whether its
+  // harness works, which the box's working line shows.
+  const terminalKey = cfoShown ? CFO_KEY : task?.id || "";
+  const isWorking = ["busy", "working", "active"].includes((cfoShown ? snapshot && liveCfoSession(snapshot)?.runtime?.state : task?.runtime?.state) || "");
   if (showsPanel && cfoShown && cfoPanelView !== shownView) setCfoPanelView(shownView);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
@@ -305,7 +336,7 @@ export function App() {
   // when that is out of sight behind it.
   const backShown = showsPanel && !!selected;
   const back = () => {
-    const target = cfoPanelView ?? "terminal";
+    const target = cfoPanelView ?? openingView();
     if (maximized) setMaximizedChoice((prior) => ({ ...prior, [maximizedView(view, target)]: "true" }));
     setSelected(null);
     setCfoOpen(true);
@@ -358,7 +389,7 @@ export function App() {
         {snapshot?.example && <span className="example-label">Example workspace</span>}
       </a>
       <div className="view-switch" role="group" aria-label="Workspace view">
-        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView("terminal"); }}>{name}</button>)}
+        {(["Board", "Orchestration"] as const).map((name) => <button key={name} aria-pressed={!firstRun && view === name} onClick={() => { if (firstRun) setFirstRunChoice("board"); setView(name); setPanelView(openingView()); }}>{name}</button>)}
       </div>
       <div className="topbar-controls">
         {/* A small screen has no room for the tour's button, nor for the
@@ -401,15 +432,21 @@ export function App() {
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={shownView} views={views} now={now} presentations={presentations} cardStart={cardStart} onView={setPanelView} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} views={views} now={now} presentations={presentations} cardStart={cardStart} onView={chooseView} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
-        {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
-          name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
-          onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} />}
-        {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
-          <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown} connected={connected} focus={switchFocus}
-            onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
-        </Suspense>}
+        {/* The stage: the Messages view and the terminal deck in one box. */}
+        <div className="panel-stage" hidden={!terminalShown && !messagesShown}>
+          {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
+            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
+            onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
+            box={<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
+              focus={messagesShown ? boxFocus : 0}
+              onAnswer={() => { setPanelView("terminal"); setSwitchFocus((prior) => prior + 1); }} />} />}
+          {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
+            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus}
+              onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
+          </Suspense>}
+        </div>
       </aside>
     </div>}
     {touring && <QuickTourDialog onEnd={endTour} />}

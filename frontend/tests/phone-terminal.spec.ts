@@ -78,6 +78,9 @@ async function open(page: Page): Promise<Relay> {
       socket.send(Buffer.from(harnessScreen(message.cols, message.rows)));
     });
   });
+  // He chose the Terminal view, which a session then opens on, and which
+  // this spec is about.
+  await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
   await page.goto("/");
   await expect(card(page)).toBeVisible();
   return relay;

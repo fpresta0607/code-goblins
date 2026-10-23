@@ -68,14 +68,14 @@ test("an older page goes before the first message held, and what it repeats is d
   assert.equal(next.more, false);
 });
 
-const task = (fields: Partial<Task>) => ({ id: "cg-one", harness: "claude", generation: "s1", phase: "working", archived: false, ...fields }) as Task;
+const task = (fields: Partial<Task>) => ({ id: "cg-one", harness: "claude", backend: "native", generation: "s1", phase: "working", archived: false, ...fields }) as Task;
 
-test("a Claude Code goblin's current generation and a Claude Code CFO in a native terminal have messages, and no other session", () => {
+test("a Claude Code goblin's current generation and a Claude Code CFO, each in a native terminal, have messages, and no other session", () => {
   const cfo = { cfo_terminal: "t-7", cfo_harness: "claude" };
   assert.equal(messagesQuery(cfo, task({})), "task=cg-one&generation=s1");
   assert.equal(messagesQuery(cfo, task({ phase: "paused" })), "task=cg-one&generation=s1", "a paused goblin's conversation still reads");
   assert.equal(messagesQuery(cfo), "cfo=t-7");
-  for (const [why, other] of [["a Codex goblin", task({ harness: "codex" })], ["a pi goblin", task({ harness: "pi" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
+  for (const [why, other] of [["a Codex goblin", task({ harness: "codex" })], ["a pi goblin", task({ harness: "pi" })], ["a goblin in Herdr", task({ backend: "herdr" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
     assert.equal(messagesQuery(cfo, other), "", why);
   }
   assert.equal(messagesQuery({ cfo_terminal: "", cfo_harness: "claude" }), "", "the CFO in Herdr");

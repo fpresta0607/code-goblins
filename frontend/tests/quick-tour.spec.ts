@@ -68,7 +68,7 @@ const tour = (page: Page) => page.getByRole("dialog");
 const board = (page: Page) => page.locator("main.canvas-region");
 const panel = (page: Page) => page.locator("aside.context-pane");
 const commandCenter = (page: Page) => page.locator(".command-center-menu > summary");
-const terminalInput = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
+const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CFO", exact: true });
 const box = async (locator: Locator) => (await locator.boundingBox())!;
 
 // lights says the tour's step lights the part, dims around it, and keeps its
@@ -94,7 +94,7 @@ for (const [name, viewport, scale] of [
   test.describe(`in ${name}`, () => {
     test.use({ viewport, deviceScaleFactor: scale });
 
-    test("the first open walks through the CFO's terminal, the board and the Command Center, then hands the keyboard to the terminal", async ({ page }, testInfo) => {
+    test("the first open walks through the CFO's panel, the board and the Command Center, then hands the keyboard to the CFO's box", async ({ page }, testInfo) => {
       // Three steps, each measured and photographed at the window's full size.
       test.slow();
 
@@ -134,11 +134,12 @@ for (const [name, viewport, scale] of [
       await tour(page).getByRole("button", { name: "Done" }).click();
 
       // Assert: the board as the first open leaves it, the keyboard in the
-      // CFO's terminal.
+      // box under the CFO's messages, which types into its terminal.
       await expect(tour(page)).toHaveCount(0);
-      await expect(terminalInput(page)).toBeFocused();
+      await expect(cfoBox(page)).toBeFocused();
       await page.keyboard.type("help");
-      await expect.poll(() => typed.join("")).toBe("help");
+      await page.keyboard.press("Enter");
+      await expect.poll(() => typed.join("")).toBe("help\r");
       await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
     });
   });
@@ -162,7 +163,7 @@ test.describe("in the desktop window", () => {
       // Assert
       await expect(tour(page)).toHaveCount(0);
       await expect(page.locator("#panel-title")).toHaveText("CFO");
-      await expect(terminalInput(page)).toBeFocused();
+      await expect(cfoBox(page)).toBeFocused();
       await expect(board(page)).toBeVisible();
     });
   }
@@ -206,7 +207,7 @@ test.describe("in the desktop window", () => {
 
     // Assert: the first open's layout, with no tour over it.
     await expect(page.locator("#panel-title")).toHaveText("CFO");
-    await expect(terminalInput(page)).toBeFocused();
+    await expect(cfoBox(page)).toBeFocused();
     await expect(tour(page)).toHaveCount(0);
 
     // Act
@@ -267,6 +268,7 @@ test.describe("in a narrow window", () => {
 
     // Assert
     await expect(tour(page)).toHaveCount(0);
-    await expect(terminalInput(page)).not.toBeFocused();
+    await expect(cfoBox(page)).toBeVisible();
+    await expect(cfoBox(page)).not.toBeFocused();
   });
 });

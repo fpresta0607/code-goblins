@@ -51,6 +51,11 @@ type Screens struct {
 	// blank.
 	Empty         *regexp.Regexp
 	RuledComposer bool
+	// Choice matches the focused row of a list of numbered choices the
+	// harness draws in its composer's place while it waits on an answer only
+	// its terminal takes, as Claude Code draws a permission prompt, and
+	// Choices any other row of that list.
+	Choice, Choices *regexp.Regexp
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -102,6 +107,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// Claude Code 2.1.288 encloses its bare prompt between rules.
 			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
 			RuledComposer: true,
+			// Claude Code 2.1.302 asks permission for a call under its
+			// diff, as in "Do you want to create nine.txt?", over
+			// "❯ 1. Yes", "  2. Yes, and switch to accept edits ..." and
+			// "  3. No", with no composer or footer under them; its focus
+			// mark is > where its terminal draws no Unicode.
+			Choice:  regexp.MustCompile(`^\s*[❯>] \d+\. \S`),
+			Choices: regexp.MustCompile(`^\s{2,}\d+\. \S`),
 		}, true
 	case Codex:
 		return Screens{
@@ -207,6 +219,36 @@ func (s Screens) IsIdleAtEmptyComposer(screen []string) bool {
 // IsWorking reports whether screen shows a turn in progress.
 func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)
+}
+
+// IsAsking reports whether screen shows the harness waiting on an answer at
+// a screen of its own, which only its terminal takes: a dialog it is known to
+// draw while no row shows a turn, the composer's footer or a ruled composer,
+// or a list of numbered choices with one focused and another on screen while
+// no row under the last focused one shows any of them. What the conversation
+// shows decides nothing: a dialog's words a diff quotes, or a numbered prompt,
+// has the composer waiting under it, and a mode a reply names lies above a
+// list that asks.
+func (s Screens) IsAsking(screen []string) bool {
+	if _, dialog := s.Dialog(screen); dialog && !s.showsComposerOrTurn(screen) {
+		return true
+	}
+	if s.Choice == nil {
+		return false
+	}
+	for i := len(screen) - 1; i >= 0; i-- {
+		if s.Choice.MatchString(screen[i]) {
+			return !s.showsComposerOrTurn(screen[i+1:]) && anyRow(screen, s.Choices)
+		}
+	}
+	return false
+}
+
+// showsComposerOrTurn reports whether rows show a turn, the composer's footer
+// or a ruled composer.
+func (s Screens) showsComposerOrTurn(rows []string) bool {
+	_, composer := ruledComposer(rows)
+	return composer || s.IsWorking(rows) || anyRow(rows, s.Ready)
 }
 
 // IsStarting reports whether screen shows the harness turning a submitted

@@ -29,8 +29,11 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
   await page.addInitScript((data) => {
     class LiveStream extends EventTarget {
       onerror: (() => void) | null = null;
-      constructor() {
+      // The board's own stream takes the snapshots; another, such as the
+      // CFO's message stream, is left without a word.
+      constructor(url: string | URL) {
         super();
+        if (new globalThis.URL(url, location.href).pathname !== "/api/events") return;
         Object.assign(window, { pushSnapshot: (next: string) => this.dispatchEvent(new MessageEvent("snapshot", { data: next })) });
         setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data })));
       }

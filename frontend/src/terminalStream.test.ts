@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHeld, parseHistory, parseSize, parseUnread, PHONE_FONT_SIZE, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, PHONE_FONT_SIZE, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
 import { SMALL_SCREEN } from "./small-screen.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
@@ -81,6 +81,12 @@ test("the relay says why typing is held while the screen stays live, and when it
   assert.equal(parseHeld('{"type":"held","reason":"pipeline owns this task"}'), "pipeline owns this task");
   assert.equal(parseHeld('{"type":"held","reason":""}'), "");
   for (const text of ['{"type":"held"}', '{"type":"held","reason":1}', '{"type":"unread","unread":true}', '{"type":"history","bytes":0}', "null", "nope"]) assert.equal(parseHeld(text), null, text);
+});
+
+test("the relay says when the harness asks at a screen only its terminal takes, and when it no longer does", () => {
+  assert.equal(parseScreen('{"type":"screen","asking":true}'), true);
+  assert.equal(parseScreen('{"type":"screen","asking":false}'), false);
+  for (const text of ['{"type":"screen"}', '{"type":"screen","asking":1}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
 });
 
 test("a terminal fills its panel with the same padding left, right and below, and its last row at the bottom", () => {

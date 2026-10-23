@@ -17,7 +17,7 @@ const FROM: Record<PromptSource, string> = { overlord: "You", cfo: "CFO", answer
 // bubble on the right under who it is from, a slash or ! command as typed
 // with what it printed; a reply on the left, under the session's name where
 // a run of replies begins, its text, its thinking folded and its calls; a
-// compaction folded to its summary; an interrupt as Claude Code noted it.
+// compaction folded to its summary; an interrupt as a plain Interrupted row.
 // Each prompt, reply with text, notice and compaction has a Copy of its words.
 export const MessageRow = memo(function MessageRow({ message, name, isFirstReply, task, picture, onChild }: {
   message: SessionMessage; name: string; isFirstReply: boolean; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
@@ -26,7 +26,7 @@ export const MessageRow = memo(function MessageRow({ message, name, isFirstReply
   const words = copyText(message);
   const copy = words && <button type="button" className="icon-button message-copy" aria-label="Copy" data-tip={copied ? "Copied" : "Copy"}
     onClick={() => copyToClipboard(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), COPIED_MS); }, () => {})}><Icon name={copied ? "check" : "copy"} /></button>;
-  if (message.kind === "interrupt") return <p className="message-interrupt" data-message={message.id}>{message.text}</p>;
+  if (message.kind === "interrupt") return <p className="message-interrupt" data-message={message.id}><Icon name="pause" />Interrupted</p>;
   if (message.kind === "compaction") return <div className="message-compaction" data-message={message.id}>
     {copy}
     <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"}><MessageText text={message.text} /></Disclosure>
