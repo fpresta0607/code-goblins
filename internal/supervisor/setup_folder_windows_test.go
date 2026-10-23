@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -13,9 +14,29 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func waitForFolderPickerReady(ctx context.Context, dialog uintptr) error {
+	user32 := windows.NewLazySystemDLL("user32.dll")
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("folder picker OK button did not become ready: %w", err)
+		}
+		button, _, _ := user32.NewProc("GetDlgItem").Call(dialog, 1)
+		isEnabled, _, _ := user32.NewProc("IsWindowEnabled").Call(button)
+		if button != 0 && isEnabled != 0 && windows.IsWindowVisible(windows.HWND(button)) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+		case <-ticker.C:
+		}
+	}
+}
+
 func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 	onAHiddenDesktop(t, func(t *testing.T) {
-		for _, action := range []string{"select", "cancel", "disconnect"} {
+		for _, action := range []string{"select", "select_after_ready", "never_ready", "cancel", "disconnect"} {
 			t.Run(action, func(t *testing.T) {
 				root := filepath.Join(t.TempDir(), "Selected projects 日本語")
 				if err := os.Mkdir(root, 0700); err != nil {
@@ -25,13 +46,25 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 				t.Setenv("CFO_STATE_OVERRIDE", t.TempDir())
 				t.Setenv("CFO_PROJECTS_ROOT", t.TempDir())
 				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-				defer cancel()
 				type selection struct {
 					path string
 					err  error
 				}
 				result := make(chan selection, 1)
-				go func() { path, err := pickProjectsFolder(ctx, root); result <- selection{path, err} }()
+				stopped := make(chan struct{})
+				go func() {
+					defer close(stopped)
+					path, err := pickProjectsFolder(ctx, root)
+					result <- selection{path, err}
+				}()
+				defer func() {
+					cancel()
+					select {
+					case <-stopped:
+					case <-time.After(5 * time.Second):
+						t.Error("folder picker did not stop after cancellation")
+					}
+				}()
 				user32 := windows.NewLazySystemDLL("user32.dll")
 				desktop, _, _ := user32.NewProc("GetThreadDesktop").Call(uintptr(windows.GetCurrentThreadId()))
 				var dialog uintptr
@@ -49,12 +82,43 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					user32.NewProc("EnumDesktopWindows").Call(desktop, callback, 0)
 				}
 				if dialog == 0 {
-					cancel()
-					select {
-					case got := <-result:
-						t.Fatalf("no visible folder picker on the hidden desktop: %v", got.err)
-					case <-time.After(time.Minute):
-						t.Fatal("folder picker neither appeared nor stopped after cancellation")
+					t.Fatal("no visible folder picker on the hidden desktop")
+				}
+				shouldSelect := action == "select" || action == "select_after_ready"
+				if shouldSelect || action == "never_ready" {
+					readyContext, stopWaiting := context.WithTimeout(ctx, 10*time.Second)
+					defer stopWaiting()
+					if err := waitForFolderPickerReady(readyContext, dialog); err != nil {
+						t.Fatal(err)
+					}
+					if action == "select_after_ready" || action == "never_ready" {
+						button, _, _ := user32.NewProc("GetDlgItem").Call(dialog, 1)
+						if button == 0 {
+							t.Fatal("ready dialog has no OK button")
+						}
+						user32.NewProc("EnableWindow").Call(button, 0)
+						if !windows.IsWindowVisible(windows.HWND(dialog)) {
+							t.Fatal("disabled OK button hid the dialog")
+						}
+						if action == "never_ready" {
+							deadline, stop := context.WithTimeout(ctx, 250*time.Millisecond)
+							defer stop()
+							if err := waitForFolderPickerReady(deadline, dialog); !errors.Is(err, context.DeadlineExceeded) {
+								t.Fatalf("never-ready picker = %v, want deadline exceeded", err)
+							}
+							return
+						}
+						ready := make(chan error, 1)
+						go func() { ready <- waitForFolderPickerReady(readyContext, dialog) }()
+						select {
+						case err := <-ready:
+							t.Fatalf("visible picker with disabled OK was treated as ready: %v", err)
+						case <-time.After(100 * time.Millisecond):
+						}
+						user32.NewProc("EnableWindow").Call(button, 1)
+						if err := <-ready; err != nil {
+							t.Fatal(err)
+						}
 					}
 				}
 				if action == "disconnect" {
@@ -77,7 +141,7 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					if got.err != nil {
 						t.Fatal(got.err)
 					}
-					if action == "select" {
+					if shouldSelect {
 						wanted, err := os.Stat(root)
 						if err != nil {
 							t.Fatal(err)
@@ -93,8 +157,8 @@ func TestProjectsFolderPickerSelectsAndCancelsOnAHiddenDesktop(t *testing.T) {
 					if action == "cancel" && got.path != "" {
 						t.Fatalf("cancel selected %q", got.path)
 					}
-				case <-time.After(time.Minute):
-					t.Fatal("folder picker did not close")
+				case <-time.After(10 * time.Second):
+					t.Fatal("folder picker did not close after one command")
 				}
 			})
 		}
