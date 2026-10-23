@@ -535,6 +535,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	s.nativeEnvironment(launch.Env, meta)
 
 	if resumed {
+		launch.ResumeSession = request.ResumeSession
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		resumeArgs := []string{"--resume", request.ResumeSession}
 		switch target.Harness {

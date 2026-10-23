@@ -87,6 +87,7 @@ type Launch struct {
 	SubagentInstruction string
 	Dir                 string
 	Executable          string
+	ResumeSession       string
 }
 
 // PromptInstruction is the single instruction the harness receives once it is

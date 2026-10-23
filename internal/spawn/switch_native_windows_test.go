@@ -25,6 +25,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -431,11 +432,30 @@ func TestBusyResumeRecovery(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			f.service.Took = func(_ context.Context, _ state.TaskMeta, instruction string, _ time.Time) bool {
-				queued := named(f.events(t), "queued into the turn")
-				return isTaken && len(queued) == 1 && queued[0].Text == instruction
+			profile := t.TempDir()
+			const ownedSession = "11111111-aaaa-4bbb-8ccc-000000000001"
+			const foreignSession = "22222222-aaaa-4bbb-8ccc-000000000002"
+			for session, filed := range map[string]time.Time{ownedSession: time.Now().Add(-7 * 24 * time.Hour), foreignSession: time.Now()} {
+				path := filepath.Join(profile, ".codex", "sessions", filed.Format("2006"), filed.Format("01"), filed.Format("02"), "rollout-"+filed.Format("2006-01-02T15-04-05")+"-"+session+".jsonl")
+				opening, err := json.Marshal(map[string]any{"type": "session_meta", "payload": map[string]string{"id": session, "cwd": before.Worktree}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, append(opening, '\n'), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if isTaken == (session == ownedSession) {
+					f.userEnv = append(f.userEnv, fakeCodexTranscript+"="+path)
+				}
 			}
-			prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+			progress := &monitor.HostProgress{Home: profile}
+			f.service.Took = func(ctx context.Context, meta state.TaskMeta, session, instruction string, since time.Time) bool {
+				return progress.Took(ctx, monitor.Conversation{Harness: meta.Harness, Session: session, Dir: meta.Worktree, Started: since}, monitor.TextDigest(instruction), since)
+			}
+			prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: ownedSession, Started: time.Now().UTC()}
 			if err := state.WriteLifecycle(f.stateDir, prior); err != nil {
 				t.Fatal(err)
 			}
@@ -467,7 +487,7 @@ func TestBusyResumeRecovery(t *testing.T) {
 				t.Fatalf("replacement generation does not match successful resume: %+v, %v", after, err)
 			}
 			launches := named(f.events(t), "env")
-			if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-session ") {
+			if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume "+ownedSession+" ") {
 				t.Fatalf("launches=%+v, want the exact owned conversation", launches)
 			}
 			if queued := named(f.events(t), "queued into the turn"); len(queued) != 1 || !strings.HasPrefix(delivered(t, queued[0].Text), "Resume now.") {

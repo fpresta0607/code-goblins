@@ -140,8 +140,8 @@ type Service struct {
 	// shows: a monitor.HostProgress reading it in production. It is the one
 	// proof that a harness in a turn has text typed into it, since a harness
 	// queues such text and hands it over at its next tool call. Nil proves
-	// nothing.
-	Took func(ctx context.Context, meta state.TaskMeta, text string, since time.Time) bool
+	// nothing. Session names the exact saved conversation on a resume.
+	Took func(ctx context.Context, meta state.TaskMeta, session, text string, since time.Time) bool
 	// EndLeft ends the processes a task's ended terminal left running, for a
 	// relaunch, once no terminal runs for the task and before its next
 	// harness starts, and names them: lifecycle.EndLeft in production. Nil

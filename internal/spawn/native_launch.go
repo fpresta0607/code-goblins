@@ -125,7 +125,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if err != nil {
 		return err
 	}
-	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
+	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, launch.ResumeSession, instruction)
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a
@@ -356,7 +356,7 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // say so before the submit, Enter is pressed again until it does, for as long
 // as a harness's startup is given, and its time to show itself working counts
 // from the last press.
-func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
+func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, session, instruction string) error {
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
 		return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
@@ -375,7 +375,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	pressed, presses := time.Now(), 0
 	var startingSince, startingPressed time.Time
 	for {
-		if busy && s.Took != nil && s.Took(ctx, meta, instruction, submitted) {
+		if busy && s.Took != nil && s.Took(ctx, meta, session, instruction, submitted) {
 			return nil
 		}
 		if !busy && s.PromptSince != nil {
