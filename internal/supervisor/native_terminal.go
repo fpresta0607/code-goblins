@@ -80,6 +80,7 @@ type screenState struct {
 	Open       bool   `json:"open"`
 	Working    bool   `json:"working"`
 	Submission string `json:"submission"`
+	HasStarted bool   `json:"started,omitempty"`
 }
 
 // relaySize is a size to tell the view once the output before it is sent.
@@ -214,6 +215,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// again, as the board does for a view that may come back.
 	terminal, err := host.Watch(record)
 	if err != nil {
+		if errors.Is(err, host.ErrNoTurnEvidence) {
+			_ = view.Close(websocket.StatusPolicyViolation, err.Error())
+			return
+		}
 		_ = view.Close(websocket.StatusTryAgainLater, "The terminal of "+binding.name+" did not answer.")
 		return
 	}
@@ -247,11 +252,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		if !readable {
 			return
 		}
-		rows, err := host.ReadScreen(record)
+		rows, observed, hasStarted, err := terminal.Screen(record, submission)
 		if err != nil {
 			return
 		}
-		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: submission}
+		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: observed, HasStarted: hasStarted}
 		relay.mu.Lock()
 		if submission == relay.submission && (relay.told == nil || *relay.told != state) {
 			relay.told = &state
@@ -421,6 +426,16 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			if control.Type == "submit" {
 				if control.Submission == "" || len(control.Submission) > 128 {
 					_ = view.Close(websocket.StatusUnsupportedData, "A submission needs an ID of at most 128 bytes.")
+					return
+				}
+				mu.Lock()
+				refused := custody
+				mu.Unlock()
+				if refused != nil || binding.harness == nil {
+					continue
+				}
+				if err := terminal.MarkSubmission(control.Submission, binding.harness()); err != nil {
+					_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
 					return
 				}
 				relay.mu.Lock()

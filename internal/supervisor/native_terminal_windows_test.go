@@ -153,6 +153,11 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "permission":
 			// Claude Code's permission prompt, drawn in its composer's place.
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
+		case line == "quick question":
+			fmt.Print("\x1b[2J\x1b[H✽ Pondering… (esc to interrupt)\r\n\x1b[2J\x1b[HDo you want to create nine.txt?\r\n ❯ 1. Yes\r\n   2. No\r\n")
+		case line == "quick completion":
+			rule := strings.Repeat("─", 80)
+			fmt.Print("\x1b[2J\x1b[H✽ Pondering… (esc to interrupt)\r\n\x1b[2J\x1b[H" + strings.Join([]string{rule, "❯ ", rule, mode}, "\r\n") + "\r\n")
 		case line == "panel":
 			// A panel of Claude Code's own, made up in the shape of its
 			// permissions panel, drawn in its composer's place.
@@ -1065,16 +1070,50 @@ func TestANativeViewCorrelatesScreensWithSubmittedInput(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	for _, submission := range []string{"turn-one", "turn-two"} {
-		v.send(t, websocket.MessageBinary, "turn\r")
 		v.send(t, websocket.MessageText, `{"type":"submit","submission":"`+submission+`"}`)
-		v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"`+submission+`"}`)
+		v.send(t, websocket.MessageBinary, "turn\r")
+		v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"`+submission+`",`)
 	}
-	v.send(t, websocket.MessageBinary, "harness\r/model\r")
 	v.send(t, websocket.MessageText, `{"type":"submit","submission":"model"}`)
+	v.send(t, websocket.MessageBinary, "harness\r/model\r")
 	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"model"}`)
 
 	second := openNativeView(t, server, viewQuery)
 	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+}
+
+func TestANativeViewKeepsATurnBetweenScreenReads(t *testing.T) {
+	for _, ending := range []string{"question", "completion"} {
+		t.Run(ending, func(t *testing.T) {
+			h, server := nativeBoard(t, "direct")
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			hostTask(t, h)
+			v := openNativeView(t, server, viewQuery)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageBinary, "harness\r")
+			v.waitFor(t, `"open":false,"working":false,"submission":""`)
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"quick"}`)
+			v.send(t, websocket.MessageBinary, "quick "+ending+"\r")
+			v.waitFor(t, fmt.Sprintf(`"asking":%t,"open":%t,"working":false,"submission":"quick"`, ending == "question", ending == "question"))
+			v.mu.Lock()
+			seen := v.screen.String()
+			v.mu.Unlock()
+			if !strings.Contains(seen, `"submission":"quick","started":true`) {
+				t.Fatal("the screen lost the turn that preceded it")
+			}
+			if ending == "completion" {
+				v.send(t, websocket.MessageBinary, "panel\r")
+				v.waitFor(t, `"asking":false,"open":true,"working":false,"submission":"quick","started":true`)
+			}
+		})
+	}
 }
 
 func TestANativeViewRejectsAnInvalidSubmissionID(t *testing.T) {

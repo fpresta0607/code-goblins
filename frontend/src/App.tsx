@@ -317,7 +317,7 @@ export function App() {
   const isSteppedIn = !!messagesSource && !!terminalKey && steppedIn === terminalKey;
   if (sentFrom && (sentFrom.terminal !== terminalKey || live?.isReconnecting || live?.phase === "closed")) setSentFrom(null)
   else if (sentFrom && live?.screen?.submission === sentFrom.submission) {
-    if (live.screen.isWorking) setSentFrom(null)
+    if (live.screen.hasStarted || live.screen.isWorking) setSentFrom(null)
     else if (live.screen.isOpen) { setSentFrom(null); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); }
   }
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }

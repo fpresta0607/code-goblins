@@ -45,6 +45,7 @@ func (s *Screen) Print(r rune) {
 	default:
 		s.printCell(r, width)
 	}
+	s.isRowChanged = true
 }
 
 // printCell draws r, width cells wide, at the cursor and moves the cursor
@@ -105,6 +106,7 @@ func (s *Screen) newLine() {
 // wrap goes on to the next row as output reaching the edge does, which
 // marks that row as the one before it continued.
 func (s *Screen) wrap() {
+	s.observeRow()
 	s.newLine()
 	s.screen().rows[s.cursor.y].isWrapped = true
 }
@@ -135,6 +137,7 @@ func (s *Screen) reverseIndex() {
 
 // Execute acts on a control character.
 func (s *Screen) Execute(b byte) {
+	s.observeRow()
 	switch b {
 	case '\b':
 		s.cursor.isWrapPending = false
@@ -207,6 +210,7 @@ func (s *Screen) OscDispatch(params [][]byte, bellTerminated bool) {
 
 // EscDispatch acts on an escape sequence.
 func (s *Screen) EscDispatch(intermediates []byte, ignore bool, b byte) {
+	s.observeRow()
 	if ignore {
 		return
 	}
@@ -277,6 +281,7 @@ func (s *Screen) screenIndex() int {
 // CsiDispatch acts on a control sequence, answering and keeping from
 // viewers the ones that ask the terminal something.
 func (s *Screen) CsiDispatch(params [][]uint16, intermediates []byte, ignore bool, r rune) {
+	s.observeRow()
 	if ignore {
 		return
 	}

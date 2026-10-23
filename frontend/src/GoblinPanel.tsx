@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { BoardActivity, Session, Snapshot, Task, TreeNode } from "./types";
 import { PanelHeader } from "./PanelHeader";
@@ -45,6 +45,16 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, t
   const owner = !!task && ownsTaskSession(node, task);
   // A failure's Open the log opens the Activity section and brings it into view.
   const [isLogOpen, setLogOpen] = useState(false);
+  const [taskHost] = useState(() => document.createElement("section"));
+  const taskMount = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (child) return;
+    const destination = taskPlace === "side" ? side : taskMount.current;
+    taskHost.setAttribute("class", taskPlace === "side" ? "panel-task panel-side-task" : "");
+    taskHost.setAttribute("aria-label", "Task");
+    destination?.appendChild(taskHost);
+    return () => taskHost.remove();
+  }, [child, side, taskHost, taskPlace]);
   const openLog = () => {
     setLogOpen(true);
     requestAnimationFrame(() => document.getElementById("task-activity")?.scrollIntoView({ block: "start", behavior: "smooth" }));
@@ -68,9 +78,13 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, t
     </div>}
   </>;
   // A baby goblin's panel is its terminal alone.
-  const list = child ? null : taskPlace === "alone" ? <div className="panel-task">{taskList}</div>
-    : taskPlace === "fold" ? <div className="panel-task-fold"><Disclosure title="Task">{taskList}</Disclosure></div>
-      : side && createPortal(<section className="panel-task panel-side-task" aria-label="Task">{taskList}</section>, side);
+  // Move the same portal host so resizing and closing the outer disclosure
+  // preserve nested controls and unsaved choices.
+  const list = child ? null : <>
+    {taskPlace === "alone" ? <div ref={taskMount} className="panel-task" />
+      : taskPlace === "fold" ? <div className="panel-task-fold"><Disclosure title="Task" keepMounted contentRef={taskMount}>{null}</Disclosure></div> : null}
+    {createPortal(taskList, taskHost)}
+  </>;
   return <section className={"goblin-panel" + (isStaged ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow {...row} />
     {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={isStaged} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}

@@ -134,6 +134,7 @@ export interface ScreenState {
   isAsking: boolean;
   isOpen: boolean;
   isWorking: boolean;
+  hasStarted: boolean;
   submission: string;
 }
 
@@ -142,8 +143,8 @@ export function parseScreen(text: string): ScreenState | null {
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null) return null;
-    const { type, asking, open, working, submission } = value as Record<string, unknown>;
-    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" ? { isAsking: asking, isOpen: open, isWorking: working, submission } : null;
+    const { type, asking, open, working, submission, started } = value as Record<string, unknown>;
+    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true } : null;
   } catch {
     return null;
   }

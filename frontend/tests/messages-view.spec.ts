@@ -129,15 +129,6 @@ async function openGoblin(page: Page) {
   await expect(page.locator("#panel-title")).toHaveText("Zeke - Touch Wrangler");
 }
 
-// maximize presses Maximize, in the panel's row or in its More menu where
-// the row has no room for it.
-async function maximize(page: Page) {
-  const button = page.getByRole("button", { name: "Maximize the panel" });
-  if (await button.count()) return button.click();
-  await page.locator(".panel-top").getByRole("button", { name: "More", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Maximize" }).click();
-}
-
 // settled waits until the terminal stops asking for sizes, as it asks again
 // once its font loads, and returns how many it asked for.
 async function settled(board: Board): Promise<number> {
@@ -481,7 +472,7 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
 
     for (const isMaximized of [false, true]) {
-      if (isMaximized) await maximize(page);
+      if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
       board.say({ type: "screen", asking: false, open: true, working: false, submission: "" });

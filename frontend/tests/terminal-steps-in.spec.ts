@@ -115,47 +115,49 @@ test("a panel that asks nothing brings the terminal in as a picker does, and whi
   expect(typed(relay)).not.toContain("hello");
 });
 
-test("a question that comes during a turn keeps the amber card rather than stepping in", async ({ page }) => {
-  // Arrange
-  const relay = await open(page);
-  await openGoblin(page);
-  await sendFromBox(page, relay, "write nine.txt");
-  relay.say({ type: "screen", asking: false, open: false, working: true });
-  relay.say({ type: "unread", unread: true })
-  await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
-  relay.say({ type: "unread", unread: false })
-  await expect(box(page).locator(".composer-note")).toHaveText("")
+for (const isSampled of [true, false]) {
+  test(`a question that comes during a ${isSampled ? "sampled" : "short"} turn keeps the amber card rather than stepping in`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page);
+    await openGoblin(page);
+    await sendFromBox(page, relay, "write nine.txt");
+    if (isSampled) relay.say({ type: "screen", asking: false, open: false, working: true });
+    relay.say({ type: "unread", unread: true })
+    await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+    relay.say({ type: "unread", unread: false })
+    await expect(box(page).locator(".composer-note")).toHaveText("")
 
-  // Act
-  relay.say({ type: "screen", asking: true, open: true, working: false });
+    // Act
+    relay.say({ type: "screen", asking: true, open: true, working: false, started: true });
 
-  // Assert
-  await expect(box(page).locator(".composer-asking")).toContainText("Waiting on you in the terminal");
-  await expect(messages(page)).toBeVisible();
-  await expect(back(page)).toHaveCount(0);
-});
+    // Assert
+    await expect(box(page).locator(".composer-asking")).toContainText("Waiting on you in the terminal");
+    await expect(messages(page)).toBeVisible();
+    await expect(back(page)).toHaveCount(0);
+  });
 
-test("a completed harness turn clears send intent before an unrelated panel opens", async ({ page }) => {
-  const relay = await open(page);
-  await openGoblin(page);
-  await sendFromBox(page, relay, "read the brief");
-  relay.say({ type: "screen", asking: false, open: false, working: true });
-  relay.say({ type: "unread", unread: true })
-  await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
-  relay.say({ type: "unread", unread: false })
-  await expect(box(page).locator(".composer-note")).toHaveText("")
-  relay.say({ type: "screen", asking: false, open: false, working: false });
-  relay.say({ type: "unread", unread: true })
-  await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
-  relay.say({ type: "unread", unread: false })
-  await expect(box(page).locator(".composer-note")).toHaveText("")
+  test(`a completed ${isSampled ? "sampled" : "short"} harness turn clears send intent before an unrelated panel opens`, async ({ page }) => {
+    const relay = await open(page);
+    await openGoblin(page);
+    await sendFromBox(page, relay, "read the brief");
+    if (isSampled) relay.say({ type: "screen", asking: false, open: false, working: true });
+    relay.say({ type: "unread", unread: true })
+    await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+    relay.say({ type: "unread", unread: false })
+    await expect(box(page).locator(".composer-note")).toHaveText("")
+    relay.say({ type: "screen", asking: false, open: false, working: false, started: true });
+    relay.say({ type: "unread", unread: true })
+    await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+    relay.say({ type: "unread", unread: false })
+    await expect(box(page).locator(".composer-note")).toHaveText("")
 
-  relay.say({ type: "screen", asking: false, open: true, working: false });
+    relay.say({ type: "screen", asking: false, open: true, working: false });
 
-  await expect(box(page).locator(".composer-asking")).toBeVisible();
-  await expect(messages(page)).toBeVisible();
-  await expect(back(page)).toHaveCount(0);
-});
+    await expect(box(page).locator(".composer-asking")).toBeVisible();
+    await expect(messages(page)).toBeVisible();
+    await expect(back(page)).toHaveCount(0);
+  });
+}
 
 test("a phone's tall Task fold scrolls while its messages keep room", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

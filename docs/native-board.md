@@ -506,6 +506,7 @@ In a full header its buttons stay beside them only while all fit on one row, and
 The task list holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened, beside the goblin's messages or its live native terminal.
 Its header details keep the link to a goblin this one waits on, both beside the conversation and in the Task fold.
 A tall Task fold scrolls within the panel while the messages or terminal below it keep room.
+The same task-list instance moves between placements, so unsaved harness choices and nested disclosures survive resizing, maximizing and closing the outer Task fold.
 The task list opens with one action row, the task's own controls as labelled buttons, the only place they are: Start and Remove for a queued task, and Pause and Stop for a task that has started, or Resume and Stop for a paused one; a waiting goblin offers no Resume, and a completed one none of them.
 A queued task is edited in its header, where its task line under the goblin's name carries a small pencil with the tip Edit task (the Overlord, 2026-10-10: "I get editing pencil a little icon"): the pencil, or a click on the task's text, turns that line into a box in the same type holding the task's title and detail, which grows with its text.
 The pencil is the one button on that line, for the keyboard and a screen reader, and closing the box hands the keyboard back to it.
@@ -1354,8 +1355,11 @@ What the box sends that opens a screen of the harness's own, a picker, a panel, 
 The relay reads the screen as it does for the amber card and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`).
 The terminal steps in when the screen opens after a Send from the box and before the harness starts a turn, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
 The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`, so background work that makes the fleet busy does not cancel a Send waiting for its screen.
-Each Send marks its submitted input with an ID, which the relay attaches to screen reads begun after that marker, so a cached or in-flight reading from before the Send cannot cancel it.
-It reads soon after output even while a spinner keeps drawing, and a real harness turn read after that submission clears that Send before an unrelated screen can open.
+Each Send marks its submitted input with an ID before typing it into the host, so a cached or in-flight reading from before the Send cannot cancel it.
+The host observes changed rows as it processes terminal output, before another cursor move or clear can replace them, and keeps turn-start evidence for that viewer's current submission.
+The relay reads that evidence with the host's output screen under the same lock, so a turn that reaches a permission question or ends between relay reads still clears the Send before an unrelated screen can open.
+History, resize repaints and another viewer's submission provide no turn-start evidence.
+An older terminal host needs a restart to provide this output-screen protocol, and the board refuses the connection before it can accept input so the draft stays intact.
 Every key is the terminal's while it is in, Escape included, and Shift+Escape leaves it for the panel's top row.
 It steps out by itself once the harness's input line is back, and Back to messages steps out at once, each handing the keyboard back to the box with his draft as he left it.
 A question that comes during a turn keeps the amber card, whose Answer in the terminal steps the terminal in.
