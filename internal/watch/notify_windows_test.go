@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -100,6 +102,75 @@ func TestWaitCancellationInterruptsNativeAndDegradedWaits(t *testing.T) {
 				t.Error("cancellation counted as a directory API failure")
 			}
 		})
+	}
+}
+
+// TestACancelThatNeverReturnsHoldsNeitherTheWaitNorTheClose stalls the
+// pending read's cancel, as one stalled in the kernel for 19 minutes in #1343,
+// and runs the supervisor's native inbox watcher's own sequence on it: a Wait
+// whose context ends while its read is pending, then Close. Each must return
+// once the drain's bound runs out, with the waiter degraded so it never reads
+// into memory the kernel may still hold.
+func TestACancelThatNeverReturnsHoldsNeitherTheWaitNorTheClose(t *testing.T) {
+	waiter, err := NewNativeWaiter(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	returned := make(chan struct{}, 2)
+	var stalls atomic.Int32
+	originalCancel, originalDrain := cancelIoEx, drainTimeout
+	cancelIoEx = func(syscall.Handle, *syscall.Overlapped) error {
+		stalls.Add(1)
+		<-release
+		returned <- struct{}{}
+		return nil
+	}
+	drainTimeout = 100 * time.Millisecond
+	t.Cleanup(func() {
+		close(release)
+		for range stalls.Load() {
+			<-returned
+		}
+		cancelIoEx, drainTimeout = originalCancel, originalDrain
+		// The stalled cancel never reached the kernel, so the read is still
+		// pending: cancel it for real and close the handles, so the
+		// temporary directory can be removed.
+		_ = syscall.CancelIoEx(waiter.dirHandle, &waiter.ov)
+		_, _ = syscall.WaitForSingleObject(waiter.eventHandle, 60000)
+		_ = syscall.CloseHandle(waiter.dirHandle)
+		_ = syscall.CloseHandle(waiter.eventHandle)
+	})
+
+	waited := make(chan bool, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second) // stall-accepted: the test means this context to end while the read is pending.
+		defer cancel()
+		waited <- waiter.Wait(ctx, time.Hour)
+	}()
+	select {
+	case got := <-waited:
+		if got {
+			t.Fatal("Wait = true; want false for a wait its context ended")
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("Wait was still held by its stalled cancel a minute after its context ended")
+	}
+	if stalls.Load() == 0 {
+		t.Fatal("Wait never reached the cancel: its read was not pending when its context ended")
+	}
+	if !waiter.Degraded() {
+		t.Error("a waiter whose cancel never returned is not degraded, so its next Wait would read into memory the kernel may still hold")
+	}
+	closed := make(chan struct{})
+	go func() {
+		waiter.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Minute):
+		t.Fatal("Close was still held by the stalled cancel after a minute")
 	}
 }
 

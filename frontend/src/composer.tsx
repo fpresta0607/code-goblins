@@ -96,6 +96,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     try {
       await post({ id: sendID.current, kind: "message", task_id: task.id, generation: "", text });
       sendID.current = "";
+      storeDraft(draftKey, "");
       setDraft("");
     } catch (error: unknown) {
       reportToCfo("a message to " + name, message(error));
