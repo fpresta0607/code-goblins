@@ -872,17 +872,28 @@ func TestASecondUpdateOfAHomeIsRefusedWhileOneRuns(t *testing.T) {
 	first := exec.Command(u.candidate, "update")
 	first.Dir = u.root
 	first.Env = append(os.Environ(), "CFO_TEST_UPDATE_ROOT="+u.root, "CFO_TEST_UPDATE_PAUSE=prepared")
+	var firstOutput bytes.Buffer
+	first.Stdout, first.Stderr = &firstOutput, &firstOutput
 	if err := first.Start(); err != nil {
 		t.Fatal(err)
 	}
-	u.started[first] = time.Now()
-	// The update's work starts in a process of its own before it prepares.
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
+	firstStart, _ := proc.StartTime(first.Process.Pid)
+	u.started[first] = firstStart
+	ended := make(chan error, 1)
+	go func() { ended <- first.Wait() }()
+	// The update's work starts in a process of its own, which hashes and
+	// copies the build five times before it prepares, and on a loaded runner
+	// that outlasted a minute (merge train code-goblins-20261022-013102), so
+	// the wait lasts until it prepares or ends, as its own bound ends it,
+	// never a fixed time.
+	for ; ; time.Sleep(100 * time.Millisecond) {
 		if journal, err := update.ReadJournal(u.state); err == nil && journal.Phase == update.Prepared {
 			break
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the first update never prepared")
+		select {
+		case err := <-ended:
+			t.Fatalf("the first update ended %v before it prepared:\n%s", err, firstOutput.String())
+		default:
 		}
 	}
 
@@ -1387,19 +1398,26 @@ func TestThePreflightJudgesARecordWrittenWithinTheGrace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var writeErr error
-	written := make(chan struct{})
-	go func() {
-		defer close(written)
-		time.Sleep(60 * time.Millisecond)
-		writeErr = os.WriteFile(filepath.Join(h.State, ".watch.lock"), record, 0o600)
-	}()
+	// The holder finishes writing its record once the preflight has read it
+	// empty, never after a fixed time: a writer that a loaded runner ran late
+	// landed past the grace's 150 ms (#1391).
+	var firstErr, writeErr error
+	reads := 0
+	read := readWatchLock
+	readWatchLock = func(dir, name string) (*lock.Info, error) {
+		holder, err := read(dir, name)
+		if reads++; reads == 1 {
+			firstErr = err
+			writeErr = os.WriteFile(filepath.Join(h.State, ".watch.lock"), record, 0o600)
+		}
+		return holder, err
+	}
+	t.Cleanup(func() { readWatchLock = read })
 
 	err = unprovedSupervisor(h)
-	<-written
 
-	if writeErr != nil {
-		t.Fatal(writeErr)
+	if firstErr == nil || writeErr != nil {
+		t.Fatalf("the premise failed: the first read found %v, want the empty record refused, and the write failed with %v", firstErr, writeErr)
 	}
 	if err == nil || !strings.Contains(err.Error(), "another-host") {
 		t.Fatalf("the preflight returned %v, want a refusal naming the supervisor on another-host", err)

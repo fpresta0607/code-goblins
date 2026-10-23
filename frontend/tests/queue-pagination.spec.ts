@@ -1,4 +1,4 @@
-import { expect, test } from "./site";
+import { expect, openBoardPastFirstRun, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 // Tall enough for a first page of most of the queue and a short final page
@@ -25,8 +25,7 @@ test("the CFO queue can turn to its short final page without a render loop", asy
       await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
     }
   });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await openBoardPastFirstRun(page);
   await page.keyboard.press("Control+Alt+1");
   await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();

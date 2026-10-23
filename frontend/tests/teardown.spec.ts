@@ -1,4 +1,4 @@
-import { expect, test } from "./site";
+import { expect, openBoardPastFirstRun, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 // The Overlord, 2026-10-08: "everything error wise goes to cfo". A card says
@@ -18,8 +18,7 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
       await route.fulfill({ json: {} });
     }
   });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await openBoardPastFirstRun(page);
   await expect(page.getByRole("region", { name: "Paused", exact: true })).not.toContainText("released");
   for (const phase of ["paused", "working", "stopped", "restarted"]) {
     const card = page.locator(".task-card").filter({ hasText: `${phase} teardown fixture` });

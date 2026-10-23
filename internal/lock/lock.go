@@ -174,11 +174,21 @@ func AcquireNamedOwnerWithin(dir, name string, ownerPID int, session string, wai
 	ctx, cancel := awake.WithTimeout(context.Background(), max(waiting.Left(), longestPause))
 	defer cancel()
 	pause := 10 * time.Millisecond
+	var held error
 	for {
 		info, err := acquireNamedOwnerContext(ctx, dir, name, ownerPID, session)
 		if err == nil {
 			keepPlace(exclusiveLeaseKey(dir, name), place)
 			return info, nil
+		}
+		// A loaded machine can start a look late, after a pause that ran past
+		// the deadline, or slow it across the deadline, and the look then ends
+		// with the deadline, not with the holder: the holder the last look
+		// found is the answer (#1393).
+		if errors.Is(err, ErrHeld) {
+			held = err
+		} else if held != nil && errors.Is(err, context.DeadlineExceeded) {
+			err = held
 		}
 		if !errors.Is(err, ErrHeld) || waiting.Left() < pause {
 			leaveLine(place)
