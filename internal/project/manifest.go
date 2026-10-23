@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -109,6 +110,7 @@ type Trains struct {
 // maxLoneRiderWaitMinutes bounds a lone rider's wait: a day's merges should
 // not wait on one.
 const maxLoneRiderWaitMinutes = 240
+
 type Lane struct {
 	Harness string `json:"harness"`
 	Model   string `json:"model,omitempty"`
@@ -126,16 +128,19 @@ type Budget struct {
 	MaxRepairRounds      int `json:"max_repair_rounds,omitempty"`
 }
 type Manifest struct {
-	Project      string            `json:"project"`
-	Services     []Service         `json:"services,omitempty"`
-	Deployment   Deployment        `json:"deployment,omitempty"`
-	Verification Verification      `json:"verification,omitempty"`
-	Security     Security          `json:"security,omitempty"`
-	Hygiene      Hygiene           `json:"hygiene,omitempty"`
-	Trains       Trains            `json:"trains,omitzero"`
-	Routing      Routing           `json:"routing,omitempty"`
-	Budgets      map[string]Budget `json:"budgets,omitempty"`
+	Project         string            `json:"project"`
+	IssueRepository string            `json:"issue_repository,omitempty"`
+	Services        []Service         `json:"services,omitempty"`
+	Deployment      Deployment        `json:"deployment,omitempty"`
+	Verification    Verification      `json:"verification,omitempty"`
+	Security        Security          `json:"security,omitempty"`
+	Hygiene         Hygiene           `json:"hygiene,omitempty"`
+	Trains          Trains            `json:"trains,omitzero"`
+	Routing         Routing           `json:"routing,omitempty"`
+	Budgets         map[string]Budget `json:"budgets,omitempty"`
 }
+
+var issueRepository = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$`)
 
 func Path(dataDir, projectName string) string {
 	return filepath.Join(dataDir, "projects", projectName, "project.json")
@@ -168,6 +173,12 @@ func LoadForCheckout(dataDir, checkout string) (Manifest, string, error) {
 func (m Manifest) Validate() error {
 	if strings.TrimSpace(m.Project) == "" {
 		return errors.New("project manifest: project is required")
+	}
+	if m.IssueRepository != "" {
+		_, name, _ := strings.Cut(m.IssueRepository, "/")
+		if !issueRepository.MatchString(m.IssueRepository) || name == "." || name == ".." {
+			return errors.New("project manifest: issue_repository must be a GitHub repository in owner/name form")
+		}
 	}
 	seen := map[string]bool{}
 	for _, s := range m.Services {

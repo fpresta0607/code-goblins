@@ -1,12 +1,67 @@
 package project
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestManifestReadsIssueRepository(t *testing.T) {
+	for _, repository := range []string{"", "acme/ops", "Acme-Org/ops_reports.v2", "a/.github"} {
+		t.Run(repository, func(t *testing.T) {
+			// Arrange
+			text := fmt.Sprintf(`{"project":"p","issue_repository":%q}`, repository)
+			if repository == "" {
+				text = `{"project":"p"}`
+			}
+
+			// Act
+			manifest, err := loadText(t, text)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if repository == "" {
+				if _, exists := fields["issue_repository"]; exists {
+					t.Fatal("unset issue_repository was serialized")
+				}
+			} else if string(fields["issue_repository"]) != fmt.Sprintf("%q", repository) {
+				t.Fatalf("issue_repository = %s, want %q", fields["issue_repository"], repository)
+			}
+		})
+	}
+}
+
+func TestManifestRejectsMalformedIssueRepository(t *testing.T) {
+	for _, repository := range []string{
+		" ", "acme", "/ops", "acme/", "acme/ops/extra", "https://github.com/acme/ops",
+		" acme/ops", "acme/ops ", "acme/ops?private=true", "acme/ops#issues", "acme/ops\n",
+		`acme\ops`, "../ops", "acme/..", "acme/.", "acme/%2e%2e", "acme/ops name", "ac_me/ops",
+	} {
+		t.Run(repository, func(t *testing.T) {
+			// Act
+			_, err := loadText(t, fmt.Sprintf(`{"project":"p","issue_repository":%q}`, repository))
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "issue_repository") {
+				t.Fatalf("error = %v, want malformed issue_repository refused", err)
+			}
+		})
+	}
+}
 
 func loadText(t *testing.T, s string) (Manifest, error) {
 	t.Helper()
