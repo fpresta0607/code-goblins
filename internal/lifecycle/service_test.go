@@ -348,6 +348,77 @@ func TestPauseRecordsAHandoffAndAnIdempotentCompletion(t *testing.T) {
 	}
 }
 
+// A goblin that answers the pause's request with text alone writes no
+// handoff (issue #1338), so the pause writes one for it before its stop ends
+// what the handoff names, and never over one the goblin published.
+func TestPauseWritesTheHandoffOfAGoblinThatWroteNone(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// publish is what the goblin writes at its handoff's path, and
+		// isLate says it writes it only after the pause's deadline, as the
+		// pause reads where the task stands.
+		publish        func(string) error
+		isLate         bool
+		wantHandoff    string
+		isHandoffSaved bool
+		wantProblem    string
+	}{
+		{name: "no handoff", wantHandoff: "Written for the goblin.", isHandoffSaved: true, wantProblem: "so the pause wrote one for it from the task's record"},
+		{name: "its own handoff in time", publish: func(path string) error { return os.WriteFile(path, []byte("The goblin's own."), 0o600) }, wantHandoff: "The goblin's own.", isHandoffSaved: true},
+		{name: "its own handoff past the deadline", publish: func(path string) error { return os.WriteFile(path, []byte("The goblin's own."), 0o600) }, isLate: true, wantHandoff: "The goblin's own.", isHandoffSaved: true},
+		{name: "an empty file past the deadline", publish: func(path string) error { return os.WriteFile(path, nil, 0o600) }, isLate: true, wantHandoff: "", wantProblem: "the handoff the pause wrote for the goblin was not saved"},
+		{name: "a task folder that is gone", publish: func(path string) error { return os.RemoveAll(filepath.Dir(path)) }, isLate: true, wantProblem: "the handoff the pause wrote for the goblin was not saved"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			service.Operations.Prepare = func(_ context.Context, _ state.TaskMeta, path string) error {
+				if test.publish != nil && !test.isLate {
+					return test.publish(path)
+				}
+				return nil
+			}
+			asked := 0
+			service.Operations.Handoff = func(_ context.Context, of state.TaskMeta) []byte {
+				asked++
+				if of.ID != meta.ID {
+					t.Errorf("handoff asked for %q, want %q", of.ID, meta.ID)
+				}
+				if test.isLate {
+					record, err := state.ReadLifecycle(service.StateDir, meta.ID)
+					if err != nil || test.publish(record.Handoff) != nil {
+						t.Errorf("the goblin's late handoff was not published: %v", err)
+					}
+				}
+				return []byte("Written for the goblin.")
+			}
+			var atStop string
+			service.Operations.Stop = func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) ([]string, error) {
+				data, _ := os.ReadFile(record.Handoff)
+				atStop = string(data)
+				return nil, nil
+			}
+
+			// Act
+			record, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-1", Action: "pause", Reason: "overlord"})
+
+			// Assert
+			if err != nil || record.Phase != "paused" || record.HandoffSaved != test.isHandoffSaved {
+				t.Fatalf("pause = %+v, %v, want it paused with a handoff saved %v", record, err, test.isHandoffSaved)
+			}
+			if atStop != test.wantHandoff {
+				t.Errorf("handoff at the stop = %q, want %q", atStop, test.wantHandoff)
+			}
+			if wantAsked := map[bool]int{true: 0, false: 1}[test.publish != nil && !test.isLate]; asked != wantAsked {
+				t.Errorf("the pause read where the task stands %d times, want %d", asked, wantAsked)
+			}
+			if problems := strings.Join(record.Problems, "; "); test.wantProblem == "" && problems != "" || !strings.Contains(problems, test.wantProblem) {
+				t.Errorf("problems = %q, want %q", problems, test.wantProblem)
+			}
+		})
+	}
+}
+
 func TestPauseChecksThePublishedHandoffAfterUnconfirmedDelivery(t *testing.T) {
 	for _, testCase := range []struct {
 		name           string
