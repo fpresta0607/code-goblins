@@ -17,14 +17,14 @@ export interface PanelControl { id: string; name: string; label: string; icon: I
 // show. A control that joins the row takes its place here.
 export const PANEL_IMPORTANCE = { maximize: 20, window: 10 } as const;
 
-const VIEWS: { id: PanelView; name: string; icon: IconName }[] = [{ id: "messages", name: "Messages", icon: "comment" }, { id: "terminal", name: "Terminal", icon: "terminal" }, { id: "task", name: "Task", icon: "task" }];
+const VIEWS: { id: PanelView; name: string; icon: IconName }[] = [{ id: "terminal", name: "Terminal", icon: "terminal" }, { id: "task", name: "Task", icon: "task" }];
 // A control's width, an icon button's in styles.css, and the row's gap there.
 const CONTROL = 44;
 const GAP = 8;
 
 // The top row of every panel, on one line at any width the panel can take:
-// the switch between the views the panel has (views), Messages, Terminal and
-// Task in that order, when it has more than one, then the controls, then
+// the switch between the views the panel has (views), Terminal and Task in
+// that order, when it has more than one, then the controls, then
 // corner, the Close or Back button. Nothing in it overlaps or
 // is cut: the controls the row cannot hold at full size go into More, the
 // least important first, and at the narrowest widths the switch shows its

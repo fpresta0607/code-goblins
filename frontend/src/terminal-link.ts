@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { ScreenState } from "./terminalStream";
 
 // A live terminal's link, which its HostTerminal offers by the terminal
 // deck's key for it, so the Messages view's box types through the terminal's
@@ -10,10 +11,11 @@ export interface TerminalLink {
   // Whether the view is reconnecting.
   isReconnecting: boolean;
   // Whether typed keys sit unread in a busy program's input, why typing is
-  // held, and whether the harness waits on an answer at a screen of its own.
+  // held, and what the view was last told of the harness's screen, null
+  // until it is told.
   isUnread: boolean;
   held: string;
-  isAsking: boolean;
+  screen: ScreenState | null;
   // send types text as one paste and presses Enter, and says whether it was
   // sent; escape presses Escape.
   send: (text: string) => boolean;

@@ -13,7 +13,7 @@ import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
 
-export type PanelView = "messages" | "terminal" | "task";
+export type PanelView = "terminal" | "task";
 
 // One panel for a goblin, the same from Board and Orchestration: its task
 // view and its live terminal, one tap apart on the pill, and for a Claude
