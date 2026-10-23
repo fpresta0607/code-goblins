@@ -239,7 +239,8 @@ func TestAHarnessAsksAtItsOwnScreenOnlyWhileItsChoicesWaitWithNoComposer(t *test
 // A harness has a screen of its own open in its input line's place while no
 // row of its composer's footer shows and no turn runs, as Claude Code draws a
 // picker, a panel or a question, and nothing open once its input line is
-// back, a turn running over it or not. The permission prompt and the footer
+// back, a turn running over it or not. A footer the conversation above a
+// panel quotes leaves the panel open. The permission prompt and the footer
 // are Claude Code 2.1.302's recorded rows, and the picker and the panel are
 // made up in the shape of its model picker and its permissions panel.
 func TestAHarnessHasItsOwnScreenOpenOnlyWhileItsInputLineIsGone(t *testing.T) {
@@ -247,20 +248,23 @@ func TestAHarnessHasItsOwnScreenOpenOnlyWhileItsInputLineIsGone(t *testing.T) {
 	permission := []string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}
 	picker := []string{"● Done. The branch is pushed.", "", " Select model", " Switch between Claude models.", "", " ❯ 1. Default (recommended)", "   2. Sonnet", "   3. Haiku", "", " Enter to confirm · Esc to exit"}
 	panel := []string{"● Done. The branch is pushed.", "", " Permissions:  Allow   Ask   Deny   Workspace", "", "  ❯ Add a new rule…", "    Bash(go test:*)", "    Read(./**)", "", " Press ↑↓ to navigate · Enter to select · Esc to cancel"}
+	quoted := append([]string{"● Its footer reads ⏵⏵ bypass permissions on (shift+tab to cycle) while it waits."}, panel[1:]...)
 	for name, test := range map[string]struct {
 		kind   Kind
 		screen []string
 		open   bool
 	}{
-		"its permission prompt":    {Claude, permission, true},
-		"its model picker":         {Claude, picker, true},
-		"its permissions panel":    {Claude, panel, true},
-		"its composer":             {Claude, claudeScreen([]string{"● Done. The branch is pushed."}, footer), false},
-		"a turn over its composer": {Claude, claudeScreen([]string{"✽ Reticulating… (3s · esc to interrupt)"}, footer), false},
-		"a turn with no composer":  {Claude, []string{"✽ Reticulating… (3s · esc to interrupt)"}, false},
-		"a blank screen":           {Claude, []string{"", "   ", ""}, false},
-		"Codex at its composer":    {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · ~"}, false},
-		"a harness it cannot read": {Kind("other"), picker, false},
+		"its permission prompt":                   {Claude, permission, true},
+		"its model picker":                        {Claude, picker, true},
+		"its permissions panel":                   {Claude, panel, true},
+		"a footer a reply quotes above its panel": {Claude, quoted, true},
+		"its composer with an update line":        {Claude, claudeScreen([]string{"● Done. The branch is pushed."}, footer, "  ✓ Update installed · Restart to update"), false},
+		"its composer":                            {Claude, claudeScreen([]string{"● Done. The branch is pushed."}, footer), false},
+		"a turn over its composer":                {Claude, claudeScreen([]string{"✽ Reticulating… (3s · esc to interrupt)"}, footer), false},
+		"a turn with no composer":                 {Claude, []string{"✽ Reticulating… (3s · esc to interrupt)"}, false},
+		"a blank screen":                          {Claude, []string{"", "   ", ""}, false},
+		"Codex at its composer":                   {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · ~"}, false},
+		"a harness it cannot read":                {Kind("other"), picker, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			screens, _ := NativeScreens(test.kind)
