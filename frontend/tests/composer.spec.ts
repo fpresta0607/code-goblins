@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { at, box, card, field, NAME, open, openGoblin, pasted, send, snapshot, typed, view } from "./session-board";
+import { at, box, card, field, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 // The Overlord chose design A on 2026-10-22, and two tabs that evening: a
 // Claude Code session's Terminal view shows its messages, and the box under
@@ -106,13 +106,11 @@ test("while the harness works the working line's Stop presses Escape in its term
   await expect.poll(() => typed(relay)).toBe("\x1b");
 });
 
-test("his draft stays through a switch of views and of sessions, a reconnect and a reload of the board, as an update reloads it", async ({ page }) => {
+test("his draft stays through a switch of sessions, a reconnect and a reload of the board, as an update reloads it", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
   await field(page).fill("half a thought");
 
-  await view(page, "Task").click();
-  await view(page, "Terminal").click();
   await expect(field(page)).toHaveValue("half a thought");
   await card(page, "Ivy - Window Painter").click();
   await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
@@ -127,47 +125,29 @@ test("his draft stays through a switch of views and of sessions, a reconnect and
   await expect(field(page)).toHaveValue("half a thought");
 });
 
-test("a session opens on its Terminal view, its messages, and a switch hands its box the keyboard", async ({ page }) => {
+test("a session's panel is one view with its messages and no pill, and a switch hands its box the keyboard", async ({ page }) => {
   await open(page);
   await openGoblin(page);
-  await expect(page.locator(".context-pane .panel-pill").getByRole("button")).toHaveCount(2);
-  await expect(view(page, "Task")).toBeVisible();
+  await expect(page.locator(".context-pane .panel-pill")).toHaveCount(0);
   await expect(field(page)).not.toBeFocused();
 
   await page.keyboard.press("Control+Alt+3");
   await expect(page.locator("#panel-title")).toHaveText("Ivy - Window Painter");
   await expect(field(page, "Ivy - Window Painter")).toBeFocused();
-  await view(page, "Task").click();
   await page.keyboard.press("Control+Alt+1");
 
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
   await expect(field(page, "CFO")).toBeFocused();
 });
 
-test("a Codex session keeps its terminal under Terminal, with no messages", async ({ page }) => {
+test("a Codex session's panel shows its terminal, with no messages", async ({ page }) => {
   await open(page, snapshot({}, { title: "Swipes scroll the phone terminal; Codex", harness: "codex", model: "gpt-5.5" }));
 
   await card(page, NAME).click();
 
   await expect(page.locator("#panel-title")).toHaveText(NAME);
-  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("region", { name: "Messages", exact: true })).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
-});
-
-test("the terminal behind the messages takes its size unseen, so a switch to it asks for none", async ({ page }) => {
-  const relay = await open(page);
-  await openGoblin(page);
-  let seen = -1;
-  await expect.poll(() => { const isQuiet = relay.resizes.length > 0 && relay.resizes.length === seen; seen = relay.resizes.length; return isQuiet; }, { intervals: [500] }).toBe(true);
-
-  for (const name of ["Task", "Terminal", "Task", "Terminal"]) {
-    await view(page, name).click();
-    await page.waitForTimeout(300);
-  }
-
-  expect(relay.resizes.length).toBe(seen);
 });
 
 test.describe("dictation into the box", () => {
@@ -195,7 +175,7 @@ test.describe("dictation into the box", () => {
     test("a tap on the box's microphone starts dictating, and the next adds what was said, sending nothing by itself", async ({ page }) => {
       const relay = await open(page);
       await card(page, NAME).tap();
-      await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+      await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
 
       await box(page).getByRole("button", { name: "Dictate" }).tap();
       await expect(box(page).getByRole("button", { name: "Stop dictating" })).toHaveClass(/recording/);

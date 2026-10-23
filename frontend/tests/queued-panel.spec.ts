@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { expect, type Locator, openTaskList, type Page, test } from "./site";
 
 // A task's panel has one action row under its header: Start and Remove for a
 // task that has not started, Pause or Resume and Stop for one that has, and
@@ -47,6 +47,7 @@ async function select(page: Page, id: string) {
   if (await back.count()) await back.click();
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
+  await openTaskList(page);
 }
 
 // The names of a row's buttons, in the order they are drawn.

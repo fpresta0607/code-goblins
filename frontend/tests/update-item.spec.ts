@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, openItem, ORIGIN, test, type Page, type Route } from "./site";
+import { expect, openItem, openTaskList, ORIGIN, type Page, type Route, test } from "./site";
 import { parseSnapshot } from "../src/types";
 
 // The Overlord, 2026-10-02: "make sure updates for code goblins comes just as
@@ -176,6 +176,7 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
       await page.getByRole("button", { name: /^Change the answer to Billing/ }).click();
     } else {
       await page.locator(".task-card").filter({ hasText: "Billing" }).click();
+      await openTaskList(page);
       await page.locator("details.changes-section > summary").click();
       await page.locator("details.file-review > summary").filter({ hasText: "example.go" }).click();
       await page.getByRole("button", { name: "Comment on new line 1" }).click();

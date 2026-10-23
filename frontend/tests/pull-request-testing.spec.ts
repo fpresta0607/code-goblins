@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-08, of Sid's pull request #512: the merge train's
 // card read "CI tests #512" and "#512 Sid - Memory Keeper Testing" while
@@ -132,6 +132,7 @@ test.describe("in his window", () => {
     await select(page, "Sid - Memory Keeper");
     const panelStatus = await read(header(page).locator(".panel-status"));
     const paneTitle = await ended(page).locator("h2").textContent();
+    await openTaskList(page);
     const panelChip = await read(header(page).locator("a.hosted-checks"));
     await header(page).locator(".raw-details > summary").click();
     const details = await header(page).locator(".raw-details-text").innerText();
@@ -166,6 +167,7 @@ test.describe("in his window", () => {
     await open(page);
 
     await select(page, "Mae - Bug Hunter");
+    await openTaskList(page);
 
     await expect(header(page).locator(".panel-status")).toHaveText("Testing");
     await expect(header(page).locator("a.hosted-checks")).toHaveAttribute("href", RUN);
