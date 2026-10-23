@@ -1,5 +1,5 @@
 import { expect, openTaskList, test, type Page } from "./site";
-import { at, box, field, open, openGoblin, pasted, type Relay, snapshot, typed } from "./session-board";
+import { at, box, field, open, openGoblin, pasted, type Relay, send, snapshot, typed } from "./session-board";
 
 // PR 4 of the message view plan, which the Overlord asked be proved first:
 // what the box sends that opens a screen of the harness's own, a picker, a
@@ -163,18 +163,30 @@ test("a phone's tall Task fold scrolls while its messages keep room", async ({ p
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, snapshot({}, { teardown: Array.from({ length: 80 }, (_, index) => `shell-${index} pid ${index + 1}`) }));
   await openGoblin(page);
+  await field(page).fill("Keep this draft while reading the task");
 
   const header = await openTaskList(page);
   await header.locator(".raw-details > summary").click();
 
   const fold = page.locator(".panel-task-fold");
   await expect.poll(() => fold.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-  const conversation = await messages(page).boundingBox();
-  const pane = await page.locator(".context-pane").boundingBox();
-  expect(conversation!.height).toBeGreaterThan(0);
-  expect(conversation!.y + conversation!.height).toBeLessThanOrEqual(pane!.y + pane!.height + 1);
-  await fold.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-  await expect.poll(() => fold.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  for (const state of ["opened", "scrolled"]) {
+    await test.step(`the conversation and composer remain usable with the fold ${state}`, async () => {
+      if (state === "scrolled") {
+        await fold.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+        await expect.poll(() => fold.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      }
+      await expect(messages(page).getByRole("log")).toBeInViewport({ ratio: 1 });
+      await expect(messages(page).getByText("On it.", { exact: true })).toBeInViewport({ ratio: 1 });
+      await expect(box(page)).toBeInViewport({ ratio: 1 });
+      await expect(field(page)).toBeInViewport({ ratio: 1 });
+      await expect(send(page)).toBeInViewport({ ratio: 1 });
+      await expect(send(page)).toBeEnabled();
+      await expect(field(page)).toHaveValue("Keep this draft while reading the task");
+      await field(page).click();
+      await expect(field(page)).toBeFocused();
+    });
+  }
 });
 
 test("stepping in and out asks the terminal for no new size, counted at the relay", async ({ page }) => {

@@ -1359,7 +1359,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */
-.goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
+.goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; max-height: 50%; }
 /* The stage is the box under the panel's header that a session's Messages
    view and its terminal share: the Messages view lies over the terminal
    deck, which stays laid out unseen behind it, so the terminal has its size
@@ -1373,7 +1373,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-side { display: flex; flex: none; width: clamp(280px, 30%, 400px); min-height: 0; border-top: 1px solid var(--glass-border); border-left: 1px solid var(--glass-border); }
 .panel-side > .panel-task { flex: 1; }
 .panel-side .panel-content { padding: 0 18px 24px; }
-.panel-task-fold { flex: none; max-height: 50%; overflow: hidden auto; border-top: 1px solid var(--glass-border); }
+.panel-task-fold { flex: 0 1 auto; overflow: hidden auto; border-top: 1px solid var(--glass-border); }
 .panel-task-fold > .disclosure { margin: 0; border: 0; border-radius: 0; }
 .panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
 .panel-header-details:empty { display: none; }
