@@ -30,7 +30,7 @@ func (commands handoffCommands) Run(_ context.Context, request execx.Request) (e
 	answers := map[string]string{
 		"git rev-parse --abbrev-ref HEAD": commands.branch,
 		"git rev-parse HEAD":              commands.head,
-		"gh pr list --head " + commands.branch + " --state open --json url,title,isDraft": commands.pulls,
+		"gh pr list --head " + commands.branch + " --state open --json url,isDraft": commands.pulls,
 	}
 	answer, ok := answers[command]
 	if !ok {
@@ -49,28 +49,34 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 		commands handoffCommands
 		status   string
 		owner    string
-		want     []string
-		unwanted []string
+		// isWaiting has a second run of the task's wait in line behind
+		// the turn its first holds.
+		isWaiting bool
+		want      []string
+		unwanted  []string
 	}{
 		{
-			name:     "on a branch with a draft pull request and a turn",
-			commands: handoffCommands{branch: "fix/pause", head: head, pulls: `[{"url":"https://github.com/owner/repo/pull/7","title":"Pause writes the handoff","isDraft":true}]`},
-			status:   "waiting on memory: the suite waits in the heavy line",
-			owner:    "task",
+			name:      "on a branch with a draft pull request and a turn",
+			commands:  handoffCommands{branch: "fix/pause", head: head, pulls: `[{"url":"https://github.com/owner/repo/pull/7","title":"Pause writes the handoff","isDraft":true}]`},
+			status:    "waiting on memory: the suite waits in the heavy line",
+			owner:     "task",
+			isWaiting: true,
 			want: []string{
 				"# Handoff for task", "You wrote no handoff of your own by the pause's deadline, so the pause wrote this one for you",
 				"- Branch: fix/pause\n", "- HEAD: " + head + "\n",
-				"- Open pull request: https://github.com/owner/repo/pull/7 (draft), Pause writes the handoff\n",
+				"- Open pull request: https://github.com/owner/repo/pull/7 (draft)\n",
 				"- Your last status line: ", "waiting on memory: the suite waits in the heavy line\n",
 				"start again each you still need", "- holding its turn since ", ": go test ./... in the worktree, task Zora (task) (pid ",
+				"- waiting in line since ", ": go build ./... in the worktree, task Zora (task) (pid ",
 			},
+			unwanted: []string{"Pause writes the handoff"},
 		},
 		{
 			name:     "with no open pull request and another task's turn",
 			commands: handoffCommands{branch: "fix/pause", head: head, pulls: "[]"},
 			owner:    "other",
-			want:     []string{"- Open pull requests: none from fix/pause\n", "- Your last status line: none recorded\n", "None held a turn or waited for one.\n"},
-			unwanted: []string{"go test ./..."},
+			want:     []string{"- Open pull requests: none from fix/pause\n", "- Your last status line: none recorded\n", "None of the 1 runs in the line was found to be yours.\n"},
+			unwanted: []string{"go test ./...", "None held a turn"},
 		},
 		{
 			name:     "on a detached HEAD",
@@ -110,6 +116,26 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 					t.Error(err)
 				}
 			})
+			if test.isWaiting {
+				waiting, stopWaiting := context.WithCancel(t.Context())
+				waited := make(chan struct{})
+				go func() {
+					defer close(waited)
+					if turn, err := (verify.Admission{Dir: filepath.Join(store, "slots"), Available: func() (uint64, error) { return 16 << 30, nil }, Who: "go build ./... in the worktree, task Zora (task)", Budget: time.Hour, Limit: time.Minute, Poll: 5 * time.Millisecond}).Wait(waiting); err == nil {
+						t.Error("the second run took the turn the first holds")
+						_ = turn.Release()
+					}
+				}()
+				t.Cleanup(func() { stopWaiting(); <-waited })
+				for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+					if _, line, err := verify.MachineLine(); err == nil && len(line) == 1 {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("the second run never joined the line")
+					}
+				}
+			}
 			var ran []string
 			test.commands.ran = &ran
 			writer := lifecycle.HandoffWriter{StateDir: stateDir, Commands: test.commands, Owner: func(pid int) string {

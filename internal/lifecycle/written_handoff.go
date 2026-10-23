@@ -13,9 +13,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
-// handoffBound bounds reading where a task stands for the handoff a pause
-// writes for its goblin, which holds up the pause's stop.
-const handoffBound = 10 * time.Second
+// handoffBound bounds the commands that read where a task stands for the
+// handoff a pause writes for its goblin, which hold up the pause's stop and
+// with it the memory a memory pause is taken for.
+const handoffBound = 5 * time.Second
 
 // HandoffWriter writes the handoff of a goblin that wrote none of its own by
 // its pause's deadline, from what its task's record says of where it stands.
@@ -82,12 +83,13 @@ func (writer HandoffWriter) Handoff(ctx context.Context, meta state.TaskMeta) []
 }
 
 // pullRequests names the open pull requests from branch, as gh in the task's
-// worktree lists them.
+// worktree lists them, by their links alone: gh lists a fork's pull request
+// from a branch of the same name too, and its title is a stranger's words in
+// a file the goblin is told to read.
 func (writer HandoffWriter) pullRequests(run func(string, ...string) (string, error), branch string) string {
-	listed, err := run("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url,title,isDraft")
+	listed, err := run("gh", "pr", "list", "--head", branch, "--state", "open", "--json", "url,isDraft")
 	var open []struct {
 		URL     string `json:"url"`
-		Title   string `json:"title"`
 		IsDraft bool   `json:"isDraft"`
 	}
 	if err == nil {
@@ -108,13 +110,15 @@ func (writer HandoffWriter) pullRequests(run func(string, ...string) (string, er
 		if pull.IsDraft {
 			draft = " (draft)"
 		}
-		fmt.Fprintf(&named, "- Open pull request: %s%s, %s\n", pull.URL, draft, pull.Title)
+		fmt.Fprintf(&named, "- Open pull request: %s%s\n", pull.URL, draft)
 	}
 	return named.String()
 }
 
 // turns names the runs of meta's task that hold a turn of the machine's
-// heavy line or wait for one.
+// heavy line or wait for one. Owner reads a process it cannot read as no
+// task's, so a line whose runs it places with no task is said to hold none
+// found to be the task's, never none at all.
 func (writer HandoffWriter) turns(meta state.TaskMeta) string {
 	holding, waiting, err := verify.MachineLine()
 	if err != nil {
@@ -131,8 +135,11 @@ func (writer HandoffWriter) turns(meta state.TaskMeta) string {
 			fmt.Fprintf(&named, "- waiting in line since %s: %s (pid %d)\n", run.Since.UTC().Format(time.RFC3339), run.Who, run.PID)
 		}
 	}
-	if named.Len() == 0 {
+	if named.Len() == 0 && len(holding)+len(waiting) == 0 {
 		return "None held a turn or waited for one.\n"
+	}
+	if named.Len() == 0 {
+		return fmt.Sprintf("None of the %d runs in the line was found to be yours.\n", len(holding)+len(waiting))
 	}
 	return "The pause ends every process of yours, these among them, so none of them finishes: start again each you still need once you resume.\n\n" + named.String()
 }
