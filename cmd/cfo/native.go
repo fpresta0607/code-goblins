@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -55,10 +56,14 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 	// A goblin's tool call ran the native hook and the key alarm as two
 	// hooks, two cfo.exe processes, each with a console host of its own; one
 	// process runs both now, each part still held to its own time limit.
-	if *isKeyAlarm {
-		payload, err := io.ReadAll(input)
+	if *isKeyAlarm || ((args[0] == "codex" || args[0] == "pi") && os.Getenv(harness.RoleVariable) == harness.RoleGoblin) {
+		payload, err := io.ReadAll(io.LimitReader(input, nativehook.MaxInputBytes+1))
 		if err != nil {
-			fmt.Fprintln(stderr, err)
+			fmt.Fprintln(stderr, "native hook input could not be read")
+			return 1
+		}
+		if len(payload) > nativehook.MaxInputBytes {
+			fmt.Fprintln(stderr, "native hook input exceeds 64 MiB")
 			return 1
 		}
 		return runHookParts(stdout, stderr,
@@ -66,7 +71,7 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 				return nativeHookEvent(args[0], *root, *dir, bytes.NewReader(payload), stdout, stderr)
 			}},
 			hookPart{name: "the key alarm", limit: keyAlarmLimit, run: func(stdout, stderr io.Writer) int {
-				return runHook("goblin-key-alarm", bytes.NewReader(payload), stdout, stderr)
+				return goblinKeyAlarm(args[0], *dir, bytes.NewReader(payload), stderr)
 			}},
 		)
 	}
@@ -85,7 +90,7 @@ func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, std
 		return 0
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		fmt.Fprintln(stderr, "native hook event is invalid")
 		return 1
 	}
 	if err := nativehook.Spool(dir, e); err != nil {

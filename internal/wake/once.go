@@ -43,6 +43,30 @@ func AppendFirst(directory, identity, kind, key, detail string) (Record, bool, e
 	return record, isNew && err == nil, err
 }
 
+// AppendFirstAndPublish publishes a notice and its episode under one lock.
+// A retry repairs a failed episode write without republishing an active or
+// acknowledged notice, even when retries and acknowledgement race.
+func AppendFirstAndPublish(directory, identity, kind, key, detail string) error {
+	if identity == "" || !kinds[kind] {
+		return errors.New("a notice identity and known wake kind are required")
+	}
+	return withLock(directory, func() error {
+		_, isNoticed, err := readNoticed(directory, identity)
+		if err != nil || isNoticed {
+			return err
+		}
+		_, isNew, err := appendUnlessQueued(directory, identity, kind, key, detail)
+		if err != nil {
+			return err
+		}
+		episode, err := readEpisode(directory)
+		if err != nil || (!isNew && episode.Pending) {
+			return err
+		}
+		return writeEpisode(directory, "pending", episode.Gen+1)
+	})
+}
+
 // AppendUnlessQueued appends a wake for identity unless one for it is still
 // queued, and reports whether it did. Unlike AppendFirst it appends again
 // once the earlier one has been acknowledged, for a condition that can come
