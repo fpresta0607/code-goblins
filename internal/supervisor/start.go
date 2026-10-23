@@ -115,6 +115,7 @@ type startPlan struct {
 	// isRoot is a root issue the supervisor picked up, which starts behind
 	// every other queued task.
 	isRoot bool
+	root   *rootStart
 }
 
 func (p startPlan) args() []string {
@@ -246,6 +247,20 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 		return err
 	}
 	plan.isOverlord = isOverlord
+	if plan.root != nil {
+		// GitHub's answer may be cached, but the local project mapping must
+		// still match at the boundary before any worktree or harness exists.
+		ctx, cancel := context.WithTimeout(context.Background(), ghCallTimeout)
+		err := s.rootRepository(ctx, *plan.root)
+		cancel()
+		if err != nil {
+			problem := *plan.root
+			problem.problem = bounded(err.Error(), 500)
+			reason := problem.refusal()
+			s.keepRootStart(*plan.root, "identity", reason)
+			return StartRefusal{Reason: reason, Waits: true}
+		}
+	}
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
 	}
@@ -393,6 +408,20 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	}
 	if plan.project == "" {
 		return startPlan{}, StartRefusal{Reason: "The brief for " + id + " names no project"}
+	}
+	if root := rootForStart(h, queued, plan); root != nil {
+		plan.isRoot = true
+		plan.root = root
+		reason := "Root issue awaits verification of its recorded identity"
+		if root.problem != "" {
+			reason = root.refusal()
+		}
+		if reading.root != nil {
+			reason = reading.root(*root)
+		}
+		if reason != "" {
+			return startPlan{}, StartRefusal{Reason: reason, Waits: true}
+		}
 	}
 	settings := queuedEngine(row, briefSettings(brief))
 	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode
