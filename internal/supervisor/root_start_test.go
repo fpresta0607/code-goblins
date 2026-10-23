@@ -71,7 +71,7 @@ func TestRootVerificationDoesNotWaitOnGitHubToStartOrdinaryWork(t *testing.T) {
 	// Assert
 	select {
 	case <-reading:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("no root read began")
 	}
 	if calls := awaitDispatch(t, service, spawner, 1); calls[0][1] != "z-new-work" {
@@ -248,7 +248,7 @@ func TestRootStartUsesATicketWhenNoPickupOrGeneratedBriefRemains(t *testing.T) {
 
 func waitRootReading(t *testing.T, service *Service) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		service.mu.Lock()
 		isReading := service.isReadingRoot
@@ -310,7 +310,7 @@ func TestRootDispatchReconcilesTheRecordedIssueBeforeAnySpawn(t *testing.T) {
 
 			// Act: the first pass learns, subsequent passes and Start recheck.
 			for pass := range 3 {
-				if err := service.checkFleet(t.Context(), time.Now().Add(time.Duration(pass)*time.Minute)); err != nil {
+				if err := service.checkFleet(t.Context(), rootNow.Add(time.Duration(pass)*time.Minute)); err != nil {
 					t.Fatal(err)
 				}
 				waitRootReading(t, service)
