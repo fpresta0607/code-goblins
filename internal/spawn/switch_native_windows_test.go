@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
@@ -409,70 +410,89 @@ func TestARestartBringsBackAGoblinOnlyOnceItsHostHasEnded(t *testing.T) {
 	}
 }
 
-func TestResumeCompletesWhenTheOwnedNativeSessionIsAlreadyWorking(t *testing.T) {
-	// Arrange
-	f := newNativeFixture(t, harness.Codex, "resumed-working")
-	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
-	closeCurrentTerminal(t, f)
-	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
-		t.Fatal(err)
-	}
-	first, err := host.ReadRecord(f.stateDir, f.request.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
-		t.Fatal(err)
-	}
-	before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
-	if err := state.WriteLifecycle(f.stateDir, prior); err != nil {
-		t.Fatal(err)
-	}
-	previous := nativeStartup
-	nativeStartup = time.Minute
-	t.Cleanup(func() { nativeStartup = previous })
-	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-		Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
-			_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
-			return err
-		},
-		Notify: func(state.Lifecycle) error { return nil },
-	}}
+func TestBusyResumeRecovery(t *testing.T) {
+	for name, isTaken := range map[string]bool{"queued": false, "consumed": true} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			f := newNativeFixture(t, harness.Codex, "resumed-working")
+			f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+			closeCurrentTerminal(t, f)
+			if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+				t.Fatal(err)
+			}
+			first, err := host.ReadRecord(f.stateDir, f.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
+				t.Fatal(err)
+			}
+			before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.service.Took = func(_ context.Context, _ state.TaskMeta, instruction string, _ time.Time) bool {
+				queued := named(f.events(t), "queued into the turn")
+				return isTaken && len(queued) == 1 && queued[0].Text == instruction
+			}
+			prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+			if err := state.WriteLifecycle(f.stateDir, prior); err != nil {
+				t.Fatal(err)
+			}
+			previous := nativeStartup
+			nativeStartup = time.Minute
+			t.Cleanup(func() { nativeStartup = previous })
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
 
-	// Act
-	result, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
+			// Act
+			result, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
 
-	// Assert
-	if err != nil || result.Phase != "running" || len(result.Problems) != 0 {
-		t.Fatalf("resume=%+v, %v; want the already-working owned session running", result, err)
-	}
-	after, err := state.ReadTaskMeta(f.stateDir, before.ID)
-	if err != nil || after.SpawnGen == before.SpawnGen || after.SpawnGen != result.Generation || after.ResumeOperation != result.Operation {
-		t.Fatalf("replacement generation does not match successful resume: %+v, %v", after, err)
-	}
-	launches := named(f.events(t), "env")
-	if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-session ") {
-		t.Fatalf("launches=%+v, want the exact owned conversation", launches)
-	}
-	if input := named(f.events(t), "typed into resumed turn"); len(input) != 0 {
-		t.Fatalf("startup typed into a turn already in progress: %+v", input)
-	}
-	status, err := os.ReadFile(filepath.Join(f.stateDir, before.ID+".status"))
-	if err != nil || strings.Contains(string(status), "failed:") {
-		t.Fatalf("resume published a failure: %s, %v", status, err)
-	}
-	for _, name := range []string{".spawn.lock", ".lifecycle-" + before.ID + ".lock", state.MetadataLockName(before.ID), switchLockName(before.ID)} {
-		if _, err := lock.AcquireExclusiveNamed(f.stateDir, name); err != nil {
-			t.Fatalf("resume retained %s: %v", name, err)
-		}
-		if err := lock.ReleaseExclusiveNamed(f.stateDir, name); err != nil {
-			t.Fatal(err)
-		}
+			// Assert
+			if isTaken {
+				if err != nil || result.Phase != "running" || len(result.Problems) != 0 {
+					t.Fatalf("resume=%+v, %v; want the recovery receipt to finish the resume", result, err)
+				}
+			} else if !errors.Is(err, fleet.ErrQueuedForToolCall) || result.Phase != "failed" {
+				t.Fatalf("resume=%+v, %v; want queued recovery reported unconfirmed", result, err)
+			}
+			after, err := state.ReadTaskMeta(f.stateDir, before.ID)
+			if err != nil || after.SpawnGen == before.SpawnGen || after.SpawnGen != result.Generation || after.ResumeOperation != result.Operation {
+				t.Fatalf("replacement generation does not match successful resume: %+v, %v", after, err)
+			}
+			launches := named(f.events(t), "env")
+			if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-session ") {
+				t.Fatalf("launches=%+v, want the exact owned conversation", launches)
+			}
+			if queued := named(f.events(t), "queued into the turn"); len(queued) != 1 || !strings.HasPrefix(delivered(t, queued[0].Text), "Resume now.") {
+				t.Fatalf("queued=%+v; want exactly one current recovery instruction", queued)
+			}
+			if !nativeTerminalRuns(f.stateDir, before.ID) {
+				t.Fatal("the resume stopped the live terminal while its recovery was queued")
+			}
+			status, err := os.ReadFile(filepath.Join(f.stateDir, before.ID+".status"))
+			if err != nil || (strings.Contains(string(status), "failed:") && isTaken) {
+				t.Fatalf("unexpected resume status: %s, %v", status, err)
+			}
+			for _, name := range []string{".spawn.lock", ".lifecycle-" + before.ID + ".lock", state.MetadataLockName(before.ID), switchLockName(before.ID)} {
+				if _, err := lock.AcquireExclusiveNamed(f.stateDir, name); err != nil {
+					t.Fatalf("resume retained %s: %v", name, err)
+				}
+				if err := lock.ReleaseExclusiveNamed(f.stateDir, name); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, _ = controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
+			if queued := named(f.events(t), "queued into the turn"); len(queued) != 1 {
+				t.Fatalf("retry replayed the recovery: %+v", queued)
+			}
+		})
 	}
 }
 

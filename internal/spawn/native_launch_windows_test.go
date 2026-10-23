@@ -197,13 +197,10 @@ func fakeHarness() {
 	}
 	if mode == "resumed-working" {
 		if len(os.Args) > 1 && os.Args[1] == "resume" {
-			draw("    +151 lines (ctrl+t to view transcript)", "", "Working (1m 51s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close", "", "› Ask Codex to do anything", "", "  GPT-6.1-Sol xhigh · "+mustGetwd())
-			for key := range keys {
-				record(codexEvent{Event: "typed into resumed turn", Text: key})
-			}
-			return
+			mode = "working-at-start"
+		} else {
+			mode = "ready"
 		}
-		mode = "ready"
 	}
 	if mode == "working-at-start" {
 		// As cg-cards-stay-open was on 2026-10-15, when a cfo send reached it

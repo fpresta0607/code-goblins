@@ -112,7 +112,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if !ok {
 		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
-	untrusted, working, err := s.awaitNativeReady(ctx, record, screens)
+	untrusted, _, err := s.awaitNativeReady(ctx, record, screens)
 	if err != nil {
 		return err
 	}
@@ -121,22 +121,11 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 			return err
 		}
 	}
-	// A resumed conversation that came back in a turn is at work on its task
-	// already, so its instruction is not typed a second time.
-	if working && launch.Resumed {
-		return nil
-	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
 		return err
 	}
-	err = s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
-	// A new goblin in a turn holds its instruction for that turn, as a
-	// harness holds any text typed into one.
-	if working && errors.Is(err, fleet.ErrQueuedForToolCall) {
-		return nil
-	}
-	return err
+	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a

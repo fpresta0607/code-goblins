@@ -87,8 +87,6 @@ type Launch struct {
 	SubagentInstruction string
 	Dir                 string
 	Executable          string
-	// Resumed marks a launch that continues an existing session.
-	Resumed bool
 }
 
 // PromptInstruction is the single instruction the harness receives once it is

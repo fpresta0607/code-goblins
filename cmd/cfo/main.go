@@ -395,6 +395,7 @@ func defaultCommandRuntime() commandRuntime {
 				EndLeft: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
 					return endLeftProcesses(ctx, h, meta)
 				},
+				Took: supervisor.NativeTook,
 			}
 			return service.Switch(ctx, request)
 		},

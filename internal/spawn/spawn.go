@@ -20,6 +20,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -503,7 +504,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// Its release error, if any, is returned with the result once the brief
 	// is delivered: the goblin is running either way.
 	_ = endTurn()
-	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil {
+	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		return fail(result, err)
 	}
 
