@@ -1732,6 +1732,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 				evaluation.Phase, evaluation.Reason = "working", runtime.Reason
 			}
 		}
+		// A helper hands completed work to its parent without a PR or gate.
+		// Its idle terminal does not turn that handoff into a request for input.
+		if meta.Parent != "" && kind == "done" && !isGateHeld && !isAtWork && !runtime.working() {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "done", strings.TrimPrefix(report, "done: "), ""
+		}
 		activity, pr := statusActivity(lines, spawned)
 		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {

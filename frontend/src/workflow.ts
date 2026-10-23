@@ -245,7 +245,8 @@ export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [
       return "Waiting on " + (WAITS[node.task.waiting_on] || (awaited ? goblinName(awaited) : node.task.waiting_on));
     }
     if (phase === "review" && Object.hasOwn(GATE_STEPS, node.task.gate_step)) return "In review gate: " + GATE_STEPS[node.task.gate_step];
-    return phase === "done" && !verified ? "Done, verifying" : statusText(phase);
+    if (phase === "done" && !verified) return node.task.parent ? "Done, awaiting parent" : "Done, verifying";
+    return statusText(phase);
   }
   return nativeStatus(node.session?.runtime?.state || node.session?.phase || "");
 }
