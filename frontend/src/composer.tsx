@@ -35,9 +35,10 @@ function storeDraft(key: string, text: string): void {
 // and Shift+Enter starts a new line. While the harness works a working line
 // offers Stop, which presses Escape. What keeps a message from the terminal
 // says so beside the box, and the draft stays: a busy program, a view that is
-// reconnecting or closed, typing a gate holds, and the harness asking at a
-// screen of its own, which an amber card names with Answer in the terminal,
-// since an Enter typed then would answer it. A goblin with no terminal that
+// reconnecting or closed, typing a gate holds, and a screen of the harness's
+// own open in its terminal, a question, a picker or a panel, which an amber
+// card names with Answer in the terminal, since an Enter typed then would act
+// on it. A goblin with no terminal that
 // takes typing now, one paused, resuming or starting, gets what he sends as a
 // message action, delivered once whatever it is doing, and the box lists his
 // latest with where each is, and those a paused goblin's resume will carry,
@@ -80,7 +81,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const held = live?.held ? heldNotice(live.held) : "";
-  const isAsking = !!live?.screen?.isAsking;
+  const isAsking = !!live?.screen?.isOpen;
   const isUnread = !!live?.isUnread;
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const send = async () => {

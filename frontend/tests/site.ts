@@ -124,7 +124,7 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],
   hadTour: [true, { option: true }],
-  // The stepped in project's runs draw each fixture's terminal stepped into a
+  // The stepped-in project's runs draw each fixture's terminal stepped into a
   // Messages view's place (tests/fixtures/stepped-in.tsx).
   isSteppedIn: [false, { option: true }],
   paced: [async ({ room }, use) => {
@@ -133,7 +133,8 @@ export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; isS
   }, { auto: true, timeout: MACHINE.limit + 10_000 }],
   context: async ({ context, hadTour, isSteppedIn }, use) => {
     await servePages(context, ORIGIN, hadTour);
-    if (isSteppedIn) await context.addInitScript(() => sessionStorage.setItem("fixture-stepped-in", "true"));
+    // A page with no storage, as about:blank, is left as it is.
+    if (isSteppedIn) await context.addInitScript(() => { if (location.protocol.startsWith("http")) sessionStorage.setItem("fixture-stepped-in", "true"); });
     await use(context);
   },
 });
