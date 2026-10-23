@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { test as base, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test as base, type BrowserContext, type Page } from "@playwright/test";
 
 export * from "@playwright/test";
 
@@ -59,6 +59,18 @@ export async function holdStream(page: Page, snapshot: unknown): Promise<void> {
     }
     Object.defineProperty(window, "EventSource", { value: HeldStream });
   }, JSON.stringify(snapshot));
+}
+
+// openBoardPastFirstRun opens the board of a home whose CFO never ran, which
+// shows its first-run page once its first snapshot arrives, and goes on to the
+// board with Board, as the Overlord does. A click before that snapshot only
+// picks the view already shown, and the first-run page then takes the board's
+// place, as a loaded runner's late snapshot did (#1348), so the click waits
+// for the page.
+export async function openBoardPastFirstRun(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page.getByRole("main", { name: "First run" })).toBeVisible();
+  await page.getByRole("button", { name: "Board", exact: true }).click();
 }
 
 // Outside CI a run shares this machine with the fleet. Windows takes about
