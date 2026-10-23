@@ -1,9 +1,71 @@
 package wake
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
+
+func TestFirstNoticePublishesOnceAcrossConcurrentRetriesAndAcknowledgement(t *testing.T) {
+	directory := t.TempDir()
+	for round := 0; round < 2; round++ {
+		var group sync.WaitGroup
+		for range 16 {
+			group.Go(func() {
+				if err := AppendFirstAndPublish(directory, "call-1", "review", "task", "key kind"); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		group.Wait()
+
+		episode, err := ReadEpisode(directory)
+		if err != nil || episode.Gen != 1 || episode.Pending != (round == 0) {
+			t.Fatalf("episode = %+v, %v; want one publication", episode, err)
+		}
+		pending, err := Pending(directory)
+		if err != nil || len(pending) != 1-round {
+			t.Fatal("notice was duplicated or resurrected")
+		}
+		if round == 0 {
+			if _, err := Acknowledge(directory, Ack{Through: &pending[0].Seq, Generation: &episode.Gen}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestFirstNoticeRepairsFailedPublicationOnce(t *testing.T) {
+	directory := t.TempDir()
+	marker := filepath.Join(directory, episodeFile)
+	if err := os.Mkdir(marker, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendFirstAndPublish(directory, "call-1", "review", "task", "key kind"); err == nil {
+		t.Fatal("publication failure was hidden")
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	var group sync.WaitGroup
+	for range 16 {
+		group.Go(func() {
+			if err := AppendFirstAndPublish(directory, "call-1", "review", "task", "key kind"); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	group.Wait()
+
+	episode, err := ReadEpisode(directory)
+	if err != nil || !episode.Pending || episode.Gen != 1 {
+		t.Fatalf("episode = %+v, %v; want one recovered publication", episode, err)
+	}
+	if pending, err := Pending(directory); err != nil || len(pending) != 1 {
+		t.Fatal("retry changed the notice count")
+	}
+}
 
 func TestLifecycleCompletionNoticeIsDeliveredOnceAcrossAcknowledgement(t *testing.T) {
 	directory := t.TempDir()
