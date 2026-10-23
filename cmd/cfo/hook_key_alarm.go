@@ -19,15 +19,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-func hookGoblinKeyAlarm(stdin io.Reader, stderr io.Writer) int {
-	h, err := home.Resolve()
-	if err != nil {
-		fmt.Fprintln(stderr, "key alarm could not resolve its home")
-		return 1
-	}
-	return goblinKeyAlarm("claude", h.State, stdin, stderr)
-}
-
 // goblinKeyAlarm consumes output only in memory. Its durable notice contains
 // a hashed call identity and the detector's fixed names, never output text.
 func goblinKeyAlarm(harnessName, stateDir string, stdin io.Reader, stderr io.Writer) int {
@@ -80,6 +71,14 @@ func goblinKeyAlarm(harnessName, stateDir string, stdin io.Reader, stderr io.Wri
 	if state.ValidTaskID(task) != nil || payload.Session == "" || payload.Call == "" || len(payload.Session) > 4096 || len(payload.Call) > 4096 {
 		fmt.Fprintln(stderr, "key alarm needs a task, session and tool call identity")
 		return 1
+	}
+	if stateDir == "" {
+		h, err := home.Resolve()
+		if err != nil {
+			fmt.Fprintln(stderr, "key alarm could not resolve its home")
+			return 1
+		}
+		stateDir = h.State
 	}
 	if payload.Tool == "" || len(payload.Tool) > 256 || strings.ContainsFunc(payload.Tool, unicode.IsControl) || len(auth.ExposedKeys(payload.Tool)) != 0 {
 		payload.Tool = "tool"

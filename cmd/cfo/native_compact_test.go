@@ -191,7 +191,7 @@ func TestClaudeCompactEventsStayOnTheClaudeHook(t *testing.T) {
 	exit := runNativeHook([]string{"claude", "--home", root, "--state", filepath.Join(root, "state")}, bytes.NewReader(payload), &output, &diagnostics, commandRuntime{})
 
 	// Assert
-	if exit == 0 || !strings.Contains(diagnostics.String(), "PreCompact") {
+	if exit == 0 || strings.TrimSpace(diagnostics.String()) != "native hook event is invalid" {
 		t.Fatalf("Claude PreCompact through the native entry: exit=%d %q, want an unsupported-event error", exit, diagnostics.String())
 	}
 }
