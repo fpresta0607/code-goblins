@@ -143,6 +143,27 @@ func TestAnExplicitOrdinaryRowIsNotARootJustBecauseOfItsName(t *testing.T) {
 	}
 }
 
+func TestAnExplicitRootRowCannotIgnoreAnUnreadablePickupIdentity(t *testing.T) {
+	// Arrange: the row alone could be new work, but its earlier identity
+	// cannot be read, so absence of a pickup has not been established.
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 8*gigabyte, spawner)
+	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] root-widget-7 - Work (repo: widgets)\n")
+	writeFile(t, filepath.Join(h.State, rootPickupsFile), "unreadable json")
+
+	// Act
+	err := handler.Service.startQueued("root-widget-7", false)
+
+	// Assert
+	if err == nil {
+		awaitDispatch(t, handler.Service, spawner, 1)
+		t.Fatal("unreadable root identity authorized a start")
+	}
+	if !strings.Contains(err.Error(), "pickup identity cannot be read") || len(spawner.recorded()) != 0 {
+		t.Fatalf("Start=%v spawns=%v", err, spawner.recorded())
+	}
+}
+
 func TestRootStartKeepsActiveHeldAndRetiredPrecedence(t *testing.T) {
 	for _, test := range []struct {
 		name, want string

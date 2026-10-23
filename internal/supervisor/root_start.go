@@ -62,7 +62,7 @@ func rootForStart(h home.Home, queued fleet.QueuedTask, plan startPlan) *rootSta
 	recordErr := os.ErrNotExist
 	if isRoot || rootTaskName.MatchString(plan.id) {
 		record, recordErr = tickets.ReadRecord(h.State, plan.id)
-		isRoot = isRoot || !errors.Is(recordErr, os.ErrNotExist)
+		isRoot = isRoot || pickedErr != nil || !errors.Is(recordErr, os.ErrNotExist)
 	}
 	if !isRoot {
 		return nil
