@@ -61,7 +61,7 @@ type Options struct {
 }
 
 // Result is one sweep: what was found, what was done about it, and anything
-// the sweep could not read.
+// the sweep could not read or finish.
 type Result struct {
 	Findings []Finding `json:"findings"`
 	Applied  []string  `json:"applied,omitempty"`
@@ -87,8 +87,9 @@ type Service struct {
 	CPU func(pid int) (time.Duration, bool)
 	// Kill ends a process and its children.
 	Kill func(ctx context.Context, pid int) error
-	// Clean returns a task's worktree through the existing cfo cleanup path.
-	Clean func(ctx context.Context, id string, forceArchive bool) error
+	// Clean returns a task's worktree through the existing cfo cleanup path
+	// and reports its output, including warnings after the task is retired.
+	Clean func(ctx context.Context, id string, forceArchive bool) (string, error)
 	// Return releases a worktree directory that has no task record behind it,
 	// through the same primitive cleanup uses.
 	Return func(ctx context.Context, project, worktree string) error
@@ -140,7 +141,13 @@ func (s Service) Apply(ctx context.Context, options Options) (Result, error) {
 		if finding.Held() {
 			continue
 		}
-		if err := s.act(ctx, *finding); err != nil {
+		output, err := s.act(ctx, *finding)
+		for _, line := range strings.Split(output, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				result.Notes = append(result.Notes, fmt.Sprintf("cleanup %s: %s", finding.TaskID, line))
+			}
+		}
+		if err != nil {
 			finding.refuseAbsolutely("action failed: " + err.Error())
 			continue
 		}
@@ -353,29 +360,29 @@ func holdNotAWorktreeOfItsOwn(finding *Finding) {
 	finding.refuseUntilEstablished("this directory holds no files, so no git answer about it belongs to it rather than to an enclosing repository, and nothing about what it is can be established from here; establish what it is before it is removed", finding.TaskID)
 }
 
-func (s Service) act(ctx context.Context, finding Finding) error {
+func (s Service) act(ctx context.Context, finding Finding) (string, error) {
 	switch finding.Class {
 	case OrphanProcess, StaleServer:
 		if s.Kill == nil {
-			return errors.New("no process killer configured")
+			return "", errors.New("no process killer configured")
 		}
-		return s.Kill(ctx, finding.PID)
+		return "", s.Kill(ctx, finding.PID)
 	case OrphanWorktree:
 		return s.returnWorktree(ctx, finding)
 	case OrphanDirectory:
 		// Non-recursive on purpose: it removes the empty shell and fails on
 		// anything else, including a directory a process still holds open,
 		// which is the failure that names the real leak.
-		return os.Remove(finding.Path)
+		return "", os.Remove(finding.Path)
 	case OrphanMeta:
 		if s.Clean == nil {
-			return errors.New("no cleanup path configured")
+			return "", errors.New("no cleanup path configured")
 		}
 		return s.Clean(ctx, finding.TaskID, true)
 	case OrphanStatus:
-		return s.archiveStatus(finding.TaskID)
+		return "", s.archiveStatus(finding.TaskID)
 	default:
-		return fmt.Errorf("no action for class %q", finding.Class)
+		return "", fmt.Errorf("no action for class %q", finding.Class)
 	}
 }
 
@@ -384,7 +391,7 @@ func (s Service) act(ctx context.Context, finding Finding) error {
 // directory with no task record behind it has nothing for cleanup to read, so
 // it goes through the same worktree return primitive cleanup itself calls,
 // rather than through a second removal implementation.
-func (s Service) returnWorktree(ctx context.Context, finding Finding) error {
+func (s Service) returnWorktree(ctx context.Context, finding Finding) (string, error) {
 	// A directory holding no files has nothing to return, and both paths below
 	// run git inside it, which is answered by the enclosing repository. That
 	// is the lie this whole branch exists to stop telling, so it must not be
@@ -398,29 +405,29 @@ func (s Service) returnWorktree(ctx context.Context, finding Finding) error {
 	// it leaves is what nothing else in the fleet ever clears.
 	if empty, err := isEmptyDir(finding.Path); err == nil && empty {
 		if err := os.Remove(finding.Path); err != nil {
-			return err
+			return "", err
 		}
 		if !finding.Registered {
-			return nil
+			return "", nil
 		}
 		_, err := s.git(ctx, finding.Project, "worktree", "prune")
-		return err
+		return "", err
 	}
 	if finding.TaskID != "" && state.ValidTaskID(finding.TaskID) == nil {
 		if _, err := os.Stat(filepath.Join(s.Home.State, finding.TaskID+".meta")); err == nil {
 			if s.Clean == nil {
-				return errors.New("no cleanup path configured")
+				return "", errors.New("no cleanup path configured")
 			}
 			return s.Clean(ctx, finding.TaskID, false)
 		}
 	}
 	if s.Return == nil {
-		return errors.New("no worktree return path configured")
+		return "", errors.New("no worktree return path configured")
 	}
 	if finding.Project == "" {
-		return errors.New("the checkout this worktree belongs to is unknown, so there is no repository to return it through")
+		return "", errors.New("the checkout this worktree belongs to is unknown, so there is no repository to return it through")
 	}
-	return s.Return(ctx, finding.Project, finding.Path)
+	return "", s.Return(ctx, finding.Project, finding.Path)
 }
 
 // archiveStatus moves an orphaned status log under state/archive/ rather than
