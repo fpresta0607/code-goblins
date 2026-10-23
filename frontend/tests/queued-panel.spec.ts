@@ -47,8 +47,6 @@ async function select(page: Page, id: string) {
   if (await back.count()) await back.click();
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
 }
 
 // The names of a row's buttons, in the order they are drawn.

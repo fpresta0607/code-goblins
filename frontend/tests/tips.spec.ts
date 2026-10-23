@@ -155,7 +155,6 @@ for (const [size, viewport, boardTips, panelTips] of [["wide", { width: 1440, he
       await open(page);
       await page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-two", { exact: true }) }).locator(".task-card").click();
       await expect(page.locator("#panel-title")).toHaveText("working-two");
-      await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       const { shown, faults } = await walk(page.locator(".context-pane"));
       expect(shown).toBeGreaterThanOrEqual(panelTips);
       expect(faults).toEqual([]);
@@ -262,7 +261,6 @@ test("no part on the board, a task's panel, the Command Center or the canvas car
   // Act: the board, a task's panel, the Command Center, then the canvas.
   seen.push(...await titled());
   await page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-two", { exact: true }) }).locator(".task-card").click();
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   seen.push(...await titled());
   await openItem(page, "Which layout should the board open in");
   await expect(page.locator("dialog.question-modal")).toBeVisible();

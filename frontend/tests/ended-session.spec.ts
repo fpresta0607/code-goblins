@@ -342,16 +342,13 @@ for (const backend of ["native", "herdr"] as const) {
     await page.goto("/");
     await page.getByRole("button", { name: /^Terminal fixes and handoff/ }).first().click();
     const panel = page.locator(".goblin-panel");
-    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" }).click();
     await expect(page.getByText("Resume failed.", { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
     expect(await connections()).toEqual([]);
 
-    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task" }).click();
     await panel.getByRole("button", { name: "Resume Terminal fixes and handoff" }).click();
     await expect.poll(() => requests).toEqual([expect.objectContaining({ task: "input-proof", generation: "s2-9d41", revision: "q7", action: "resume" })]);
     await publish({ ...snapshot, revision: 2, tasks: [{ ...snapshot.tasks[0], phase: "resuming" }] });
-    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" }).click();
     await expect(page.getByText("Resuming session...", { exact: true })).toBeVisible();
     expect(await connections()).toEqual([]);
     await publish({ ...snapshot, revision: 3, tasks: [{ ...snapshot.tasks[0], generation: "s3-a17c", phase: "working", runtime: { state: "busy", reason: "", at: "2026-09-30T10:02:00Z" }, lifecycle: undefined, action_error: "" }] });

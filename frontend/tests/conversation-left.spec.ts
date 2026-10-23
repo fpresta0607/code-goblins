@@ -32,7 +32,6 @@ test("the board names the conversation the CFO could not resume in the CFO's pan
   await expect(bar.locator("p")).toHaveText("The board cannot reach the CFO.");
   await expect(bar.locator("p")).toHaveAttribute("data-tip", UNREGISTERED);
   await bar.getByRole("button", { name: "Open the CFO's terminal" }).last().click();
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   await expect(page.locator(".cfo-conversation-left")).toHaveText(LEFT);
 });
 

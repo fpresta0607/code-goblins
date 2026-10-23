@@ -156,7 +156,6 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
   // Act
   await page.reload();
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
-  await page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task", exact: true }).click();
 
   // Assert
   await expect(board(page)).toBeVisible();
@@ -172,7 +171,6 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
 async function besideTheBoard(page: Page) {
   await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
   await expect(board(page)).toBeVisible();
   await expect(cfoBox(page)).toBeVisible();

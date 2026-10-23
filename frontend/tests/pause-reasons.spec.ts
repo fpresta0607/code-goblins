@@ -45,8 +45,6 @@ const panel = (page: Page) => page.locator(".goblin-panel");
 async function select(page: Page, id: string) {
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
 }
 
 for (const width of [1440, 390]) {

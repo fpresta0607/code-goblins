@@ -41,7 +41,7 @@ import { TaskAdjustment } from "./task-adjustment";
 // while an update of the CFO's harness waits and Restart PC before that while
 // the kernel's pools are past their line, and under them what a press of
 // Update waits for or why it did not restart the CFO.
-export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, compact, isDetails = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -88,39 +88,48 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
     } catch (error: unknown) { showFeedback(message(error)); }
     finally { setOpening(false); }
   };
+  // What the full header shows and the compact one leaves out, which the
+  // panel's task list shows beside the compact header instead (isDetails).
+  const projectLine = task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>;
+  const helper = helps && <p className="muted">Helper of {helps}</p>;
+  const partOf = !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>;
+  const activity = said?.sentence && <p className="panel-activity">{said.sentence}</p>;
+  const detailsRow = said && (said.details.length > 0 || said.isFailure) && <div className="panel-details-row">
+      <RawDetails lines={said.details} isPlain={said.isPlain} />
+      {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
+    </div>;
+  const actions = owner && (!!task.generation || task.ticket || pr || task.local_checks || task.deployment) && <div className="panel-actions">
+      {!!task.generation && <>
+        <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
+        <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
+      </>}
+      {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : waiting.kind === "browser-signin" ? signInHeading(waiting.signin) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
+      {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
+      {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
+      {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}
+      {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="icon-button raised pill-link" />}
+      {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
+      <ClickFeedback text={feedback} />
+    </div>;
+  if (isDetails) return <div className="panel-header-details">{projectLine}{helper}{partOf}{activity}{detailsRow}{actions}</div>;
   return <header className={"panel-header" + (compact ? " compact" : "")}>
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-heading">
       <div className="panel-identity" onPointerEnter={measure}>
         <h2 id="panel-title" data-tip={cut.name ? title : ""}>{title}</h2>
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
-        {!compact && task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>}
-        {!compact && helps && <p className="muted">Helper of {helps}</p>}
+        {!compact && projectLine}
+        {!compact && helper}
         <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}><span className="status-dot" />{status}{!compact && awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
         {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
-        {!compact && !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>}
-        {!compact && said?.sentence && <p className="panel-activity">{said.sentence}</p>}
-        {!compact && said && (said.details.length > 0 || said.isFailure) && <div className="panel-details-row">
-          <RawDetails lines={said.details} isPlain={said.isPlain} />
-          {owner && said.isFailure && !task.archived && <button className="text-button" onClick={onOpenLog}>Open the log</button>}
-        </div>}
+        {!compact && partOf}
+        {!compact && activity}
+        {!compact && detailsRow}
       </div>
       {/* A finished task's checks and deploy are in its panel alone, so its
           links show there too; only a live one opens its folder, and not on
           a small screen, since VS Code and the folder open on the PC. */}
-      {!compact && owner && (!!task.generation || task.ticket || pr || task.local_checks || task.deployment) && <div className="panel-actions">
-        {!!task.generation && <>
-          <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open in VS Code" data-tip="Open in VS Code" onClick={() => void open("vscode")}><img className="brand-icon" src="/assets/vscode.svg" alt="" /></button>
-          <button className="icon-button raised opens-on-pc" disabled={opening || !snapshot.instance} aria-label="Open folder" data-tip="Open folder" onClick={() => void open("folder")}><Icon name="folder" /></button>
-        </>}
-        {waiting && <button className="icon-button raised pill-link answer" aria-label={"Answer: " + (waiting.kind === "question" ? plainMessage(waiting.question.text) : waiting.kind === "credential" ? credentialAsk(waiting.request) : waiting.kind === "browser-signin" ? signInHeading(waiting.signin) : reviewLine(waiting.review))} onClick={() => onAnswer(waiting.key)}><Icon name="command-center" /><span>Answer</span></button>}
-        {task.ticket && <TicketLink ticket={task.ticket} className="icon-button raised pill-link" />}
-        {pr && <a className="icon-button raised pill-link" href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} data-tip="Open pull request">{badge.github ? <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg> : <Icon name="pull-request" />}<span>{badge.label}</span></a>}
-        {owner && task.local_checks && <LocalChecksLink checks={task.local_checks} taskId={task.id} className="icon-button raised pill-link" />}
-        {pr && test && <PullRequestTestLink test={test} approved={!!task.hosted_checks?.approved} className="icon-button raised pill-link" />}
-        {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
-        <ClickFeedback text={feedback} />
-      </div>}
+      {!compact && actions}
     </div>
     {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />}
     {cfo && snapshot.cfo_update?.pending && <p className="cfo-update-line" role="status"><Icon name="clock" />Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</p>}

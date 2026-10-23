@@ -1381,6 +1381,17 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    terminal stepped into the messages' place has a bar floating over its top
    edge that takes none of its height. */
 .panel-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+/* The panel's one view: the stage beside the column its task list is drawn
+   into, which a small screen folds under the header instead. */
+.panel-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.panel-side { display: flex; flex: none; width: clamp(280px, 30%, 400px); min-height: 0; border-top: 1px solid var(--glass-border); border-left: 1px solid var(--glass-border); }
+.panel-side > .panel-task { flex: 1; }
+.panel-side .panel-content { padding: 0 18px 24px; }
+.panel-task-fold { flex: none; max-height: 50%; overflow: hidden auto; border-top: 1px solid var(--glass-border); }
+.panel-task-fold > .disclosure { margin: 0; border: 0; border-radius: 0; }
+.panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
+.panel-header-details:empty { display: none; }
+.panel-side .panel-header-details { padding: 14px 18px 0; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
 .stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
 .stepped-in-bar > button { pointer-events: auto; }

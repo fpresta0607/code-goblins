@@ -25,7 +25,6 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
     await expect(card).toBeVisible();
     await expect(card.getByText(/Windows is still closing/)).toHaveCount(0);
     await card.click();
-    await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
     const details = page.locator(".lifecycle-panel");
     // The panel names the process behind Details. Working has no line under
     // it (the Overlord, 2026-10-05), so there the sentence is the first thing

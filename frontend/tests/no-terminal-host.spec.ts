@@ -83,7 +83,6 @@ test("a goblin that did not come back after the restart says it has no terminal,
 
   // Act: he turns to its Task view and opens Harness, as the words say.
   await page.route("**/api/engines", (route) => route.fulfill({ json: ENGINES }));
-  await page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task", exact: true }).click();
   await page.locator(".goblin-panel summary").filter({ hasText: "Harness" }).click();
 
   // Assert: Restart, which brings it back, and Stop, which retires it.

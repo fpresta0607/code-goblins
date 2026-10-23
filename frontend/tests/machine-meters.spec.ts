@@ -82,7 +82,6 @@ test.describe("in the Overlord's window, 1707 px wide", () => {
         const column = await board(page, { processors, gpu });
         if (beside !== "as the board opens") {
           await page.keyboard.press("Control+Alt+1");
-          await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
           await expect(page.locator(".context-pane")).toBeVisible();
         }
 

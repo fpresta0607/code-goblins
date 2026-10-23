@@ -33,8 +33,6 @@ async function openTerminal(page: Page, goblin: Record<string, unknown>) {
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await page.locator(".task-card").filter({ hasText: "Frank" }).click();
-  const terminal = page.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true });
-  if (await terminal.count()) await terminal.click();
   await page.evaluate(() => document.fonts.ready);
   return page.locator(".panel-header");
 }
@@ -72,7 +70,6 @@ test("the Task view still names the task and holds VS Code, the folder, the tick
   await openTerminal(page, FRANK);
 
   // Act
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   const header = page.locator(".panel-header");
 
   // Assert
@@ -88,7 +85,6 @@ test("the Task view of a goblin waiting on another goblin still links to that go
   await openTerminal(page, { ...FRANK, phase: "waiting", waiting_on: WANDA.id });
 
   // Act
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
 
   // Assert
   await expect(page.locator(".panel-header .panel-status").getByRole("button", { name: "Open Wanda - Map Maker, which this goblin is waiting on" })).toBeVisible();

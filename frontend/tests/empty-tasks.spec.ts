@@ -67,7 +67,6 @@ test("the CFO's Task view lists an empty queue the same way", async ({ page }) =
   // Arrange
   await board(page);
   await page.keyboard.press("Control+Alt+1");
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   const queue = page.getByRole("region", { name: "Queued tasks", exact: true });
 
   // Act

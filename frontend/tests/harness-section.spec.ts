@@ -44,14 +44,11 @@ async function open(page: Page, tasks: object[]) {
 async function openTask(page: Page) {
   await page.locator(".task-card").filter({ hasText: "Choose the task engine" }).first().click();
   await expect(page.locator("#panel-title")).toHaveText("Choose the task engine");
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
 }
 
 async function openCfo(page: Page) {
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
 }
 
 const harness = (page: Page) => page.locator("details.harness");

@@ -105,7 +105,6 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(page.locator("#panel-title")).toHaveText("Jerry - Code Designer");
       // Its Terminal view names the task by its id, its Task view by its title.
       await expect(page.locator(".panel-goblin-task")).toHaveText("nw-sync");
-      await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       await expect(page.locator(".panel-goblin-task")).toHaveText("Say why a billing sync fails");
     });
 

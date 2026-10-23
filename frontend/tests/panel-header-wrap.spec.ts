@@ -136,7 +136,6 @@ test("a name and a title cut short show in full in their tips", async ({ page })
   const name = "Merge Maestro of the Connector Release Notes";
   const title = "What's new in PrecisionDocs for the connector changes, with the release notes for every connector shipped this week and the steps each one needs";
   await open(page, 360, { ...BERNIE, goblin_title: name, title });
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   const header = page.locator(".panel-header");
 
   // Act
