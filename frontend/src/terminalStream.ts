@@ -134,6 +134,7 @@ export interface ScreenState {
   isAsking: boolean;
   isOpen: boolean;
   isWorking: boolean;
+  submission: string;
 }
 
 // The relay says what it read of the harness's screen each time that changes.
@@ -141,8 +142,8 @@ export function parseScreen(text: string): ScreenState | null {
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null) return null;
-    const { type, asking, open, working } = value as Record<string, unknown>;
-    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" ? { isAsking: asking, isOpen: open, isWorking: working } : null;
+    const { type, asking, open, working, submission } = value as Record<string, unknown>;
+    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" ? { isAsking: asking, isOpen: open, isWorking: working, submission } : null;
   } catch {
     return null;
   }

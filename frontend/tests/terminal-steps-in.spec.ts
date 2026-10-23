@@ -15,9 +15,11 @@ const messages = (page: Page) => page.getByRole("region", { name: "Messages", ex
 
 // sendFromBox types text into Zeke's box and sends it with Enter, as he does.
 async function sendFromBox(page: Page, relay: Relay, text: string) {
+  const sent = relay.submissions.length
   await field(page).fill(text);
   await field(page).press("Enter");
   await expect.poll(() => typed(relay)).toContain(pasted(text) + "\r");
+  await expect.poll(() => relay.submissions.length).toBe(sent + 1)
 }
 
 test("a picker opens despite background work, takes the keyboard and Escape, and steps out at the input line", async ({ page }) => {
@@ -45,6 +47,33 @@ test("a picker opens despite background work, takes the keyboard and Escape, and
   await expect(back(page)).toHaveCount(0);
   await expect(field(page)).toBeFocused();
 });
+
+for (const timing of ["cached", "in flight"] as const) {
+  test(`a ${timing} working sample from before Send cannot cancel its picker`, async ({ page }) => {
+    const relay = await open(page)
+    await openGoblin(page)
+    const note = box(page).locator(".composer-note")
+    relay.say({ type: "screen", asking: false, open: false, working: true, submission: "earlier-turn" })
+    relay.say({ type: "unread", unread: true })
+    await expect(note).toHaveText("Program busy. Typed keys are waiting.")
+    relay.say({ type: "unread", unread: false })
+    await expect(note).toHaveText("")
+
+    await sendFromBox(page, relay, "/model")
+    if (timing === "in flight") {
+      relay.say({ type: "screen", asking: false, open: false, working: true, submission: "earlier-turn" })
+      relay.say({ type: "unread", unread: true })
+      await expect(note).toHaveText("Program busy. Typed keys are waiting.")
+      relay.say({ type: "unread", unread: false })
+      await expect(note).toHaveText("")
+    }
+    relay.say({ type: "screen", asking: true, open: true, working: false })
+
+    await expect(back(page)).toBeVisible()
+    await expect(messages(page)).toBeHidden()
+    await expect(terminal(page)).toBeFocused()
+  })
+}
 
 test("Back to messages returns to the messages with the keyboard in the box, and his draft there is the same", async ({ page }) => {
   // Arrange
@@ -92,7 +121,10 @@ test("a question that comes during a turn keeps the amber card rather than stepp
   await openGoblin(page);
   await sendFromBox(page, relay, "write nine.txt");
   relay.say({ type: "screen", asking: false, open: false, working: true });
-  await page.waitForTimeout(100);
+  relay.say({ type: "unread", unread: true })
+  await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+  relay.say({ type: "unread", unread: false })
+  await expect(box(page).locator(".composer-note")).toHaveText("")
 
   // Act
   relay.say({ type: "screen", asking: true, open: true, working: false });
@@ -108,9 +140,15 @@ test("a completed harness turn clears send intent before an unrelated panel open
   await openGoblin(page);
   await sendFromBox(page, relay, "read the brief");
   relay.say({ type: "screen", asking: false, open: false, working: true });
-  await page.waitForTimeout(100);
+  relay.say({ type: "unread", unread: true })
+  await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+  relay.say({ type: "unread", unread: false })
+  await expect(box(page).locator(".composer-note")).toHaveText("")
   relay.say({ type: "screen", asking: false, open: false, working: false });
-  await page.waitForTimeout(100);
+  relay.say({ type: "unread", unread: true })
+  await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+  relay.say({ type: "unread", unread: false })
+  await expect(box(page).locator(".composer-note")).toHaveText("")
 
   relay.say({ type: "screen", asking: false, open: true, working: false });
 

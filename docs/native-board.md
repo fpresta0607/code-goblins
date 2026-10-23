@@ -1354,7 +1354,8 @@ What the box sends that opens a screen of the harness's own, a picker, a panel, 
 The relay reads the screen as it does for the amber card and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`).
 The terminal steps in when the screen opens after a Send from the box and before the harness starts a turn, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
 The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`, so background work that makes the fleet busy does not cancel a Send waiting for its screen.
-It reads soon after output even while a spinner keeps drawing, and a real harness turn clears that Send before an unrelated screen can open.
+Each Send marks its submitted input with an ID, which the relay attaches to screen reads begun after that marker, so a cached or in-flight reading from before the Send cannot cancel it.
+It reads soon after output even while a spinner keeps drawing, and a real harness turn read after that submission clears that Send before an unrelated screen can open.
 Every key is the terminal's while it is in, Escape included, and Shift+Escape leaves it for the panel's top row.
 It steps out by itself once the harness's input line is back, and Back to messages steps out at once, each handing the keyboard back to the box with his draft as he left it.
 A question that comes during a turn keeps the amber card, whose Answer in the terminal steps the terminal in.

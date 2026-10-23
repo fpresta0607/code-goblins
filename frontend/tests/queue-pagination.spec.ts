@@ -1,4 +1,4 @@
-import { expect, openBoardPastFirstRun, openTaskList, test } from "./site";
+import { expect, openBoardPastFirstRun, openTaskList, taskList, test } from "./site";
 import snapshot from "./fixtures/queued-snapshot.json" with { type: "json" };
 
 // Tall enough for a first page of most of the queue and a short final page
@@ -27,10 +27,12 @@ test("the CFO queue can turn to its short final page without a render loop", asy
   });
   await openBoardPastFirstRun(page);
   await page.keyboard.press("Control+Alt+1");
-  await openTaskList(page);
   await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+  await expect(page.locator(".panel-side-task")).toHaveCount(1)
   await page.evaluate(() => document.fonts.ready);
   await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "832px"; });
+  await expect(page.locator(".panel-task-fold")).toHaveCount(1)
+  await openTaskList(page)
   const queue = page.locator(".cfo-queue");
   let held = 0;
   await expect.poll(async () => {
@@ -41,13 +43,13 @@ test("the CFO queue can turn to its short final page without a render loop", asy
   expect(held).toBeLessThan(11);
   const first = `1\u2013${held} of 11`, last = held === 10 ? "11 of 11" : `${held + 1}\u201311 of 11`;
   await expect(queue.locator(".pager")).toContainText(first);
-  expect(await page.locator(".panel-task").evaluate((panel) => panel.scrollHeight > panel.clientHeight)).toBe(true);
+  expect(await taskList(page).evaluate((panel) => panel.scrollHeight > panel.clientHeight)).toBe(true);
   const width = await queue.locator(".fit-list").evaluate((list) => list.clientWidth);
   for (let turn = 0; turn < 3; turn++) {
     await queue.getByRole("button", { name: "Next cards", exact: true }).click();
     await expect(queue.locator(".pager")).toContainText(last);
     await expect(queue.locator(".task-card-shell")).toHaveCount(11 - held);
-    expect(await page.locator(".panel-task").evaluate((panel) => panel.scrollHeight > panel.clientHeight)).toBe(false);
+    expect(await taskList(page).evaluate((panel) => panel.scrollHeight > panel.clientHeight)).toBe(false);
     await expect(queue.getByText(snapshot.tasks[10].title, { exact: true })).toBeVisible();
     expect(await queue.locator(".fit-list").evaluate((list) => list.clientWidth)).toBe(width);
     await queue.getByRole("button", { name: "Earlier cards", exact: true }).click();

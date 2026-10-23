@@ -63,9 +63,10 @@ type nativeRelay struct {
 	// screen tells the view what its harness's screen shows, while the view
 	// has not been told that yet, told is what the view was last told,
 	// and looking says a read of the screen is due.
-	screen  []byte
-	told    *screenState
-	looking bool
+	screen     []byte
+	told       *screenState
+	looking    bool
+	submission string
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -74,7 +75,12 @@ type nativeRelay struct {
 // screenState is what a view is told of its harness's screen: whether the
 // harness waits on an answer at a screen of its own, and whether something of
 // its own is open in its input line's place or a turn is running.
-type screenState struct{ asking, open, working bool }
+type screenState struct {
+	Asking     bool   `json:"asking"`
+	Open       bool   `json:"open"`
+	Working    bool   `json:"working"`
+	Submission string `json:"submission"`
+}
 
 // relaySize is a size to tell the view once the output before it is sent.
 type relaySize struct {
@@ -232,6 +238,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	look := time.AfterFunc(screenAtOpen, func() {
 		relay.mu.Lock()
 		relay.looking = false
+		submission := relay.submission
 		relay.mu.Unlock()
 		if binding.harness == nil {
 			return
@@ -244,11 +251,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		state := screenState{asking: screens.IsAsking(rows), open: screens.IsOpen(rows), working: screens.IsWorking(rows)}
+		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: submission}
 		relay.mu.Lock()
-		if relay.told == nil || *relay.told != state {
+		if submission == relay.submission && (relay.told == nil || *relay.told != state) {
 			relay.told = &state
-			relay.screen = []byte(fmt.Sprintf(`{"type":"screen","asking":%t,"open":%t,"working":%t}`, state.asking, state.open, state.working))
+			relay.screen, _ = json.Marshal(struct {
+				Type string `json:"type"`
+				screenState
+			}{"screen", state})
 		}
 		relay.mu.Unlock()
 		relay.signal()
@@ -398,14 +408,29 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 		if kind == websocket.MessageText {
 			var control struct {
-				Type  string `json:"type"`
-				Cols  int    `json:"cols"`
-				Rows  int    `json:"rows"`
-				Bytes int64  `json:"bytes"`
+				Type       string `json:"type"`
+				Cols       int    `json:"cols"`
+				Rows       int    `json:"rows"`
+				Bytes      int64  `json:"bytes"`
+				Submission string `json:"submission"`
 			}
-			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" {
-				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize or an acknowledgement.")
+			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" && control.Type != "submit" {
+				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize, an acknowledgement or a submission.")
 				return
+			}
+			if control.Type == "submit" {
+				if control.Submission == "" || len(control.Submission) > 128 {
+					_ = view.Close(websocket.StatusUnsupportedData, "A submission needs an ID of at most 128 bytes.")
+					return
+				}
+				relay.mu.Lock()
+				relay.submission = control.Submission
+				if !relay.looking {
+					relay.looking = true
+					look.Reset(screenSettle)
+				}
+				relay.mu.Unlock()
+				continue
 			}
 			if control.Type == "ack" {
 				relay.mu.Lock()

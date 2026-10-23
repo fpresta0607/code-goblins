@@ -81,12 +81,14 @@ const ROOM = 5 * 2 ** 30;
 
 // What a wait for room reads and how long it waits; a test of the wait itself
 // replaces them.
+export const taskList = (page: Page) => page.locator(".panel-task-fold, .panel-side-task, .goblin-panel > .panel-task")
+
 // openTaskList opens the panel's task list where it folds under the header,
 // as it does on a panel too narrow to hold it beside the messages or the
 // terminal, as he does, and leaves one beside them or open as it is. It
 // returns the header details in that list, or the standalone full header.
 export async function openTaskList(page: Page): Promise<Locator> {
-  const place = page.locator(".panel-task-fold, .panel-side-task, .goblin-panel > .panel-task");
+  const place = taskList(page)
   await expect(place).toHaveCount(1);
   const fold = page.locator(".panel-task-fold > details");
   if (await fold.count() && !await fold.evaluate((element) => (element as HTMLDetailsElement).open)) await fold.locator("> summary").click();

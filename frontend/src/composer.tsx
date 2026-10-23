@@ -50,7 +50,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   // terminal is the terminal deck's key of the session's terminal, and
   // onSent is told of each message typed into it, so a screen of the
   // harness's own that it opens can bring the terminal in.
-  terminal: string; isWorking?: boolean; focus?: number; onAnswer?: () => void; onSent?: () => void;
+  terminal: string; isWorking?: boolean; focus?: number; onAnswer?: () => void; onSent?: (submission: string) => void;
 }) {
   const queues = !!task && takesMessages(task);
   const link = useTerminalLink(terminal);
@@ -88,7 +88,8 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     const text = draft.trim();
     if (!text || isSending || held || isAsking || isUnread) return;
     if (!task || !queues) {
-      if (live?.send(text)) { setDraft(""); setUnsent(""); onSent?.(); } else setUnsent(unsentWhy);
+      const submission = live?.send(text)
+      if (submission) { setDraft(""); setUnsent(""); onSent?.(submission); } else setUnsent(unsentWhy);
       return;
     }
     sendID.current ||= crypto.randomUUID();
