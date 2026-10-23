@@ -1346,11 +1346,13 @@ func TestARunThatWaitedForASlotStillWaitsOutABriefBusyLock(t *testing.T) {
 	taken := take(t, a)
 	says.atLeast(t, 1)
 	time.Sleep(1200 * time.Millisecond)
-	if err := holder.Release(); err != nil {
-		t.Fatal(err)
-	}
-	restore := shortCustodyBudget(t)
+	// The lock turns busy before the slot is let go, and the slot goes back
+	// through the lock, so the run never finds both free between the two, as
+	// a run polling on a loaded machine did and took its turn (#1336).
 	release := holdLineLock(t, a.Dir, "in this process")
+	restore := shortCustodyBudget(t)
+	released := make(chan error, 1)
+	go func() { released <- holder.Release() }()
 	says.saying(t, "the line's lock is busy")
 	restore()
 
@@ -1358,12 +1360,20 @@ func TestARunThatWaitedForASlotStillWaitsOutABriefBusyLock(t *testing.T) {
 	release()
 
 	// Assert
+	select {
+	case err := <-released:
+		if err != nil {
+			t.Fatalf("the holder's release: %v", err)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the holder's release never ended")
+	}
 	turn := within(t, taken, "the run that waited for a slot, then found the lock busy")
 	if err := turn.Release(); err != nil {
 		t.Errorf("Release: %v", err)
 	}
 	if lines := strings.Join(says.atLeast(t, 2), "\n"); !strings.Contains(lines, "the line's lock is busy") {
-		t.Fatalf("the run said %q; want it to have found the lock busy after its slot was free", lines)
+		t.Fatalf("the run said %q; want it to have found the lock busy after it waited for its slot past its limit", lines)
 	}
 }
 
