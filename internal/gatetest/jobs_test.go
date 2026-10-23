@@ -128,8 +128,11 @@ func TestAPullRequestsRunStartsTheJobsItsChangeCanAlter(t *testing.T) {
 		starts   []string
 		leaveOut []string
 	}{
-		"a board change": {[]string{"frontend/src/App.tsx"}, []string{"frontend", "browser"}, goJobs},
-		"a browser spec": {[]string{"frontend/tests/afk.spec.ts"}, []string{"frontend", "browser"}, goJobs},
+		"a board change":                                {[]string{"frontend/src/App.tsx"}, []string{"frontend", "browser"}, goJobs},
+		"a browser spec":                                {[]string{"frontend/tests/afk.spec.ts"}, []string{"frontend", "browser"}, goJobs},
+		"the Go renderer a browser spec builds":         {[]string{"internal/afk/page.go"}, []string{"browser", "go (rest)"}, []string{"frontend", "go (conpty)"}},
+		"the report page the Go renderer embeds":        {[]string{"internal/afk/page.html"}, []string{"browser", "go (rest)"}, []string{"frontend", "go (conpty)"}},
+		"a dependency of the Go renderer":               {[]string{"internal/disk/disk.go"}, []string{"browser", "go (rest)"}, []string{"frontend", "go (conpty)"}},
 		"a Go change in a package of the rest job":      {[]string{"internal/train/engine.go"}, []string{"go (rest)", "go (cmd-cfo-1)", "go (cmd-cfo-2)"}, []string{"frontend", "browser"}},
 		"a Go change in a package with jobs of its own": {[]string{"internal/conpty/conpty_windows.go"}, []string{"go (conpty)", "go (rest)"}, []string{"browser"}},
 		"a document nothing embeds":                     {[]string{"README.md"}, nil, repo.every()},
