@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -29,6 +31,16 @@ func recordConversation(t *testing.T, stateDir, harness, session, host string) {
 	}
 }
 
+func useTranscriptHome(t *testing.T, root string) {
+	t.Helper()
+	userHome := filepath.Join(root, "user")
+	if err := os.Mkdir(userHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("USERPROFILE", userHome)
+	t.Setenv("HOME", userHome)
+}
+
 // claudeTranscript writes Claude Code's transcript of session, a
 // conversation the CFO of the home rooted at root held, size bytes long,
 // under the test's own user home, as Claude Code writes it once the
@@ -39,7 +51,8 @@ func claudeTranscript(t *testing.T, root, session string, size int64) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(strings.ToLower(userHome), strings.ToLower(os.TempDir())) {
+	relative, err := filepath.Rel(root, userHome)
+	if err != nil || relative != "user" {
 		t.Fatalf("the user home %s is not the test's own", userHome)
 	}
 	folder := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(root, "-"))
@@ -54,6 +67,78 @@ func claudeTranscript(t *testing.T, root, session string, size int64) string {
 		t.Fatal(err)
 	}
 	return transcript
+}
+
+func TestClaudeTranscriptWritesOnlyToItsFixtureHome(t *testing.T) {
+	if root := os.Getenv("CFO_TRANSCRIPT_FIXTURE_ROOT"); root != "" {
+		claudeTranscript(t, root, "fixture-session", 37)
+		return
+	}
+	for _, testCase := range []struct {
+		name       string
+		homePath   string
+		isSplit    bool
+		wantReject bool
+	}{
+		{name: "shared temporary root", homePath: "fixture/user"},
+		{name: "distinct temporary roots", homePath: "fixture/user", isSplit: true},
+		{name: "unrelated temporary home", homePath: "unrelated", wantReject: true},
+		{name: "user home textual prefix", homePath: "fixture/user-other", wantReject: true},
+		{name: "fixture root textual prefix", homePath: "fixture-other/user", wantReject: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			temporaryRoot := t.TempDir()
+			goTemporaryRoot := filepath.Join(temporaryRoot, "go")
+			osTemporaryRoot := goTemporaryRoot
+			if testCase.isSplit {
+				osTemporaryRoot = filepath.Join(temporaryRoot, "os")
+			}
+			fixtureRoot := filepath.Join(goTemporaryRoot, "fixture")
+			userHome := filepath.Join(goTemporaryRoot, filepath.FromSlash(testCase.homePath))
+			for _, directory := range []string{goTemporaryRoot, osTemporaryRoot, fixtureRoot, userHome} {
+				if err := os.MkdirAll(directory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			program, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+			defer cancel()
+			command := execx.CommandContext(ctx, program, "-test.run=^TestClaudeTranscriptWritesOnlyToItsFixtureHome$", "-test.count=1")
+			command.Env = cfoTestEnv(t, fixtureRoot, map[string]string{
+				"CFO_TRANSCRIPT_FIXTURE_ROOT": fixtureRoot,
+				"USERPROFILE":                 userHome, "HOME": userHome,
+				"GOTMPDIR": goTemporaryRoot, "TEMP": osTemporaryRoot,
+				"TMP": osTemporaryRoot, "TMPDIR": osTemporaryRoot,
+			})
+
+			// Act
+			output, err := command.CombinedOutput()
+
+			// Assert
+			if testCase.wantReject {
+				var exitError *exec.ExitError
+				if !errors.As(err, &exitError) || !strings.Contains(string(output), "is not the test's own") {
+					t.Fatalf("fixture error=%v, output=%s; want ownership refusal", err, output)
+				}
+				if _, err := os.Stat(filepath.Join(userHome, ".claude")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("rejected home gained transcript files: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("fixture error=%v, output=%s", err, output)
+			}
+			transcript := filepath.Join(userHome, ".claude", "projects", claudeProjectFolder.ReplaceAllString(fixtureRoot, "-"), "fixture-session.jsonl")
+			info, err := os.Stat(transcript)
+			if err != nil || info.Size() != 37 {
+				t.Fatalf("fixture transcript=%v, error=%v; want 37 bytes in its own home", info, err)
+			}
+		})
+	}
 }
 
 // noResumeWait makes the look at a resumed CFO immediate.
@@ -486,7 +571,6 @@ func TestACFOResumesItsConversationByTheContextTheResumeLoads(t *testing.T) {
 			// Arrange
 			noResumeWait(t)
 			f := newSessionFixture(t)
-			t.Setenv("USERPROFILE", t.TempDir())
 			recordConversation(t, f.home.State, "claude", "large-session", supervisor.NativeCFOTerminal)
 			writeClaudeTranscript(t, f.home.Root, "large-session", tc.lines...)
 
@@ -534,8 +618,8 @@ func TestTheContextAClaudeCodeResumeLoads(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
-			t.Setenv("USERPROFILE", t.TempDir())
 			root := t.TempDir()
+			useTranscriptHome(t, root)
 			if tc.lines != nil {
 				writeClaudeTranscript(t, root, "a1b2c3d4-session", tc.lines...)
 			}
