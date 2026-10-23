@@ -21,11 +21,12 @@ import (
 // labelled hold or moved to another head since it rode must not land as it
 // rode, so nothing merges and the rest is tested again without it. A base
 // that moved during the run is tested again too, since what the run proved
-// is not what would land. The merge lands every rider or none. Before it
-// starts the record says so, and a landing cut short finds on the base
-// whether it went through. The pull request that merges wears the train's
-// label, which is made sure of here: an older build opened one without it,
-// and a label can be taken off by hand.
+// is not what would land, and one whose deploy has not finished successfully
+// holds the merge until it has (deploy.go). The merge lands every rider or
+// none. Before it starts the record says so, and a landing cut short finds
+// on the base whether it went through. The pull request that merges wears
+// the train's label, which is made sure of here: an older build opened one
+// without it, and a label can be taken off by hand.
 func (e Engine) land(ctx context.Context, t *Train) error {
 	if !t.Landing {
 		base, err := e.baseSHA(ctx, *t)
@@ -39,6 +40,13 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 				return e.finish(ctx, t, StateFailed, fmt.Sprintf("%s moved during %d runs in a row, so nothing they tested could land: hold other merges to %s, then start the train again", t.Base, t.Moved, t.Base))
 			}
 			return e.rebuild(ctx, t, fmt.Sprintf("%s moved from %s to %s during the run, so it is tested again on the new %s", t.Base, short(t.BaseSHA), short(base), t.Base))
+		}
+		deploy, err := e.unverifiedDeploy(ctx, *t)
+		if err != nil {
+			return err
+		}
+		if deploy != nil {
+			return e.holdForDeploy(ctx, t, *deploy)
 		}
 		changed, err := e.recheck(ctx, t)
 		if err != nil {
