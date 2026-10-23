@@ -1337,7 +1337,7 @@ The session's terminal lies laid out unseen behind the messages, in the same box
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
 While the harness works a working line says so with Stop, which presses Escape in its terminal.
 What keeps a message from the terminal is said beside the box, and his draft stays: Program busy while typed keys wait unread, Not sent while the terminal connects, reconnects or is closed, which is never sent late, and the reason a gate holds typing.
-While the harness waits on an answer at a screen of its own, as the relay reads it, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would answer that screen.
+While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the Terminal view's box does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its Terminal view has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Recent messages beside the microphone lists the board's recent dictations, each with Copy and Paste into the message.
@@ -1354,7 +1354,7 @@ Every key is the terminal's while it is in, Escape included, and Shift+Escape le
 It steps out by itself once the harness's input line is back, and Back to messages steps out at once, each handing the keyboard back to the box with his draft as he left it.
 A question that comes during a turn keeps the amber card, whose Answer in the terminal steps the terminal in.
 A step in or out asks the terminal for no new size, which `frontend/tests/terminal-steps-in.spec.ts` counts at the relay.
-Every terminal spec whose terminal a fixture page draws runs a second time stepped in, in the board's own stage (the stepped in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
+Every terminal spec whose terminal a fixture page draws runs a second time stepped in, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
 A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box saying Not sent, and its terminal's own notice is behind them, while its Task view names what brings it back.
 
 

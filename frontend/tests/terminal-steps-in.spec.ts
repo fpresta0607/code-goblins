@@ -64,7 +64,7 @@ test("Back to messages returns to the messages with the keyboard in the box, and
   expect(typed(relay)).toBe("1");
 });
 
-test("a panel that asks nothing brings the terminal in as a picker does", async ({ page }) => {
+test("a panel that asks nothing brings the terminal in as a picker does, and while it stays open the box sends nothing into it", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
@@ -72,11 +72,16 @@ test("a panel that asks nothing brings the terminal in as a picker does", async 
 
   // Act
   relay.say({ type: "screen", asking: false, open: true });
-
-  // Assert
   await expect(back(page)).toBeVisible();
   await expect(terminal(page)).toBeFocused();
-  await expect(box(page).locator(".composer-asking")).toHaveCount(0);
+  await back(page).click();
+
+  // Assert
+  await expect(box(page).locator(".composer-asking")).toContainText("Waiting on you in the terminal");
+  await field(page).fill("hello");
+  await field(page).press("Enter");
+  await expect(box(page).getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  expect(typed(relay)).not.toContain("hello");
 });
 
 test("a question that comes during a turn keeps the amber card rather than stepping in", async ({ page }) => {

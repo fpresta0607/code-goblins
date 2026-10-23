@@ -34,5 +34,5 @@ export default defineConfig<{ isSteppedIn: boolean }>({
     // first try of one that then passed.
     trace: "retain-on-failure",
   },
-  projects: [{ name: "board" }, { name: "stepped in", testMatch: STEPPED_IN, use: { isSteppedIn: true } }],
+  projects: [{ name: "board" }, { name: "stepped-in", testMatch: STEPPED_IN, use: { isSteppedIn: true } }],
 });

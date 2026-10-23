@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { PanelStage } from "../../src/panel-stage";
 
-// A terminal spec's second run, the stepped in project in
+// A terminal spec's second run, the stepped-in project in
 // playwright.config.ts, draws each terminal stepped into a Messages view's
 // place, in the stage the board draws it in, with the messages hidden and the
 // Back to messages bar floating over the terminal's top edge.
