@@ -19,11 +19,6 @@ const (
 	// overrides it, clamped to [1, 10].
 	dirWaiterFailMaxDefault = 3
 
-	// drainTimeoutMillis bounds cancelAndDrain's wait for a canceled read's
-	// completion. See cancelAndDrain's doc for what happens when a filter
-	// driver stalls the cancel past this bound.
-	drainTimeoutMillis uint32 = 5000
-
 	// maxWaitMillis is one below syscall.INFINITE (0xFFFFFFFF), so a
 	// requested wait whose millisecond count would otherwise reach or wrap
 	// past that sentinel is clamped instead of silently becoming unbounded.
@@ -35,9 +30,18 @@ var (
 	procCreateEventW = modKernel32.NewProc("CreateEventW")
 	procResetEvent   = modKernel32.NewProc("ResetEvent")
 
+	// drainTimeout bounds cancelAndDrain's cancel and its wait for the
+	// canceled read's completion together. See cancelAndDrain's doc for what
+	// happens when a filter driver stalls the cancel past this bound.
+	drainTimeout = 5 * time.Second
+
+	// cancelIoEx is syscall.CancelIoEx, which a test replaces with a cancel
+	// that never returns.
+	cancelIoEx = syscall.CancelIoEx
+
 	leakedWaitersMu sync.Mutex
 	// leakedWaiters pins every DirWaiter whose cancelAndDrain could not
-	// confirm a canceled read's completion within drainTimeoutMillis. The
+	// confirm a canceled read's completion within drainTimeout. The
 	// kernel may still write into that waiter's OVERLAPPED and 4KB buffer at
 	// any time afterward, so the waiter must never become unreachable to the
 	// garbage collector: freeing or reusing that memory while the kernel
@@ -306,39 +310,55 @@ func decodeUTF16LE(b []byte) string {
 // cancelAndDrain cancels the outstanding read (CancelIoEx, not CancelIo:
 // CancelIo only cancels I/O issued by the calling thread, and Go goroutines
 // migrate threads across syscalls, so it would be a silent no-op here) and
-// waits up to drainTimeoutMillis for the completion to land, so the kernel
-// is confirmed done writing into ov and buf before this call returns
-// normally.
+// waits up to drainTimeout for the completion to land, so the kernel is
+// confirmed done writing into ov and buf before this call returns normally.
 //
 // It is a no-op when nothing is pending, which is what keeps Close safe on
 // a waiter whose Wait was never called: without the guard, canceling I/O
 // that was never issued and then waiting on an event nothing will ever
 // signal would hang forever.
 //
-// If the drain cannot confirm completion within the bound, this is no
-// longer an ordinary timeout: a filter driver stalling the cancel is the
-// exact scenario this waiter's breaker exists to survive (Windows directory
-// watches silently die under AV filter drivers), and CancelIoEx only queues
-// the cancel request with no completion bound of its own, so the kernel may
-// still hold a pointer into ov/buf indefinitely. This method therefore
-// permanently degrades the waiter, deliberately LEAVES pending true so no
-// later call reassigns ov or reissues a read against memory the kernel might
-// still touch, never closes the handles, and pins w in leakedWaiters so the
-// GC cannot free that memory out from under a write that never lands.
+// The CancelIoEx call itself shares that bound, on a goroutine of its own:
+// the call can stall too, and one stalled in the kernel for 19 minutes on a
+// hosted runner (#1343) and held this goroutine, the supervisor's run loop
+// and Service.Close with it. A call still stalled when the bound runs out
+// keeps its goroutine and thread until it returns, which may be never, and
+// Close then cancels once more under the same bound, so a shutdown after
+// such a stall waits two bounds.
+//
+// If the cancel or the drain cannot confirm completion within the bound,
+// this is no longer an ordinary timeout: a filter driver stalling the cancel
+// is the exact scenario this waiter's breaker exists to survive (Windows
+// directory watches silently die under AV filter drivers), and CancelIoEx
+// only queues the cancel request with no completion bound of its own, so the
+// kernel may still hold a pointer into ov/buf indefinitely. This method
+// therefore permanently degrades the waiter, deliberately LEAVES pending true
+// so no later call reassigns ov or reissues a read against memory the kernel
+// might still touch, never closes the handles, and pins w in leakedWaiters
+// so the GC cannot free that memory out from under a write that never lands.
 func (w *DirWaiter) cancelAndDrain() {
 	if !w.pending {
 		return
 	}
-	syscall.CancelIoEx(w.dirHandle, &w.ov)
-	event, err := syscall.WaitForSingleObject(w.eventHandle, drainTimeoutMillis)
-	if err != nil || event != syscall.WAIT_OBJECT_0 {
-		w.degraded = true
-		leakedWaitersMu.Lock()
-		leakedWaiters = append(leakedWaiters, w)
-		leakedWaitersMu.Unlock()
-		return
+	deadline := time.Now().Add(drainTimeout)
+	canceled := make(chan struct{})
+	go func() {
+		cancelIoEx(w.dirHandle, &w.ov)
+		close(canceled)
+	}()
+	select {
+	case <-canceled:
+		event, err := syscall.WaitForSingleObject(w.eventHandle, clampWaitMillis(time.Until(deadline)))
+		if err == nil && event == syscall.WAIT_OBJECT_0 {
+			w.pending = false
+			return
+		}
+	case <-time.After(drainTimeout):
 	}
-	w.pending = false
+	w.degraded = true
+	leakedWaitersMu.Lock()
+	leakedWaiters = append(leakedWaiters, w)
+	leakedWaitersMu.Unlock()
 }
 
 func (w *DirWaiter) recordFailure() {
