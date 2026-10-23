@@ -35,7 +35,7 @@ async function select(page: Page, title: string) {
   if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: title }) }).first().click();
   await expect(page.locator("#panel-title")).toContainText(title);
-  await openTaskList(page);
+  return openTaskList(page);
 }
 
 // What a person reads in the panel below its title: the hidden terminal and
@@ -75,23 +75,23 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       await open(page);
       for (const { state, title, status, sentence, raw, isFailure, isQuiet } of STATES) {
         // Act
-        await select(page, title);
+        const detailsHeader = await select(page, title);
         const header = panel(page).locator(".panel-header");
         const text = await shown(page);
 
         // Assert
         await expect(header.locator("h2"), state).toHaveText(title);
         await expect(header.locator(".panel-status"), state).toHaveText(status);
-        if (isQuiet || !sentence) await expect(header.locator(".panel-activity"), state).toHaveCount(0);
-        else await expect(header.locator(".panel-activity"), state).toHaveText(sentence);
+        if (isQuiet || !sentence) await expect(detailsHeader.locator(".panel-activity"), state).toHaveCount(0);
+        else await expect(detailsHeader.locator(".panel-activity"), state).toHaveText(sentence);
         expect(text.split(status).length - 1, state + ": the status is said once").toBe(1);
         expect(text, state + ": no raw words outside Details").not.toMatch(/;|\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|[A-Za-z]:\\|\/tasktmp\/|deadline|^\s*(working|waiting on|blocked|failed):/im);
-        await expect(header.getByRole("button", { name: "Open the log" }), state).toHaveCount(isFailure ? 1 : 0);
-        await header.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
-        await expect(header.locator(".raw-details-text"), state).toContainText(raw);
-        if (state === "paused") await expect(header.locator(".raw-details-text"), state).toHaveText(raw);
-        if (isQuiet) await expect(header.locator(".raw-details-text p").first(), state).toHaveText(sentence);
-        await header.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
+        await expect(detailsHeader.getByRole("button", { name: "Open the log" }), state).toHaveCount(isFailure ? 1 : 0);
+        await detailsHeader.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
+        await expect(detailsHeader.locator(".raw-details-text"), state).toContainText(raw);
+        if (state === "paused") await expect(detailsHeader.locator(".raw-details-text"), state).toHaveText(raw);
+        if (isQuiet) await expect(detailsHeader.locator(".raw-details-text p").first(), state).toHaveText(sentence);
+        await detailsHeader.locator(".raw-details > summary").filter({ hasText: "Details" }).click();
         expect((await panel(page).locator(".lifecycle-details").allInnerTexts()).join(" "), state).not.toMatch(/Failed|Needs attention|Paused at/);
       }
     });
@@ -128,15 +128,15 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       await expect(page.locator(".task-board")).not.toContainText("; Claude Code");
 
       // Act: open the waiting task.
-      await select(page, blocked);
+      const detailsHeader = await select(page, blocked);
       const header = panel(page).locator(".panel-header");
 
       // Assert: its status says what it waits for, with no line and nothing
       // folded under it (2026-10-10, "the [More] dropdown is not really
       // necessary"): the CFO's note on the wait is not on the board.
       await expect(header.locator(".panel-status")).toHaveText("Waits for 12 GB free");
-      await expect(header.locator(".panel-activity")).toHaveCount(0);
-      await expect(header.locator("details")).toHaveCount(0);
+      await expect(detailsHeader.locator(".panel-activity")).toHaveCount(0);
+      await expect(detailsHeader.locator("details")).toHaveCount(0);
       await expect(panel(page)).not.toContainText("default first-open layout");
     });
   });

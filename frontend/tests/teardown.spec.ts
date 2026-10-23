@@ -25,14 +25,13 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
     await expect(card).toBeVisible();
     await expect(card.getByText(/Windows is still closing/)).toHaveCount(0);
     await card.click();
-    await openTaskList(page);
+    const header = await openTaskList(page);
     const details = page.locator(".lifecycle-panel");
     // The panel names the process behind Details. Working has no line under
     // it (the Overlord, 2026-10-05), so there the sentence is the first thing
     // behind Details. A paused goblin has no line either, and its Details is
     // a description for a person (2026-10-09): what resumes it, then the
     // program Windows still closes, without its process id.
-    const header = page.locator(".panel-header");
     const isWorking = phase === "working" || phase === "restarted";
     await expect(header.locator(".panel-activity")).toHaveCount(0);
     await header.locator(".raw-details > summary").click();
@@ -42,7 +41,7 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
       await expect(header.locator(".raw-details-text")).toContainText("chrome.exe pid 42");
     }
     if (phase === "working") {
-      await expect(header.locator(".panel-status")).toHaveText("Working");
+      await expect(page.locator(".panel-header .panel-status")).toHaveText("Working");
     }
     if (phase === "paused") {
       await expect(page.getByRole("button", { name: "Resume paused teardown fixture", exact: true }).first()).toBeEnabled();

@@ -315,7 +315,7 @@ export function App() {
   // messages stay mounted from their first showing while the panel shows the
   // session, so a switch back reads nothing again and finds the place he read.
   const isSteppedIn = !!messagesSource && !!terminalKey && steppedIn === terminalKey;
-  if (sentFrom && (sentFrom !== terminalKey || isWorking)) setSentFrom("");
+  if (sentFrom && (sentFrom !== terminalKey || live?.screen?.isWorking)) setSentFrom("");
   else if (sentFrom && live?.screen?.isOpen) { setSentFrom(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); }
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
   const stepIn = () => { setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };

@@ -13,7 +13,7 @@ export const RUNS = [{ name: "under Terminal", harness: "codex", isSteppedIn: fa
 export async function stepIn(page: Page, say: (message: object) => void): Promise<void> {
   const answer = page.locator(".composer-asking").getByRole("button", { name: "Answer in the terminal" });
   await expect(async () => {
-    say({ type: "screen", asking: true, open: true });
+    say({ type: "screen", asking: true, open: true, working: false });
     await expect(answer).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 20_000 });
   await answer.click();

@@ -1,10 +1,8 @@
 import { expect, test, type Locator, type Page } from "./site";
 
-// The Overlord chose design A on 2026-10-22, and two tabs that evening: a
-// Claude Code session's pill reads Terminal and Task, and its Terminal view
-// shows the session's conversation as the supervisor reads it (GET
-// /api/messages), in the box the terminal fills, so switching views never
-// resizes the terminal. The
+// The panel shows a Claude Code session's conversation as the supervisor
+// reads it (GET /api/messages), in the box the terminal fills, so stepping
+// the terminal in and out never resizes it. The
 // supervisor is played here: the board's snapshot and each session's message
 // stream on held streams, older pages and pictures from routes, and the
 // terminal's relay, which counts the sizes the board asks for. Every
@@ -50,10 +48,10 @@ const range = (from: number, to: number) => Array.from({ length: to - from }, (_
 const NEWEST = { messages: range(50, 100), more: true };
 const OLDER = { messages: range(0, 50), more: false };
 
-interface Board { resizes: { cols: number; rows: number }[]; older: string[] }
+interface Board { resizes: { cols: number; rows: number }[]; older: string[]; say: (message: object) => void }
 
 async function open(page: Page): Promise<Board> {
-  const board: Board = { resizes: [], older: [] };
+  const board: Board = { resizes: [], older: [], say: () => {} };
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   // No WebGL, so a baby goblin's terminal draws its text with xterm's DOM
   // renderer, where a test reads it.
@@ -97,6 +95,7 @@ async function open(page: Page): Promise<Board> {
     } else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+    board.say = (message) => socket.send(JSON.stringify(message));
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.onMessage((data) => {
       if (typeof data !== "string") return;
@@ -472,10 +471,10 @@ test("Back from a goblin's panel returns to the CFO's messages", async ({ page }
 });
 
 // The Messages view lies in the box the terminal fills, so no switch between
-// the views asks the terminal for another size: counted at the relay, for the
+// messages and terminal asks the terminal for another size: counted at the relay, for the
 // CFO and a goblin, beside the board and maximized.
 for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) {
-  test(`switching ${who}'s views sends the terminal no resize, beside the board and maximized`, async ({ page }) => {
+  test(`stepping ${who}'s terminal in and out sends no resize, beside the board and maximized`, async ({ page }) => {
     const board = await open(page);
     await choose(page);
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
@@ -485,6 +484,17 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
       if (isMaximized) await maximize(page);
       const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
+      board.say({ type: "screen", asking: false, open: true, working: false });
+      await page.getByRole("button", { name: "Answer in the terminal" }).click();
+      await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
+      await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
+      await page.waitForTimeout(300);
+      expect(board.resizes.slice(asked), "stepping in sent no resize").toEqual([]);
+      expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
+      board.say({ type: "screen", asking: false, open: false, working: false });
+      await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
       await page.waitForTimeout(300);
       expect(await page.locator(".messages-view").boundingBox(), "the messages take the terminal's box").toEqual(deck);
 

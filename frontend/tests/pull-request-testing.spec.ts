@@ -132,10 +132,11 @@ test.describe("in his window", () => {
     await select(page, "Sid - Memory Keeper");
     const panelStatus = await read(header(page).locator(".panel-status"));
     const paneTitle = await ended(page).locator("h2").textContent();
-    await openTaskList(page);
-    const panelChip = await read(header(page).locator("a.hosted-checks"));
-    await header(page).locator(".raw-details > summary").click();
-    const details = await header(page).locator(".raw-details-text").innerText();
+    const detailsHeader = await openTaskList(page);
+    const panelChip = await read(detailsHeader.locator("a.hosted-checks"));
+    await detailsHeader.locator(".raw-details > summary").click();
+    const details = await detailsHeader.locator(".raw-details-text").innerText();
+    await expect(detailsHeader.locator(".panel-activity")).toHaveCount(0);
     const controls = await page.locator(".goblin-panel").getByRole("group", { name: "Controls for Keep the memory floor" }).getByRole("button").allTextContents();
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     const node = (name: string) => page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: name }) });
@@ -147,7 +148,6 @@ test.describe("in his window", () => {
     expect(panelStatus.text).toBe(cardStatus);
     expect(panelStatus.color).not.toBe(AMBER);
     expect(panelChip).toMatchObject({ text: "Testing", href: TRAIN_PR });
-    await expect(header(page).locator(".panel-activity")).toHaveCount(0);
     expect(paneTitle).toBe("Session paused");
     expect(details).toBe("It resumes by itself when PR #512 merges.");
     expect(controls).toEqual(["Resume", "Stop"]);
@@ -167,9 +167,9 @@ test.describe("in his window", () => {
     await open(page);
 
     await select(page, "Mae - Bug Hunter");
-    await openTaskList(page);
+    const detailsHeader = await openTaskList(page);
 
     await expect(header(page).locator(".panel-status")).toHaveText("Testing");
-    await expect(header(page).locator("a.hosted-checks")).toHaveAttribute("href", RUN);
+    await expect(detailsHeader.locator("a.hosted-checks")).toHaveAttribute("href", RUN);
   });
 });

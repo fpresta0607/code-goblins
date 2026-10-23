@@ -6,7 +6,7 @@ import { ORIGIN } from "./tests/site";
 // the stage the board draws it in (tests/fixtures/stepped-in.tsx), so the
 // terminal stepping in keeps every checklist item it carries. The terminal
 // specs that load the whole board step it in themselves.
-const STEPPED_IN = ["terminal-keys", "terminal-input", "terminal-harness-screens", "terminal-scroll", "terminal-zoom", "terminal-geometry", "voice-bubble",
+const STEPPED_IN = ["terminal-keys", "terminal-input", "terminal-held", "terminal-harness-screens", "terminal-scroll", "terminal-zoom", "terminal-geometry", "voice-bubble",
   "dictated-input", "touch-dictation", "phone-paste", "terminal-swipe", "phone-terminal-tools"].map((name) => `**/${name}.spec.ts`);
 
 export default defineConfig<{ isSteppedIn: boolean }>({

@@ -111,7 +111,8 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
       {owner && task.deployment && <DeploymentLink deployment={task.deployment} className="icon-button raised pill-link" />}
       <ClickFeedback text={feedback} />
     </div>;
-  if (isDetails) return <div className="panel-header-details">{projectLine}{helper}{partOf}{activity}{detailsRow}{actions}</div>;
+  const awaitedLink = awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>;
+  if (isDetails) return <div className="panel-header-details">{projectLine}{helper}{partOf}{awaited && <p>{goblinName(awaited)}{awaitedLink}</p>}{activity}{detailsRow}{actions}</div>;
   return <header className={"panel-header" + (compact ? " compact" : "")}>
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-heading">
@@ -120,7 +121,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && projectLine}
         {!compact && helper}
-        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}><span className="status-dot" />{status}{!compact && awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>}</p>
+        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}><span className="status-dot" />{status}{!compact && awaitedLink}</p>
         {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
         {!compact && partOf}
         {!compact && activity}

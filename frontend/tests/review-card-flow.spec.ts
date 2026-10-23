@@ -244,10 +244,10 @@ test("a goblin's panel offers Answer on the CFO's question for her, and Answer o
   await boardAsked(page, { questions: [question], reviews: [{ ...followUp, follows: question.id }] });
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await page.getByRole("main", { name: "Board" }).getByRole("button", { name: /^Wanda - API Ace ,/ }).click();
-  await openTaskList(page);
+  const header = await openTaskList(page);
 
   // Act
-  await page.locator(".goblin-panel .panel-header").getByRole("button", { name: "Answer: " + question.text }).click();
+  await header.getByRole("button", { name: "Answer: " + question.text }).click();
 
   // Assert
   await expect(card(page).getByRole("form", { name: question.text })).toBeVisible();

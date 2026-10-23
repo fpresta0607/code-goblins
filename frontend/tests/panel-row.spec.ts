@@ -1,8 +1,8 @@
 import { expect, holdStream, test, type Page } from "./site";
 
 // The panel's top row at any width the panel can take: no control lies on
-// another or leaves the row, the Task and Terminal switch and Close or Back
-// always show, and what the row cannot hold goes into More and works from
+// another or leaves the row, Close or Back always shows, and what the row
+// cannot hold goes into More and works from
 // there. The Overlord's picture of 2026-10-02 showed the word Terminal under
 // two icons in the CFO's panel dragged narrow.
 const since = "2026-10-02T09:00:00Z";
@@ -102,9 +102,10 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         await expect(page.locator("#panel-title")).toHaveText("CFO");
         await expect(page.locator(".canvas-region")).toBeVisible();
         expect(Math.round((await pane(page).boundingBox())!.width)).toBe(width);
+        await expect(pane(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
-        for (const essential of ["Task", "Terminal", "Close panel"]) expect(report.shown).toContain(essential);
+        for (const essential of ["Open in Windows Terminal", "Maximize the panel", "Close panel"]) expect(report.shown).toContain(essential);
 
         await press(page, "Open in Windows Terminal", "Open in terminal");
         // The terminal view posts for its own stream too.
@@ -128,6 +129,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         // A queued task has no terminal either: Back and what fits.
         await page.locator(".task-board .task-card").filter({ hasText: "queued-one" }).click();
         await expect(page.locator("#panel-title")).toHaveText("queued-one");
+        await expect(pane(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
         expect(report.shown).toContain("Back to the CFO");
@@ -135,12 +137,11 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
 
     }
 
-    // At 430 px the CFO's row holds its switch with its words and Close, and
-    // no room for both other controls, so both are in More.
     test("More holds what the row cannot, by keyboard", async ({ page }) => {
       await open(page, 430);
       await page.keyboard.press("Control+Alt+1");
       const row = pane(page).locator(".panel-top");
+      await row.evaluate((element) => { element.style.width = "35%"; });
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
       await page.keyboard.press("Enter");
@@ -165,6 +166,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       await open(page, 430, posted);
       await page.keyboard.press("Control+Alt+1");
       const row = pane(page).locator(".panel-top");
+      await row.evaluate((element) => { element.style.width = "35%"; });
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
       await page.keyboard.press("Enter");

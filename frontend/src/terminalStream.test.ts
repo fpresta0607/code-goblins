@@ -84,10 +84,11 @@ test("the relay says why typing is held while the screen stays live, and when it
 });
 
 test("the relay says when the harness asks at a screen only its terminal takes, and when it no longer does", () => {
-  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true}'), { isAsking: true, isOpen: true });
-  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":true}'), { isAsking: false, isOpen: true });
-  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false}'), { isAsking: false, isOpen: false });
-  for (const text of ['{"type":"screen"}', '{"type":"screen","asking":true}', '{"type":"screen","asking":1,"open":true}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
+  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true,"working":false}'), { isAsking: true, isOpen: true, isWorking: false });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":true,"working":false}'), { isAsking: false, isOpen: true, isWorking: false });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":false}'), { isAsking: false, isOpen: false, isWorking: false });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":true}'), { isAsking: false, isOpen: false, isWorking: true });
+  for (const text of ['{"type":"screen","asking":false,"open":false}', '{"type":"screen","asking":false,"open":false,"working":1}', '{"type":"screen"}', '{"type":"screen","asking":true}', '{"type":"screen","asking":1,"open":true,"working":false}', '{"type":"screen","asking":false,"open":1,"working":false}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
 });
 
 test("a terminal fills its panel with the same padding left, right and below, and its last row at the bottom", () => {

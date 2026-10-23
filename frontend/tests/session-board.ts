@@ -84,18 +84,16 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
 }
 
 export const card = (page: Page, name: string) => page.locator(".task-board .task-card-shell").filter({ hasText: name }).locator(".task-card");
-export const view = (page: Page, name: string) => page.locator(".context-pane .panel-pill").getByRole("button", { name, exact: true });
 export const box = (page: Page, name = NAME) => page.getByRole("region", { name: "Messages to " + name });
 export const field = (page: Page, name = NAME) => box(page, name).getByRole("textbox", { name: "Message " + name });
 export const send = (page: Page, name = NAME) => box(page, name).getByRole("button", { name: "Send", exact: true });
 export const typed = (relay: Relay) => relay.typed.join("");
 
-// openGoblin opens Zeke's panel from his card, on its Terminal view, which
-// shows his messages, with his terminal whole behind them.
+// openGoblin opens Zeke's panel from his card on his messages, with his
+// terminal whole behind them.
 export async function openGoblin(page: Page) {
   await card(page, NAME).click();
   await expect(page.locator("#panel-title")).toHaveText(NAME);
-  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
   await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
 }

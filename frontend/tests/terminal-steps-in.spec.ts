@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, test, type Page } from "./site";
 import { at, box, field, open, openGoblin, pasted, type Relay, snapshot, typed } from "./session-board";
 
 // PR 4 of the message view plan, which the Overlord asked be proved first:
@@ -20,14 +20,16 @@ async function sendFromBox(page: Page, relay: Relay, text: string) {
   await expect.poll(() => typed(relay)).toContain(pasted(text) + "\r");
 }
 
-test("a picker the box opens brings the terminal in with the keyboard, its keys and Escape reach it, and it steps out once the input line is back", async ({ page }) => {
+test("a picker opens despite background work, takes the keyboard and Escape, and steps out at the input line", async ({ page }) => {
   // Arrange
-  const relay = await open(page);
+  const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "Background shell running", at } }));
   await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  await expect(box(page).locator(".composer-working")).toBeVisible();
   await sendFromBox(page, relay, "/model");
 
   // Act
-  relay.say({ type: "screen", asking: true, open: true });
+  relay.say({ type: "screen", asking: true, open: true, working: false });
 
   // Assert
   await expect(back(page)).toBeVisible();
@@ -38,7 +40,7 @@ test("a picker the box opens brings the terminal in with the keyboard, its keys 
   await page.keyboard.press("Enter");
   await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r" + "\x1b[B" + "\x1b" + "\r");
   await expect(back(page), "Escape stays the terminal's while it is in").toBeVisible();
-  relay.say({ type: "screen", asking: false, open: false });
+  relay.say({ type: "screen", asking: false, open: false, working: false });
   await expect(messages(page)).toBeVisible();
   await expect(back(page)).toHaveCount(0);
   await expect(field(page)).toBeFocused();
@@ -49,7 +51,7 @@ test("Back to messages returns to the messages with the keyboard in the box, and
   const relay = await open(page);
   await openGoblin(page);
   await field(page).fill("half a thought");
-  relay.say({ type: "screen", asking: true, open: true });
+  relay.say({ type: "screen", asking: true, open: true, working: false });
   await box(page).getByRole("button", { name: "Answer in the terminal" }).click();
   await expect(terminal(page)).toBeFocused();
   await page.keyboard.press("1");
@@ -71,7 +73,7 @@ test("a panel that asks nothing brings the terminal in as a picker does, and whi
   await sendFromBox(page, relay, "/permissions");
 
   // Act
-  relay.say({ type: "screen", asking: false, open: true });
+  relay.say({ type: "screen", asking: false, open: true, working: false });
   await expect(back(page)).toBeVisible();
   await expect(terminal(page)).toBeFocused();
   await back(page).click();
@@ -89,16 +91,50 @@ test("a question that comes during a turn keeps the amber card rather than stepp
   const relay = await open(page);
   await openGoblin(page);
   await sendFromBox(page, relay, "write nine.txt");
-  await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot({}, { runtime: { state: "busy", reason: "", at } }));
-  await expect(box(page).locator(".composer-working")).toBeVisible();
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  await page.waitForTimeout(100);
 
   // Act
-  relay.say({ type: "screen", asking: true, open: true });
+  relay.say({ type: "screen", asking: true, open: true, working: false });
 
   // Assert
   await expect(box(page).locator(".composer-asking")).toContainText("Waiting on you in the terminal");
   await expect(messages(page)).toBeVisible();
   await expect(back(page)).toHaveCount(0);
+});
+
+test("a completed harness turn clears send intent before an unrelated panel opens", async ({ page }) => {
+  const relay = await open(page);
+  await openGoblin(page);
+  await sendFromBox(page, relay, "read the brief");
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  await page.waitForTimeout(100);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  await page.waitForTimeout(100);
+
+  relay.say({ type: "screen", asking: false, open: true, working: false });
+
+  await expect(box(page).locator(".composer-asking")).toBeVisible();
+  await expect(messages(page)).toBeVisible();
+  await expect(back(page)).toHaveCount(0);
+});
+
+test("a phone's tall Task fold scrolls while its messages keep room", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, snapshot({}, { teardown: Array.from({ length: 80 }, (_, index) => `shell-${index} pid ${index + 1}`) }));
+  await openGoblin(page);
+
+  const header = await openTaskList(page);
+  await header.locator(".raw-details > summary").click();
+
+  const fold = page.locator(".panel-task-fold");
+  await expect.poll(() => fold.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  const conversation = await messages(page).boundingBox();
+  const pane = await page.locator(".context-pane").boundingBox();
+  expect(conversation!.height).toBeGreaterThan(0);
+  expect(conversation!.y + conversation!.height).toBeLessThanOrEqual(pane!.y + pane!.height + 1);
+  await fold.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect.poll(() => fold.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 });
 
 test("stepping in and out asks the terminal for no new size, counted at the relay", async ({ page }) => {
@@ -110,10 +146,10 @@ test("stepping in and out asks the terminal for no new size, counted at the rela
 
   // Act
   await sendFromBox(page, relay, "/model");
-  relay.say({ type: "screen", asking: true, open: true });
+  relay.say({ type: "screen", asking: true, open: true, working: false });
   await expect(back(page)).toBeVisible();
   await page.waitForTimeout(300);
-  relay.say({ type: "screen", asking: false, open: false });
+  relay.say({ type: "screen", asking: false, open: false, working: false });
   await expect(messages(page)).toBeVisible();
   await page.waitForTimeout(300);
 

@@ -45,8 +45,7 @@ async function open(page: Page) {
 const card = (page: Page, title: string) => page.locator(".task-card-shell").filter({ hasText: title });
 async function openPanel(page: Page, title: string) {
   await card(page, title).locator(".task-card").click();
-  await openTaskList(page);
-  return page.locator(".panel-header");
+  return openTaskList(page);
 }
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
@@ -186,7 +185,7 @@ test.describe("with 47 active people in a project, in his window", () => {
     await header.locator(".people-more").click();
     const list = page.locator(".people-list");
     await expect(list).toBeVisible();
-    await page.locator(".panel-header").screenshot({ path: testInfo.outputPath("panel-many-open.png") });
+    await header.screenshot({ path: testInfo.outputPath("panel-many-open.png") });
     const shown = await list.evaluate((element) => [...element.querySelectorAll(".person-name")].map((name) => ({ text: name.textContent, isWhole: name.scrollWidth <= name.clientWidth && getComputedStyle(name).textOverflow !== "ellipsis" })));
     const isInView = await list.evaluate((element) => { const box = element.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight; });
     await page.keyboard.press("Escape");
