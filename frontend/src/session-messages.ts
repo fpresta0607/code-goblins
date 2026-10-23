@@ -102,15 +102,16 @@ export function olderMessages(held: MessagePage, page: MessagePage): MessagePage
 }
 
 // messagesQuery names the session whose messages a panel shows, as
-// /api/messages takes it: a Claude Code goblin's current generation, or the
-// CFO in its native terminal while it runs Claude Code. A paused goblin's
-// conversation still reads. Empty for every other session, which keeps its
-// Terminal and Task views alone: a Codex or pi one, the CFO in Herdr, a task
-// not started yet, and one stopped or retired.
+// /api/messages takes it: a Claude Code goblin's current generation in a
+// native terminal, or the CFO in its native terminal while it runs Claude
+// Code, since the Messages view's box types through that terminal. A paused
+// goblin's conversation still reads. Empty for every other session, which
+// keeps its Terminal and Task views alone: a Codex or pi one, one in Herdr, a
+// task not started yet, and one stopped or retired.
 export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness">, task?: Task): string {
   if (!task) return snapshot.cfo_terminal && snapshot.cfo_harness === "claude" ? new URLSearchParams({ cfo: snapshot.cfo_terminal }).toString() : "";
   const ended = sessionEnd(task);
-  return task.harness === "claude" && task.generation && !task.archived && (!ended || ended === "paused") ? new URLSearchParams({ task: task.id, generation: task.generation }).toString() : "";
+  return task.harness === "claude" && task.backend === "native" && task.generation && !task.archived && (!ended || ended === "paused") ? new URLSearchParams({ task: task.id, generation: task.generation }).toString() : "";
 }
 
 // A reply's text in the parts it is drawn in: a fenced code block as written,

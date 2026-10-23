@@ -207,7 +207,8 @@ test.describe("in the desktop window's size, with the CFO's panel open", () => {
     await expect(toasts(page)).toHaveCount(0);
     await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).first().click();
     await expect(page.locator("#panel-title")).toHaveText("CFO");
-    await expect(page.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
+    // The CFO's panel opens on its Messages view, with the keyboard in its box.
+    await expect(page.getByRole("textbox", { name: "Message CFO" })).toBeFocused();
   });
 
   test("a question he answers leaves the count and the CFO's bar in the frame he acts", async ({ page, context }, testInfo) => {

@@ -3,7 +3,9 @@ import { expect, holdStream, test, type Page } from "./site";
 // The Overlord, 2026-10-08 about 22:25Z, of the terminal button on a live
 // goblin's card: "no need to have terminal button on board cards appear
 // because clicking the card takes you there". The card itself is the way in,
-// by a click or by Enter on it. The supervisor is played here: one snapshot
+// by a click or by Enter on it, to the goblin's working view: a Claude Code
+// goblin's Messages view, whose box types into its terminal (design A, the
+// Overlord's choice on 2026-10-22). The supervisor is played here: one snapshot
 // on a held stream, and the terminal's socket says it is ready.
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
 const snapshot = {
@@ -31,7 +33,8 @@ const card = (page: Page) => shell(page).locator(".task-card");
 async function expectTerminalOpen(page: Page) {
   await expect(page.locator("#panel-title")).toHaveText("Export invoices as CSV");
   await expect(page.locator(".goblin-panel.showing-terminal")).toHaveCount(1);
-  await expect(page.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".panel-pill").getByRole("button", { name: "Messages", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("region", { name: "Messages to Export invoices as CSV" })).toBeVisible();
 }
 
 for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {

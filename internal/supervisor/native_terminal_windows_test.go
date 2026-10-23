@@ -145,6 +145,25 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
+		case line == "permission":
+			// Claude Code's permission prompt, drawn in its composer's place.
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
+		case strings.HasPrefix(line, "turn for "):
+			// A turn whose spinner redraws its line every 100 ms, as Claude
+			// Code's does, so its output never pauses while it lasts. It
+			// draws as many frames as fill its length, so a stall only makes
+			// it longer.
+			lasts, err := time.ParseDuration(strings.TrimPrefix(line, "turn for "))
+			if err != nil {
+				record("turn error: " + err.Error())
+				continue
+			}
+			drawComposer("", true)
+			for frame := range int(lasts / (100 * time.Millisecond)) {
+				time.Sleep(100 * time.Millisecond)
+				fmt.Print("\x1b[H" + string([]rune("·✢✳✶✻✽")[frame%6]))
+			}
+			record("turn ended")
 		case line == "update installed":
 			footer = "✓ Update installed · Restart to update"
 			drawComposer("", false)
@@ -900,6 +919,156 @@ func TestANativeViewIsToldOfAKeyABusyProgramLeavesUnreadUntilItIsRead(t *testing
 	}
 }
 
+// A view is told when the harness waits on an answer at a screen of its own,
+// as Claude Code's permission prompt, which only its terminal takes, and told
+// again once it is back at its composer: read from the terminal's screen once
+// its output pauses.
+func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.waitFor(t, `{"type":"screen","asking":false}`)
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+	v.waitFor(t, `{"type":"screen","asking":true}`)
+	v.send(t, websocket.MessageBinary, "harness\r")
+
+	asking, back := `{"type":"screen","asking":true}`, `{"type":"screen","asking":false}`
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, back) > strings.LastIndex(screen, asking) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the harness was back at its composer")
+		}
+	}
+}
+
+// A view that opens while the harness already asks at a screen of its own,
+// with nothing more drawn, is told so as it opens, sooner than a read once
+// its history's output has paused would tell it.
+func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	first := openNativeView(t, server, viewQuery)
+	first.waitFor(t, "program ready")
+	first.send(t, websocket.MessageBinary, "permission\r")
+	first.waitFor(t, `{"type":"screen","asking":true}`)
+
+	second := openNativeView(t, server, viewQuery)
+	second.waitFor(t, `{"type":"history"`)
+	opened := time.Now()
+	second.waitFor(t, `{"type":"screen","asking":true}`)
+
+	// stall-accepted: it times the view's notice against its opening, and the read it rules out comes 300 ms after the history's output pauses, too short for a longer bound to tell apart.
+	if waited := time.Since(opened); waited >= screenSettle/2 {
+		t.Errorf("the view was told the harness asks %v after its history began, want it told as it opens, well before the %v its output's pause takes", waited, screenSettle)
+	}
+}
+
+// A view of the CFO's terminal opened while the CFO starts, before it
+// registers, is told when the harness it registers as asks at a screen of its
+// own: the relay reads the screens of the CFO's harness as it is when it
+// reads, not as it was when the view opened.
+func TestANativeViewOfACFOOpenedWhileItStartsIsToldWhenItsHarnessAsks(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	cfo := hostTerminal(t, h.Service.Store.Home.State, NativeCFOTerminal)
+	v := openNativeView(t, server, cfoQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "register\r")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the CFO recorded %q, want its registration", lines)
+	}
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+
+	v.waitFor(t, `{"type":"screen","asking":true}`)
+}
+
+// A view told the harness asks is told it no longer does while the turn the
+// answer started still draws, though its spinner never lets the output
+// pause.
+func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraws(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "permission\r")
+	v.waitFor(t, `{"type":"screen","asking":true}`)
+
+	v.send(t, websocket.MessageBinary, "turn for 20s\r")
+
+	asking, back := `{"type":"screen","asking":true}`, `{"type":"screen","asking":false}`
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, back) > strings.LastIndex(screen, asking) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the harness no longer asks")
+		}
+	}
+	if slices.Contains(terminal.lines(t), "turn ended") {
+		t.Error("the view was told the harness no longer asks only once its turn ended")
+	}
+}
+
+// A view of a terminal whose harness's screens the relay does not know is
+// told nothing of its screen.
+func TestANativeViewOfAnUnknownHarnessIsToldNothingOfItsScreen(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "unknown"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+
+	v.waitFor(t, "nine.txt")
+	time.Sleep(time.Second)
+	if v.shows(`"type":"screen"`) {
+		t.Fatal("the view was told of a screen whose harness the relay does not know")
+	}
+}
+
 // A key the program reads as usual tells a view nothing, so ordinary typing
 // shows nothing on the board.
 func TestANativeViewIsToldNothingOfKeysItsProgramReadsAtOnce(t *testing.T) {
@@ -1058,7 +1227,8 @@ func TestEveryNativeViewOfAnOldHostIsToldItsNewSizeAfterTheOutputBeforeIt(t *tes
 	h, server := nativeBoard(t, "direct")
 	h.terminalWindow = 16
 	after := make(chan struct{})
-	oldHost(t, h, 2, after)
+	// Two views, and the screen read each one's relay makes as it opens.
+	oldHost(t, h, 4, after)
 	watching := openNativeView(t, server, viewQuery)
 	watching.ackAll()
 	held := openNativeView(t, server, viewQuery)

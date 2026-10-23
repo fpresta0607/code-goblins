@@ -38,6 +38,9 @@ for (const workspace of ["Board", "Orchestration"]) {
       socket.send(JSON.stringify({ type: "history", bytes: 0 }));
       socket.send(Buffer.from("READY\r\n"));
     });
+    // He chose the Terminal view, which a session then opens on, and which
+    // this spec is about.
+    await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
     await page.goto("/");
     if (workspace === "Board") {
       await page.locator(".task-card").filter({ hasText: "Terminal fixes and handoff" }).click();

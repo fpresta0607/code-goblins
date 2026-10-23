@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
@@ -32,10 +32,11 @@ const UNREAD = "The session's messages cannot be read";
 // the end, which then follows what arrives. Ctrl+Plus, Ctrl+Minus and Ctrl+0,
 // or the right button with the wheel, size its text, kept in this browser.
 // query names the session as /api/messages takes it (messagesQuery), name is
-// whose replies they are, and task is the goblin whose baby goblins its calls
-// open, absent for the CFO.
-export function MessagesView({ query, instance, name, task, shown, visible, onChild }: {
-  query: string; instance: string; name: string; task?: Task; shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void;
+// whose replies they are, task is the goblin whose baby goblins its calls
+// open, absent for the CFO, and box is the message box under the
+// conversation.
+export function MessagesView({ query, instance, name, task, shown, visible, onChild, box }: {
+  query: string; instance: string; name: string; task?: Task; shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: ReactNode;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
@@ -217,17 +218,20 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
   return <section className="messages-view" hidden={!shown} aria-label="Messages" onKeyDown={keys}>
-    <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
-      <div ref={items} className="conversation-items">
-        {held.messages.map((message, at) => <MessageRow key={message.id} message={message} name={name} isFirstReply={message.kind === "reply" && held.messages[at - 1]?.kind !== "reply"}
-          task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
+    <div className="conversation-frame">
+      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
+        <div ref={items} className="conversation-items">
+          {held.messages.map((message, at) => <MessageRow key={message.id} message={message} name={name} isFirstReply={message.kind === "reply" && held.messages[at - 1]?.kind !== "reply"}
+            task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
+        </div>
       </div>
+      {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the messages</p></div>}
+      {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {!isAtEnd && <button type="button" className="message-jump" onClick={jump}><Icon name="arrow-down" />Jump to latest</button>}
+      {phase !== "closed" && (isReconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
+      {phase === "closed" && <div className="terminal-closed" role="status"><Icon name="comment" /><p>{closedWhy}</p>
+        <button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     </div>
-    {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the messages</p></div>}
-    {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
-    {!isAtEnd && <button type="button" className="message-jump" onClick={jump}><Icon name="arrow-down" />Jump to latest</button>}
-    {phase !== "closed" && (isReconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
-    {phase === "closed" && <div className="terminal-closed" role="status"><Icon name="comment" /><p>{closedWhy}</p>
-      <button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
+    {box}
   </section>;
 }

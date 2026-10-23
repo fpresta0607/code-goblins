@@ -9,9 +9,11 @@ test.use({ launchOptions: { args: ["--disable-webgl"] } });
 // you're seeing now on my screen, which would be the CFO terminal open and
 // then the board on the left hand side." So the first time a browser shows the
 // board of a home whose CFO runs, it opens on the Board with the CFO's
-// terminal beside it, not maximized, and the keyboard in that terminal. What
-// he arranges afterwards is kept, and a browser that already keeps a layout
-// has had its first open.
+// panel beside it, not maximized, and the keyboard in it: since design A (the
+// Overlord's choice on 2026-10-22) a Claude Code CFO's panel opens on its
+// Messages view, whose box types into the CFO's terminal laid out behind it.
+// What he arranges afterwards is kept, and a browser that already keeps a
+// layout has had its first open.
 const since = "2026-09-30T20:00:00Z";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
 const TASKS = [
@@ -54,6 +56,7 @@ async function open(page: Page, snapshot: Record<string, unknown> = running, kep
 const board = (page: Page) => page.getByRole("main", { name: "Board" });
 const panel = (page: Page) => page.getByRole("complementary", { name: "Task review" });
 const terminalInput = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
+const cfoBox = (page: Page) => page.getByRole("textbox", { name: "Message CFO", exact: true });
 const columns = (page: Page) => page.locator(".task-board").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
 
 test("a failed first Start keeps its error and selection while configuration snapshots change", async ({ page }, testInfo) => {
@@ -164,14 +167,16 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
 });
 
 // besideTheBoard is the default view: the Board with the CFO's panel on its
-// Terminal view to the right of it, neither covering the other.
+// Messages view to the right of it, neither covering the other, its terminal
+// whole behind the messages.
 async function besideTheBoard(page: Page) {
   await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Messages" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "Maximize the panel" })).toBeVisible();
   await expect(board(page)).toBeVisible();
-  await expect(terminalInput(page)).toBeVisible();
+  await expect(cfoBox(page)).toBeVisible();
+  await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
   await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
   await expect(page.locator(".terminal-view .xterm-rows")).toContainText("READY");
   const [left, right] = [(await board(page).boundingBox())!, (await panel(page).boundingBox())!];
@@ -191,15 +196,16 @@ for (const [name, viewport, scale, wantColumns] of [
   test.describe(`in ${name}`, () => {
     test.use({ viewport, deviceScaleFactor: scale });
 
-    test("the first open shows the board with the CFO's terminal beside it and the keyboard in the terminal", async ({ page }, testInfo) => {
+    test("the first open shows the board with the CFO's panel beside it and the keyboard in its box, which types into its terminal", async ({ page }, testInfo) => {
       // Act
       const typed = await open(page);
 
       // Assert
       await besideTheBoard(page);
-      await expect(terminalInput(page)).toBeFocused();
+      await expect(cfoBox(page)).toBeFocused();
       await page.keyboard.type("help");
-      await expect.poll(() => typed.join("")).toBe("help");
+      await page.keyboard.press("Enter");
+      await expect.poll(() => typed.join("")).toBe("help\r");
       expect(await columns(page)).toBe(wantColumns);
       await page.screenshot({ path: testInfo.outputPath("first-open.png") });
     });

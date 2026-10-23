@@ -125,6 +125,20 @@ export function parseHeld(text: string): string | null {
   }
 }
 
+// The relay says when the harness waits on an answer at a screen of its own,
+// which only its terminal takes, as Claude Code's permission prompt, and when
+// it no longer does.
+export function parseScreen(text: string): boolean | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== "object" || value === null) return null;
+    const { type, asking } = value as Record<string, unknown>;
+    return type === "screen" && typeof asking === "boolean" ? asking : null;
+  } catch {
+    return null;
+  }
+}
+
 export function usableSize(cols: number, rows: number): boolean {
   return cols >= MIN_COLS && rows >= MIN_ROWS;
 }
