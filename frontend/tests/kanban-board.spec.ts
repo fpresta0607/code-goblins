@@ -122,7 +122,6 @@ test.describe("in a window 1707 px wide", () => {
     expect(await columns(page)).toBe(3);
     // The CFO's own panel, on its Task view, beside the board.
     await page.keyboard.press("Control+Alt+1");
-    await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
     await expect(page.locator(".context-pane")).toBeVisible();
     expect(await columns(page)).toBe(3);
     expect(await page.locator(".canvas-region").evaluate((canvas) => canvas.clientWidth)).toBeGreaterThan(960);

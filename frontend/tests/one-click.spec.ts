@@ -47,8 +47,6 @@ const neverAnswered = () => { /* the click stays on its way */ };
 async function control(page: Page, id: string, button: string) {
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
   return page.locator(".goblin-panel").getByRole("button", { name: button, exact: true });
 }
 

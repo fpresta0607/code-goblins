@@ -45,8 +45,6 @@ async function open(page: Page) {
 const card = (page: Page, title: string) => page.locator(".task-card-shell").filter({ hasText: title });
 async function openPanel(page: Page, title: string) {
   await card(page, title).locator(".task-card").click();
-  const taskView = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await taskView.count()) await taskView.click();
   return page.locator(".panel-header");
 }
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);

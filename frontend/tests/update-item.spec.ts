@@ -176,8 +176,6 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
       await page.getByRole("button", { name: /^Change the answer to Billing/ }).click();
     } else {
       await page.locator(".task-card").filter({ hasText: "Billing" }).click();
-      const taskView = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-      if (await taskView.count()) await taskView.click();
       await page.locator("details.changes-section > summary").click();
       await page.locator("details.file-review > summary").filter({ hasText: "example.go" }).click();
       await page.getByRole("button", { name: "Comment on new line 1" }).click();

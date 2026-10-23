@@ -37,8 +37,6 @@ const panel = (page: Page) => page.locator(".goblin-panel");
 async function openGoblinPanel(page: Page) {
   await card(page).locator(".task-card").click();
   await expect(header(page).locator("#panel-title")).toHaveText("Export invoices as CSV");
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
 }
 
 async function openCfoPanel(page: Page) {

@@ -27,7 +27,6 @@ test("the CFO queue can turn to its short final page without a render loop", asy
   });
   await openBoardPastFirstRun(page);
   await page.keyboard.press("Control+Alt+1");
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
   await page.evaluate(() => document.fonts.ready);
   await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "832px"; });

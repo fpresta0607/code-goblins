@@ -65,7 +65,6 @@ test.describe("in the Overlord's window, 1707 px wide with the CFO's panel open"
       // Arrange: the CFO's own panel, on its Task view, beside the board.
       const column = await board(page, disk);
       await page.keyboard.press("Control+Alt+1");
-      await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       await expect(page.locator(".context-pane")).toBeVisible();
 
       // Act

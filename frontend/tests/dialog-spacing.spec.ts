@@ -26,8 +26,6 @@ async function open(page: Page) {
 
 async function showTask(page: Page, title: string) {
   await expect(page.locator("#panel-title")).toHaveText(title);
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
 }
 
 // Each confirmation the class draws, and the presses that open it.

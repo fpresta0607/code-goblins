@@ -115,7 +115,6 @@ test("a helper's row names no parent, and its panel names the goblin it helps", 
   // Assert
   await expect(row).not.toContainText("Helper of");
   await expect(page.locator("#panel-title")).toHaveText("Kip - Helper");
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
   await expect(page.locator(".panel-header")).toContainText("Helper of Benny - AFK Ace");
 });
 
