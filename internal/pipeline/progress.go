@@ -68,6 +68,15 @@ func (r Reader) newestRun(ctx context.Context, where string) (Progress, error) {
 	return rows[0], nil
 }
 
+// ErrCustodyHeld and ErrCustodyNotReturned are the two ways a gate refuses
+// steering because it still owns its branch. They are a hold, which is a
+// different thing from a custody nobody could read: a caller that cannot read
+// custody must fail closed and say so, never claim a hold it did not see.
+var (
+	ErrCustodyHeld        = errors.New("pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence")
+	ErrCustodyNotReturned = errors.New("pipeline custody has not been returned; use cfo pipeline recover")
+)
+
 // CanSteer is a read-only custody check. A failed or cancelled unpublished
 // run remains owned until native branch-sync evidence proves user ownership.
 // It never invokes recovery or repairs a branch as a side effect of feedback.
@@ -83,7 +92,7 @@ func (r Reader) CanSteer(ctx context.Context, project, worktree, branch string) 
 		return nil
 	}
 	if (p.Status != "failed" && p.Status != "cancelled") || p.PushedHead != "" {
-		return errors.New("pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence")
+		return ErrCustodyHeld
 	}
 	status, _, err := r.readRecoverySync(ctx, worktree, nil)
 	if err != nil {
@@ -94,7 +103,7 @@ func (r Reader) CanSteer(ctx context.Context, project, worktree, branch string) 
 		return nil
 	}
 	if !status.custodyReturned(run, false) {
-		return errors.New("pipeline custody has not been returned; use cfo pipeline recover")
+		return ErrCustodyNotReturned
 	}
 	bare := filepath.Join(r.Root, "repos", p.RepoID+".git")
 	return r.requireNativeRecoveryHead(ctx, worktree, bare, "refs/no-mistakes/recover/"+p.RunID, p.Head)

@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -52,8 +54,11 @@ func TestAMessageToAWorkingGoblinIsTypedIntoItsTerminalOnce(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
+	// A task of a gated mode reads its branch before typing, so its worktree
+	// has to be a repository, and a gate with no run of the branch holds none.
+	gitWorktree(t, meta.Worktree)
 	goblin := goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "use the staging database")
 
 	// Act
@@ -108,8 +113,11 @@ func TestAMessageToAResumingGoblinWaitsAndIsTypedOnceItRuns(t *testing.T) {
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
 	atPhase(t, h.State, meta, "resume", "resuming")
+	// A task of a gated mode reads its branch before typing, so its worktree
+	// has to be a repository, and a gate with no run of the branch holds none.
+	gitWorktree(t, meta.Worktree)
 	goblin := goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "skip the docs")
 
 	// Act
@@ -160,8 +168,11 @@ func TestAMessageIsKeptOnlyForAResumeThatCanRun(t *testing.T) {
 			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: tc.generation, RequestGeneration: tc.generation, Operation: "resume-1", Action: "resume", Phase: tc.phase, Updated: time.Now().UTC()}); err != nil {
 				t.Fatal(err)
 			}
+			// A task of a gated mode reads its branch before custody is asked
+			// about, so its worktree has to be a repository.
+			gitWorktree(t, meta.Worktree)
 			goblin := goblinTerminal(t, h.State, meta.ID)
-			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 			messageTo(t, store, meta, "message-1", "use the staging database")
 
 			// Act
@@ -912,34 +923,154 @@ func TestAMessageToTheCFOWaitsWhileNoCFORuns(t *testing.T) {
 	}
 }
 
-// A goblin whose gate owns its branch takes no typing, so a message for it is
-// kept as a durable queued action: it is not typed into the gate, it does not
-// expire after the ordinary wait, and it is never handed to the CFO, since the
-// gate hands the branch back and the message is delivered then.
-func TestAMessageForAGateHeldGoblinWaitsWithoutExpiringOrGoingToTheCFO(t *testing.T) {
-	// Arrange
-	store, h := testStore(t)
+// gitWorktree makes dir a repository on a branch, as a task's worktree is.
+func gitWorktree(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q", "-b", "feat/work"}, {"commit", "-q", "--allow-empty", "-m", "root"}} {
+		command := exec.Command("git", args...)
+		command.Dir = dir
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+}
+
+// gateFake is a gate whose custody answer the test sets, and which says
+// whether its custody was read at all.
+type gateFake struct {
+	err  error
+	asks int
+}
+
+func (g *gateFake) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, nil
+}
+
+func (g *gateFake) CanSteer(context.Context, string, string, string) error {
+	g.asks++
+	return g.err
+}
+
+// gatedGoblin is a no-mistakes task whose worktree is a real repository.
+func gatedGoblin(t *testing.T, h home.Home) state.TaskMeta {
+	t.Helper()
 	meta := treeGoblin(t, h.State, t.TempDir(), "gated", false)
 	meta.Mode, meta.Harness = "no-mistakes", "pi"
+	gitWorktree(t, meta.Worktree)
 	if err := state.WriteTaskMeta(h.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{value: pipeline.Progress{Status: "running"}}}}
-	// A message older than the ordinary wait, which would otherwise be the
-	// CFO's.
-	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "take this after the gate", CreatedAt: time.Now().Add(-2 * messageWait)}
+	return meta
+}
 
-	// Act
-	evaluation, err := service.deliverMessage(context.Background(), action)
+// A message for a goblin whose gate owns its branch is queued only once that
+// custody was actually read and refused, and it then reaches neither the gate
+// nor the CFO. Once the gate lets go it is no longer queued for the gate, and
+// the queue holds the one message throughout.
+func TestAGateHeldMessageIsQueuedAfterCustodyIsReadAndDeliveredAfterRelease(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := gatedGoblin(t, h)
+	gate := &gateFake{err: pipeline.ErrCustodyHeld}
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: gate}}
+	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "take this after the gate", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
+	store.db.Actions = append(store.db.Actions, action)
+
+	// Act: while the gate holds it, with a message older than the ordinary
+	// wait, which would otherwise be the CFO's.
+	held, err := service.deliverMessage(context.Background(), action)
 
 	// Assert
-	if !errors.Is(err, ErrDeferred) {
-		t.Fatalf("the message came back as %v %v, want it queued", evaluation, err)
+	if gate.asks == 0 {
+		t.Fatal("custody was never read, so nothing about a hold is proved")
 	}
-	if !strings.Contains(evaluation.Reason, "Queued for "+meta.ID) {
-		t.Fatalf("the queued state reads %q", evaluation.Reason)
+	if !errors.Is(err, ErrDeferred) || !strings.Contains(held.Reason, "Queued for "+meta.ID) {
+		t.Fatalf("a gate-held message came back as %v %v", held, err)
 	}
-	if strings.Contains(evaluation.Reason, "CFO") {
-		t.Fatalf("a gate-held message was handed to the CFO: %q", evaluation.Reason)
+	if strings.Contains(held.Reason, "CFO") {
+		t.Fatalf("a gate-held message was handed to the CFO: %q", held.Reason)
+	}
+
+	// Act: the gate lets go, and the same queued action is tried again.
+	gate.err = nil
+	released, err := service.deliverMessage(context.Background(), action)
+	if gate.asks < 2 {
+		t.Fatalf("custody was read %d times, want it asked again after release", gate.asks)
+	}
+
+	// Assert: it is no longer queued for the gate and gone to nobody for its
+	// age, and the queue still holds exactly the one message.
+	if strings.Contains(released.Reason, "Queued for "+meta.ID) || strings.Contains(released.Reason, "CFO") {
+		t.Fatalf("a released message reads %q %v, want it waiting for its goblin", released.Reason, err)
+	}
+	waiting := 0
+	for _, each := range store.db.Actions {
+		if each.Kind == "message" && each.TaskID == meta.ID {
+			waiting++
+		}
+	}
+	if waiting != 1 {
+		t.Fatalf("the queue holds %d copies of the message, want exactly one", waiting)
+	}
+}
+
+// A custody nobody could read is not a hold: nothing is typed, and the board
+// says so in words he can act on rather than claiming the gate has it.
+func TestACustodyThatCannotBeReadTypesNothingAndSaysSo(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		gate ProgressReader
+	}{
+		{"a gate that cannot answer", &gateFake{err: errors.New("the no-mistakes database cannot be read")}},
+		{"a home with no gate", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := gatedGoblin(t, h)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: test.gate}}
+			action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "take this", Status: "queued", CreatedAt: time.Now()}
+
+			// Act
+			evaluation, err := service.deliverMessage(context.Background(), action)
+
+			// Assert
+			if !errors.Is(err, ErrRejected) {
+				t.Fatalf("an unreadable custody came back as %v %v, want it refused and recoverable", evaluation, err)
+			}
+			if !strings.Contains(evaluation.Reason, "could not be read") {
+				t.Fatalf("the refusal reads %q", evaluation.Reason)
+			}
+			if strings.Contains(evaluation.Reason, "Queued for") {
+				t.Fatalf("an unreadable custody was reported as a hold: %q", evaluation.Reason)
+			}
+		})
+	}
+}
+
+// A message waiting for a gate to let go is withdrawn from that queue, so no
+// later attempt delivers it.
+func TestAQueuedMessageForAGateHeldGoblinIsWithdrawn(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", TaskID: "gated", Text: "take this after the gate", Status: "queued", CreatedAt: time.Now().UTC()})
+
+	// Act
+	withdrawn, err := store.withdrawMessage(Action{ID: "m2", Kind: "message_withdraw", TaskID: "gated", Text: "take this after the gate"})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withdrawn.Status != "succeeded" || !strings.Contains(withdrawn.Message, "gate let go") {
+		t.Fatalf("the withdrawal reads %+v", withdrawn)
+	}
+	for _, left := range store.db.Actions {
+		if left.Kind == "message" && left.Status == "queued" && left.TaskID == "gated" {
+			t.Fatalf("the withdrawn message is still queued: %+v", left)
+		}
 	}
 }
