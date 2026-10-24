@@ -476,10 +476,28 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
-		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "memory" {
-			waiting = append(waiting, meta.ID)
-			continue
+		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen {
+			switch record.Phase {
+			case "paused":
+				// The pause in force says what holds the task now. Memory is
+				// work a free reading can release; any other condition ends by
+				// itself, so freeing memory cannot end it, and an older report
+				// of a memory wait must not name the task as work it releases.
+				if record.Pause != nil {
+					if record.Pause.Reason == "memory" {
+						waiting = append(waiting, meta.ID)
+					}
+					continue
+				}
+			case "pausing", "resuming", "stopping", "stopped", "done", "failed":
+				// A task being changed or already over is not work memory can
+				// release, whatever an older report said.
+				continue
+			}
 		}
+		// No record of this generation, or one that names no condition: an
+		// older report is the only evidence there is, and missing evidence
+		// never drops a real waiter.
 		lines, _ := state.TailStatus(h.State, meta.ID, 200)
 		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
 			waiting = append(waiting, meta.ID)
