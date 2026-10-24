@@ -1,6 +1,7 @@
 import { request } from "./api";
 import { speechRecognition, type Capture, type Recognizer } from "./dictation";
 import { DictationSetUp, downsample, localRecognizer, Pieces, type Recording, type Sound } from "./localDictation";
+import { TOUCH_SCREEN } from "./small-screen";
 import { object, string } from "./types";
 import { voiceLevel } from "./voice";
 
@@ -231,9 +232,10 @@ function store(): Storage | null {
 }
 
 // browserOffered says whether this browser has a speech recognition to fall
-// back on; the desktop app has none.
+// back on; the desktop app has none. Touch dictation records locally because
+// a phone can end browser recognition at a pause and ignore its restart.
 export function browserOffered(): boolean {
-  return !!speechRecognition();
+  return !matchMedia(TOUCH_SCREEN).matches && !!speechRecognition();
 }
 
 // usesBrowser says whether the Overlord turned the browser's speech
