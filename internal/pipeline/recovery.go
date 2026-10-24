@@ -350,20 +350,75 @@ func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare strin
 // state, such as a run that still owns the branch, and still prints the state.
 func (r Reader) readRecoverySync(ctx context.Context, worktree string, env []string) (recoverySync, []byte, error) {
 	result, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--check"}})
-	if err != nil || result.ExitCode != 0 && result.ExitCode != 1 {
-		return recoverySync{}, nil, errors.New("pipeline: native custody status check failed")
+	// A check that did not run, or did not finish, says nothing about custody,
+	// and its class says which it was: a probe that ran out of time or was
+	// cancelled is not a gate that owns the branch, and neither is a launch
+	// failure.
+	if err != nil {
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckClass(err)}
+	}
+	if result.ExitCode != 0 && result.ExitCode != 1 {
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckExit, exit: result.ExitCode}
 	}
 	var status struct {
 		BranchSync recoverySync `yaml:"branch_sync"`
 	}
 	if yaml.Unmarshal(result.Stdout, &status) != nil {
-		return recoverySync{}, nil, errors.New("pipeline: invalid native custody status")
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckUnreadableOutput}
 	}
+	// A blocked check still prints the state. A nonzero exit with no state is a
+	// check whose output could not be read, which is not a hold.
 	if result.ExitCode != 0 && status.BranchSync.State == "" {
-		return recoverySync{}, nil, errors.New("pipeline: native custody status check failed")
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckUnreadableOutput}
 	}
 	return status.BranchSync, append(append([]byte(nil), result.Stdout...), result.Stderr...), nil
 }
+
+// ErrCustodyCheckUnreadable says the custody check itself did not finish, so
+// nothing was learned about custody. It is not a hold and no caller may report
+// it as one.
+var ErrCustodyCheckUnreadable = errors.New("pipeline: the native custody check could not be read")
+
+// The classes of a check that said nothing about custody. They are fixed
+// words, so nothing a check printed can reach board copy through one.
+const (
+	custodyCheckLaunchFailed     = "the check could not be started"
+	custodyCheckTimedOut         = "the check ran out of time"
+	custodyCheckCancelled        = "the check was cancelled"
+	custodyCheckUnreadableOutput = "the check printed no readable state"
+	custodyCheckExit             = "the check ended on another exit"
+)
+
+// custodyCheckClass names why a check ended without a custody answer. A probe
+// that ran out of time or was cancelled ended on its context, which is not a
+// launch failure: the program started and the caller gave up on it.
+func custodyCheckClass(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return custodyCheckTimedOut
+	case errors.Is(err, context.Canceled):
+		return custodyCheckCancelled
+	default:
+		return custodyCheckLaunchFailed
+	}
+}
+
+// custodyCheckError is why a check said nothing about custody, as one of those
+// classes and, for an exit, its code. It carries no child output, which can
+// hold anything at all, so an error is safe to show and to log.
+type custodyCheckError struct {
+	class string
+	exit  int
+}
+
+func (e *custodyCheckError) Error() string {
+	if e.class == custodyCheckExit {
+		return fmt.Sprintf("%s: %s (%d)", ErrCustodyCheckUnreadable, e.class, e.exit)
+	}
+	return ErrCustodyCheckUnreadable.Error() + ": " + e.class
+}
+
+func (e *custodyCheckError) Unwrap() error { return ErrCustodyCheckUnreadable }
 
 func (s recoverySync) userOwned(run recoveryRecord, exactLocal bool) bool {
 	if s.State != "user_owned" || s.Safety != "user_owned" || !s.Local.Clean || s.Local.Head == "" || s.Pipeline.Run != run.RunID || s.Pipeline.SubmittedHead != run.SubmittedHead || s.Pipeline.CurrentHead != run.SubmittedHead {

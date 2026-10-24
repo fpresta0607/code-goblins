@@ -749,6 +749,23 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 	}
 }
 
+// awaitWithin fails when text has not arrived within d, which a view that only
+// opens after its custody answer arrives cannot meet.
+func (v *nativeView) awaitWithin(t *testing.T, text string, d time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(d); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.Contains(screen, text) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%q did not arrive within %v while custody was still pending; the view shows %q", text, d, screen[max(0, len(screen)-300):])
+		}
+	}
+}
+
 // waitForSize asks the program its size until it reads size, such as
 // "100x30": ConPTY applies a resize on its own, so the program can still read
 // the old size just after one.
@@ -1806,5 +1823,136 @@ func TestACloseReasonFitsACloseFrame(t *testing.T) {
 		if len(fitted) > 123 || !utf8.ValidString(fitted) || (len(reason) <= 123 && fitted != reason) {
 			t.Errorf("closeReason(%d bytes) = %d bytes %q, want the reason itself or a valid cut of at most 123", len(reason), len(fitted), fitted)
 		}
+	}
+}
+
+// blockingGate answers custody only when the test lets it, so a view's open
+// path can be observed while the check is deliberately still pending.
+type blockingGate struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (g *blockingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, pipeline.ErrNoProgress
+}
+
+func (g *blockingGate) CanSteer(ctx context.Context, _, _, _ string) error {
+	if g.entered != nil {
+		g.once.Do(func() { close(g.entered) })
+	}
+	select {
+	case <-g.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// A custody check the gate answers slowly keeps nothing from the view: history
+// and output arrive while the first check is still pending, the view opens
+// readable, and nothing is typed or submitted until a clear answer arrives.
+func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
+	h, server := nativeBoard(t, "no-mistakes")
+	gitFixture(t, taskWorktree(t, h))
+	gate := &blockingGate{entered: make(chan struct{}), release: make(chan struct{})}
+	h.Service.Options.Gate = gate
+	h.terminalTick = 50 * time.Millisecond
+	hostTask(t, h)
+
+	// Act: the view opens while the check is blocked.
+	v := openNativeView(t, server, viewQuery)
+
+	// Assert: the check is genuinely pending and the program's output reached
+	// the view anyway, which is what the freeze kept from him.
+	select {
+	case <-gate.entered:
+	case <-time.After(time.Minute):
+		t.Fatal("the custody check never started")
+	}
+	// The output must arrive while the check is still blocked: a view that only opens once the check answers is exactly the freeze, and custody has seconds of budget of its own.
+	v.awaitWithin(t, "program ready", 4*time.Second)
+	select {
+	case <-gate.release:
+		t.Fatal("the check was released, so the wait proved nothing")
+	default:
+	}
+	select {
+	case <-v.closed:
+		t.Fatal("the view closed while custody was still pending")
+	default:
+	}
+
+	// Act: typing and a submission while the answer is pending.
+	v.send(t, websocket.MessageBinary, "leak\r")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"while-pending"}`)
+	time.Sleep(300 * time.Millisecond)
+
+	// Assert: neither the text nor the submission reached the terminal, and
+	// nothing was marked as a submission of this view.
+	if v.shows("leak") {
+		t.Fatal("raw input reached the terminal before custody was answered")
+	}
+	if v.shows("submission while-pending") {
+		t.Fatal("a submission was delivered before custody was answered")
+	}
+
+	// Act: the gate answers clear, and the view is told before he types, so
+	// the typing cannot race the probe update.
+	close(gate.release)
+	v.waitFor(t, `"type":"held","reason":""`)
+
+	// Act and Assert: once clear, typing reaches the terminal.
+	v.send(t, websocket.MessageBinary, "after\r")
+	v.waitFor(t, "after")
+}
+
+// stoppingGate refses with custody on the first ask and lets the task's
+// generation go on the second, so a view's identity revocation can be proved.
+type stoppingGate struct {
+	asks    atomic.Int32
+	refused atomic.Int32
+}
+
+func (g *stoppingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, pipeline.ErrNoProgress
+}
+
+func (g *stoppingGate) CanSteer(context.Context, string, string, string) error {
+	if g.asks.Add(1) == 1 {
+		g.refused.Add(1)
+		return errors.New("pipeline owns this task")
+	}
+	return nil
+}
+
+// The second result of a custody check means the session the view names is
+// gone, so the view closes as it always did: a replaced generation does not
+// leave a readable view over a session that no longer exists.
+func TestANativeTerminalClosesWhenItsGenerationIsReplaced(t *testing.T) {
+	h, server := nativeBoard(t, "no-mistakes")
+	gitFixture(t, taskWorktree(t, h))
+	gate := &stoppingGate{}
+	h.Service.Options.Gate = gate
+	h.terminalTick = 50 * time.Millisecond
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	// Act: the task is replaced under the open view.
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.SpawnGen = "g2"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	closed := v.waitForClose(t)
+
+	// Assert: it closed with the replaced-session reason, not a hold.
+	if !strings.Contains(closed.Reason, "restarted or was replaced") {
+		t.Fatalf("the view closed with %q, want the replaced session named", closed.Reason)
 	}
 }

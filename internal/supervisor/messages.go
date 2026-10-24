@@ -83,25 +83,30 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		if isKept {
 			return Evaluation{Reason: "Kept for its resume."}, nil
 		}
+	}
+	// A goblin whose gate owns its branch takes no typing, so a message for it
+	// is kept as a durable queued action and delivered once custody is released.
+	// It never expires and is never handed to the CFO, because nothing is lost by
+	// waiting for the gate (the Overlord, 2026-10-23). This holds whatever the
+	// goblin is doing, a pause, resume or stop under way included, since a
+	// transition reads no custody of its own.
+	switch held, _ := gateCustody(ctx, s, meta); held {
+	case gateHeld:
+		return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes."}, ErrDeferred
+	case gateUnknown:
+		// Custody nobody could read types nothing, so nothing can break a gate.
+		// The message waits in the queue like one behind a gate and is delivered
+		// the moment custody reads clear, and each attempt reads it again, so
+		// nothing is lost while the check is failing. The words he reads are
+		// plain, and no child output reaches them.
+		return Evaluation{Reason: "Queued for " + a.TaskID + ". Delivery waits until its gate custody can be read."}, ErrDeferred
+	}
+	switch {
 	case isRecorded && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping"):
+		// A transition under way has no terminal that takes typing now, and its
+		// custody read clear above, so the ordinary wait applies.
+		return s.waitForGoblin(a, false)
 	default:
-		// A goblin whose gate owns its branch takes no typing, so a message for
-		// it is kept as a durable queued action and delivered once custody is
-		// released. It never expires and is never handed to the CFO, because
-		// nothing is lost by waiting for the gate (the Overlord, 2026-10-23).
-		held, _ := gateCustody(ctx, s, meta)
-		switch held {
-		case gateHeld:
-			return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes."}, ErrDeferred
-		case gateUnknown:
-			// Custody nobody could read types nothing, so nothing can break a
-			// gate. The message waits in the queue like one behind a gate and is
-			// delivered the moment custody reads clear, and each attempt reads it
-			// again, so nothing is lost while the check is failing.
-			// The words he reads are plain; why the check failed stays in the
-			// record rather than in the board's copy.
-			return Evaluation{Reason: "Queued for " + a.TaskID + ". Delivery waits until its gate custody can be read."}, ErrDeferred
-		}
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
 			result, err := s.Options.CFO.SendGoblin(ctx, a.TaskID, goblinIdentity(meta), text)

@@ -161,6 +161,17 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // terminal takes, as Claude Code's permission prompt, and open while
 // something of its own is drawn in its input line's place, as a picker, a
 // panel or that question, and working while a turn runs.
+// custodyProbeBudget is how long a custody check has. no-mistakes'
+// sync --check reads the whole branch state and takes several seconds, and a
+// probe shorter than it reports every check as a failure of the check rather
+// than of custody.
+const custodyProbeBudget = 8 * time.Second
+
+// custodyUnasked is the hold a view opens on, before any custody answer has
+// arrived: nothing is typed until one does, and the composer keeps what he
+// writes as a board action meanwhile.
+var custodyUnasked = errors.New("the gate has not answered yet")
+
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -226,20 +237,21 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	// mu guards custody, which each tick refreshes.
+	// mu guards custody: the hold until a first answer arrives, then the latest
+	// one. Its non-nil guard is what keeps queued and raw input out of a branch
+	// the gate may own, so no second state variable exists.
 	var mu sync.Mutex
-	check, stop := context.WithTimeout(ctx, 8*time.Second)
-	custody, err := binding.check(check)
-	stop()
-	if err != nil {
-		_ = view.Close(closeCode(err), closeReason(err.Error()))
-		return
-	}
-
+	custody := error(custodyUnasked)
+	// The relay opens before custody is asked, so history, scrolling and the
+	// composer never wait on a check the gate answers slowly. Until the first
+	// answer arrives nothing is released: typing stays held, which is what
+	// keeps queued and raw input out of a branch the gate may own.
 	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true}
-	if custody != nil {
-		relay.held = heldNotice(custody)
-	}
+	// Opened before any custody answer exists, and held until one says the
+	// branch is the goblin's: a check the gate answers slowly must never keep
+	// history, scrolling or the composer waiting, while nothing is released
+	// into a branch the gate may own.
+	relay.held = heldNotice(custodyUnasked)
 	look := time.AfterFunc(screenAtOpen, func() {
 		relay.mu.Lock()
 		relay.looking = false
@@ -376,6 +388,32 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		tick := time.NewTicker(h.terminalTick)
 		defer tick.Stop()
+		// The first ask, and then one each tick. Its first result is delivery
+		// custody, which may be an unreadable check, and its second means the
+		// generation, session or run this view was opened for is gone.
+		ask := func() bool {
+			check, stop := context.WithTimeout(ctx, custodyProbeBudget)
+			refused, revoked := binding.check(check)
+			stop()
+			if revoked != nil {
+				_ = view.Close(closeCode(revoked), closeReason(revoked.Error()))
+				return false
+			}
+			mu.Lock()
+			isChanged := (custody == nil) != (refused == nil) || custody != nil && refused != nil && custody.Error() != refused.Error()
+			custody = refused
+			mu.Unlock()
+			if isChanged {
+				relay.mu.Lock()
+				relay.held = heldNotice(refused)
+				relay.mu.Unlock()
+				relay.signal()
+			}
+			return true
+		}
+		if !ask() {
+			return
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -384,22 +422,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(websocket.StatusGoingAway, "The board is restarting.")
 				return
 			case <-tick.C:
-				check, stop := context.WithTimeout(ctx, 8*time.Second)
-				refused, err := binding.check(check)
-				stop()
-				if err != nil {
-					_ = view.Close(closeCode(err), closeReason(err.Error()))
+				if !ask() {
 					return
-				}
-				mu.Lock()
-				isChanged := (custody == nil) != (refused == nil) || custody != nil && custody.Error() != refused.Error()
-				custody = refused
-				mu.Unlock()
-				if isChanged {
-					relay.mu.Lock()
-					relay.held = heldNotice(refused)
-					relay.mu.Unlock()
-					relay.signal()
 				}
 			}
 		}
@@ -431,6 +455,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				mu.Lock()
 				refused := custody
 				mu.Unlock()
+				// The hold until the first answer refuses every submission, and
+				// so does every later refusal.
 				if refused != nil || binding.harness == nil {
 					continue
 				}
