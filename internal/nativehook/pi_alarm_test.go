@@ -147,3 +147,85 @@ process.stdout.write(String(calls));
 		})
 	}
 }
+
+// A hook's failure can mean several different things, and one message for all
+// of them misled a reading: on 2026-10-24 a turn end showed "could not be
+// spooled" although that turn end's settled event had reached the supervisor.
+// A timeout or a signal can follow a child that already recorded its event, so
+// each outcome now says only what is known and names the fixed event, which
+// lets a later failure be correlated. No child output is repeated, since a tool
+// result may carry private data.
+func TestPiExtensionNamesTheRealHookFailureWithoutClaimingALostEvent(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Pi requires Node")
+	}
+	for _, c := range []struct {
+		name    string
+		failure string
+		want    []string
+	}{
+		{name: "a hook held past its limit", failure: "timeout", want: []string{"for agent_settled", "timed out.", "may have started and recorded the event."}},
+		{name: "a hook that could not start", failure: "missing", want: []string{"for agent_settled", "could not start (ENOENT).", "The event was not recorded."}},
+		{name: "a hook terminated by a signal", failure: "signal", want: []string{"for agent_settled", "was terminated by SIGKILL.", "may have recorded the event."}},
+		{name: "a hook that ran and failed", failure: "status", want: []string{"for agent_settled", "exited with status 3.", "may have recorded the event."}},
+		{name: "a process error with no code", failure: "unknown", want: []string{"for agent_settled", "could not complete (unknown error).", "may have recorded the event."}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			directory := t.TempDir()
+			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: filepath.Join(directory, "state")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			driver := filepath.Join(directory, "driver.mjs")
+			if err := os.WriteFile(driver, []byte(`import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { pathToFileURL } from "node:url";
+const failure = process.argv[3];
+const privateOutput = "fixture-output-must-not-be-logged";
+const results = {
+  timeout: {error: Object.assign(new Error(privateOutput), {code: "ETIMEDOUT"}), signal: "SIGTERM", stdout: privateOutput, stderr: privateOutput},
+  missing: {error: Object.assign(new Error(privateOutput), {code: "ENOENT"}), stdout: privateOutput, stderr: privateOutput},
+  signal: {status: null, signal: "SIGKILL", stdout: privateOutput, stderr: privateOutput},
+  status: {status: 3, signal: null, stdout: privateOutput, stderr: privateOutput},
+  unknown: {error: new Error(privateOutput), stdout: privateOutput, stderr: privateOutput},
+};
+childProcess.spawnSync = () => results[failure];
+syncBuiltinESMExports();
+const extension = (await import(pathToFileURL(process.argv[2]).href)).default;
+const handlers = {};
+extension({on: (name, handler) => {handlers[name] = handler;}});
+const ctx = {cwd: process.cwd(), sessionManager: {getSessionId: () => "fixture-session"}, hasPendingMessages: () => false};
+handlers.agent_settled({}, ctx);
+`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_ROLE", "goblin")
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			command := execx.CommandContext(ctx, node, driver, extension, c.failure)
+			var diagnostics bytes.Buffer
+			command.Stderr = &diagnostics
+
+			// Act
+			_, err = command.Output()
+
+			// Assert
+			reported := diagnostics.String()
+			if err != nil || reported == "" {
+				t.Fatalf("the extension reported nothing of the failure: %v %q", err, reported)
+			}
+			for _, refused := range []string{"could not be spooled", "fixture-output", ";"} {
+				if strings.Contains(reported, refused) {
+					t.Fatalf("reported %q, want no %q in a visible diagnostic", reported, refused)
+				}
+			}
+			for _, want := range c.want {
+				if !strings.Contains(reported, want) {
+					t.Fatalf("reported %q, want it to name %q", reported, want)
+				}
+			}
+		})
+	}
+}
