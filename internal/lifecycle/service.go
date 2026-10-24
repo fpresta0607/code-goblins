@@ -231,7 +231,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 	if handedOver != nil {
 		result.Problems = append(result.Problems, handedOver.Error())
 	}
-	if prior.Phase != "running" {
+	if prior.Phase != "running" && (prior.Generation == meta.SpawnGen || prior.IsInterruptedResume(meta)) {
 		result.GateRun, result.GateIntent, result.GateHead = prior.GateRun, prior.GateIntent, prior.GateHead
 	}
 	if request.Session != "" {
