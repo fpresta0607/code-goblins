@@ -349,7 +349,7 @@ func TestAScreenOfAnEndedTerminalIsNotRead(t *testing.T) {
 
 	go func() {
 		defer answering.Close()
-		serveScreen(answering, console, &sync.RWMutex{})
+		serveScreen(answering, console, &sync.RWMutex{}, nil, hello{})
 	}()
 
 	if _, err := readHello(reading); err != nil {

@@ -35,19 +35,22 @@ function storeDraft(key: string, text: string): void {
 // and Shift+Enter starts a new line. While the harness works a working line
 // offers Stop, which presses Escape. What keeps a message from the terminal
 // says so beside the box, and the draft stays: a busy program, a view that is
-// reconnecting or closed, typing a gate holds, and the harness asking at a
-// screen of its own, which an amber card names with Answer in the terminal,
-// since an Enter typed then would answer it. A goblin with no terminal that
+// reconnecting or closed, typing a gate holds, and a screen of the harness's
+// own open in its terminal, a question, a picker or a panel, which an amber
+// card names with Answer in the terminal, since an Enter typed then would act
+// on it. A goblin with no terminal that
 // takes typing now, one paused, resuming or starting, gets what he sends as a
 // message action, delivered once whatever it is doing, and the box lists his
 // latest with where each is, and those a paused goblin's resume will carry,
 // each of which can be deleted. Its microphone, held or tapped on a touch
 // screen, and Ctrl+Shift+Space in the box dictate into it, and the board's
 // recent dictations are a tap away.
-export function Composer({ snapshot, task, name, terminal, isWorking = false, focus = 0, onAnswer }: {
+export function Composer({ snapshot, task, name, terminal, isWorking = false, focus = 0, onAnswer, onSent }: {
   snapshot: Snapshot; task?: Task; name: string;
-  // terminal is the terminal deck's key of the session's terminal.
-  terminal: string; isWorking?: boolean; focus?: number; onAnswer?: () => void;
+  // terminal is the terminal deck's key of the session's terminal, and
+  // onSent is told of each message typed into it, so a screen of the
+  // harness's own that it opens can bring the terminal in.
+  terminal: string; isWorking?: boolean; focus?: number; onAnswer?: () => void; onSent?: (submission: string) => void;
 }) {
   const queues = !!task && takesMessages(task);
   const link = useTerminalLink(terminal);
@@ -78,14 +81,15 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const held = live?.held ? heldNotice(live.held) : "";
-  const isAsking = !!live?.isAsking;
+  const isAsking = !!live?.screen?.isOpen;
   const isUnread = !!live?.isUnread;
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const send = async () => {
     const text = draft.trim();
     if (!text || isSending || held || isAsking || isUnread) return;
     if (!task || !queues) {
-      if (live?.send(text)) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
+      const submission = live?.send(text)
+      if (submission) { setDraft(""); setUnsent(""); onSent?.(submission); } else setUnsent(unsentWhy);
       return;
     }
     sendID.current ||= crypto.randomUUID();

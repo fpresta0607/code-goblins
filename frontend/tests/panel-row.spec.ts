@@ -1,8 +1,8 @@
 import { expect, holdStream, test, type Page } from "./site";
 
 // The panel's top row at any width the panel can take: no control lies on
-// another or leaves the row, the Task and Terminal switch and Close or Back
-// always show, and what the row cannot hold goes into More and works from
+// another or leaves the row, Close or Back always shows, and what the row
+// cannot hold goes into More and works from
 // there. The Overlord's picture of 2026-10-02 showed the word Terminal under
 // two icons in the CFO's panel dragged narrow.
 const since = "2026-10-02T09:00:00Z";
@@ -102,9 +102,10 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         await expect(page.locator("#panel-title")).toHaveText("CFO");
         await expect(page.locator(".canvas-region")).toBeVisible();
         expect(Math.round((await pane(page).boundingBox())!.width)).toBe(width);
+        await expect(pane(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
-        for (const essential of ["Task", "Terminal", "Close panel"]) expect(report.shown).toContain(essential);
+        for (const essential of ["Open in Windows Terminal", "Maximize the panel", "Close panel"]) expect(report.shown).toContain(essential);
 
         await press(page, "Open in Windows Terminal", "Open in terminal");
         // The terminal view posts for its own stream too.
@@ -116,64 +117,31 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         await expect(page.locator(".canvas-region")).toBeVisible();
       });
 
-      test(`at ${width} px a goblin's panel keeps Back and its switch, each view`, async ({ page }) => {
+      test(`at ${width} px a goblin's panel keeps Back and no switch`, async ({ page }) => {
         await open(page, width);
         await page.locator(".task-board .task-card").filter({ hasText: "working-one" }).click();
         await expect(page.locator("#panel-title")).toHaveText("working-one");
-        for (const view of ["Task", "Terminal"]) {
-          await pane(page).locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-          await expect(page.locator(".canvas-region")).toBeVisible();
-          const report = await page.evaluate(rowReport);
-          expect(report.problems, view).toEqual([]);
-          for (const essential of ["Task", "Terminal", "Back to the CFO"]) expect(report.shown, view).toContain(essential);
-        }
-        // A queued task has no terminal, so no switch: Back and what fits.
+        await expect(page.locator(".canvas-region")).toBeVisible();
+        await expect(pane(page).locator(".panel-pill")).toHaveCount(0);
+        const working = await page.evaluate(rowReport);
+        expect(working.problems).toEqual([]);
+        expect(working.shown).toContain("Back to the CFO");
+        // A queued task has no terminal either: Back and what fits.
         await page.locator(".task-board .task-card").filter({ hasText: "queued-one" }).click();
         await expect(page.locator("#panel-title")).toHaveText("queued-one");
+        await expect(pane(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
         expect(report.shown).toContain("Back to the CFO");
       });
 
-      // A Claude Code session's switch has a third view, Messages.
-      test(`at ${width} px a Claude Code goblin's panel keeps Back and its three views apart, each view`, async ({ page }) => {
-        await open(page, width, [], [...BOARD, task("claude-one", "working", { harness: "claude", backend: "native" })]);
-        await page.locator(".task-board .task-card").filter({ hasText: "claude-one" }).click();
-        await expect(page.locator("#panel-title")).toHaveText("claude-one");
-        for (const view of ["Messages", "Terminal", "Task"]) {
-          await pane(page).locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-          await expect(pane(page).locator(".panel-pill").getByRole("button", { name: view, exact: true })).toHaveAttribute("aria-pressed", "true");
-          const report = await page.evaluate(rowReport);
-          expect(report.problems, view).toEqual([]);
-          for (const essential of ["Messages", "Terminal", "Task", "Back to the CFO"]) expect(report.shown, view).toContain(essential);
-        }
-      });
     }
 
-    // At 360 px the switch cannot keep its words beside Back, so it shows its
-    // icons, and with them the row holds every control again.
-    test("at the narrowest width the switch shows its icons, each named", async ({ page }) => {
-      await open(page, 360);
-      await page.locator(".task-board .task-card").filter({ hasText: "working-one" }).click();
-      const pill = pane(page).locator(".panel-pill");
-      await pill.getByRole("button", { name: "Terminal", exact: true }).click();
-      await expect(page.locator(".canvas-region")).toBeVisible();
-      for (const [name, pressed] of [["Task", "false"], ["Terminal", "true"]]) {
-        const button = pill.getByRole("button", { name, exact: true });
-        await expect(button).toHaveAttribute("data-tip", name);
-        await expect(button).toHaveAttribute("aria-pressed", pressed);
-        await expect(button).toHaveText("");
-      }
-      expect((await page.evaluate(rowReport)).problems).toEqual([]);
-    });
-
-    // At 430 px the CFO's row holds its switch with its words and Close, and
-    // no room for both other controls, so both are in More.
     test("More holds what the row cannot, by keyboard", async ({ page }) => {
       await open(page, 430);
       await page.keyboard.press("Control+Alt+1");
       const row = pane(page).locator(".panel-top");
-      await expect(row.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true })).toHaveText("Terminal");
+      await row.evaluate((element) => { element.style.width = "35%"; });
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
       await page.keyboard.press("Enter");
@@ -198,6 +166,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       await open(page, 430, posted);
       await page.keyboard.press("Control+Alt+1");
       const row = pane(page).locator(".panel-top");
+      await row.evaluate((element) => { element.style.width = "35%"; });
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
       await page.keyboard.press("Enter");
@@ -218,27 +187,10 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       await expect(pane(page)).toBeHidden();
     });
 
-    // A task that is pausing has no terminal and so no switch; paused, it has
-    // both. The row was fitted once, without the switch, and kept that fit.
-    test("at the narrowest width a switch that appears in an open panel is fitted", async ({ page }) => {
-      await open(page, 360, [], [task("pausing-one", "pausing", { harness: "codex", backend: "native" })]);
-      await page.locator(".task-board .task-card").filter({ hasText: "pausing-one" }).click();
-      await expect(page.locator("#panel-title")).toHaveText("pausing-one");
-      await expect(pane(page).locator(".panel-pill")).toHaveCount(0);
-      expect((await page.evaluate(rowReport)).problems).toEqual([]);
-
-      await page.evaluate((detail) => { window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })); }, JSON.stringify(snapshot([task("pausing-one", "paused", { harness: "codex", backend: "native" })], 2)));
-      await expect(pane(page).locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true })).toBeVisible();
-      const report = await page.evaluate(rowReport);
-      expect(report.problems).toEqual([]);
-      for (const essential of ["Task", "Terminal", "Back to the CFO"]) expect(report.shown).toContain(essential);
-    });
-
-    test("with room to spare the switch keeps its words and there is no More", async ({ page }) => {
+    test("with room to spare there is no More", async ({ page }) => {
       await open(page, 700);
       await page.keyboard.press("Control+Alt+1");
       const row = pane(page).locator(".panel-top");
-      await expect(row.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true })).toHaveText("Terminal");
       await expect(row.getByRole("button", { name: "More", exact: true })).toHaveCount(0);
       await expect(row.getByRole("button", { name: "Maximize the panel", exact: true })).toBeVisible();
       await expect(row.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toBeVisible();

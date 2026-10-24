@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, type Page, test } from "./site";
 import { parseSnapshot, type Snapshot } from "../src/types";
 
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
@@ -28,19 +28,18 @@ async function serveSnapshots(page: Page, initial: Snapshot): Promise<(next: Sna
 }
 
 for (const workspace of ["Board", "Orchestration"]) {
+  // A Codex goblin's Terminal view is its terminal, which a Claude Code
+  // goblin's shows only stepped into its messages.
   test(`${workspace} keeps the selected terminal visible when its task moves into retired history`, async ({ page }) => {
     const snapshot = parseSnapshot({ healthy: true, instance: "ended-board-proof", cfo_runs: true, revision: 1,
-      tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend: "native", harness: "claude", generation: "s1", session: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", phase: "working", verified: false }],
-      sessions: [{ id: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "input-proof", role: "goblin", task_id: "input-proof", generation: "s1", harness: "claude", phase: "working" }],
+      tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend: "native", harness: "codex", generation: "s1", session: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", phase: "working", verified: false }],
+      sessions: [{ id: "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "input-proof", role: "goblin", task_id: "input-proof", generation: "s1", harness: "codex", phase: "working" }],
     });
     const publish = await serveSnapshots(page, snapshot);
     await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
       socket.send(JSON.stringify({ type: "history", bytes: 0 }));
       socket.send(Buffer.from("READY\r\n"));
     });
-    // He chose the Terminal view, which a session then opens on, and which
-    // this spec is about.
-    await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
     await page.goto("/");
     if (workspace === "Board") {
       await page.locator(".task-card").filter({ hasText: "Terminal fixes and handoff" }).click();
@@ -324,10 +323,12 @@ test("a paused Herdr goblin resumed in the background stays within three live st
 });
 
 for (const backend of ["native", "herdr"] as const) {
+  // A Codex goblin's Terminal view is its terminal, which a Claude Code
+  // goblin's shows only stepped into its messages.
   test(`${backend}: a failed resume opens no transport and Resume from the Task view connects only the resumed generation`, async ({ page }) => {
     const lifecycle = { action: "resume", phase: "failed", at: "2026-09-30T09:58:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
     const snapshot = parseSnapshot({ healthy: true, instance: "resume-proof", cfo_runs: true, revision: 1,
-      tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend, harness: "claude", generation: "s2-9d41", queue_revision: "q7", phase: "unavailable", verified: false,
+      tasks: [{ id: "input-proof", title: "Terminal fixes and handoff", project: "code-goblins", backend, harness: "codex", generation: "s2-9d41", queue_revision: "q7", phase: "unavailable", verified: false,
         runtime: { state: "unavailable" }, lifecycle, action_error: "The resumed harness exited before it was ready." }],
       sessions: [],
     });
@@ -341,16 +342,14 @@ for (const backend of ["native", "herdr"] as const) {
     await page.goto("/");
     await page.getByRole("button", { name: /^Terminal fixes and handoff/ }).first().click();
     const panel = page.locator(".goblin-panel");
-    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" }).click();
     await expect(page.getByText("Resume failed.", { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toHaveCount(0);
     expect(await connections()).toEqual([]);
 
-    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task" }).click();
+    await openTaskList(page);
     await panel.getByRole("button", { name: "Resume Terminal fixes and handoff" }).click();
     await expect.poll(() => requests).toEqual([expect.objectContaining({ task: "input-proof", generation: "s2-9d41", revision: "q7", action: "resume" })]);
     await publish({ ...snapshot, revision: 2, tasks: [{ ...snapshot.tasks[0], phase: "resuming" }] });
-    await panel.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Terminal" }).click();
     await expect(page.getByText("Resuming session...", { exact: true })).toBeVisible();
     expect(await connections()).toEqual([]);
     await publish({ ...snapshot, revision: 3, tasks: [{ ...snapshot.tasks[0], generation: "s3-a17c", phase: "working", runtime: { state: "busy", reason: "", at: "2026-09-30T10:02:00Z" }, lifecycle: undefined, action_error: "" }] });

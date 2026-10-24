@@ -849,6 +849,23 @@ func TestAViewOfAHostThatSendsNoHistoryIsAnError(t *testing.T) {
 	}
 }
 
+func TestAWatchRefusesAHostWithoutSubmissionEvidenceBeforeInput(t *testing.T) {
+	for _, isToldSizes := range []bool{false, true} {
+		t.Run(fmt.Sprint(isToldSizes), func(t *testing.T) {
+			record, _ := scriptedHost(t, hello{Version: Version, Sizes: isToldSizes}, frame{frameOutput, []byte("history")})
+
+			client, err := Watch(record)
+
+			if err == nil {
+				client.Close()
+			}
+			if !errors.Is(err, ErrNoTurnEvidence) {
+				t.Fatalf("Watch = %v, want the old host refused before a viewer can submit input", err)
+			}
+		})
+	}
+}
+
 // A size frame whose payload is not a width and a height is refused by Next
 // rather than read as a size.
 func TestAMalformedSizeFrameIsRefused(t *testing.T) {

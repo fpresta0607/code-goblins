@@ -84,9 +84,14 @@ test("the relay says why typing is held while the screen stays live, and when it
 });
 
 test("the relay says when the harness asks at a screen only its terminal takes, and when it no longer does", () => {
-  assert.equal(parseScreen('{"type":"screen","asking":true}'), true);
-  assert.equal(parseScreen('{"type":"screen","asking":false}'), false);
-  for (const text of ['{"type":"screen"}', '{"type":"screen","asking":1}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
+  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true,"working":false,"submission":""}'), { isAsking: true, isOpen: true, isWorking: false, submission: "", hasStarted: false });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":true,"working":false,"submission":""}'), { isAsking: false, isOpen: true, isWorking: false, submission: "", hasStarted: false });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":false,"submission":""}'), { isAsking: false, isOpen: false, isWorking: false, submission: "", hasStarted: false });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":true,"submission":""}'), { isAsking: false, isOpen: false, isWorking: true, submission: "", hasStarted: false });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":true,"submission":"sent-2"}'), { isAsking: false, isOpen: false, isWorking: true, submission: "sent-2", hasStarted: false })
+  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true,"working":false,"submission":"sent-2","started":true}'), { isAsking: true, isOpen: true, isWorking: false, submission: "sent-2", hasStarted: true });
+  for (const started of [null, 1, "true", {}, []]) assert.equal(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "sent-2", started })), null);
+  for (const text of ['{"type":"screen","asking":false,"open":false,"working":true}', '{"type":"screen","asking":false,"open":false,"working":true,"submission":1}', '{"type":"screen","asking":false,"open":false}', '{"type":"screen","asking":false,"open":false,"working":1}', '{"type":"screen"}', '{"type":"screen","asking":true}', '{"type":"screen","asking":1,"open":true,"working":false,"submission":""}', '{"type":"screen","asking":false,"open":1,"working":false,"submission":""}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
 });
 
 test("a terminal fills its panel with the same padding left, right and below, and its last row at the bottom", () => {

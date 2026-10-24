@@ -6,7 +6,7 @@ import { attachDictatedInput } from "./dictated-input";
 import { clipboardInput, imageKey, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
-import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, type ScreenState } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
 import { attachTouchScroll, terminalText } from "./terminal-touch";
@@ -54,9 +54,9 @@ export interface ViewEvents {
   // sent: a key sent once the view is back could act on a screen he no
   // longer sees.
   unsent: () => void;
-  // The harness waits on an answer at a screen of its own, which only its
-  // terminal takes, as the relay read it, or no longer does.
-  asking: (isAsking: boolean) => void;
+  // The relay read the harness's screen anew: whether it waits on an answer
+  // at a screen of its own, and whether something of its own is open.
+  screen: (state: ScreenState) => void;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -95,9 +95,9 @@ export class TerminalView {
   private isUnread = false;
   // Why typing is held, as the relay last said, or empty while it is free.
   private heldReason = "";
-  // Whether the harness waits on an answer at a screen of its own, as the
-  // relay last said.
-  private isAsking = false;
+  // What the relay last said of the harness's screen, or null while this
+  // view has not been told.
+  private screenState: ScreenState | null = null;
   private isShown = false;
   private fit: FitState = { isDrawn: true, isClaimPending: false };
   private disposed = false;
@@ -171,7 +171,7 @@ export class TerminalView {
 
   get held(): string { return this.heldReason; }
 
-  get asking(): boolean { return this.isAsking; }
+  get screen(): ScreenState | null { return this.screenState; }
 
   // show draws this view in the panel or keeps it live out of sight; a view
   // coming into sight is fitted to the panel and drawn again whole.
@@ -205,6 +205,14 @@ export class TerminalView {
     if (!this.isSendable()) return false;
     this.term.input("\r", true);
     return true;
+  }
+
+  submit(text: string): string | null {
+    if (!this.isSendable()) return null
+    const submission = crypto.randomUUID()
+    this.send(JSON.stringify({ type: "submit", submission }))
+    if (!this.paste(text) || !this.enter()) return null
+    return submission
   }
 
   // escape presses Escape in the terminal, which interrupts a harness's turn.
@@ -277,8 +285,8 @@ export class TerminalView {
       if (unread !== null) { this.isUnread = unread; this.events.unread(unread); return; }
       const held = parseHeld(data);
       if (held !== null) { this.heldReason = held; this.events.held(held); return; }
-      const asking = parseScreen(data);
-      if (asking !== null) { this.isAsking = asking; this.events.asking(asking); return; }
+      const screen = parseScreen(data);
+      if (screen !== null) { this.screenState = screen; this.events.screen(screen); return; }
       // The terminal took a size here in its output. xterm parses writes in
       // order and calls back after each, so the grid changes once the output
       // before the size is drawn, and before the output after it.
@@ -410,7 +418,7 @@ export class TerminalView {
     const down = event.type === "keydown";
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
-      if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+      if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
       return false;
     }
     const shortcut = terminalKey(event, this.term, this.copy);

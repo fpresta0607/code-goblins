@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -299,7 +300,7 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		return
 	}
 	if greeting.Screen {
-		serveScreen(connection, console, screens)
+		serveScreen(connection, console, screens, output, greeting)
 		return
 	}
 	if greeting.Deliver {
@@ -308,7 +309,7 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 	}
 	past, sizes, feed, detach := output.attach()
 	defer detach()
-	answer := hello{Version: Version, Unread: greeting.Unread}
+	answer := hello{Version: Version, Unread: greeting.Unread, View: feed.id}
 	if greeting.Sizes {
 		answer.Sizes, answer.History = true, len(past)
 	}
@@ -354,6 +355,11 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 				return
 			}
 			switch kind {
+			case frameSubmission:
+				var mark submission
+				if json.Unmarshal(payload, &mark) != nil || feed.submit(mark) != nil {
+					return
+				}
 			case frameInput:
 				_, _ = console.Write(payload)
 			case frameResize:

@@ -272,6 +272,34 @@ func (s Screens) showsComposerOrTurn(rows []string) bool {
 	return composer || s.IsWorking(rows) || anyRow(rows, s.Ready)
 }
 
+// footerRows is how many of a screen's last rows that are not blank hold
+// the composer's footer: its mode row, and a line Claude Code adds under it,
+// as an update waiting for a restart.
+const footerRows = 3
+
+// IsOpen reports whether screen shows something of the harness's own drawn
+// in its input line's place, a picker, a panel, a dialog or a question,
+// while no turn runs: what asks, or a screen whose last rows show no row of
+// the composer's footer, as Claude Code draws its pickers and panels. The
+// footer is read only there, under the composer, since the conversation
+// above a picker can quote it. A screen back at its input line, a turn
+// running over it or not, has nothing open, and so has a blank one.
+func (s Screens) IsOpen(screen []string) bool {
+	if s.IsAsking(screen) {
+		return true
+	}
+	if s.Ready == nil || s.IsWorking(screen) {
+		return false
+	}
+	var last []string
+	for i := len(screen) - 1; i >= 0 && len(last) < footerRows; i-- {
+		if strings.TrimSpace(screen[i]) != "" {
+			last = append(last, screen[i])
+		}
+	}
+	return len(last) > 0 && !anyRow(last, s.Ready)
+}
+
 // IsStarting reports whether screen shows the harness turning a submitted
 // prompt away because its startup has not finished.
 func (s Screens) IsStarting(screen []string) bool {

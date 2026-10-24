@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "./site";
+import { expect, type Locator, openTaskList, taskList, type Page, test } from "./site";
 
 // A task's panel has one action row under its header: Start and Remove for a
 // task that has not started, Pause or Resume and Stop for one that has, and
@@ -38,7 +38,7 @@ async function open(page: Page, posted: Posted[] = [], tasks: Record<string, unk
   await page.evaluate(() => document.fonts.ready);
 }
 
-const panel = (page: Page) => page.locator(".goblin-panel");
+const panel = (page: Page) => page.locator(".context-pane");
 const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
 
 async function select(page: Page, id: string) {
@@ -47,8 +47,7 @@ async function select(page: Page, id: string) {
   if (await back.count()) await back.click();
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
+  await openTaskList(page);
 }
 
 // The names of a row's buttons, in the order they are drawn.
@@ -63,9 +62,9 @@ async function inOneRow(row: Locator) {
 // that reaches outside the panel; controls are measured by their boxes.
 function crowded(): string[] {
   const GAP = 8;
-  const region = document.querySelector(".goblin-panel")!;
+  const region = document.querySelector(".context-pane")!;
   const frame = region.getBoundingClientRect();
-  const controls = [...region.querySelectorAll<HTMLElement>(":is(.panel-header, .panel-task) :is(button, a, textarea)")].filter((element) => element.getClientRects().length && !element.closest("dialog"));
+  const controls = [...region.querySelectorAll<HTMLElement>(":is(.panel-header, .panel-task, .panel-task-fold) :is(button, a, textarea)")].filter((element) => element.getClientRects().length && !element.closest("dialog"));
   const name = (element: HTMLElement) => element.getAttribute("aria-label") || element.textContent || element.tagName;
   const problems: string[] = [];
   controls.forEach((first, at) => {
@@ -219,7 +218,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 1200 }], ["phone
     }
     // The measure sees a row whose buttons touch, so an empty report above
     // means they are apart, not that nothing was measured.
-    await page.addStyleTag({ content: ".goblin-panel .task-controls { gap: 0 !important; }" });
+    await page.addStyleTag({ content: ".context-pane .task-controls { gap: 0 !important; }" });
     expect(await page.evaluate(crowded)).toEqual(["Resume paused-one / Stop paused-one"]);
   });
 }
@@ -265,7 +264,7 @@ function isYellow(color: string): boolean {
 test("a queued task's panel has no section to adjust it, and its box opens in the header", async ({ page }) => {
   // Arrange
   await openNamed(page);
-  const below = panel(page).locator(".panel-task");
+  const below = taskList(page);
 
   // Act
   await pencil(page).click();

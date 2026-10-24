@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-17: "minimal cards are better like an imessage
 // history with name status of whether working time working or last worked
@@ -115,8 +115,8 @@ test("a helper's row names no parent, and its panel names the goblin it helps", 
   // Assert
   await expect(row).not.toContainText("Helper of");
   await expect(page.locator("#panel-title")).toHaveText("Kip - Helper");
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
-  await expect(page.locator(".panel-header")).toContainText("Helper of Benny - AFK Ace");
+  const header = await openTaskList(page);
+  await expect(header).toContainText("Helper of Benny - AFK Ace");
 });
 
 test("in a column beside the CFO's panel a card's time and icons take a line under its status", async ({ page }) => {

@@ -11,7 +11,7 @@
 .conversation:focus-visible { outline-offset: -3px; }
 /* A short conversation sits at the bottom, by the latest, as a chat does,
    and a wide panel keeps lines a readable length. */
-.conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: .875em; min-height: 100%; max-width: 60em; margin: 0 auto; }
+.conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: .875em; min-height: 100%; }
 .message { position: relative; display: grid; gap: .4em; min-width: 0; }
 .message-from { display: flex; align-items: center; gap: .5em; min-height: 32px; color: var(--muted); font-size: .9375em; font-weight: 700; }
 .message-from > .icon { width: 1.1em; height: 1.1em; }

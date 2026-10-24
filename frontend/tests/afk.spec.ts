@@ -144,13 +144,10 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await expect.poll(() => supervisor.asked.at(-1)).toEqual({ on: false, token: "fixture" });
 });
 
-test("the toggle is in the header in the panel's Task view and its Terminal view alike", async ({ page }) => {
+test("the toggle is in the panel's header", async ({ page }) => {
   await open(page, snapshot());
   await openCfoPanel(page);
-  for (const view of ["Task", "Terminal"]) {
-    await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-    await expect(toggle(page)).toBeVisible();
-  }
+  await expect(toggle(page)).toBeVisible();
 });
 
 // The Overlord, 2026-10-08: "this yellow text i hate. as an error". A refusal
@@ -683,14 +680,11 @@ test.describe("in the desktop window", () => {
     await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
     await openCfoPanel(page);
-    for (const view of ["Task", "Terminal"]) {
-      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-      const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
-      // The toggle is beside the CFO's portrait, name and status, not under them.
-      expect(rows[1][0], view + " view").toBeLessThan(rows[0][1]);
-      expect(rows[1][1], view + " view").toBeGreaterThan(rows[0][0]);
-      expect(await within(page, ".panel-header"), view + " view").toBe(true);
-    }
+    const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
+    // The toggle is beside the CFO's portrait, name and status, not under them.
+    expect(rows[1][0], "the panel").toBeLessThan(rows[0][1]);
+    expect(rows[1][1], "the panel").toBeGreaterThan(rows[0][0]);
+    expect(await within(page, ".panel-header"), "the panel").toBe(true);
     expect(await within(page, ".cfo-rest")).toBe(true);
     expect(await fits(page)).toBe(true);
   });
@@ -701,17 +695,14 @@ test.describe("in the desktop window", () => {
     await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
     await open(page, snapshot({ afk: on() }));
     await openCfoPanel(page);
-    for (const view of ["Task", "Terminal"]) {
-      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-      expect(Math.round((await page.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
-      await expect(toggle(page)).toBeVisible();
-      expect(await within(page, ".panel-header"), view + " view").toBe(true);
-      const overlap = await header(page).evaluate((element) => {
-        const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
-        return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
-      });
-      expect(overlap, view + " view: the status and the toggle overlap").toBe(false);
-    }
+    expect(Math.round((await page.locator(".context-pane").boundingBox())!.width), "the panel").toBe(360);
+    await expect(toggle(page)).toBeVisible();
+    expect(await within(page, ".panel-header"), "the panel").toBe(true);
+    const overlap = await header(page).evaluate((element) => {
+      const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
+      return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
+    });
+    expect(overlap, "the status and the toggle overlap").toBe(false);
   });
 });
 

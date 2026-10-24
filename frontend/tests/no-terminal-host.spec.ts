@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page, type WebSocketRoute } from "./site";
+import { expect, holdStream, openTaskList, type Page, test, type WebSocketRoute } from "./site";
 
 // Issue 1218, 2026-10-20: a goblin whose terminal's host did not come back
 // after a PC restart showed a black pane with a cursor in its Terminal tab,
@@ -9,15 +9,15 @@ import { expect, holdStream, test, type Page, type WebSocketRoute } from "./site
 // one snapshot on a held stream, and each view of the goblin's terminal is a
 // socket the test answers as the relay does.
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
-const TASK = { id: "nw-invoice-export", title: "Export invoices as CSV", goblin_name: "Zora", goblin_title: "Invoice Imp", project: "northwind-api", phase: "working", verified: false, generation: "nw-invoice-export-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION };
+const TASK = { id: "nw-invoice-export", title: "Export invoices as CSV", goblin_name: "Zora", goblin_title: "Invoice Imp", project: "northwind-api", phase: "working", verified: false, generation: "nw-invoice-export-1", harness: "codex", model: "gpt-5.5", effort: "xhigh", backend: "native", session: SESSION };
 const snapshot = (changes: object) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, afk: { state: "off" },
   tasks: [{ ...TASK, ...changes }],
-  sessions: [{ id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: TASK.id, role: "goblin", task_id: TASK.id, generation: TASK.generation, harness: "claude", phase: "working" }],
+  sessions: [{ id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: TASK.id, role: "goblin", task_id: TASK.id, generation: TASK.generation, harness: "codex", phase: "working" }],
 });
-const DID_NOT_COME_BACK = { comeback: { id: TASK.id, state: "stopped", reason: "claude is not on PATH" } };
+const DID_NOT_COME_BACK = { comeback: { id: TASK.id, state: "stopped", reason: "codex is not on PATH" } };
 const NO_TERMINAL = "No terminal: this goblin did not come back after the restart. On its Task view, Restart under Harness brings it back and Stop retires it.";
-const ENGINES = { harnesses: [{ id: "claude", name: "Claude Code", reason: "", models: [{ id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["xhigh"], default_effort: "xhigh" }] }] };
+const ENGINES = { harnesses: [{ id: "codex", name: "Codex", reason: "", models: [{ id: "gpt-5.5", name: "GPT-5.5", efforts: ["xhigh"], default_effort: "xhigh" }] }] };
 // A view waits this long for its first screen before it is shown all the
 // same (READY_FALLBACK_MS in terminalView.ts); a look after it sees what
 // stays.
@@ -44,9 +44,6 @@ async function open(page: Page, changes: object, answer: (socket: WebSocketRoute
     views.push(socket.url());
     answer(socket);
   });
-  // He chose the Terminal view, which a session then opens on, and which
-  // this spec is about.
-  await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
   await page.goto("/");
   const board = page.getByRole("button", { name: "Board", exact: true });
   if (await board.isVisible()) await board.click();
@@ -58,7 +55,7 @@ async function open(page: Page, changes: object, answer: (socket: WebSocketRoute
 // The shown terminal slot, and the terminal drawn in it, if any.
 const slot = (page: Page) => page.locator(".terminal-deck .deck-slot:not([hidden])");
 // Open in terminal, in the panel's row or, where the row has no room for it
-// beside a Claude Code session's three views, in its More menu.
+// beside its views, in its More menu.
 async function openInTerminal(page: Page) {
   const more = page.locator(".panel-top").getByRole("button", { name: "More", exact: true });
   if (await more.count()) await more.click();
@@ -86,7 +83,7 @@ test("a goblin that did not come back after the restart says it has no terminal,
 
   // Act: he turns to its Task view and opens Harness, as the words say.
   await page.route("**/api/engines", (route) => route.fulfill({ json: ENGINES }));
-  await page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task", exact: true }).click();
+  await openTaskList(page);
   await page.locator(".goblin-panel summary").filter({ hasText: "Harness" }).click();
 
   // Assert: Restart, which brings it back, and Stop, which retires it.

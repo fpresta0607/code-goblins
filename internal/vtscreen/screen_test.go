@@ -2,9 +2,32 @@ package vtscreen
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestChangedRowsAreObservedBeforeReplacementWithinOneWrite(t *testing.T) {
+	for _, separator := range []string{"\r\x1b[K", "\x1b[2J\x1b[H", "\n\r", "\x1b" + "c"} {
+		t.Run(separator, func(t *testing.T) {
+			screen := newScreen(t, 40, 8)
+			var observed []string
+			screen.OnRow = func(row string) { observed = append(observed, strings.TrimSpace(row)) }
+			screen.Write([]byte("✽ Pondering…" + separator + "Allow?"))
+			if !reflect.DeepEqual(observed, []string{"✽ Pondering…", "Allow?"}) {
+				t.Fatalf("observed %q, want the intermediate row followed by its replacement", observed)
+			}
+			observed = nil
+			if _, err := screen.Resize(50, 8); err != nil {
+				t.Fatal(err)
+			}
+			screen.Repaint()
+			if len(observed) != 0 {
+				t.Fatalf("resizing or repainting observed old output: %q", observed)
+			}
+		})
+	}
+}
 
 func newScreen(t *testing.T, cols, rows int) *Screen {
 	t.Helper()

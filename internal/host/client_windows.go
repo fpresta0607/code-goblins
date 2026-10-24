@@ -2,6 +2,7 @@ package host
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ type Client struct {
 	history int
 	// isToldSizes is whether the host tells this client the terminal's sizes.
 	isToldSizes bool
+	view        uint64
 	// first is the history View read from a host that tells no sizes, for
 	// Next to return first.
 	first *Event
@@ -57,12 +59,24 @@ func View(record Record) (*Client, error) {
 	return dialViewer(record, hello{Version: Version, Token: record.Token, Sizes: true})
 }
 
+// ErrNoTurnEvidence requires a terminal restart before the board accepts
+// input whose resulting turn it must distinguish from a command's picker.
+var ErrNoTurnEvidence = errors.New("Restart this terminal to enable Chat turn tracking.")
+
 // Watch connects as View does, as a viewer that is also told when key presses
 // have sat unread in the terminal's input, as a busy program leaves them, and
-// when its program has read them. A host from before that was told tells
-// nothing of it.
+// when its program has read them. It requires submission-relative evidence
+// before making the connection available for input.
 func Watch(record Record) (*Client, error) {
-	return dialViewer(record, hello{Version: Version, Token: record.Token, Sizes: true, Unread: true})
+	client, err := dialViewer(record, hello{Version: Version, Token: record.Token, Sizes: true, Unread: true})
+	if err != nil {
+		return nil, err
+	}
+	if client.view == 0 {
+		client.Close()
+		return nil, ErrNoTurnEvidence
+	}
+	return client, nil
 }
 
 func dialViewer(record Record, greeting hello) (*Client, error) {
@@ -71,7 +85,7 @@ func dialViewer(record Record, greeting hello) (*Client, error) {
 		return nil, err
 	}
 	if answer.Sizes {
-		client.history, client.isToldSizes = answer.History, true
+		client.history, client.isToldSizes, client.view = answer.History, true, answer.View
 		return client, nil
 	}
 	first, err := client.Next()
@@ -156,6 +170,18 @@ func (c *Client) Next() (Event, error) {
 // Input types p into the terminal.
 func (c *Client) Input(p []byte) error {
 	return c.send(frameInput, p)
+}
+
+// MarkSubmission precedes the submitted input on this viewer's connection.
+func (c *Client) MarkSubmission(id, harness string) error {
+	if c.view == 0 {
+		return errors.New("host: restart this terminal to track submitted turns")
+	}
+	payload, err := json.Marshal(submission{ID: id, Harness: harness})
+	if err != nil {
+		return err
+	}
+	return c.send(frameSubmission, payload)
 }
 
 // Resize asks the host to resize the terminal to cols by rows cells.
