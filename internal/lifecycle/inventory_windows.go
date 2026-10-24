@@ -30,12 +30,37 @@ const gateAgentVariable = "NO_MISTAKES_GATE"
 // task's terminals and what their jobs hold, as the stop that holds those
 // jobs read them, and those carrying one of marks, its terminals' proofs
 // (OwnedProcesses).
-func Inventory(ctx context.Context, directories []string, job []Identity, marks []Mark) ([]Process, error) {
-	processes, err := ReadProcesses(ctx, len(marks) > 0)
+func Inventory(ctx context.Context, directories []string, job []Identity, marks []Mark, stateDir string) ([]Process, error) {
+	knownMarks, err := terminalMarks(stateDir)
 	if err != nil {
 		return nil, err
 	}
-	return OwnedProcesses(processes, directories, job, marks), nil
+	processes, err := ReadProcesses(ctx, len(marks) > 0 || len(knownMarks) > 0)
+	if err != nil {
+		return nil, err
+	}
+	return OwnedProcesses(processes, directories, job, marks, knownMarks), nil
+}
+
+func terminalMarks(stateDir string) ([]Mark, error) {
+	if stateDir == "" {
+		return nil, nil
+	}
+	ids, err := host.Terminals(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	var marks []Mark
+	for _, id := range ids {
+		proofs, err := host.Proofs(stateDir, id)
+		if err != nil {
+			return nil, fmt.Errorf("read terminal %s's proofs before deciding ownership: %w", id, err)
+		}
+		for _, proof := range proofs {
+			marks = append(marks, Mark{Terminal: id, ProofSum: proof})
+		}
+	}
+	return marks, nil
 }
 
 // ReadProcesses reads every running process this one may open, with the

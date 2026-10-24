@@ -66,8 +66,8 @@ type Owner struct {
 // asks whose a process is: the process sweep ends and keeps by it
 // (planProcesses), and the orphan sweep raises no finding for what it gives
 // a terminal that runs (sightings).
-func (owner Owner) owned(evidence []lifecycle.Process) []lifecycle.Process {
-	return lifecycle.OwnedProcesses(evidence, owner.Directories, nil, owner.Marks)
+func (owner Owner) owned(evidence []lifecycle.Process, knownMarks []lifecycle.Mark) []lifecycle.Process {
+	return lifecycle.OwnedProcesses(evidence, owner.Directories, nil, owner.Marks, knownMarks)
 }
 
 // sightings is what one reading of the machine says of each process in
@@ -78,6 +78,10 @@ func (owner Owner) owned(evidence []lifecycle.Process) []lifecycle.Process {
 // is. A process two running terminals own is the first one's, in the order
 // of owners.
 func sightings(running []proc.Entry, processes []Process, owners []Owner) []reap.Sighting {
+	var knownMarks []lifecycle.Mark
+	for _, owner := range owners {
+		knownMarks = append(knownMarks, owner.Marks...)
+	}
 	evidence := make([]lifecycle.Process, len(processes))
 	read := make(map[int]Process, len(processes))
 	for index, process := range processes {
@@ -89,7 +93,7 @@ func sightings(running []proc.Entry, processes []Process, owners []Owner) []reap
 		if terminal.HostPID == 0 {
 			continue
 		}
-		for _, process := range terminal.owned(evidence) {
+		for _, process := range terminal.owned(evidence, knownMarks) {
 			if _, isOwned := owner[process.PID]; !isOwned {
 				owner[process.PID] = terminal.ID
 			}
@@ -216,6 +220,10 @@ type ProcessPlan struct {
 // is gone, and a browser bridge nothing ties to an owner. A desktop program
 // is the Overlord's and is neither ended nor named.
 func planProcesses(processes []Process, owners []Owner, watched []Watched, now time.Time) (ending, left []ProcessItem, watching []Watched, kept []ProcessItem) {
+	var knownMarks []lifecycle.Mark
+	for _, owner := range owners {
+		knownMarks = append(knownMarks, owner.Marks...)
+	}
 	evidence := make([]lifecycle.Process, len(processes))
 	byPID := make(map[int]Process, len(processes))
 	children := make(map[int][]Process, len(processes))
@@ -267,7 +275,7 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 	isOwned := map[int]bool{}
 	for _, owner := range owners {
 		owned := map[int]bool{}
-		for _, process := range owner.owned(evidence) {
+		for _, process := range owner.owned(evidence, knownMarks) {
 			owned[process.PID], isOwned[process.PID] = true, true
 		}
 		reach := map[int]bool{}

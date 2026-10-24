@@ -62,7 +62,8 @@ type Mark struct {
 // harness started itself. Its terminal's mark, which it carries wherever it
 // works and whatever became of its parent. Its place, at work in the task's
 // directories or running a program from them. Or its parent, when that is
-// the task's own and started before it.
+// the task's own and started before it. A terminal mark proved by knownMarks
+// takes precedence over place and ancestry; an exact job identity still wins.
 //
 // Three kinds of process are never the task's by its mark or its parent,
 // whatever started them. A machine service the goblin started and what runs
@@ -74,7 +75,7 @@ type Mark struct {
 // task's. A gate's agent, which carries the mark of whichever goblin started
 // the daemon while it works for any gate. And a desktop program with what it
 // started (DesktopPrograms), which is the Overlord's to close.
-func OwnedProcesses(processes []Process, directories []string, job []Identity, marks []Mark) []Process {
+func OwnedProcesses(processes []Process, directories []string, job []Identity, marks, knownMarks []Mark) []Process {
 	running := make([]proc.ServiceProcess, 0, len(processes))
 	byPID := make(map[int]Process, len(processes))
 	for _, process := range processes {
@@ -83,6 +84,25 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 	}
 	services := proc.ServicesOf(running)
 	desktop := DesktopPrograms(processes)
+	// A proven consumer owns its borrowed programs even after its launcher
+	// exits. Its unmarked children retain that custody, never the supplier's.
+	markedBy := map[int]Mark{}
+	for _, process := range processes {
+		if process.PID > 0 && !process.Started.IsZero() && !process.IsGateAgent && process.Mark != (Mark{}) && (slices.Contains(marks, process.Mark) || slices.Contains(knownMarks, process.Mark)) {
+			markedBy[process.PID] = process.Mark
+		}
+	}
+	for isGrowing := true; isGrowing; {
+		isGrowing = false
+		for _, process := range processes {
+			parent, hasParent := byPID[process.ParentPID]
+			if process.PID <= 0 || process.Started.IsZero() || process.IsGateAgent || markedBy[process.PID] != (Mark{}) || !hasParent || parent.Started.IsZero() || process.Started.Before(parent.Started) || markedBy[parent.PID] == (Mark{}) {
+				continue
+			}
+			markedBy[process.PID] = markedBy[parent.PID]
+			isGrowing = true
+		}
+	}
 	isOwned := map[int]bool{}
 	canFollow := map[int]bool{}
 	for _, process := range processes {
@@ -103,8 +123,9 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 			continue
 		}
 		isMarked := !process.IsGateAgent && process.Mark != (Mark{}) && slices.Contains(marks, process.Mark)
-		canFollow[process.PID] = !desktop[process.PID]
-		isOwned[process.PID] = isJobMember || isClaimed || isMarked && canFollow[process.PID]
+		hasForeignOwner := markedBy[process.PID] != (Mark{}) && !slices.Contains(marks, markedBy[process.PID])
+		canFollow[process.PID] = !desktop[process.PID] && !hasForeignOwner
+		isOwned[process.PID] = isJobMember || !hasForeignOwner && (isClaimed || isMarked && canFollow[process.PID])
 	}
 	// A process whose parent is the task's own is the task's too. Each pass
 	// reaches one generation further down.
