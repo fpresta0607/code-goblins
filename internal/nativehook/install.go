@@ -462,7 +462,19 @@ export default function (pi: ExtensionAPI) {
     const result = spawnSync(` + string(exe) + `, ` + string(args) + `, {
       input, encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(TimeoutSeconds*1000) + `,
     });
-    if (result.error || result.status !== 0) console.error("CFO native event could not be spooled");
+    // Each outcome says only what is known, and names the fixed event so a
+    // later failure can be correlated. A timeout or a signal can follow a
+    // child that already recorded its event, so neither claims otherwise. The
+    // child's output is never repeated, since a tool result may carry private
+    // data.
+    const code = result.error && result.error.code;
+    const outcome =
+      code === "ETIMEDOUT" ? "timed out. It may have started and recorded the event." :
+      code === "ENOENT" || code === "EACCES" || code === "EPERM" || code === "ENOTDIR" ? "could not start (" + code + "). The event was not recorded." :
+      result.signal ? "was terminated by " + result.signal + ". It may have recorded the event." :
+      typeof result.status === "number" && result.status !== 0 ? "exited with status " + result.status + ". It may have recorded the event." :
+      result.error ? "could not complete (" + (code || "unknown error") + "). It may have recorded the event." : "";
+    if (outcome) console.error("CFO native hook for " + name + " " + outcome);
   };
   pi.on("session_start", (_event, ctx) => fire("session_start", ctx));
   pi.on("session_before_compact", (_event, ctx) => fire("session_before_compact", ctx));
