@@ -167,7 +167,16 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
-	return Evaluation{Reason: sentToGoblin, Awaiting: &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}}
+	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
+}
+
+// awaitingGoblinDelivery is the delivery of text, typed into meta's native
+// terminal at since, that its harness has not yet been seen taking. It takes
+// the recipient the delivery was verified against, never a fresh read: a
+// record that disappeared or was replaced meanwhile must not turn the delivery
+// into a different task's, nor bind it to a generation that never took it.
+func awaitingGoblinDelivery(meta state.TaskMeta, since time.Time, text string) *Awaiting {
+	return &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}
 }
 
 // lookAtTerminal reads the terminal a delivery waits in: gone when its host

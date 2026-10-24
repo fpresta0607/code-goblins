@@ -261,6 +261,11 @@ func goblinLine(text string) string {
 	return fleet.Stamp(oneLine(text))
 }
 
+// readAnswerRecipient reads the task metadata a CFO answer is submitted to
+// and tracked against, before anything is typed. It is a variable so a test
+// can prove what an answer does when that evidence is not there.
+var readAnswerRecipient = state.ReadTaskMeta
+
 // typeIntoGoblin delivers text into a goblin's native terminal. It is a
 // variable so a test can act while a delivery is in flight.
 var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string) error {
@@ -409,6 +414,13 @@ type cfoAnswer struct {
 	// while AFK mode is on; whatever a sender puts here is replaced.
 	Away bool      `json:"away,omitempty"`
 	At   time.Time `json:"at"`
+	// Awaiting is set when the answer was typed into the goblin's terminal
+	// while it was in a turn and its harness has not yet been seen taking it:
+	// the question stays on its way until the goblin's own record of the
+	// conversation shows it, or the delivery is reported stuck. It is nil for
+	// an answer that reached the goblin's terminal outright, or that was only
+	// recorded on the board.
+	Awaiting *Awaiting `json:"awaiting,omitempty"`
 }
 
 // AnswerGoblin answers a goblin's blocked question as the CFO, the structured
@@ -477,17 +489,40 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", false, fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was sent", id, q.Status)
 	}
 	answer := withNote(chosen, note)
-	_, err = c.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("decision %d: %s", seq, answer))
+	text := fmt.Sprintf("decision %d: %s", seq, answer)
+	// The recipient is read and verified once, before anything is typed, and
+	// that same metadata is what the delivery is tracked against. An answer
+	// whose evidence is not there yet is refused with nothing sent, so it can
+	// never be typed without a record behind it: a record that disappears or
+	// is replaced meanwhile must neither leave the question answered with
+	// nothing behind it, nor bind the text to a generation that never took it.
+	meta, err := readAnswerRecipient(c.State, q.Task)
+	if err != nil {
+		return "", false, fmt.Errorf("the goblin's task record cannot be read, so nothing was sent: %w", err)
+	}
+	if goblinIdentity(meta) != q.Identity {
+		return "", false, errors.New("the goblin's task restarted or ended; nothing was sent")
+	}
+	sent := time.Now().UTC()
+	_, err = c.SendGoblin(ctx, q.Task, q.Identity, text)
 	queued = errors.Is(err, fleet.ErrQueuedForToolCall)
 	if err != nil && !queued {
 		return "", false, err
+	}
+	// A delivery its harness queued is sent, not delivered: the board keeps
+	// the question on its way until the goblin's own record of the
+	// conversation shows it took the answer, so the decision never vanishes
+	// from supervision before the goblin has it.
+	var awaiting *Awaiting
+	if queued {
+		awaiting = awaitingGoblinDelivery(meta, sent, text)
 	}
 	var unrecorded []error
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
 	if onBoard {
-		if err := c.recordAnswer(q, id, chosen, answer, ""); err != nil {
+		if err := c.recordAnswer(q, id, chosen, answer, "", awaiting); err != nil {
 			unrecorded = append(unrecorded, err)
 		}
 	}
@@ -593,7 +628,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 	if err != nil {
 		return "", err
 	}
-	if err := c.recordAnswer(q, q.ID, chosen, withNote(chosen, note), in); err != nil {
+	if err := c.recordAnswer(q, q.ID, chosen, withNote(chosen, note), in, nil); err != nil {
 		return "", err
 	}
 	if in == "" {
@@ -641,13 +676,13 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 // closes that question and only the waits the goblin declared to follow it
 // (cfo notify --follows): its other waits on the Overlord, such as a sign-in
 // only he can clear, stay his.
-func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) error {
+func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string, awaiting *Awaiting) error {
 	// A goblin's page that declares no choices takes the CFO's own words.
 	option := chosen
 	if !slices.Contains(q.Options, chosen) {
 		option = ""
 	}
-	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, At: time.Now().UTC()}}); err != nil {
+	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, Awaiting: awaiting, At: time.Now().UTC()}}); err != nil {
 		return fmt.Errorf("the board could not record it: %w", err)
 	}
 	return nil
@@ -924,12 +959,49 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 		return errors.New("its question already closed as " + q.Status)
 	}
 	q, at := &s.db.Questions[i], a.At
-	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
+	// A queued delivery is only accountable through the delivery record that
+	// watches it, so room for that record is made before the question changes
+	// at all. An answer that cannot be tracked yet waits untouched, kept by
+	// the caller, and is recorded once room frees: it is never left looking
+	// answered with no delivery behind it. Room is never made by evicting a
+	// delivery still being watched, nor by raising the bound.
+	var awaiting *Awaiting
+	delivery := ""
+	if a.Awaiting != nil {
+		if len(s.db.Actions) >= maxActions {
+			remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
+			if remove < 0 {
+				return errAnswerWaits
+			}
+			delete(s.deferredUntil, s.db.Actions[remove].ID)
+			s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)
+		}
+		waiting := *a.Awaiting
+		if waiting.QuietSince.IsZero() {
+			waiting.QuietSince = waiting.Since
+		}
+		awaiting, delivery = &waiting, "cfo-answer-"+q.ID
+	}
 	q.Answer, q.AnswerKind = a.Answer, "option"
 	if a.Option == "" {
 		q.AnswerKind = "other"
 	}
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
+	if awaiting != nil {
+		// Typed and submitted into the goblin's terminal while it was in a
+		// turn: the question stays open on its way, watched by the same
+		// delivery record the board's own answer keeps, until the goblin's
+		// record of the conversation shows it took the answer, or until the
+		// delivery is reported stuck.
+		q.AnswerID, q.Status, q.Message = delivery, "running", sentToGoblin
+		s.db.Actions = append(s.db.Actions, Action{
+			ID: delivery, Kind: "goblin_answer", QuestionID: q.ID, Generation: q.Identity,
+			Text: a.Answer, AnswerKind: q.AnswerKind, Status: "running",
+			Message: sentToGoblin, Awaiting: awaiting, CreatedAt: at, UpdatedAt: at,
+		})
+	} else {
+		q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
+	}
 	if a.In != "" {
 		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In
 		s.closePageQuestionAsks(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
@@ -1309,7 +1381,10 @@ func (s *Store) supersedeQuestions() error {
 		case errors.Is(err, os.ErrNotExist) || err == nil && goblinIdentity(meta) != q.Identity:
 			q.Status, q.Message = "superseded", "The goblin's task restarted or ended, so its question no longer applies."
 			changed = true
-		case pendingErr == nil && afkErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }):
+		case pendingErr == nil && afkErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }) && !slices.ContainsFunc(s.db.CFOAnswers, func(a cfoAnswer) bool { return a.QuestionID == q.ID && a.Awaiting != nil }):
+			// An answer whose queued delivery has no record of its own yet is
+			// not closed by the ack: it is recorded and watched once room
+			// frees, and only then may it read answered.
 			// The CFO acks a goblin's question once it answered it, so it
 			// closes as answered by the CFO, with the check of any answer.
 			at := time.Now().UTC()
