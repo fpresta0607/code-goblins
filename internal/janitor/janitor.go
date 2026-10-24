@@ -31,6 +31,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/update"
@@ -69,6 +70,8 @@ type Config struct {
 	// Owners lists the home's terminals whose processes the sweep judges,
 	// and what it could not read of them.
 	Owners func() ([]Owner, []string)
+	// Controllers reads queued and admitted verification identities.
+	Controllers func(context.Context) ([]lifecycle.Identity, error)
 	// EndProcess ends one process the sweep proved a terminal's own.
 	EndProcess func(ctx context.Context, item ProcessItem) error
 	// Watched are the detached trees the last sweep went on watching.

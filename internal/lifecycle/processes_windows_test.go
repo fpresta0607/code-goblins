@@ -19,6 +19,7 @@ import (
 )
 
 func TestInventoryFindsADetachedProcessByWorkingDirectory(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 	child.Dir = directory
@@ -29,7 +30,7 @@ func TestInventoryFindsADetachedProcessByWorkingDirectory(t *testing.T) {
 	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	owned, err := Inventory(ctx, []string{directory}, nil, nil)
+	owned, err := Inventory(ctx, []string{directory}, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +191,7 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 }
 
 func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	var children []*exec.Cmd
 	for _, dir := range []string{directory, t.TempDir()} {
@@ -216,13 +218,14 @@ func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
 	if result, err := windows.WaitForSingleObject(handle, 0); err != nil || result != uint32(windows.WAIT_TIMEOUT) {
 		t.Fatalf("unrelated sentinel stopped: result=%d error=%v", result, err)
 	}
-	owned, err := Inventory(ctx, []string{directory}, nil, nil)
+	owned, err := Inventory(ctx, []string{directory}, nil, nil, "")
 	if err != nil || len(owned) != 0 {
 		t.Fatalf("task resources remain: %+v %v", owned, err)
 	}
 }
 
 func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	start := func(dir string, env ...string) (*exec.Cmd, io.ReadCloser) {
 		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")

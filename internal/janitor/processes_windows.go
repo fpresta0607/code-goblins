@@ -82,6 +82,11 @@ func Sightings(h home.Home) func(context.Context) ([]reap.Sighting, []string, er
 			return nil, nil, err
 		}
 		owners, notes := Owners(ctx, h, nil)
+		controllers, err := lifecycle.VerificationControllers(ctx)
+		if err != nil {
+			return nil, notes, err
+		}
+		processes = withControllers(processes, controllers)
 		return sightings(running, processes, owners), notes, nil
 	}
 }

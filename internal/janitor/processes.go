@@ -37,6 +37,18 @@ type Process struct {
 	LastUsed time.Time
 }
 
+func withControllers(processes []Process, controllers []lifecycle.Identity) []Process {
+	processes = slices.Clone(processes)
+	evidence := make([]lifecycle.Process, len(processes))
+	for index, process := range processes {
+		evidence[index] = process.Process
+	}
+	for index, process := range lifecycle.WithExecutionCustody(evidence, controllers) {
+		processes[index].Process = process
+	}
+	return processes
+}
+
 // Owner is a terminal of this home: a task's, the CFO's or a run item's.
 type Owner struct {
 	ID string
@@ -66,8 +78,8 @@ type Owner struct {
 // asks whose a process is: the process sweep ends and keeps by it
 // (planProcesses), and the orphan sweep raises no finding for what it gives
 // a terminal that runs (sightings).
-func (owner Owner) owned(evidence []lifecycle.Process) []lifecycle.Process {
-	return lifecycle.OwnedProcesses(evidence, owner.Directories, nil, owner.Marks)
+func (owner Owner) owned(evidence []lifecycle.Process, knownMarks []lifecycle.Mark) []lifecycle.Process {
+	return lifecycle.OwnedProcesses(evidence, owner.Directories, nil, owner.Marks, knownMarks)
 }
 
 // sightings is what one reading of the machine says of each process in
@@ -78,6 +90,10 @@ func (owner Owner) owned(evidence []lifecycle.Process) []lifecycle.Process {
 // is. A process two running terminals own is the first one's, in the order
 // of owners.
 func sightings(running []proc.Entry, processes []Process, owners []Owner) []reap.Sighting {
+	var knownMarks []lifecycle.Mark
+	for _, owner := range owners {
+		knownMarks = append(knownMarks, owner.Marks...)
+	}
 	evidence := make([]lifecycle.Process, len(processes))
 	read := make(map[int]Process, len(processes))
 	for index, process := range processes {
@@ -89,7 +105,7 @@ func sightings(running []proc.Entry, processes []Process, owners []Owner) []reap
 		if terminal.HostPID == 0 {
 			continue
 		}
-		for _, process := range terminal.owned(evidence) {
+		for _, process := range terminal.owned(evidence, knownMarks) {
 			if _, isOwned := owner[process.PID]; !isOwned {
 				owner[process.PID] = terminal.ID
 			}
@@ -100,6 +116,7 @@ func sightings(running []proc.Entry, processes []Process, owners []Owner) []reap
 		sighting := reap.Sighting{PID: entry.PID, Started: entry.Start}
 		if process, isRead := read[entry.PID]; isRead && process.Started.Equal(entry.Start) {
 			sighting.Owner, sighting.IsGateAgent = owner[entry.PID], process.IsGateAgent
+			sighting.HasExecutionCustody = process.HasExecutionCustody
 			for _, terminal := range owners {
 				// A gate's agent carries the mark of whichever goblin started
 				// the daemon, which says nothing of whose it is.
@@ -216,6 +233,10 @@ type ProcessPlan struct {
 // is gone, and a browser bridge nothing ties to an owner. A desktop program
 // is the Overlord's and is neither ended nor named.
 func planProcesses(processes []Process, owners []Owner, watched []Watched, now time.Time) (ending, left []ProcessItem, watching []Watched, kept []ProcessItem) {
+	var knownMarks []lifecycle.Mark
+	for _, owner := range owners {
+		knownMarks = append(knownMarks, owner.Marks...)
+	}
 	evidence := make([]lifecycle.Process, len(processes))
 	byPID := make(map[int]Process, len(processes))
 	children := make(map[int][]Process, len(processes))
@@ -267,7 +288,7 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 	isOwned := map[int]bool{}
 	for _, owner := range owners {
 		owned := map[int]bool{}
-		for _, process := range owner.owned(evidence) {
+		for _, process := range owner.owned(evidence, knownMarks) {
 			owned[process.PID], isOwned[process.PID] = true, true
 		}
 		reach := map[int]bool{}
@@ -275,7 +296,7 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 			reach[process.PID] = true
 		}
 		isDetached := func(process Process) bool {
-			return owned[process.PID] && !reach[process.PID] && !desktop[process.PID]
+			return owned[process.PID] && !reach[process.PID] && !desktop[process.PID] && !process.HasExecutionCustody
 		}
 		for _, process := range processes {
 			switch {
@@ -298,6 +319,8 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 				}
 			case owner.IsChanging:
 				keep(process, owner.ID, fmt.Sprintf("a command is changing terminal %s and decides what of it ends", owner.ID))
+			case process.HasExecutionCustody:
+				keep(process, owner.ID, "a verification controller holds admission or execution custody")
 			case reach[process.PID]:
 				keep(process, owner.ID, fmt.Sprintf("terminal %s runs and its host reaches it", owner.ID))
 			case desktop[process.PID]:
@@ -382,6 +405,12 @@ func planProcesses(processes []Process, owners []Owner, watched []Watched, now t
 	}
 
 	for _, process := range processes {
+		if process.HasExecutionCustody {
+			if !isOwned[process.PID] {
+				keep(process, "", "a verification controller holds admission or execution custody")
+			}
+			continue
+		}
 		if process.PID == 0 || isOwned[process.PID] || desktop[process.PID] || services[process.PID] != proc.NoService || hasLivingParent(process) {
 			continue
 		}
@@ -420,6 +449,13 @@ func (cfg Config) PlanProcesses(ctx context.Context) (ProcessPlan, error) {
 	processes, err := cfg.Processes(ctx)
 	if err != nil {
 		return ProcessPlan{}, err
+	}
+	if cfg.Controllers != nil {
+		controllers, err := cfg.Controllers(ctx)
+		if err != nil {
+			return ProcessPlan{}, err
+		}
+		processes = withControllers(processes, controllers)
 	}
 	owners, notes := cfg.Owners()
 	lastUsed := cfg.browserBridgeUse()
