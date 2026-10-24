@@ -14,25 +14,29 @@ type SubscriptionUsage struct {
 	FloorPercent *float64 `json:"floor_percent"`
 }
 
-// keepSubscriptionUsage reads quota-axi for the dials only when the
-// supervisor made no read for a minute and a half: every read refreshes the
-// dials, and the fleet's reading reads once a minute for the allowance floor.
-// On 2026-10-08 both read in the same second each minute, Anthropic's usage
-// endpoint refused one of the two, and the dial showed a reading a minute old
-// as stale. The half minute over keeps a fleet reading that runs late from
-// bringing the dials' own read beside it.
+// keepSubscriptionUsage reads what the dials show, each source on its own
+// clock and only when the supervisor made no read of it for a minute and a
+// half: every read refreshes the dials, and the fleet's reading reads quota
+// once a minute for the allowance floor. On 2026-10-08 both read in the same
+// second each minute, Anthropic's usage endpoint refused one of the two, and
+// the dial showed a reading a minute old as stale. The half minute over keeps
+// a fleet reading that runs late from bringing the dials' own read beside it.
 func (s *Service) keepSubscriptionUsage(ctx context.Context, every time.Duration) {
-	if s.Options.Quota == nil {
+	if s.Options.Quota == nil && s.Options.KeySpend == nil {
 		return
 	}
+	isDue := func(at time.Time) bool { return at.IsZero() || time.Since(at) >= every*3/2 }
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
 		s.mu.Lock()
-		last := s.quotaReadAt
+		lastQuota, lastSpend := s.quotaReadAt, s.keySpendReadAt
 		s.mu.Unlock()
-		if last.IsZero() || time.Since(last) >= every*3/2 {
-			s.refreshSubscriptionUsage(ctx)
+		if s.Options.Quota != nil && isDue(lastQuota) {
+			s.readQuota(ctx, 15*time.Second)
+		}
+		if s.Options.KeySpend != nil && isDue(lastSpend) {
+			s.readKeySpends(ctx, 10*time.Second)
 		}
 		select {
 		case <-ctx.Done():
@@ -40,10 +44,6 @@ func (s *Service) keepSubscriptionUsage(ctx context.Context, every time.Duration
 		case <-ticker.C:
 		}
 	}
-}
-
-func (s *Service) refreshSubscriptionUsage(ctx context.Context) {
-	s.readQuota(ctx, 15*time.Second)
 }
 
 // keepSubscriptionReadings takes the dials' readings from one quota-axi read.
@@ -75,29 +75,7 @@ func (s *Service) keepSubscriptionReadings(report quota.Report, skipped string) 
 // goblin runs on now, with the weekly floor the last fleet reading read for
 // it, the one the supervisor paused by, or none while it could not be read.
 func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []SubscriptionUsage {
-	active := map[string]bool{}
-	if cfo.registered && cfo.problem == "" && snapshot.Registration == "" {
-		active[cfo.harness] = true
-	}
-	for _, task := range snapshot.Tasks {
-		if task.Archived || task.Generation == "" || task.Runtime.At.IsZero() || snapshot.At.Sub(task.Runtime.At) > 2*time.Minute || task.Runtime.At.After(snapshot.At.Add(time.Minute)) {
-			continue
-		}
-		isInactive := false
-		for _, session := range snapshot.Sessions {
-			if session.ID == task.Session && session.TaskID == task.ID && session.Generation == task.Generation && (session.Phase == "ended" || session.Phase == "paused" || session.Phase == "stopped") {
-				isInactive = true
-				break
-			}
-		}
-		if isInactive {
-			continue
-		}
-		switch task.Runtime.State {
-		case "active", "busy", "idle", "parked", "harness-erroring":
-			active[task.Harness] = true
-		}
-	}
+	active := activeHarnesses(cfo, snapshot)
 	s.mu.Lock()
 	readings, floors := maps.Clone(s.subscriptionReadings), maps.Clone(s.weeklyFloors)
 	s.mu.Unlock()
@@ -120,4 +98,44 @@ func (s *Service) subscriptionUsage(cfo cfoState, snapshot Snapshot) []Subscript
 		usage = append(usage, shown)
 	}
 	return usage
+}
+
+// activeHarnesses is each harness the CFO or a goblin runs on now, by name:
+// the dials show a provider only while one of them runs on it.
+func activeHarnesses(cfo cfoState, snapshot Snapshot) map[string]bool {
+	active := map[string]bool{}
+	if cfo.registered && cfo.problem == "" && snapshot.Registration == "" {
+		active[cfo.harness] = true
+	}
+	for _, task := range snapshotLiveTasks(snapshot) {
+		active[task.Harness] = true
+	}
+	return active
+}
+
+// snapshotLiveTasks are the snapshot's tasks whose terminal the monitor saw at
+// work within the last two minutes: a paused, ended, archived or launching
+// task is no live harness, and neither is a saved model.
+func snapshotLiveTasks(snapshot Snapshot) []Task {
+	var tasks []Task
+	for _, task := range snapshot.Tasks {
+		if task.Archived || task.Generation == "" || task.Runtime.At.IsZero() || snapshot.At.Sub(task.Runtime.At) > 2*time.Minute || task.Runtime.At.After(snapshot.At.Add(time.Minute)) {
+			continue
+		}
+		isInactive := false
+		for _, session := range snapshot.Sessions {
+			if session.ID == task.Session && session.TaskID == task.ID && session.Generation == task.Generation && (session.Phase == "ended" || session.Phase == "paused" || session.Phase == "stopped") {
+				isInactive = true
+				break
+			}
+		}
+		if isInactive {
+			continue
+		}
+		switch task.Runtime.State {
+		case "active", "busy", "idle", "parked", "harness-erroring":
+			tasks = append(tasks, task)
+		}
+	}
+	return tasks
 }

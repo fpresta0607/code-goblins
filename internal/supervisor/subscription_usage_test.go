@@ -229,7 +229,7 @@ func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 	service := &Service{Options: Options{Quota: func(context.Context) (quota.Report, string) {
 		return quota.Report{GeneratedAt: now, Providers: map[string]quota.Provider{"codex": {Source: "oauth", Status: "fresh", RefreshedAt: now, Known: true, Windows: []quota.Window{{ID: "weekly", PercentUsed: 24, ResetsAt: now.Add(24 * time.Hour)}}, Resets: map[string]time.Time{"weekly": now.Add(24 * time.Hour)}, Credits: &quota.Credits{Remaining: 999, Unit: "private-balance"}}}}, ""
 	}}}
-	service.refreshSubscriptionUsage(context.Background())
+	service.readQuota(context.Background(), 15*time.Second)
 	view := Snapshot{At: now}
 	usage := service.subscriptionUsage(cfoState{registered: true, harness: "codex"}, view)
 	if len(usage) != 1 || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 76 {
@@ -256,7 +256,7 @@ func TestSubscriptionRefreshProjectsOnlySafeWeeklyFields(t *testing.T) {
 	}
 
 	service.Options.Quota = func(context.Context) (quota.Report, string) { return quota.Report{}, "secret-token-error" }
-	service.refreshSubscriptionUsage(context.Background())
+	service.readQuota(context.Background(), 15*time.Second)
 	usage = service.subscriptionUsage(cfoState{registered: true, harness: "codex"}, Snapshot{At: now})
 	if usage[0].Status != "available" || usage[0].PercentRemaining == nil || *usage[0].PercentRemaining != 76 || !usage[0].ReadAt.Equal(now) {
 		t.Fatalf("failed read dropped the reading before it: %+v", usage)
@@ -299,7 +299,7 @@ func TestARefreshThatMeasuresNothingKeepsTheLastReadingUntilItIsOld(t *testing.T
 	service := &Service{}
 	refresh := func(report quota.Report, skipped string) {
 		service.Options.Quota = func(context.Context) (quota.Report, string) { return report, skipped }
-		service.refreshSubscriptionUsage(t.Context())
+		service.readQuota(t.Context(), 15*time.Second)
 	}
 	dial := func(at time.Time) SubscriptionUsage {
 		return service.subscriptionUsage(cfoState{registered: true, harness: "claude"}, Snapshot{At: at})[0]

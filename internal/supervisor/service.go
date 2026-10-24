@@ -34,6 +34,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/openrouter"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/quota"
@@ -136,6 +137,17 @@ type Options struct {
 	// report sets the reading last taken before it turned on beside the one
 	// last taken before it turned off.
 	Quota func(ctx context.Context) (quota.Report, string)
+	// KeySpend reads the spend the API key one Pi credential source names
+	// reports at its provider, for the dial beside the subscriptions; without
+	// it no key spend is shown. It is read on the supervisor's own timers,
+	// never while a board is built, and each source is read with the profile
+	// and environment its session started with.
+	KeySpend func(ctx context.Context, source openrouter.Source) openrouter.Reading
+	// UserEnvironment is the environment Windows gives a new process of this
+	// user, which every goblin's terminal starts from and which names Pi's
+	// own profile and any key in it; nil is this machine's, read the way a
+	// spawn reads it.
+	UserEnvironment func() ([]string, error)
 	// Comeback brings the fleet back after a restart or sign-out; without it
 	// nothing comes back by itself.
 	Comeback *Comeback
@@ -382,6 +394,13 @@ type Service struct {
 	subscriptionReadings map[string]quota.WeeklyReading
 	// quotaReadAt is when the supervisor last began a quota-axi read.
 	quotaReadAt time.Time
+	// keySpendReadings are the last reading of each credential source the
+	// live Pi sessions use, by source key; keySpendPlan is what the last
+	// snapshot found live sessions using, which the dials' timer reads, and
+	// keySpendReadAt is when it last began.
+	keySpendReadings map[string]openrouter.Reading
+	keySpendPlan     keySpendPlan
+	keySpendReadAt   time.Time
 	// allowance is the last reading quota-axi gave of each provider's
 	// allowance, which AFK mode's switch takes rather than reading its own.
 	allowance map[string]keptAllowance
@@ -1502,6 +1521,9 @@ type Snapshot struct {
 	GPU           *GPU                `json:"gpu,omitempty"`
 	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
 	Subscriptions []SubscriptionUsage `json:"subscriptions"`
+	// KeySpend is the spend of the API key a harness bills by rather than by
+	// a subscription window, as OpenRouter does for Pi.
+	KeySpend []KeySpend `json:"key_spend"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
@@ -2009,5 +2031,6 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
+	out.KeySpend = s.keySpendUsage(cfo, out)
 	return out, nil
 }
