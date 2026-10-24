@@ -216,14 +216,11 @@ measuring:
 			prior.At, prior.Source, prior.Woken = progress.At, progress.Source+" (helper "+helper+")", false
 		}
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
-		// A goblin whose latest report is done, a question, or a wait on CI,
-		// a deploy, the Overlord or memory expects no progress until that
-		// changes, and each of those wakes the CFO on its own when it does.
-		// Any wait a goblin declared ends by itself, on whatever it named: a
-		// dependency, a gate run, CI, a deploy, the Overlord or memory. The
-		// monitor parks the same report, so a dependency waiter is not judged
-		// stalled on the twenty-minute threshold while the board already reads
-		// it as waiting.
+		// A goblin whose latest report is done, a question, or a declared wait
+		// expects no progress until that changes, and each of those wakes the
+		// CFO on its own when it does. A wait on another task or a run is the
+		// same: it lasts until the task or run it names changes, and the board
+		// already reads it as a decided wait.
 		kind := reportKind(prior.Report)
 		isReportedElsewhere := monitor.IsParkedDecisionVerb(kind) || monitor.IsTerminalVerb(kind)
 		// Evidence a memory low left unread says nothing of the goblin.
