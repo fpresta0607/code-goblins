@@ -9,6 +9,7 @@ import type { CredentialRequest, Run } from "./types.ts";
 // inputs he enters.
 const card = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "shop-signup",
+  task_generation: "", grant_service: "",
   project: "acme-shop", names: [], plain: [], labels: {}, why: "Create the shop's test account", link: "https://example.com/signup", steps: ["Create the account", "Accept the terms"],
   window: false, window_state: "", received: [], mail: null,
   env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], fetched: [], written: [], reason: "",

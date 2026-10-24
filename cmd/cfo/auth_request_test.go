@@ -26,6 +26,40 @@ func useScratchHome(t *testing.T) string {
 	return root
 }
 
+func TestAuthRequestGrantTakesOneServiceAndTaskWithoutValues(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		arguments []string
+		want      int
+	}{
+		{"service request", []string{"--task", "task-1", "--grant", "sample"}, 1},
+		{"missing task", []string{"--grant", "sample"}, 2},
+		{"secret input", []string{"--task", "task-1", "--grant", "sample", "SAMPLE_TOKEN"}, 2},
+		{"browser step", []string{"--task", "task-1", "--grant", "sample", "--link", "https://example.com"}, 2},
+		{"a value instead of a service", []string{"--task", "task-1", "--grant", "SAMPLE_TOKEN=value"}, 2},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			// Arrange
+			useScratchHome(t)
+			arguments := append([]string{"request", "--project", "throwaway", "--why", "Read the test service"}, scenario.arguments...)
+
+			// Act
+			code, _, stderr := runCLI(t, arguments...)
+
+			// Assert
+			if code != scenario.want {
+				t.Fatalf("request = %d %s, want %d", code, stderr, scenario.want)
+			}
+			if scenario.want == 1 && !strings.Contains(stderr, "registered CFO") {
+				t.Fatalf("valid request did not reach caller verification: %s", stderr)
+			}
+			if strings.Contains(stderr, "SAMPLE_TOKEN=value") {
+				t.Fatal("the refusal repeats a credential value")
+			}
+		})
+	}
+}
+
 // A credential request takes names only. An argument shaped like a value is
 // refused before anything is filed, and the refusal never repeats it.
 func TestAuthRequestRefusesValuesWithoutRepeatingThem(t *testing.T) {

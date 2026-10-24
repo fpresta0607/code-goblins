@@ -1996,6 +1996,7 @@ When the CFO or a goblin needs a secret the project's scope does not hold, such 
 ```powershell
 cfo auth request --project acme-shop --why "Charge test cards in the checkout tests" --link https://dashboard.stripe.com/test/apikeys --step "Sign in to the shop's Stripe account" --step "Reveal the test secret key and copy it" STRIPE_TEST_SECRET_KEY
 cfo auth request --project acme-shop --task add-billing --why "Check webhook signatures" STRIPE_WEBHOOK_SECRET
+cfo auth request --project acme-shop --task add-billing --grant stripe --why "Check webhook signatures" --wait
 ```
 
 A request takes names only, at most ten, each an environment variable name, with one line saying what they are for and optionally the https page they come from, with no credentials, query or fragment in its link.
@@ -2039,11 +2040,22 @@ Every refusal stores nothing and leaves the request open.
 The board holds at most 64 requests, never drops an open one to make room, and prunes a closed one a week after it closed.
 
 A taken save goes straight into the project's scope of the credential store through the same store `cfo auth store` writes, Windows Credential Manager or the file store.
+For a card naming a task, a secret saved on the board or typed in its terminal also grants the service that declares that name to the card's recorded task generation, through the same grant path as `cfo auth grant`.
+Each saved name must identify exactly one service, unchanged since filing, and the task must still belong to the card's project and generation; otherwise the value stays in the vault and the card's reason and CFO notice say why no grant was made.
+These task saves and terminal opens require the Overlord's own board, as connector grants do, and an automated key fetch grants nothing.
+No other task gains a service.
 The request closes before the board answers, and then the board runs `cfo auth store`'s own refresh: each live goblin of the project gets its `auth.ps1` regenerated from the store, for the services its task carries and no other, and the one-line re-source notice, and the CFO gets a `review` wake naming the names stored, the project and the goblins told.
 A saved value reaches goblins only through their `auth.ps1` environment, never their context: that script is an owner-only file under `state/tasktmp/<task>/`, which `cfo cleanup` deletes before it archives the task (refusing to archive one it cannot delete), and the notice names the script, never the value.
 A resume or a switch removes the script too: the goblin's new terminal starts with what its task carries in its environment, and a script written for the last one could hold more.
 Beside that, and the env file a request names, the value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
 A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
+
+When a task needs a service already declared by its project, the goblin or registered CFO can file `cfo auth request --project <project> --task <task> --grant <service> --why "<reason>" --wait`.
+This card carries the task, service and one-line reason, with Grant and Deny and no value inputs or browser steps.
+Filing it grants nothing.
+Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies.
+The card closes as `granted` only after the grant lands, the task is told to re-source, and the CFO gets the existing grant wake.
+Deny, withdrawal, expiry, a stale task or card generation, a different project or a missing service declaration grants nothing.
 
 The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
 It refuses a value of the wrong shape with exit code 2, saying why and storing nothing, by the same check as the save.

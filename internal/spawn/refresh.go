@@ -80,6 +80,9 @@ type AuthRefresher struct {
 	// the CFO, whose cfo auth makes the change. The Overlord's press on a
 	// connector card on the board names him.
 	By string
+	// Generation and Project bind a card's grant to the task it was drawn for.
+	Generation string
+	Project    string
 }
 
 func (r AuthRefresher) actor() string {
@@ -255,6 +258,9 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 		if current.TaskTmp == "" {
 			return fmt.Errorf("spawn: task %s has no tasktmp", id)
 		}
+		if r.Generation != "" && (current.SpawnGen != r.Generation || auth.ProjectName(current.Project) != r.Project) {
+			return errors.New("spawn: the task's generation or project changed; its credentials were not refreshed")
+		}
 		scope := auth.ProjectName(current.Project)
 		if scope == "" {
 			return fmt.Errorf("spawn: task %s names no project, so it has no credential scope", id)
@@ -310,6 +316,9 @@ func (r AuthRefresher) Grant(ctx context.Context, id string, services []string) 
 		current, err := state.ReadTaskMeta(r.StateDir, id)
 		if err != nil {
 			return fmt.Errorf("spawn: read task metadata: %w", err)
+		}
+		if r.Generation != "" && (current.SpawnGen != r.Generation || auth.ProjectName(current.Project) != r.Project) {
+			return errors.New("spawn: the task's generation or project changed; no service was granted")
 		}
 		if auth.ProjectName(current.Project) != scope {
 			return fmt.Errorf("spawn: task %s now records project %s, so it was not granted %s's services", id, auth.ProjectName(current.Project), scope)
