@@ -339,8 +339,36 @@ export interface SubscriptionUsage {
   // or null while it could not be read.
   floor_percent: number | null;
 }
+// KeySpend is the spend an API key reports at its provider: the dollars a
+// provider that bills by the key, as OpenRouter does for Pi, has counted in
+// the window the key's own limit resets over. The dollars are the key's own
+// credit usage; the external BYOK spend is reported beside them and never
+// added to them.
+export interface KeySpend {
+  provider: "openrouter";
+  status: "available" | "missing" | "auth_required" | "rate_limited" | "unavailable" | "stale" | "unattributed";
+  spent_usd: number | null;
+  limit_usd: number | null;
+  remaining_usd: number | null;
+  // period is the window the limit resets over, "" for a window this build
+  // cannot count.
+  period: "daily" | "weekly" | "monthly" | "lifetime" | "";
+  resets_at: string;
+  read_at: string;
+  byok_usd: number | null;
+  includes_byok: boolean;
+  // blocking is a budget layer that is not this key's own and stops requests
+  // first, whose spend is that scope's and not this key's.
+  blocking: { scope: string; spent_usd: number; limit_usd: number; period: string } | null;
+  // profile names the Pi profile the key came from: default for Pi's own
+  // folder, else that folder's own name.
+  profile: string;
+  // detail says in a few words why the status is what it is.
+  detail: string;
+}
 export interface Snapshot {
   subscriptions?: SubscriptionUsage[];
+  key_spend?: KeySpend[];
   activity?: BoardActivity[];
   example: boolean;
   instance: string;
@@ -843,9 +871,30 @@ function parseDevDrive(drive: Record<string, unknown>): DevDriveView {
     action: action === "set-up" || action === "try-again" || action === "attach" ? action : "",
   };
 }
+// parseKeySpend reads one key's spend. Money that is not a measured dollar
+// figure stays unknown rather than becoming a zero the dial would show, and
+// a provider the board has no dial for is no entry at all.
+export function parseKeySpend(value: unknown): KeySpend | null {
+  const usage = object(value);
+  if (usage.provider !== "openrouter") return null;
+  const dollars = (held: unknown) => typeof held === "number" && Number.isFinite(held) && held >= 0 ? held : null;
+  const period = usage.period === "daily" || usage.period === "weekly" || usage.period === "monthly" || usage.period === "lifetime" ? usage.period : "";
+  const status = keySpendStatus(usage.status);
+  const blocking = usage.blocking == null ? null : ((budget) => ({ scope: string(budget.scope), spent_usd: number(budget.spent_usd), limit_usd: number(budget.limit_usd), period: string(budget.period) }))(object(usage.blocking));
+  return { provider: "openrouter", status, spent_usd: dollars(usage.spent_usd), limit_usd: dollars(usage.limit_usd), remaining_usd: dollars(usage.remaining_usd), period,
+    resets_at: string(usage.resets_at), read_at: string(usage.read_at), byok_usd: dollars(usage.byok_usd), includes_byok: usage.includes_byok === true,
+    blocking, profile: string(usage.profile), detail: string(usage.detail) };
+}
+function keySpendStatus(value: unknown): KeySpend["status"] {
+  switch (value) {
+    case "available": case "missing": case "auth_required": case "rate_limited": case "stale": case "unattributed": return value;
+  }
+  return "unavailable";
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    key_spend: array(v.key_spend).flatMap((value) => { const spend = parseKeySpend(value); return spend ? [spend] : []; }),
     subscriptions: array(v.subscriptions).flatMap((value): SubscriptionUsage[] => {
       const usage = object(value);
       if (usage.provider !== "claude" && usage.provider !== "codex") return [];
