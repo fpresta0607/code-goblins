@@ -213,6 +213,7 @@ func (c Collector) sight(ctx context.Context, inv *Inventory, notes *[]string) e
 	for index, process := range inv.Processes {
 		sighting := sighted[process.PID]
 		inv.Processes[index].Terminal, inv.Processes[index].Owner, inv.Processes[index].IsGateAgent = sighting.Terminal, sighting.Owner, sighting.IsGateAgent
+		inv.Processes[index].HasExecutionCustody = sighting.HasExecutionCustody
 	}
 	if len(ended) > 0 {
 		*notes = append(*notes, "no finding, ended while the sweep read the machine (each had the shape of a harness or a dev server): "+strings.Join(ended, ", "))

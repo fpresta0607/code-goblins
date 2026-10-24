@@ -286,7 +286,8 @@ type Process struct {
 	Owner string `json:"owner,omitempty"`
 	// IsGateAgent says the process's environment carries the variable
 	// no-mistakes sets on every agent it starts for a gate step.
-	IsGateAgent bool `json:"gate_agent,omitempty"`
+	IsGateAgent         bool `json:"gate_agent,omitempty"`
+	HasExecutionCustody bool `json:"execution_custody,omitempty"`
 }
 
 // Sighting is one process as a second reading of the machine found it,
@@ -294,11 +295,12 @@ type Process struct {
 // the start that tells it from a later process given its pid, and whose it
 // is. Terminal, Owner and IsGateAgent are what Process keeps of them.
 type Sighting struct {
-	PID         int
-	Started     time.Time
-	Terminal    string
-	Owner       string
-	IsGateAgent bool
+	PID                 int
+	Started             time.Time
+	Terminal            string
+	Owner               string
+	IsGateAgent         bool
+	HasExecutionCustody bool
 }
 
 // Pane is one pane Herdr still reports, with the operating-system identity
@@ -1357,7 +1359,7 @@ func supervisedPIDs(inv Inventory, hosts map[string]int) map[int]bool {
 	// process sweep decides it, which follows a terminal's own down to what
 	// they start, so nothing more is followed from one here.
 	for _, process := range inv.Processes {
-		if process.Owner != "" {
+		if process.Owner != "" || process.HasExecutionCustody {
 			supervised[process.PID] = true
 		}
 	}

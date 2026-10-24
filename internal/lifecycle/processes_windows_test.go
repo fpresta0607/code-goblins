@@ -19,6 +19,7 @@ import (
 )
 
 func TestInventoryFindsADetachedProcessByWorkingDirectory(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")
 	child.Dir = directory
@@ -190,6 +191,7 @@ func TestTerminateChecksWhetherAnAccessDeniedProcessExitedDuringTheCall(t *testi
 }
 
 func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	var children []*exec.Cmd
 	for _, dir := range []string{directory, t.TempDir()} {
@@ -223,6 +225,7 @@ func TestStopResourcesEndsDetachedTaskProcessesAndKeepsASentinel(t *testing.T) {
 }
 
 func TestStopResourcesEndsAProcessThatMovesIntoTheTaskDuringCleanup(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	directory := t.TempDir()
 	start := func(dir string, env ...string) (*exec.Cmd, io.ReadCloser) {
 		child := exec.Command(os.Args[0], "-test.run=^TestLifecycleProcessFixture$")

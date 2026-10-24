@@ -42,6 +42,35 @@ type Process struct {
 	IsGateAgent bool
 	// HasWindow says the process shows a window on the desktop.
 	HasWindow bool
+	// HasExecutionCustody identifies a controller with a queued or admitted
+	// run, or its descendant, by recorded PID and creation time.
+	HasExecutionCustody bool
+}
+
+func WithExecutionCustody(processes []Process, controllers []Identity) []Process {
+	processes = slices.Clone(processes)
+	indexes := make(map[int]int, len(processes))
+	for index, process := range processes {
+		indexes[process.PID] = index
+		processes[index].HasExecutionCustody = process.PID > 0 && !process.Started.IsZero() && slices.ContainsFunc(controllers, func(controller Identity) bool {
+			return controller.PID == process.PID && controller.Started.Equal(process.Started)
+		})
+	}
+	for isGrowing := true; isGrowing; {
+		isGrowing = false
+		for index, process := range processes {
+			parentIndex, hasParent := indexes[process.ParentPID]
+			if process.PID <= 0 || process.Started.IsZero() || process.HasExecutionCustody || !hasParent {
+				continue
+			}
+			parent := processes[parentIndex]
+			if parent.HasExecutionCustody && !process.Started.Before(parent.Started) {
+				processes[index].HasExecutionCustody = true
+				isGrowing = true
+			}
+		}
+	}
+	return processes
 }
 
 // Mark names a terminal and the digest of a proof value one of its hosts put
@@ -64,6 +93,8 @@ type Mark struct {
 // directories or running a program from them. Or its parent, when that is
 // the task's own and started before it. A terminal mark proved by knownMarks
 // takes precedence over place and ancestry; an exact job identity still wins.
+// An active verification controller and its descendants require the task's
+// mark or job identity, never its folders alone.
 //
 // Three kinds of process are never the task's by its mark or its parent,
 // whatever started them. A machine service the goblin started and what runs
@@ -124,8 +155,9 @@ func OwnedProcesses(processes []Process, directories []string, job []Identity, m
 		}
 		isMarked := !process.IsGateAgent && process.Mark != (Mark{}) && slices.Contains(marks, process.Mark)
 		hasForeignOwner := markedBy[process.PID] != (Mark{}) && !slices.Contains(marks, markedBy[process.PID])
-		canFollow[process.PID] = !desktop[process.PID] && !hasForeignOwner
-		isOwned[process.PID] = isJobMember || !hasForeignOwner && (isClaimed || isMarked && canFollow[process.PID])
+		hasOtherCustody := hasForeignOwner || process.HasExecutionCustody && (markedBy[process.PID] == (Mark{}) || !slices.Contains(marks, markedBy[process.PID]))
+		canFollow[process.PID] = !desktop[process.PID] && !hasOtherCustody
+		isOwned[process.PID] = isJobMember || !hasOtherCustody && (isClaimed || isMarked && canFollow[process.PID])
 	}
 	// A process whose parent is the task's own is the task's too. Each pass
 	// reaches one generation further down.

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -26,8 +27,9 @@ import (
 )
 
 func TestDetachedConsumerCustodySurvivesSupplierCleanup(t *testing.T) {
-	for _, phase := range []string{"queued", "admitted", "orphan"} {
-		t.Run(phase, func(t *testing.T) {
+	for _, scenario := range []string{"queued", "admitted", "queued-unmarked", "admitted-unmarked", "orphan"} {
+		phase := strings.TrimSuffix(scenario, "-unmarked")
+		t.Run(scenario, func(t *testing.T) {
 			// Arrange
 			root := t.TempDir()
 			h := home.Home{Root: root, State: filepath.Join(root, "state")}
@@ -74,7 +76,7 @@ func TestDetachedConsumerCustodySurvivesSupplierCleanup(t *testing.T) {
 			t.Setenv(host.IDVariable, "consumer")
 			t.Setenv(host.ProofVariable, "consumer-proof")
 			t.Setenv("NO_MISTAKES_GATE", "")
-			if phase == "orphan" {
+			if phase == "orphan" || strings.HasSuffix(scenario, "-unmarked") {
 				t.Setenv(host.ProofVariable, "unproven-proof")
 			}
 			launcher := exec.Command(os.Args[0], "-test.run=^TestDetachedConsumerFixture$")
@@ -127,7 +129,7 @@ func TestDetachedConsumerCustodySurvivesSupplierCleanup(t *testing.T) {
 			defer cancel()
 
 			// Act: the production readers, planner, leftover sweep and teardown.
-			cfg := Config{Home: h, Now: time.Now(), Processes: ReadAllProcesses, Owners: func() ([]Owner, []string) { return Owners(ctx, h, nil) }}
+			cfg := Config{Home: h, Now: time.Now(), Processes: ReadAllProcesses, Controllers: lifecycle.VerificationControllers, Owners: func() ([]Owner, []string) { return Owners(ctx, h, nil) }}
 			plan, err := cfg.PlanProcesses(ctx)
 			if err != nil {
 				t.Fatal(err)

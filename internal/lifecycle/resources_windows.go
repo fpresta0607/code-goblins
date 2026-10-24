@@ -612,6 +612,11 @@ func leftBy(ctx context.Context, h home.Home, meta state.TaskMeta, read func(con
 	if err != nil {
 		return nil, err
 	}
+	controllers, err := VerificationControllers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	processes = WithExecutionCustody(processes, controllers)
 	var left []LeftProcess
 	for _, process := range leftBehind(OwnedProcesses(processes, directories, nil, marks, knownMarks), started, marks) {
 		by := "parent"

@@ -39,6 +39,11 @@ func Inventory(ctx context.Context, directories []string, job []Identity, marks 
 	if err != nil {
 		return nil, err
 	}
+	controllers, err := VerificationControllers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	processes = WithExecutionCustody(processes, controllers)
 	return OwnedProcesses(processes, directories, job, marks, knownMarks), nil
 }
 

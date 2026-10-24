@@ -129,6 +129,7 @@ func appendLifecyclePIDs(t *testing.T, path string, lines ...string) {
 // handle holding each, and a channel closed once the host has ended.
 func hostedGoblin(t *testing.T, root string) (home.Home, state.TaskMeta, map[string]int, map[string]windows.Handle, <-chan struct{}) {
 	t.Helper()
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
 	project := filepath.Join(t.TempDir(), "app")
 	meta := state.TaskMeta{ID: "g1", Backend: "native", Project: project, Worktree: filepath.Join(root, "worktrees", "app", "g1"), TaskTmp: filepath.Join(h.State, "tasktmp", "g1")}
