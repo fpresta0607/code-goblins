@@ -236,8 +236,10 @@ func cfoSession(stateDir string, primary primaryRegistration) string {
 // NativeTook reports whether native goblin meta's harness took text since,
 // as the record its harness keeps of the goblin's conversation shows: the
 // proof cfo send and the board wait for once a goblin is in a turn.
-func NativeTook(ctx context.Context, meta state.TaskMeta, text string, since time.Time) bool {
-	return conversations().Took(ctx, goblinConversation(meta), monitor.TextDigest(text), since)
+func NativeTook(ctx context.Context, meta state.TaskMeta, session, text string, since time.Time) bool {
+	conversation := goblinConversation(meta)
+	conversation.Session = session
+	return conversations().Took(ctx, conversation, monitor.TextDigest(text), since)
 }
 
 // goblinConversation names the record native goblin meta's harness keeps of

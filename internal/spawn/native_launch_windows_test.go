@@ -62,8 +62,9 @@ const (
 // whose first turn ends with the startup row still in its chat and which then
 // leaves whatever is submitted in its editor.
 const (
-	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
-	fakeCodexMode   = "SPAWN_TEST_CODEX_MODE"
+	fakeCodexRecord     = "SPAWN_TEST_CODEX_RECORD"
+	fakeCodexMode       = "SPAWN_TEST_CODEX_MODE"
+	fakeCodexTranscript = "SPAWN_TEST_CODEX_TRANSCRIPT"
 )
 
 func TestMain(m *testing.M) {
@@ -197,13 +198,10 @@ func fakeHarness() {
 	}
 	if mode == "resumed-working" {
 		if len(os.Args) > 1 && os.Args[1] == "resume" {
-			draw("    +151 lines (ctrl+t to view transcript)", "", "Working (1m 51s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close", "", "› Ask Codex to do anything", "", "  GPT-6.1-Sol xhigh · "+mustGetwd())
-			for key := range keys {
-				record(codexEvent{Event: "typed into resumed turn", Text: key})
-			}
-			return
+			mode = "working-at-start"
+		} else {
+			mode = "ready"
 		}
-		mode = "ready"
 	}
 	if mode == "working-at-start" {
 		// As cg-cards-stay-open was on 2026-10-15, when a cfo send reached it
@@ -218,6 +216,19 @@ func fakeHarness() {
 			switch key {
 			case "\r":
 				record(codexEvent{Event: "queued into the turn", Text: line.String()})
+				if path := os.Getenv(fakeCodexTranscript); path != "" {
+					transcript, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+					if err != nil {
+						panic(err)
+					}
+					entry := map[string]any{"timestamp": time.Now().UTC(), "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]string{{"type": "input_text", "text": line.String()}}}}
+					if err := json.NewEncoder(transcript).Encode(entry); err != nil {
+						panic(err)
+					}
+					if err := transcript.Close(); err != nil {
+						panic(err)
+					}
+				}
 				line.Reset()
 				working("Ask Codex to do anything")
 			case "\x1b[A", "\x1b[B", "\x1b[F":
