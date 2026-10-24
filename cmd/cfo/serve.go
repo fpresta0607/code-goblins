@@ -28,7 +28,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/keypages"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/release"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/terminal"
@@ -165,7 +167,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 		github := tickets.GitHub{Commands: execx.OSRunner{}}
-		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots}
+		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState}
 	}
 	// The board looks for a newer release of Code Goblins; an example board
 	// looks only at a release source it is pointed at.
@@ -186,7 +188,10 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	var comeback *supervisor.Comeback
 	var startAtLogin *supervisor.StartAtLogin
 	var devDrive *supervisor.DevDrive
+	// Restart PC restarts Windows itself, so an example board never can.
+	var restartWindows func() error
 	if !*example {
+		restartWindows = supervisor.RestartWindows
 		// The board's Dev Drive setting reads this machine; an example board
 		// shows none.
 		devDrive = &supervisor.DevDrive{Read: runtime.readDevDrive}
@@ -202,13 +207,21 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		}
 		comeback = &supervisor.Comeback{
 			SignedIn: supervisor.SignInBegan,
-			CFO:      func(ctx context.Context) error { return comebackCFO(ctx, h, runtime) },
+			CFO: func(ctx context.Context) error {
+				return comebackCFO(ctx, h, runtime, "the machine restarted or its Windows sign-in ended, which ended its terminal")
+			},
+			CFOEnded: func(ctx context.Context, why string) error { return comebackCFO(ctx, h, runtime, why) },
 			Goblin: func(ctx context.Context, id string) supervisor.GoblinComeback {
 				return comebackGoblin(ctx, h, runtime, id)
 			},
 		}
 	}
-	gate := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}
+	// The board reads the same heads, refs and gate runs every minute: one
+	// cache answers each read while the files it reads are unchanged, so a
+	// refresh over work nobody changed starts no git and no sqlite3.
+	reads := readcache.New()
+	cached := readcache.Runner{Cache: reads, Next: execx.OSRunner{}}
+	gate := pipeline.Reader{Root: root, Commands: cached}
 	// The board's family tree and the monitor's progress evidence read
 	// through one reader, so they never disagree about what a goblin does.
 	// An example board shows made-up goblins, so it reads no harness's
@@ -229,7 +242,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	remote := boardRemoteAccess(h, "http://"+listener.Addr().String())
+	var remoteSetting *remoteaccess.Manager
+	if !*example {
+		remoteSetting = remote
+	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
+		RemoteAccess:     remoteSetting,
+		Push:             &http.Client{Timeout: 15 * time.Second},
 		Dictation:        dictation,
 		Example:          *example,
 		Tickets:          ticketKeeping,
@@ -249,11 +269,13 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		OpenPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Open,
 		BoardAssets:      assets,
 		FirstRun:         firstRun,
-		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, Spawn: spawnFromBoard},
+		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard},
+		CompactCFO:       compactNativeCFO,
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
-		CI:       execx.OSRunner{},
-		Progress: execx.OSRunner{},
+		CI:       cached,
+		Progress: cached,
+		Reads:    reads,
 		// The Defender wakes only read what Defender recorded, as cfo
 		// defender does.
 		Defender: runtime.readDefender,
@@ -268,6 +290,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Tree:               tree,
 		Releases:           releases,
 		KeyPages:           keyPages,
+		RestartWindows:     restartWindows,
+		EndHeavyRuns:       supervisor.EndHeavyRuns,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -285,7 +309,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// After an update to a build that pins a newer speech model, the board
 	// replaces the earlier one now rather than at the first dictation.
 	handler.ReplaceDictation()
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Handler: remoteaccess.NewGate(ctx, remote, handler), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -351,7 +375,7 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 		StartCFO: func(agent string) error {
 			launchErr := acquireCFOLaunch(context.Background(), h.State)
 			if launchErr == nil {
-				defer lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock)
+				defer lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock)
 			}
 			if supervisor.CFORuns(h.State) {
 				return nil
@@ -359,9 +383,11 @@ func firstRunOn(h home.Home, userHome string, example bool, setMachine func(root
 			if launchErr != nil {
 				return launchErr
 			}
-			return startNativeCFO(h, h.Root, agent, nil)
+			return startNativeCFO(h, h.Root, agent, nil, "")
 		},
-		ReopenCFO: func() error { return reopenCFO(h, startNativeCFO, supervisor.NativeTerminalRuns) },
+		ReopenCFO: func() error {
+			return reopenCFO(h, "the Overlord reopened it from the board", startNativeCFO, supervisor.NativeTerminalRuns)
+		},
 		RestartCFO: func(harness string) (supervisor.CFOConversation, bool, error) {
 			conversation, fresh, err := restartCFO(h, harness)
 			return conversation, fresh == "", err

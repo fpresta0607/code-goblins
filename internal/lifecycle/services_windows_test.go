@@ -129,6 +129,7 @@ func appendLifecyclePIDs(t *testing.T, path string, lines ...string) {
 // handle holding each, and a channel closed once the host has ended.
 func hostedGoblin(t *testing.T, root string) (home.Home, state.TaskMeta, map[string]int, map[string]windows.Handle, <-chan struct{}) {
 	t.Helper()
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}
 	project := filepath.Join(t.TempDir(), "app")
 	meta := state.TaskMeta{ID: "g1", Backend: "native", Project: project, Worktree: filepath.Join(root, "worktrees", "app", "g1"), TaskTmp: filepath.Join(h.State, "tasktmp", "g1")}
@@ -230,11 +231,11 @@ func TestStoppingAGoblinLeavesTheMachineServicesItStartedRunning(t *testing.T) {
 	}
 	select {
 	case <-hostEnded:
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Errorf("the goblin's terminal host still runs after the stop; stopped %v", stopped)
 	}
 	for _, name := range []string{"goblin", "own"} {
-		if lifecycleRunning(held[name]) {
+		if !lifecycleEnded(held[name]) {
 			t.Errorf("the goblin's %s process, pid %d, still runs after the stop; stopped %v", name, started[name], stopped)
 		}
 	}
@@ -272,10 +273,10 @@ func TestStoppingAGoblinEndsWhatItStartedOutsideItsFoldersBesideAMachineService(
 	}
 	select {
 	case <-hostEnded:
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Errorf("the goblin's terminal host still runs after the stop; stopped %v", stopped)
 	}
-	if lifecycleRunning(held["away"]) {
+	if !lifecycleEnded(held["away"]) {
 		t.Errorf("the process the goblin started outside its folders, pid %d, still runs after the stop; stopped %v", started["away"], stopped)
 	}
 	for _, name := range []string{"service", "backend"} {
@@ -328,11 +329,11 @@ func TestAGoblinsDetachedProcessEndsWithItAtPauseAndAtRetire(t *testing.T) {
 			}
 			select {
 			case <-hostEnded:
-			case <-time.After(15 * time.Second):
+			case <-time.After(30 * time.Second):
 				t.Errorf("the goblin's terminal host still runs after the %s; stopped %v", testCase.name, stopped)
 			}
 			for _, name := range []string{"goblin", "own", "away", "detached"} {
-				if lifecycleRunning(held[name]) {
+				if !lifecycleEnded(held[name]) {
 					t.Errorf("the goblin's %s process, pid %d, still runs after the %s; stopped %v", name, started[name], testCase.name, stopped)
 				}
 			}
@@ -369,7 +370,7 @@ func TestWhatAClosedTerminalLeftEndsWithItsCleanup(t *testing.T) {
 	}
 	select {
 	case <-hostEnded:
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("the terminal's host still runs after it was closed")
 	}
 	if !lifecycleRunning(held["detached"]) {
@@ -407,7 +408,7 @@ func TestWhatAClosedTerminalLeftEndsWithItsCleanup(t *testing.T) {
 	if endErr != nil {
 		t.Errorf("EndLeft: %v (ended %v)", endErr, ended)
 	}
-	if lifecycleRunning(held["detached"]) {
+	if !lifecycleEnded(held["detached"]) {
 		t.Errorf("the process the goblin left detached, pid %d, still runs after its cleanup's sweep; ended %v", started["detached"], ended)
 	}
 	for _, name := range []string{"service", "backend"} {
@@ -457,10 +458,10 @@ func TestAStopEndsTheGoblinWhileItsGateStateCannotBeRead(t *testing.T) {
 	// Assert
 	select {
 	case <-hostEnded:
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("the goblin's terminal host still runs after the stop; stopped %v, error %v", stopped, err)
 	}
-	if lifecycleRunning(held["goblin"]) {
+	if !lifecycleEnded(held["goblin"]) {
 		t.Errorf("the goblin, pid %d, still runs after the stop; stopped %v", started["goblin"], stopped)
 	}
 	if !errors.As(err, new(UnfinishedStop)) || !errors.Is(err, context.DeadlineExceeded) {
@@ -514,6 +515,14 @@ func logFixture(t *testing.T, when string, hostPID int, started map[string]int) 
 // lifecycleRunning reports whether process still runs, waiting up to two
 // seconds for it to end.
 func lifecycleRunning(process windows.Handle) bool {
+	// stall-accepted: its callers check a process the stop must leave running, so running out is the passing path and a stall only makes the wait longer.
 	event, _ := windows.WaitForSingleObject(process, 2000)
 	return event == uint32(windows.WAIT_TIMEOUT)
+}
+
+// lifecycleEnded reports whether process ends within thirty seconds, before
+// a fixture's own minute could end it.
+func lifecycleEnded(process windows.Handle) bool {
+	event, _ := windows.WaitForSingleObject(process, 30000)
+	return event == windows.WAIT_OBJECT_0
 }

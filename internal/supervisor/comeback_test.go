@@ -124,7 +124,7 @@ func workingGoblin(t *testing.T, h home.Home, id string, started time.Time) stat
 // awaitComeback waits until no comeback step is under way.
 func awaitComeback(t *testing.T, service *Service) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
 		service.starts.Lock()
 		isBusy := service.isCFOComingBack || len(service.changing) > 0
@@ -431,6 +431,35 @@ func TestARestartBringsBackEveryGoblinLeftMeantToRunWhateverItsHostRecordSays(t 
 		if entry.State != state.ComebackBack {
 			t.Errorf("%s is %s, want back", entry.ID, entry.State)
 		}
+	}
+}
+
+// A goblin that reported from the session its failed resume started took
+// that resume, so it is meant to run: a restart before any reading finished
+// the resume still plans it to come back at the first sign-in.
+func TestARestartPlansTheGoblinOfAFailedResumeItTook(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	started := lastSignIn.Add(time.Hour)
+	meta := workingGoblin(t, h, "resumed", started)
+	meta.ResumeOperation = "resume-resumed"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	failed := started.Add(3 * time.Minute)
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: meta.ResumeOperation, Action: "resume", Phase: "failed", Started: started, Updated: failed}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, state.StatusPath(h.State, meta.ID), failed.Format(time.RFC3339)+" lifecycle-failed: Pause condition cleared\n"+failed.Add(2*time.Minute).Format(time.RFC3339)+" working: Back after restart\n")
+
+	// Act
+	reading(t, service, 0)
+
+	// Assert
+	record, err := state.ReadComeback(h.State)
+	if err != nil || len(record.Goblins) != 1 || !record.Waiting(meta.ID, meta.SpawnGen) {
+		t.Fatalf("comeback %+v, %v; want %s planned to come back", record, err, meta.ID)
 	}
 }
 

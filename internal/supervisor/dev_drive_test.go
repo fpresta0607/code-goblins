@@ -283,7 +283,7 @@ func TestTheWatchNoticesAnAnswerGivenElsewhere(t *testing.T) {
 	done := make(chan struct{})
 	go func() { defer close(done); s.watchDevDrive(ctx) }()
 	t.Cleanup(func() { cancel(); <-done })
-	for deadline := time.Now().Add(5 * time.Second); s.devDriveViewNow() == nil; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); s.devDriveViewNow() == nil; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the watch made no first look")
 		}
@@ -295,7 +295,7 @@ func TestTheWatchNoticesAnAnswerGivenElsewhere(t *testing.T) {
 	}
 
 	// Assert
-	for deadline := time.Now().Add(5 * time.Second); len(devDriveItems(s)) == 0; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); len(devDriveItems(s)) == 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the answer given elsewhere made no item")
 		}

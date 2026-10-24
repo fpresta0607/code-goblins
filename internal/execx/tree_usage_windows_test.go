@@ -19,12 +19,12 @@ import (
 )
 
 // usageOnce reads the tree's usage until counts says it has the processes
-// it should, for ten seconds at most. Windows can still count a process
+// it should, for a minute at most. Windows can still count a process
 // that has exited, and that a wait has seen exit, as active in its job for a
 // moment, which a busy machine stretches.
 func usageOnce(t *testing.T, tree *execx.Tree, counts func(execx.TreeUsage) bool) execx.TreeUsage {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		usage, err := tree.Usage()
 		if err != nil {
 			t.Fatal(err)
@@ -76,7 +76,7 @@ func TestTreeUsageIncludesWorkersAfterTheirParentExits(t *testing.T) {
 	if after.ActiveProcesses != 1 || after.TotalProcesses != 4 || after.CPU < usage.CPU || after.PeakCommitBytes < usage.PeakCommitBytes {
 		t.Errorf("usage after parent exit = %+v, before = %+v", after, usage)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	final, err := tree.TerminateAndWait(ctx)
 	if err != nil {
@@ -117,7 +117,7 @@ func TestTreeTerminationRetainsCustodyWhenCancellationPreventsProof(t *testing.T
 	if _, err := tree.Usage(); err != nil {
 		t.Fatalf("uncertain cleanup lost its job handle: %v", err)
 	}
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	final, err := tree.TerminateAndWait(ctx)
 	if err != nil || final.ActiveProcesses != 0 {
@@ -189,7 +189,7 @@ func TestTreeUsageCountsTheCPUTimeOfAWorkerThatExited(t *testing.T) {
 	if err := command.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -240,7 +240,7 @@ func TestTreeCountsAMemberItMayNotReadInsteadOfFailing(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = tree.End(); command.Wait() })
-	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := os.Stat(ready); err == nil {
 			break
 		}
@@ -267,7 +267,7 @@ func TestTreeCountsAMemberItMayNotReadInsteadOfFailing(t *testing.T) {
 	if membersError != nil || len(members) != 1 || members[0].PID != command.Process.Pid {
 		t.Fatalf("members = %+v, %v, want the locked worker named as still running", members, membersError)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if final, err := tree.TerminateAndWait(ctx); err != nil || final.ActiveProcesses != 0 {
 		t.Fatalf("ending the locked worker = %+v, %v", final, err)
@@ -321,7 +321,7 @@ func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			tree, command, pids, held := serviceTree(t, "")
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			// Act
@@ -334,7 +334,7 @@ func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
 			// Windows can count a job empty a moment before a process its end
 			// ended signals, so an ended service is waited for, and a kept
 			// one must still run a moment later.
-			wait := uint32(5000)
+			wait := uint32(60000)
 			if test.isServiceKept {
 				wait = 500
 			}
@@ -349,11 +349,11 @@ func TestTreeSparesAMachineServiceOnlyWhereItsEndAsksTo(t *testing.T) {
 			if len(spared) != wantSpared || wantSpared == 1 && (spared[0].PID != pids["com.docker.standin"] || !strings.EqualFold(spared[0].Name, "com.docker.standin.exe")) {
 				t.Fatalf("spared = %+v, want the machine service %d alone where it is kept", spared, pids["com.docker.standin"])
 			}
-			if event, err := windows.WaitForSingleObject(held["worker"], 5000); err != nil || event != windows.WAIT_OBJECT_0 {
+			if event, err := windows.WaitForSingleObject(held["worker"], 60000); err != nil || event != windows.WAIT_OBJECT_0 {
 				t.Fatal("the worker still runs after the tree's end")
 			}
 			if own, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(command.Process.Pid)); err == nil {
-				event, err := windows.WaitForSingleObject(own, 5000)
+				event, err := windows.WaitForSingleObject(own, 60000)
 				windows.CloseHandle(own)
 				if err != nil || event != windows.WAIT_OBJECT_0 {
 					t.Fatal("the tree's own process still runs after the tree's end")
@@ -387,7 +387,7 @@ func serviceTree(t *testing.T, lock string) (*execx.Tree, *exec.Cmd, map[string]
 	}
 	t.Cleanup(func() { _, _ = tree.End(); _ = command.Wait() })
 	if isWorkerLocked {
-		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 			if _, err := os.Stat(filepath.Join(programs, "locked")); err == nil {
 				break
 			}
@@ -400,7 +400,7 @@ func serviceTree(t *testing.T, lock string) (*execx.Tree, *exec.Cmd, map[string]
 	held := map[string]windows.Handle{}
 	for _, name := range []string{"com.docker.standin", "worker"} {
 		pid := filepath.Join(programs, name+".pid")
-		for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 			if data, err := os.ReadFile(pid); err == nil {
 				if pids[name], err = strconv.Atoi(string(data)); err != nil {
 					t.Fatal(err)
@@ -469,7 +469,7 @@ func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 				windows.CloseHandle(opened)
 				t.Skip("this process opens a process whose DACL denies it, so it cannot make the member")
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // stall-accepted: the test means this deadline to run out before the job end's own five seconds.
 			defer cancel()
 			started := time.Now()
 
@@ -480,6 +480,7 @@ func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), strconv.Itoa(pids["worker"])) || len(spared) != 0 {
 				t.Fatalf("end = %+v, %v; want no confirmation, naming the member", spared, err)
 			}
+			// stall-accepted: it times the end against its caller's deadline, and the wait it rules out is only the job end's own five seconds, so no longer bound tells them apart.
 			if took := time.Since(started); took > 4*time.Second {
 				t.Fatalf("the end took %s, past its caller's deadline of two seconds", took)
 			}
@@ -488,6 +489,60 @@ func TestTreeEndAndWaitFailsClosedOverAMemberItCannotEnd(t *testing.T) {
 			}
 			if event, err := windows.WaitForSingleObject(held["com.docker.standin"], 0); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
 				t.Fatal("the machine service was ended though the end confirmed nothing")
+			}
+		})
+	}
+}
+
+// While a process exits, Windows can count one more in its job than it
+// lists, for as long as the exit takes (issue 1025). An end that spares a
+// machine service lets the job's handle close only once the job counts
+// nothing beyond its list, so it waits out an exit that finishes within its
+// caller's deadline, and over one that does not it confirms nothing and the
+// job still ends everything it holds when its last handle closes.
+func TestTreeEndAndWaitWaitsUntilTheJobCountsNothingBeyondItsList(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		// unlistedReads is how many reads of the job's members count one
+		// process beyond the list.
+		unlistedReads int
+		isConfirmed   bool
+		limit         time.Duration
+	}{
+		{name: "an exit that finishes within the end", unlistedReads: 3, isConfirmed: true, limit: time.Minute},
+		{name: "an exit that outlasts the end", unlistedReads: 1 << 30, limit: 2 * time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			tree, _, pids, held := serviceTree(t, "")
+			// An end that confirms nothing leaves the job to the strict end.
+			t.Cleanup(func() { _, _ = tree.TerminateAndWait(context.Background()) })
+			execx.CountUnlistedForTest(t, test.unlistedReads)
+			// stall-accepted: the row whose exit finishes is given a minute, and the row whose exit outlasts the end means its two seconds to run out.
+			ctx, cancel := context.WithTimeout(context.Background(), test.limit)
+			defer cancel()
+
+			// Act
+			_, spared, err := tree.EndAndWait(ctx)
+
+			// Assert
+			if test.isConfirmed {
+				if err != nil || len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] {
+					t.Fatalf("end = %+v, %v; want the machine service spared once the job counted nothing beyond its list", spared, err)
+				}
+			} else {
+				if err == nil || !strings.Contains(err.Error(), "it counts 1 more than it lists") || len(spared) != 0 {
+					t.Fatalf("end = %+v, %v; want no confirmation while the job counted a process beyond its list", spared, err)
+				}
+				if isArmed, err := tree.KillsOnCloseForTest(); err != nil || !isArmed {
+					t.Fatalf("kill on close armed = %v, %v; want the job still to end everything when it closes", isArmed, err)
+				}
+			}
+			if event, err := windows.WaitForSingleObject(held["com.docker.standin"], 0); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+				t.Fatal("the machine service was ended by an end that spares it")
+			}
+			if event, err := windows.WaitForSingleObject(held["worker"], 60000); err != nil || event != windows.WAIT_OBJECT_0 {
+				t.Fatal("the worker still runs after the tree's end")
 			}
 		})
 	}

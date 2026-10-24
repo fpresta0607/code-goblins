@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/clipboard"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -43,7 +44,10 @@ type HTTP struct {
 	terminalSlots chan struct{}
 	// nativeSlots bounds the native terminal views open at once: the board
 	// keeps every goblin terminal it opened live, so it is far above Herdr's.
-	nativeSlots  chan struct{}
+	nativeSlots chan struct{}
+	// messageSlots bounds the message views streaming at once, which the
+	// board keeps live as it keeps its terminals.
+	messageSlots chan struct{}
 	terminals    map[string]*terminalLease
 	openTerminal func(context.Context, string, string, bool, int, int) (herdr.TerminalStream, error)
 	terminalTick time.Duration
@@ -59,6 +63,8 @@ type HTTP struct {
 	folderPickerMu  sync.Mutex
 	// openWindow starts a Windows Terminal window running a program.
 	openWindow func(ctx context.Context, program string, args ...string) error
+	// putImage puts a PNG picture on this PC's clipboard.
+	putImage func(picture []byte) error
 	// build names the bundle in Assets: its index.html names every hashed
 	// file of the bundle, so any rebuild changes it.
 	build string
@@ -80,7 +86,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +144,10 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openTerminalWindow(w, r)
 	case r.URL.Path == "/api/terminal/native" && r.Method == "GET":
 		h.nativeTerminal(w, r)
+	case r.URL.Path == "/api/terminal/image" && r.Method == "POST":
+		h.pasteTerminalImage(w, r)
+	case r.URL.Path == "/api/messages" && r.Method == "GET":
+		h.messages(w, r)
 	case r.URL.Path == "/api/workspace" && r.Method == "GET":
 		ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 		defer cancel()
@@ -185,6 +195,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.openCredentialTerminal(w, r)
 	case r.URL.Path == "/api/workspace/open" && r.Method == "POST":
 		h.openWorkspace(w, r)
+	case r.URL.Path == "/api/cards/open-path" && r.Method == "POST":
+		h.openCardPath(w, r)
 	case r.URL.Path == "/api/actions" && r.Method == "POST":
 		h.action(w, r)
 	case r.URL.Path == "/api/answer-images" && r.Method == "POST":
@@ -197,6 +209,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.moveWindowFromBoard(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/afk/report/") && r.Method == "GET":
 		h.afkReportFile(w, r)
+	case r.URL.Path == "/api/pc/restart" && r.Method == "POST":
+		h.restartPCFromBoard(w, r)
 	case r.URL.Path == "/api/afk" && r.Method == "POST":
 		h.switchAFKFromBoard(w, r)
 	case r.URL.Path == "/api/tasks/start" && r.Method == "POST":
@@ -232,6 +246,14 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.reportBoardError(w, r)
 	case r.URL.Path == "/api/start-at-login" && r.Method == "POST":
 		h.setStartAtLogin(w, r)
+	case r.URL.Path == "/api/remote/scrawl-link" && r.Method == "GET":
+		h.remoteScrawlLink(w, r)
+	case r.URL.Path == "/api/remote/machines" && r.Method == "GET":
+		h.remoteMachines(w, r)
+	case r.URL.Path == "/api/push" && (r.Method == "GET" || r.Method == "POST"):
+		h.push(w, r)
+	case r.URL.Path == "/api/remote" && (r.Method == "GET" || r.Method == "POST"):
+		h.remoteAccess(w, r)
 	case r.URL.Path == "/api/dev-drive" && r.Method == "POST":
 		h.setDevDrive(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/questions/") && r.Method == "GET":
@@ -245,12 +267,17 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/api/"):
 		apiError(w, 404, "Unknown endpoint or method")
 	case (r.Method == "GET" || r.Method == "HEAD") && h.Assets != nil:
-		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" && r.URL.Path != "/manifest.webmanifest" {
+		if r.URL.Path != "/" && !strings.HasPrefix(r.URL.Path, "/assets/") && r.URL.Path != "/favicon.svg" && r.URL.Path != "/manifest.webmanifest" && r.URL.Path != "/push-worker.js" {
 			http.NotFound(w, r)
 			return
 		}
 		if r.URL.Path == "/manifest.webmanifest" {
 			w.Header().Set("Content-Type", "application/manifest+json")
+		}
+		// A browser registers a worker only as JavaScript, which Windows may
+		// name otherwise in its registry, such as text/plain.
+		if r.URL.Path == "/push-worker.js" {
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		}
 		if r.URL.Path == "/" {
 			data, err := fs.ReadFile(h.Assets, "index.html")

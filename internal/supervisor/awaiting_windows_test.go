@@ -10,7 +10,30 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+func TestNativeResumeReceiptReadsOnlyTheSavedOldSession(t *testing.T) {
+	// Arrange
+	profile := useConversations(t)
+	const session = "11111111-aaaa-4bbb-8ccc-000000000001"
+	const other = "22222222-aaaa-4bbb-8ccc-000000000002"
+	since := time.Now().UTC().Add(-time.Second)
+	meta := state.TaskMeta{Harness: "codex", Worktree: t.TempDir(), SpawnGen: "s1792799400000000000"}
+	text := "Read the current recovery instruction and resume now."
+	takenInRecord(t, profile, "codex", session, meta.Worktree, text)
+	takenInRecord(t, profile, "codex", other, meta.Worktree, "an unrelated prompt")
+
+	// Act
+	owned := NativeTook(t.Context(), meta, session, text, since)
+	foreign := NativeTook(t.Context(), meta, other, text, since)
+	oldPrompt := NativeTook(t.Context(), meta, session, text, time.Now().UTC().Add(time.Second))
+
+	// Assert
+	if !owned || foreign || oldPrompt {
+		t.Fatalf("owned=%t foreign=%t before-submit=%t; want only the new prompt in the saved old session", owned, foreign, oldPrompt)
+	}
+}
 
 // sentAnswer queues the Overlord's answer to a CFO question and delivers it
 // as typed and submitted into the CFO's terminal at since, not yet taken.

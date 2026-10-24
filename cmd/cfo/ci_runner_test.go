@@ -76,7 +76,7 @@ func TestCIRunnerJobExitsWithTheServicesOutcome(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runCIRunner([]string{"job"}, &stdout, &stderr, runtime)
+			exit := runCIRunner([]string{"job"}, &stdout, &stderr, nil, runtime)
 
 			// Assert
 			if exit != row.wantExit || stdout.String() != row.wantStdout || stderr.String() != row.wantStderr {
@@ -106,7 +106,7 @@ func TestCIRunnerStatusSaysWhatRuns(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runCIRunner([]string{"status"}, &stdout, &stderr, runtime)
+			exit := runCIRunner([]string{"status"}, &stdout, &stderr, nil, runtime)
 
 			// Assert
 			if exit != row.wantExit || stdout.String() != row.wantStdout || len(*asked) != 1 || (*asked)[0] != cirunner.AskStatus {
@@ -125,7 +125,7 @@ func TestCIRunnerRefusesWhatItDoesNotKnow(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
 			// Act
-			exit := runCIRunner(args, &stdout, &stderr, runtime)
+			exit := runCIRunner(args, &stdout, &stderr, nil, runtime)
 
 			// Assert
 			if exit != 2 || stderr.String() != ciRunnerUsage+"\n" || len(*asked) != 0 {

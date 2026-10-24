@@ -7,13 +7,16 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // lockName serializes every start and release of this home's stacks, so two
@@ -238,8 +241,19 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 		return "", "", err
 	}
 	fmt.Fprintf(s.Out, "cfo services: starting %s's %s and what they depend on, which builds any image they lack first and can take many minutes\n", project, strings.Join(manifest.Services, ", "))
-	if err := s.upHoldingTheFloor(ctx, project, compose, manifest.Services); err != nil {
+	if isEnded, err := s.upHoldingTheFloor(ctx, project, compose, manifest.Services); err != nil {
 		upErr := fmt.Errorf("services: start %s's services: %w", project, err)
+		// A start cfo ended itself failed for cfo's reason, not a service's,
+		// and gives its memory back at once.
+		if !isEnded {
+			saved, saveErr := s.saveFailures(ctx, compose, project, task, upErr)
+			if saved != "" {
+				upErr = fmt.Errorf("%w; %s", upErr, saved)
+			}
+			if saveErr != nil {
+				upErr = fmt.Errorf("%w; %w", upErr, saveErr)
+			}
+		}
 		if !stack.Owned {
 			// A start that failed part way may have started dependencies
 			// the stack it came beside did not have.
@@ -294,6 +308,50 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 	return fmt.Sprintf("%s for %s, which took %s of memory", what, task, gigabytes(stack.Cost.Bytes)), "", nil
 }
 
+// saveFailures saves what each container of a failed start that did not come
+// up says of itself, its state with its health check's output and the end of
+// its log, to a file in the task's folder, and says where, or why it could
+// not. It runs before the stop that follows, which takes the containers and
+// their logs with it, as it did twice on 2026-10-20 after a backend came up
+// unhealthy. It writes nothing while the task's cleanup holds its folder, as
+// CleanupLockName asks of every writer into a live task's folder.
+func (s Service) saveFailures(ctx context.Context, compose Compose, project, task string, startErr error) (string, error) {
+	const unsaved = "what its failed services said could not be saved"
+	failures, err := s.Docker.Failed(ctx, compose)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", unsaved, err)
+	}
+	if len(failures) == 0 {
+		return "", nil
+	}
+	now := s.Now().UTC()
+	var text strings.Builder
+	fmt.Fprintf(&text, "%s's services did not come up for %s at %s: %v\n", project, task, now.Format(time.RFC3339), startErr)
+	names := make([]string, len(failures))
+	for index, failure := range failures {
+		names[index] = failure.Service
+		fmt.Fprintf(&text, "\n== %s, container %s\n\n-- its state, with its health check's last output (docker inspect):\n%s\n\n-- the end of its log (docker logs):\n%s\n", failure.Service, failure.Container, failure.State, failure.Log)
+	}
+	path := filepath.Join(s.StateDir, "tasktmp", task, "services-"+project+"-"+now.Format("20060102T150405Z")+".log")
+	cleanup := state.CleanupLockName(task)
+	if _, err := lock.AcquireExclusiveNamed(s.StateDir, cleanup); err != nil {
+		if errors.Is(err, lock.ErrHeld) {
+			return "", fmt.Errorf("%s, as the task's cleanup holds its folder: %w", unsaved, err)
+		}
+		return "", fmt.Errorf("%s: %w", unsaved, err)
+	}
+	writeErr := fsx.AtomicWriteFile(path, []byte(text.String()))
+	releaseErr := lock.ReleaseExclusiveNamed(s.StateDir, cleanup)
+	if writeErr != nil {
+		return "", fmt.Errorf("%s: %w", unsaved, errors.Join(writeErr, releaseErr))
+	}
+	saved := "the state and log of " + strings.Join(names, ", ") + " are saved in " + path
+	if releaseErr != nil {
+		return saved, fmt.Errorf("the task's cleanup lock could not be released: %w", releaseErr)
+	}
+	return saved, nil
+}
+
 // upHoldingTheFloor runs compose up, which builds any image the stack lacks,
 // and holds the floor while it runs, as cg-services-pd-build's watch beside
 // it did on 2026-10-11. Every FloorEvery it reads memory and commit, and the
@@ -301,8 +359,8 @@ func (s Service) tryUp(ctx context.Context, checkout string, manifest Manifest, 
 // and so its build and nothing else. Every ReliefEvery, one at a time, it
 // hands the engine's file cache back (Docker.Relieve). The build the watch
 // guarded never fell under 9.21 GB free, where the two before it, without
-// it, reached the 4 GB floor.
-func (s Service) upHoldingTheFloor(ctx context.Context, project string, compose Compose, services []string) error {
+// it, reached the 4 GB floor. It says whether it ended compose up itself.
+func (s Service) upHoldingTheFloor(ctx context.Context, project string, compose Compose, services []string) (isEnded bool, err error) {
 	building, endBuild := context.WithCancel(ctx)
 	defer endBuild()
 	built := make(chan error, 1)
@@ -326,13 +384,13 @@ func (s Service) upHoldingTheFloor(ctx context.Context, project string, compose 
 	for {
 		select {
 		case err := <-built:
-			return err
+			return false, err
 		case <-floor.C:
 			memory, err := s.Memory()
 			if err != nil {
 				endBuild()
 				<-built
-				return fmt.Errorf("cfo could not read memory while it built, so it ended the build: %w", err)
+				return true, fmt.Errorf("cfo could not read memory while it built, so it ended the build: %w", err)
 			}
 			if memory.Available >= s.Floor && memory.CommitAvailable >= s.Floor {
 				continue
@@ -340,7 +398,7 @@ func (s Service) upHoldingTheFloor(ctx context.Context, project string, compose 
 			endBuild()
 			<-built
 			fmt.Fprintf(s.Out, "cfo services: %s of memory and %s of commit are free, under the %.0f GB floor, so cfo ended its start of %s's services and everything that start ran\n", gigabytes(memory.Available), gigabytes(memory.CommitAvailable), float64(s.Floor)/(1<<30), project)
-			return fmt.Errorf("the %.0f GB floor ended it, with %s of memory and %s of commit free", float64(s.Floor)/(1<<30), gigabytes(memory.Available), gigabytes(memory.CommitAvailable))
+			return true, fmt.Errorf("the %.0f GB floor ended it, with %s of memory and %s of commit free", float64(s.Floor)/(1<<30), gigabytes(memory.Available), gigabytes(memory.CommitAvailable))
 		case <-relief.C:
 			if !isRelieving {
 				isRelieving = true

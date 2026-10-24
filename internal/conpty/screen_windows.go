@@ -1,6 +1,7 @@
 package conpty
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/awake"
 )
 
 // Reading a console's screen takes a process attached to the console, and the
@@ -56,7 +59,9 @@ func (c *Console) Screen(timeout time.Duration) ([]string, error) {
 // screen asks the waker for the console's screen and waits up to timeout for
 // an answer it read after the ask arrived. Asks are numbered in the order
 // they are sent, which is the order the waker counts them in, so an answer
-// that came too late for one read never answers a later one.
+// that came too late for one read never answers a later one. Only time the
+// machine ran spends timeout (awake), since a pause of the whole machine
+// stops the waker too.
 func (w *waker) screen(timeout time.Duration) ([]string, error) {
 	w.asking.Lock()
 	_, err := w.typed.Write([]byte{screenAsked})
@@ -68,8 +73,8 @@ func (w *waker) screen(timeout time.Duration) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("conpty: ask the console's input waker for its screen: %w", err)
 	}
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
+	waiting, cancelWaiting := awake.WithTimeout(context.Background(), timeout)
+	defer cancelWaiting()
 	for {
 		w.answering.Lock()
 		answer, isEnded, answered := w.answer, w.isEnded, w.answered
@@ -84,7 +89,7 @@ func (w *waker) screen(timeout time.Duration) ([]string, error) {
 		}
 		select {
 		case <-answered:
-		case <-deadline.C:
+		case <-waiting.Done():
 			return nil, fmt.Errorf("conpty: the console's input waker did not read its screen within %s", timeout)
 		}
 	}

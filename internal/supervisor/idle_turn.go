@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -46,8 +47,9 @@ func WorkWaits(h home.Home) bool {
 // queue. It returns "" when the turn may
 // end: a goblin works, memory is short, nothing could run, or this same next
 // work woke an idle turn less than idleWakeAfter ago. The CFO's turn end is
-// the one moment the supervisor's scheduler cannot see, so the hook that sees
-// it calls this, whatever harness the CFO runs.
+// the one moment the supervisor's scheduler cannot see, so what sees it calls
+// this: a Claude CFO's turn-end guard, and the supervisor itself as it ingests
+// the turn end a Codex or pi CFO's native hook spooled.
 func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 	if memory.shortfall() != "" {
 		return "", nil
@@ -129,10 +131,19 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 }
 
 // startableQueued names the queued tasks a Start could start at reading, in
-// queue order.
+// queue order, leaving out each whose queued lock a live process holds: the
+// supervisor holds it for a start's whole run, and cfo spawn writes the task
+// record planStart reads only once the worktree exists, so the lock is what
+// the CFO's turn-end guard, which runs apart from cfo serve, can see of the
+// start. A record that cannot be read yet, as while it is written, reads as
+// held.
 func startableQueued(h home.Home, finished *finishedWork, reading rowReading) []string {
 	var queued []string
 	for _, id := range queuedCandidates(h) {
+		holder, err := lock.ReadNamed(h.State, ".queued-"+id+".lock")
+		if !errors.Is(err, os.ErrNotExist) && (err != nil || holder.Alive()) {
+			continue
+		}
 		if _, err := planStart(h, id, finished, reading); err == nil {
 			queued = append(queued, id)
 		}

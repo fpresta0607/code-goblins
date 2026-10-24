@@ -60,6 +60,66 @@ func TestHookRejectsMalformedAndPrematureEvents(t *testing.T) {
 	}
 }
 
+// Malformed JSON anywhere in the input fails, inside a tool response the hook
+// does not keep too.
+func TestHookRejectsMalformedValuesItDoesNotKeep(t *testing.T) {
+	cwd, _ := json.Marshal(t.TempDir())
+	input := func(response string) string {
+		return `{"session_id":"s","cwd":` + string(cwd) + `,"tool_response":` + response + `,"hook_event_name":"PostToolUse"}`
+	}
+	if _, err := Normalize(strings.NewReader(input(`{"a":[1,-2.5e+3,0,true,false,null,"\u00e9\n\""]}`)), Context{Harness: "claude", Now: time.Now()}); err != nil {
+		t.Fatalf("well-formed tool response refused: %v", err)
+	}
+	for _, response := range []string{
+		`{"a":tru}`, `"\x"`, `"\u00g0"`, "\"a\tb\"", `01`, `1.`, `-`, `1e`, `[1,]`, `{"a"}`, `{"a":1,}`, `[1 2]`, `{"a":1`,
+	} {
+		if _, err := Normalize(strings.NewReader(input(response)), Context{Harness: "claude", Now: time.Now()}); err == nil {
+			t.Errorf("accepted tool response %.40q", response)
+		}
+	}
+	if _, err := Normalize(strings.NewReader(input(`1`)+` {}`), Context{Harness: "claude", Now: time.Now()}); err == nil {
+		t.Error("accepted data after the object")
+	}
+}
+
+// Claude Code's PostToolUse input carries the tool's whole response: a Bash
+// call's output, an Edit's original file, a Read's content. A response past
+// 64 KiB, with protocol fields both before and after it, still spools them.
+func TestALargeToolResponseKeepsItsProtocolFields(t *testing.T) {
+	large := strings.Repeat(`line \"quoted\" \\ \u00e9 \t tab\n`, 1<<12)
+	for _, tc := range []struct{ tool, input, response string }{
+		{"Bash", `{"command":"cat big.log"}`, `{"stdout":"` + large + `","stderr":"","interrupted":false,"isImage":false}`},
+		{"Edit", `{"file_path":"C:\\big.md","old_string":"a","new_string":"b"}`, `{"filePath":"C:\\big.md","oldString":"a","newString":"b","originalFile":"` + large + `","structuredPatch":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["-a","+b"]}],"userModified":false,"replaceAll":false}`},
+		{"Read", `{"file_path":"C:\\big.md"}`, `{"type":"text","file":{"filePath":"C:\\big.md","content":"` + large + `","numLines":4096,"startLine":1,"totalLines":4096}}`},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			dir := t.TempDir()
+			cwd, _ := json.Marshal(dir)
+			input := `{"session_id":"session-1","transcript_path":"C:\\t.jsonl","cwd":` + string(cwd) + `,"tool_name":"` + tc.tool + `","tool_input":` + tc.input + `,"tool_response":` + tc.response + `,"hook_event_name":"PostToolUse","model":"model-1"}`
+			if len(input) <= 64<<10 {
+				t.Fatalf("input is only %d bytes", len(input))
+			}
+
+			e, err := Normalize(strings.NewReader(input), Context{Harness: "claude", Role: "goblin", TaskID: "task-1", Now: time.Now()})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e.Kind != "active" || e.SessionID != "session-1" || e.CWD != dir || e.Model != "model-1" {
+				t.Fatalf("event = %+v", e)
+			}
+			stateDir := t.TempDir()
+			if err := Spool(stateDir, e); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(SpoolDir(stateDir), e.ID+".event.json"))
+			if err != nil || strings.Contains(string(data), "quoted") {
+				t.Fatalf("spooled %.200s, %v", data, err)
+			}
+		})
+	}
+}
+
 func TestHookDoesNotPersistPromptOrToolCredentials(t *testing.T) {
 	input, _ := json.Marshal(map[string]string{"session_id": "s", "cwd": t.TempDir(), "hook_event_name": "PostToolUse", "tool_response": "secret", "last_assistant_message": "secret"})
 	e, err := Normalize(bytes.NewReader(input), Context{Harness: "codex", Role: "cfo", Now: time.Now()})

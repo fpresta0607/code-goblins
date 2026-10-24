@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -76,6 +77,13 @@ type Reader struct {
 	gates        map[string]gateReading
 	usual        map[string]time.Duration
 	usualAt      time.Time
+
+	// messagesMu guards the conversations read as messages, by path, apart
+	// from mu, so a view's reads never wait on a tree's, and messageEpoch
+	// counts their reads.
+	messagesMu   sync.Mutex
+	messageLogs  map[string]*messageLog
+	messageEpoch atomic.Uint64
 }
 
 // Goblin is one goblin to read: its task record, the process its terminal
@@ -183,7 +191,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		}
 	case "pi":
 		// pi 0.85 records no sub-agents and no background jobs; only its
-		// conversation's last write is read, when the terminal names it.
+		// conversation's last write is read.
 		tree.ConversationAt = WrittenAt(path)
 	}
 	if isRunning {
@@ -327,10 +335,11 @@ func (r *Reader) harnessOf(goblin Goblin) (processes []Process, harness harnessP
 
 // conversation is the goblin's own conversation file: the session its
 // terminal names, else the one the board recorded for its generation, else
-// for Claude Code the one its running process records for itself, and for
-// Codex its worktree's rollout written last; for Claude Code never merely the
-// newest in its folder. metas is every Codex rollout read, among which a
-// Codex goblin's children are.
+// for Claude Code the one its running process records for itself, for Codex
+// its worktree's rollout written last, and for pi its worktree's session
+// written last, once written since its running pi started; for Claude Code
+// never merely the newest in its folder. metas is every Codex rollout read,
+// among which a Codex goblin's children are.
 func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Process, isRunning bool) (string, map[string]rolloutMeta) {
 	session := goblin.Session
 	if session == "" && r.Recorded != nil {
@@ -346,6 +355,9 @@ func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Proces
 		metas := r.rollouts(ctx)
 		return r.codexConversation(ctx, goblin.Meta.Worktree, session, metas), metas
 	case "pi":
+		if session == "" {
+			return r.piSession(goblin.Meta.Worktree, harness), nil
+		}
 		return SessionTranscript(r.Home, "pi", session), nil
 	}
 	return "", nil
@@ -365,8 +377,10 @@ func (r *Reader) Conversation(ctx context.Context, goblin Goblin) string {
 // is in, as the harness records it itself, for a switch that resumes it when
 // the board recorded none: Claude Code's record of its own process, or the
 // Codex rollout of the goblin's worktree written last, never a child
-// agent's nor a codex exec's. It is empty while the harness does not run, and for pi, whose
-// conversation no switch resumes.
+// agent's nor a codex exec's, or the pi session of the goblin's worktree
+// written last, once written since pi started: pi writes a session only when
+// its first reply ends, so until then the newest is an earlier pi's. It is
+// empty while the harness does not run.
 func (r *Reader) RunningSession(ctx context.Context, goblin Goblin) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -389,8 +403,21 @@ func (r *Reader) provedSession(ctx context.Context, goblin Goblin, harness Proce
 		return claudeProcessSession(r.Home, harness)
 	case "codex":
 		return metas[r.codexConversation(ctx, goblin.Meta.Worktree, "", metas)].id
+	case "pi":
+		return piSessionID(r.piSession(goblin.Meta.Worktree, harness))
 	}
 	return ""
+}
+
+// piSession is the pi session of worktree written last, once written since
+// harness started: pi writes a session only when its first reply ends, so
+// until then the newest is an earlier pi's.
+func (r *Reader) piSession(worktree string, harness Process) string {
+	path := newestFile(PiSessions(r.Home, worktree))
+	if WrittenAt(path).Before(harness.Started) {
+		return ""
+	}
+	return path
 }
 
 // claudeLog keeps one log per goblin, read on from where it stopped while
@@ -426,6 +453,15 @@ func (r *Reader) Forget(live map[string]bool) {
 			delete(r.gates, task)
 		}
 	}
+	// A conversation no view reads any more goes too, though nothing asks
+	// for another.
+	now := time.Now()
+	if r.Now != nil {
+		now = r.Now()
+	}
+	r.messagesMu.Lock()
+	r.forgetIdleMessages(now)
+	r.messagesMu.Unlock()
 }
 
 // claudeProcessSession is the conversation the running Claude Code process
@@ -853,7 +889,7 @@ type RecordedSession struct {
 // when session proves no such thing, so nothing reads another task's
 // conversation as this one's.
 func Owned(meta state.TaskMeta, session RecordedSession) string {
-	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude" && meta.Harness != "pi") {
 		return ""
 	}
 	if session.TaskID != meta.ID || session.Generation != meta.SpawnGen || session.Harness != meta.Harness || session.Role != "goblin" {
@@ -868,7 +904,7 @@ func Owned(meta state.TaskMeta, session RecordedSession) string {
 // proved, for the same generation and harness. A record that cannot be read
 // is an error, never taken as none.
 func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
-	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude") {
+	if meta.SpawnGen == "" || (meta.Harness != "codex" && meta.Harness != "claude" && meta.Harness != "pi") {
 		return "", nil
 	}
 	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
@@ -887,6 +923,14 @@ func OwnedSession(stateDir string, meta state.TaskMeta) (string, error) {
 			return session, nil
 		}
 	}
+	return KeptSession(stateDir, meta)
+}
+
+// KeptSession is the conversation the board kept in stateDir as the one the
+// goblin's own running harness proved, for meta's generation and harness, or
+// empty when it kept none. A record that cannot be read is an error, never
+// taken as none.
+func KeptSession(stateDir string, meta state.TaskMeta) (string, error) {
 	kept, err := state.ReadConversation(stateDir, meta.ID)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", nil

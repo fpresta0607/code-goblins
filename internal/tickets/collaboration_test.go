@@ -70,6 +70,41 @@ func TestCollaborationReadsWhoWorksThereInOneRound(t *testing.T) {
 	}
 }
 
+func TestCollaborationCountsOnlyCommitsAndPullRequestsAsActive(t *testing.T) {
+	// Arrange: a teammate's commit on the default branch, another's pull
+	// request, a third's issue and a fourth's branch, all in the window.
+	page := `{"data":{
+ "viewer":{"login":"fpresta0607","name":"Franco Presta"},
+ "repository":{
+  "nameWithOwner":"fpresta0607/northwind-api","isPrivate":false,
+  "defaultBranchRef":{"name":"main","target":{"oid":"main0001","history":{"nodes":[
+   {"committedDate":"2026-10-01T19:00:00Z","author":{"name":"x","user":{"login":"ana-teammate","avatarUrl":"https://a/a"}}}]}}},
+  "recentIssues":{"nodes":[
+   {"number":12,"createdAt":"2026-09-29T09:00:00Z","author":{"__typename":"User","login":"ivy-reporter","avatarUrl":"https://a/i"}}]},
+  "recentPullRequests":{"nodes":[
+   {"number":411,"createdAt":"2026-09-30T10:00:00Z","author":{"__typename":"User","login":"pat-teammate","avatarUrl":"https://a/p"}}]},
+  "refs":{"pageInfo":{"hasNextPage":false,"endCursor":""},"nodes":[
+   {"name":"fix/refunds","target":{"oid":"rf0001","committedDate":"2026-10-01T13:25:42Z","author":{"name":"x","user":{"login":"ben-teammate","avatarUrl":"https://a/b"}}}}]}
+ }}}`
+	gh := &fakeGitHub{graphql: []string{page}}
+
+	// Act
+	got, err := GitHub{Commands: gh}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPeople := []Actor{{Login: "ana-teammate", AvatarURL: "https://a/a"}, {Login: "ben-teammate", AvatarURL: "https://a/b"}, {Login: "pat-teammate", AvatarURL: "https://a/p"}, {Login: "ivy-reporter", AvatarURL: "https://a/i"}}
+	if !slices.Equal(got.People, wantPeople) {
+		t.Fatalf("people = %+v, want %+v: everyone who did something here, the most recent first", got.People, wantPeople)
+	}
+	wantActive := []Actor{{Login: "ana-teammate", AvatarURL: "https://a/a"}, {Login: "pat-teammate", AvatarURL: "https://a/p"}}
+	if !slices.Equal(got.Active, wantActive) {
+		t.Fatalf("active = %+v, want %+v: only those with a commit on the default branch or a pull request", got.Active, wantActive)
+	}
+}
+
 func TestCollaborationNamesWhatItCouldNotRead(t *testing.T) {
 	gh := &fakeGitHub{failGh: "HTTP 401: Bad credentials"}
 	_, err := GitHub{Commands: gh}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)

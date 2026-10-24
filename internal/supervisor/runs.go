@@ -107,15 +107,27 @@ type Run struct {
 	// DevDrive is the Dev Drive step the board made this item for: create,
 	// attach, trust or move.
 	DevDrive string `json:"dev_drive,omitempty"`
+	// RemoteFix is the row of the Remote access setting, tailscale or
+	// scrawl, whose mending command the Overlord ran from it: the setting
+	// draws its terminal, and it is never a Command Center item.
+	RemoteFix string `json:"remote_fix,omitempty"`
 	// CFOUnwoken is the oldest wake the supervisor could not type into the
 	// CFO, for the item that offers the Overlord its restart.
 	CFOUnwoken int `json:"cfo_unwoken,omitempty"`
+	// CFOStopped marks the item that tells the Overlord the supervisor
+	// stopped bringing back a CFO that kept ending, or could not bring it
+	// back, and offers him Reopen.
+	CFOStopped bool `json:"cfo_stopped,omitempty"`
+	// Mail is a message the item gives him to send himself, such as an
+	// email, which his card copies with one click.
+	Mail *Mail `json:"mail,omitempty"`
 }
 
-// RunRequest is what cfo run-request asks for; CommandFile is read once.
+// RunRequest is what cfo run-request asks for; CommandFile and MessageFile
+// are each read once.
 type RunRequest struct {
-	ID, Title, Shell, Cwd, CommandFile string
-	Admin                              bool
+	ID, Title, Shell, Cwd, CommandFile, MessageFile string
+	Admin                                           bool
 }
 
 // RunLauncher starts a run item in a terminal the supervisor hosts, which the
@@ -169,11 +181,11 @@ func validRun(r Run) error {
 	case r.CreatedAt.IsZero() || r.CreatedAt.After(time.Now().Add(5*time.Minute)):
 		return errors.New("a run item needs its creation time")
 	}
-	return nil
+	return mailProblem(r.Mail)
 }
 
 func sameRun(a, b Run) bool {
-	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Command == b.Command && a.Cwd == b.Cwd
+	return a.Identity == b.Identity && a.Task == b.Task && a.Title == b.Title && a.Shell == b.Shell && a.Admin == b.Admin && a.Command == b.Command && a.Cwd == b.Cwd && sameMail(a.Mail, b.Mail)
 }
 
 // runDir holds one item's script and what its run leaves behind. Its name is
@@ -199,10 +211,10 @@ func runDigest(data []byte) string {
 }
 
 // PublishRun hands a command for the Overlord to run to the supervisor over
-// its named pipe. It reads the command file once. The supervisor proves the
-// calling process runs under the registered primary CFO and writes the script
-// file Run executes itself, so nothing written straight into the state
-// directory ever reaches the board.
+// its named pipe. It reads the command file, and any message file, once. The
+// supervisor proves the calling process runs under the registered primary
+// CFO and writes the script file Run executes itself, so nothing written
+// straight into the state directory ever reaches the board.
 func PublishRun(h home.Home, req RunRequest) error {
 	command, err := ReadRunCommand(req.CommandFile)
 	if err != nil {
@@ -211,7 +223,13 @@ func PublishRun(h home.Home, req RunRequest) error {
 	if err := CheckRunCommand(req.Shell, command); err != nil {
 		return err
 	}
-	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command})
+	var mail *Mail
+	if req.MessageFile != "" {
+		if mail, err = ReadMail(req.MessageFile); err != nil {
+			return err
+		}
+	}
+	return sendPipeRequest(h.State, runPipeRequest{ID: req.ID, Title: req.Title, Shell: req.Shell, Admin: req.Admin, Cwd: req.Cwd, Command: command, Mail: mail})
 }
 
 // WithdrawRun takes a run item nobody ran off the board for the registered
@@ -238,6 +256,7 @@ type runPipeRequest struct {
 	Admin      bool               `json:"admin"`
 	Cwd        string             `json:"cwd"`
 	Command    string             `json:"command"`
+	Mail       *Mail              `json:"mail,omitempty"`
 	Question   *Question          `json:"question,omitempty"`
 	Review     *Review            `json:"review,omitempty"`
 	Answer     *cfoAnswer         `json:"answer,omitempty"`
@@ -285,7 +304,7 @@ func (s *Service) acceptRunRequest(pid int, connected time.Time, req runPipeRequ
 		return fmt.Errorf("the run's folder %s is not a directory", cwd)
 	}
 	now := time.Now().UTC()
-	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)}
+	r := Run{ID: req.ID, Identity: identity, By: "cfo", Title: req.Title, Shell: req.Shell, Admin: req.Admin, Command: req.Command, Cwd: cwd, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime), Mail: req.Mail}
 	if err := validRun(r); err != nil {
 		return err
 	}
@@ -360,8 +379,8 @@ func (s *Store) acceptRun(r Run) error {
 // keeping its reason on the item and in state/runs.audit;
 // Run on it is refused from then on. Replacing an item is withdrawing it and
 // publishing the new command under a new ID. An item the board made for the
-// Overlord, a connection repair or a credential request's terminal, is not
-// the CFO's to withdraw.
+// Overlord, a connection repair, a credential request's terminal or a Remote
+// access fix, is not the CFO's to withdraw.
 func (s *Store) withdrawRun(id, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" || len(reason) > 1900 {
@@ -382,6 +401,9 @@ func (s *Store) withdrawRun(id, reason string) error {
 	case r.CredentialRequest != "":
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the terminal the Overlord opened for a credential request; it is not the CFO's to withdraw", r.ID)
+	case r.RemoteFix != "":
+		s.mu.Unlock()
+		return fmt.Errorf("run item %s is the command the Overlord ran from Remote access; it is not the CFO's to withdraw", r.ID)
 	case r.Update != nil:
 		s.mu.Unlock()
 		return fmt.Errorf("run item %s is the Overlord's Update to Code Goblins %s; it is not the CFO's to withdraw", r.ID, r.Update.To)
@@ -457,6 +479,35 @@ func (s *Store) withdrawCFOUnwoken(reason string) error {
 		}
 	}
 	return err
+}
+
+// withdrawCFOStopped takes back the item that offers the Overlord to reopen a
+// CFO the supervisor left stopped, while nobody acted on it, once a CFO runs
+// again.
+func (s *Store) withdrawCFOStopped(reason string) error {
+	var open []string
+	s.mu.Lock()
+	for _, r := range s.db.Runs {
+		if r.CFOStopped && r.State == "ready" {
+			open = append(open, r.ID)
+		}
+	}
+	s.mu.Unlock()
+	var err error
+	for _, id := range open {
+		if withdrawErr := s.withdrawRun(id, reason); withdrawErr != nil && s.runReady(id) {
+			err = errors.Join(err, withdrawErr)
+		}
+	}
+	return err
+}
+
+// offersCFOReopen reports whether an item offering to reopen a CFO the
+// supervisor left stopped still waits.
+func (s *Store) offersCFOReopen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.db.Runs, func(r Run) bool { return r.CFOStopped && r.State == "ready" && time.Now().Before(r.ExpiresAt) })
 }
 
 // runReady reports whether run item id waits to be run.
@@ -781,6 +832,11 @@ func (s *Service) endRun(ctx context.Context, r Run, state string, code *int, re
 	// A credential request's terminal tells the CFO the names it stored.
 	if r.CredentialRequest != "" {
 		s.credentialTerminalEnded(r, code)
+		return err
+	}
+	// A Remote access fix ends on the setting that ran it, which reads its
+	// row again; nobody asked for it, so nobody is told.
+	if r.RemoteFix != "" {
 		return err
 	}
 	if r.ConnectionTask != "" {

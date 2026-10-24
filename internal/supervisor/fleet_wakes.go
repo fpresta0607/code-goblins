@@ -127,6 +127,11 @@ type fleetWakes struct {
 	// AllowanceWalls holds, by provider and window, each session window seen
 	// used up while goblins ran on it, until it renews.
 	AllowanceWalls map[string]allowanceWall `json:"allowance_walls,omitempty"`
+	// CodexUsedUpUntil is when the window that used up Codex's included
+	// allowance renews, as the last reading that measured Codex said, and
+	// zero while Codex has its allowance: until then every goblin's codex
+	// guard is armed.
+	CodexUsedUpUntil time.Time `json:"codex_used_up_until,omitzero"`
 	// RedRuns holds, by repository, the red push runs of its main the CFO
 	// was woken for.
 	RedRuns map[string][]int64 `json:"red_runs,omitempty"`
@@ -349,6 +354,19 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 		w.MemoryAbove, w.MemoryBelow = 0, 0
 		return planningErr
 	}
+	if err := s.keepPools(memory, now); err != nil {
+		s.publish(err)
+	}
+	// While the fleet stops for the PC's restart, nothing pauses at the
+	// floor, comes back or starts by itself, and its readings count for
+	// nothing once a restart that stopped short is over.
+	s.starts.Lock()
+	isRestarting := s.isRestartingPC()
+	s.starts.Unlock()
+	if isRestarting {
+		w.MemoryAbove, w.MemoryBelow = 0, 0
+		return planningErr
+	}
 	if w.MemoryReadAt.IsZero() || now.Sub(w.MemoryReadAt) > 2*fleetWatchEvery || !now.After(w.MemoryReadAt) {
 		w.MemoryAbove, w.MemoryBelow = 0, 0
 	}
@@ -452,8 +470,9 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 }
 
 // memoryWork is the work waiting on memory: the queued tasks a Start could
-// start at reading, top of the queue first, and the live goblins whose latest
-// report is a wait on memory.
+// start at reading, top of the queue first, which leaves out a task whose
+// start is under way, and the live goblins whose latest report is a wait on
+// memory.
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
@@ -617,8 +636,17 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
-		overlapErr := s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
-		trainErr := s.runTrain(ctx, pollRunner, w, repo, listed)
+		// A refusal one of these reads met holds the overlap read and the
+		// train as it holds the next polls: the hold refused the train's read
+		// of the account gh works as on 2026-10-17 (#1085) and the overlap
+		// read's page (#1160), and each counted as a failing read.
+		var overlapErr, trainErr error
+		if !currentTime().Before(w.BackOff[repo]) {
+			overlapErr = s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
+		}
+		if !currentTime().Before(w.BackOff[repo]) {
+			trainErr = s.runTrain(ctx, pollRunner, w, repo, listed)
+		}
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
@@ -895,19 +923,33 @@ func (w *fleetWakes) watch(goblins []ciGoblin, now time.Time) []string {
 
 // ghPullRequest is one open pull request as gh pr list reports it.
 type ghPullRequest struct {
-	Number            int       `json:"number"`
-	URL               string    `json:"url"`
-	HeadRefName       string    `json:"headRefName"`
-	HeadRefOid        string    `json:"headRefOid"`
-	Checks            []ghCheck `json:"statusCheckRollup"`
-	Mergeable         string    `json:"mergeable"`
-	IsDraft           bool      `json:"isDraft"`
-	ReviewDecision    string    `json:"reviewDecision"`
-	BaseRefName       string    `json:"baseRefName"`
-	IsCrossRepository bool      `json:"isCrossRepository"`
+	Number            int      `json:"number"`
+	URL               string   `json:"url"`
+	HeadRefName       string   `json:"headRefName"`
+	HeadRefOid        string   `json:"headRefOid"`
+	Checks            ghChecks `json:"statusCheckRollup"`
+	Mergeable         string   `json:"mergeable"`
+	IsDraft           bool     `json:"isDraft"`
+	ReviewDecision    string   `json:"reviewDecision"`
+	BaseRefName       string   `json:"baseRefName"`
+	IsCrossRepository bool     `json:"isCrossRepository"`
 	Author            struct {
 		Login string `json:"login"`
 	} `json:"author"`
+}
+
+// ghChecks is a head's check rollup as gh reports it, less the workflows'
+// draft job's check, which reads whether the pull request is a draft and
+// tests nothing (train.DraftStateCheck), whatever it concluded.
+type ghChecks []ghCheck
+
+func (c *ghChecks) UnmarshalJSON(data []byte) error {
+	var rollup []ghCheck
+	if err := json.Unmarshal(data, &rollup); err != nil {
+		return err
+	}
+	*c = slices.DeleteFunc(rollup, func(check ghCheck) bool { return check.Kind == "CheckRun" && check.Name == train.DraftStateCheck })
+	return nil
 }
 
 // ghCheck is one entry of a pull request's check rollup: a check run, with a
@@ -943,11 +985,18 @@ func (c ghCheck) concluded() bool {
 	return c.Status == "COMPLETED"
 }
 
+// rateLimited reports whether the check is a deploy the host rate limited
+// (train.IsRateLimitedDeploy).
+func (c ghCheck) rateLimited() bool {
+	return c.Kind == "StatusContext" && train.IsRateLimitedDeploy(c.State, c.TargetURL)
+}
+
 // passed reports whether a finished check passed: a success, or a check that
-// was skipped or neutral, as GitHub's own merge box counts them.
+// was skipped or neutral, as GitHub's own merge box counts them, or a deploy
+// the host rate limited, which never ran.
 func (c ghCheck) passed() bool {
 	if c.Kind == "StatusContext" {
-		return c.State == "SUCCESS"
+		return c.State == "SUCCESS" || c.rateLimited()
 	}
 	switch c.Conclusion {
 	case "SUCCESS", "NEUTRAL", "SKIPPED":
@@ -959,9 +1008,13 @@ func (c ghCheck) passed() bool {
 // link is the check's own page: a check run's details, or the target a
 // commit status names.
 // hasRun says whether a concluded check ran: one that was skipped or
-// neutral tested nothing, though GitHub's merge box counts it as passing.
+// neutral tested nothing, though GitHub's merge box counts it as passing,
+// and a deploy the host rate limited never built the head.
 func (c ghCheck) hasRun() bool {
-	return c.Kind == "StatusContext" || c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
+	if c.Kind == "StatusContext" {
+		return !c.rateLimited()
+	}
+	return c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
 }
 
 func (c ghCheck) link() string {
@@ -1097,8 +1150,8 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		goblin := goblinOf[pr.URL]
 		// A pull request a train takes is never next to land with no train
 		// to test it, since one alone rides a train of its own once it waited
-		// loneRiderWait, and one no train takes is next once its goblin
-		// reported it done.
+		// as long as ridesAlone asks, and one no train takes is next once its
+		// goblin reported it done.
 		isNextToLand := func() bool {
 			if !pr.IsCrossRepository && isFleets(pr) {
 				return false
@@ -1148,7 +1201,7 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	if len(pr.Checks) == 0 || pr.Mergeable == "CONFLICTING" || pr.IsDraft {
 		return nil
 	}
-	var parts, failed, reported []string
+	var parts, failed, reported, limited []string
 	hasWorkflow := false
 	for _, check := range pr.Checks {
 		if !check.concluded() {
@@ -1159,6 +1212,9 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 		hasWorkflow = hasWorkflow || check.WorkflowName != "" && check.hasRun()
 		if !check.passed() {
 			failed = append(failed, check.name())
+		}
+		if check.rateLimited() {
+			limited = append(limited, check.name())
 		}
 	}
 	isUnstarted := isRunningWorkflows && !hasWorkflow
@@ -1197,12 +1253,17 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	if hasWorkflow && readOnce != nil {
 		once = failedOnceClause(readOnce())
 	}
+	if len(limited) > 0 {
+		once += "; the host rate limited the deploy of " + strings.Join(limited, ", ") + ", which never built this head and counts as not run, and pushing again for a fresh one only spends another build"
+	}
 	switch {
 	case isUnstarted:
 		sort.Strings(reported)
-		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported, and a workflow's skipped check ran nothing (%d of %d failed); next: check why its workflows did not start, such as a path filter, a skipped trigger or a workflow that does not run on ready_for_review, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), pr.URL)
+		detail += fmt.Sprintf("no workflow ran for this head in %s, only %s reported, and a workflow's skipped check ran nothing (%d of %d failed)%s; next: check why its workflows did not start, such as a path filter, a skipped trigger or a workflow that does not run on ready_for_review, before merging it (%s)", workflowStartGrace, strings.Join(reported, ", "), len(failed), len(pr.Checks), once, pr.URL)
+	case len(limited) == len(pr.Checks):
+		detail += fmt.Sprintf("no check ran on it%s; next: leave it until a check runs on it, since there is nothing yet that tested it (%s)", once, pr.URL)
 	case len(failed) == 0:
-		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks), once, pr.URL)
+		detail += fmt.Sprintf("all %d passed%s; next: check the base and the merge ref's first parent, then merge it with a merge commit if its work is done (%s)", len(pr.Checks)-len(limited), once, pr.URL)
 	default:
 		sort.Strings(failed)
 		detail += fmt.Sprintf("%d of %d failed (%s)%s; next: tell %s which checks failed with cfo send %s \"...\" so it fixes them (%s)", len(failed), len(pr.Checks), strings.Join(failed, ", "), once, goblin, goblin, pr.URL)

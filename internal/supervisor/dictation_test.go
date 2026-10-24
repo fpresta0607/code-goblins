@@ -215,7 +215,7 @@ func TestDictationTakesSoundOnlyFromTheBoardsOwnPageOnThisMachine(t *testing.T) 
 	// dictates nothing: the sound would have left the machine it was said on.
 	speech := &fakeSpeech{text: "never typed"}
 	store, _ := testStore(t)
-	shared := NewHTTP(&Service{Store: store, Instance: "test-instance", Options: Options{Dictation: speech}}, "goblins.tailnet.ts.net:443", nil)
+	shared := NewHTTP(&Service{Store: store, Instance: "test-instance", Options: Options{Dictation: speech}}, "goblins.example.ts.net:443", nil)
 	response := dictate(shared, []byte("RIFF-sound"), nil)
 	if _, _, problem := answer(t, response); response.Code != http.StatusForbidden || !strings.Contains(problem, "never leaves") || speech.heard() != 0 {
 		t.Fatalf("a shared board answered %d %s", response.Code, response.Body)
@@ -301,7 +301,7 @@ func TestADownloadThatStallsIsGivenUpSoTheNextDictationCanTryAgain(t *testing.T)
 }
 
 func TestANetworkTimeoutInsideTheLimitKeepsTheFetchsOwnWords(t *testing.T) {
-	dialContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	dialContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out inside the dial.
 	defer cancel()
 	// Hold the dial before connect so a refusal cannot race its deadline.
 	dialer := net.Dialer{ControlContext: func(connectionContext context.Context, _, _ string, _ syscall.RawConn) error {

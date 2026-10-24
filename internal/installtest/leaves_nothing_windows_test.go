@@ -23,6 +23,10 @@ import (
 type scanner struct {
 	name  string
 	until string
+	// after, where it is not nil, closes once the scanner may look: it reads
+	// no record before then, since each read of the record can refuse the
+	// install's own write to it.
+	after <-chan struct{}
 
 	// holding closes once the file is held.
 	holding chan struct{}
@@ -66,6 +70,14 @@ func (s *scanner) start(temp, record string) {
 			default:
 			}
 			if held == nil {
+				if s.after != nil {
+					select {
+					case <-s.after:
+					default:
+						time.Sleep(lookEvery)
+						continue
+					}
+				}
 				// os.Open shares a file for reading and writing, so the
 				// install goes on using it, and not for deletion.
 				if found, _ := filepath.Glob(filepath.Join(temp, "code-goblins-*", s.name)); len(found) > 0 {
@@ -94,19 +106,6 @@ func (s *scanner) letGo() {
 	<-s.stopped
 }
 
-// sumsOnceHeld is publishedSums, answered only once scan holds its file. The
-// install asks for checksums.txt after it has saved the archive, so a scanner
-// of the archive holds it before the install can reach its removal.
-func sumsOnceHeld(scan *scanner) func(string, [32]byte) string {
-	return func(archive string, sum [32]byte) string {
-		select {
-		case <-scan.holding:
-		case <-time.After(30 * time.Second):
-		}
-		return publishedSums(archive, sum)
-	}
-}
-
 // couldNotRemove matches the one line that names what the install could not
 // remove from the temp folder.
 var couldNotRemove = regexp.MustCompile(`(?m)^Note: The install could not remove its temporary files, which another program still holds\. Delete them when you like: (.*)$`)
@@ -120,18 +119,31 @@ var couldNotRemove = regexp.MustCompile(`(?m)^Note: The install could not remove
 // one of the two folders a stand-in install reaches, until the install has
 // tried to remove the folder and gone on.
 func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
-	version := pinnedNoMistakes(t)
-	for name, held := range map[string]struct{ file, until string }{
-		"the release's download":   {"SHA256SUMS", "download https://claude.ai/install.ps1"},
-		"the no-mistakes download": {"no-mistakes-v" + version + "-windows-amd64.zip", "no-mistakes daemon start"},
+	// The no-mistakes download holds its own SHA256SUMS once the install asks
+	// for no-mistakes.exe, which the release answers only once the scanner
+	// holds that file, so the scanner holds it before the install can reach
+	// the folder's removal.
+	for name, held := range map[string]struct {
+		until        string
+		isNoMistakes bool
+	}{
+		"the release's download":   {until: "download https://claude.ai/install.ps1"},
+		"the no-mistakes download": {until: "no-mistakes daemon start", isNoMistakes: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
-			scan := newScanner(held.file, held.until)
-			releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, sumsOnceHeld(scan))
+			scan := newScanner("SHA256SUMS", held.until)
+			var ready <-chan struct{}
+			if held.isNoMistakes {
+				ready = scan.holding
+			}
+			release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, ready)
+			if held.isNoMistakes {
+				scan.after = release.asked
+			}
 
 			// Act
-			run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{scanner: scan})
+			run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{scanner: scan, rules: []standin.Rule{reportsVersion(pinnedNoMistakes(t), ""), gates}})
 
 			// Assert
 			if scan.path == "" || !scan.sawUntil {
@@ -154,11 +166,12 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 // gone.
 func TestOneLineInstallNamesAFolderItCouldNotRemove(t *testing.T) {
 	// Arrange
-	scan := newScanner("no-mistakes-v"+pinnedNoMistakes(t)+"-windows-amd64.zip", "")
-	releases, _ := serveNoMistakesReleases(t, zipped(t, "no-mistakes.exe", standin.Bytes(t)), 0, sumsOnceHeld(scan))
+	scan := newScanner("SHA256SUMS", "")
+	release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, scan.holding)
+	scan.after = release.asked
 
 	// Act
-	run := runInstallWithNoMistakes(t, WindowsPowerShell(), releases, noMistakesSetup{scanner: scan})
+	run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{scanner: scan, rules: []standin.Rule{reportsVersion(pinnedNoMistakes(t), ""), gates}})
 
 	// Assert
 	if scan.path == "" {

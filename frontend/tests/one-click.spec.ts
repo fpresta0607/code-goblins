@@ -2,12 +2,12 @@ import { expect, test, type Page, type Route } from "./site";
 
 // The Overlord, 2026-10-08: "resume goblin is glitchy should be smooth ... it
 // took multiple clicks with an error message ... i hate yellow text line
-// display". One click starts or resumes a goblin: its card says Starting or
-// Resuming in the frame he clicks, a second click while it is on its way
-// sends nothing more, memory under the mark holds no button, a Start that
-// waits for memory says when it starts in the frame he clicks, and a click
-// the supervisor refuses puts the card back and goes to the CFO, never to a
-// line on the board.
+// display". One click in its panel starts or resumes a goblin: its card says
+// Starting or Resuming in the frame he clicks, a second click while it is on
+// its way sends nothing more, memory under the mark holds no button, a Start
+// that waits for memory says when it starts in the frame he clicks, and a
+// click the supervisor refuses puts the card back and goes to the CFO, never
+// to a line on the board.
 const since = "2026-10-08T11:00:00Z";
 const GB = 2 ** 30;
 const memoryWith = (available: number) => ({ next: 5 * GB, floor: 4 * GB, total: 32 * GB, available: available * GB, commit_limit: 48 * GB, commit_available: 40 * GB, paged_pool: GB / 2, nonpaged_pool: GB / 4 });
@@ -31,6 +31,8 @@ async function open(page: Page, available: number, answer: (route: Route) => Pro
       if (path === "/api/tasks/start" || path === "/api/tasks/lifecycle") return answer(route);
       await route.fulfill({ status: 202, json: { reported: true } });
     } else if (path === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: events(available) });
+    // A started goblin's panel reads where its work lives.
+    else if (path === "/api/workspace") await route.fulfill({ json: { repository: "code-goblins", root: "C:/work/code-goblins", harness: "codex", notes: [] } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -40,6 +42,16 @@ async function open(page: Page, available: number, answer: (route: Route) => Pro
 const card = (page: Page, id: string) => page.locator(".task-board .task-card-shell").filter({ has: page.locator(".card-title").getByText(id, { exact: true }) });
 const neverAnswered = () => { /* the click stays on its way */ };
 
+// Start and Resume are in the task's panel, never on its card (the Overlord,
+// 2026-10-16), so the card opens the panel first, on its Task view.
+async function control(page: Page, id: string, button: string) {
+  await card(page, id).locator(".task-card").click();
+  await expect(page.locator("#panel-title")).toHaveText(id);
+  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
+  if (await pill.count()) await pill.click();
+  return page.locator(".goblin-panel").getByRole("button", { name: button, exact: true });
+}
+
 for (const [name, id, button, status, path, waiting] of [
   ["Resume", "paused-one", "Resume paused-one", "Resuming", "/api/tasks/lifecycle", "Resuming"],
   ["Start", "queued-one", "Start queued-one", "Starting", "/api/tasks/start", "Starts at 5 GB free"],
@@ -48,10 +60,10 @@ for (const [name, id, button, status, path, waiting] of [
     // Arrange
     const posted: Posted[] = [];
     await open(page, 9, neverAnswered, posted);
-    const control = card(page, id).getByRole("button", { name: button });
+    const press = await control(page, id, button);
 
     // Act
-    await control.dblclick();
+    await press.dblclick();
 
     // Assert
     await expect(card(page, id).locator(".card-status-text")).toHaveText(status);
@@ -62,12 +74,12 @@ for (const [name, id, button, status, path, waiting] of [
     // Arrange
     const posted: Posted[] = [];
     await open(page, 4.2, neverAnswered, posted);
-    const control = card(page, id).getByRole("button", { name: button });
+    const press = await control(page, id, button);
 
-    await expect(control).not.toHaveAttribute("aria-disabled", "true");
+    await expect(press).not.toHaveAttribute("aria-disabled", "true");
 
     // Act
-    await control.click();
+    await press.click();
 
     // Assert
     await expect.poll(() => posted.filter((request) => request.path === path)).toHaveLength(1);
@@ -78,9 +90,10 @@ for (const [name, id, button, status, path, waiting] of [
     // Arrange
     const posted: Posted[] = [];
     await open(page, 9, (route) => route.fulfill({ status: 409, json: { error: "The task session changed; refresh its card" } }), posted);
+    const press = await control(page, id, button);
 
     // Act
-    await card(page, id).getByRole("button", { name: button }).click();
+    await press.click();
 
     // Assert
     await expect.poll(() => posted.filter((request) => request.path === "/api/cfo/report").map((request) => request.body.text)).toEqual(["The task session changed; refresh its card"]);

@@ -1,6 +1,7 @@
 package train
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -180,6 +181,56 @@ func TestRidersHoldAReportMadeBeforeARelaunchToTheHeadItWasMadeOf(t *testing.T) 
 			}
 			if !test.isRider && (len(left) != 1 || !strings.Contains(left[0], "rides once reported done again")) {
 				t.Errorf("left %q, want it to say the pull request rides once reported done again", left)
+			}
+		})
+	}
+}
+
+func TestARateLimitedDeployCountsAsNotRunNeverAsFailed(t *testing.T) {
+	t.Parallel()
+	passed := Check{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}
+	failed := Check{Kind: "CheckRun", Name: "lint", Status: "COMPLETED", Conclusion: "FAILURE"}
+	skipped := Check{Kind: "CheckRun", Name: "e2e", Status: "COMPLETED", Conclusion: "SKIPPED"}
+	// The first deploy is the Vercel entry gh returned live for a head the host
+	// rate limited, but for the team's name: no description, only the target
+	// of its upgrade page for that limit (#1194). The second failed to build.
+	var deploys Checks
+	if err := json.Unmarshal([]byte(`[{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"},{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects/app/9xYzBuildFailed"}]`), &deploys); err != nil {
+		t.Fatal(err)
+	}
+	limited, broken := deploys[0], deploys[1]
+	for name, test := range map[string]struct {
+		checks  []Check
+		outcome string
+		left    string
+		note    string
+	}{
+		"a rate-limited deploy alone among passing checks rides": {[]Check{passed, limited}, "passed", "", "the host rate limited the deploy of Vercel"},
+		"a rate-limited deploy beside a real failure does not":   {[]Check{passed, failed, limited}, "failed", "its checks failed", ""},
+		"a failed deploy with another target does not":           {[]Check{passed, broken}, "failed", "its checks failed", ""},
+		"only rate-limited and skipped checks do not":            {[]Check{skipped, limited}, "none", "no check ran on its head: every one was skipped, and the host rate limited the deploy of Vercel", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			pr := greenPull(1)
+			pr.Checks = test.checks
+
+			// Act
+			outcome, _ := checksOutcome(pr.Checks)
+			riders, left := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+
+			// Assert
+			if outcome != test.outcome {
+				t.Errorf("checksOutcome = %q, want %q", outcome, test.outcome)
+			}
+			if test.left != "" {
+				if len(riders) != 0 || len(left) != 1 || !strings.Contains(left[0], test.left) {
+					t.Fatalf("riders %v, left %q, want it left out because %s", riders, left, test.left)
+				}
+				return
+			}
+			if len(riders) != 1 || len(left) != 0 || !strings.Contains(riders[0].Note, test.note) {
+				t.Fatalf("riders %+v, left %q, want it riding with a note that says %s", riders, left, test.note)
 			}
 		})
 	}

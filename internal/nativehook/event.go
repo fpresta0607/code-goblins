@@ -18,8 +18,26 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-const MaxInputBytes = 64 << 10
+// MaxInputBytes bounds a hook's input. Claude Code's PostToolUse input carries
+// the tool's whole response, and its largest, a Read's content or an Edit's
+// original file, are a few MB; a larger input still fails.
+const MaxInputBytes = 64 << 20
+
+// MaxEventBytes bounds a spooled event record. Validate holds each identity in
+// an event to 4096 bytes, so a valid record stays well under it.
+const MaxEventBytes = 64 << 10
 const MaxQueuedEvents = 4096
+
+// ErrUnstartedSubagent is a Claude Code SubagentStop of an agent it raised no
+// SubagentStart for, which the hook spools nothing for. Claude Code 2.1.306
+// raises SubagentStart only as its Agent tool starts a subagent, with that
+// agent's type, and SubagentStop as any agent of a session ends, its own
+// forked compaction, memory and summary agents among them, whose type falls
+// back to the main thread's agent, which no fleet session names. The
+// supervisor accepts a session's events only after its start, so each such
+// stop waited in the spool until it aged out, 1,103 of them on a fleet home
+// on 2026-10-20 (issue #1212).
+var ErrUnstartedSubagent = errors.New("no SubagentStart preceded this untyped Claude Code SubagentStop")
 
 type Event struct {
 	Schema          int       `json:"schema"`
@@ -62,7 +80,7 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 		return Event{}, err
 	}
 	if len(data) > MaxInputBytes {
-		return Event{}, errors.New("native hook input exceeds 64 KiB")
+		return Event{}, errors.New("native hook input exceeds 64 MiB")
 	}
 	// Only these protocol fields enter the spool. Prompts, transcripts, tool
 	// results, arguments, and environment values are intentionally not retained.
@@ -148,6 +166,9 @@ func Normalize(r io.Reader, c Context) (Event, error) {
 	if p.Event == "SubagentStart" || p.Event == "SubagentStop" {
 		if p.AgentID == "" {
 			return Event{}, errors.New("subagent event needs an agent ID")
+		}
+		if c.Harness == "claude" && p.Event == "SubagentStop" && p.AgentType == "" {
+			return Event{}, ErrUnstartedSubagent
 		}
 		e.ParentSessionID, e.ParentHarness, e.SessionID, e.Role, e.Relation = p.SessionID, c.Harness, p.AgentID, "subagent", "delegated"
 	}

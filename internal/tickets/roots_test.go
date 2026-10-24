@@ -78,7 +78,7 @@ func TestFileRootOpensALabelledIssueWithItsMarkerAndEvidence(t *testing.T) {
 	root := Root{Title: "conpty test fails under load", Body: "## What happens\nIt fails.", Key: "test:internal/conpty TestInputLeftUnread", Evidence: "run 7 of acme/widgets"}
 
 	// Act
-	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, root, rootNow)
+	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
 
 	// Assert
 	if err != nil {
@@ -126,7 +126,7 @@ func TestFileRootCommentsOnTheOpenIssueOfTheSameRoot(t *testing.T) {
 			fake := &rootGitHub{open: []map[string]any{tc.open}}
 
 			// Act
-			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, tc.root, rootNow)
+			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, tc.root, rootNow)
 
 			// Assert
 			if err != nil {
@@ -155,7 +155,7 @@ func TestFileRootOpensANewIssueWhenTheOpenOnesHaveOtherRoots(t *testing.T) {
 	}}
 
 	// Act
-	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, Root{Title: "conpty flakes", Key: "test:internal/conpty TestX"}, rootNow)
+	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "conpty flakes", Key: "test:internal/conpty TestX"}, rootNow)
 
 	// Assert
 	if err != nil {
@@ -166,12 +166,133 @@ func TestFileRootOpensANewIssueWhenTheOpenOnesHaveOtherRoots(t *testing.T) {
 	}
 }
 
+func TestFileRootMatchesFailedOnceSightingsToManualTestRoots(t *testing.T) {
+	cases := []struct {
+		name, title, body, key string
+		isRecurrence           bool
+	}{
+		{
+			name:         "a prose key with the repository relative package",
+			title:        "native host ends before it serves in TestNativeHost",
+			body:         "`TestNativeHost` in `cmd/cfo` fails before the host serves.",
+			key:          "native host ends before it serves in testnativehost",
+			isRecurrence: true,
+		},
+		{
+			name:         "an unmarked issue with the full package",
+			title:        "TestNativeHost fails under load",
+			body:         "TestNativeHost in github.com/acme/widgets/cmd/cfo.",
+			isRecurrence: true,
+		},
+		{
+			name:         "the package before the test",
+			title:        "cmd/cfo TestNativeHost fails under load",
+			isRecurrence: true,
+		},
+		{
+			name:         "the package in parentheses",
+			title:        "TestNativeHost (cmd/cfo) fails under load",
+			isRecurrence: true,
+		},
+		{
+			name:         "in also introduces prose that is not a package",
+			title:        "TestNativeHost in CI fails",
+			body:         "`TestNativeHost` in `cmd/cfo` fails before the host serves.",
+			isRecurrence: true,
+		},
+		{
+			name:  "an incidental package mention cannot change the tests package",
+			title: "TestNativeHost in internal/other fails",
+			body:  "The failure started after cmd/cfo changed.",
+		},
+		{
+			name:  "conflicting identities are ambiguous",
+			title: "TestNativeHost in internal/other fails",
+			body:  "Compare TestNativeHost in cmd/cfo, which passes.",
+		},
+		{
+			name:  "an explicit test key wins over incidental mentions",
+			title: "TestNativeHost fails under load",
+			body:  "`TestNativeHost` in `cmd/cfo` also failed.",
+			key:   "test:github.com/acme/widgets/internal/other testnativehost",
+		},
+		{
+			name:  "a longer test name is unrelated",
+			title: "TestNativeHostRestart fails under load",
+			body:  "The package is `cmd/cfo`.",
+		},
+		{
+			name:  "a subtest is distinct",
+			title: "TestNativeHost/restart fails under load",
+			body:  "The package is `cmd/cfo`.",
+		},
+		{
+			name:  "a longer package is unrelated",
+			title: "TestNativeHost fails under load",
+			body:  "The package is `cmd/cfo-extra`.",
+		},
+		{
+			name:  "the same name in a different package is unrelated",
+			title: "TestNativeHost fails under load",
+			body:  "The package is `internal/other`.",
+		},
+		{
+			name:  "the same package suffix in another module is unrelated",
+			title: "TestNativeHost fails under load",
+			body:  "The package is `github.com/other/widgets/cmd/cfo`.",
+		},
+		{
+			name:  "a name without a package is insufficient",
+			title: "TestNativeHost fails under load",
+			body:  "The host ends before it serves.",
+		},
+		{
+			name:  "a different root mentioning the test as evidence",
+			title: "TestOtherHost fails under load",
+			body:  "Unlike `TestNativeHost` in `cmd/cfo`, this test fails twice.",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			body := tc.body
+			if tc.key != "" {
+				body += "\n\n<!-- ops-root: " + tc.key + " -->"
+			}
+			fake := &rootGitHub{open: []map[string]any{{"number": 7, "title": tc.title, "body": body, "html_url": "https://github.com/acme/widgets/issues/7"}}}
+			root := FailedOnceRoot("go (cmd-cfo): github.com/acme/widgets/cmd/cfo TestNativeHost", "run 9")
+
+			// Act
+			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if filed.IsRecurrence != tc.isRecurrence {
+				t.Fatalf("filed = %+v, want recurrence %t", filed, tc.isRecurrence)
+			}
+			writes := fake.writes()
+			if tc.isRecurrence {
+				if filed.Number != 7 || len(writes) != 1 || writes[0].Path != "repos/"+rootRepository+"/issues/7/comments" {
+					t.Fatalf("filed = %+v, writes = %v, want one comment on 7", filed, writes)
+				}
+				if got := writes[0].Fields["body"][0]; got != "Seen again on 2026-10-14 18:45Z.\n\nrun 9" {
+					t.Fatalf("comment = %q", got)
+				}
+			} else if filed.Number != 42 || len(writes) != 2 || writes[1].Path != "repos/"+rootRepository+"/issues" {
+				t.Fatalf("filed = %+v, writes = %v, want a new issue", filed, writes)
+			}
+		})
+	}
+}
+
 func TestFileRootFilesNothingWhenTheOpenIssuesCannotBeRead(t *testing.T) {
 	// Arrange
 	fake := &rootGitHub{listFails: true}
 
 	// Act
-	_, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, Root{Title: "x"}, rootNow)
+	_, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "x"}, rootNow)
 
 	// Assert
 	if err == nil {
@@ -213,6 +334,39 @@ func TestOpenRootsReadsAssigneesLabelsAndAuthorStanding(t *testing.T) {
 	want := OpenRoot{Number: 3, Title: "t", Body: "b\n<!-- ops-root: k -->", Key: "k", Assignees: []string{"someone"}, Labels: []string{"ops-root"}, Association: "OWNER"}
 	if fmt.Sprint(open) != fmt.Sprint([]OpenRoot{want}) {
 		t.Fatalf("open = %+v, want %+v", open, want)
+	}
+}
+
+func TestReadRepositoryReadsWhoseItIsAndWhetherItTakesIssues(t *testing.T) {
+	cases := []struct {
+		name, answer string
+		want         Repository
+		isErr        bool
+	}{
+		{name: "a public fork with issues turned off", answer: `{"owner":{"login":"Acme"},"private":false,"has_issues":false,"fork":true}`, want: Repository{Owner: "Acme", IsPublic: true}},
+		{name: "a private repository that takes issues", answer: `{"owner":{"login":"acme"},"private":true,"has_issues":true}`, want: Repository{Owner: "acme", HasIssues: true}},
+		{name: "an answer that says nothing of issues", answer: `{"owner":{"login":"acme"},"private":false}`, isErr: true},
+		{name: "an answer that names no owner", answer: `{"private":false,"has_issues":true}`, isErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			fake := &fakeGitHub{rest: map[string]string{"repos/" + rootRepository: tc.answer}}
+
+			// Act
+			got, err := GitHub{Commands: fake}.ReadRepository(context.Background(), rootRepository)
+
+			// Assert
+			if tc.isErr {
+				if err == nil {
+					t.Fatalf("ReadRepository = %+v, want an error", got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("ReadRepository = %+v, %v, want %+v", got, err, tc.want)
+			}
+		})
 	}
 }
 

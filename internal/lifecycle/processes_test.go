@@ -3,9 +3,56 @@ package lifecycle
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
+
+func TestOwnedProcessesRespectConsumerProofAndExactJobIdentity(t *testing.T) {
+	root := t.TempDir()
+	started := time.Date(2026, 10, 24, 4, 5, 32, 0, time.UTC)
+	own := Mark{Terminal: "supplier", ProofSum: "supplier-proof"}
+	consumer := Mark{Terminal: "consumer", ProofSum: "consumer-proof"}
+	for _, test := range []struct {
+		name        string
+		job         []Identity
+		childMark   Mark
+		childStart  time.Time
+		isGateAgent bool
+		want        []int
+	}{
+		{name: "consumer owns borrowed executable and unmarked child"},
+		{name: "exact job identity remains authoritative", job: []Identity{{PID: 30, Started: started}}, want: []int{30}},
+		{name: "reused job pid does not override consumer", job: []Identity{{PID: 30, Started: started.Add(-time.Second)}}},
+		{name: "reused parent pid gives no consumer custody", childStart: started.Add(-time.Second), want: []int{31}},
+		{name: "child has its own proven owner", childMark: own, want: []int{31}},
+		{name: "gate daemon mark is not consumer ownership", isGateAgent: true, want: []int{30, 31}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			childStart := test.childStart
+			if childStart.IsZero() {
+				childStart = started.Add(time.Millisecond)
+			}
+			processes := []Process{
+				{PID: 30, ParentPID: 900, Started: started, Name: "candidate.exe", Arguments: []string{filepath.Join(root, "candidate.exe")}, Mark: consumer, IsGateAgent: test.isGateAgent},
+				{PID: 31, ParentPID: 30, Started: childStart, Directory: root, Mark: test.childMark},
+			}
+
+			// Act
+			owned := OwnedProcesses(processes, []string{root}, test.job, []Mark{own}, []Mark{own, consumer})
+			var pids []int
+			for _, process := range owned {
+				pids = append(pids, process.PID)
+			}
+
+			// Assert
+			if !slices.Equal(pids, test.want) {
+				t.Fatalf("owned pids %v, want %v", pids, test.want)
+			}
+		})
+	}
+}
 
 func TestOwnedProcessesRequireTaskEvidence(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gb-task")
@@ -28,7 +75,7 @@ func TestOwnedProcessesRequireTaskEvidence(t *testing.T) {
 		{"detached browser bridge still belongs to worktree", []Process{{PID: 11, ParentPID: 900, Name: "node.exe", Started: started, Directory: root, Arguments: []string{"node", "chrome-devtools-axi/bridge.js"}}, {PID: 12, ParentPID: 901, Name: "chrome.exe", Started: started, Arguments: []string{"chrome", "--headless", "--user-data-dir=" + filepath.Join(root, "browser")}}}, []int{11, 12}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			owned := OwnedProcesses(test.processes, []string{root}, nil, nil)
+			owned := OwnedProcesses(test.processes, []string{root}, nil, nil, nil)
 			var got []int
 			for _, process := range owned {
 				got = append(got, process.PID)
@@ -44,7 +91,7 @@ func TestOwnedProcessesAcceptVerifiedJobMembersButRejectReusedPIDs(t *testing.T)
 	started := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 	processes := []Process{{PID: 42, Name: "node.exe", Started: started}, {PID: 43, Name: "chrome.exe", Started: started.Add(time.Hour)}}
 	job := []Identity{{PID: 42, Started: started}, {PID: 43, Started: started}}
-	owned := OwnedProcesses(processes, nil, job, nil)
+	owned := OwnedProcesses(processes, nil, job, nil, nil)
 	if len(owned) != 1 || owned[0].PID != 42 {
 		t.Fatalf("job membership authorized a reused PID: %+v", owned)
 	}
@@ -55,7 +102,7 @@ func TestOwnedProcessesNeverTreatRelativeOrRootDirectoryAsOwnership(t *testing.T
 	root := t.TempDir()
 	process := Process{PID: 42, Name: "node.exe", Started: started, Directory: root}
 	for _, directory := range []string{"", ".", filepath.VolumeName(root) + string(filepath.Separator)} {
-		if got := OwnedProcesses([]Process{process}, []string{directory}, nil, nil); len(got) != 0 {
+		if got := OwnedProcesses([]Process{process}, []string{directory}, nil, nil, nil); len(got) != 0 {
 			t.Fatalf("unsafe ownership root %q selected %+v", directory, got)
 		}
 	}
@@ -93,7 +140,7 @@ func TestOwnedProcessesSpareMachineServicesAGoblinStarted(t *testing.T) {
 	}
 
 	// Act
-	owned := OwnedProcesses(processes, []string{root, gate}, job, nil)
+	owned := OwnedProcesses(processes, []string{root, gate}, job, nil, nil)
 
 	// Assert
 	var got []int
@@ -181,7 +228,7 @@ func TestOwnedProcessesFollowTheTerminalsMark(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Act
-			owned := OwnedProcesses(test.processes, []string{root, gate}, nil, []Mark{own, earlier})
+			owned := OwnedProcesses(test.processes, []string{root, gate}, nil, []Mark{own, earlier}, nil)
 
 			// Assert
 			var got []int

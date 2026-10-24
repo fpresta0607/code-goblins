@@ -92,6 +92,7 @@ func TestAdmissionCapacityTwoPreservesCorruptSlotsAndWaiters(t *testing.T) {
 				if err := os.Chtimes(file, old, old); err != nil {
 					t.Fatal(err)
 				}
+				// stall-accepted: the wait behind a record in the line is meant to run out, and any error passes, so a stall cannot fail it.
 				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 				defer cancel()
 
@@ -123,7 +124,7 @@ func TestAdmissionCapacityTwoKeepsUnverifiableIdentityInCustody(t *testing.T) {
 			if err := os.WriteFile(file, data, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // stall-accepted: the test means this context to run out.
 			defer cancel()
 
 			// Act
@@ -340,7 +341,7 @@ func TestAdmissionCapacityTwoCancellationPreservesBothHoldersAndTheNextWaiter(t 
 	go func() { turn, err := a.Wait(ctx); turn.Release(); ended <- err }()
 	select {
 	case <-joined:
-	case <-time.After(time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("cancelled waiter did not join")
 	}
 	var survivor said

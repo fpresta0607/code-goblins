@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -22,6 +23,10 @@ import (
 type Executor struct {
 	Admission Admission
 	Monitor   Monitor
+	// ExecutionLimit, when positive, starts after admission and before
+	// startup, and remains in force through finalization. It does not replace
+	// RunWithin's command-only limit or the separate bounded cleanup proof.
+	ExecutionLimit time.Duration
 	// A file is inherited directly, without a Go I/O pump that could remain
 	// blocked on an arbitrary reader after the process exits. Without one the
 	// command reads an empty input.
@@ -76,6 +81,8 @@ type pendingCleanup struct {
 	isEvidencePending bool
 	isDone            bool
 	exitCode          int
+	executionContext  context.Context
+	stopExecution     context.CancelFunc
 }
 
 func (executor *Executor) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
@@ -109,6 +116,9 @@ func (executor *Executor) RunWithin(ctx context.Context, request execx.Request, 
 	executor.pending[execution.ID()] = pending
 	executor.mu.Unlock()
 	defer func() {
+		if pending.stopExecution != nil {
+			pending.stopExecution()
+		}
 		executor.mu.Lock()
 		defer executor.mu.Unlock()
 		if pending := executor.pending[execution.ID()]; pending != nil {
@@ -149,6 +159,14 @@ func (executor *Executor) RunWithin(ctx context.Context, request execx.Request, 
 		errorsOutput, errorsOutputError = outputTail(execution.record.StderrLog)
 		failure = errors.Join(failure, outputError, errorsOutputError)
 	}
+	if pending.executionContext != nil && pending.executionContext.Err() != nil {
+		failure = errors.Join(failure, context.Cause(pending.executionContext), execution.interrupt())
+		if execution.record.Status == "not_started" {
+			next := execution.record
+			next.Failure = failure.Error()
+			failure = errors.Join(failure, execution.persist(next))
+		}
+	}
 	if execution.record.Status == "pending" {
 		if err := ctx.Err(); err != nil {
 			failure = errors.Join(failure, err, execution.interrupt())
@@ -170,7 +188,12 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	refuse := func(failure error) (int, error) { return -1, errors.Join(failure, execution.Refuse(failure, waited)) }
 	// What fails once the turn is taken, before the command starts, gives the
 	// turn back with the command never started.
-	refuseStart := func(failure error) (int, error) { return refuse(fmt.Errorf("%w: %w", ErrNotStarted, failure)) }
+	refuseStart := func(failure error) (int, error) {
+		if pending.executionContext != nil {
+			failure = errors.Join(failure, context.Cause(pending.executionContext))
+		}
+		return refuse(fmt.Errorf("%w: %w", ErrNotStarted, failure))
+	}
 	monitor := executor.Monitor
 	if monitor.Headroom == nil {
 		return refuse(fmt.Errorf("%w: verify: machine headroom reader is required", ErrNoTurn))
@@ -201,6 +224,23 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	if err != nil {
 		return refuse(fmt.Errorf("%w: %w", ErrNoTurn, err))
 	}
+	executionContext := ctx
+	startupContext := ctx
+	if executor.ExecutionLimit > 0 {
+		deadline := time.Now().Add(executor.ExecutionLimit)
+		parent := ctx
+		if executor.IsConsoleShared {
+			parent = context.WithoutCancel(ctx)
+		}
+		executionContext, pending.stopExecution = context.WithDeadlineCause(parent, deadline, ErrLimit)
+		pending.executionContext = executionContext
+		startupContext = executionContext
+		if executor.IsConsoleShared {
+			var stopStartup context.CancelFunc
+			startupContext, stopStartup = context.WithDeadlineCause(ctx, deadline, ErrLimit)
+			defer stopStartup()
+		}
+	}
 	if executor.Took != nil {
 		executor.Took(turn.Waited)
 	}
@@ -216,11 +256,11 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		return refuseStart(err)
 	}
 	if executor.Ready != nil {
-		if err := executor.Ready(ctx); err != nil {
+		if err := executor.Ready(startupContext); err != nil {
 			return refuseStart(err)
 		}
 	}
-	guard, err := turn.ProtectContext(ctx, execution.ID(), execution.Path())
+	guard, err := turn.ProtectContext(startupContext, execution.ID(), execution.Path())
 	if guard.RunID != "" {
 		pending.guard = guard
 		pending.isGuardComplete = false
@@ -229,7 +269,7 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		return refuseStart(err)
 	}
 	if executor.Source != nil {
-		source, readError := executor.Source(ctx, request.Dir)
+		source, readError := executor.Source(startupContext, request.Dir)
 		if err := execution.readSource(func(reads *SourceReads) { reads.ReadStart(source, readError) }); err != nil {
 			return refuseStart(err)
 		}
@@ -238,6 +278,9 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	// before it started, so such an interrupt ends the run here.
 	if err := ctx.Err(); executor.IsConsoleShared && err != nil {
 		return refuse(fmt.Errorf("%w: %w", ErrNoTurn, err))
+	}
+	if err := executionContext.Err(); executor.ExecutionLimit > 0 && err != nil {
+		return refuseStart(context.Cause(executionContext))
 	}
 	if err := execution.Start(); err != nil {
 		return refuseStart(err)
@@ -258,6 +301,10 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		environment = os.Environ()
 	}
 	command.Env = append(append([]string(nil), environment...), TurnVariable+"="+turn.Token())
+	if err := startupContext.Err(); executor.ExecutionLimit > 0 && err != nil {
+		failure := fmt.Errorf("%w: %w", ErrNotStarted, context.Cause(startupContext))
+		return -1, errors.Join(failure, execution.Observe(Measurement{State: Interrupted, CleanupConfirmed: true}))
+	}
 	tree, err := execx.StartNamedTree(command, guard.Job)
 	if err != nil {
 		failure := fmt.Errorf("%w: %w", ErrNotStarted, err)
@@ -328,8 +375,8 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		return nil
 	}
 	// A command that answers an interrupt itself runs until it ends.
-	parent := ctx
-	if executor.IsConsoleShared {
+	parent := executionContext
+	if executor.IsConsoleShared && executor.ExecutionLimit <= 0 {
 		parent = context.WithoutCancel(ctx)
 	}
 	runContext, stopRun := context.WithCancelCause(parent)
@@ -373,7 +420,11 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 	// The command has ended, so an interrupt since takes nothing from what
 	// it ran on.
 	if executor.Source != nil {
-		source, readError := executor.Source(context.WithoutCancel(ctx), request.Dir)
+		readContext := context.WithoutCancel(ctx)
+		if executor.ExecutionLimit > 0 {
+			readContext = executionContext
+		}
+		source, readError := executor.Source(readContext, request.Dir)
 		failure = errors.Join(failure, execution.readSource(func(reads *SourceReads) { reads.ReadEnd(source, readError) }))
 	}
 	exitCode = -1
@@ -414,7 +465,7 @@ func (executor *Executor) RetryCleanup(ctx context.Context) error {
 }
 
 func (pending *pendingCleanup) retry(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := awake.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := lockBefore(ctx, &pending.mu); err != nil {
 		return err

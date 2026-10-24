@@ -2,16 +2,19 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -49,15 +52,15 @@ func pageFixture(t *testing.T) (*Service, home.Home, state.TaskMeta, hostedTermi
 	return s, h, meta, goblinTerminal(t, h.State, meta.ID), &CFOConnection{State: h.State}
 }
 
-// awayPage turns AFK mode on at his ask and has task-1 put page in a review
-// item, which AFK mode makes the CFO's decision, and returns its question as
-// the board holds it and the notify that woke the CFO.
-func awayPage(t *testing.T, s *Service, h home.Home, page string) (Question, wake.Record) {
+// awayPage turns AFK mode on at his ask and has task-1 put page, at link, in
+// a review item, which AFK mode makes the CFO's decision, and returns its
+// question as the board holds it and the notify that woke the CFO.
+func awayPage(t *testing.T, s *Service, h home.Home, link, page string) (Question, wake.Record) {
 	t.Helper()
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
-	if err := PublishReview(h, "task-1", "task-1-mockups", "Approve the three mockups", mockupsPage, page, nil); err != nil {
+	if err := PublishReview(h, "task-1", "task-1-mockups", "Approve the three mockups", link, page, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Store.ingestQuestions(); err != nil {
@@ -151,7 +154,7 @@ func TestTheCFOsAnswerToAGoblinsPageReachesItOnceAndClosesItsItems(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	q, record := awayPage(t, s, h, page)
+	q, record := awayPage(t, s, h, mockupsPage, page)
 
 	// Act
 	chosen, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "Build it as shown", "the grid reads at his window size")
@@ -229,7 +232,7 @@ func TestOnlyThePageAFKModeAskedClosesWithTheCFOsAnswer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			q, record := awayPage(t, s, h, page)
+			q, record := awayPage(t, s, h, mockupsPage, page)
 			s.Store.mu.Lock()
 			s.Store.db.Reviews = append(s.Store.db.Reviews, item("later-version", mockupsPage, goblinIdentity(meta), q.CreatedAt.Add(time.Second)))
 			err = s.Store.save()
@@ -265,7 +268,7 @@ func TestAQuestionThatOnlyNamesAPageClosesNoPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Store.ingestQuestions(); err != nil {
@@ -293,7 +296,7 @@ func TestAQuestionThatOnlyNamesAPageClosesNoPage(t *testing.T) {
 func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 	// Arrange
 	s, h, _, _, connection := pageFixture(t)
-	q, record := awayPage(t, s, h, pageFile(t, mockupsChoices))
+	q, record := awayPage(t, s, h, mockupsPage, pageFile(t, mockupsChoices))
 	if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "Build it as shown", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +337,7 @@ func TestAPageTheCFOAnsweredIsSettledInHistoryAndNeverAsked(t *testing.T) {
 func TestAPageThatDeclaresNoChoicesTakesTheCFOsOwnWords(t *testing.T) {
 	// Arrange
 	s, h, meta, goblin, connection := pageFixture(t)
-	_, record := awayPage(t, s, h, pageFile(t, ""))
+	_, record := awayPage(t, s, h, mockupsPage, pageFile(t, ""))
 	plain, err := wake.Append(h.State, "notify", meta.ID, "blocked: Which store should the cache use?")
 	if err != nil {
 		t.Fatal(err)
@@ -369,5 +372,277 @@ func TestAPageThatDeclaresNoChoicesTakesTheCFOsOwnWords(t *testing.T) {
 	}
 	if q := questions[0]; q.Status != "succeeded" || q.AnswerKind != "other" || q.AnsweredOption != "" || q.Answer != "Ship the three mockups as shown" || !q.AnsweredAway {
 		t.Errorf("the page's question = %+v, want the CFO's written answer, given while he was away", q)
+	}
+}
+
+// pickedAndEnded is what lavish-axi's poll prints of his pick of the option a
+// page declared, sent with Send and end.
+const pickedAndEnded = "session:\n" +
+	"  status: feedback\n" +
+	"  session_ended: true\n" +
+	"  ended_by: user\n" +
+	"prompts[1]{uid,prompt,selector,tag,text}:\n" +
+	"  \"1\",Build it as shown,\"script[data-lavish-choices]\",choice,Build it as shown?\n" +
+	"next_step: \"This was the last feedback before the user ended the session.\"\n"
+
+// servedAt lists page in lavish-axi's state as session key, which lavish-axi
+// serves on both of its addresses, local host and the tailnet.
+func servedAt(t *testing.T, key, page string) {
+	t.Helper()
+	lavish := t.TempDir()
+	t.Setenv("LAVISH_AXI_STATE_DIR", lavish)
+	stored, err := json.Marshal(map[string]any{"sessions": map[string]any{key: map[string]string{"key": key, "file": page, "status": "opened"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lavish, "state.json"), stored, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// pageWatcher is a supervisor that watches the pages of s's board with poll
+// standing in for lavish-axi's, and tells its own subscribers what changed.
+func pageWatcher(s *Service, poll func(context.Context, string, string, time.Duration) (axi.PagePoll, error)) *Service {
+	return &Service{Store: s.Store, Options: Options{CFO: s.Options.CFO, PollPage: poll}, subscribers: map[chan struct{}]struct{}{}}
+}
+
+// His Send and end on a goblin's page that AFK mode asked as its question,
+// on local host or the tailnet, answers that question: the link names the
+// page lavish-axi serves there, which is polled while the question waits, so
+// his send is taken, and the page acknowledges it, at once; the question leaves Waiting on you within a second, its notify
+// reads answered, the goblin gets his pick once, and the page, its review
+// ended, is watched no more. On 2026-10-18 nothing polled Kenny's page at
+// http://127.0.0.1:4387/session/030284fb3915be1f: his Send and end showed
+// nothing, and the question still waited on the board.
+func TestSendAndEndOnAQuestionsPageAnswersItWithinASecond(t *testing.T) {
+	for name, link := range map[string]string{
+		"local host": "http://127.0.0.1:4387/session/030284fb3915be1f",
+		"tailnet":    "https://pc.example.ts.net:4388/session/030284fb3915be1f",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, h, _, goblin, _ := pageFixture(t)
+			page := pageFile(t, mockupsChoices)
+			servedAt(t, "030284fb3915be1f", page)
+			q, record := awayPage(t, s, h, link, "")
+			if q.AsksPageFile != page {
+				t.Fatalf("the question = %+v, want it to ask the page lavish-axi serves at %s, %s", q, link, page)
+			}
+			scrawl := newScrawlPage(0)
+			watcher := pageWatcher(s, scrawl.poll)
+			board, unsubscribe := watcher.subscribe()
+			defer unsubscribe()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer func() {
+				cancel()
+				watcher.pageWork.Wait()
+			}()
+			watcher.watchPages(ctx)
+			select {
+			case <-scrawl.listening:
+			case <-time.After(30 * time.Second):
+				t.Fatal("nothing polled the page while its question waited")
+			}
+
+			// Act
+			sent := time.Now()
+			scrawl.send(pickedAndEnded)
+			var answered Question
+			for expired := time.After(time.Minute); answered.Status != "succeeded"; {
+				select {
+				case <-board:
+					items, _ := watcher.Items()
+					if i := slices.IndexFunc(items.Questions, func(shown Question) bool { return shown.ID == q.ID }); i >= 0 {
+						answered = items.Questions[i]
+					}
+				case <-expired:
+					t.Fatalf("the boards never showed the question answered, last = %+v", answered)
+				}
+			}
+			shown := time.Since(sent)
+			told := goblin.waitForLines(t, 1)
+			watcher.pageWork.Wait()
+
+			// Assert
+			// stall-accepted: it times the board against his send, as his own test of a page's item does, and nothing it waits on is longer than a poll's return.
+			if shown > time.Second {
+				t.Errorf("the boards showed the question answered %s after he sent it, want under a second", shown.Round(time.Millisecond))
+			}
+			if answered.AnsweredBy != "overlord" || answered.AnsweredIn != "page" || answered.AnsweredOption != "Build it as shown" {
+				t.Errorf("the question = %+v, want his pick, answered on its page", answered)
+			}
+			pending, err := wake.Pending(h.State)
+			if err != nil || !slices.ContainsFunc(pending, func(r wake.Record) bool {
+				return r.Seq == record.Seq && r.Answered == "Build it as shown" && r.AnsweredBy == wake.AnsweredByOverlord
+			}) {
+				t.Errorf("wakes = %+v (%v), want notify %d read as answered by him", pending, err, record.Seq)
+			}
+			if len(told) != 1 || !strings.Contains(told[0], "Build it as shown") {
+				t.Errorf("the goblin got %q, want his pick once", told)
+			}
+			if got := s.Store.Snapshot().Questions[0]; got.PageSettled == nil || len(s.Store.watchedPages()) != 0 {
+				t.Errorf("the question = %+v, watched pages = %+v, want its page settled and watched no more", got, s.Store.watchedPages())
+			}
+		})
+	}
+}
+
+// His pick of the option a question's page declared answers the question
+// though he does not end the review, and the page stays watched until he
+// ends it: the page says his pick was received, and his end adds nothing.
+func TestAPickOnAQuestionsPageAnswersItAndThePageStaysWatched(t *testing.T) {
+	// Arrange
+	s, h, _, goblin, _ := pageFixture(t)
+	_, record := awayPage(t, s, h, mockupsPage, pageFile(t, mockupsChoices))
+	scrawl := newScrawlPage(0)
+	scrawl.send(pickedOnThePage)
+	watcher := pageWatcher(s, scrawl.poll)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Act
+	watcher.watchPages(ctx)
+	told := goblin.waitForLines(t, 1)
+	for deadline := time.Now().Add(time.Minute); !slices.Contains(scrawl.pageReplies(), "Received."); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the page told him %q, want his pick received", scrawl.pageReplies())
+		}
+	}
+	answered := s.Store.Snapshot().Questions[0]
+	scrawl.send(scrawlEnded)
+	watcher.pageWork.Wait()
+
+	// Assert
+	if answered.Status != "succeeded" || answered.AnsweredIn != "page" || answered.AnsweredOption != "Build it as shown" {
+		t.Errorf("the question after his pick = %+v, want his pick, answered on its page", answered)
+	}
+	if pending, err := wake.Pending(h.State); err != nil || !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == record.Seq && r.Answered == "Build it as shown" }) {
+		t.Errorf("wakes = %+v (%v), want notify %d read as answered", pending, err, record.Seq)
+	}
+	if len(told) != 1 || !strings.Contains(told[0], "Build it as shown") {
+		t.Errorf("the goblin got %q, want his pick", told)
+	}
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Errorf("the goblin got %q, want his pick once and nothing for his end", typed)
+	}
+	if got := s.Store.Snapshot().Questions[0]; got.PageSettled == nil || got.AnsweredOption != "Build it as shown" {
+		t.Errorf("the question after he ended the review = %+v, want his pick, its page settled", got)
+	}
+}
+
+// Once the CFO has answered a goblin's page, what he then sends on the page
+// is a note the goblin gets, and the CFO's answer stands, also when the CFO
+// answered while a poll waited on the page.
+func TestWhatHeSendsOnAPageTheCFOAnsweredReachesTheGoblinAsANote(t *testing.T) {
+	for name, isDuringThePoll := range map[string]bool{"before the page is polled": false, "while a poll waits on the page": true} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			s, h, _, goblin, connection := pageFixture(t)
+			_, record := awayPage(t, s, h, mockupsPage, pageFile(t, mockupsChoices))
+			answerIt := func() error {
+				if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(record.Seq), "Change it", ""); err != nil {
+					return err
+				}
+				return s.Store.ingestAnswers()
+			}
+			scrawl := newScrawlPage(0)
+			var answered sync.Once
+			var answerErr error
+			poll := func(ctx context.Context, file, reply string, timeout time.Duration) (axi.PagePoll, error) {
+				if isDuringThePoll {
+					answered.Do(func() {
+						answerErr = answerIt()
+						scrawl.send(pickedAndEnded)
+					})
+				}
+				// stall-accepted: timeout is the supervisor's own bound on a poll, which the stand-in waits out as lavish-axi's poll would; the test times nothing with it.
+				return scrawl.poll(ctx, file, reply, timeout)
+			}
+			if !isDuringThePoll {
+				if err := answerIt(); err != nil {
+					t.Fatal(err)
+				}
+				scrawl.send(pickedAndEnded)
+			}
+			watcher := pageWatcher(s, poll)
+
+			// Act
+			watcher.watchPages(context.Background())
+			watcher.pageWork.Wait()
+			told := goblin.waitForLines(t, 2)
+
+			// Assert
+			if answerErr != nil {
+				t.Fatal(answerErr)
+			}
+			if q := s.Store.Snapshot().Questions[0]; q.AnsweredBy != "cfo" || q.AnsweredOption != "Change it" || q.PageSettled == nil {
+				t.Errorf("the question = %+v, want the CFO's answer standing and its page settled", q)
+			}
+			if len(told) != 2 || !strings.Contains(told[0], "Change it") || !strings.Contains(told[1], "wrote on your review page") || !strings.Contains(told[1], "Build it as shown") {
+				t.Errorf("the goblin got %q, want the CFO's answer, then his words as a note", told)
+			}
+			if pending, err := wake.Pending(h.State); err != nil || !slices.ContainsFunc(pending, func(r wake.Record) bool {
+				return r.Seq == record.Seq && r.Answered == "Change it" && r.AnsweredBy == wake.AnsweredByCFO
+			}) {
+				t.Errorf("wakes = %+v (%v), want notify %d read as the CFO's answer", pending, err, record.Seq)
+			}
+		})
+	}
+}
+
+// A page another reporter's open item already shows stays that reporter's:
+// the question AFK mode made of a goblin's same page does not take it, as a
+// second item for it would be refused.
+func TestAPageAnotherReportersItemShowsStaysThatReporters(t *testing.T) {
+	// Arrange
+	s, h, _, _, _ := pageFixture(t)
+	page := pageFile(t, mockupsChoices)
+	at := time.Now().UTC().Add(-time.Minute)
+	held := Review{ID: "cfo-mockups", Identity: strings.Repeat("c", 64), Title: "The CFO's look at the mockups", Lavish: mockupsPage, LavishPage: page, State: "open", CreatedAt: at, UpdatedAt: at}
+	if err := s.Store.acceptReview(held); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := awayPage(t, s, h, mockupsPage, page)
+
+	// Act
+	watched := s.Store.watchedPages()
+
+	// Assert
+	if q.AsksPageFile != page {
+		t.Fatalf("the question = %+v, want it to ask %s", q, page)
+	}
+	if got := watched[pageKey(page)]; got.ID != held.ID {
+		t.Errorf("the page is watched for %+v, want the CFO's item that showed it first", got)
+	}
+}
+
+// A question's page file is the absolute HTML file of the page it asks, and
+// only a question that asks a page has one.
+func TestAQuestionsPageFileIsTheHTMLFileOfThePageItAsks(t *testing.T) {
+	page := filepath.Join(t.TempDir(), "mockups.html")
+	asked := Question{ID: "notify-task-1-1", Identity: strings.Repeat("g", 64), Text: "Approve the three mockups (page " + mockupsPage + ")", CreatedAt: time.Now().UTC(), Task: "task-1", Generation: "g1", Seq: 1, AsksPage: mockupsPage, AsksPageFile: page}
+	if err := validQuestion(asked); err != nil {
+		t.Fatal(err)
+	}
+	separator := string(filepath.Separator)
+	for name, change := range map[string]func(q *Question){
+		"a relative file":        func(q *Question) { q.AsksPageFile = "mockups.html" },
+		"a file that is no page": func(q *Question) { q.AsksPageFile = filepath.Join(filepath.Dir(page), "notes.txt") },
+		"an unclean path":        func(q *Question) { q.AsksPageFile = page + separator + ".." + separator + "mockups.html" },
+		"no page it asks":        func(q *Question) { q.AsksPage = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			q := asked
+			change(&q)
+
+			// Act
+			err := validQuestion(q)
+
+			// Assert
+			if err == nil {
+				t.Errorf("a question with %s was accepted", name)
+			}
+		})
 	}
 }

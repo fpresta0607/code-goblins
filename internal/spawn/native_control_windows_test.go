@@ -44,7 +44,7 @@ func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 	}
 	want := []string{spawnPointer(t, f.fixture), "CFO: run the tests", ""}
 	var submitted []string
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		submitted = submitted[:0]
 		for _, event := range named(f.events(t), "submitted") {
 			submitted = append(submitted, event.Text)
@@ -64,6 +64,9 @@ func TestANativeGoblinTakesTextAndKeysThroughItsTerminal(t *testing.T) {
 // can show it ran.
 func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "")
+	previous := nativeReadGrace
+	nativeReadGrace = 2 * time.Minute
+	t.Cleanup(func() { nativeReadGrace = previous })
 	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -74,7 +77,7 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 	var slept []time.Duration
 	f.service.Sleep = func(ctx context.Context, duration time.Duration) error {
 		slept = append(slept, duration)
-		timer := time.NewTimer(duration)
+		timer := time.NewTimer(duration) // stall-accepted: it sleeps for the send's own pauses, which are meant to run out.
 		defer timer.Stop()
 		select {
 		case <-ctx.Done():
@@ -94,12 +97,12 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 	if !slices.ContainsFunc(slept, func(duration time.Duration) bool { return duration >= 1200*time.Millisecond }) {
 		t.Errorf("waits = %v, want one of at least 1.2s before Enter", slept)
 	}
-	if took >= nativeReadGrace {
+	if took >= time.Minute {
 		t.Errorf("SendNative took %s, want it back without waiting on the ended harness's screen", took)
 	}
 	want := []string{spawnPointer(t, f.fixture), "/exit"}
 	var submitted []string
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		submitted = submitted[:0]
 		for _, event := range named(f.events(t), "submitted") {
 			submitted = append(submitted, event.Text)
@@ -114,6 +117,8 @@ func TestANativeGoblinTakesASlashCommandOnceAndReportsItUnconfirmed(t *testing.T
 }
 
 // A native task whose terminal has ended takes nothing, and says which task.
+// Text sent to it says nothing was typed, so a sender may send it again once
+// the terminal is back, as for a goblin paused or between sessions.
 func TestANativeTaskWithNoTerminalTakesNothing(t *testing.T) {
 	service := Service{StateDir: t.TempDir()}
 	meta := state.TaskMeta{ID: "task-7", Window: "native", Harness: string(harness.Codex), Backend: "native"}
@@ -125,6 +130,9 @@ func TestANativeTaskWithNoTerminalTakesNothing(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "native task task-7 has no running terminal") {
 			t.Errorf("%s = %v, want it refused naming the task", name, err)
 		}
+	}
+	if !errors.Is(textErr, fleet.ErrNotTyped) {
+		t.Errorf("text = %v, want it to say nothing was typed", textErr)
 	}
 }
 
@@ -201,7 +209,10 @@ func TestASteerToANativeGoblinInATurnIsProvenByItsRecord(t *testing.T) {
 	}
 	var asked []ask
 	before := time.Now()
-	f.service.Took = func(_ context.Context, meta state.TaskMeta, text string, since time.Time) bool {
+	f.service.Took = func(_ context.Context, meta state.TaskMeta, session, text string, since time.Time) bool {
+		if session != "" {
+			t.Errorf("send unexpectedly selected a resume session: %s", session)
+		}
 		asked = append(asked, ask{meta.ID, meta.Worktree, text, since})
 		// The fake records a line once it takes it, as a harness's record does.
 		return len(named(f.events(t), "submitted")) == 2
@@ -226,7 +237,7 @@ func TestASteerToANativeGoblinInATurnIsProvenByItsRecord(t *testing.T) {
 func submittedLines(t *testing.T, f *nativeFixture, n int) []string {
 	t.Helper()
 	var submitted []string
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		submitted = submitted[:0]
 		for _, event := range named(f.events(t), "submitted") {
 			submitted = append(submitted, event.Text)

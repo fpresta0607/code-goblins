@@ -24,12 +24,12 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	}
 	record, err := host.ReadRecord(s.StateDir, meta.ID)
 	if err != nil {
-		return fmt.Errorf("send: native task %s has no running terminal: %w", meta.ID, err)
+		return fmt.Errorf("send: native task %s has no running terminal: %w: %w", meta.ID, fleet.ErrNotTyped, err)
 	}
 	if !fleet.IsCommand(text) {
-		return s.deliverNativeInstruction(ctx, record, screens, meta, text)
+		return s.deliverNativeInstruction(ctx, record, screens, meta, "", text, false)
 	}
-	if err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text)); err != nil {
+	if _, err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text), false); err != nil {
 		return err
 	}
 	return fmt.Errorf("send: %q was typed into native terminal %s and submitted once, but nothing on its screen confirms a command ran; check it with cfo peek %s rather than sending it again", text, meta.ID, meta.ID)

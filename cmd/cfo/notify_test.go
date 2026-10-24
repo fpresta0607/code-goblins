@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -375,6 +376,7 @@ func TestBlockedNotifyIsQueuedAtOnceWithAndWithoutServe(t *testing.T) {
 			if exit := runNotify([]string{"g1", "--blocked", "Which store? options: Postgres | SQLite"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 				t.Fatalf("exit=%d stderr=%s", exit, stderr.String())
 			}
+			// stall-accepted: it times the call, and the waits it rules out, such as the wake queue's five-second lock, are too short for a longer bound to tell apart.
 			if elapsed := time.Since(start); elapsed > 5*time.Second {
 				t.Errorf("cfo notify took %v, want it back at once", elapsed)
 			}
@@ -427,11 +429,13 @@ func TestNotifyTellsTheRunningSupervisorWhichTellsItsBoardsAtOnce(t *testing.T) 
 			t.Cleanup(board.Close)
 			started := time.Now()
 			before := board.Revision()
+			// stall-accepted: nothing is meant to change while it waits, so a stall can end it early but cannot fail the test, and the check below skips a run a stall slowed.
 			for quiet := time.Now(); time.Since(quiet) < 2*time.Second; time.Sleep(50 * time.Millisecond) {
 				if now := board.Revision(); now != before {
 					before, quiet = now, time.Now()
 				}
 			}
+			// stall-accepted: running out skips the test rather than failing it.
 			if since := time.Since(started); since > 8*time.Second {
 				t.Skipf("the supervisor took %s to go quiet, too near its refresh to tell a report from it", since.Round(time.Second))
 			}
@@ -443,6 +447,7 @@ func TestNotifyTellsTheRunningSupervisorWhichTellsItsBoardsAtOnce(t *testing.T) 
 			}
 
 			// Assert
+			// stall-accepted: it times the report, and the wait it rules out is the board's own refresh, due within 15 s, which a bound of 30 s would let pass.
 			for deadline := time.Now().Add(3 * time.Second); board.Revision() == before; time.Sleep(20 * time.Millisecond) {
 				if time.Now().After(deadline) {
 					t.Fatal("the supervisor told its boards nothing within three seconds of the report")
@@ -827,8 +832,8 @@ func TestNotifyWorkingAndWaitingOnWakeOnlyForTheOverlord(t *testing.T) {
 	if exit := runNotify([]string{"g1", "--waiting-on", "overlord", "log in to Stripe"}, &stdout, &stderr, defaultCommandRuntime()); exit != 0 {
 		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
 	}
-	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: log in to Stripe" {
-		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: log in to Stripe (no card: it names nothing he acts on)" {
+		t.Fatalf("wake records = %+v %v, want the wait on the Overlord, saying it has no card", records, err)
 	}
 }
 
@@ -987,6 +992,68 @@ func TestNotifyWaitWithAPageIsRefusedWithoutLavish(t *testing.T) {
 	}
 }
 
+// A goblin's wait on the Overlord while its own step card is open is that
+// card on the Command Center, as a wait with a command is its run card: a
+// second card would ask him for the same step again after his Done on the
+// first. The wait still wakes the CFO and tells the goblin which card it is.
+func TestNotifyWaitWhileAStepCardIsOpenOpensNoSecondCard(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	record := `{"credentials":[{"id":"cred-f0ed7ac18b74f587","by":"goblin","task":"g1","project":"throwaway","why":"Tick the App Group","state":"open"}]}`
+	if err := os.WriteFile(filepath.Join(stateDir, ".supervisor.json"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--waiting-on", "overlord", "tick the App Group"}, &stdout, &stderr, defaultCommandRuntime())
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "cfo auth request --wait-on cred-f0ed7ac18b74f587 --task g1") || strings.Contains(stderr.String(), "cannot show this wait") {
+		t.Fatalf("stdout=%q stderr=%q, want the wait shown as its open step card alone and the goblin told to wait on it", stdout.String(), stderr.String())
+	}
+	var reviews []supervisor.Review
+	entries, err := os.ReadDir(filepath.Join(stateDir, "reviews-inbox"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var published supervisor.Review
+		if err := json.Unmarshal(data, &published); err != nil {
+			t.Fatal(err)
+		}
+		reviews = append(reviews, published)
+	}
+	data, err := os.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var board supervisor.Database
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatal(err)
+	}
+	reviews = append(reviews, board.Reviews...)
+	if i := slices.IndexFunc(reviews, func(r supervisor.Review) bool { return strings.HasPrefix(r.ID, "waiting-g1-") }); i >= 0 {
+		t.Fatalf("Command Center item %+v, want no second card for the wait", reviews[i])
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != "waiting on overlord: tick the App Group" {
+		t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
+	}
+}
+
 // A wait on the Overlord names the one link he goes to with --link, which his
 // card opens: it travels with the wait to the CFO, and a link that is not a
 // safe web link, or one on anything but a wait on him, is refused before
@@ -1031,6 +1098,337 @@ func TestNotifyWaitGivesTheLinkTheOverlordGoesTo(t *testing.T) {
 	want := "waiting on overlord: add the records (link " + link + ")"
 	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != want {
 		t.Fatalf("wake records = %+v %v, want the wait with its link", records, err)
+	}
+}
+
+// A card in his Command Center asks him something or lets him act. A wait on
+// him that names nothing he acts on there goes to the CFO alone, its line
+// saying it has no card, and the goblin is told how to put the step itself in
+// front of him; a wait that names the page he takes it on is a card. On
+// 2026-10-18 he met waits such as a goblin's need for two grants as cards with
+// nothing to press but Skip.
+func TestNotifyWaitThatNamesNothingHeActsOnIsNoCard(t *testing.T) {
+	for name, c := range map[string]struct {
+		args   []string
+		isCard bool
+	}{
+		"nothing he acts on":    {[]string{"g1", "--waiting-on", "overlord", "Production steps 1, 2 and 4 need the database and bank grants"}, false},
+		"the page he goes to":   {[]string{"g1", "--waiting-on", "overlord", "Add the two DNS records", "--link", "https://dash.cloudflare.com/acme/dns"}, true},
+		"a decision it follows": {[]string{"g1", "--waiting-on", "overlord", "Waiting for your answer on the store", "--follows", "notify-g1-3"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			nativeGoblin(t, stateDir, "g1")
+			if slices.Contains(c.args, "--follows") {
+				decisionsForG1["the goblin's own question"](t, stateDir)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 0 || stderr.Len() != 0 {
+				t.Fatalf("exit=%d stderr=%q, want the wait taken", exit, stderr.String())
+			}
+			records, err := wake.Pending(stateDir)
+			if err != nil || len(records) != 1 || !strings.HasPrefix(records[0].Detail, "waiting on overlord: ") {
+				t.Fatalf("wake records = %+v %v, want the CFO woken with the wait", records, err)
+			}
+			waits := waitsInTheInbox(t, stateDir)
+			if c.isCard {
+				if len(waits) != 1 || strings.Contains(records[0].Detail, "no card") || strings.Contains(stdout.String(), "No card went") {
+					t.Errorf("waits = %+v, wake = %q, stdout = %q, want the wait as one card", waits, records[0].Detail, stdout.String())
+				}
+				return
+			}
+			if len(waits) != 0 {
+				t.Errorf("waits = %+v, want no card in his Command Center", waits)
+			}
+			if !strings.HasSuffix(records[0].Detail, "(no card: it names nothing he acts on)") {
+				t.Errorf("wake = %q, want it to tell the CFO the wait has no card", records[0].Detail)
+			}
+			for _, said := range []string{"No card went to the Overlord's Command Center", "--run", "--lavish", "--link", "cfo auth request", "cfo notify g1 --blocked"} {
+				if !strings.Contains(stdout.String(), said) {
+					t.Errorf("stdout = %q, want it to say %q", stdout.String(), said)
+				}
+			}
+		})
+	}
+}
+
+// nativeGoblin records goblin id as a native task whose terminal is hosted in
+// stateDir with this test process as its program, so what the test runs is
+// proven to come from inside it and reaches the Command Center's inboxes.
+func nativeGoblin(t *testing.T, stateDir, id string) {
+	t.Helper()
+	worktree := t.TempDir()
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: id, SpawnGen: "gen-1", Project: worktree, Worktree: worktree, Backend: "native", Harness: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	hostThisProcess(t, stateDir, id)
+}
+
+// plantJSON writes value as JSON to path, making its folder.
+func plantJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitsInTheInbox returns the waits goblin g1 published for the Command
+// Center, which stay in the review inbox while no board takes them.
+func waitsInTheInbox(t *testing.T, stateDir string) []supervisor.Review {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(stateDir, "reviews-inbox"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var waits []supervisor.Review
+	for _, entry := range entries {
+		data, err := os.ReadFile(filepath.Join(stateDir, "reviews-inbox", entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var published supervisor.Review
+		if err := json.Unmarshal(data, &published); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(published.ID, "waiting-g1-") {
+			waits = append(waits, published)
+		}
+	}
+	return waits
+}
+
+// decisionsForG1 are the two decisions that can be open for goblin g1, each
+// put where it is first seen: the goblin's own question with choices in the
+// question inbox, which the board has yet to take, and the CFO's question for
+// it (cfo question --for) on the board's record, where the CFO's pipe puts
+// it. Each returns the decision's ID and first line.
+var decisionsForG1 = map[string]func(t *testing.T, stateDir string) (string, string){
+	"the goblin's own question": func(t *testing.T, stateDir string) (string, string) {
+		q := supervisor.Question{ID: "notify-g1-3", Identity: strings.Repeat("g", 64), Text: "Which store?\n- Both are set up.", Options: []string{"SQLite", "Postgres"}, Status: "pending", Task: "g1", Generation: "gen-1", Seq: 3, CreatedAt: time.Now().UTC()}
+		plantJSON(t, filepath.Join(stateDir, "questions-inbox", "notify-g1-3.json"), q)
+		return q.ID, "Which store?"
+	},
+	"the CFO's question for it": func(t *testing.T, stateDir string) (string, string) {
+		q := supervisor.Question{ID: "pd-connector-parity", Identity: strings.Repeat("c", 64), Text: "Build the 63 parity tools?\n- She sized them at three days.", Options: []string{"Build them", "End her task"}, Status: "pending", ForTask: "g1", CreatedAt: time.Now().UTC()}
+		plantJSON(t, filepath.Join(stateDir, ".supervisor.json"), map[string]any{"questions": []supervisor.Question{q}})
+		return q.ID, "Build the 63 parity tools?"
+	},
+}
+
+// The CFO, 2026-10-17: a wait follows a decision only when the goblin
+// declares it, since a need the Overlord never sees stalls the goblin and an
+// extra card does not. While a decision for the goblin is open, a wait on him
+// that declares neither --follows nor --separate is refused, recording
+// nothing, and names each open decision by its ID and first line with both
+// flags; so is a --follows that names no open decision, both flags at once,
+// and --follows on a wait that opens a link, which is a card of its own.
+func TestNotifyWaitBesideAnOpenDecisionMustDeclareWhatItIs(t *testing.T) {
+	for decisionName, open := range decisionsForG1 {
+		for name, c := range map[string]struct {
+			flags func(id string) []string
+			says  func(id, first string) []string
+		}{
+			"no declaration": {
+				flags: func(string) []string { return nil },
+				says:  func(id, first string) []string { return []string{id + ": " + first, "--follows <id>", "--separate"} },
+			},
+			"--follows naming no open decision": {
+				flags: func(string) []string { return []string{"--follows", "notify-g1-99"} },
+				says: func(id, first string) []string {
+					return []string{"--follows notify-g1-99 names no decision open for g1", id + ": " + first}
+				},
+			},
+			"--follows and --separate": {
+				flags: func(id string) []string { return []string{"--follows", id, "--separate"} },
+				says:  func(string, string) []string { return []string{"do not go together"} },
+			},
+			"--follows on a wait with a link": {
+				flags: func(id string) []string {
+					return []string{"--follows", id, "--link", "https://dashboard.stripe.com/login"}
+				},
+				says: func(string, string) []string { return []string{"give --separate instead"} },
+			},
+		} {
+			t.Run(decisionName+", "+name, func(t *testing.T) {
+				// Arrange
+				stateDir := questionHome(t)
+				id, first := open(t, stateDir)
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Sign in to Stripe in the browser I opened"}, c.flags(id)...), &stdout, &stderr, defaultCommandRuntime())
+
+				// Assert
+				if exit != 2 {
+					t.Fatalf("exit=%d stderr=%q, want the wait refused", exit, stderr.String())
+				}
+				for _, said := range c.says(id, first) {
+					if !strings.Contains(stderr.String(), said) {
+						t.Errorf("stderr = %q, want it to say %q", stderr.String(), said)
+					}
+				}
+				if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+					t.Errorf("a refused wait recorded status %q", lines)
+				}
+				if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+					t.Errorf("a refused wait woke the CFO: %+v %v", records, err)
+				}
+				if waits := waitsInTheInbox(t, stateDir); len(waits) != 0 {
+					t.Errorf("a refused wait published %+v", waits)
+				}
+			})
+		}
+	}
+}
+
+// A wait declared to be the open decision is published following it by its
+// ID, so the board shows only the decision while it is open and its answer
+// closes the wait; one declared --separate follows none and is a card of its
+// own.
+func TestNotifyWaitPublishesWhatItDeclared(t *testing.T) {
+	for decisionName, open := range decisionsForG1 {
+		for name, isFollowing := range map[string]bool{"--follows the decision": true, "--separate": false} {
+			t.Run(decisionName+", "+name, func(t *testing.T) {
+				// Arrange
+				stateDir := questionHome(t)
+				nativeGoblin(t, stateDir, "g1")
+				id, _ := open(t, stateDir)
+				flags, want, line := []string{"--separate", "--link", "https://dashboard.stripe.com/login"}, "", "waiting on overlord: Waiting for your answer on the store (link https://dashboard.stripe.com/login)"
+				if isFollowing {
+					flags, want, line = []string{"--follows", id}, id, "waiting on overlord: Waiting for your answer on the store"
+				}
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Waiting for your answer on the store"}, flags...), &stdout, &stderr, defaultCommandRuntime())
+
+				// Assert
+				if exit != 0 || stderr.Len() != 0 {
+					t.Fatalf("exit=%d stderr=%q, want the wait taken", exit, stderr.String())
+				}
+				if waits := waitsInTheInbox(t, stateDir); len(waits) != 1 || waits[0].Follows != want {
+					t.Fatalf("published waits = %+v, want one following %q", waits, want)
+				}
+				if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || records[0].Detail != line {
+					t.Fatalf("wake records = %+v %v, want the wait on the Overlord", records, err)
+				}
+			})
+		}
+	}
+}
+
+// The CFO, 2026-10-18: opening something means a page, a link or a file, so a
+// wait beside a file its goblin delivered opens that file, as its card does,
+// and is a card of its own. --follows is refused, recording nothing, and
+// names the file's item; --separate is taken.
+func TestNotifyWaitBesideADeliveredFileIsACardOfItsOwn(t *testing.T) {
+	for decisionName, open := range decisionsForG1 {
+		for name, c := range map[string]struct {
+			flags     func(id string) []string
+			isRefused bool
+		}{
+			"--follows the decision": {flags: func(id string) []string { return []string{"--follows", id} }, isRefused: true},
+			"--separate":             {flags: func(string) []string { return []string{"--separate"} }},
+		} {
+			t.Run(decisionName+", "+name, func(t *testing.T) {
+				// Arrange
+				stateDir := questionHome(t)
+				nativeGoblin(t, stateDir, "g1")
+				id, _ := open(t, stateDir)
+				now := time.Now().UTC()
+				file := supervisor.Review{ID: "g1-site-plan", Identity: strings.Repeat("g", 64), Task: "g1", Title: "The site plan", State: "open", Document: &supervisor.ReviewDocument{Name: "site-plan.pdf", Size: 2048, Sum: strings.Repeat("b", 64), Kind: "application/pdf"}, CreatedAt: now, UpdatedAt: now}
+				plantJSON(t, filepath.Join(stateDir, "reviews-inbox", file.ID+".open.json"), file)
+				var stdout, stderr bytes.Buffer
+
+				// Act
+				exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Waiting for your answer on the store"}, c.flags(id)...), &stdout, &stderr, defaultCommandRuntime())
+
+				// Assert
+				waits := waitsInTheInbox(t, stateDir)
+				records, err := wake.Pending(stateDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch {
+				case c.isRefused && (exit != 2 || !strings.Contains(stderr.String(), "your delivered file g1-site-plan is open") || !strings.Contains(stderr.String(), "give --separate")):
+					t.Fatalf("exit=%d stderr=%q, want --follows refused naming the delivered file", exit, stderr.String())
+				case c.isRefused && (len(waits) != 0 || len(records) != 0):
+					t.Fatalf("a refused wait published %+v and woke the CFO with %+v", waits, records)
+				case !c.isRefused && (exit != 0 || stderr.Len() != 0 || len(waits) != 1 || waits[0].Follows != ""):
+					t.Fatalf("exit=%d stderr=%q waits=%+v, want one wait of its own", exit, stderr.String(), waits)
+				}
+			})
+		}
+	}
+}
+
+// With no decision open a wait on the Overlord needs no declaration and is a
+// card of its own, as it is with --separate; --follows is refused, saying
+// none is open, and either flag on anything but a wait on him is refused.
+func TestNotifyWaitWithNoDecisionOpenIsACardOfItsOwn(t *testing.T) {
+	for name, c := range map[string]struct {
+		args []string
+		says string
+	}{
+		"--follows with none open": {[]string{"g1", "--waiting-on", "overlord", "Sign in to Stripe", "--follows", "notify-g1-3"}, "and none is"},
+		"--follows on a question":  {[]string{"g1", "--blocked", "Which store? options: SQLite | Postgres", "--follows", "notify-g1-3"}, "go with --waiting-on overlord"},
+		"--separate on a CI wait":  {[]string{"g1", "--waiting-on", "ci", "PR 45 checks", "--separate"}, "go with --waiting-on overlord"},
+		"--separate on working":    {[]string{"g1", "--working", "fixing the lint step", "--separate"}, "go with --waiting-on overlord"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 2 || !strings.Contains(stderr.String(), c.says) {
+				t.Fatalf("exit=%d stderr=%q, want 2 saying %q", exit, stderr.String(), c.says)
+			}
+			if lines, _ := state.TailStatus(stateDir, "g1", 1); len(lines) != 0 {
+				t.Errorf("a refused notify recorded status %q", lines)
+			}
+			if records, err := wake.Pending(stateDir); err != nil || len(records) != 0 {
+				t.Errorf("a refused notify woke the CFO: %+v %v", records, err)
+			}
+		})
+	}
+	for name, flags := range map[string][]string{"no declaration": {"--link", "https://dashboard.stripe.com/login"}, "--separate": {"--separate", "--link", "https://dashboard.stripe.com/login"}} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := questionHome(t)
+			nativeGoblin(t, stateDir, "g1")
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runNotify(append([]string{"g1", "--waiting-on", "overlord", "Sign in to Stripe in the browser I opened"}, flags...), &stdout, &stderr, defaultCommandRuntime())
+
+			// Assert
+			if exit != 0 || stderr.Len() != 0 {
+				t.Fatalf("exit=%d stderr=%q, want the wait taken", exit, stderr.String())
+			}
+			if waits := waitsInTheInbox(t, stateDir); len(waits) != 1 || waits[0].Follows != "" {
+				t.Fatalf("published waits = %+v, want one card of its own", waits)
+			}
+		})
 	}
 }
 
@@ -1095,6 +1493,64 @@ func TestNotifyCarriesACommandForTheOverlordToRun(t *testing.T) {
 	// notify says so instead of failing: the CFO has the wait.
 	if !strings.Contains(stderr.String(), "the Command Center cannot show this command") {
 		t.Errorf("stderr = %q, want it said that the command is not on the board", stderr.String())
+	}
+}
+
+// A question with choices, or a command, carries a message he sends himself
+// from --message-file. The message is read before anything is recorded, and
+// one that no card would show, or that holds a key, fails the notify.
+func TestNotifyCarriesAMessageOnlyOnACard(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.Mkdir(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CFO_HOME", dir)
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	if err := state.WriteTaskMeta(stateDir, state.TaskMeta{ID: "g1-h1", Parent: "g1", Mode: "local-only"}); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, text string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	key := "sk" + "_live_" + "q7Lm2Xv9Rt4Kp8Zw3Nb6Hd1Yc5Fg0Js"
+	message := write("refund.txt", "To: support@iproyal.com\nSubject: Refund for order 4412\n\nPlease refund order 4412.\n")
+	question := "Send the refund email? options: Send it (Recommended) | Hold it"
+	for name, c := range map[string]struct {
+		args []string
+		says string
+	}{
+		"a message on a working report":      {[]string{"g1", "--working", "writing the email", "--message-file", message}, "--message-file goes with a --blocked question with choices or with --run"},
+		"a message on a question of no card": {[]string{"g1", "--blocked", "Send the refund email?", "--message-file", message}, "--message-file goes with a --blocked question with choices or with --run"},
+		"a message holding a key":            {[]string{"g1", "--blocked", question, "--message-file", write("key.txt", "My key is "+key+"\n")}, "looks like a credential value"},
+		"a helper's question to its parent":  {[]string{"g1-h1", "--blocked", question, "--message-file", message}, "goes to its parent g1's terminal"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if exit := runNotify(c.args, &stdout, &stderr, defaultCommandRuntime()); exit != 2 || !strings.Contains(stderr.String(), c.says) || strings.Contains(stderr.String(), key) {
+			t.Errorf("%s: exit=%d stderr=%q, want 2 naming %q and never the key", name, exit, stderr.String(), c.says)
+		}
+	}
+	for _, id := range []string{"g1", "g1-h1"} {
+		if lines, _ := state.TailStatus(stateDir, id, 1); len(lines) != 0 {
+			t.Fatalf("%s status = %q after refused notifies, want nothing recorded", id, lines)
+		}
+	}
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runNotify([]string{"g1", "--blocked", question, "--message-file", message}, &stdout, &stderr, defaultCommandRuntime())
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit=%d stderr=%q", exit, stderr.String())
+	}
+	if records, err := wake.Pending(stateDir); err != nil || len(records) != 1 || !strings.HasPrefix(records[0].Detail, "blocked: Send the refund email?") {
+		t.Fatalf("wake records = %+v %v, want the question", records, err)
 	}
 }
 

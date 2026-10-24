@@ -13,18 +13,20 @@ import (
 // land takes a green run to the base by merging the train's own pull
 // request, pinned to the head CI tested: the base takes that commit, so its
 // tree is the run's, and GitHub marks each rider merged, since the base then
-// holds its head. It checks both, and tests the waiting half next if a red
-// run left one.
+// holds its head. A run that stands on its one rider's own CI run merges
+// that rider's pull request, pinned to its head, instead. It checks both,
+// and tests the waiting half next if a red run left one.
 //
 // Before the merge it rechecks every rider: one closed, turned into a draft,
 // labelled hold or moved to another head since it rode must not land as it
 // rode, so nothing merges and the rest is tested again without it. A base
 // that moved during the run is tested again too, since what the run proved
-// is not what would land. The merge lands every rider or none. Before it
-// starts the record says so, and a landing cut short finds on the base
-// whether it went through. The pull request that merges wears the train's
-// label, which is made sure of here: an older build opened one without it,
-// and a label can be taken off by hand.
+// is not what would land, and one whose deploy has not finished successfully
+// holds the merge until it has (deploy.go). The merge lands every rider or
+// none. Before it starts the record says so, and a landing cut short finds
+// on the base whether it went through. The pull request that merges wears
+// the train's label, which is made sure of here: an older build opened one
+// without it, and a label can be taken off by hand.
 func (e Engine) land(ctx context.Context, t *Train) error {
 	if !t.Landing {
 		base, err := e.baseSHA(ctx, *t)
@@ -38,6 +40,13 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 				return e.finish(ctx, t, StateFailed, fmt.Sprintf("%s moved during %d runs in a row, so nothing they tested could land: hold other merges to %s, then start the train again", t.Base, t.Moved, t.Base))
 			}
 			return e.rebuild(ctx, t, fmt.Sprintf("%s moved from %s to %s during the run, so it is tested again on the new %s", t.Base, short(t.BaseSHA), short(base), t.Base))
+		}
+		deploy, err := e.unverifiedDeploy(ctx, *t)
+		if err != nil {
+			return err
+		}
+		if deploy != nil {
+			return e.holdForDeploy(ctx, t, *deploy)
 		}
 		changed, err := e.recheck(ctx, t)
 		if err != nil {
@@ -53,20 +62,11 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 		}
 	}
 	if riders := t.carsIn(CarRiding); len(riders) > 0 {
-		// A run an older build pushed names no pull request, and its pull
-		// request still says it is never merged: it is told what it is before
-		// it merges.
-		if run := t.openRun(); run != nil && run.PR == "" {
-			if err := e.describe(ctx, t); err != nil {
+		if run := t.openRun(); run != nil && run.OwnRun != "" {
+			if err := e.mergeOwnRun(ctx, t, t.Cars[riders[0]], *run); err != nil {
 				return err
 			}
-			run.PR = t.PR
-			if err := e.save(t); err != nil {
-				return err
-			}
-		}
-		e.wear(ctx, *t)
-		if err := e.mergeTrain(ctx, t, riders); err != nil {
+		} else if err := e.landTrainRun(ctx, t, riders); err != nil {
 			return err
 		}
 		matches, landed, err := e.holdsTheRun(ctx, *t)
@@ -99,6 +99,23 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 		t.Cars[i].State = CarRiding
 	}
 	return e.rebuild(ctx, t, fmt.Sprintf("the green half landed; next on the new %s: %s", t.Base, t.numbers(t.carsIn(CarRiding))))
+}
+
+// landTrainRun merges the train's own pull request for the run CI passed on.
+// A run an older build pushed names no pull request, and its pull request
+// still says it is never merged: it is told what it is before it merges.
+func (e Engine) landTrainRun(ctx context.Context, t *Train, riders []int) error {
+	if run := t.openRun(); run != nil && run.PR == "" {
+		if err := e.describe(ctx, t); err != nil {
+			return err
+		}
+		run.PR = t.PR
+		if err := e.save(t); err != nil {
+			return err
+		}
+	}
+	e.wear(ctx, *t)
+	return e.mergeTrain(ctx, t, riders)
 }
 
 // recheck reads the riders as GitHub has them now and returns each one that

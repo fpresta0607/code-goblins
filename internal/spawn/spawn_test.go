@@ -917,9 +917,9 @@ func TestAGoblinIsToldToPutAHeavyRunBehindTheLine(t *testing.T) {
 	brief := filepath.Join(t.TempDir(), "brief.md")
 
 	for name, instruction := range map[string]string{
-		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil),
-		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil),
-		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil),
+		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil, ""),
+		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil, ""),
+		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil, ""),
 		"a goblin taking over": handoffInstruction(filepath.Join(t.TempDir(), "handoff.md"), brief, state.TaskMeta{ID: "task-7", Kind: "ship"}),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -952,9 +952,9 @@ func TestAGoblinIsToldWhatItStartsIsItsOwnToEnd(t *testing.T) {
 	brief := filepath.Join(t.TempDir(), "brief.md")
 
 	for name, instruction := range map[string]string{
-		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil),
-		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil),
-		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil),
+		"a new goblin":         spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "ship"}, nil, ""),
+		"a scout":              spawnInstruction(brief, state.TaskMeta{ID: "task-7", Kind: "scout"}, nil, ""),
+		"a helper":             spawnInstruction(brief, state.TaskMeta{ID: "task-7-h1", Kind: "ship", Parent: "task-7"}, nil, ""),
 		"a goblin taking over": handoffInstruction(filepath.Join(t.TempDir(), "handoff.md"), brief, state.TaskMeta{ID: "task-7", Kind: "ship"}),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -993,6 +993,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		"lines of their own that start with \"- \"",
 		"mark with **two asterisks** only the verdict or the blocking item",
 		"the Overlord personally (his sign-in, his click, his page)",
+		"a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CFO alone",
 		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
 		"the CFO answers it, and his answer arrives here as a message",
 		"Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply.",
@@ -1355,12 +1356,17 @@ type commandRunner struct {
 	installer       string
 	installerStderr string
 	mcpTracked      bool
+	// uvLocks is what the worktree's listing of its uv.lock files prints.
+	uvLocks string
 }
 
 func (r *commandRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.calls++
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "check-ignore" {
 		return execx.Result{}, nil
+	}
+	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" && !slices.Contains(req.Args, "--error-unmatch") {
+		return execx.Result{Stdout: []byte(r.uvLocks)}, nil
 	}
 	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "ls-files" {
 		if r.mcpTracked {
@@ -1531,6 +1537,36 @@ func TestNotifyInstructionOpensADirectPullRequestAsADraftUntilItsHeadIsFinal(t *
 			isTold := strings.Contains(instruction, "gh pr create --draft") && strings.Contains(instruction, "gh pr ready <url>")
 			if isTold != test.isTold {
 				t.Errorf("told to open a draft and mark it ready = %v, want %v:\n%s", isTold, test.isTold, instruction)
+			}
+		})
+	}
+}
+
+// A push while a ready pull request's CI runs cancels that run after it
+// billed its minutes, so every goblin whose pull request is ready while it
+// still works, its gate's or its own, pushes a later round once, whole, and
+// only once that CI has ended.
+func TestNotifyInstructionTellsAGoblinNeverToPushWhileItsPullRequestsCIRuns(t *testing.T) {
+	// Arrange
+	for _, test := range []struct {
+		name   string
+		meta   state.TaskMeta
+		isTold bool
+	}{
+		{"a direct-PR goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "direct-PR"}, true},
+		{"a gated goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "no-mistakes"}, true},
+		{"a local-only goblin", state.TaskMeta{ID: "task-7", Kind: "ship", Mode: "local-only"}, false},
+		{"a helper", state.TaskMeta{ID: "task-7-h1", Kind: "ship", Mode: "no-mistakes", Parent: "task-7"}, false},
+		{"a scout", state.TaskMeta{ID: "task-7", Kind: "scout", Mode: "no-mistakes"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			instruction := notifyInstruction(test.meta)
+
+			// Assert
+			isTold := strings.Contains(instruction, "only once") && strings.Contains(instruction, "CI has ended, since a push while it runs cancels it after it billed its minutes")
+			if isTold != test.isTold {
+				t.Errorf("told never to push while its CI runs = %v, want %v:\n%s", isTold, test.isTold, instruction)
 			}
 		})
 	}

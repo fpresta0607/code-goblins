@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
-import { reportToCfo } from "./api";
+import { message, reportToCfo } from "./api";
+import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { Icon } from "./Icon";
-import { isDetachedHold } from "./terminalInput";
+import { putImage } from "./terminal-image";
+import { TerminalTextSheet } from "./terminal-text-sheet";
+import { TerminalTouchTools } from "./terminal-touch-tools";
+import { heldNotice, isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
+import { offerLink } from "./terminal-link";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
@@ -21,8 +26,10 @@ const MAX_RETRIES = 5;
 // terminal the CFO runs in. A terminal that ended says how in place of
 // Reconnect. hasMicrophone is false for a command's terminal on its card,
 // which shows the voice bubble only while the dictation keys are held.
-// reportAs names the terminal in what it reports to the CFO.
-export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean }) {
+// reportAs names the terminal in what it reports to the CFO. link, when set,
+// is the terminal deck's key it offers its link by (terminal-link.ts), so the
+// Messages view's box types through this terminal's own view.
+export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, link }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; link?: string }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -33,8 +40,10 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const harnessValue = useRef(harness);
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
-  // How the terminal ended, while its view is closed for that.
-  const [endedWhy, setEndedWhy] = useState("");
+  // Why the view closed, while it is closed, and whether its terminal ended,
+  // which no Reconnect brings back.
+  const [closedWhy, setClosedWhy] = useState("");
+  const [isEnded, setEnded] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -47,11 +56,29 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // shows the key was pressed (the Overlord, 2026-10-09, "enter to approve
   // in claude doesnt work").
   const [isUnread, setUnread] = useState(false);
+  // Why typing is held while the screen stays live, as while a review gate
+  // owns the goblin's work, which says so instead of closing the view
+  // (#1304); empty while typing is free.
+  const [heldWhy, setHeldWhy] = useState("");
   // Whether a key he typed was not sent, since the view had no connection
   // then, until a new connection is whole.
   const [isUnsent, setUnsent] = useState(false);
-  const dictation = useDictation((text) => current.current?.paste(text), instance);
+  // Whether the harness waits on an answer at a screen of its own.
+  const [isAsking, setAsking] = useState(false);
+  const dictation = useDictation((text, isSent) => { current.current?.paste(text); if (isSent) current.current?.enter(); }, instance);
   const dictate = dictation.key;
+  // What a touch tool or a pasted picture met, for a moment, and the
+  // terminal's text while it is laid out to select.
+  const [feedback, showFeedback] = useClickFeedback();
+  const [textSheet, setTextSheet] = useState<string | null>(null);
+  // A picture reaches the harness as a desktop paste's does: on this PC's
+  // clipboard, then the harness's image key.
+  const addImage = useCallback((picture: Blob) => {
+    showFeedback("Adding the picture");
+    putImage(picture, instance).then(() => { showFeedback(""); current.current?.pressImageKey(); }, (error: unknown) => showFeedback(message(error)));
+  }, [instance, showFeedback]);
+  const addImageValue = useRef(addImage);
+  useEffect(() => { addImageValue.current = addImage; }, [addImage]);
   useEffect(() => {
     shownValue.current = shown;
     for (const view of [current.current, staged.current]) {
@@ -93,9 +120,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setHasScreen(true);
         setHistoryEnd(null);
         setUnread(view.unread);
+        setHeldWhy(view.held);
+        setAsking(view.asking);
         setUnsent(false);
         setReconnecting(false);
-        setEndedWhy("");
+        setClosedWhy("");
+        setEnded(false);
         setPhase("live");
         if (shownValue.current && (wantFocus.current || hadKeyboard)) view.focus();
         wantFocus.current = false;
@@ -109,7 +139,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         }
         if (why && !isDetachedHold(why)) reportToCfo(reportAsValue.current, closedReason(code, why));
         setReconnecting(false);
-        setEndedWhy(ended(code) ? closedReason(code, why) : "");
+        setClosedWhy(closedReason(code, why));
+        setEnded(ended(code));
         setPhase("closed");
       },
       copied: () => {
@@ -120,9 +151,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       font: storeFontSize,
       dictate,
       harness: () => harnessValue.current,
+      image: (picture) => addImageValue.current(picture),
       reading: (end) => { if (current.current === view) setHistoryEnd(end); },
       unread: (unread) => { if (current.current === view) setUnread(unread); },
+      held: (reason) => { if (current.current === view) setHeldWhy(reason); },
       unsent: () => { if (current.current === view) setUnsent(true); },
+      asking: (asking) => { if (current.current === view) setAsking(asking); },
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -135,16 +169,28 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     };
   }, [query, instance, visible, attempt, dictate]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
+  useEffect(() => {
+    if (!link) return;
+    offerLink(link, {
+      phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, isAsking,
+      send: (text) => !!current.current && current.current.paste(text) && current.current.enter(),
+      escape: () => !!current.current?.escape(),
+    });
+    return () => offerLink(link, null);
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, isAsking]);
   return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
-    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{endedWhy ? <p>{endedWhy}</p> : <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
+    {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{closedWhy && <p>{closedWhy}</p>}{!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
+    {phase === "live" && heldWhy && <span className="terminal-state terminal-held" role="status"><span className="status-dot" />{heldNotice(heldWhy)}</span>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
     {phase !== "connecting" && isUnsent && <span className="terminal-state terminal-unsent" role="status"><span className="status-dot" />{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</span>}
-    {phase === "live" && isUnread && !isUnsent && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
+    {phase === "live" && isUnread && !isUnsent && !heldWhy && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
-    {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }} />}
-    {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
+    {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); current.current?.focus(); }} />}
+    {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }}
+      tools={<TerminalTouchTools events={{ text: (text) => current.current?.paste(text), image: addImage, copy: () => setTextSheet(current.current?.text() ?? ""), problem: showFeedback }} />} />}
+    {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

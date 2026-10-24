@@ -22,3 +22,13 @@ func hide(cmd *exec.Cmd) {
 		cmd.SysProcAttr.CreationFlags = windows.CREATE_NO_WINDOW
 	}
 }
+
+// detach starts cmd with no console where hide gave it a console of its own
+// with no window: such a console is a console host process, started with it
+// and ended with it. A start that shares this process's console is left
+// sharing it.
+func detach(cmd *exec.Cmd) {
+	if cmd.SysProcAttr.CreationFlags&windows.CREATE_NO_WINDOW != 0 {
+		cmd.SysProcAttr.CreationFlags = cmd.SysProcAttr.CreationFlags&^windows.CREATE_NO_WINDOW | windows.DETACHED_PROCESS
+	}
+}

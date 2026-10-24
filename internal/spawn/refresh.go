@@ -80,6 +80,9 @@ type AuthRefresher struct {
 	// the CFO, whose cfo auth makes the change. The Overlord's press on a
 	// connector card on the board names him.
 	By string
+	// Generation and Project bind a card's grant to the task it was drawn for.
+	Generation string
+	Project    string
 }
 
 func (r AuthRefresher) actor() string {
@@ -142,6 +145,39 @@ func (r AuthRefresher) GrantMCP(id string, servers []string) ([]string, error) {
 		return nil, err
 	}
 	return named, r.statusAfterChange(id, "credentials: "+r.actor()+" granted the MCP servers "+strings.Join(servers, ", ")+", so the task's next terminal is given "+strings.Join(named, ", "))
+}
+
+// SetCodexCredits records whether task id is authorized to spend paid Codex
+// credits, and says so in its status log. While it is, the supervisor keeps
+// the task's codex guard disarmed when Codex's included allowance is used up
+// (codexguard): it reads the record at its next fleet reading, within a
+// minute, which reaches every terminal of the task, the running one
+// included. It changes no other task, a helper the task started included.
+// The record is changed under the lock a switch and a resume hold from start
+// to end.
+func (r AuthRefresher) SetCodexCredits(id string, isAuthorized bool) error {
+	if err := state.ValidTaskID(id); err != nil {
+		return err
+	}
+	if _, err := state.ReadTaskMeta(r.StateDir, id); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("spawn: %s is not a running task, so it has no codex guard", id)
+	} else if err != nil {
+		return fmt.Errorf("spawn: read task metadata: %w", err)
+	}
+	err := r.recordLocked(id, func() error {
+		if err := state.WriteTaskCodexCredits(r.StateDir, id, isAuthorized); err != nil {
+			return fmt.Errorf("spawn: record the Codex credit authorization of %s: %w", id, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	line := "credentials: " + r.actor() + " authorized the task to spend paid Codex credits, so a Codex session its terminal starts while Codex's included allowance is used up runs, billing them"
+	if !isAuthorized {
+		line = "credentials: " + r.actor() + " withdrew the task's authorization to spend paid Codex credits, so its codex guard refuses a Codex session while Codex's included allowance is used up"
+	}
+	return r.statusAfterChange(id, line)
 }
 
 // RefreshProject regenerates auth.ps1 for every task whose metadata names
@@ -222,6 +258,9 @@ func (r AuthRefresher) RefreshTask(ctx context.Context, id string) (Refreshed, e
 		if current.TaskTmp == "" {
 			return fmt.Errorf("spawn: task %s has no tasktmp", id)
 		}
+		if r.Generation != "" && (current.SpawnGen != r.Generation || auth.ProjectName(current.Project) != r.Project) {
+			return errors.New("spawn: the task's generation or project changed; its credentials were not refreshed")
+		}
 		scope := auth.ProjectName(current.Project)
 		if scope == "" {
 			return fmt.Errorf("spawn: task %s names no project, so it has no credential scope", id)
@@ -277,6 +316,9 @@ func (r AuthRefresher) Grant(ctx context.Context, id string, services []string) 
 		current, err := state.ReadTaskMeta(r.StateDir, id)
 		if err != nil {
 			return fmt.Errorf("spawn: read task metadata: %w", err)
+		}
+		if r.Generation != "" && (current.SpawnGen != r.Generation || auth.ProjectName(current.Project) != r.Project) {
+			return errors.New("spawn: the task's generation or project changed; no service was granted")
 		}
 		if auth.ProjectName(current.Project) != scope {
 			return fmt.Errorf("spawn: task %s now records project %s, so it was not granted %s's services", id, auth.ProjectName(current.Project), scope)

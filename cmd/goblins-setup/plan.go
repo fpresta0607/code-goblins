@@ -10,7 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // Plan is what the window says before anything changes: the folder Code
@@ -31,23 +31,27 @@ type Plan struct {
 	DevDriveExplain string `json:"dev_drive_explain"`
 }
 
+// keptNote is what the window says of a home already in use outside the
+// standard folder, which the install keeps where it is.
+const keptNote = "You already run Code Goblins from this folder, so it is updated there and your goblins and their work stay as they are."
+
 // findPlan is the plan for this machine.
 func findPlan() (Plan, error) {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
 		return Plan{}, fmt.Errorf("LOCALAPPDATA is not set, so there is no folder to install Code Goblins in")
 	}
-	target, err := install.FindTarget(install.NewEnvStore(execx.OSRunner{}), filepath.Join(local, "CodeGoblins"))
+	target, err := installbase.FindTarget(installbase.NewEnvStore(execx.OSRunner{}), filepath.Join(local, "CodeGoblins"))
 	if err != nil {
 		return Plan{}, err
 	}
-	choice, err := install.ReadStartAtLogin(filepath.Join(target.Root, "state"))
+	choice, err := installbase.ReadStartAtLogin(filepath.Join(target.Root, "state"))
 	if err != nil {
 		return Plan{}, err
 	}
-	plan := Plan{Folder: target.Root, Update: target.Update, StartAtLogin: choice != install.StartAtLoginOff}
+	plan := Plan{Folder: target.Root, Update: target.Update, StartAtLogin: choice != installbase.StartAtLoginOff}
 	if target.Kept {
-		plan.Note = "You already run Code Goblins from this folder, so it is updated there and your goblins and their work stay as they are."
+		plan.Note = keptNote
 	}
 	config, err := home.ReadDevDriveConfig(target.Root)
 	if err != nil {

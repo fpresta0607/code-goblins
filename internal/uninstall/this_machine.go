@@ -11,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // ThisMachine is this machine, with the home an install wires in: the one
@@ -25,8 +26,8 @@ func ThisMachine() (Machine, error) {
 	if err != nil {
 		return Machine{}, err
 	}
-	env := install.NewEnvStore(execx.OSRunner{})
-	target, err := install.FindTarget(env, standard)
+	env := installbase.NewEnvStore(execx.OSRunner{})
+	target, err := installbase.FindTarget(env, standard)
 	if err != nil {
 		return Machine{}, err
 	}
@@ -49,7 +50,7 @@ func ThisMachine() (Machine, error) {
 	// A machine whose user environment is a file stands in for this one, as
 	// a test's does: its uninstall reaches none of this machine's own
 	// credentials, registry, temp folder or administrator.
-	standIn := os.Getenv(install.UserEnvFileVariable) != ""
+	standIn := os.Getenv(installbase.UserEnvFileVariable) != ""
 	service := install.Service{
 		Root:         target.Root,
 		UserSettings: settings,

@@ -16,13 +16,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/voice"
 )
-
-// homeVariable is the variable that tells cfo where the fleet lives, and the
-// one the installed hooks resolve the binary through.
-const homeVariable = "CFO_HOME"
 
 // pathVariable is the user PATH.
 const pathVariable = "Path"
@@ -50,7 +47,7 @@ type Service struct {
 	// hooks duplicate the ones the CFO's terminal starts with.
 	RepoSettings string
 	// Env is the user-scope environment.
-	Env EnvStore
+	Env installbase.EnvStore
 	// ProjectsRoot is the folder to record as the projects root. Empty leaves
 	// whatever is recorded alone, so a plain re-install never forgets it.
 	ProjectsRoot string
@@ -115,7 +112,7 @@ func (s Service) Install(out io.Writer) error {
 	// hooks block this package cannot understand is not something to guess
 	// at - and refusing there still leaves the environment as it was. A home
 	// outside a checkout is written after them, for the same reason.
-	if _, _, err := s.Env.Get(homeVariable); err != nil {
+	if _, _, err := s.Env.Get(installbase.HomeVariable); err != nil {
 		return err
 	}
 	if s.ProjectsRoot != "" {
@@ -169,7 +166,7 @@ func (s Service) Install(out io.Writer) error {
 func (s Service) Uninstall(out io.Writer) error {
 	report := &reporter{out: out}
 
-	if _, _, err := s.Env.Get(homeVariable); err != nil {
+	if _, _, err := s.Env.Get(installbase.HomeVariable); err != nil {
 		return err
 	}
 	if _, err := s.formerHome(); err != nil {
@@ -373,15 +370,15 @@ func (s Service) finish(report *reporter, idleLine string) error {
 }
 
 func (s Service) setHome(report *reporter) error {
-	current, set, err := s.Env.Get(homeVariable)
+	current, set, err := s.Env.Get(installbase.HomeVariable)
 	if err != nil {
 		return err
 	}
-	if set && sameDirectory(current, s.Root) {
+	if set && installbase.SameDirectory(current, s.Root) {
 		report.same("CFO_HOME", "already "+current)
 		return nil
 	}
-	if err := s.Env.Set(homeVariable, s.Root); err != nil {
+	if err := s.Env.Set(installbase.HomeVariable, s.Root); err != nil {
 		return err
 	}
 	report.envChanged = true
@@ -394,7 +391,7 @@ func (s Service) setHome(report *reporter) error {
 }
 
 func (s Service) unsetHome(report *reporter) error {
-	current, set, err := s.Env.Get(homeVariable)
+	current, set, err := s.Env.Get(installbase.HomeVariable)
 	if err != nil {
 		return err
 	}
@@ -402,7 +399,7 @@ func (s Service) unsetHome(report *reporter) error {
 		report.same("CFO_HOME", "not set")
 		return nil
 	}
-	if err := s.Env.Unset(homeVariable); err != nil {
+	if err := s.Env.Unset(installbase.HomeVariable); err != nil {
 		return err
 	}
 	report.envChanged = true
@@ -422,7 +419,7 @@ func (s Service) setProjectsRoot(report *reporter) error {
 	case s.ProjectsRoot == "":
 		report.same("projects", "root not set; `cfo install --projects-root <dir>` lets --project take a bare name")
 		return nil
-	case set && sameDirectory(current, s.ProjectsRoot):
+	case set && installbase.SameDirectory(current, s.ProjectsRoot):
 		report.same("projects", "root already "+current)
 		return nil
 	}
@@ -461,7 +458,7 @@ func (s Service) unsetProjectsRoot(report *reporter) error {
 // already open when `cfo install --projects-root` ran keeps its old
 // environment for as long as it lives, and the CFO's own session is exactly
 // that.
-func projectsRoot(env EnvStore) (string, error) {
+func projectsRoot(env installbase.EnvStore) (string, error) {
 	if root := strings.TrimSpace(os.Getenv(ProjectsRootVariable)); root != "" {
 		return root, nil
 	}
@@ -474,19 +471,19 @@ func projectsRoot(env EnvStore) (string, error) {
 
 // MachineProjectsRoot is projectsRoot against this machine's own user scope.
 func MachineProjectsRoot() (string, error) {
-	return projectsRoot(NewEnvStore(execx.OSRunner{}))
+	return projectsRoot(installbase.NewEnvStore(execx.OSRunner{}))
 }
 
 // SetMachineProjectsRoot records root as this machine's projects root in the
 // user scope, as cfo install --projects-root does.
 func SetMachineProjectsRoot(root string) error {
-	return NewEnvStore(execx.OSRunner{}).Set(ProjectsRootVariable, root)
+	return installbase.NewEnvStore(execx.OSRunner{}).Set(ProjectsRootVariable, root)
 }
 
 // AddToUserPath appends dir to this machine's user PATH unless the PATH holds
 // it already, keeping every entry there as it is written.
 func AddToUserPath(dir string) error {
-	env := NewEnvStore(execx.OSRunner{})
+	env := installbase.NewEnvStore(execx.OSRunner{})
 	raw, _, err := env.Get(pathVariable)
 	if err != nil {
 		return err

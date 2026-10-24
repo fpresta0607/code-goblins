@@ -52,6 +52,9 @@ type Dispatch struct {
 	Idle func(context.Context, state.TaskMeta) (bool, error)
 	// Memory reads the machine's physical memory, commit and kernel pools.
 	Memory func() (Memory, error)
+	// PoolTags reads what each of the kernel's pool tags holds, for the
+	// record of the pools (kernel_pools.go); nil keeps no record.
+	PoolTags func() ([]PoolTag, error)
 	// Disk reads the free space of the home's drive and the disk floor; nil
 	// reads the machine's.
 	Disk func() (Disk, error)
@@ -70,9 +73,10 @@ type Dispatch struct {
 // Memory is the machine's available physical memory and available commit,
 // in bytes, beside the fleet's floor, under which nothing starts, and the mark
 // at which the CFO starts the next task: a start needs both to reach them.
-// The kernel's pools ride along, since a paged pool that keeps growing is a
-// driver leaking memory, and so do the apps holding the most commit once
-// commit is the tighter of the two.
+// The kernel's pools ride along, since a pool that keeps growing is a driver
+// leaking memory, with the line past which the PC is better restarted
+// (pc_restart.go) and the tags that grew most since the sign-in began, and so
+// do the apps holding the most commit once commit is the tighter of the two.
 type Memory struct {
 	Available       uint64         `json:"available"`
 	Total           uint64         `json:"total"`
@@ -80,6 +84,8 @@ type Memory struct {
 	CommitLimit     uint64         `json:"commit_limit"`
 	PagedPool       uint64         `json:"paged_pool"`
 	NonpagedPool    uint64         `json:"nonpaged_pool"`
+	PoolLine        uint64         `json:"pool_line"`
+	PoolGrowth      []PoolGrowth   `json:"pool_growth,omitempty"`
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
@@ -109,6 +115,7 @@ type startPlan struct {
 	// isRoot is a root issue the supervisor picked up, which starts behind
 	// every other queued task.
 	isRoot bool
+	root   *rootStart
 }
 
 func (p startPlan) args() []string {
@@ -240,6 +247,20 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 		return err
 	}
 	plan.isOverlord = isOverlord
+	if plan.root != nil {
+		// GitHub's answer may be cached, but the local project mapping must
+		// still match at the boundary before any worktree or harness exists.
+		ctx, cancel := context.WithTimeout(context.Background(), ghCallTimeout)
+		err := s.rootRepository(ctx, *plan.root)
+		cancel()
+		if err != nil {
+			problem := *plan.root
+			problem.problem = bounded(err.Error(), 500)
+			reason := problem.refusal()
+			s.keepRootStart(*plan.root, "identity", reason)
+			return StartRefusal{Reason: reason, Waits: true}
+		}
+	}
 	if short := memory.shortfall(); short != "" {
 		return StartRefusal{Reason: short + "; Start needs 5 GB to keep the 4 GB floor", Passing: true}
 	}
@@ -387,6 +408,20 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	}
 	if plan.project == "" {
 		return startPlan{}, StartRefusal{Reason: "The brief for " + id + " names no project"}
+	}
+	if root := rootForStart(h, queued, plan); root != nil {
+		plan.isRoot = true
+		plan.root = root
+		reason := "Root issue awaits verification of its recorded identity"
+		if root.problem != "" {
+			reason = root.refusal()
+		}
+		if reading.root != nil {
+			reason = reading.root(*root)
+		}
+		if reason != "" {
+			return startPlan{}, StartRefusal{Reason: reason, Waits: true}
+		}
 	}
 	settings := queuedEngine(row, briefSettings(brief))
 	plan.harness, plan.model, plan.effort, plan.mode = settings.harness, settings.model, settings.effort, settings.mode

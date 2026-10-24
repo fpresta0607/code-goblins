@@ -16,13 +16,14 @@ type registeredHook struct {
 	Command string
 	Args    []string
 	Shell   bool
+	Timeout int
 }
 
 // terminalHooks is every hook in the settings a Claude Code CFO's terminal
 // starts with, for the home at root.
 func terminalHooks(t *testing.T, root string) []registeredHook {
 	t.Helper()
-	settings, err := CFOSettings(root)
+	settings, err := CFOSettings(root, filepath.Join(root, "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +46,7 @@ func registeredHooks(t *testing.T, path string) []registeredHook {
 			Hooks   []struct {
 				Command string    `json:"command"`
 				Args    *[]string `json:"args"`
+				Timeout int       `json:"timeout"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -55,7 +57,7 @@ func registeredHooks(t *testing.T, path string) []registeredHook {
 	for event, groups := range document.Hooks {
 		for _, group := range groups {
 			for _, entry := range group.Hooks {
-				hook := registeredHook{Event: event, Matcher: group.Matcher, Command: entry.Command, Shell: entry.Args == nil}
+				hook := registeredHook{Event: event, Matcher: group.Matcher, Command: entry.Command, Shell: entry.Args == nil, Timeout: entry.Timeout}
 				if entry.Args != nil {
 					hook.Args = *entry.Args
 				}
@@ -150,6 +152,9 @@ func TestTheCFOsHooksRunTheHomesBinaryWithoutAShell(t *testing.T) {
 	for _, hook := range hooks {
 		if hook.Command != binary {
 			t.Errorf("%s hook runs %q, want the home's %s", hook.Event, hook.Command, binary)
+			continue
+		}
+		if isNativeHook(hook) {
 			continue
 		}
 		if hook.Shell || len(hook.Args) != 2 || hook.Args[0] != "hook" {

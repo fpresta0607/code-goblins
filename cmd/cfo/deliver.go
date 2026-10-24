@@ -290,6 +290,9 @@ func runPRMerge(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if len(proof.RateLimited) > 0 {
+		fmt.Fprintf(stdout, "cfo pr merge: the host rate limited the deploy of %s, which never built this head and counts as not run\n", strings.Join(proof.RateLimited, ", "))
+	}
 	queue, err := readMergeQueue(ctx, url, commands)
 	if err != nil {
 		fmt.Fprintln(stderr, "cfo pr merge: "+err.Error())

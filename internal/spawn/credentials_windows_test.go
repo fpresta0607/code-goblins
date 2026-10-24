@@ -146,13 +146,43 @@ func TestASpawnGivesATaskOnlyTheServiceItsBriefNames(t *testing.T) {
 		}
 	}
 	instruction := delivered(t, submittedLines(t, f, 1)[0])
-	for _, want := range []string{"database", "blocked report", "never ask for a value"} {
+	for _, want := range []string{"database", "auth request --project", "--grant <service>", "never ask for a value"} {
 		if !strings.Contains(instruction, want) {
 			t.Errorf("instruction = %q, want %q: the goblin is told what it carries and how to ask for more", instruction, want)
 		}
 	}
 	holdsNoStandInValue(t, "the spawn's output", result.Output)
 	holdsNoStandInValue(t, "the task's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
+}
+
+func TestACardGrantRequiresItsRecordedGenerationAndProject(t *testing.T) {
+	for _, scenario := range []string{"replaced generation", "different project"} {
+		t.Run(scenario, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t)
+			store := giveStandInCredentials(t, f)
+			meta := recordedTask(t, f, "names-one", true, "database")
+			meta.SpawnGen = "current"
+			if err := state.WriteTaskMeta(f.stateDir, meta); err != nil {
+				t.Fatal(err)
+			}
+			refresher := AuthRefresher{StateDir: f.stateDir, DataDir: f.dataDir, Store: store, Generation: "current", Project: auth.ProjectName(meta.Project)}
+			if scenario == "replaced generation" {
+				refresher.Generation = "old"
+			} else {
+				refresher.Project = "elsewhere"
+			}
+
+			// Act
+			_, _, grantErr := refresher.Grant(context.Background(), meta.ID, []string{"payments"})
+
+			// Assert
+			after, err := state.ReadTaskMeta(f.stateDir, meta.ID)
+			if grantErr == nil || err != nil || !slices.Equal(after.Credentials, []string{"database"}) {
+				t.Fatalf("grant = %v, carried %v (%v)", grantErr, after.Credentials, err)
+			}
+		})
+	}
 }
 
 func TestASpawnGivesATaskThatNamesNoneNoCredential(t *testing.T) {

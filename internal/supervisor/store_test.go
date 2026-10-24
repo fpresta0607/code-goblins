@@ -236,7 +236,7 @@ func TestIngestPreservesStorageAndMetadataFailuresForRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	restore := blockStoreWrites(t, s)
-	if err := s.Ingest(); err == nil {
+	if _, err := s.Ingest(); err == nil {
 		t.Fatal("storage failure was hidden")
 	}
 	restore()
@@ -244,7 +244,7 @@ func TestIngestPreservesStorageAndMetadataFailuresForRetry(t *testing.T) {
 	if err := os.Rename(meta, meta+".held"); err != nil {
 		t.Fatal(err)
 	}
-	_ = s.Ingest()
+	_, _ = s.Ingest()
 	files, _ := os.ReadDir(nativehook.SpoolDir(h.State))
 	if len(files) != 1 {
 		t.Fatal("retryable event was discarded")
@@ -252,7 +252,7 @@ func TestIngestPreservesStorageAndMetadataFailuresForRetry(t *testing.T) {
 	if err := os.Rename(meta+".held", meta); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Snapshot().Sessions) != 1 {
@@ -276,7 +276,7 @@ func TestIngestOrdersWholeBoundedBacklogBeforeBatching(t *testing.T) {
 		}
 	}
 	for range 3 {
-		if err := s.Ingest(); err != nil {
+		if _, err := s.Ingest(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -365,14 +365,14 @@ func TestStopContinuationAndSecondStopWithinSameTurn(t *testing.T) {
 	now := time.Now()
 	var stops []nativehook.Event
 	for i, kind := range []string{"SessionStart", "Stop", "PostToolUse", "Stop"} {
-		e := event(t, h, kind, "continuation", "same-turn", now.Add(time.Duration(i)*time.Millisecond))
+		e := event(t, h, kind, "continuation", "same-turn", now.Add(time.Duration(i)*time.Millisecond)) // stall-accepted: each event's timestamp, a millisecond after the one before, which no wait compares with the clock.
 		if kind == "Stop" {
 			stops = append(stops, e)
 		}
 		if err := nativehook.Spool(h.State, e); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Ingest(); err != nil {
+		if _, err := s.Ingest(); err != nil {
 			t.Fatal(err)
 		}
 		if kind == "PostToolUse" && s.Snapshot().Sessions["codex/continuation"].Phase != "active" {
@@ -391,7 +391,7 @@ func TestStopContinuationAndSecondStopWithinSameTurn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Snapshot().Actions) != count {
@@ -559,7 +559,7 @@ func TestIngestQuarantinesMalformedWithoutLosingValidEvents(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), "broken.event.json"), []byte(`{"schema":`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	v := s.Snapshot()
@@ -593,16 +593,106 @@ func TestIngestRecoversConcurrentSpoolCapacityOvershoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), "z.event.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Snapshot().Sessions) != 0 {
 		t.Fatal("missing start was invented")
 	}
-	if err := s.Ingest(); err != nil {
+	if _, err := s.Ingest(); err != nil {
 		t.Fatal(err)
 	}
 	if s.Snapshot().Sessions["codex/overflow"].Phase != "active" {
 		t.Fatal("bounded read window never reached deferred start")
+	}
+}
+
+// The board sends a message to a goblin naming no generation, and the store
+// records the goblin's. A resend after a lost answer names none either, so it
+// is the same message, while other words under its ID are refused.
+func TestAResentGoblinMessageUnderItsIDReturnsTheFirstAction(t *testing.T) {
+	for _, resend := range []struct {
+		name    string
+		text    string
+		isFirst bool
+	}{
+		{name: "same words", text: "use the staging database", isFirst: true},
+		{name: "other words", text: "use the production database"},
+	} {
+		t.Run(resend.name, func(t *testing.T) {
+			// Arrange
+			s, _ := testStore(t)
+			first, err := s.Queue(Action{ID: "message-1", Kind: "message", TaskID: "task-1", Text: "use the staging database"})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			again, err := s.Queue(Action{ID: "message-1", Kind: "message", TaskID: "task-1", Text: resend.text})
+
+			// Assert
+			if first.Generation != "g1" {
+				t.Fatalf("the first message recorded generation %q, not the goblin's g1", first.Generation)
+			}
+			if resend.isFirst {
+				if err != nil {
+					t.Fatalf("the resend was refused: %v", err)
+				}
+				if again.ID != first.ID || again.Text != first.Text || again.Generation != first.Generation || again.Status != first.Status {
+					t.Fatalf("the resend returned %+v, not the first action %+v", again, first)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "already used for another action") {
+				t.Fatalf("other words under the same ID were not refused: %v", err)
+			}
+			if count := len(s.Snapshot().Actions); count != 1 {
+				t.Fatalf("the store holds %d actions, not the one message", count)
+			}
+		})
+	}
+}
+
+// A new action is never refused because deliveries nobody confirmed fill the
+// action bound: with every held action uncertain, a message, a clear and a
+// delete each take the place of the oldest one no longer watched for a late
+// take, and one still watched stays.
+func TestFullActionQueueDropsTheOldestUnconfirmedDelivery(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action Action
+	}{
+		{"a message to the CFO", Action{ID: "new-action", Kind: "message", Text: "Hold the merge until I say."}},
+		{"a clear of a closed question", Action{ID: "new-action", Kind: "question_clear", QuestionID: "question-1", Generation: strings.Repeat("c", 64)}},
+		{"a delete of a kept message", Action{ID: "new-action", Kind: "message_withdraw", TaskID: "task-1", Text: "use the staging database"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task-1", Generation: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: overlordWords + "use the staging database"}); err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now().UTC().Add(-time.Hour)
+			store.mu.Lock()
+			store.db.Questions = append(store.db.Questions, Question{ID: "question-1", Identity: strings.Repeat("c", 64), Text: "Ship it?", Status: "failed", CreatedAt: start})
+			for i := range maxActions {
+				store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("unconfirmed-%03d", i), Kind: "cfo_answer", Text: "Yes", Status: "uncertain", CreatedAt: start.Add(time.Duration(i) * time.Second)})
+			}
+			store.db.Actions[0].Awaiting = &Awaiting{Host: "cfo-host", Since: start, QuietSince: start}
+			store.mu.Unlock()
+
+			// Act
+			queued, err := store.Queue(tc.action)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("a new action beside %d unconfirmed ones = %v, want it queued", maxActions, err)
+			}
+			got := store.Snapshot().Actions
+			if len(got) != maxActions || got[0].ID != "unconfirmed-000" || got[len(got)-1].ID != queued.ID {
+				t.Fatalf("held %d actions, first %s, last %s; want %d with the watched one kept and the new one last", len(got), got[0].ID, got[len(got)-1].ID, maxActions)
+			}
+			if slices.ContainsFunc(got, func(a Action) bool { return a.ID == "unconfirmed-001" }) {
+				t.Fatal("unconfirmed-001 was kept; want the oldest unconfirmed action no longer watched dropped")
+			}
+		})
 	}
 }

@@ -2,12 +2,15 @@ package tickets
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // RootLabel is on every issue filed for a root issue the fleet met while it
@@ -23,6 +26,8 @@ const (
 // the root a recurrence is matched by. It is an HTML comment, which GitHub
 // does not show.
 var rootMarker = regexp.MustCompile(`<!-- ops-root: (.+?) -->`)
+
+var rootSourceMarker = regexp.MustCompile(`<!-- ops-source: ([a-f0-9]{64}) -->`)
 
 // Root is a root issue to file: its title, what happens and why, the key a
 // recurrence is matched by, and the evidence of this sighting.
@@ -63,7 +68,10 @@ type OpenRoot struct {
 	Body   string
 	URL    string
 	// Key is the root its marker names, or "" for an issue filed by hand.
-	Key       string
+	Key string
+	// Source is the source repository's opaque identity, so a shared issue
+	// repository keeps projects distinct without publishing private names.
+	Source    string
 	Assignees []string
 	Labels    []string
 	// Association is how its author stands to the repository, as GitHub
@@ -71,13 +79,59 @@ type OpenRoot struct {
 	Association string
 }
 
-// matches says the open issue is the one root belongs to: its marker names
-// root's key, or, filed by hand without one, its title is root's.
-func (o OpenRoot) matches(root Root) bool {
-	if o.Key != "" {
-		return o.Key == root.RootKey()
+// matches keeps an explicit test key authoritative, but also recognizes a
+// manual report whose title names the test and whose text pairs it with one
+// package. Merely mentioning a package elsewhere does not identify the test.
+func (o OpenRoot) matches(root Root, repository string) bool {
+	if o.Key != "" && o.Key == root.RootKey() {
+		return true
 	}
-	return strings.EqualFold(strings.Join(strings.Fields(o.Title), " "), strings.Join(strings.Fields(root.Title), " "))
+	if o.Key == "" && strings.EqualFold(strings.Join(strings.Fields(o.Title), " "), strings.Join(strings.Fields(root.Title), " ")) {
+		return true
+	}
+	if strings.HasPrefix(o.Key, "test:") {
+		return false
+	}
+	test, isTest := strings.CutPrefix(root.RootKey(), "test:")
+	identity := strings.Fields(test)
+	if !isTest || len(identity) != 2 || !slices.Contains(rootIdentifiers(o.Title), identity[1]) {
+		return false
+	}
+	packagePath, isRepositoryPackage := strings.CutPrefix(identity[0], "github.com/"+strings.ToLower(repository)+"/")
+	words := rootIdentifiers(o.Title + "\n" + o.Body)
+	hasMatch := false
+	for index, word := range words {
+		if word != identity[1] {
+			continue
+		}
+		var packages []string
+		if index > 0 && strings.Contains(words[index-1], "/") {
+			packages = append(packages, words[index-1])
+		}
+		if index+1 < len(words) && strings.Contains(words[index+1], "/") {
+			packages = append(packages, words[index+1])
+		}
+		if index+2 < len(words) && words[index+1] == "in" && strings.Contains(words[index+2], "/") {
+			packages = append(packages, words[index+2])
+		}
+		for _, named := range packages {
+			if named != identity[0] && !(isRepositoryPackage && named == packagePath) {
+				return false
+			}
+			hasMatch = true
+		}
+	}
+	return hasMatch
+}
+
+func rootIdentifiers(text string) []string {
+	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && !strings.ContainsRune("_./-", r)
+	})
+	for index, word := range words {
+		words[index] = strings.TrimSuffix(word, ".")
+	}
+	return words
 }
 
 // FileRoot files root on repository, owner/name: it reads the open issues
@@ -85,7 +139,9 @@ func (o OpenRoot) matches(root Root) bool {
 // with the date and the new evidence, else it opens an issue with the label,
 // creating the label the first time. A read that fails files nothing, so a
 // root is never filed twice because its issue could not be seen.
-func (g GitHub) FileRoot(ctx context.Context, repository string, root Root, now time.Time) (FiledRoot, error) {
+// sourceRepository names the code repository for relative test identities,
+// which stays the same when issues are filed on another repository.
+func (g GitHub) FileRoot(ctx context.Context, repository, sourceRepository string, root Root, now time.Time) (FiledRoot, error) {
 	if strings.TrimSpace(root.Title) == "" {
 		return FiledRoot{}, errors.New("a root issue needs a title")
 	}
@@ -93,8 +149,16 @@ func (g GitHub) FileRoot(ctx context.Context, repository string, root Root, now 
 	if err != nil {
 		return FiledRoot{}, err
 	}
+	source := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.ToLower(sourceRepository))))
 	for _, issue := range open {
-		if !issue.matches(root) {
+		if issue.Source != "" {
+			if issue.Source != source {
+				continue
+			}
+		} else if !strings.EqualFold(repository, sourceRepository) {
+			continue
+		}
+		if !issue.matches(root, sourceRepository) {
 			continue
 		}
 		seen := strings.TrimSpace(root.Evidence)
@@ -119,6 +183,7 @@ func (g GitHub) FileRoot(ctx context.Context, repository string, root Root, now 
 		body += "\n\n## Evidence\n\n" + now.UTC().Format("2006-01-02 15:04Z") + ": " + evidence
 	}
 	body = strings.TrimSpace(body) + "\n\n<!-- ops-root: " + root.RootKey() + " -->\n"
+	body += "<!-- ops-source: " + source + " -->\n"
 	out, err := g.api(ctx, "POST", "repos/"+repository+"/issues", "title="+strings.TrimSpace(root.Title), "body="+body, "labels[]="+RootLabel)
 	if err != nil {
 		return FiledRoot{}, err
@@ -158,6 +223,9 @@ func (g GitHub) OpenRoots(ctx context.Context, repository string) ([]OpenRoot, e
 			if marker := rootMarker.FindStringSubmatch(issue.Body); marker != nil {
 				root.Key = marker[1]
 			}
+			if marker := rootSourceMarker.FindStringSubmatch(issue.Body); marker != nil {
+				root.Source = marker[1]
+			}
 			for _, assignee := range issue.Assignees {
 				root.Assignees = append(root.Assignees, assignee.Login)
 			}
@@ -173,17 +241,30 @@ func (g GitHub) OpenRoots(ctx context.Context, repository string) ([]OpenRoot, e
 	return nil, fmt.Errorf("%s has more than %d open %s issues, so they cannot all be read", repository, maxPageRounds*100, RootLabel)
 }
 
-// IsPublic reads whether anyone can see repository, owner/name.
-func (g GitHub) IsPublic(ctx context.Context, repository string) (bool, error) {
+// Repository is what GitHub says of a repository: the account or
+// organization that owns it, whether anyone can see it, and whether it
+// takes issues.
+type Repository struct {
+	Owner     string
+	IsPublic  bool
+	HasIssues bool
+}
+
+// ReadRepository reads what GitHub says of repository, owner/name.
+func (g GitHub) ReadRepository(ctx context.Context, repository string) (Repository, error) {
 	out, err := g.api(ctx, "GET", "repos/"+repository)
 	if err != nil {
-		return false, err
+		return Repository{}, err
 	}
 	var answer struct {
-		Private *bool `json:"private"`
+		Owner struct {
+			Login string `json:"login"`
+		} `json:"owner"`
+		Private   *bool `json:"private"`
+		HasIssues *bool `json:"has_issues"`
 	}
-	if err := json.Unmarshal(out, &answer); err != nil || answer.Private == nil {
-		return false, fmt.Errorf("GitHub did not say whether %s is private: %v", repository, err)
+	if err := json.Unmarshal(out, &answer); err != nil || answer.Owner.Login == "" || answer.Private == nil || answer.HasIssues == nil {
+		return Repository{}, fmt.Errorf("GitHub did not say whose %s is, whether it is private and whether it takes issues: %v", repository, err)
 	}
-	return !*answer.Private, nil
+	return Repository{Owner: answer.Owner.Login, IsPublic: !*answer.Private, HasIssues: *answer.HasIssues}, nil
 }

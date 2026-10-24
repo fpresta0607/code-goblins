@@ -324,13 +324,16 @@ func (p *wakeProof) expectCompactHooks(t *testing.T, configDir string) {
 // scratch folder for this invocation only, so no trust is recorded anywhere.
 func (p *wakeProof) startCompactCFO(t *testing.T) host.Record {
 	prompt := "You stand in for the CFO of a scratch Code Goblins home in an automated test. Use the shell only as told. First run the command cfo register then reply standing by and end your turn. After that, every time a line starting with cfo watcher wake reaches you, run cfo drain, then run the WAKE_ACK_REQUIRED command it prints exactly as printed, adding --ack-blocking only if it is refused, then reply with one short line naming each drained record by kind and key, and end your turn. Answer anything else in one short line without running a command. Never run cfo reap, and run no other command and change no file."
+	screen, err := cfoScreenArguments(p.cfo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var args []string
-	var err error
 	switch p.cfo {
 	case "codex":
-		args, err = spawn.NativeProgram("codex", "--no-daemon", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "-m", proofModel("codex"), prompt)
+		args, err = spawn.NativeProgram("codex", slices.Concat(screen, []string{"--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust", "-m", proofModel("codex"), prompt})...)
 	case "pi":
-		args, err = spawn.NativeProgram("pi", "--approve", prompt)
+		args, err = spawn.NativeProgram("pi", slices.Concat([]string{"--approve"}, screen, []string{prompt})...)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -373,6 +376,7 @@ func (p *wakeProof) dismissOptionalNotices(ctx context.Context, record host.Reco
 		select {
 		case <-ctx.Done():
 			return
+		// stall-accepted: running out only looks at the screen again, which is the loop's passing path.
 		case <-time.After(2 * time.Second):
 		}
 	}

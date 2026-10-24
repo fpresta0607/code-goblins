@@ -15,6 +15,7 @@ import (
 // until someone runs it, so none becomes a tier here. It names credentials
 // and never holds one.
 func TestTheDraftedRecordHoldsWhatWasProvenAndNoValue(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	secret := "sk_live_" + strings.Repeat("a1B2", 8)
 	f := newFixture(t, map[string]string{
@@ -58,6 +59,7 @@ func TestTheDraftedRecordHoldsWhatWasProvenAndNoValue(t *testing.T) {
 // A record that is there keeps what it holds: the draft fills only what it
 // leaves empty, so routing a person tuned is never drafted away.
 func TestTheDraftKeepsWhatAnExistingRecordHolds(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{
 		".no-mistakes.yaml":    "commands:\n  test: \"python scripts/gate_test.py\"\n",
@@ -89,6 +91,7 @@ const scripts = `{"scripts":{"cms:validate":"node validate.mjs","test":"node --t
 // command, one command for each part, then the test commands the workflows
 // run, then those the instruction files name, and the report says which.
 func TestTheDraftPassesTheRecordAreaOncePlaced(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name    string
 		tracked map[string]string
@@ -129,6 +132,7 @@ func TestTheDraftPassesTheRecordAreaOncePlaced(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			// Arrange
 			f := newFixture(t, test.tracked)
 
@@ -157,6 +161,7 @@ func TestTheDraftPassesTheRecordAreaOncePlaced(t *testing.T) {
 // Where a repository names no test command anywhere, there is none to vouch
 // for, and the report says so in place of drafting a record that would fail.
 func TestADraftWithNoVerificationCommandSaysWhy(t *testing.T) {
+	t.Parallel()
 	// Arrange
 	f := newFixture(t, map[string]string{"AGENTS.md": "Lint with `npm run lint`.\n", "package.json": scripts})
 

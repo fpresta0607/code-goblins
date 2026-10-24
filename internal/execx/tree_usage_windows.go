@@ -11,12 +11,17 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // openProcess opens a job member, and a test makes one this process may not
 // open without the privilege that would let it open any.
 var openProcess = windows.OpenProcess
+
+// jobProcessIDs reads a job's members, and a test makes it count one more
+// than it lists, as Windows does while a process exits.
+var jobProcessIDs = proc.JobProcessIDs
 
 var (
 	usageKernel           = windows.NewLazySystemDLL("kernel32.dll")
@@ -34,7 +39,7 @@ type jobMemoryUsage struct {
 }
 
 // jobMemoryLimit bounds how long a job's memory is read again while each read
-// cannot be so, as proc.JobProcessIDs bounds its reads of the job's members.
+// cannot be so.
 const jobMemoryLimit = 250 * time.Millisecond
 
 // queryJobMemory reads the job's commitment now and its peak, and
@@ -44,12 +49,12 @@ var (
 	queryJobMemory = func(job windows.Handle) (jobMemoryUsage, error) {
 		var memory jobMemoryUsage
 		const jobObjectMemoryUsageInformation = 28
-		err := windows.QueryInformationJobObject(job, jobObjectMemoryUsageInformation, uintptr(unsafe.Pointer(&memory)), uint32(unsafe.Sizeof(memory)), nil)
+		err := proc.QueryJobInformation(job, jobObjectMemoryUsageInformation, unsafe.Pointer(&memory), unsafe.Sizeof(memory))
 		return memory, err
 	}
 	queryJobPeak = func(job windows.Handle) (uint64, error) {
 		var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-		err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil)
+		err := proc.QueryJobInformation(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits))
 		return uint64(limits.PeakJobMemoryUsed), err
 	}
 )
@@ -81,8 +86,9 @@ func (t *Tree) Usage() (TreeUsage, error) {
 // jobUsage reads the job's accounting and memory until the read can be so,
 // for at most jobMemoryLimit, past which the job is unreadable. A read cannot
 // be so with no commitment while a member runs, with no peak once a process
-// ran, or with a peak under one read before, since a peak never falls:
-// Windows was seen to return nothing for both with a member running.
+// ran, or with a peak under one read before, since a peak never falls: a
+// read once returned nothing for both with a member running, as a buffer the
+// stack moved away from reads (proc.QueryJobInformation).
 func (t *Tree) jobUsage() (TreeUsage, error) {
 	if t.isDone {
 		return TreeUsage{}, errors.New("execx: job accounting is closed")
@@ -108,7 +114,7 @@ func (t *Tree) jobUsage() (TreeUsage, error) {
 // cannot be so, or nothing. The peak is the higher of the two Windows keeps.
 func (t *Tree) readJob() (TreeUsage, string, error) {
 	var accounting jobAccounting
-	if err := windows.QueryInformationJobObject(t.job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+	if err := proc.QueryJobInformation(t.job, windows.JobObjectBasicAccountingInformation, unsafe.Pointer(&accounting), unsafe.Sizeof(accounting)); err != nil {
 		return TreeUsage{}, "", fmt.Errorf("execx: read job accounting: %w", err)
 	}
 	memory, err := queryJobMemory(t.job)
@@ -138,7 +144,7 @@ func (t *Tree) readJob() (TreeUsage, string, error) {
 // privateWorkingSet sums the private working set of the job's members, and
 // counts the members this process may not read, which the sum leaves out.
 func (t *Tree) privateWorkingSet() (total uint64, unreadable uint32, err error) {
-	ids, err := t.memberIDs()
+	ids, _, err := t.memberIDs()
 	if err != nil {
 		return 0, 0, err
 	}
@@ -156,14 +162,14 @@ func (t *Tree) privateWorkingSet() (total uint64, unreadable uint32, err error) 
 	return total, unreadable, nil
 }
 
-// memberIDs reads the ids of the processes the job holds now, as
-// proc.JobProcessIDs reads them: never a list Windows counted otherwise.
-func (t *Tree) memberIDs() ([]uint32, error) {
-	ids, err := proc.JobProcessIDs(syscall.Handle(t.job))
+// memberIDs reads the ids of the processes the job lists now, and how many
+// more it counts than it lists, as proc.JobProcessIDs reads them.
+func (t *Tree) memberIDs() (ids []uint32, unlisted uint32, err error) {
+	ids, unlisted, err = jobProcessIDs(syscall.Handle(t.job))
 	if err != nil {
-		return nil, fmt.Errorf("execx: read job members: %w", err)
+		return nil, 0, fmt.Errorf("execx: read job members: %w", err)
 	}
-	return ids, nil
+	return ids, unlisted, nil
 }
 
 // Members names the processes still running in the job, by image name and
@@ -176,7 +182,7 @@ func (t *Tree) Members() ([]EndedProcess, error) {
 	if t.isDone {
 		return nil, errors.New("execx: job accounting is closed")
 	}
-	ids, err := t.memberIDs()
+	ids, _, err := t.memberIDs()
 	if err != nil {
 		return nil, err
 	}
@@ -271,18 +277,20 @@ func (t *Tree) TerminateAndWait(ctx context.Context) (TreeUsage, error) {
 // service it started: it ends every member but a machine service and what
 // runs under it (proc.EndJob), as End does, and returns the services it
 // spared once nothing else runs in the job: every other process the job's
-// own list names must have exited, and one this process may not open counts
-// as running, since the end could neither read nor end it. Only then does
-// the job stop ending what it holds when its last handle closes, so the
-// services run on after it, outside its custody. Until then, and after any
-// failure, that close still ends everything in the job. With none to spare
-// it confirms the job empty as TerminateAndWait does.
+// own list names must have exited, one this process may not open counts as
+// running, since the end could neither read nor end it, and the job must
+// count no process beyond its list, as it does while a process exits
+// (proc.JobProcessIDs). Only then does the job stop ending what it holds
+// when its last handle closes, so the services run on after it, outside its
+// custody. Until then, and after any failure, that close still ends
+// everything in the job. With none to spare it confirms the job empty as
+// TerminateAndWait does.
 func (t *Tree) EndAndWait(ctx context.Context) (TreeUsage, []EndedProcess, error) {
 	return t.endAndWait(ctx, true)
 }
 
 func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUsage, []EndedProcess, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := awake.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
@@ -311,7 +319,7 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 			if len(spared) == 0 {
 				break
 			}
-			ids, err := t.memberIDs()
+			ids, unlisted, err := t.memberIDs()
 			if err != nil {
 				return TreeUsage{}, nil, err
 			}
@@ -332,7 +340,7 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 					running = append(running, id)
 				}
 			}
-			if len(running) == 0 {
+			if len(running) == 0 && unlisted == 0 {
 				usage, err := t.jobUsage()
 				if err != nil {
 					return TreeUsage{}, nil, err
@@ -352,7 +360,7 @@ func (t *Tree) endAndWait(ctx context.Context, shouldSpareServices bool) (TreeUs
 			}
 			select {
 			case <-ctx.Done():
-				return TreeUsage{}, nil, fmt.Errorf("execx: the job's processes %v still run beside the machine services its end spared: %w", running, ctx.Err())
+				return TreeUsage{}, nil, fmt.Errorf("execx: the job's processes %v still run, and it counts %d more than it lists, beside the machine services its end spared: %w", running, unlisted, ctx.Err())
 			case <-time.After(50 * time.Millisecond):
 			}
 		}

@@ -255,7 +255,10 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 		health                     monitor.Health
 		isVerified                 bool
 	}{
-		{name: "prior working runtime", health: monitor.HealthBusy, wantPhase: "failed"},
+		// A goblin whose terminal shows its harness working is not failed,
+		// whatever its last line says, and the line stays its report (the
+		// Overlord, 2026-10-21, of a card that read Failed while it ran).
+		{name: "working runtime after the report", health: monitor.HealthBusy, wantPhase: "working"},
 		{name: "idle runtime", health: monitor.HealthIdle, wantPhase: "failed"},
 		{name: "ended runtime", health: monitor.HealthUnknown, wantPhase: "failed"},
 		{name: "gate held", health: monitor.HealthBusy, gatePhase: "blocked", wantPhase: "blocked"},
@@ -266,7 +269,6 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			now := time.Now().UTC()
 			store.db.Tasks["task-1"] = Evaluation{Generation: "g1", Phase: "working", Reason: "Historical turn"}
 			if test.gatePhase != "" {
 				store.db.Tasks["task-1"] = Evaluation{Generation: "g1", Phase: test.gatePhase, GateStep: "review", Reason: "Independent gate evidence", Verified: test.isVerified}
@@ -285,6 +287,7 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			now := time.Now().UTC()
 			observation := monitor.Observation{TaskID: "task-1", Endpoint: (herdr.Target{Session: "test", Pane: "p1"}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, Health: test.health, Reason: monitor.None, Digest: "current-screen", LastSeen: now, LastProgress: now}
 			if test.health == monitor.HealthUnknown {
 				observation.EndpointVerdict, observation.Reason = monitor.ProbeMissing, monitor.EndpointMissing
@@ -308,7 +311,7 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 			if err != nil || len(after.Tasks) != 1 || after.Tasks[0].Phase != test.wantPhase || after.Tasks[0].Report != "failed" || after.Tasks[0].Verified != test.isVerified || len(after.Decisions) != 0 {
 				t.Fatalf("ACK erased failure or gate custody: tasks=%+v err=%v", after.Tasks, err)
 			}
-			if test.gatePhase == "" && (before.Tasks[0].Phase != "failed" || before.Tasks[0].Reason != "Waiting on the CFO: Retained command exited 1" || after.Tasks[0].Reason != "Retained command exited 1") {
+			if test.gatePhase == "" && (before.Tasks[0].Phase != "failed" || before.Tasks[0].Reason != "Waiting on the CFO: Retained command exited 1" || test.wantPhase == "failed" && after.Tasks[0].Reason != "Retained command exited 1") {
 				t.Errorf("failure receipt confused with resumption: before=%+v after=%+v", before.Tasks[0], after.Tasks[0])
 			}
 			if test.gatePhase != "" && after.Tasks[0].Reason != "Independent gate evidence" {

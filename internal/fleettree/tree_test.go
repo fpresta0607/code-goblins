@@ -159,16 +159,17 @@ func TestReadStampsFreshnessOnEveryNode(t *testing.T) {
 
 func TestOwnedSessionTakesOnlyThisGenerationsGoblin(t *testing.T) {
 	stateDir := t.TempDir()
-	writeFile(t, filepath.Join(stateDir, ".supervisor.json"), `{"sessions":{"n1":{"native_id":"conv-1","harness":"claude","role":"goblin","task_id":"tree","generation":"s2"}},"task_sessions":{"tree":"n1"}}`, at)
+	writeFile(t, filepath.Join(stateDir, ".supervisor.json"), `{"sessions":{"n1":{"native_id":"conv-1","harness":"claude","role":"goblin","task_id":"tree","generation":"s2"},"n2":{"native_id":"pi-conv","harness":"pi","role":"goblin","task_id":"pitree","generation":"s2"}},"task_sessions":{"tree":"n1","pitree":"n2"}}`, at)
 	for name, test := range map[string]struct {
 		meta state.TaskMeta
 		want string
 	}{
-		"its own goblin":       {state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s2"}, "conv-1"},
-		"an earlier one":       {state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s3"}, ""},
-		"another harness":      {state.TaskMeta{ID: "tree", Harness: "codex", SpawnGen: "s2"}, ""},
-		"a harness with none":  {state.TaskMeta{ID: "tree", Harness: "pi", SpawnGen: "s2"}, ""},
-		"a task with no entry": {state.TaskMeta{ID: "other", Harness: "claude", SpawnGen: "s2"}, ""},
+		"its own goblin":                     {state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s2"}, "conv-1"},
+		"an earlier one":                     {state.TaskMeta{ID: "tree", Harness: "claude", SpawnGen: "s3"}, ""},
+		"another harness":                    {state.TaskMeta{ID: "tree", Harness: "codex", SpawnGen: "s2"}, ""},
+		"a harness its record does not name": {state.TaskMeta{ID: "tree", Harness: "pi", SpawnGen: "s2"}, ""},
+		"a pi goblin's own":                  {state.TaskMeta{ID: "pitree", Harness: "pi", SpawnGen: "s2"}, "pi-conv"},
+		"a task with no entry":               {state.TaskMeta{ID: "other", Harness: "claude", SpawnGen: "s2"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got, err := OwnedSession(stateDir, test.meta); err != nil || got != test.want {

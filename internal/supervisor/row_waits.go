@@ -24,6 +24,7 @@ type rowReading struct {
 	now    time.Time
 	memory *Memory
 	pulls  map[string]string
+	root   func(rootStart) string
 }
 
 // rowReading reads queued rows' waits at now against memory, with the pull
@@ -31,7 +32,7 @@ type rowReading struct {
 func (s *Service) rowReading(now time.Time, memory *Memory) rowReading {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return rowReading{now: now, memory: memory, pulls: maps.Clone(s.awaitedPulls)}
+	return rowReading{now: now, memory: memory, pulls: maps.Clone(s.awaitedPulls), root: s.rootStartRefusal}
 }
 
 // rowWaits is what a queued row still waits for at reading: each blocker on

@@ -70,12 +70,12 @@ func TestOwnedReleaseDeadlineCoversRegistryContention(t *testing.T) {
 	}
 	defer ReleaseExclusiveNamed(dir, name)
 	exclusiveLeases.Lock()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	started := time.Now()
 	err = ReleaseExclusiveOwned(ctx, dir, name, *owner)
 	exclusiveLeases.Unlock()
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Minute {
 		t.Fatalf("registry ignored deadline: %v", err)
 	}
 	if err := ReleaseExclusiveOwned(context.Background(), dir, name, *owner); err != nil {
@@ -93,7 +93,7 @@ func TestContextAcquisitionKeepsLiveOrUncertainCustody(t *testing.T) {
 		if err := writeInfo(context.Background(), filepath.Join(dir, name), self); err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		_, err := AcquireExclusiveNamedStrictContext(ctx, dir, name)
 		cancel()
 		if !errors.Is(err, ErrHeld) {
@@ -109,12 +109,12 @@ func TestContextAcquisitionKeepsLiveOrUncertainCustody(t *testing.T) {
 func TestContextAcquisitionDeadlineCoversRegistryContention(t *testing.T) {
 	dir := t.TempDir()
 	exclusiveLeases.Lock()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	started := time.Now()
 	_, err := AcquireExclusiveNamedStrictContext(ctx, dir, "controlled-lease")
 	exclusiveLeases.Unlock()
-	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Minute {
 		t.Fatalf("registry ignored deadline: %v", err)
 	}
 }

@@ -102,7 +102,8 @@ test("clicking a helper goblin opens that helper's own panel", async ({ page }) 
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await baby(page, "Pip - Rail Fitter").click();
   await expect(title(page)).toHaveText("Pip - Rail Fitter");
-  await expect(page.locator(".panel-goblin-task")).toHaveText("Fit the phone rails");
+  // Its Terminal view names its task by its id.
+  await expect(page.locator(".panel-goblin-task")).toHaveText("helper-one");
 });
 
 test("clicking two other baby goblins shows each one's own output under its name and task, never its goblin's terminal", async ({ page }) => {
@@ -150,23 +151,16 @@ test("dragging from a baby goblin moves the canvas and opens nothing, and a key 
   await expect(title(page)).toHaveText(/^Kip Jr\. - Export Tracer/);
 });
 
-test("baby goblins have no cards on the board, and a goblin's count opens the canvas centered on it", async ({ page }) => {
+// A goblin's card is one row since 2026-10-17, so it shows no count of what
+// runs under it: the canvas and its panel's What's working do.
+test("baby goblins have no cards on the board, and their goblin's card no count of them", async ({ page }) => {
   await open(page);
   const cards = page.locator(".task-board .task-card-shell");
   for (const label of ["Grub Jr.", "Map harness plumbing", "Run the affected Go tests", "Dev server :5173", "Kip Jr.", "Trace the export"]) await expect(cards.filter({ hasText: label })).toHaveCount(0);
   const card = cards.filter({ has: page.locator(".card-title", { hasText: "Grub - Tree Surgeon" }) });
-  const count = card.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon on the canvas/ });
-  await expect(count.getByRole("img", { name: "Sub-agent" })).toHaveCount(1);
-  await count.click();
-  await expect(page.getByRole("button", { name: "Orchestration", exact: true })).toHaveAttribute("aria-pressed", "true");
-  const canvas = (await page.locator(".flow-canvas").boundingBox())!;
-  const goblin = page.locator(".flow-node").filter({ hasText: "Grub - Tree Surgeon" });
-  await expect.poll(async () => { const box = (await goblin.boundingBox())!; return Math.abs(box.x + box.width / 2 - (canvas.x + canvas.width / 2)); }, "the goblin in the middle of the canvas").toBeLessThanOrEqual(1);
-  for (const part of [await goblin.boundingBox(), ...await Promise.all((await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).locator(":scope > li").all()).map((li) => li.boundingBox()))]) {
-    expect(part!.y, "the goblin and its baby goblins in view").toBeGreaterThanOrEqual(canvas.y);
-    expect(part!.y + part!.height).toBeLessThanOrEqual(canvas.y + canvas.height);
-  }
-  await expect(page.locator(".flow-node").filter({ hasText: "Polish the canvas" }), "closer than the whole tree's fit").not.toBeInViewport();
+  await expect(card).toHaveCount(1);
+  await expect(card.getByRole("img", { name: "Sub-agent" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: /^Show what runs under/ })).toHaveCount(0);
 });
 
 test("at phone width a baby goblin on its rail opens its panel too", async ({ page }) => {

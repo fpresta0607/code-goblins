@@ -48,6 +48,8 @@ func TestACommandThatActsAsTheCFOIsRefusedInAnotherAgentsSession(t *testing.T) {
 		{"reap", "--force", "19524"},
 		{"reap", "--force=g1"},
 		{"allowance-floor", "claude", "0"},
+		{"start-hook", "accept", "g1", `C:\worktree\.venv\Lib\site-packages\zope.interface-6.4-py3.12-nspkg.pth`},
+		{"auth", "grant", "g1", "--codex-credits"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			// Arrange
@@ -86,6 +88,9 @@ func TestReadingTheFleetIsNotActingAsTheCFO(t *testing.T) {
 		{"notify", "g1", "--working", "at work"},
 		{"helper", "start", "g1", "--brief", `C:\brief.md`},
 		{"pipeline", "run", "g1", "--intent", "ship"},
+		{"auth", "grant", "g1", "a-service"},
+		{"auth", "revoke", "g1", "--codex-credits"},
+		{"codex-guard", "--state", "state", "--task", "g1", "--until", "2026-10-22T12:00:13Z", "--", "exec"},
 	} {
 		if actsAsCFO(args) {
 			t.Errorf("cfo %s is counted as an act of the CFO's", strings.Join(args, " "))
@@ -100,8 +105,9 @@ func TestEveryCommandSaysWhetherItActsAsTheCFO(t *testing.T) {
 	// Arrange
 	notTheCFOs := [][]string{
 		// The machine's and the Overlord's: setting the home up, running the
-		// supervisor and its terminals, and showing them.
-		{"install", "uninstall", "update", "home", "dev-drive", "dictation", "doctor", "serve", "stop", "status", "host", "attach", "hooks", "connection-repair", "version"},
+		// supervisor and its terminals, showing them, and configuring the
+		// owner's private connection on this PC. None steers the fleet.
+		{"install", "uninstall", "update", "home", "dev-drive", "dictation", "doctor", "serve", "stop", "status", "host", "attach", "hooks", "connection-repair", "remote", "version"},
 		// Reading the fleet and a project.
 		{"fleet-view", "peek", "runtime", "tickets", "project", "route", "verify", "security", "hygiene", "evidence", "process-plan", "defender"},
 		// The hooks, which prove the CFO's own session themselves, and the
@@ -110,14 +116,18 @@ func TestEveryCommandSaysWhetherItActsAsTheCFO(t *testing.T) {
 		// Bound to the registered CFO by its process, or to the caller the
 		// supervisor proves, and only the CFO's own session registers.
 		{"question", "answer", "run-request", "afk"},
-		// A goblin's for its own task, the credential commands the board's
-		// own terminals run, and filing a root issue, which goblins do too.
-		{"notify", "helper", "pipeline", "gate", "worktree", "services", "present", "review", "deliver", "auth", "issue"},
+		// A goblin's for its own task, and filing a root issue, which goblins
+		// do too. The credential commands the board's own terminals run are
+		// among the sometimes below: authorizing paid Codex credits is the
+		// CFO's act.
+		{"notify", "helper", "pipeline", "gate", "worktree", "services", "present", "review", "deliver", "issue"},
+		// The codex a goblin's armed codex guard runs, which only refuses.
+		{"codex-guard"},
 		// The desktop CI runner's: a job the supervisor starts in the line,
 		// and the runner service's status.
 		{"ci-runner"},
 	}
-	sometimes := []string{"drain", "reap", "allowance-floor"}
+	sometimes := []string{"drain", "reap", "allowance-floor", "auth"}
 	source, err := os.ReadFile("main.go")
 	if err != nil {
 		t.Fatal(err)

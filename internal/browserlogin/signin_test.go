@@ -62,7 +62,7 @@ func TestSignedInReadsOnlyAReadyPageAddressCheckAndItsAccount(t *testing.T) {
 			}))
 			defer page.Close()
 			address = page.URL
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 
 			got, account, err := SignedIn(ctx, address, keypages.Provider{KeyPage: "https://dashboard.stripe.com/test/apikeys", SignedInPath: "^/(acct_[a-z]+/)?test/apikeys$", AccountPath: "^/(acct_[a-z]+)/test/apikeys$"})

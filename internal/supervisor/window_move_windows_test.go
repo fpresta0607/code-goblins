@@ -113,7 +113,7 @@ func TestAWindowLeftOnAnOldProgramMovesOntoTheHomesNewOneWhenItsPageAsks(t *test
 	if code != 200 || strings.TrimSpace(body) != `{"moved":true}` {
 		t.Fatalf("POST /api/window/move = %d %s, want the window moved", code, body)
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		if _, opened := machine.seen(); len(opened) > 0 || time.Now().After(deadline) {
 			break

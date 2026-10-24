@@ -65,6 +65,7 @@ A no-mistakes build that cannot apply a selection refuses the launch before it t
 The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
 Resume restarts a paused task's gate run past `cfo pipeline run`, and that start carries the same selection, on the harness the goblin comes back on.
+It runs `axi sync --recover` first only when the paused run holds gate commits it never pushed, since no-mistakes refuses that recovery for a run whose head is its push binding, and for one whose goblin then pushed follow-up commits over that head; such a run is restarted from the branch as its goblin left it.
 It holds to the driver's checks as well.
 A resume whose replacement run cannot be given its agents, such as one coming back on a harness no gate can prove, starts no run and says why.
 A paused task frozen before v6 restarts its run only while the machine config still matches its policy, and is otherwise refused with the `cfo pipeline migrate <id>` that clears it, as `cfo pipeline run` refuses it.
@@ -97,8 +98,9 @@ A task frozen before the fallback was named takes it with `cfo pipeline migrate 
 
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
-Pi's own gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
-The installer pins the upstream release 1.75.1, which has no launch assertion at all, so the checked-in `config/pipeline.json` stays at v5 and a fresh install gates as before.
+A pi gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
+The install puts in the build of that fork `install.ps1` pins, commit `bcbb444`, the head of its pull request 9, which carries pull requests 4 and 5, and each release builds and signs it beside its own programs.
+The checked-in `config/pipeline.json` stays at v5, so a fresh install gates as before until the policy moves to v6.
 no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate under v6: `cfo spawn` refuses such a task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to it.
 
 A cycle means one repair followed by another review, after the initial review.
@@ -217,10 +219,18 @@ This is a cooperative driver guard, not an operating-system sandbox around direc
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
 
 `recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
-For pipeline-owned recovery, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
-The stale recorded commit must be an ancestor of that preserved head.
+For pipeline-owned recovery that keeps the submitted head, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
+The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
+A run whose rebase step moved its recorded head and that then failed before it pushed leaves that rebase unverified, and native recovery refuses it with `blocked_recover_unverified_head`, with or without `--keep-local`.
+The driver accepts such a head only as a pure rebase: its first-parent commits that no remote-tracking ref of the gate repository holds, laid on the first commit one does, must carry the submitted head's changes and nothing else.
+A gate fix commit or conflict resolution on the rebase, or content from a base no remote-tracking ref holds, is refused, so keeping the submitted head drops nothing that neither it nor a remote-tracking ref holds.
+A run under `rebase.strategy: merge` integrates with a merge commit instead, which this proof does not cover, and is refused.
 Before a compare-and-swap repairs the stale database field, the old commit is anchored under `refs/no-mistakes/recovery/<run>/recorded`.
 The driver then invokes native `sync --recover --keep-local` and verifies that custody was durably returned without moving the local or gate head.
+A recorded head that holds the gate's own commits, such as a rebase followed by review fixes, would lose them if the submitted head were kept, so it is recovered at the recorded head instead, and the refusal from the submitted head names that head.
+With the clean task branch at the recorded head, native status offers plain `sync --recover`; the driver requires the gate branch to still name the submitted head, runs that recovery, which returns custody without moving the local or gate branch, and requires the local head unchanged.
+It also requires the engine to have verified the recorded head when the run ended, as its crash recovery does, since native recovery first checks an unverified head against the gate branch and the head it then takes can move the task branch.
+The `custody_returned` alignment below then moves the gate branch and both database heads to the recorded head, since native recovery leaves the gate branch at the submitted head, which a rebased head never descends from, and the next run's push to the gate would be refused as a non-fast-forward.
 When native already reports clean user-owned custody, the registered task worktree and branch may contain rebases and follow-up fixes made after custody returned.
 Before a CFO-managed alignment, the driver stores the stale gate head under the immutable `refs/no-mistakes/recovery/<run>/gate` ref and verifies it again before moving the gate or database heads.
 That ref is durable CFO-swap evidence, so every `custody_returned` retry that finds it requires the stale commit and the native recovery anchor before accepting an aligned state.
@@ -233,7 +243,7 @@ Native status must confirm all three heads before success is reported.
 If a later status check triggers rollback, the gate moves back only after the database rollback succeeds, so a transient database failure preserves the forward-aligned retry state.
 The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
-Pipeline-owned recorded-head repair requires strict ancestry.
+Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
@@ -416,13 +426,21 @@ A store failure prevents commands from starting.
 `cfo gate test`, `cfo gate prepush` and `cfo gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
+cfo gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `cfo`'s, and everything after it is the command's, its own flags and a `--` of its own included.
 `cfo` starts `<program>` as a process with exactly those arguments, unparsed and with no shell of its own in front, so a command that needs a shell names one: `cfo gate turn -- cmd.exe /c "npm test && npm run lint"`.
 `--as <name>` names the run to whoever reads the line.
-`--wait <duration>` bounds the wait for the turn, as `--wait 30s`: a run that takes no turn within it runs nothing and exits 125 with a last line that says so, and once it has its turn the wait no longer counts, so its command runs until it ends.
+`--wait <duration>` bounds the wait for the turn, as `--wait 30s`: a run that takes no turn within it runs nothing and exits 125 with a last line that says so, and once it has its turn the wait no longer counts.
+`--execution-limit <duration>`, as `--execution-limit 5m`, starts one deadline after admission, before startup, and keeps that deadline through the payload, descendants left by an exited parent, and finalization.
+It works with or without `--detach`, independently of `--wait`; both accept only positive durations, and an invalid, zero, negative or missing value starts nothing.
+Without an execution limit, the existing unlimited execution and ten-second descendant linger remain unchanged.
+A timeout exits 124 even if the command itself exited zero, names the execution record on standard error, and records `verify.ErrLimit` as a failure.
+A timeout during preparation records `not_started`, or an interrupted failed run once startup was recorded, with no invented command exit code when nothing launched.
+Cleanup still uses the existing measured job owner and spares machine services, with five seconds for the job cleanup proof, five seconds for the command wait, bounded custody release, and a final retry bounded to ten seconds.
+Those cleanup and receipt operations can extend elapsed time past the execution deadline, and native Windows calls must return before their cancellation can be observed; the limit is not a guarantee that the wrapper exits at that exact instant.
+A cleanup that cannot be confirmed keeps its custody and reports uncertainty; later confirmed cleanup never makes the timed-out run pass.
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn, as the desktop's CI jobs wait, and `cfo gate turns` marks it.
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
@@ -453,7 +471,7 @@ A refused run tells its goblin that it ended, as a run that did not start does.
 A script the command runs is not read.
 
 **In the background.**
-`--detach <log-file>` starts the same run, with its name and its wait, as a process of its own and returns at once, printing its pid on standard output.
+`--detach <log-file>` starts the same run, with its name, wait and execution limit, as a process of its own and returns at once, printing its pid on standard output.
 The run starts the way the supervisor is started: in a console of its own with no window, which its command shares, so nothing of it ever shows on the desktop, in a process group of its own, and out of its caller's job where the job allows it, so it outlives its caller.
 Its standard output and error are appended to `<log-file>`, its pid is written to `<log-file>.pid` for its goblin to end it by, and its last line in the log is `cfo gate turn: the detached run ended with exit <code> after <time>`.
 A run that cannot be started detached starts nothing and exits 125.
@@ -462,7 +480,8 @@ Since no harness waits on a detached run, its end is told to the goblin of any h
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
 It sets no limit of its own on either wait.
-Where `cfo gate test` refuses a run after an hour of memory under the floor, `cfo gate turn` waits for as long as memory is short, and the limits that end a run are its command's own and its caller's.
+Where `cfo gate test` refuses a run after an hour of memory under the floor, `cfo gate turn` waits for as long as memory is short unless `--wait` bounds admission.
+Its execution limit never counts that wait.
 The wait counts in the wrapper's wall time, so a caller that budgets its test command should start the budget at `took its turn`, or allow for the wait.
 
 **What it prints.**
@@ -509,7 +528,8 @@ The next run first proves the dead run's job ended, which takes a few seconds, a
 The command runs in a Windows job of its own that every process it starts joins and none can leave, whatever becomes of its parent, and the job ends with the wrapper, so a wrapper ended by force ends its command with everything the command started, and nothing the command started runs on outside the turn but a machine service, which the run leaves running by design, as below.
 On Ctrl+C or Ctrl+Break while it waits, `cfo` leaves the line and exits 125.
 While the command runs, `cfo` keeps the turn through the signal and exits with the command's code: the command shares the console, receives the same signal and answers for itself.
-Once the command's own process has exited, interrupted or not, what it left running may go on for ten seconds, after which `cfo` ends it and names each process it ended.
+Once the command's own process has exited, interrupted or not, what it left running may go on for ten seconds, or until an explicit execution limit expires first, after which `cfo` ends it.
+The normal linger names each process it ended.
 A machine service the command started, Docker Desktop with what it runs, the no-mistakes daemon with its gate agents or the Scrawl server, serves the whole machine, so it is left running and named:
 
 ```text
@@ -545,9 +565,13 @@ It samples the private working set separately, which is neither commitment nor a
 A member it may not open counts as still running, since nothing shows it has exited.
 These reads are observations, not resource reservations or enforced limits.
 An unreadable job or process measurement returns an error, and platforms without whole-tree support report that accounting is unavailable.
-While a process starts or exits, Windows can briefly count a different number of a job's members than it lists, so `internal/proc.JobProcessIDs` reads the list again at 1 ms intervals, for up to 250 ms, until its count and its length agree.
-A job whose list never agrees in that time is unreadable and the sample fails.
-A list whose count and length disagree is never used, by a sample or by an end that spares a machine service, which goes by the list to show that nothing else still runs before it lets the job's handle close.
+Windows lists no process that a job nested in a job is ending, from the moment that end begins until the process is done, and counts it either no more or for as long as its threads take to end, so `internal/proc.JobProcessIDs` returns the list with how many more members the job counts than it lists.
+A headless Chrome puts most of its processes each in a job of its own, which ends them once the browser has ended: such a process left its browser's job's list with up to 21 threads not yet ended and was done up to 2.5 s later, while the job counted it beyond the list for up to 474 ms or not at all, and a browser run pinned to four busy processors kept the count above the list for over 250 ms, which once ended its run (issues 1025 and 1066).
+A process that exits, ends itself, or is ended by its handle or by the job it runs in stays listed until it has ended.
+A sample takes the list as it is.
+An end that spares a machine service goes by what the job holds to show that nothing else still runs, so it also reads the machine's processes for the job's members the list leaves out: `internal/proc.EndJob`, which `End`, `EndAndWait`, a terminal's close and a browser login's end use, is done only once those have ended too, within the end's own deadline, and a goblin's stop ends them as it ends any other process in its terminal's job.
+It reads the machine again only once each process it ended has exited: on a machine whose cores other work fills those exits take a while and one read can take seconds, so a read begun before them found them still there and the next began past the end's deadline, which then named them as outliving it (issue 1275).
+`EndAndWait` also lets the job's handle close only once the job counts nothing beyond the list.
 Verification code can use `TerminateAndWait` to terminate every job member and close its handle only after Windows reports zero active processes, or `EndAndWait` to do the same while sparing a machine service the command started.
 That cleanup is bounded to five seconds or the caller's shorter deadline, and a failed proof retains the handle for a retry.
 Recovery uses `TerminateAndWait`, which spares nothing.
@@ -572,6 +596,7 @@ The command's output to its logs is limited to 1 GiB together, past which the ru
 A run whose command writes to its caller's own output, as `cfo gate turn`'s does, keeps no logs and has no such limit.
 Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
 `RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
+The executor's separate `ExecutionLimit`, used by `cfo gate turn --execution-limit`, begins before startup and remains active through finalization, using the same absolute deadline throughout without changing `RunWithin`'s command-only limit.
 A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
 `internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.
@@ -687,6 +712,13 @@ It exits 0 when the job ran, 3 when no job came for the runner and 1 otherwise.
 A machine with no runner installed is asked, finds no pipe, and says nothing, and trouble with a runner that is installed is said once an hour in `<state>\ci-runner\watch.log`.
 `cfo ci-runner status` says whether a job runs and how the last one ended.
 
+A hosted job moves to the desktop only once its desktop copy has matched it run after run, and the record of that is the parity record.
+The copies run in a mirror workflow of the repository's own, `desktop-mirror.yml`, which a CI run's completion starts and which reports on the default branch's head, never on a pull request's, so no copy waiting for the desktop holds a merge.
+Its run is titled `Desktop mirror of CI run <id>`, and its job `desktop-<name>` copies the job `<name>` of that CI run on the very merge the hosted job tested: the hosted job's log names it, `HEAD is now at <sha> Merge <head> into <base>`, and the copy's, `desktop mirror: Merge <head> into <base>`.
+`cfo ci-runner parity --repo <owner/name>` reads the mirror's newest finished runs and adds each pair it does not hold yet to `<state>\ci-runner\parity\<owner>-<name>.json`: both conclusions, pytest's counts from each log's summary line, the merge each tested, their times, and from the watcher's log of the desktop job's turn, found by the runner it named, how long the turn waited and what held the line.
+A pair matches when both copies tested the same merge, concluded the same and counted the same, and the desktop's run was not lost.
+It prints, for each job, how many runs in a row matched up to the newest, how many desktop runs were lost and the newest difference, and once 20 in a row matched, that the hosted job may retire, which stays the Supreme Overlord's decision.
+
 ## Before a push
 
 `cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.
@@ -749,7 +781,7 @@ This is the pick for a change to three files of `internal/supervisor`:
 ```text
 cfo gate prepush: 3 files changed since 3301d7c9, which picks 10 checks to run within 15m0s
 1. imports of 5 packages and their tests (an import cycle fails every test of its package)
-2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills)
+2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name)
 3. guard tests of cmd/cfo (they read every command main.go dispatches)
    - TestEveryCommandSaysWhetherItActsAsTheCFO
    - TestEveryCommandIsAControlOrStaysAtNormalOnPurpose

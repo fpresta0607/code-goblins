@@ -7,7 +7,9 @@ import "./credential-card.css";
 
 interface Picture { key: number; preview: string; path: string }
 
-export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { asker: string; task: string; instance: string; onCancel: () => void; onSend: (text: string) => void }) {
+// isSending holds Send while the board takes the answer, and refusal is why
+// the board refused the last one.
+export function AnswerWindow({ asker, task, instance, isSending = false, refusal: refused = "", onCancel, onSend }: { asker: string; task: string; instance: string; isSending?: boolean; refusal?: string; onCancel: () => void; onSend: (text: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
   const [note, setNote] = useState("");
@@ -44,6 +46,7 @@ export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { aske
   const text = [note.trim(), pictures.map((picture) => "Image: " + picture.path).join("\n")].filter(Boolean).join("\n\n");
   const isKeeping = pictures.some((picture) => !picture.path);
   const isTooLong = new TextEncoder().encode(text).length > 4000;
+  const canSend = !!text && !isKeeping && !isTooLong && !isSending;
   return <dialog ref={dialog} className="credential-replace skip-note" aria-labelledby={title}
     onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onCancel(); }}
     onPaste={(event) => {
@@ -54,7 +57,7 @@ export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { aske
     }}>
     <h2 id={title}>Something else?</h2>
     <p>It goes to {asker} as your word. Type it, say it or paste a picture.</p>
-    <DictatedAnswer label="Your note" placeholder={"Tell " + asker + " what to do instead..."} value={note} instance={instance} onText={setNote} />
+    <DictatedAnswer label="Your note" placeholder={"Tell " + asker + " what to do instead..."} value={note} instance={instance} onText={setNote} onSubmit={() => { if (canSend) onSend(text); }} />
     {pictures.length > 0 && <div className="pasted-pictures">
       {pictures.map((picture, index) => <span key={picture.key} className="pasted-picture">
         {picture.preview && <img src={picture.preview} alt={"Pasted picture " + (index + 1)} />}
@@ -64,9 +67,10 @@ export function AnswerWindow({ asker, task, instance, onCancel, onSend }: { aske
     {isKeeping && <p className="message-note" role="status">Saving picture...</p>}
     {refusal && <p className="message-note" role="status">{refusal}</p>}
     {isTooLong && <p className="message-note" role="status">Use a shorter answer or fewer pictures.</p>}
+    {refused && <p className="message-note" role="status">{refused}</p>}
     <div className="credential-replace-choices">
       <button type="button" className="credential-replace-cancel" onClick={onCancel}><Icon name="close" />Cancel</button>
-      <button type="button" className="primary" disabled={!text || isKeeping || isTooLong} onClick={() => onSend(text)}><Icon name="send" />Send</button>
+      <button type="button" className="primary" disabled={!canSend} onClick={() => onSend(text)}><Icon name="send" />Send</button>
     </div>
   </dialog>;
 }

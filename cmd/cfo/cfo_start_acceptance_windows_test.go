@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -117,7 +118,11 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 		named = p.claudeArguments(t)
 	}
 	start := func(args []string) host.Record {
-		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, args)...)
+		screen, err := cfoScreenArguments(p.cfo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		program, err := nativeCFOProgram(p.cfo, cfoStartArguments(p.cfo, slices.Concat(args, screen), "")...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,11 +259,17 @@ func (p *wakeProof) shows(record host.Record, text string, times int) bool {
 }
 
 // idle reports whether the CFO's harness sits at its composer, in five reads
-// a second apart.
+// a second apart. An optional notice drawn over the composer, such as Codex's
+// Daybreak security offer, live on 2026-10-22 after a CFO's first turn, is
+// dismissed, as the supervisor dismisses it before it types a wake.
 func (p *wakeProof) idle(record host.Record) bool {
 	kind, _ := harness.NativeScreens(harness.Kind(p.cfo))
 	for range 5 {
 		screen, err := host.ReadScreen(record)
+		if dialog, shows := kind.Dialog(screen); err == nil && shows && dialog.EscapeHint != "" {
+			p.say("dismissing %s, as a wake would: %v", dialog.Name, spawn.AnswerDialog(context.Background(), record, dialog, screen))
+			return false
+		}
 		if err != nil || !kind.IsReady(screen) || kind.IsWorking(screen) {
 			return false
 		}

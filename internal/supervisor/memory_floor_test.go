@@ -69,6 +69,7 @@ func readFleet(t *testing.T, s *Service, now time.Time, minutes ...int) {
 // way included: the floor's pause runs cfo from a goroutine of its own.
 func awaitRecorded(t *testing.T, spawner *spawnRecorder, count int) [][]string {
 	t.Helper()
+	// stall-accepted: its callers wait for a run that must not come, so a stall only makes the wait longer.
 	deadline := time.Now().Add(3 * time.Second)
 	for len(spawner.recorded()) < count && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
@@ -156,7 +157,7 @@ func TestTheMemoryFloorPausesOneGoblinAtATime(t *testing.T) {
 
 	// Act
 	readFleet(t, s, now, 0, 1)
-	inFlight := awaitRecorded(t, spawner, 1)
+	inFlight := waitForCalls(t, spawner, 1)
 	readFleet(t, s, now, 2, 3)
 	whileInFlight := spawner.recorded()
 	close(spawner.release)

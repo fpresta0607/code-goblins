@@ -92,7 +92,7 @@ func serveSessionRequest(cli, name string) {
 	// A file just renamed into place can be held a moment by whatever scans
 	// new files, so the read waits that out.
 	data, err := os.ReadFile(filepath.Join(sessionRequests, name+".request.json"))
-	for deadline := time.Now().Add(10 * time.Second); err != nil && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); err != nil && time.Now().Before(deadline); {
 		time.Sleep(20 * time.Millisecond)
 		data, err = os.ReadFile(filepath.Join(sessionRequests, name+".request.json"))
 	}
@@ -240,7 +240,7 @@ func scratchHome(t *testing.T) home.Home {
 // the home.
 func startCFOSession(t *testing.T, h home.Home) *standInSession {
 	t.Helper()
-	if err := startNativeCFO(h, h.Root, "claude", nil); err != nil {
+	if err := startNativeCFO(h, h.Root, "claude", nil, ""); err != nil {
 		t.Fatalf("start the CFO in native terminal cfo: %v", err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
@@ -281,7 +281,7 @@ func startOtherSession(t *testing.T, h home.Home) *standInSession {
 		go func() { _ = command.Wait(); close(ended) }()
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			_ = command.Process.Kill()
 			<-ended
 			t.Error("the stand-in session did not end with its input")
@@ -320,6 +320,7 @@ func (s *standInSession) request(request sessionRequest) (func(limit time.Durati
 		return nil, err
 	}
 	return func(limit time.Duration) (sessionResponse, bool, error) {
+		// stall-accepted: every caller hands a limit of 30 s or more, except custody's 3 s wait for a Stop hook that must not end yet, where running out is the passing path.
 		for deadline := time.Now().Add(limit); ; time.Sleep(20 * time.Millisecond) {
 			data, err := os.ReadFile(filepath.Join(folder, name+".response.json"))
 			if err == nil {

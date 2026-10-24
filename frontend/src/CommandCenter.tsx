@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { message, request } from "./api";
+import { message, reportToCfo, request } from "./api";
 import { object, parseAction, string, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
@@ -11,20 +11,22 @@ import { publicationKey, publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
 import { CfoUnwokenCard } from "./cfo-unwoken-card";
+import { CfoStoppedCard } from "./cfo-stopped-card";
 import { CredentialCard } from "./credential-card";
 import { credentialAsk, credentialFinish, onThisMachine } from "./credentials";
 import { BrowserSignInCard } from "./browser-signin-card";
 import { signInHeading, signInOutcome } from "./browser-signins";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
-import { plainMessage } from "./messageText";
+import { linkedText, plainMessage } from "./messageText";
 import { personaFor } from "./workflow";
 import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
 import { ReviewCard, reviewImages } from "./ReviewCard";
 import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
-import { countedTitle } from "./arrivals";
+import { countedTitle, showBadge } from "./arrivals";
 import { DoneCard } from "./DoneCard";
 import { HistoryMark } from "./history-mark";
+import { HistoryStoredCard } from "./history-stored-card";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { ChangeCard } from "./ChangeCard";
 import "./lantern.css";
@@ -142,8 +144,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const watching = presentations.filter((event) => event.watch);
   const needing = waiting.length + watching.length;
   const baseTitle = useRef(document.title);
-  useEffect(() => { document.title = countedTitle(baseTitle.current, needing); }, [needing]);
-  useEffect(() => () => { document.title = baseTitle.current; }, []);
+  useEffect(() => {
+    document.title = countedTitle(baseTitle.current, needing);
+    showBadge(needing)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
+  }, [needing]);
+  useEffect(() => () => {
+    document.title = baseTitle.current;
+    showBadge(0)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
+  }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
     // A focus on an item he already answered or cleared, as from a
@@ -393,11 +401,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
           <h3>Waiting on you <span className="column-count">{needing}</span>{waiting.length > 1 && <button className="primary go-through" onClick={() => { setInbox(false); setOpen(true); show(waiting[0].key); }}>Go through them</button>}</h3>
-          {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={release(candidate) ? "release-row" : undefined}>
+          {/* The whole row opens its item in the Command Center, as its
+              button does for the keyboard: a click on the button reaches the
+              row. A page opens only from the item's card. */}
+          {needing ? <ul className="inbox-list waiting">{waiting.map((candidate) => <li key={candidate.key} className={"opens-item" + (release(candidate) ? " release-row" : "")} onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}>
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
             <time>{age(created(candidate))}</time>
-            <button className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer" onClick={() => { setInbox(false); setOpen(true); show(candidate.key); }}><Icon name={iconOf(candidate)} /></button>
+            <button type="button" className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer"><Icon name={iconOf(candidate)} /></button>
           </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
             <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
@@ -413,6 +424,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             const reason = candidate.kind === "question" ? answerReason(candidate.question) : "";
             const changeBlock = candidate.kind === "question" ? canChange(candidate.question) ? "" : "It has no answer to change"
               : candidate.kind === "credential" ? candidate.request.state === "saved" ? "Its values are stored"
+                : candidate.request.state === "granted" ? "Its service was granted"
                 : candidate.request.state === "withdrawn" ? "Its asker took it back"
                 : Date.parse(candidate.request.expires_at) <= Date.now() || candidate.request.state === "expired" ? "It expired"
                 : ""
@@ -433,8 +445,9 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             return <li key={candidate.key} className={isUnfolded ? "unfolded" : undefined}>
               <HistoryMark icon={who === "you" ? "crown" : who === "away" ? "moon" : who === "cfo" || candidate.kind === "credential" && candidate.request.state === "answered" ? "comment" : mark.icon} tone={mark.tone} label={label} />
               <span className="inbox-text">
-                <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
-                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{settledLabel(candidate, snapshot.actions)}</small>{reason && <small className="answer-reason">{reason}</small>}</span>
+                <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{linkedText(textOf(candidate))}</span></span>
+                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{linkedText(settledLabel(candidate, snapshot.actions))}</small>{reason && <small className="answer-reason">{linkedText(reason)}</small>}
+                  {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CFO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
                 <ClickFeedback text={reopenError} />
               </span>
               <time>{age(closedAt(candidate))}</time>
@@ -509,6 +522,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               ? <BrowserSignInCard key={shownKey} signin={item.signin} snapshot={snapshot} connected={connected} isOpening={!!signInAttempts[item.signin.id]?.isPending} error={signInAttempts[item.signin.id]?.error || ""} onOpen={() => void openSignIn(item.signin)} pager={pager} />
               : item.kind === "run" && item.run.cfo_unwoken
               ? <CfoUnwokenCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
+              : item.kind === "run" && item.run.cfo_stopped
+              ? <CfoStoppedCard key={shownKey} run={item.run} snapshot={snapshot} pager={pager} />
               : item.kind === "run" && item.run.update
               ? <UpdateCard key={shownKey} run={item.run} offer={item.run.update} connected={connected} sending={!!drafts[item.key]?.sending} error={drafts[item.key]?.error || ""} onRun={() => run(item.run)} onRetry={retryItem(item.run) ? () => { const again = retryItem(item.run); if (again) { show("run:" + again.id); run(again); } } : undefined} pager={pager} />
               : item.kind === "run"

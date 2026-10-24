@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/conpty"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 var (
@@ -94,7 +95,7 @@ func waitForHold(t *testing.T, held <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-held:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("no screen read was held")
 	}
 }
@@ -111,7 +112,7 @@ func hostHere(t *testing.T) (string, Record, <-chan struct{}) {
 		_ = Run(stateDir, Spec{ID: "g1", Args: []string{os.Args[0], "echo-child"}, Cols: 80, Rows: 25})
 	}()
 	var record Record
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		var err error
 		if record, err = ReadRecord(stateDir, "g1"); err == nil {
 			break
@@ -127,7 +128,7 @@ func hostHere(t *testing.T) (string, Record, <-chan struct{}) {
 		}
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the host did not end")
 		}
 	})
@@ -137,7 +138,7 @@ func hostHere(t *testing.T) (string, Record, <-chan struct{}) {
 // waitForFile waits for the terminal's program to write path.
 func waitForFile(t *testing.T, path string) []byte {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		if data, err := os.ReadFile(path); err == nil {
 			return data
 		}
@@ -190,7 +191,7 @@ type jobAccounting struct {
 func processesStarted(t *testing.T, job windows.Handle) uint32 {
 	t.Helper()
 	var accounting jobAccounting
-	if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+	if err := proc.QueryJobInformation(job, windows.JobObjectBasicAccountingInformation, unsafe.Pointer(&accounting), unsafe.Sizeof(accounting)); err != nil {
 		t.Fatalf("QueryInformationJobObject: %v", err)
 	}
 	return accounting.TotalProcesses
@@ -290,7 +291,7 @@ func TestTheConsoleClosingDuringAScreenReadNeverReachesTheHost(t *testing.T) {
 	}
 	select {
 	case <-ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the host did not end with its terminal")
 	}
 	if _, err := ReadRecord(stateDir, "g1"); !errors.Is(err, os.ErrNotExist) {
@@ -325,7 +326,7 @@ func TestAScreenReadFinishesBeforeTheTerminalCloses(t *testing.T) {
 	v.waitForExit(t)
 	select {
 	case <-ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the host did not end after the read")
 	}
 }
@@ -373,15 +374,14 @@ func TestAScreenReadNothingAnswersIsAnErrorAtOnce(t *testing.T) {
 	v.waitFor(t, "ready")
 	typeLine(t, v, "end-waker")
 	v.waitFor(t, "ended 1 other process")
-	started := time.Now()
 
 	rows, err := ReadScreen(record)
 
 	if err == nil || rows != nil || !strings.Contains(err.Error(), "terminal g1") || !strings.Contains(err.Error(), "input waker") {
 		t.Fatalf("ReadScreen = %q, %v; want an error naming terminal g1 and its input waker", rows, err)
 	}
-	if took := time.Since(started); took >= screenTimeout {
-		t.Errorf("the read failed after %s, want before its %s timeout", took, screenTimeout)
+	if strings.Contains(err.Error(), "did not read its screen within") {
+		t.Errorf("the read = %v, want it to fail at once, not when its %s timeout ran out", err, screenTimeout)
 	}
 }
 

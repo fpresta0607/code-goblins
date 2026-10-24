@@ -195,6 +195,7 @@ func TestASnapshotWithTwoThousandBacklogRowsFinishesWithinTwoSeconds(t *testing.
 		}
 	}
 	t.Logf("snapshot: 2000 backlog rows, 15 tasks, %d backlog bytes, %s", backlog.Len(), elapsed)
+	// stall-accepted: it is a speed budget, and the slow snapshots it rules out took 3 to 13 seconds on the live board, too short for a longer bound to tell apart.
 	if elapsed > 2*time.Second {
 		t.Errorf("snapshot took %s, budget is two seconds", elapsed)
 		return
@@ -206,6 +207,7 @@ func TestASnapshotWithTwoThousandBacklogRowsFinishesWithinTwoSeconds(t *testing.
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
+	// stall-accepted: it holds the stream's first snapshot to the same two-second speed budget, which no longer bound keeps.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/events", nil)

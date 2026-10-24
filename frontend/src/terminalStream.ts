@@ -1,4 +1,5 @@
 import { typingHeldReason } from "./terminalInput.ts";
+import { SMALL_SCREEN } from "./small-screen.ts";
 
 // A native terminal's view protocol: the host's output arrives as binary
 // messages, which the view acknowledges once xterm has consumed them, and the
@@ -7,6 +8,10 @@ import { typingHeldReason } from "./terminalInput.ts";
 export const DEFAULT_FONT_SIZE = 20;
 export const MIN_FONT_SIZE = 12;
 export const MAX_FONT_SIZE = 28;
+// A small screen's terminals start at the smallest size, so a phone 390 px
+// wide keeps about 50 columns of a harness's screen (the Overlord, 2026-10-20:
+// "the text should be smaller, and it should fit the screen").
+export const PHONE_FONT_SIZE = MIN_FONT_SIZE;
 // Every terminal the board sizes draws at the one text size the Overlord last
 // chose with Ctrl+Plus and Ctrl+Minus, or the right button and the wheel,
 // remembered in this browser, so each device keeps its own.
@@ -14,11 +19,15 @@ const FONT_KEY = "cfo-terminal-font-size";
 // The open terminals, which follow a size chosen in any one of them at once.
 const fontFollowers = new Set<(size: number) => void>();
 
+// The size the terminals draw at while none is kept, which Ctrl+0 restores.
+export function defaultFontSize(): number {
+  return matchMedia(SMALL_SCREEN).matches ? PHONE_FONT_SIZE : DEFAULT_FONT_SIZE;
+}
+
 export function storedFontSize(): number {
-  try {
-    const size = Number(localStorage.getItem(FONT_KEY));
-    return size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE ? size : DEFAULT_FONT_SIZE;
-  } catch { return DEFAULT_FONT_SIZE; }
+  let size = 0;
+  try { size = Number(localStorage.getItem(FONT_KEY)); } catch { /* none kept */ }
+  return size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE ? size : defaultFontSize();
 }
 
 export function storeFontSize(size: number): void {
@@ -61,7 +70,7 @@ export function inputMessages(bytes: Uint8Array): Uint8Array[] {
 export function fontSizeFor(key: string, current: number): number | null {
   if (key === "=" || key === "+") return Math.min(MAX_FONT_SIZE, current + 1);
   if (key === "-") return Math.max(MIN_FONT_SIZE, current - 1);
-  if (key === "0") return DEFAULT_FONT_SIZE;
+  if (key === "0") return defaultFontSize();
   return null;
 }
 
@@ -97,6 +106,34 @@ export function parseUnread(text: string): boolean | null {
     if (typeof value !== "object" || value === null) return null;
     const { type, unread } = value as Record<string, unknown>;
     return type === "unread" && typeof unread === "boolean" ? unread : null;
+  } catch {
+    return null;
+  }
+}
+
+// The relay says why typing is held while custody holds it, as a gate that
+// owns the task does, and an empty reason once it is free; the screen stays
+// live either way.
+export function parseHeld(text: string): string | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== "object" || value === null) return null;
+    const { type, reason } = value as Record<string, unknown>;
+    return type === "held" && typeof reason === "string" ? reason : null;
+  } catch {
+    return null;
+  }
+}
+
+// The relay says when the harness waits on an answer at a screen of its own,
+// which only its terminal takes, as Claude Code's permission prompt, and when
+// it no longer does.
+export function parseScreen(text: string): boolean | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (typeof value !== "object" || value === null) return null;
+    const { type, asking } = value as Record<string, unknown>;
+    return type === "screen" && typeof asking === "boolean" ? asking : null;
   } catch {
     return null;
   }
@@ -149,4 +186,11 @@ export function ended(code: number): boolean {
 export function closedReason(code: number, reason: string): string {
   if (!reason) return code === 1006 ? "The connection to the board dropped." : "The terminal view closed.";
   return typingHeldReason(reason);
+}
+
+// isWebKit says a browser draws with WebKit, as every browser on an iPhone
+// does: Safari, and Chrome, Edge and Firefox there too, whose agents name
+// WebKit and no Chromium version.
+export function isWebKit(userAgent: string): boolean {
+  return /AppleWebKit\//.test(userAgent) && !/(Chrome|Chromium|Edg)\//.test(userAgent);
 }

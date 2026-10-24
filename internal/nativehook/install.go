@@ -44,6 +44,19 @@ func CheckCapability(harness, version, help string) error {
 
 type InstallConfig struct{ Harness, ConfigDir, Executable, Home, State string }
 
+// TimeoutSeconds is how long Claude Code, Codex and pi let a native hook run
+// before they end it, which loses its event. The hook's own work, reading the
+// payload and writing one file into the spool, took 2 ms at the median and
+// 0.33 s at most on a loaded machine, so what the limit must cover is the
+// start of the process: the harness creates it, Windows maps the program and
+// Defender clears it, each waiting its turn behind the fleet's own builds and
+// tests. Of the 36,191 native hook runs Claude Code recorded on a busy fleet
+// from 2026-10-16 to 10-20, 33 ran past the 3 seconds the hooks had, one for
+// 19 seconds, and the 24 the harness ended lost their events, among them the
+// CFO's own prompts (issue #1211). A hook that finishes sooner ends sooner,
+// so the limit costs time only while the machine itself is stalled.
+const TimeoutSeconds = 30
+
 const ownedMarker = "# CFO native hooks v1"
 
 // Install owns only its exact hook command and helper files. Unrelated JSON
@@ -72,11 +85,7 @@ func Install(c InstallConfig) (string, error) {
 	if isDirect {
 		command = direct
 	}
-	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
-	if c.Harness == "codex" {
-		events = append(events, "Interrupt", "PreCompact", "PostCompact")
-	}
-	for _, event := range events {
+	for _, event := range Events(c.Harness) {
 		kept, stood, err := withoutOwned(hooks[event], c.Harness, c.ConfigDir)
 		if err != nil {
 			return "", err
@@ -95,7 +104,7 @@ func Install(c InstallConfig) (string, error) {
 			Type    string `json:"type"`
 			Command string `json:"command"`
 			Timeout int    `json:"timeout"`
-		}{"command", command, 3})
+		}{"command", command, TimeoutSeconds})
 		encoded, _ := json.Marshal(entry)
 		hooks[event] = slices.Insert(kept, stood, json.RawMessage(encoded))
 	}
@@ -136,6 +145,16 @@ func Install(c InstallConfig) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// Events are the hook events of harness, Claude Code or Codex, whose native
+// hooks report a session's lifecycle.
+func Events(harness string) []string {
+	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd", "SubagentStart", "SubagentStop"}
+	if harness == "codex" {
+		events = append(events, "Interrupt", "PreCompact", "PostCompact")
+	}
+	return events
 }
 
 func writeOwned(path, content string) error {
@@ -286,6 +305,42 @@ func directCommand(c InstallConfig) (string, bool) {
 	return executable + " native-hook codex --home " + home + " --state " + state, true
 }
 
+// CodexArguments are the Codex arguments that give one session its native
+// hooks, with the hooks feature on: a -c override for each lifecycle event,
+// running cfo native-hook codex directly as Install's hooks do, in the
+// session's own configuration rather than the user's hooks.json, which every
+// Codex session on the machine loads, the Overlord's own outside the fleet
+// included. Codex keys a hook's trust by where it is defined, which for a -c
+// override is the same for every session, and by what it runs, so the
+// Overlord trusts them once, in /hooks, for every session of the home. A path
+// that would need quoting cannot be written in one.
+func CodexArguments(executable, home, state string) ([]string, error) {
+	command, ok := directCommand(InstallConfig{Harness: "codex", Executable: executable, Home: home, State: state})
+	if !ok {
+		return nil, fmt.Errorf("native hooks: Codex cannot run cfo from %s with home %s and state %s without quoting them", executable, home, state)
+	}
+	args := []string{"--enable", "hooks"}
+	for _, event := range Events("codex") {
+		args = append(args, "-c", "hooks."+event+"=[{hooks=[{type='command',command='"+command+"',timeout="+strconv.Itoa(TimeoutSeconds)+"}]}]")
+	}
+	return args, nil
+}
+
+// CodexGoblinArguments are a Codex goblin's CodexArguments with its goblin
+// seal, which a Claude Code goblin's settings run before each command
+// (install.GoblinHooks): a PreToolUse override for Bash, the name Codex gives
+// a shell command and an exec_command call alike, running cfo hook
+// goblin-seal-codex directly with Codex's own limit for a hook, as Claude
+// Code's is for the seal. The Codex CFO's launch carries no seal, as the
+// Claude Code CFO's settings carry none.
+func CodexGoblinArguments(executable, home, state string) ([]string, error) {
+	args, err := CodexArguments(executable, home, state)
+	if err != nil {
+		return nil, err
+	}
+	return append(args, "-c", "hooks.PreToolUse=[{matcher='Bash',hooks=[{type='command',command='"+filepath.ToSlash(executable)+" hook goblin-seal-codex'}]}]"), nil
+}
+
 // ownsCommand reports whether a hook command is one Install wrote for harness
 // under configDir: the helper's, or cfo run directly for harness from any
 // place it was installed, so a reinstall after the binary moved replaces it.
@@ -384,16 +439,28 @@ func piExtension(c InstallConfig) string {
 	return `// CFO native hooks v1
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolExecutionEndEvent } from "@earendil-works/pi-coding-agent";
 export default function (pi: ExtensionAPI) {
   let turn = 0;
   const instance = randomUUID();
-  const fire = (name: string, ctx: ExtensionContext) => {
+  const fire = (name: string, ctx: ExtensionContext, tool?: ToolExecutionEndEvent) => {
     if (name === "agent_settled" && ctx.hasPendingMessages()) return;
     const payload = {hook_event_name: name, session_id: ctx.sessionManager.getSessionId(), cwd: ctx.cwd,
-      turn_id: instance + ":" + turn, model: ctx.model?.id, pending_messages: ctx.hasPendingMessages()};
+      turn_id: instance + ":" + turn, model: ctx.model?.id, pending_messages: ctx.hasPendingMessages(),
+      ...(tool && process.env.CFO_ROLE === "goblin" ? {tool_name: tool.toolName, tool_use_id: tool.toolCallId, tool_response: tool.result} : {})};
+    let input: string;
+    try {
+      input = JSON.stringify(payload);
+    } catch {
+      console.error("CFO native event could not be encoded");
+      return;
+    }
+    if (Buffer.byteLength(input, "utf8") > ` + strconv.Itoa(MaxInputBytes) + `) {
+      console.error("CFO native event exceeds 64 MiB");
+      return;
+    }
     const result = spawnSync(` + string(exe) + `, ` + string(args) + `, {
-      input: JSON.stringify(payload), encoding: "utf8", windowsHide: true, timeout: 2500,
+      input, encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(TimeoutSeconds*1000) + `,
     });
     if (result.error || result.status !== 0) console.error("CFO native event could not be spooled");
   };
@@ -401,7 +468,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_before_compact", (_event, ctx) => fire("session_before_compact", ctx));
   pi.on("session_compact", (_event, ctx) => fire("session_compact", ctx));
   pi.on("agent_start", (_event, ctx) => { turn++; fire("agent_start", ctx); });
-  pi.on("tool_execution_end", (_event, ctx) => fire("tool_execution_end", ctx));
+  pi.on("tool_execution_end", (event, ctx) => fire("tool_execution_end", ctx, event));
   pi.on("agent_settled", (_event, ctx) => fire("agent_settled", ctx));
   pi.on("session_shutdown", (_event, ctx) => fire("session_shutdown", ctx));
 }

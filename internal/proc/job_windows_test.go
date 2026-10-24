@@ -2,6 +2,7 @@ package proc
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,28 +15,29 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Windows counts a job's processes and lists them in one call, and a process
-// that starts or exits during it can leave the count and the list apart: a
-// job whose processes churned showed it in about one read of 25,000, for up
-// to half a millisecond. The list is read again until they agree, its room
-// grows when Windows says the list does not fit, and a job whose list never
-// agrees, or never fits its bound, is unreadable rather than taken short.
-func TestJobProcessIDsReadsTheListAgainUntilItsCountAgrees(t *testing.T) {
+// Windows counts a job's processes and lists them in one call, and while a
+// process exits the count can stay above the list for as long as the exit
+// takes. A list short of its count is read at once, with how many more the
+// job counts, however long that lasts; the room grows when Windows says the
+// list does not fit, and a list that never fits its bound, or names more
+// than Windows counts, is unreadable rather than taken short.
+func TestJobProcessIDsReadsTheListWithWhatTheJobCountsBeyondIt(t *testing.T) {
 	header := int(8 / unsafe.Sizeof(uintptr(0)))
 	tooLong := syscall.Errno(errorMoreData)
 	for name, row := range map[string]struct {
 		// read is what read number read of the list finds, with room for
 		// that many ids: the count, the ids it lists, or an error.
-		read      func(read int, room uint32) (counted, listed uint32, err error)
-		wantReads int
-		wantIDs   int
-		wantError string
+		read         func(read int, room uint32) (counted, listed uint32, err error)
+		wantReads    int
+		wantIDs      int
+		wantUnlisted uint32
+		wantError    string
 	}{
-		"a list that changed during one read": {wantReads: 2, wantIDs: 2, read: func(read int, room uint32) (uint32, uint32, error) {
-			if read == 1 {
-				return 3, 2, nil
-			}
+		"a job whose count is its list": {wantReads: 1, wantIDs: 2, read: func(read int, room uint32) (uint32, uint32, error) {
 			return 2, 2, nil
+		}},
+		"a process whose exit outlasts every read": {wantReads: 1, wantIDs: 2, wantUnlisted: 1, read: func(read int, room uint32) (uint32, uint32, error) {
+			return 3, 2, nil
 		}},
 		"a list too long for its room": {wantReads: 2, wantIDs: 100, read: func(read int, room uint32) (uint32, uint32, error) {
 			if room < 100 {
@@ -49,8 +51,8 @@ func TestJobProcessIDsReadsTheListAgainUntilItsCountAgrees(t *testing.T) {
 		"a list too long for every room": {wantReads: 6, wantError: "exceeds its bound", read: func(read int, room uint32) (uint32, uint32, error) {
 			return 0, 0, tooLong
 		}},
-		"a list that changed through every read": {wantError: "changed through every read", read: func(read int, room uint32) (uint32, uint32, error) {
-			return 3, 2, nil
+		"a list longer than its count": {wantReads: 1, wantError: "lists 3 processes but counts 2", read: func(read int, room uint32) (uint32, uint32, error) {
+			return 2, 3, nil
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -73,17 +75,17 @@ func TestJobProcessIDsReadsTheListAgainUntilItsCountAgrees(t *testing.T) {
 			}
 
 			// Act
-			ids, err := JobProcessIDs(0)
+			ids, unlisted, err := JobProcessIDs(0)
 
 			// Assert
 			if row.wantError != "" {
-				if err == nil || !strings.Contains(err.Error(), row.wantError) || (row.wantReads != 0 && reads != row.wantReads) || reads < 2 {
-					t.Fatalf("JobProcessIDs = %v, %v after %d read(s); want an error that says %q after %d", ids, err, reads, row.wantError, row.wantReads)
+				if err == nil || !strings.Contains(err.Error(), row.wantError) || reads != row.wantReads {
+					t.Fatalf("JobProcessIDs = %v, %d, %v after %d read(s); want an error that says %q after %d", ids, unlisted, err, reads, row.wantError, row.wantReads)
 				}
 				return
 			}
-			if err != nil || reads != row.wantReads || len(ids) != row.wantIDs || ids[0] != uint32(reads*1000) {
-				t.Fatalf("JobProcessIDs = %v, %v after %d read(s); want the %d ids of read %d, the one that agreed", ids, err, reads, row.wantIDs, row.wantReads)
+			if err != nil || reads != row.wantReads || len(ids) != row.wantIDs || ids[0] != uint32(reads*1000) || unlisted != row.wantUnlisted {
+				t.Fatalf("JobProcessIDs = %v, %d unlisted, %v after %d read(s); want the %d ids of read %d with %d unlisted", ids, unlisted, err, reads, row.wantIDs, row.wantReads, row.wantUnlisted)
 			}
 		})
 	}
@@ -208,13 +210,67 @@ func TestEndJobMemberEndsOnlyTheProcessItListed(t *testing.T) {
 	reused.Start = reused.Start.Add(-time.Second)
 
 	// Act
-	isEnded := endJobMember(job, reused)
+	_, isEnded := endJobMember(job, reused)
 
 	// Assert
+	// stall-accepted: the process is meant to be left running, so running out is the passing path and a stall only makes the wait longer.
 	if event, err := windows.WaitForSingleObject(process, 500); isEnded || err != nil || event != uint32(windows.WAIT_TIMEOUT) {
 		t.Fatalf("ended = %v, wait = %d, %v; want a process that started at another time left running", isEnded, event, err)
 	}
-	if !endJobMember(job, members[0]) {
+	ended, isEnded := endJobMember(job, members[0])
+	if !isEnded {
 		t.Fatal("the process the job listed was not ended")
+	}
+	windows.CloseHandle(ended)
+}
+
+// While a process exits, Windows can count it in its job and no longer list
+// it, and an exit can outlast any read: on 2026-10-17 a browser run pinned
+// to four busy processors kept its job's count above its list through every
+// read of a sample's 250 ms and then of its end's, so the end failed and the
+// run was cut as uncertain (issue 1025). An end with no machine service in
+// what Windows lists ends the whole job, so a job that still counts a
+// process it no longer lists is ended, with no error.
+func TestEndJobEndsAJobThatCountsAProcessStillExiting(t *testing.T) {
+	// Arrange
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = windows.TerminateJobObject(job, 1); _ = windows.CloseHandle(job) })
+	member := exec.Command(os.Args[0], "-test.run=^TestJobMemberFixture$")
+	member.Env = append(os.Environ(), "CFO_JOB_MEMBER_FIXTURE=1")
+	if err := member.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = member.Process.Kill(); _ = member.Wait() })
+	process, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(member.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(process)
+	if err := windows.AssignProcessToJobObject(job, process); err != nil {
+		t.Fatal(err)
+	}
+	original := readJobList
+	t.Cleanup(func() { readJobList = original })
+	readJobList = func(job syscall.Handle, buffer []uintptr) error {
+		err := original(job, buffer)
+		if err == nil {
+			// One more process the job counts, whose exit outlasts every read.
+			(*[2]uint32)(unsafe.Pointer(&buffer[0]))[0]++
+		}
+		return err
+	}
+
+	// Act
+	ended, spared, err := EndJob(context.Background(), job)
+
+	// Assert
+	if err != nil || len(spared) != 0 || len(ended) != 1 || ended[0].PID != member.Process.Pid {
+		t.Fatalf("EndJob = %+v, %+v, %v; want the member it lists ended and no error", ended, spared, err)
+	}
+	if event, err := windows.WaitForSingleObject(process, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the member still runs after the job's end: %d, %v", event, err)
 	}
 }

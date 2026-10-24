@@ -2,7 +2,9 @@ package train
 
 import (
 	"cmp"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -24,10 +26,31 @@ type PullRequest struct {
 	Mergeable         string  `json:"mergeable"`
 	ReviewDecision    string  `json:"reviewDecision"`
 	Labels            []Label `json:"labels"`
-	Checks            []Check `json:"statusCheckRollup"`
+	Checks            Checks  `json:"statusCheckRollup"`
 	Author            struct {
 		Login string `json:"login"`
 	} `json:"author"`
+}
+
+// DraftStateCheck is the check of the workflows' draft job, which runs only
+// when a pull request event saw a draft and reads whether the pull request is
+// a draft now, so a push an event saw as a draft still tests the head of one
+// marked ready meanwhile (#963). It tests nothing: on a draft it succeeds
+// while every other job is skipped, so counted it made a head that only a
+// draft's run had seen look tested.
+const DraftStateCheck = "draft state"
+
+// Checks is a head's check rollup as gh reports it, less the draft job's
+// check, which tests nothing (DraftStateCheck), whatever it concluded.
+type Checks []Check
+
+func (c *Checks) UnmarshalJSON(data []byte) error {
+	var rollup []Check
+	if err := json.Unmarshal(data, &rollup); err != nil {
+		return err
+	}
+	*c = slices.DeleteFunc(rollup, func(check Check) bool { return check.Kind == "CheckRun" && check.Name == DraftStateCheck })
+	return nil
 }
 
 // Label is one of a pull request's labels.
@@ -35,8 +58,22 @@ type Label struct {
 	Name string `json:"name"`
 }
 
+// IsRateLimitedDeploy says whether a commit status, by its state and target
+// page, is a deploy the host refused for its rate limit: Vercel, once a day's
+// builds are spent, fails the status and points it at its upgrade page for
+// that limit, upgradeToPro=build-rate-limit (#1194). gh's check rollup gives
+// a status's target but never its description, so the target is what says
+// so. The host never built the head, so the status says nothing of the
+// change: it counts as not run, like a skipped check, and pushing again for a
+// fresh one spends another build of the same allowance. Any other failed
+// status still fails.
+func IsRateLimitedDeploy(state, targetURL string) bool {
+	target, err := url.Parse(targetURL)
+	return state == "FAILURE" && err == nil && target.Host == "vercel.com" && target.Query().Get("upgradeToPro") == "build-rate-limit"
+}
+
 // Check is one entry of a check rollup: a check run, with a status and a
-// conclusion, or a commit status context, with a state.
+// conclusion, or a commit status context, with a state and a target page.
 type Check struct {
 	Kind       string `json:"__typename"`
 	Name       string `json:"name"`
@@ -66,11 +103,17 @@ func (c Check) isConcluded() bool {
 	return c.Status == "COMPLETED"
 }
 
+// isRateLimited says whether the check is a deploy the host rate limited.
+func (c Check) isRateLimited() bool {
+	return c.Kind == "StatusContext" && IsRateLimitedDeploy(c.State, c.TargetURL)
+}
+
 // isPassed says whether a concluded check passed: a success, or a check that
-// was skipped or neutral, as GitHub's own merge box counts them.
+// was skipped or neutral, as GitHub's own merge box counts them, or a deploy
+// the host rate limited, which never ran.
 func (c Check) isPassed() bool {
 	if c.Kind == "StatusContext" {
-		return c.State == "SUCCESS"
+		return c.State == "SUCCESS" || c.isRateLimited()
 	}
 	switch c.Conclusion {
 	case "SUCCESS", "NEUTRAL", "SKIPPED":
@@ -97,16 +140,32 @@ func (c Check) link() string {
 }
 
 // hasRun says whether a concluded check ran: one that was skipped or
-// neutral tested nothing, though GitHub's merge box counts it as passing.
+// neutral tested nothing, though GitHub's merge box counts it as passing,
+// and a deploy the host rate limited never built the head.
 func (c Check) hasRun() bool {
-	return c.Kind == "StatusContext" || c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
+	if c.Kind == "StatusContext" {
+		return !c.isRateLimited()
+	}
+	return c.Conclusion != "SKIPPED" && c.Conclusion != "NEUTRAL"
+}
+
+// rateLimited names the deploys in checks that the host rate limited.
+func rateLimited(checks []Check) string {
+	var names []string
+	for _, check := range checks {
+		if check.isRateLimited() {
+			names = append(names, check.name())
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // checksOutcome says how a rollup stands: "none" with no checks or none that
 // ran, "pending" while any runs, else "passed" or "failed" with the checks
 // that failed. A draft's run skips its jobs, so a pull request marked ready
 // shows its draft run's skipped checks until its ready run registers, and
-// those are no evidence that anything passed.
+// those are no evidence that anything passed. A deploy the host rate limited
+// counts as not run in the same way, never as failed.
 func checksOutcome(checks []Check) (string, []Check) {
 	var failed []Check
 	hasRun := false
@@ -181,6 +240,7 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			continue
 		}
 		owner, done := ownerOf(goblins, pr.URL)
+		limited := rateLimited(pr.Checks)
 		why := ""
 		switch outcome, _ := checksOutcome(pr.Checks); {
 		case owner.Task == "":
@@ -199,6 +259,8 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			why = "it waits on a review"
 		case outcome == "none" && len(pr.Checks) == 0:
 			why = "it has no checks"
+		case outcome == "none" && limited != "":
+			why = "no check ran on its head: every one was skipped, and the host rate limited the deploy of " + limited
 		case outcome == "none":
 			why = "no check ran on its head: every one was skipped"
 		case outcome == "pending":
@@ -216,7 +278,11 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			left = append(left, fmt.Sprintf("#%d %s", pr.Number, why))
 			continue
 		}
-		waiting = append(waiting, queued{Car{Number: pr.Number, URL: pr.URL, Title: pr.Title, Branch: pr.HeadRefName, Head: pr.HeadRefOid, Task: owner.Task, Goblin: owner.Name, GoblinTitle: owner.Title, State: CarRiding}, done})
+		car := Car{Number: pr.Number, URL: pr.URL, Title: pr.Title, Branch: pr.HeadRefName, Head: pr.HeadRefOid, Task: owner.Task, Goblin: owner.Name, GoblinTitle: owner.Title, State: CarRiding}
+		if limited != "" {
+			car.Note = "the host rate limited the deploy of " + limited + ", which never built this head"
+		}
+		waiting = append(waiting, queued{car, done})
 	}
 	slices.SortStableFunc(waiting, func(a, b queued) int {
 		return cmp.Or(a.done.Compare(b.done), cmp.Compare(a.car.Number, b.car.Number))

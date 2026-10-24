@@ -106,6 +106,10 @@ func noise() []rule {
 		keys(`HKCU\Software\Microsoft\Windows\CurrentVersion\Census`, "Windows' device census, which a scheduled task of Windows' own takes on its own schedule"),
 		{kind: kindRegistryValue, pattern: regexp.MustCompile(`(?i)^HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\QuietHours`), why: "Windows' own record of its quiet hours"},
 		keys(`HKCU\Software\Microsoft\IdentityCRL`, "Windows' sign-in records"),
+		// In run 38978481733 four of five jobs' runners held this credential
+		// before the install began and the fifth came to hold it during its
+		// job. Code Goblins writes only credentials named cfo:.
+		{kind: kindCredential, change: changeLeft, pattern: regexp.MustCompile(`(?i)^WindowsLive:target=virtualapp/didlogical$`), why: "the credential Windows' own Microsoft account and Live sign-in write for the profile by themselves, at a time of their own"},
 		keys(`HKCU\Software\Microsoft\EdgeWebView`, "the WebView2 runtime's own state, which every program that shows a web page writes"),
 		keys(`HKCU\Software\Microsoft\EdgeUpdate`, "the WebView2 runtime's own update state"),
 		keys(`HKCU\Software\Mozilla`, "the default browser's own settings, which opening the board in it writes, as opening any page does"),

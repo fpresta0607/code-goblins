@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,10 +48,16 @@ func (git *progressGit) Run(_ context.Context, request execx.Request) (execx.Res
 type stalledGit struct {
 	progressGit
 	stalledDirectories []string
+	mu                 sync.Mutex
+	stalledDeadlines   []time.Time
 }
 
 func (git *stalledGit) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if slices.Contains(git.stalledDirectories, request.Dir) {
+		deadline, _ := ctx.Deadline()
+		git.mu.Lock()
+		git.stalledDeadlines = append(git.stalledDeadlines, deadline)
+		git.mu.Unlock()
 		<-ctx.Done()
 		return execx.Result{}, ctx.Err()
 	}
@@ -105,17 +112,19 @@ func TestProgressPassUsesOneDeadlineForAllStalledGoblins(t *testing.T) {
 			}
 			liveGoblin(t, h, "d-healthy", h.Root)
 			head := strings.Repeat("a", 40)
-			service.Options.Progress = &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: stalledDirectories}
-			started := time.Now()
+			git := &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: stalledDirectories}
+			service.Options.Progress = git
 
-			err := service.checkFleet(t.Context(), started.UTC())
-			elapsed := time.Since(started)
+			err := service.checkFleet(t.Context(), time.Now().UTC())
 
 			if isError := errors.Is(err, context.DeadlineExceeded); isError != test.hasFailedBefore {
 				t.Fatalf("progress errors=%v, want the stalled probes' deadline an error %t", err, test.hasFailedBefore)
 			}
-			if elapsed > PROGRESS_PASS_TIMEOUT+5*time.Second {
-				t.Fatalf("progress pass took %s for three stalled goblins, exceeding its single %s budget", elapsed, PROGRESS_PASS_TIMEOUT)
+			git.mu.Lock()
+			deadlines := slices.Clone(git.stalledDeadlines)
+			git.mu.Unlock()
+			if len(deadlines) == 0 || slices.ContainsFunc(deadlines, func(deadline time.Time) bool { return !deadline.Equal(deadlines[0]) }) {
+				t.Fatalf("the stalled goblins' reads ran to the deadlines %v, want one deadline, the pass's single %s budget, for them all", deadlines, PROGRESS_PASS_TIMEOUT)
 			}
 			watched, err := readFleetWakes(h.State)
 			if err != nil {

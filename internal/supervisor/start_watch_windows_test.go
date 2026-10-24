@@ -150,9 +150,8 @@ func TestALoopOfAGoblinsCommandWakesTheCFOOnce(t *testing.T) {
 	}
 }
 
-// A Claude Code goblin's own hooks start cfo.exe around every shell call and
-// after every other tool call, far more than ten times a minute when it is
-// busy. Claude Code starts a hook given as a program and its args itself,
+// A Claude Code goblin's own hooks start cfo.exe before every shell call and
+// after every tool call, far more than ten times a minute when it is busy. Claude Code starts a hook given as a program and its args itself,
 // with no shell, so each is its harness's own child, which is no loop.
 // The same command started by the goblin's shell, as a command it runs, is
 // one, which shows the readings see each start.
@@ -170,7 +169,10 @@ func TestAGoblinsOwnHooksAtEveryToolCallAreNoLoop(t *testing.T) {
 			fleet := newStartWatchFleet(t)
 			now := time.Now().UTC()
 			var commands []string
-			for _, hook := range install.GoblinHooks(fleet.home.Root) {
+			for _, hook := range install.GoblinHooks(fleet.home.Root, fleet.home.State) {
+				if hook.Event != "PreToolUse" && hook.Event != "PostToolUse" {
+					continue
+				}
 				command := []string{syscall.EscapeArg(hook.Command)}
 				for _, arg := range hook.Args {
 					command = append(command, syscall.EscapeArg(arg))
@@ -179,8 +181,8 @@ func TestAGoblinsOwnHooksAtEveryToolCallAreNoLoop(t *testing.T) {
 			}
 
 			// Act: a reading every 5 seconds for two minutes, each finding
-			// both hooks started anew 5 times, as 60 tool calls a minute
-			// would.
+			// the hooks of a shell call started anew 5 times, as 60 tool
+			// calls a minute would.
 			pid := 1000
 			for reading := 0; reading < 24; reading++ {
 				at := now.Add(time.Duration(reading) * 5 * time.Second)

@@ -123,13 +123,13 @@ func TestIngestionRecreatesADeletedNativeInbox(t *testing.T) {
 	if err := os.Remove(nativehook.SpoolDir(home.State)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Ingest(); err == nil || !strings.Contains(err.Error(), "recreated") {
+	if _, err := store.Ingest(); err == nil || !strings.Contains(err.Error(), "recreated") {
 		t.Fatalf("missing folder was not reported and recreated: %v", err)
 	}
 	if err := nativehook.Spool(home.State, event(t, home, "SessionStart", "next-session", "", time.Now())); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Ingest(); err != nil || store.Snapshot().Sessions["codex/next-session"].NativeID != "next-session" {
+	if _, err := store.Ingest(); err != nil || store.Snapshot().Sessions["codex/next-session"].NativeID != "next-session" {
 		t.Fatalf("new events require a restart: %v", err)
 	}
 }
@@ -169,7 +169,7 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	request, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 	response, err := http.DefaultClient.Do(request)
@@ -320,7 +320,7 @@ func TestDeletedStateRootIsNeitherRecreatedNorTreatedAsAnInboxProblem(t *testing
 	service := &Service{Store: store, Options: Options{Reconcile: func(context.Context) error { isReconciled = true; return nil }}}
 
 	// Act
-	ingestErr := store.Ingest()
+	_, ingestErr := store.Ingest()
 	service.cycle(context.Background(), true)
 
 	// Assert
@@ -352,7 +352,7 @@ func TestTicketsKeepMovingWhileTheNativeInboxIsUnreadable(t *testing.T) {
 		defer close(done)
 		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -388,7 +388,7 @@ func repairInboxFromTheTicketLoop(t *testing.T, service *Service, github *fakeTi
 		defer close(done)
 		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}

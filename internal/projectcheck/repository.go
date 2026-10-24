@@ -38,13 +38,16 @@ type repository struct {
 	// index are the paths the checkout's own index tracks, which a folder
 	// that lags or sits on another branch can differ in.
 	index map[string]bool
+	// files are the tracked files read so far, each read once for every
+	// part of the check that asks for it.
+	files map[string][]byte
 }
 
 // openRepository reads which branch is the checkout's default, when it was
 // last fetched as of now, and what it tracks. A folder inside another
 // repository is no checkout: git would answer for the repository around it.
 func openRepository(ctx context.Context, runner execx.Runner, dir string, now time.Time) (*repository, error) {
-	r := &repository{dir: dir, runner: runner, ref: "HEAD", tracked: map[string]bool{}, index: map[string]bool{}}
+	r := &repository{dir: dir, runner: runner, ref: "HEAD", tracked: map[string]bool{}, index: map[string]bool{}, files: map[string][]byte{}}
 	if out, code, err := r.git(ctx, "rev-parse", "--show-prefix"); err != nil || code != 0 || strings.TrimSpace(out) != "" {
 		return nil, fmt.Errorf("projectcheck: %s is not a git checkout", dir)
 	}
@@ -52,15 +55,11 @@ func openRepository(ctx context.Context, runner execx.Runner, dir string, now ti
 		r.ref = strings.TrimSpace(out)
 		r.remote, r.branch, _ = strings.Cut(r.ref, "/")
 	}
-	out, code, err := r.git(ctx, "rev-parse", "--short", r.ref)
+	out, code, err := r.git(ctx, "rev-list", "-1", "--no-commit-header", "--format=%h%n%H", r.ref, "--")
 	if err != nil || code != 0 {
 		return nil, fmt.Errorf("projectcheck: %s is not a git checkout with a commit at %s", dir, r.ref)
 	}
-	r.commit = strings.TrimSpace(out)
-	if out, code, err = r.git(ctx, "rev-parse", r.ref); err != nil || code != 0 {
-		return nil, fmt.Errorf("projectcheck: git could not name the commit of %s at %s", dir, r.ref)
-	}
-	r.full = strings.TrimSpace(out)
+	r.commit, r.full, _ = strings.Cut(strings.TrimSpace(out), "\n")
 	if r.remote != "" {
 		r.fetched = r.lastFetched(ctx, now)
 	}
@@ -157,10 +156,14 @@ func (r *repository) read(ctx context.Context, name string) ([]byte, bool) {
 	if !r.tracked[name] {
 		return nil, false
 	}
+	if data, ok := r.files[name]; ok {
+		return data, true
+	}
 	result, err := r.runner.Run(ctx, execx.Request{Dir: r.dir, Name: "git", Args: []string{"show", r.ref + ":" + name}})
 	if err != nil || result.ExitCode != 0 {
 		return nil, false
 	}
+	r.files[name] = result.Stdout
 	return result.Stdout, true
 }
 

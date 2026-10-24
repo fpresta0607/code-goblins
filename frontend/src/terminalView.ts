@@ -1,13 +1,15 @@
 import { type IDisposable, Terminal } from "@xterm/xterm";
-import { WebglAddon } from "@xterm/addon-webgl";
+import { drawOnGpu } from "./terminal-gpu";
 import { terminalDocument } from "./terminalDocument";
 import { copyText } from "./clipboard.ts";
-import { clipboardInput, terminalKey } from "./terminal-keys";
+import { attachDictatedInput } from "./dictated-input";
+import { clipboardInput, imageKey, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
-import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHistory, parseSize, parseUnread } from "./terminalStream";
+import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
+import { attachTouchScroll, terminalText } from "./terminal-touch";
 
 export const FALLBACK_FONT = '"Cascadia Mono", Consolas, monospace';
 export const THEME = { background: "#071015", foreground: "#d8e9e2", cursor: "#6ee7b7", selectionBackground: "#286856" };
@@ -21,6 +23,8 @@ const RESIZE_SETTLE_MS = 120;
 const READY_FALLBACK_MS = 600;
 // Keys that only change the next key send nothing of their own.
 const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock", "NumLock", "ScrollLock", "Fn"]);
+// The mouse modes in which xterm hands the wheel to the program.
+const WHEEL_MOUSE_MODES = new Set(["vt200", "drag", "any"]);
 
 export interface ViewEvents {
   // The screen is whole: the history replayed and the repaint after it drawn.
@@ -32,6 +36,9 @@ export interface ViewEvents {
   // lets it through, and null means it is not dictation's.
   dictate: (event: KeyboardEvent) => boolean | null;
   harness: () => string;
+  // A picture pasted on another device, to put on this PC's clipboard before
+  // the harness's image key is pressed.
+  image: (picture: File) => void;
   // While he reads the history, where it ends, the top of the panel's last
   // row in px from the panel's top, which Jump to bottom sits above; null at
   // the live end.
@@ -39,17 +46,24 @@ export interface ViewEvents {
   // Key presses have sat unread in the terminal's input, as a busy program
   // leaves them, or its program has read them.
   unread: (isUnread: boolean) => void;
+  // Why typing is held while the screen stays live, as while a gate owns the
+  // task, or an empty reason once it is free. Typing meanwhile reaches no
+  // one: the relay drops it.
+  held: (reason: string) => void;
   // A key was typed while the view had no open connection, so it was not
   // sent: a key sent once the view is back could act on a screen he no
   // longer sees.
   unsent: () => void;
+  // The harness waits on an answer at a screen of its own, which only its
+  // terminal takes, as the relay read it, or no longer does.
+  asking: (isAsking: boolean) => void;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
 // draws it. It is staged, laid out but invisible, while it replays the host's
 // history and the repaint its first size asks for, so the panel never shows a
-// blank or half-drawn screen. It draws on the GPU where it can and writes a
-// whole redraw at a time.
+// blank or half-drawn screen. It draws on the GPU where it can (drawOnGpu) and
+// writes a whole redraw at a time.
 export class TerminalView {
   readonly element: HTMLDivElement;
   private readonly term: Terminal;
@@ -79,6 +93,11 @@ export class TerminalView {
   // Whether key presses sit unread in the terminal's input, as the relay
   // last said, which may be before this view is whole.
   private isUnread = false;
+  // Why typing is held, as the relay last said, or empty while it is free.
+  private heldReason = "";
+  // Whether the harness waits on an answer at a screen of its own, as the
+  // relay last said.
+  private isAsking = false;
   private isShown = false;
   private fit: FitState = { isDrawn: true, isClaimPending: false };
   private disposed = false;
@@ -92,6 +111,8 @@ export class TerminalView {
   private isCursorShown = true;
   private readonly stopFollowing: () => void;
   private readonly stopZooming: () => void;
+  private readonly stopSwiping: () => void;
+  private readonly detachDictatedInput: () => void;
 
   constructor(container: HTMLElement, url: URL, fontSize: number, events: ViewEvents) {
     this.events = events;
@@ -101,13 +122,7 @@ export class TerminalView {
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
     this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: () => {} } });
     this.term.open(this.element);
-    try {
-      const gpu = new WebglAddon();
-      gpu.onContextLoss(() => gpu.dispose());
-      this.term.loadAddon(gpu);
-    } catch {
-      // No WebGL here: xterm keeps drawing with its DOM renderer.
-    }
+    drawOnGpu(this.term);
     this.term.textarea?.setAttribute("aria-label", "Terminal input");
     this.term.parser.registerOscHandler(52, () => true);
     this.pin = new PinnedLine(this.element);
@@ -136,6 +151,7 @@ export class TerminalView {
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
+    this.detachDictatedInput = attachDictatedInput(this.term, (keys) => { if (this.isSendable()) this.term.input(keys, true); });
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
@@ -146,11 +162,16 @@ export class TerminalView {
     // wheel, is this one's too.
     this.stopFollowing = followFontSize((size) => this.setFont(size));
     this.stopZooming = attachZoomGesture(this.element, window, () => this.term.options.fontSize ?? DEFAULT_FONT_SIZE, (size) => { this.setFont(size); this.events.font(size); });
+    this.stopSwiping = attachTouchScroll(this.element, () => this.cell().height, (lines, at) => this.swipe(lines, at));
   }
 
   get ready(): boolean { return this.isReady; }
 
   get unread(): boolean { return this.isUnread; }
+
+  get held(): string { return this.heldReason; }
+
+  get asking(): boolean { return this.isAsking; }
 
   // show draws this view in the panel or keeps it live out of sight; a view
   // coming into sight is fitted to the panel and drawn again whole.
@@ -170,9 +191,38 @@ export class TerminalView {
   }
 
   // paste types text into the terminal the way a paste does, so a program
-  // that asked for bracketed paste receives it as one.
-  paste(text: string): void {
-    if (this.isSendable()) this.term.paste(stripPasteEscapes(text));
+  // that asked for bracketed paste receives it as one, and says whether it
+  // was sent.
+  paste(text: string): boolean {
+    if (!this.isSendable()) return false;
+    this.term.paste(stripPasteEscapes(text));
+    return true;
+  }
+
+  // enter presses Enter in the terminal, as a dictation stopped to send does
+  // after typing its words, and says whether it was sent.
+  enter(): boolean {
+    if (!this.isSendable()) return false;
+    this.term.input("\r", true);
+    return true;
+  }
+
+  // escape presses Escape in the terminal, which interrupts a harness's turn.
+  escape(): boolean {
+    if (!this.isSendable()) return false;
+    this.term.input("\x1b", true);
+    return true;
+  }
+
+  // pressImageKey presses the key the harness attaches this PC's clipboard
+  // image on, once a picture is there.
+  pressImageKey(): void {
+    if (this.isSendable()) this.term.input(imageKey(this.events.harness()), true);
+  }
+
+  // text is what the terminal shows and holds above, as plain text.
+  text(): string {
+    return terminalText(this.term);
   }
 
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
@@ -198,6 +248,8 @@ export class TerminalView {
     cancelAnimationFrame(this.pinFrame);
     this.stopFollowing();
     this.stopZooming();
+    this.stopSwiping();
+    this.detachDictatedInput();
     this.pin.dispose();
     clearTimeout(this.settle);
     clearTimeout(this.fallback);
@@ -223,6 +275,10 @@ export class TerminalView {
       if (history !== null) { this.history = history; return; }
       const unread = parseUnread(data);
       if (unread !== null) { this.isUnread = unread; this.events.unread(unread); return; }
+      const held = parseHeld(data);
+      if (held !== null) { this.heldReason = held; this.events.held(held); return; }
+      const asking = parseScreen(data);
+      if (asking !== null) { this.isAsking = asking; this.events.asking(asking); return; }
       // The terminal took a size here in its output. xterm parses writes in
       // order and calls back after each, so the grid changes once the output
       // before the size is drawn, and before the output after it.
@@ -256,11 +312,15 @@ export class TerminalView {
     this.readyIfDrawn();
   }
 
+  // A view whose connection closed before it was shown is never shown, its
+  // wait for a repaint included: it has no terminal to draw, and an empty one
+  // with a cursor reads as a program at work where its closing says why (a
+  // goblin whose host a restart ended, 2026-10-20).
   private markReady(): void {
     if (this.isReady || this.disposed) return;
     clearTimeout(this.fallback);
     this.isReady = true;
-    requestAnimationFrame(() => { if (!this.disposed) this.events.ready(); });
+    requestAnimationFrame(() => { if (!this.disposed && this.socket.readyState === WebSocket.OPEN) this.events.ready(); });
   }
 
   private refit(): void {
@@ -332,6 +392,16 @@ export class TerminalView {
     return screen ? { width: screen.width / this.term.cols, height: screen.height / this.term.rows } : { width: 0, height: 0 };
   }
 
+  // swipe scrolls by a finger's lines as the wheel does: a program that takes
+  // the wheel, by the mouse or on the alternate screen, gets a turn of it a
+  // line, and otherwise the terminal's own history scrolls.
+  private swipe(lines: number, at: { clientX: number; clientY: number }): void {
+    const screen = this.term.element?.querySelector(".xterm-screen");
+    if (!screen) return;
+    if (!WHEEL_MOUSE_MODES.has(this.term.modes.mouseTrackingMode) && this.term.buffer.active.type === "normal") { this.term.scrollLines(lines); return; }
+    for (let turn = 0; turn < Math.abs(lines); turn++) screen.dispatchEvent(new WheelEvent("wheel", { deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: at.clientX, clientY: at.clientY, bubbles: true, cancelable: true }));
+  }
+
   private key(event: KeyboardEvent): boolean {
     // Escape and every other key belong to the terminal, never the panel.
     event.stopPropagation();
@@ -384,6 +454,7 @@ export class TerminalView {
     event.stopImmediatePropagation();
     const input = clipboardInput(event, this.events.harness());
     if (input && "text" in input) this.paste(input.text);
+    else if (input && "image" in input) this.events.image(input.image);
     else if (input && this.isSendable()) this.term.input(input.key, true);
   };
 

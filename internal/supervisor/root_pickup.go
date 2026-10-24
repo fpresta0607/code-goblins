@@ -28,7 +28,8 @@ type RootIssues struct {
 	// Repository names the GitHub repository a checkout's origin is.
 	Repository func(ctx context.Context, checkout string) (string, error)
 	// OpenRoots reads a repository's open ops-root issues.
-	OpenRoots func(ctx context.Context, repository string) ([]tickets.OpenRoot, error)
+	OpenRoots  func(ctx context.Context, repository string) ([]tickets.OpenRoot, error)
+	IssueState func(ctx context.Context, repository string, number int) (string, error)
 }
 
 const (
@@ -294,7 +295,9 @@ func rootRowTitle(issue tickets.OpenRoot) string {
 // rootBrief is the brief of the task a root issue becomes: the issue's own
 // text as its Task, a pull request that closes the issue as its outcome. The
 // text is quoted, so no heading or setting line in it, such as "mode:", is
-// read as the brief's own.
+// read as the brief's own. Its delivery is direct-PR: the goblin pushes and
+// CI judges, which works on every harness, where the gated pipeline needs a
+// harness a gate runs on and the machine's shared daemon running.
 func rootBrief(name, id string, issue tickets.OpenRoot) string {
 	var quoted []string
 	for _, line := range strings.Split(strings.TrimSpace(rootMarker.ReplaceAllString(strings.ReplaceAll(issue.Body, "\r\n", "\n"), "")), "\n") {
@@ -340,6 +343,7 @@ Never name an AI product, company, model, agent or assistant identity as a commi
 ## Delivery
 
 kind: ship
+mode: direct-PR
 `, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), fleet.BriefStepCards())
 }
 

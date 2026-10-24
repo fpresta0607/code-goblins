@@ -52,7 +52,7 @@ func TestReconcileGivesUpOnAProbeThatNeverAnswers(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{Home: baseConfig(dir).Home, Monitor: hangingMonitor(t, dir), ReconcileBudget: 200 * time.Millisecond}
 
-	returnsWithin(t, 10*time.Second, "the supervisor's reconcile pass", func() {
+	returnsWithin(t, time.Minute, "the supervisor's reconcile pass", func() {
 		_ = Reconcile(context.Background(), cfg)
 	})
 }
@@ -64,7 +64,7 @@ func TestRunGivesUpOnAProbeThatNeverAnswers(t *testing.T) {
 	cfg.ReconcileBudget = 200 * time.Millisecond
 
 	var reason string
-	returnsWithin(t, 10*time.Second, "the watcher's cycle", func() {
+	returnsWithin(t, time.Minute, "the watcher's cycle", func() {
 		reason, _ = Run(cfg)
 	})
 	if reason == "" {

@@ -4,10 +4,15 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"testing"
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 )
 
 // Close ends only the host it was handed: a terminal of the same id that
@@ -55,7 +60,7 @@ func TestCloseTakesAHostEndingAsItsRequestIsRefusedAsEnded(t *testing.T) {
 		if err := client.CloseTerminal(); err != nil {
 			return err
 		}
-		for deadline := time.Now().Add(20 * time.Second); running(record.HostPID) && time.Now().Before(deadline); {
+		for deadline := time.Now().Add(time.Minute); running(record.HostPID) && time.Now().Before(deadline); {
 			time.Sleep(20 * time.Millisecond)
 		}
 		refused = client.CloseTerminal()
@@ -99,7 +104,10 @@ func TestCloseReportsARefusedRequestWhoseHostKeepsRunning(t *testing.T) {
 			stateDir, record := launch(t)
 			t.Cleanup(func() { end(record.HostPID) })
 			previousWait := closeEndWait
-			closeEndWait = time.Second
+			closeEndWait = time.Minute
+			if test.isWait {
+				closeEndWait = time.Second
+			}
 			t.Cleanup(func() { closeEndWait = previousWait })
 			setCloseTerminal(t, func(*Client) error {
 				if test.isRecordRemoved {
@@ -166,36 +174,129 @@ func TestCloseWaitsForAHostThatEndsAfterRefusingItsRequest(t *testing.T) {
 
 // A record left behind by a host that ended without removing it names no
 // host once a later process has its pid: Close reports nothing wrong without
-// waiting for that process to answer, and leaves it running.
+// waiting for that process to answer, and leaves it running. That holds for a
+// process this user may not open too, as a system service's conhost.exe that
+// took a host's pid after a restart was (issue #1206).
 func TestCloseTakesARecordWhosePidALaterProcessReusesAsEnded(t *testing.T) {
-	stateDir := t.TempDir()
-	record := Record{ID: "g1", Pipe: `\\.\pipe\cfo-host-g1`, Token: "0123", Version: Version, Started: time.Now().UTC()}
-	later := exec.Command(os.Args[0], "sleep-child")
-	if err := later.Start(); err != nil {
+	for name, start := range map[string]func(*testing.T) int{
+		"a later process":                        startSleepChild,
+		"a later process this user may not open": startUnopenableSleepChild,
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			record := Record{ID: "g1", Pipe: `\\.\pipe\cfo-host-g1`, Token: "0123", Version: Version, Started: time.Now().UTC().Add(-time.Second)}
+			later := start(t)
+			record.HostPID, record.ChildPID = later, later
+			if err := writeRecord(stateDir, record); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			began := time.Now()
+			err := Close(stateDir, record, 2*time.Minute)
+			took := time.Since(began)
+
+			// Assert
+			if err != nil {
+				t.Errorf("Close: %v", err)
+			}
+			if took >= time.Minute {
+				t.Errorf("Close took %s, want it back without waiting for the pid's process to answer", took)
+			}
+			if !isStillRunning(t, later) {
+				t.Errorf("Close stopped pid %d, a process that is not its host", later)
+			}
+		})
+	}
+}
+
+// A record names its host by pid, and Windows gives an ended host's pid to a
+// later process, so the pid counts as the host only while the process holding
+// it started no later than the host recorded itself. A process this user may
+// not open is judged the same way, by the start the machine's process list
+// gives without opening it: before issue #1206, Running read any such process
+// as the host, so a record whose pid a system service's process took after a
+// restart could neither be cleaned up nor restarted.
+func TestRunningKnowsAHostByWhenItsProcessStarted(t *testing.T) {
+	// Recorded before it ran, so a process that took its pid since started
+	// after the record too.
+	exitedRecorded := time.Now().UTC()
+	exited := exec.Command(os.Args[0], "-test.run=^$")
+	if err := exited.Run(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		arrange   func(*testing.T) (pid int, recorded time.Time)
+		isRunning bool
+	}{
+		{"a pid no process holds", func(*testing.T) (int, time.Time) { return exited.ProcessState.Pid(), exitedRecorded }, false},
+		{"a pid a later process holds", func(t *testing.T) (int, time.Time) {
+			recorded := time.Now().UTC().Add(-time.Second)
+			return startSleepChild(t), recorded
+		}, false},
+		{"a pid a later process this user may not open holds", func(t *testing.T) (int, time.Time) {
+			recorded := time.Now().UTC().Add(-time.Second)
+			return startUnopenableSleepChild(t), recorded
+		}, false},
+		{"its host, answering", func(t *testing.T) (int, time.Time) {
+			_, record := launch(t)
+			return record.HostPID, record.Started
+		}, true},
+		{"its host, answering nobody", func(*testing.T) (int, time.Time) { return os.Getpid(), time.Now().UTC() }, true},
+		{"its host, which this user may not open", func(t *testing.T) (int, time.Time) {
+			pid := startUnopenableSleepChild(t)
+			return pid, time.Now().UTC().Add(time.Second)
+		}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			pid, recorded := test.arrange(t)
+			record := Record{ID: "g1", Pipe: `\\.\pipe\cfo-host-g1`, Token: "0123", Version: Version, HostPID: pid, Started: recorded}
+
+			// Act
+			isRunning := Running(record)
+
+			// Assert
+			if isRunning != test.isRunning {
+				t.Errorf("Running(%+v) = %v, want %v", record, isRunning, test.isRunning)
+			}
+		})
+	}
+}
+
+// startSleepChild starts this test binary as a process that sleeps until the
+// test ends it, and returns its pid.
+func startSleepChild(t *testing.T) int {
+	t.Helper()
+	child := exec.Command(os.Args[0], "sleep-child")
+	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		end(later.Process.Pid)
-		_ = later.Wait()
+		_ = child.Process.Kill()
+		_ = child.Wait()
 	})
-	record.HostPID, record.ChildPID = later.Process.Pid, later.Process.Pid
-	if err := writeRecord(stateDir, record); err != nil {
+	return child.Process.Pid
+}
+
+// startUnopenableSleepChild is startSleepChild for a process this user may
+// not open.
+func startUnopenableSleepChild(t *testing.T) int {
+	t.Helper()
+	return proctest.StartUnopenable(t, execx.Command(os.Args[0], "sleep-child"))
+}
+
+// isStillRunning reports whether pid is in the machine's process list, which
+// names a process this user may not open too.
+func isStillRunning(t *testing.T, pid int) bool {
+	t.Helper()
+	processes, err := proc.Processes()
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	began := time.Now()
-	err := Close(stateDir, record, 5*time.Second)
-	took := time.Since(began)
-
-	if err != nil {
-		t.Errorf("Close: %v", err)
-	}
-	if took >= 5*time.Second {
-		t.Errorf("Close took %s, want it back without waiting for the pid's process to answer", took)
-	}
-	if !running(later.Process.Pid) {
-		t.Errorf("Close stopped pid %d, a process that is not its host", later.Process.Pid)
-	}
+	return slices.ContainsFunc(processes, func(process proc.Entry) bool { return process.PID == pid })
 }
 
 // Windows refuses to delete a file another process has open without delete
@@ -220,7 +321,7 @@ func TestCloseEndsAHostWhoseRecordAReaderHeldAsItEnded(t *testing.T) {
 	var heldErr error
 	go func() {
 		defer close(released)
-		for deadline := time.Now().Add(20 * time.Second); Running(record) && time.Now().Before(deadline); {
+		for deadline := time.Now().Add(time.Minute); Running(record) && time.Now().Before(deadline); {
 			time.Sleep(20 * time.Millisecond)
 		}
 		_, heldErr = ReadRecord(stateDir, record.ID)

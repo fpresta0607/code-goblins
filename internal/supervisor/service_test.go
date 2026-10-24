@@ -231,7 +231,7 @@ func TestReconciliationAfterSessionEndAndReadyUntilTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := event(t, h, "SessionStart", "ended", "", time.Now())
-	end := event(t, h, "SessionEnd", "ended", "turn", time.Now().Add(time.Millisecond))
+	end := event(t, h, "SessionEnd", "ended", "turn", time.Now().Add(time.Millisecond)) // stall-accepted: the event's timestamp, a millisecond after its start, which no wait compares with the clock.
 	if err := store.Accept(start); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestSupervisorProcessesWithoutBrowserAndRestarts(t *testing.T) {
 		t.Fatal("duplicate controller admitted")
 	}
 	start := event(t, h, "SessionStart", "background", "", time.Now())
-	stop := event(t, h, "Stop", "background", "turn", time.Now().Add(time.Millisecond))
+	stop := event(t, h, "Stop", "background", "turn", time.Now().Add(time.Millisecond)) // stall-accepted: the event's timestamp, a millisecond after its start, which no wait compares with the clock.
 	for _, e := range []nativehook.Event{start, stop} {
 		if err := nativehook.Spool(h.State, e); err != nil {
 			t.Fatal(err)
@@ -453,7 +453,10 @@ func TestSnapshotKeepsEvaluationWithinCurrentGeneration(t *testing.T) {
 	}{
 		{name: "settled current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "settled", wantPhase: "review"},
 		{name: "ended current session rejects completed prior generation", evaluationGeneration: "g1", linked: true, phase: "ended", wantPhase: "review"},
-		{name: "prior generation session rejects matching evaluation", evaluationGeneration: "g2", linked: true, sessionGeneration: "g1", phase: "settled", wantPhase: "unknown"},
+		// A session of an earlier generation is no evidence of this one, such
+		// as the Pi session of a goblin since switched to a harness that has
+		// reported none yet, so the current generation's own evaluation stands.
+		{name: "prior generation session leaves the matching evaluation standing", evaluationGeneration: "g2", linked: true, sessionGeneration: "g1", phase: "settled", wantPhase: "done", wantVerified: true},
 		{name: "unlinked task rejects completed prior generation", evaluationGeneration: "g1", wantPhase: "unknown"},
 		{name: "matching generation retains completed evaluation", evaluationGeneration: "g2", linked: true, phase: "settled", wantPhase: "done", wantVerified: true},
 	}

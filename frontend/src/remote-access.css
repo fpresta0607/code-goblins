@@ -1,0 +1,22 @@
+.remote-access-setting { display: grid; justify-items: start; gap: 10px; min-width: 0; }
+.remote-access-setting p { margin: 0; overflow-wrap: anywhere; }
+.remote-access-setting .copy-value { justify-self: stretch; min-width: 0; max-width: 100%; }
+.remote-access-setting .copy-value code { white-space: normal; overflow-wrap: anywhere; }
+/* A setting that belongs to the Tailscale switch sits under it, indented. */
+.remote-access-option { margin-left: 18px; padding-left: 12px; border-left: 1px solid var(--glass-border); }
+.setting-switch-row { display: grid; justify-items: start; gap: 4px; min-width: 0; }
+.setting-switch-line { display: flex; align-items: center; gap: 8px; }
+.setting-switch-mark { display: inline-flex; flex: none; }
+.setting-switch-mark .icon { width: 18px; height: 18px; }
+.setting-switch-mark.ok { color: var(--accent-green); }
+.setting-switch-mark.problem { color: var(--amber); }
+.setting-switch-note { padding-left: 12px; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+/* A row's mending command sits under it with its copy and play buttons, and
+   its terminal under them while it runs. */
+.remote-fix { display: grid; gap: 8px; justify-self: stretch; min-width: 0; }
+.remote-fix-command { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.remote-fix-command .copy-value { flex: 1 1 auto; }
+/* The machine the board and Scrawl connect to, under the Tailscale switch. */
+.remote-machines { max-width: 100%; }
+/* The app badge's switch, under Remote access in an installed app. */
+.app-badge-setting { display: grid; justify-items: start; gap: 6px; margin-top: 12px; }

@@ -102,7 +102,14 @@ for (const state of STATES) {
     const column = board(page).getByRole("region", { name: state.column, exact: true });
     await expect(column.locator(".card-title").getByText(ZANE, { exact: true })).toHaveCount(1);
     await expect(board(page).locator(".card-title").getByText(ZANE, { exact: true })).toHaveCount(1);
-    if (state.column !== "Tasks") await expect(card(page).getByRole("button", { name: /^(Start|Adjust) / })).toHaveCount(0);
+    if (state.column === "Tasks") return;
+    // A card carries no Start of its own, so the panel is where one would be.
+    await card(page).locator(".task-card").click();
+    await expect(page.locator("#panel-title")).toHaveText(ZANE);
+    if (await pill(page, "Task").count()) await pill(page, "Task").click();
+    const controls = page.locator(".goblin-panel").getByRole("group", { name: "Controls for Train history" });
+    await expect(controls).toBeVisible();
+    await expect(controls.getByRole("button", { name: /^Start / })).toHaveCount(0);
   });
 }
 
@@ -119,15 +126,14 @@ for (const [when, fields] of [["before", { phase: "queued", starting: true }], [
   }
 }
 
-test("a queued task's panel has the same Start as its card, and it starts the task the same way", async ({ page }) => {
+// The Overlord, 2026-10-16: no action buttons on a card. A queued task's
+// Start is in its panel alone.
+test("a queued task's Start is in its panel, not on its card, and it starts the task", async ({ page }) => {
   // Arrange
   const posted: Posted[] = [];
   await open(page, zane({ phase: "queued" }), posted);
-  await card(page).getByRole("button", { name: "Start Train history" }).click();
-  await expect.poll(() => posted).toEqual([{ path: "/api/tasks/start", body: { task: "cg-train-history" } }]);
-  await page.reload();
-  await expect(page.locator(".board-column").first()).toBeVisible();
-  posted.length = 0;
+  await expect(card(page)).toBeVisible();
+  await expect(card(page).getByRole("button", { name: /^Start / })).toHaveCount(0);
   await card(page).locator(".task-card").click();
   const controls = page.locator(".goblin-panel").getByRole("group", { name: "Controls for Train history" });
 

@@ -25,6 +25,10 @@ func NewPauseCondition(reason, until string, at time.Time) (PauseCondition, erro
 		if _, err := time.Parse(time.RFC3339, until); err != nil {
 			return condition, errors.New("allowance pause requires --until <reset time in RFC3339>")
 		}
+	case "restart":
+		if _, err := time.Parse(time.RFC3339, until); err != nil {
+			return condition, errors.New("restart pause requires --until <when this Windows sign-in began, in RFC3339>")
+		}
 	case "dependency":
 		kind, target, _ := strings.Cut(until, ":")
 		switch kind {
@@ -57,7 +61,7 @@ func NewPauseCondition(reason, until string, at time.Time) (PauseCondition, erro
 			return condition, err
 		}
 	default:
-		return condition, errors.New("pause requires --reason memory, allowance, overlord, dependency, question, ci or deploy")
+		return condition, errors.New("pause requires --reason memory, allowance, overlord, dependency, question, ci, deploy or restart")
 	}
 	return condition, nil
 }
@@ -86,29 +90,35 @@ func validateWaitURL(kind, target string) error {
 	return nil
 }
 
+// Description says why a goblin is paused and what resumes it. A pause is on
+// the bench, never a wait, so it reads Paused (the Overlord, 2026-10-16). A
+// dependency pause names only what it waits for, as the board's card does
+// (the Overlord, 2026-10-17: "I just don't like the resume").
 func (condition PauseCondition) Description() string {
 	switch condition.Reason {
 	case "memory":
-		return "Memory; resumes after two readings with 5 GB of memory and commit free"
+		return "Paused for memory; resumes after two readings with 5 GB of memory and commit free"
 	case "allowance":
-		return "Allowance; resumes at " + condition.Until
+		return "Paused for the allowance; resumes at " + condition.Until
+	case "restart":
+		return "Paused for the PC's restart; resumes once the PC has restarted"
 	case "overlord":
 		return "Paused by the Overlord; resumes on Resume"
 	case "question":
-		return "Waiting for the Overlord's answer to " + condition.Until
+		return "Paused until the Overlord answers " + condition.Until
 	case "dependency":
 		kind, target, _ := strings.Cut(condition.Until, ":")
 		switch kind {
 		case "date":
-			return "Resumes at " + target
+			return "Paused until " + target
 		case "task":
-			return "Waiting on " + target + " to deliver; resumes when it does"
+			return "Paused until " + target + " delivers"
 		case "pr":
-			return "Waiting on " + target + " to merge; resumes when it does"
+			return "Paused until " + target + " merges"
 		}
-		return "Waiting on " + condition.Until
+		return "Paused until " + condition.Until
 	case "ci", "deploy":
-		return "Waiting on " + condition.Reason + "; resumes when the awaited head finishes"
+		return "Paused until " + condition.Reason + " finishes; resumes when the awaited head finishes"
 	}
 	return ""
 }

@@ -68,7 +68,7 @@ func TestTheCFOsTerminalStartsClaudeCodeWithItsHooks(t *testing.T) {
 // CFO's hooks, which every session of the user would run, and names the fix.
 func TestRunDoctorSaysWhetherTheUsersSettingsStillHoldTheCFOsHooks(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
-	older, err := install.CFOSettings(home)
+	older, err := install.CFOSettings(home, filepath.Join(home, "state"))
 	if err != nil {
 		t.Fatal(err)
 	}

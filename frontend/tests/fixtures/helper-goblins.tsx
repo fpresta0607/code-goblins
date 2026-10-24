@@ -7,8 +7,9 @@ import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
 // A goblin with a helper at work under it, and another goblin's helper whose
-// parent is paused, so no tree holds it. ?view picks the canvas (the
-// default), the lineage list it becomes at phone width, or the board's cards.
+// parent has no tree yet, so none holds the helper. ?view picks the canvas
+// (the default), the lineage list it becomes at phone width, or the board's
+// cards.
 const now = Date.now();
 const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
 const megabytes = (count: number) => count * 2 ** 20;
@@ -22,14 +23,14 @@ const snapshot = parseSnapshot({
     task({ id: "cg-helpers", title: "Let goblins start helpers", phase: "working",
       tree: tree("cg-helpers", [child({ id: "helper:cg-helpers-h1", kind: "helper", label: "Accounts migration", detail: "Helper goblin cg-helpers-h1", model: "gpt-6-luna", state: "working", started: ago(4), last_activity: ago(0.5), memory: megabytes(512) })]) }),
     task({ id: "cg-helpers-h1", parent: "cg-helpers", title: "Accounts migration", phase: "working", since: ago(4), tree: tree("cg-helpers-h1", []) }),
-    task({ id: "acme-sync", title: "Sync the ledger", phase: "paused", lifecycle: { phase: "paused", action: "pause", at: ago(3), kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "overlord", until: "", at: ago(3) } } }),
+    task({ id: "acme-sync", title: "Sync the ledger", phase: "working" }),
     task({ id: "acme-sync-h1", parent: "acme-sync", title: "Ledger fixtures", phase: "working", since: ago(8) }),
   ],
 });
 
 function Fixture() {
   if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={[]} now={now} onSelect={() => {}} /></main>;
-  if (view === "cards") return <Board snapshot={snapshot} layout="stacked" now={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onCount={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
+  if (view === "cards") return <Board snapshot={snapshot} layout="stacked" now={now} presentations={[]} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
     <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} onSelect={() => {}} onChild={() => {}} />
   </main>;

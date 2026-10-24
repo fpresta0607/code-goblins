@@ -16,6 +16,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
@@ -37,12 +38,18 @@ const (
 	errorPipeBusy           = syscall.Errno(231)
 	// maxRunRequest bounds one request: the command plus its JSON escaping.
 	maxRunRequest = 8 * maxRunCommand
-	// runReadTimeout bounds how long a client takes to send its request,
-	// runRequestTimeout the work that waits on the loop or the allowance,
-	// and runReplyTimeout how long cfo run-request waits for the answer.
-	runReadTimeout    = 10 * time.Second
+	// runRequestTimeout bounds the work that waits on the loop or the
+	// allowance.
 	runRequestTimeout = 20 * time.Second
-	runReplyTimeout   = 30 * time.Second
+)
+
+// runReadTimeout bounds how long a client takes to send its request, and
+// runReplyTimeout how long cfo run-request waits for the answer. Only time
+// the machine ran spends either (awake), since a pause of the whole machine
+// stops the other side too.
+var (
+	runReadTimeout  = 10 * time.Second
+	runReplyTimeout = 30 * time.Second
 )
 
 // runPipeName is the supervisor's pipe for run requests, one per state
@@ -55,6 +62,8 @@ func runPipeName(stateDir string) string {
 // firstInstanceWait is how long the supervisor waits for a pipe name another
 // instance still holds to come free: a supervisor that just stopped releases
 // its instances within moments, and a name held longer than this is not ours.
+// Only time the machine ran spends it (awake), since a pause of the whole
+// machine stops the supervisor before too.
 const firstInstanceWait = 2 * time.Second
 
 // serveRunRequests takes run items over the supervisor's named pipe until ctx
@@ -75,7 +84,8 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 		s.publish(fmt.Errorf("run requests: %w", err))
 		return
 	}
-	started := time.Now()
+	freeing, cancelFreeing := awake.WithTimeout(context.Background(), firstInstanceWait)
+	defer cancelFreeing()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -100,7 +110,7 @@ func (s *Service) serveRunRequests(ctx context.Context) {
 			mode |= fileFlagFirstInstance
 		}
 		handle, _, callErr := procCreateNamedPipeW.Call(uintptr(unsafe.Pointer(name)), mode, pipeRejectRemoteClients, pipeUnlimitedInstances, 64<<10, 64<<10, 0, uintptr(unsafe.Pointer(attributes)))
-		if syscall.Handle(handle) == syscall.InvalidHandle && first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) && time.Since(started) < firstInstanceWait {
+		if syscall.Handle(handle) == syscall.InvalidHandle && first && errors.Is(callErr, syscall.ERROR_ACCESS_DENIED) && freeing.Err() == nil {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
@@ -148,13 +158,15 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	pipe := os.NewFile(uintptr(handle), "run request pipe")
 	defer pipe.Close()
 	var reply pipeReply
+	reading, cancelReading := awake.WithTimeout(context.Background(), runReadTimeout)
+	defer cancelReading()
 	expired := make(chan struct{})
-	timer := time.AfterFunc(runReadTimeout, func() {
+	stopExpiry := context.AfterFunc(reading, func() {
 		_ = syscall.CancelIoEx(handle, nil)
 		close(expired)
 	})
 	line, err := bufio.NewReader(io.LimitReader(pipe, maxRunRequest)).ReadBytes('\n')
-	if !timer.Stop() {
+	if !stopExpiry() {
 		<-expired
 		return
 	}
@@ -241,7 +253,7 @@ func (s *Service) handleRunClient(ctx context.Context, handle syscall.Handle, co
 	// handle closes, where DisconnectNamedPipe would discard it. Only a reply
 	// larger than the pipe's buffer waits in Write for its reader, so the write
 	// is bounded against a client that never reads.
-	replyCtx, cancel := context.WithTimeout(ctx, runReplyTimeout)
+	replyCtx, cancel := awake.WithTimeout(ctx, runReplyTimeout)
 	defer cancel()
 	closed := make(chan struct{})
 	stopClose := context.AfterFunc(replyCtx, func() {
@@ -303,22 +315,36 @@ func sendPipeRequest(stateDir string, req runPipeRequest) error {
 func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	var pipe *os.File
 	var err error
-	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+	// The supervisor has 2 s of time the machine ran to make its pipe free
+	// (awake), since a pause of the whole machine stops it too.
+	opening, cancelOpening := awake.WithTimeout(context.Background(), 2*time.Second)
+	for ; ; time.Sleep(25 * time.Millisecond) {
 		pipe, err = os.OpenFile(runPipeName(stateDir), os.O_RDWR|syscall.FILE_FLAG_OVERLAPPED, 0)
-		if !errors.Is(err, errorPipeBusy) && !errors.Is(err, os.ErrNotExist) || time.Now().After(deadline) {
+		if !errors.Is(err, errorPipeBusy) && !errors.Is(err, os.ErrNotExist) || opening.Err() != nil {
 			break
 		}
 	}
+	cancelOpening()
 	if err != nil {
 		return pipeReply{}, errors.New("the supervisor is not running, so the board cannot take this; start cfo serve")
 	}
 	defer pipe.Close()
 	// The command goes only to the supervisor of this home: the process that
 	// holds its watch lock. A pipe of that name served by anything else is a
-	// squatter, and it never sees the request.
+	// squatter, and it never sees the request. The server is read through
+	// Control, since File.Fd takes the pipe off the runtime's I/O completion
+	// port, where the deadline on the answer does nothing.
 	var server uint32
-	if ok, _, callErr := procGetNamedPipeServerProcessID.Call(pipe.Fd(), uintptr(unsafe.Pointer(&server))); ok == 0 {
-		return pipeReply{}, fmt.Errorf("the run request pipe's server could not be identified: %w", callErr)
+	var identified uintptr
+	var callErr error
+	raw, err := pipe.SyscallConn()
+	if err == nil {
+		err = raw.Control(func(handle uintptr) {
+			identified, _, callErr = procGetNamedPipeServerProcessID.Call(handle, uintptr(unsafe.Pointer(&server)))
+		})
+	}
+	if err != nil || identified == 0 {
+		return pipeReply{}, fmt.Errorf("the run request pipe's server could not be identified: %w", errors.Join(err, callErr))
 	}
 	if !lock.HeldByNamed(stateDir, ".watch.lock", int(server)) {
 		return pipeReply{}, fmt.Errorf("the run request pipe is served by pid %d, which is not this home's supervisor, so nothing was sent", server)
@@ -326,9 +352,8 @@ func askPipe(stateDir string, req runPipeRequest) (pipeReply, error) {
 	// The answer may take as long as the request's work, and the margin
 	// runReplyTimeout leaves past runRequestTimeout.
 	answerWait := requestTimeout(req) + runReplyTimeout - runRequestTimeout
-	if err := pipe.SetDeadline(time.Now().Add(answerWait)); err != nil {
-		return pipeReply{}, err
-	}
+	lift := awake.Deadline(pipe.SetDeadline, answerWait)
+	defer lift()
 	data, err := json.Marshal(req)
 	if err != nil {
 		return pipeReply{}, err

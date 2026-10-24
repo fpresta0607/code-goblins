@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -89,6 +90,27 @@ type Hygiene struct {
 	DeadCode        []Command `json:"dead_code,omitempty"`
 	AggressiveClean bool      `json:"aggressive_clean,omitempty"`
 }
+
+// Trains is how the project's merge trains land its pull requests.
+type Trains struct {
+	// LandLoneRiderOnItsRun lets a train of one pull request land it on its
+	// own green CI run, with no train run, when that run tested its head
+	// merged onto the base as it is now (train.Repository.LandsLoneRider).
+	// It holds only where a pull request's own run starts every job a
+	// train's run would, so a project whose workflows test less on a pull
+	// request's own run leaves it off.
+	LandLoneRiderOnItsRun bool `json:"land_lone_rider_on_its_run,omitempty"`
+	// LoneRiderWaitMinutes is how long one finished pull request waits for a
+	// second to share a train run with before it rides alone, 10 minutes
+	// unless set. One that can land on its own run waits no longer than 10
+	// minutes, since that costs no run at all.
+	LoneRiderWaitMinutes int `json:"lone_rider_wait_minutes,omitempty"`
+}
+
+// maxLoneRiderWaitMinutes bounds a lone rider's wait: a day's merges should
+// not wait on one.
+const maxLoneRiderWaitMinutes = 240
+
 type Lane struct {
 	Harness string `json:"harness"`
 	Model   string `json:"model,omitempty"`
@@ -106,15 +128,19 @@ type Budget struct {
 	MaxRepairRounds      int `json:"max_repair_rounds,omitempty"`
 }
 type Manifest struct {
-	Project      string            `json:"project"`
-	Services     []Service         `json:"services,omitempty"`
-	Deployment   Deployment        `json:"deployment,omitempty"`
-	Verification Verification      `json:"verification,omitempty"`
-	Security     Security          `json:"security,omitempty"`
-	Hygiene      Hygiene           `json:"hygiene,omitempty"`
-	Routing      Routing           `json:"routing,omitempty"`
-	Budgets      map[string]Budget `json:"budgets,omitempty"`
+	Project         string            `json:"project"`
+	IssueRepository string            `json:"issue_repository,omitempty"`
+	Services        []Service         `json:"services,omitempty"`
+	Deployment      Deployment        `json:"deployment,omitempty"`
+	Verification    Verification      `json:"verification,omitempty"`
+	Security        Security          `json:"security,omitempty"`
+	Hygiene         Hygiene           `json:"hygiene,omitempty"`
+	Trains          Trains            `json:"trains,omitzero"`
+	Routing         Routing           `json:"routing,omitempty"`
+	Budgets         map[string]Budget `json:"budgets,omitempty"`
 }
+
+var issueRepository = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$`)
 
 func Path(dataDir, projectName string) string {
 	return filepath.Join(dataDir, "projects", projectName, "project.json")
@@ -147,6 +173,12 @@ func LoadForCheckout(dataDir, checkout string) (Manifest, string, error) {
 func (m Manifest) Validate() error {
 	if strings.TrimSpace(m.Project) == "" {
 		return errors.New("project manifest: project is required")
+	}
+	if m.IssueRepository != "" {
+		_, name, _ := strings.Cut(m.IssueRepository, "/")
+		if !issueRepository.MatchString(m.IssueRepository) || name == "." || name == ".." {
+			return errors.New("project manifest: issue_repository must be a GitHub repository in owner/name form")
+		}
 	}
 	seen := map[string]bool{}
 	for _, s := range m.Services {
@@ -223,6 +255,9 @@ func (m Manifest) Validate() error {
 		if reuse.MaxAgeHours < 0 || reuse.MaxAgeHours > 168 {
 			return errors.New("project manifest: reuse max_age_hours is not from 0 to 168")
 		}
+	}
+	if wait := m.Trains.LoneRiderWaitMinutes; wait < 0 || wait > maxLoneRiderWaitMinutes {
+		return fmt.Errorf("project manifest: trains lone_rider_wait_minutes is not from 0 to %d", maxLoneRiderWaitMinutes)
 	}
 	if m.Deployment.Required && len(m.Deployment.Targets) == 0 {
 		return errors.New("project manifest: deployment.required needs at least one target")

@@ -2,7 +2,9 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -68,6 +70,7 @@ func reportLater(t *testing.T, store *Store, meta state.TaskMeta) {
 		t.Fatal(err)
 	}
 	defer file.Close()
+	// stall-accepted: a report's timestamp, which no wait compares with the clock.
 	if _, err := file.WriteString(time.Now().Add(2*time.Second).UTC().Format(time.RFC3339) + " working: started on SQLite\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +198,87 @@ func TestAChangeForAGoblinThatEndedGoesToTheCFO(t *testing.T) {
 		t.Errorf("the goblin received %q, want only the CFO's answer", typed)
 	}
 	wantHisAnswer(t, store.Snapshot().Questions[0], "Postgres", "SQLite")
+}
+
+// A change that goes to the CFO, for its own question or a goblin's whose task
+// restarted, waits while no CFO runs, which can be hours. A board that fills
+// meanwhile makes room with another closed question, never with the one whose
+// change is still on its way, so the CFO that runs again gets the change.
+func TestAFullBoardKeepsAQuestionWhoseChangeWaitsForTheCFO(t *testing.T) {
+	for name, test := range map[string]struct {
+		answered func(t *testing.T) (*Store, hostedTerminal, *CFOConnection, Question)
+		was, now string
+		// lines is what the CFO's terminal holds once the change reaches it.
+		lines int
+	}{
+		"the CFO's own question": {was: "Merge it", now: "Keep it open", lines: 2, answered: func(t *testing.T) (*Store, hostedTerminal, *CFOConnection, Question) {
+			store, _ := testStore(t)
+			_, identity, cfo, connection := primaryFixture(t, store)
+			if err := store.acceptQuestion(Question{ID: "pp-merge-125-20261010", Identity: identity, Text: "Merge PocketPiggies 125?", Options: []string{"Merge it", "Keep it open"}, CreatedAt: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.Queue(Action{ID: "answer-1", Kind: "cfo_answer", Generation: identity, QuestionID: "pp-merge-125-20261010", Text: "Merge it", AnswerKind: "option"}); err != nil {
+				t.Fatal(err)
+			}
+			runAll(t, store, &Service{Store: store, Options: Options{CFO: connection}})
+			return store, cfo, connection, store.Snapshot().Questions[0]
+		}},
+		"a goblin's question whose task restarted": {was: "SQLite", now: "Postgres", lines: 1, answered: func(t *testing.T) (*Store, hostedTerminal, *CFOConnection, Question) {
+			store, meta, _, cfo, connection, q := cfoAnswered(t)
+			meta.SpawnGen = "g2"
+			if err := state.WriteTaskMeta(store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			return store, cfo, connection, q
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, cfo, connection, q := test.answered(t)
+			s := &Service{Store: store, Options: Options{CFO: connection}}
+			registration := filepath.Join(store.Home.State, "primary.json")
+			primary, err := os.ReadFile(registration)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(registration); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := change(store, "change-1", q, test.now); err != nil {
+				t.Fatal(err)
+			}
+			if store.HasRunnable() {
+				t.Fatal("the change runs while no CFO runs, want it waiting for the CFO")
+			}
+
+			// Act
+			for i := range maxQuestions {
+				if err := store.settleQuestion(Question{ID: fmt.Sprintf("history-%03d", i), Identity: strings.Repeat("c", 64), Text: "Answered while he was away", Options: []string{"Yes", "No"}, CreatedAt: time.Now().UTC(), Status: "succeeded", Message: "Answered by the CFO.", AnsweredBy: "cfo"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(registration, primary, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runAll(t, store, s)
+
+			// Assert
+			snapshot := store.Snapshot()
+			i := slices.IndexFunc(snapshot.Questions, func(held Question) bool { return held.ID == q.ID })
+			if i < 0 {
+				t.Fatalf("the full board dropped question %s while its change waited for the CFO; the change reads %+v", q.ID, snapshot.Actions[slices.IndexFunc(snapshot.Actions, func(a Action) bool { return a.ID == "change-1" })])
+			}
+			if len(snapshot.Questions) != maxQuestions || slices.ContainsFunc(snapshot.Questions, func(held Question) bool { return held.ID == "history-000" }) {
+				t.Errorf("the board holds %d questions, want %d with the oldest other closed one, history-000, gone to make room", len(snapshot.Questions), maxQuestions)
+			}
+			told := changeLines(cfo.waitForLines(t, test.lines))
+			if len(told) != 1 || !strings.Contains(told[0], q.ID) {
+				t.Fatalf("the CFO was told %q, want the change to question %s once", told, q.ID)
+			}
+			wantTheChange(t, told[0], test.was, test.now)
+			wantHisAnswer(t, snapshot.Questions[i], test.now, test.was)
+		})
+	}
 }
 
 // The CFO's own question, answered by him, takes a new answer too: the CFO

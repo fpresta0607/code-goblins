@@ -32,6 +32,8 @@ type afkMergeRunner struct {
 	logErr    error
 	// queue says the base requires a merge queue.
 	queue bool
+	// rollup is the head's check rollup, else one green check.
+	rollup string
 }
 
 func (r *afkMergeRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -45,7 +47,11 @@ func (r *afkMergeRunner) Run(_ context.Context, request execx.Request) (execx.Re
 		if author == "" {
 			author = "fpresta0607"
 		}
-		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefOid":"%s","statusCheckRollup":[{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"}],"author":{"login":"%s"},"baseRefName":"main","isCrossRepository":%t}`, prMergeHeadOID, author, r.cross))}, nil
+		rollup := r.rollup
+		if rollup == "" {
+			rollup = `{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"}`
+		}
+		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED","headRefOid":"%s","statusCheckRollup":[%s],"author":{"login":"%s"},"baseRefName":"main","isCrossRepository":%t}`, prMergeHeadOID, rollup, author, r.cross))}, nil
 	case request.Args[0] == "api" && request.Args[1] == "graphql":
 		return execx.Result{Stdout: []byte(mergeQueueAnswer(r.queue, false))}, nil
 	case request.Args[0] == "api" && request.Args[1] == "user":
@@ -124,6 +130,26 @@ func TestAnAFKMergeLogsTheMergeWordWithItsEvidenceBeforeItMerges(t *testing.T) {
 	}
 	if result := runner.logged[1]; result.What != afkMergeURL || result.Outcome != afk.OutcomeMerged {
 		t.Errorf("the outcome = %+v, want the same pull request logged as merged", result)
+	}
+}
+
+// A deploy the host rate limited never built the head, so the merge goes
+// ahead on the checks that ran, and both the CFO and the merge word's
+// evidence are told of the deploy rather than counting it green.
+func TestAnAFKMergeNamesARateLimitedDeployInItsEvidence(t *testing.T) {
+	// Arrange
+	runner := &afkMergeRunner{rollup: `{"__typename":"CheckRun","name":"go","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"Vercel","startedAt":"2026-10-19T05:10:00Z","state":"FAILURE","targetUrl":"https://vercel.com/acme-projects?upgradeToPro=build-rate-limit"}`}
+
+	// Act
+	exit, stdout, stderr := runner.merge("--verified", "gate run 41 passed and its test output was read")
+
+	// Assert
+	const said = "the host rate limited the deploy of Vercel, which never built this head and counts as not run"
+	if exit != 0 || !runner.merged() || !strings.Contains(stdout, said) {
+		t.Fatalf("exit=%d stdout=%q stderr=%q, want it merged and the rate-limited deploy named", exit, stdout, stderr)
+	}
+	if evidence := runner.logged[0].Evidence; !strings.Contains(evidence, "1 check completed green; "+said) {
+		t.Errorf("the merge word's evidence = %q, want one green check and the rate-limited deploy named", evidence)
 	}
 }
 

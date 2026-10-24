@@ -320,7 +320,7 @@ func TestCredentialSaveRefusesEverythingButAnOpenRequestFromThisMachine(t *testi
 	}{
 		{"a board served under a name off this machine", true, nil, nil, http.StatusForbidden},
 		{"X-Forwarded-For", false, nil, header("X-Forwarded-For", "100.101.102.103"), http.StatusForbidden},
-		{"X-Forwarded-Host", false, nil, header("X-Forwarded-Host", "goblins.tailnet.ts.net"), http.StatusForbidden},
+		{"X-Forwarded-Host", false, nil, header("X-Forwarded-Host", "goblins.example.ts.net"), http.StatusForbidden},
 		{"X-Forwarded-Proto", false, nil, header("X-Forwarded-Proto", "https"), http.StatusForbidden},
 		{"Forwarded", false, nil, header("Forwarded", "for=100.101.102.103"), http.StatusForbidden},
 		{"X-Real-Ip", false, nil, header("X-Real-Ip", "100.101.102.103"), http.StatusForbidden},
@@ -364,7 +364,7 @@ func TestCredentialSaveRefusesEverythingButAnOpenRequestFromThisMachine(t *testi
 			}
 			handler := b.handler
 			if test.tailnet {
-				handler = NewHTTP(b.service, "goblins.tailnet.ts.net:443", nil)
+				handler = NewHTTP(b.service, "goblins.example.ts.net:443", nil)
 			}
 
 			// Act
@@ -508,7 +508,7 @@ func TestCredentialExpiryWaitsForASaveInFlight(t *testing.T) {
 	select {
 	case <-expired:
 		finishedDuringSave = true
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(200 * time.Millisecond): // stall-accepted: the expiry is meant to stay blocked on the save, so a stall only makes the wait longer.
 	}
 	now := time.Now().UTC()
 	_, recordErr := b.service.Store.updateCredential(b.request.ID, func(r *CredentialRequest) {
@@ -519,7 +519,7 @@ func TestCredentialExpiryWaitsForASaveInFlight(t *testing.T) {
 	if !finishedDuringSave {
 		select {
 		case expireErr = <-expired:
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal("expiry never finished once the save released the request")
 		}
 	}
@@ -711,7 +711,7 @@ func TestCredentialValueReachesNoRecordSnapshotOrStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	published, _ := json.Marshal(snapshot)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	streamRequest, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
 	stream, err := http.DefaultClient.Do(streamRequest)

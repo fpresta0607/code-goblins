@@ -121,14 +121,18 @@ type Train struct {
 	Branch string `json:"branch"`
 	PR     string `json:"pr,omitempty"`
 	State  string `json:"state"`
+	// LandsLoneRider is the repository's Repository.LandsLoneRider, kept for
+	// every step of the train.
+	LandsLoneRider bool `json:"lands_lone_rider,omitempty"`
 	// BaseSHA is the base commit the run CI tests was built on, Head that
 	// run's commit, and Pushed when it was pushed. No head means the next
 	// run is still to be built.
 	BaseSHA string    `json:"base_sha,omitempty"`
 	Head    string    `json:"head,omitempty"`
 	Pushed  time.Time `json:"pushed,omitzero"`
-	// Runs counts the CI runs the train started, and History keeps each
-	// one, in order. A record from before runs were kept has none.
+	// Runs counts the train's runs, the CI runs it started and any that
+	// stood on its one rider's own CI run, and History keeps each one, in
+	// order. A record from before runs were kept has none.
 	Runs    int   `json:"runs"`
 	History []Run `json:"history,omitempty"`
 	// Landing says the run passed and its riders are being merged, so a
@@ -182,6 +186,11 @@ type Car struct {
 // workflow gave it a second try. OnceTests are those tests of a run that
 // passed, as the workflow named them, and OnceUnread why they could not be
 // read, which is kept rather than taken for none.
+//
+// A run of one rider that stands on the rider's own CI run, which tested the
+// tree it lands (own_run.go), pushes nothing: OwnRun names the pages of the
+// workflow runs behind its checks, PR is the rider's own pull request, and
+// Head the merge commit GitHub made of it, which those runs tested.
 type Run struct {
 	Number     int           `json:"number"`
 	Riders     []int         `json:"riders"`
@@ -195,6 +204,7 @@ type Run struct {
 	Failed     []FailedCheck `json:"failed,omitempty"`
 	OnceTests  []string      `json:"failed_once_tests,omitempty"`
 	OnceUnread string        `json:"failed_once_unread,omitempty"`
+	OwnRun     string        `json:"own_run,omitempty"`
 }
 
 // FailedCheck is a check that ended red: its name and its page.
@@ -228,6 +238,9 @@ func (t Train) LandingEvidence(car Car) string {
 		return fmt.Sprintf("merge train %s found %s already on %s, landed by an earlier run of the train or an earlier train", t.ID, car.URL, t.Base)
 	}
 	for _, run := range t.History {
+		if run.Result == RunLanded && run.OwnRun != "" && slices.Contains(run.Riders, car.Number) {
+			return t.ownRunEvidence(run, car)
+		}
 		if run.Result == RunLanded && run.PR != "" && slices.Contains(run.Riders, car.Number) {
 			return fmt.Sprintf("merge train %s: CI passed on %s at %s, built on %s at %s", t.ID, run.PR, short(run.Head), t.Base, short(run.Base))
 		}

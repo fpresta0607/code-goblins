@@ -58,6 +58,21 @@ func IsKeyValue(token string) bool {
 	return hasValuePrefix(token) && len(token) >= 20 && strings.ContainsAny(token, "0123456789") || keyShaped[0].MatchString(token)
 }
 
+// plainIdentifier matches the identifiers a service shows openly: at most 20
+// letters and digits.
+var plainIdentifier = regexp.MustCompile(`^[A-Za-z0-9]{1,20}$`)
+
+// PlainIdentifier says a value typed into a plain field is a public
+// identifier, such as an OAuth client ID, and no key: the field is named as an
+// ID, and the value is at most 20 letters and digits that neither start the
+// way a known kind of key does nor have the whole shape of one. A longer value
+// in an ID field, or one with a key's prefix, still reads as a key.
+func PlainIdentifier(name, value string) bool {
+	name = strings.ToUpper(name)
+	isIDField := name == "ID" || strings.HasSuffix(name, "_ID")
+	return isIDField && plainIdentifier.MatchString(value) && !hasValuePrefix(value) && !keyShaped[0].MatchString(value) && !keyShaped[1].MatchString(value)
+}
+
 func hasValuePrefix(token string) bool {
 	for _, prefix := range valuePrefixes {
 		if strings.HasPrefix(token, prefix) {

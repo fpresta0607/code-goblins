@@ -84,7 +84,7 @@ func start(ctx context.Context, launch Launch, await func(context.Context, *devT
 	}
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(held, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := proc.SetJobInformation(held, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		windows.CloseHandle(held)
 		return Process{}, fmt.Errorf("limit chrome's job: %w", err)
 	}
@@ -200,7 +200,7 @@ func End(ctx context.Context, process Process) error {
 // raise runs the processes j holds now at normal priority at least
 // (priority.Raise).
 func (j *job) raise() {
-	if ids, err := proc.JobProcessIDs(syscall.Handle(j.handle)); err == nil {
+	if ids, _, err := proc.JobProcessIDs(syscall.Handle(j.handle)); err == nil {
 		priority.Raise(ids)
 	}
 }

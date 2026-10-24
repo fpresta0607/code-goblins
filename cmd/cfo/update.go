@@ -577,6 +577,12 @@ func installUpdate(h home.Home, stdout, stderr io.Writer) int {
 	if err := install.CarryWindow(programs, candidate, stdout); err != nil {
 		fmt.Fprintf(stderr, "cfo update: the update is done, but the desktop window in %s was not replaced, and the one there keeps working: %v\n", programs, err)
 	}
+	// So does the hook program, cfo built as a windowed program, which the
+	// goblins' hooks run only while it is the candidate's build: one that
+	// could not be replaced leaves them on cfo.exe.
+	if err := install.CarryHookProgram(programs, candidate, stdout); err != nil {
+		fmt.Fprintf(stderr, "cfo update: the update is done, but the hook program in %s was not replaced, so goblins' hooks run cfo.exe: %v\n", programs, err)
+	}
 	return updateInstalled
 }
 
@@ -942,7 +948,7 @@ func unprovedSupervisor(h home.Home) error {
 	var err error
 	var unread *os.PathError
 	for reads, first := 1, time.Now(); ; reads++ {
-		holder, err = lock.ReadNamed(h.State, ".watch.lock")
+		holder, err = readWatchLock(h.State, ".watch.lock")
 		if err == nil || errors.As(err, &unread) || reads >= 3 && time.Since(first) >= 150*time.Millisecond {
 			break
 		}
@@ -968,6 +974,10 @@ func unprovedSupervisor(h home.Home) error {
 	}
 	return nil
 }
+
+// readWatchLock is how unprovedSupervisor reads the watcher lock's record, a
+// seam for a test that finishes writing the record between two of its reads.
+var readWatchLock = lock.ReadNamed
 
 // provedHomeSupervisor proves the running process this home's supervisor by
 // the identity it runs with.

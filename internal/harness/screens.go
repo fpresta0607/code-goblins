@@ -20,12 +20,26 @@ type Screens struct {
 	Ready *regexp.Regexp
 	// Working matches a row while a turn runs.
 	Working *regexp.Regexp
+	// Starting matches the row a harness shows when it turned a submitted
+	// prompt away because its startup has not finished, and put the prompt
+	// back in its composer.
+	Starting *regexp.Regexp
 	// Pasted is how the composer shows typed text it collapsed as a paste.
 	Pasted []string
 	// PasteTakesEnter says the harness reads fast typing as a paste and can
 	// take the Enter that ends it as part of the paste, leaving the text in
 	// its composer: Codex 0.154.0 did, live, on 2026-09-28.
 	PasteTakesEnter bool
+	// Resubmits is how many more times Enter is pressed while typed text
+	// still waits in a ruled composer over the empty row an Enter taken as a
+	// new line added, and no turn has started: one for Claude Code, which
+	// left a resumed goblin's instruction in its composer over an empty row
+	// on a loaded machine, live, on 2026-10-20. Text that still shows over no
+	// new row is also what a harness that takes its Enter late shows, and
+	// pressed again it would get a second Enter after the instruction
+	// (#1232). Codex has none: End ends its paste, so the Enter after it
+	// submits (#1171).
+	Resubmits int
 	// Undrawn says the harness can hold typed text without drawing it until
 	// its next redraw, which a resize brings: an idle Codex 0.154 did, live,
 	// on 2026-09-29.
@@ -37,6 +51,13 @@ type Screens struct {
 	// blank.
 	Empty         *regexp.Regexp
 	RuledComposer bool
+	// Footer bounds an unruled composer below its last prompt row.
+	Footer *regexp.Regexp
+	// Choice matches the focused row of a list of numbered choices the
+	// harness draws in its composer's place while it waits on an answer only
+	// its terminal takes, as Claude Code draws a permission prompt, and
+	// Choices any other row of that list.
+	Choice, Choices *regexp.Regexp
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -55,6 +76,10 @@ type Dialog struct {
 	Accept     string
 	EscapeHint string
 	Summary    *regexp.Regexp
+	// OverlayOption distinguishes an offer over a composer from quoted text.
+	OverlayOption *regexp.Regexp
+	// Menu bounds focused choices to their confirmation footer at screen end.
+	Menu *regexp.Regexp
 }
 
 // NativeScreens returns what kind shows on its own screen, and false for a
@@ -73,31 +98,44 @@ func NativeScreens(kind Kind) (Screens, bool) {
 				Focus:  []string{"❯", ">"},
 				Accept: "Yes, I trust this folder",
 			}},
-			// A goblin runs with permission checks bypassed, which the
-			// composer's footer says while it waits.
-			Ready: regexp.MustCompile(`bypass permissions on`),
+			// The composer's footer names the session's permission mode
+			// while it waits, as in "⏵⏵ auto mode on (shift+tab to
+			// cycle)" or "⏸ manual mode on": a goblin runs with permission
+			// checks bypassed, and a CFO in whichever mode its session
+			// chose. The modes are Claude Code 2.1.302's.
+			Ready: regexp.MustCompile(`(manual mode|plan mode|accept edits|bypass permissions|don't ask|auto mode) on\b`),
 			// A spinner glyph, then a verb that ends in an ellipsis, as in
 			// "✽ Reticulating…". Claude Code draws the spinner from one of
 			// three glyph lists; one has "*" where the others have "✳".
-			Working: regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
-			Pasted:  []string{"[Pasted text #"},
+			Working:   regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
+			Pasted:    []string{"[Pasted text #"},
+			Resubmits: 1,
 			// Claude Code 2.1.288 encloses its bare prompt between rules.
 			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
 			RuledComposer: true,
+			// Claude Code 2.1.302 asks permission for a call under its
+			// diff, as in "Do you want to create nine.txt?", over
+			// "❯ 1. Yes", "  2. Yes, and switch to accept edits ..." and
+			// "  3. No", with no composer or footer under them; its focus
+			// mark is > where its terminal draws no Unicode.
+			Choice:  regexp.MustCompile(`^\s*[❯>] \d+\. \S`),
+			Choices: regexp.MustCompile(`^\s{2,}\d+\. \S`),
 		}, true
 	case Codex:
+		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
 		return Screens{
 			Dialogs: []Dialog{
-				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue"},
+				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue", OverlayOption: regexp.MustCompile(`^\s*› 1\. Set up security\s*$`)},
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: []string{"›"}, Accept: "2. Skip"},
-				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue"},
+				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue", Menu: regexp.MustCompile(`(?m)^[ \t]*(?:› )?1\. Yes, continue[ \t]*\n[ \t]*(?:› )?2\. No, quit[ \t]*\n[ \t\n]*Press enter to continue[ \t\n]*\z`)},
 				// Codex 0.160 asks this in its place, live on 2026-10-07 in a
 				// project it was never told to trust; Escape there quits Codex.
-				{Name: "the folder trust prompt", Markers: []string{"Trust this folder?"}, Focus: []string{"›"}, Accept: "1. Trust and continue"},
+				{Name: "the folder trust prompt", Markers: []string{"Trust this folder?"}, Focus: []string{"›"}, Accept: "1. Trust and continue", Menu: regexp.MustCompile(`(?m)^[ \t]*(?:› )?1\. Trust and continue[ \t]*\n[ \t]*(?:› )?2\. Quit[ \t]*\n[ \t\n]*enter continue · esc quit[ \t\n]*\z`)},
 				// Trusting hooks is the Overlord's decision, never a spawn's: a
 				// goblin continues without trusting them, so they do not run,
 				// and the spawn reports them.
-				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
+				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, EscapeHint: "enter confirm / esc skip", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`), Menu: regexp.MustCompile(hookMenu + `enter confirm / esc skip[ \t\n]*\z`)},
+				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`), Menu: regexp.MustCompile(hookMenu + `(?:Press enter to confirm or esc to go back|enter confirm · esc skip)[ \t\n]*\z`)},
 			},
 			// Captured live on Codex 0.154: the empty composer shows its
 			// placeholder, at start and after a turn (the binary also holds
@@ -116,6 +154,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			PasteTakesEnter: true,
 			Undrawn:         true,
 			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
+			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+) (minimal|low|medium|high|xhigh)\s*$)`),
 		}, true
 	case Pi:
 		return Screens{
@@ -134,6 +173,11 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// A braille spinner in the rule above the editor, as in
 			// "── ⠸ Working ──".
 			Working: regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
+			// pi 0.85 draws its editor and footer, and takes typed text,
+			// before its startup completes, which on a machine without fd and
+			// rg includes downloading them (InteractiveMode.init); until then
+			// it answers Enter with this status (handleStartupSubmit).
+			Starting: regexp.MustCompile(`Startup is still in progress`),
 			// The editor draws a full-width rule above and below its rows
 			// and nothing at their sides (pi-tui's Editor.render).
 			RuledComposer: true,
@@ -145,15 +189,27 @@ func NativeScreens(kind Kind) (Screens, bool) {
 // Dialog returns the dialog screen shows, if any.
 func (s Screens) Dialog(screen []string) (Dialog, bool) {
 	for _, dialog := range s.Dialogs {
-		if dialog.Shows(screen) {
-			return dialog, true
+		if !dialog.Shows(screen) || s.IsWorking(screen) {
+			continue
 		}
+		// A menu replaces the composer. Its text above a live composer is
+		// conversation history; an optional offer can overlay the composer.
+		if len(dialog.Focus) > 0 && s.showsComposerOrTurn(screen) {
+			continue
+		}
+		return dialog, true
 	}
 	return Dialog{}, false
 }
 
 // Shows reports whether screen shows the dialog.
 func (d Dialog) Shows(screen []string) bool {
+	if d.Menu != nil && !d.Menu.MatchString(strings.Join(screen, "\n")) {
+		return false
+	}
+	if d.OverlayOption != nil && !anyRow(screen, d.OverlayOption) {
+		return false
+	}
 	compact := compactScreen(screen)
 	if d.EscapeHint != "" && !strings.Contains(compact, compactScreen([]string{d.EscapeHint})) {
 		return false
@@ -186,6 +242,42 @@ func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)
 }
 
+// IsAsking reports whether screen shows the harness waiting on an answer at
+// a screen of its own, which only its terminal takes: a dialog it is known to
+// draw while no row shows a turn, the composer's footer or a ruled composer,
+// or a list of numbered choices with one focused and another on screen while
+// no row under the last focused one shows any of them. What the conversation
+// shows decides nothing: a dialog's words a diff quotes, or a numbered prompt,
+// has the composer waiting under it, and a mode a reply names lies above a
+// list that asks.
+func (s Screens) IsAsking(screen []string) bool {
+	if _, dialog := s.Dialog(screen); dialog && !s.showsComposerOrTurn(screen) {
+		return true
+	}
+	if s.Choice == nil {
+		return false
+	}
+	for i := len(screen) - 1; i >= 0; i-- {
+		if s.Choice.MatchString(screen[i]) {
+			return !s.showsComposerOrTurn(screen[i+1:]) && anyRow(screen, s.Choices)
+		}
+	}
+	return false
+}
+
+// showsComposerOrTurn reports whether rows show a turn, the composer's footer
+// or a ruled composer.
+func (s Screens) showsComposerOrTurn(rows []string) bool {
+	_, composer := ruledComposer(rows)
+	return composer || s.IsWorking(rows) || anyRow(rows, s.Ready)
+}
+
+// IsStarting reports whether screen shows the harness turning a submitted
+// prompt away because its startup has not finished.
+func (s Screens) IsStarting(screen []string) bool {
+	return s.Starting != nil && anyRow(screen, s.Starting)
+}
+
 // ComposerEmpty reports whether screen shows the harness's composer holding
 // nothing, so text typed now cannot land on top of text somebody left there
 // unsent. It is false whenever that cannot be read, including for a harness
@@ -194,19 +286,10 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	if _, hasDialog := s.Dialog(screen); hasDialog {
 		return false
 	}
-	if !s.RuledComposer {
-		return s.Empty != nil && anyRow(screen, s.Empty)
-	}
-	var rules []int
-	for i, row := range screen {
-		if isRule(row) {
-			rules = append(rules, i)
-		}
-	}
-	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
+	composer, isRead := s.composer(screen)
+	if !isRead {
 		return false
 	}
-	composer := screen[rules[len(rules)-2]+1 : rules[len(rules)-1]]
 	if s.Empty != nil {
 		return len(composer) == 1 && s.Empty.MatchString(strings.TrimSpace(composer[0]))
 	}
@@ -216,6 +299,105 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 		}
 	}
 	return true
+}
+
+// ComposerMatches proves the complete draft survived a startup dialog.
+// Unlike Shows, a suffix, an older prompt or a collapsed paste is not enough.
+func (s Screens) ComposerMatches(screen []string, typed string) bool {
+	if _, hasDialog := s.Dialog(screen); hasDialog {
+		return false
+	}
+	composer, isRead := s.composer(screen)
+	if !isRead {
+		return false
+	}
+	first := strings.TrimSpace(composer[0])
+	if s.Empty != nil {
+		for _, prompt := range []string{"› ", "❯ ", "> "} {
+			if content, found := strings.CutPrefix(first, prompt); found {
+				first = content
+				break
+			}
+		}
+	}
+	want := compactScreen([]string{typed})
+	return want != "" && compactScreen(append([]string{first}, composer[1:]...)) == want
+}
+
+// composer reads the current draft, including rows after a blank line. A
+// placeholder in history cannot prove the current composer empty, and a
+// footer-shaped draft row cannot replace the trailing UI footer block.
+func (s Screens) composer(screen []string) ([]string, bool) {
+	if s.RuledComposer {
+		return ruledComposer(screen)
+	}
+	if s.Footer == nil {
+		return nil, false
+	}
+	end := len(screen) - emptyRowsAtEnd(screen)
+	footer := end
+	for footer > 0 && s.Footer.MatchString(screen[footer-1]) {
+		footer--
+	}
+	if footer == end {
+		return nil, false
+	}
+	for start := footer - 1; start >= 0; start-- {
+		row := strings.TrimSpace(screen[start])
+		if row == "›" || strings.HasPrefix(row, "› ") {
+			composer := screen[start:footer]
+			return composer[:len(composer)-emptyRowsAtEnd(composer)], true
+		}
+	}
+	return nil, false
+}
+
+// TookEnterAsNewLine reports whether screen shows the harness's ruled
+// composer holding text over more empty rows at its end than atPress, the
+// screen as Enter was pressed, did: the harness took that Enter as a new
+// line, not a submit, as Claude Code did on a loaded machine, live, on
+// 2026-10-20, leaving a resumed goblin's instruction over an empty row. A
+// composer that shows no row the Enter added has not taken it yet, or took it
+// some way this cannot read. It is false whenever either composer cannot be
+// read.
+func (s Screens) TookEnterAsNewLine(atPress, screen []string) bool {
+	if !s.RuledComposer {
+		return false
+	}
+	before, isRead := ruledComposer(atPress)
+	if !isRead {
+		return false
+	}
+	after, isRead := ruledComposer(screen)
+	if !isRead {
+		return false
+	}
+	empty := emptyRowsAtEnd(after)
+	return empty < len(after) && empty > emptyRowsAtEnd(before)
+}
+
+// ruledComposer returns the rows between screen's last two full-width rules,
+// and false when there are no such rows.
+func ruledComposer(screen []string) ([]string, bool) {
+	var rules []int
+	for i, row := range screen {
+		if isRule(row) {
+			rules = append(rules, i)
+		}
+	}
+	if len(rules) < 2 || rules[len(rules)-1]-rules[len(rules)-2] < 2 {
+		return nil, false
+	}
+	return screen[rules[len(rules)-2]+1 : rules[len(rules)-1]], true
+}
+
+// emptyRowsAtEnd counts the empty rows rows ends with.
+func emptyRowsAtEnd(rows []string) int {
+	count := 0
+	for count < len(rows) && strings.TrimSpace(rows[len(rows)-1-count]) == "" {
+		count++
+	}
+	return count
 }
 
 // isRule reports whether row is a full-width rule: box-drawing dashes and
@@ -254,6 +436,9 @@ func (d Dialog) Chosen(focused string) bool {
 // with one of the dialog's focus glyphs, after it. More or fewer than one such
 // row means the focus cannot be read.
 func (d Dialog) Focused(screen []string) (string, bool) {
+	if d.Menu != nil {
+		screen = strings.Split(d.Menu.FindString(strings.Join(screen, "\n")), "\n")
+	}
 	var focused []string
 	for _, row := range screen {
 		for _, glyph := range d.Focus {

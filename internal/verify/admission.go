@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -130,7 +131,7 @@ func (t Turn) Release() error {
 }
 
 func (t Turn) ReleaseContext(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := awake.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if t.release != nil {
 		return t.release(ctx, t.busyLimit)

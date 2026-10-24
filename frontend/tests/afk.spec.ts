@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, ORIGIN, test, type Page, type Route } from "./site";
+import { expect, ORIGIN, test, type Locator, type Page, type Route } from "./site";
 
 // AFK mode on the board: the toggle in the CFO panel's header, what the CFO's
 // bar says while it is on, the offer when he is back and the link to his page
@@ -94,6 +94,18 @@ const bar = (page: Page) => page.locator(".cfo-pin");
 const header = (page: Page) => page.locator(".panel-header");
 const toggle = (page: Page) => page.getByRole("switch", { name: "AFK mode" });
 const offer = (page: Page) => page.locator("dialog.afk-dialog").filter({ hasText: "Welcome back" });
+// look is how a waiting row is drawn: its lantern box, its asker, its face and
+// its Answer button.
+const look = (row: Locator) => row.evaluate((element) => {
+  const drawn = (part: Element, pseudo?: string) => {
+    const style = getComputedStyle(part, pseudo);
+    return { filter: style.filter, background: style.backgroundColor, border: style.borderTopWidth, shadow: style.boxShadow, clip: style.clipPath, width: style.width };
+  };
+  const asker = getComputedStyle(element.querySelector(".inbox-text strong")!);
+  const answer = element.querySelector(".icon-button")!;
+  const face = element.querySelector(".goblin-avatar")!;
+  return { row: { ...drawn(element), width: "" }, box: { ...drawn(element, "::before"), width: "" }, asker: [asker.color, asker.fontFamily, asker.fontWeight], answer: drawn(answer), answerBox: drawn(answer, "::before"), face: drawn(face).width };
+});
 // The toggle is in the header of the CFO's panel, which the CFO's bar opens.
 async function openCfoPanel(page: Page) {
   await bar(page).getByRole("button", { name: "Open the CFO's terminal" }).last().click();
@@ -417,9 +429,15 @@ test("the report's green primary button walks through every pending decision and
 test.describe("AFK report layout", () => {
   let directory = "";
   let html = "";
+  // A CI runner starts with empty Go caches, so its first go command fetches
+  // the module's requirements and builds every package the fixture imports:
+  // 37 s on run 39538873531, past the 30 s a hook has by default. The hook
+  // waits as long as the build may take, and 30 s more for the rest of it.
+  const FIXTURE_BUILD_MS = 120_000;
   test.beforeAll(async () => {
+    test.setTimeout(FIXTURE_BUILD_MS + 30_000);
     directory = await mkdtemp(join(tmpdir(), "afk-report-"));
-    execFileSync("go", ["test", "./internal/afk", "-run", "^TestReturnModalFixture$", "-count=1"], { cwd: "..", env: { ...process.env, AFK_PROOF_DIR: directory }, windowsHide: true, timeout: 120_000 });
+    execFileSync("go", ["test", "./internal/afk", "-run", "^TestReturnModalFixture$", "-count=1"], { cwd: "..", env: { ...process.env, AFK_PROOF_DIR: directory }, windowsHide: true, timeout: FIXTURE_BUILD_MS });
     html = await readFile(join(directory, "report.html"), "utf8");
   });
   test.afterAll(async () => { if (directory) await rm(directory, { recursive: true, force: true }); });
@@ -436,7 +454,7 @@ test.describe("AFK report layout", () => {
     await expect(report).toBeVisible();
     await expect(report.getByRole("button", { name: "Go through what needs you" })).toBeInViewport();
     const frame = report.locator("iframe").contentFrame();
-    const titles = frame.locator(".inbox-text strong").filter({ hasText: "Review the complete migration" });
+    const titles = frame.locator(".inbox-text :is(strong, .inbox-summary)").filter({ hasText: "Review the complete migration" });
     await expect(titles).toHaveCount(3);
     for (const title of await titles.all()) {
       const dimensions = await title.evaluate((element) => ({ height: element.clientHeight, scrollHeight: element.scrollHeight, width: element.clientWidth, scrollWidth: element.scrollWidth, lineHeight: parseFloat(getComputedStyle(element).lineHeight) }));
@@ -451,9 +469,54 @@ test.describe("AFK report layout", () => {
     await expect(frame.getByRole("heading", { name: "Record", exact: true })).toBeInViewport();
     await expect(report.getByRole("button", { name: "Go through what needs you" })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`after-${width}-scrolled.png`) });
-    await frame.getByRole("button", { name: "Open in Command Center" }).first().click();
+    await frame.getByRole("button", { name: /^Answer The CFO: Review the complete migration/ }).click();
     await expect(report).toHaveCount(0);
     await expect(page.locator("dialog.question-modal")).toContainText(QUESTIONS[0].text);
+  });
+
+  // The Overlord, 2026-10-17, of the report's Needs you: "styling should be
+  // command center based. It should take me to the command center look to
+  // then clear out that and answer that question. Same type of controls." What
+  // needs him wears the Command Center's own waiting rows, and a click anywhere
+  // on one opens the Command Center on that item, never a card of the report's
+  // own, and moves neither the frame nor the window.
+  test.describe("in his window", () => {
+    test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
+
+    test("what needs him wears the Command Center's waiting row, and a click anywhere on it opens the Command Center on that item with its controls", async ({ page, context }, testInfo) => {
+      await open(page, snapshot({ afk: KEPT, questions: [QUESTIONS[0]] }));
+      await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
+      await page.route("**/api/afk/report/afk-fixture/*.png", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
+      await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.png" }));
+      const menu = page.locator(".command-center-menu > summary");
+      await menu.click();
+      const board = await look(page.locator(".command-center-updates .inbox-list.waiting li").first());
+      await menu.click();
+      await openCfoPanel(page);
+      await header(page).getByRole("button", { name: "Open your last AFK report" }).click();
+      const report = page.getByRole("dialog", { name: "Your AFK report" });
+      const frame = report.locator("iframe").contentFrame();
+      await expect(frame.getByRole("heading", { name: /Welcome back/ })).toBeVisible();
+      await frame.locator("body").evaluate(() => document.fonts.ready);
+      await page.screenshot({ path: testInfo.outputPath("report-1707.png") });
+      const needs = frame.getByRole("list", { name: "Needs you" }).getByRole("listitem");
+      await expect(needs).toHaveCount(1);
+      await expect(frame.locator(".verdict.needs")).toHaveCount(0);
+      expect(await look(needs.first())).toEqual(board);
+      const address = await frame.locator("html").evaluate(() => location.href);
+
+      await needs.first().locator(".inbox-summary").click();
+
+      await expect(report).toHaveCount(0);
+      const center = page.locator("dialog.question-modal");
+      await expect(center.locator(".question-body")).toHaveText(QUESTIONS[0].text);
+      await expect(center.getByRole("radio", { name: "Do it", exact: true })).toBeVisible();
+      await expect(center.getByRole("button", { name: "Send decision" })).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath("command-center-1707.png") });
+      expect(page.url()).toBe(ORIGIN + "/");
+      expect(context.pages()).toHaveLength(1);
+      expect(address).toBe(ORIGIN + PAGE);
+    });
   });
 
   test("the report opens the current decision in History's change card", async ({ page }) => {

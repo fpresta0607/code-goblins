@@ -36,7 +36,9 @@ func runCLIWithRuntime(t *testing.T, runtime commandRuntime, args ...string) (in
 }
 
 func TestAuthStoreAndListKeepTwoProjectsApart(t *testing.T) {
-	useFileStore(t)
+	// The store's own path names a project, as a task's temp folder can, so a
+	// listing is judged by what it lists, never by its store line.
+	t.Setenv(auth.StoreDirEnv, filepath.Join(t.TempDir(), "precisiondocs", "credentials"))
 
 	for _, args := range [][]string{
 		{"store", "--project", "precisiondocs", "DATABASE_URL", "postgres://precisiondocs"},
@@ -66,7 +68,7 @@ func TestAuthStoreAndListKeepTwoProjectsApart(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cfo auth list --project = %d: %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "clock-in/DATABASE_URL") || strings.Contains(stdout, "precisiondocs") {
+	if _, listed, _ := strings.Cut(stdout, "\n"); listed != "clock-in/DATABASE_URL\n" {
 		t.Errorf("scoped listing = %q, want only clock-in", stdout)
 	}
 }
@@ -525,17 +527,19 @@ func TestAuthGrantRefusesWhatItCannotGrant(t *testing.T) {
 	}
 }
 
-// A goblin that needs a service says so in a blocked report. It never grants
+// A goblin that needs a service requests a grant card. It never grants
 // itself one or revokes one, and neither does a gate agent.
 func TestAuthGrantAndRevokeAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
 	commands := []struct {
 		args []string
 		want string
 	}{
-		{[]string{"grant", "live-1", "extra"}, "blocked report"},
+		{[]string{"grant", "live-1", "extra"}, "--grant <service>"},
 		{[]string{"grant", "live-1", "--mcp", "literal-env"}, "blocked report"},
 		{[]string{"revoke", "live-1", "stored"}, "the CFO revokes it"},
 		{[]string{"revoke", "live-1", "--mcp", "granted-server"}, "the CFO revokes it"},
+		{[]string{"grant", "live-1", "--codex-credits"}, "blocked report"},
+		{[]string{"revoke", "live-1", "--codex-credits"}, "blocked report"},
 	}
 	for _, variable := range []string{harness.RoleVariable, gateAgentVariable} {
 		for _, command := range commands {
@@ -557,6 +561,10 @@ func TestAuthGrantAndRevokeAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.
 				if err := state.WriteTaskMCPServers(stateDir, "live-1", []string{"granted-server"}); err != nil {
 					t.Fatal(err)
 				}
+				isAuthorized := command.args[0] == "revoke"
+				if err := state.WriteTaskCodexCredits(stateDir, "live-1", isAuthorized); err != nil {
+					t.Fatal(err)
+				}
 				var sent []string
 				runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true}}, &sent)
 
@@ -568,8 +576,8 @@ func TestAuthGrantAndRevokeAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.
 					t.Errorf("exit = %d, stderr = %q, want it refused, naming whose act it is and %q", code, stderr, command.want)
 				}
 				after, err := state.ReadTaskMeta(stateDir, "live-1")
-				if err != nil || strings.Join(after.Credentials, ",") != "stored" || strings.Join(after.MCPServers, ",") != "granted-server" {
-					t.Errorf("the record names %v and the MCP servers %v, %v, want it unchanged", after.Credentials, after.MCPServers, err)
+				if err != nil || strings.Join(after.Credentials, ",") != "stored" || strings.Join(after.MCPServers, ",") != "granted-server" || after.CodexCredits != isAuthorized {
+					t.Errorf("the record names %v and the MCP servers %v with Codex credits %v, %v, want it unchanged", after.Credentials, after.MCPServers, after.CodexCredits, err)
 				}
 			})
 		}
@@ -794,6 +802,57 @@ const standInCmdMCP = `{"mcpServers": {
 	"literal-env": {"command": "standin-server", "env": {"STANDIN_MCP_KEY": "stand-in-mcp-env-value"}},
 	"plain": {"command": "standin-server"}
 }}`
+
+// Authorizing a task to spend paid Codex credits is the grant with
+// --codex-credits, and withdrawing it the revoke: the task's record says so,
+// its status log says who changed it, the output says when its codex guard
+// follows, and no other task changes. A task that is not running has no guard
+// to change.
+func TestAuthGrantCodexCreditsAuthorizesARunningTaskAndRevokeWithdrawsIt(t *testing.T) {
+	// Arrange
+	t.Setenv(harness.RoleVariable, "")
+	t.Setenv(gateAgentVariable, "")
+	useFileStore(t)
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state")
+	project := filepath.Join(root, "precisiondocs")
+	declareCmdStored(t, stateDir, project, "FLY_API_TOKEN")
+	writeCmdTaskMeta(t, stateDir, "live-1", project, "pane-live", true)
+	writeCmdTaskMeta(t, stateDir, "other-1", project, "pane-other", true)
+	var sent []string
+	runtime := refreshTestRuntime(t, stateDir, cmdPanes{live: map[string]bool{"pane-live": true, "pane-other": true}}, &sent)
+
+	// Act
+	grantCode, grantOut, grantErr := runCLIWithRuntime(t, runtime, "grant", "live-1", "--codex-credits")
+	granted, grantedErr := state.ReadTaskMeta(stateDir, "live-1")
+	revokeCode, revokeOut, revokeErr := runCLIWithRuntime(t, runtime, "revoke", "live-1", "--codex-credits")
+	revoked, revokedErr := state.ReadTaskMeta(stateDir, "live-1")
+	ghostCode, _, ghostErr := runCLIWithRuntime(t, runtime, "grant", "ghost-1", "--codex-credits")
+
+	// Assert
+	if grantCode != 0 || grantedErr != nil || !granted.CodexCredits || !strings.Contains(grantOut, "authorized live-1 to spend paid Codex credits") {
+		t.Errorf("grant = %d, %q, %q; record credits %v, %v; want live-1 authorized", grantCode, grantOut, grantErr, granted.CodexCredits, grantedErr)
+	}
+	if revokeCode != 0 || revokedErr != nil || revoked.CodexCredits || !strings.Contains(revokeOut, "withdrew the authorization of live-1") {
+		t.Errorf("revoke = %d, %q, %q; record credits %v, %v; want the authorization withdrawn", revokeCode, revokeOut, revokeErr, revoked.CodexCredits, revokedErr)
+	}
+	if strings.Join(granted.Credentials, ",") != "stored" || strings.Join(revoked.Credentials, ",") != "stored" {
+		t.Errorf("the record names the services %v, then %v, want them unchanged", granted.Credentials, revoked.Credentials)
+	}
+	if ghostCode != 1 || !strings.Contains(ghostErr, "ghost-1 is not a running task") {
+		t.Errorf("grant to a task that is not running = %d, %q, want it refused", ghostCode, ghostErr)
+	}
+	log, err := state.TailStatus(stateDir, "live-1", 10)
+	if joined := strings.Join(log, "\n"); err != nil || !strings.Contains(joined, "credentials: the CFO authorized the task to spend paid Codex credits") || !strings.Contains(joined, "credentials: the CFO withdrew the task's authorization") {
+		t.Errorf("status log = %q, %v, want a record of the grant and of the revoke", log, err)
+	}
+	if untouched, err := state.ReadTaskMeta(stateDir, "other-1"); err != nil || untouched.CodexCredits {
+		t.Errorf("another task's record has Codex credits %v, %v, want none", untouched.CodexCredits, err)
+	}
+	if len(sent) != 0 {
+		t.Errorf("notices = %v, want none: the guard follows the record, and the terminal loads nothing", sent)
+	}
+}
 
 // Granting an MCP server is the same command with --mcp: the task's record
 // names the server, its status log says who granted it, and the output says

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/cdp"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
@@ -22,31 +24,7 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 		t.Skip("account creation is allowed only on an isolated GitHub-hosted Windows runner")
 	}
 	process, _ := startChrome(t, []string{"localhost"})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	socket, err := browserSocket(ctx, process.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	connection, err := cdp.Dial(ctx, socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer connection.Close()
-	var random [24]byte
-	if _, err := rand.Read(random[:]); err != nil {
-		t.Fatal(err)
-	}
-	canary := hex.EncodeToString(random[:])
-	if err := connection.Call(ctx, "Storage.setCookies", map[string]any{"cookies": []map[string]string{{"name": "ci_only", "value": canary, "domain": "localhost", "path": "/"}}}, nil); err != nil {
-		t.Fatal("the authorized caller could not write its synthetic cookie")
-	}
-	var result struct {
-		Cookies []struct{ Name, Value string } `json:"cookies"`
-	}
-	if err := connection.Call(ctx, "Storage.getCookies", nil, &result); err != nil || len(result.Cookies) != 1 || result.Cookies[0].Value != canary {
-		t.Fatal("the authorized caller could not read its synthetic cookie")
-	}
+	writeAndReadCookie(t, process)
 
 	username := windows.StringToUTF16Ptr("cg-cdp-" + rand.Text()[:8])
 	password := windows.StringToUTF16Ptr("Aa1!" + rand.Text())
@@ -152,7 +130,7 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 	defer windows.CloseHandle(child.Process)
 	defer func() {
 		windows.TerminateProcess(child.Process, 1)
-		if event, err := windows.WaitForSingleObject(child.Process, 10000); err != nil || event != windows.WAIT_OBJECT_0 {
+		if event, err := windows.WaitForSingleObject(child.Process, 30000); err != nil || event != windows.WAIT_OBJECT_0 {
 			t.Errorf("the owned second-user probe did not end: %v", err)
 		}
 	}()
@@ -183,6 +161,100 @@ func TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner(t *testing.T) {
 	var code uint32
 	if err := windows.GetExitCodeProcess(child.Process, &code); err != nil || code != 0 {
 		t.Fatalf("the second user could reach browser metadata or CDP, or its proof failed: status %d, %v", code, err)
+	}
+}
+
+// writeAndReadCookie writes a cookie of a random value over process's
+// DevTools as this test's own Windows user and reads it back, so a refusal
+// of a second user is not a refusal of everyone. A fresh profile's Chrome
+// took up to 13.4 s to answer its first Storage.setCookies alone on a hosted
+// runner, 2 of 590 timed past 10 s, the bound this had when it failed by
+// chance (#1038), so it has the minute a Chrome's DevTools have to answer.
+func writeAndReadCookie(t *testing.T, process Process) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), devToolsWait)
+	defer cancel()
+	socket, err := browserSocket(ctx, process.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := cdp.Dial(ctx, socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	var random [24]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		t.Fatal(err)
+	}
+	canary := hex.EncodeToString(random[:])
+	if err := connection.Call(ctx, "Storage.setCookies", map[string]any{"cookies": []map[string]string{{"name": "ci_only", "value": canary, "domain": "localhost", "path": "/"}}}, nil); err != nil {
+		t.Fatalf("the authorized caller could not write its synthetic cookie: %v", err)
+	}
+	var result struct {
+		Cookies []struct{ Name, Value string } `json:"cookies"`
+	}
+	if err := connection.Call(ctx, "Storage.getCookies", nil, &result); err != nil || len(result.Cookies) != 1 || result.Cookies[0].Value != canary {
+		t.Fatal("the authorized caller could not read its synthetic cookie")
+	}
+}
+
+var (
+	ntdll            = windows.NewLazySystemDLL("ntdll.dll")
+	ntSuspendProcess = ntdll.NewProc("NtSuspendProcess")
+	ntResumeProcess  = ntdll.NewProc("NtResumeProcess")
+)
+
+// Chrome's wait for its first cookie is inside its cookie store, which its
+// network service holds, so holding that service past the slowest first
+// Storage.setCookies timed on a hosted runner, 13.4 s, gives the cookie
+// check that wait on any machine.
+func TestAChromeSlowToAnswerItsFirstCookieStillAnswersItsOwner(t *testing.T) {
+	// Arrange
+	const hold = 14 * time.Second
+	process, _ := startChrome(t, []string{"localhost"})
+	// Chrome answers its DevTools before it has started its network service.
+	network := -1
+	for deadline := time.Now().Add(devToolsWait); network == -1 && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		ids, _, err := proc.JobProcessIDs(syscall.Handle(process.job.handle))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range ids {
+			if arguments, err := proc.Arguments(int(id)); err == nil && slices.Contains(arguments, "--utility-sub-type=network.mojom.NetworkService") {
+				network = int(id)
+			}
+		}
+	}
+	if network == -1 {
+		t.Fatalf("chrome started no network service within %s", devToolsWait)
+	}
+	service, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, uint32(network))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _, _ := ntSuspendProcess.Call(uintptr(service)); status != 0 {
+		windows.CloseHandle(service)
+		t.Fatalf("hold chrome's network service %d: status %#x", network, status)
+	}
+	held := time.Now()
+	resumed := make(chan uintptr, 1)
+	// stall-accepted: the test means this hold to run out, and the check after it reads the same clock.
+	time.AfterFunc(hold, func() {
+		status, _, _ := ntResumeProcess.Call(uintptr(service))
+		windows.CloseHandle(service)
+		resumed <- status
+	})
+
+	// Act
+	writeAndReadCookie(t, process)
+
+	// Assert
+	if waited := time.Since(held); waited < hold {
+		t.Fatalf("the cookie check finished %s into the network service's %s hold, so the hold never reached the cookie store", waited, hold)
+	}
+	if status := <-resumed; status != 0 {
+		t.Fatalf("resume chrome's network service %d: status %#x", network, status)
 	}
 }
 

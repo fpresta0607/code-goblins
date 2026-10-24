@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // StartAtLoginKey is where Windows keeps the programs it starts at the user's
@@ -127,18 +129,18 @@ func (s Service) adoptStartAtLogin(report *reporter) error {
 func (s Service) keepStartAtLogin(report *reporter) error {
 	state := filepath.Join(s.Root, "state")
 	if s.StartAtLogin != "" {
-		if err := WriteStartAtLogin(state, s.StartAtLogin); err != nil {
+		if err := installbase.WriteStartAtLogin(state, s.StartAtLogin); err != nil {
 			return fmt.Errorf("install: %w", err)
 		}
 	}
 	if s.StartAtLoginKey == "" {
 		return nil
 	}
-	choice, err := ReadStartAtLogin(state)
+	choice, err := installbase.ReadStartAtLogin(state)
 	if err != nil {
 		return fmt.Errorf("install: %w", err)
 	}
-	if choice == StartAtLoginOff {
+	if choice == installbase.StartAtLoginOff {
 		if err := s.removeStartAtLogin(report); err != nil {
 			return err
 		}
@@ -199,11 +201,11 @@ func (s Service) StartsAtLogin() (on bool, unavailable string, err error) {
 // already starts this home's supervisor stays as it is; otherwise goblins
 // starts the supervisor and opens any window this home holds in the tray.
 func (s Service) SetStartsAtLogin(on bool) error {
-	choice := StartAtLoginOff
+	choice := installbase.StartAtLoginOff
 	if on {
-		choice = StartAtLoginOn
+		choice = installbase.StartAtLoginOn
 	}
-	if err := WriteStartAtLogin(filepath.Join(s.Root, "state"), choice); err != nil {
+	if err := installbase.WriteStartAtLogin(filepath.Join(s.Root, "state"), choice); err != nil {
 		return err
 	}
 	if !on {

@@ -68,7 +68,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// An orphaned program starts only once the relay that started it has
 	// exited, as what Git Bash's timeout starts outlives the bash it replaced.
 	if relay, err := strconv.Atoi(os.Getenv(orphanOf)); err == nil {
-		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			if _, alive := proc.StartTime(relay); !alive {
 				break
 			}
@@ -95,6 +95,9 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// composer is the harness whose composer the program draws: Claude Code's
 	// unless a draw line names another, for a terminal registered as it.
 	composer := "claude"
+	// mode is the row Claude Code's footer names its permission mode on:
+	// bypassed, as a goblin runs, unless a mode line names another.
+	mode := "⏵⏵ bypass permissions on (shift+tab to cycle)"
 	// footer is a line Claude Code's footer adds under its mode, such as the
 	// one saying an update of it waits for a restart.
 	footer := ""
@@ -118,7 +121,7 @@ func TestNativeTerminalProgram(t *testing.T) {
 			}
 			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
 		default:
-			rows = append(rows, rule, "❯ "+text, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
+			rows = append(rows, rule, "❯ "+text, rule, mode)
 			if footer != "" {
 				rows = append(rows, footer)
 			}
@@ -142,8 +145,39 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
+		case line == "permission":
+			// Claude Code's permission prompt, drawn in its composer's place.
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
+		case line == "count":
+			// A row under the screen counts every 100 ms, 20 times, so the
+			// output never pauses while the rest of the screen stays, and
+			// then says it counted.
+			for frame := range 20 {
+				time.Sleep(100 * time.Millisecond)
+				fmt.Printf("\rcount %02d", frame)
+			}
+			fmt.Print("\rcounted \r\n")
+		case strings.HasPrefix(line, "turn for "):
+			// A turn whose spinner redraws its line every 100 ms, as Claude
+			// Code's does, so its output never pauses while it lasts. It
+			// draws as many frames as fill its length, so a stall only makes
+			// it longer.
+			lasts, err := time.ParseDuration(strings.TrimPrefix(line, "turn for "))
+			if err != nil {
+				record("turn error: " + err.Error())
+				continue
+			}
+			drawComposer("", true)
+			for frame := range int(lasts / (100 * time.Millisecond)) {
+				time.Sleep(100 * time.Millisecond)
+				fmt.Print("\x1b[H" + string([]rune("·✢✳✶✻✽")[frame%6]))
+			}
+			record("turn ended")
 		case line == "update installed":
 			footer = "✓ Update installed · Restart to update"
+			drawComposer("", false)
+		case strings.HasPrefix(line, "mode "):
+			mode = strings.TrimPrefix(line, "mode ")
 			drawComposer("", false)
 		case strings.HasPrefix(line, "ask "):
 			if _, err := goblinAsker(args[2], strings.TrimPrefix(line, "ask ")); err != nil {
@@ -234,6 +268,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 					text = ""
 				}
 				drawComposer(text, true)
+			} else if hooked {
+				drawComposer("", false)
 			}
 			if hooked {
 				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})
@@ -390,11 +426,11 @@ func hostProgram(t *testing.T, stateDir, id, typed string, args ...string) hoste
 		}
 		select {
 		case <-terminal.ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the terminal's host did not end")
 		}
 	})
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if record, err := host.ReadRecord(stateDir, id); err == nil {
 			if phases != "" {
 				terminal.child, err = windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(record.ChildPID))
@@ -456,7 +492,7 @@ func (terminal hostedTerminal) showsTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	screens, _ := harness.NativeScreens(harness.Claude)
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		if rows, err := host.ReadScreen(record); err == nil && screens.IsWorking(rows) {
 			return
 		}
@@ -488,7 +524,7 @@ func (terminal hostedTerminal) showsComposer(t *testing.T, name string) {
 		t.Fatal(err)
 	}
 	screens, _ := harness.NativeScreens(harness.Kind(name))
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
 		if rows, err := host.ReadScreen(record); err == nil && screens.IsReady(rows) && screens.ComposerEmpty(rows) {
 			return
 		}
@@ -529,7 +565,7 @@ func (terminal hostedTerminal) exit(t *testing.T) []string {
 	}
 	select {
 	case <-terminal.ended:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		terminal.exitSnapshot(t, "exit wait timed out before cleanup")
 		t.Fatal("the terminal did not exit")
 	}
@@ -587,7 +623,7 @@ func (terminal hostedTerminal) lines(t *testing.T) []string {
 // waitForLines waits until the program recorded want lines.
 func (terminal hostedTerminal) waitForLines(t *testing.T, want int) []string {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if lines := terminal.lines(t); len(lines) >= want || time.Now().After(deadline) {
 			return lines
 		}
@@ -619,7 +655,7 @@ type nativeView struct {
 }
 
 func dialNative(server *httptest.Server, query, origin string) (*websocket.Conn, *http.Response, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	header := http.Header{}
 	if origin != "" {
@@ -664,7 +700,7 @@ func openNativeView(t *testing.T, server *httptest.Server, query string) *native
 
 // acknowledge tells the board the view has shown output bytes of output.
 func (v *nativeView) acknowledge(output int64) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	_ = v.conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"type":"ack","bytes":%d}`, output)))
 }
@@ -686,7 +722,7 @@ func (v *nativeView) shows(text string) bool {
 
 func (v *nativeView) waitFor(t *testing.T, text string) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
 		v.mu.Unlock()
@@ -704,7 +740,7 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 // the old size just after one.
 func (v *nativeView) waitForSize(t *testing.T, size string) {
 	t.Helper()
-	for deadline := time.Now().Add(15 * time.Second); !v.shows("size " + size); time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !v.shows("size " + size); time.Sleep(200 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("the program never read its size as %s", size)
 		}
@@ -714,7 +750,7 @@ func (v *nativeView) waitForSize(t *testing.T, size string) {
 
 func (v *nativeView) send(t *testing.T, kind websocket.MessageType, text string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := v.conn.Write(ctx, kind, []byte(text)); err != nil {
 		t.Fatalf("sending %q: %v", text, err)
@@ -726,7 +762,7 @@ func (v *nativeView) waitForClose(t *testing.T) websocket.CloseError {
 	t.Helper()
 	select {
 	case <-v.closed:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the view never closed")
 	}
 	var closed websocket.CloseError
@@ -755,7 +791,7 @@ func processesStarted(t *testing.T) func() uint32 {
 			TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime int64
 			TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses     uint32
 		}
-		if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&accounting)), uint32(unsafe.Sizeof(accounting)), nil); err != nil {
+		if err := proc.QueryJobInformation(job, windows.JobObjectBasicAccountingInformation, unsafe.Pointer(&accounting), unsafe.Sizeof(accounting)); err != nil {
 			t.Fatal(err)
 		}
 		return accounting.TotalProcesses
@@ -829,7 +865,7 @@ func TestANativeViewIsToldWhereTheHistoryEnds(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = conn.CloseNow() })
 	conn.SetReadLimit(1 << 20)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	kind, first, err := conn.Read(ctx)
@@ -891,6 +927,158 @@ func TestANativeViewIsToldOfAKeyABusyProgramLeavesUnreadUntilItIsRead(t *testing
 	v.waitFor(t, `{"type":"unread","unread":false}`)
 	if lines := terminal.waitForLines(t, 2); !slices.Contains(lines, "started the tool") {
 		t.Fatalf("the program never came back from its tool; it recorded %q", lines)
+	}
+}
+
+// A view is told when the harness waits on an answer at a screen of its own,
+// as Claude Code's permission prompt, which only its terminal takes, and told
+// again once it is back at its composer: read from the terminal's screen once
+// its output pauses.
+func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.waitFor(t, `{"type":"screen","asking":false}`)
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+	v.waitFor(t, `{"type":"screen","asking":true}`)
+	v.send(t, websocket.MessageBinary, "harness\r")
+
+	asking, back := `{"type":"screen","asking":true}`, `{"type":"screen","asking":false}`
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, back) > strings.LastIndex(screen, asking) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the harness was back at its composer")
+		}
+	}
+}
+
+// A view that opens while the harness already asks at a screen of its own is
+// told so as it opens, though output that never pauses follows: no output
+// puts off the read its opening makes due, as its history's replay did.
+func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
+	// The read the opening makes due waits until output has followed it.
+	screenAtOpen = 250 * time.Millisecond
+	t.Cleanup(func() { screenAtOpen = 0 })
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	first := openNativeView(t, server, viewQuery)
+	first.waitFor(t, "program ready")
+	first.send(t, websocket.MessageBinary, "permission\r")
+	first.waitFor(t, `{"type":"screen","asking":true}`)
+	first.send(t, websocket.MessageBinary, "count\r")
+	first.waitFor(t, "count 00")
+
+	second := openNativeView(t, server, viewQuery)
+	second.waitFor(t, `{"type":"screen","asking":true}`)
+
+	if second.shows("counted") {
+		t.Error("the view was told the harness asks only once the output after its opening paused, want it told as it opens")
+	}
+}
+
+// A view of the CFO's terminal opened while the CFO starts, before it
+// registers, is told when the harness it registers as asks at a screen of its
+// own: the relay reads the screens of the CFO's harness as it is when it
+// reads, not as it was when the view opened.
+func TestANativeViewOfACFOOpenedWhileItStartsIsToldWhenItsHarnessAsks(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	cfo := hostTerminal(t, h.Service.Store.Home.State, NativeCFOTerminal)
+	v := openNativeView(t, server, cfoQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "register\r")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the CFO recorded %q, want its registration", lines)
+	}
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+
+	v.waitFor(t, `{"type":"screen","asking":true}`)
+}
+
+// A view told the harness asks is told it no longer does while the turn the
+// answer started still draws, though its spinner never lets the output
+// pause.
+func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraws(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "permission\r")
+	v.waitFor(t, `{"type":"screen","asking":true}`)
+
+	v.send(t, websocket.MessageBinary, "turn for 20s\r")
+
+	asking, back := `{"type":"screen","asking":true}`, `{"type":"screen","asking":false}`
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, back) > strings.LastIndex(screen, asking) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the harness no longer asks")
+		}
+	}
+	if slices.Contains(terminal.lines(t), "turn ended") {
+		t.Error("the view was told the harness no longer asks only once its turn ended")
+	}
+}
+
+// A view of a terminal whose harness's screens the relay does not know is
+// told nothing of its screen.
+func TestANativeViewOfAnUnknownHarnessIsToldNothingOfItsScreen(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "unknown"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	v.send(t, websocket.MessageBinary, "permission\r")
+
+	v.waitFor(t, "nine.txt")
+	time.Sleep(time.Second)
+	if v.shows(`"type":"screen"`) {
+		t.Fatal("the view was told of a screen whose harness the relay does not know")
 	}
 }
 
@@ -1052,7 +1240,8 @@ func TestEveryNativeViewOfAnOldHostIsToldItsNewSizeAfterTheOutputBeforeIt(t *tes
 	h, server := nativeBoard(t, "direct")
 	h.terminalWindow = 16
 	after := make(chan struct{})
-	oldHost(t, h, 2, after)
+	// Two views, and the screen read each one's relay makes as it opens.
+	oldHost(t, h, 4, after)
 	watching := openNativeView(t, server, viewQuery)
 	watching.ackAll()
 	held := openNativeView(t, server, viewQuery)
@@ -1225,6 +1414,33 @@ func TestANativeViewClosesWithTheReasonItCannotOpen(t *testing.T) {
 	}
 }
 
+// A host that does not answer may be starting or busy, so its view is told
+// to try again, which the board does by itself a few times, rather than
+// refused, which it leaves to Reconnect.
+func TestANativeViewOfAHostThatDoesNotAnswerIsToldToTryAgain(t *testing.T) {
+	// Arrange: a record naming a pipe no host serves.
+	h, server := nativeBoard(t, "direct")
+	record, err := json.Marshal(host.Record{ID: "task-1", Pipe: `\\.\pipe\cg-test-no-host-` + strconv.Itoa(os.Getpid()), Token: "unanswered", Version: host.Version, HostPID: os.Getpid()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts := filepath.Join(h.Service.Store.Home.State, "hosts")
+	if err := os.MkdirAll(hosts, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hosts, "task-1.json"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	closed := openNativeView(t, server, viewQuery).waitForClose(t)
+
+	// Assert
+	if closed.Code != websocket.StatusTryAgainLater || closed.Reason != "The terminal of this task did not answer." {
+		t.Errorf("the view closed with %d %q, want a try-again close saying the terminal did not answer", closed.Code, closed.Reason)
+	}
+}
+
 // The board shows a starting goblin's session the moment its task record is
 // written, a second or more before its terminal's host runs, and opens its
 // terminal then: the view waits for the host while the start runs, rather
@@ -1292,10 +1508,13 @@ func TestANativeViewClosesWhenItsTaskIsReplaced(t *testing.T) {
 	}
 }
 
-// Custody is checked when a view opens rather than per key: a view of a task
-// whose gate owns it shows the terminal, and a key closes it with the gate's
-// reason, with nothing typed.
-func TestANativeTerminalRefusesTypingWhileAGateOwnsTheTask(t *testing.T) {
+// A view of a task whose gate owns it stays open and live: it is told typing
+// is held, and what it sends is dropped with nothing typed, a key or input
+// xterm makes by itself, such as a focus report or a reply to a query. Until
+// 22 October 2026 the first of them closed the view, so a goblin a gate owned
+// showed only Reconnect as its panel opened (#1304).
+func TestANativeViewUnderAGateStaysOpenAndTypesNothing(t *testing.T) {
+	// Arrange
 	h, server := nativeBoard(t, "no-mistakes")
 	gitFixture(t, taskWorktree(t, h))
 	h.Service.Options.Gate = fakeProgress{value: pipeline.Progress{Status: "running"}}
@@ -1303,20 +1522,29 @@ func TestANativeTerminalRefusesTypingWhileAGateOwnsTheTask(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 
-	v.send(t, websocket.MessageBinary, "typed under the gate\r")
+	// Act: a focus report, a reply to a device attributes query, and a key.
+	for _, input := range []string{"\x1b[I", "\x1b[?62;22c", "typed under the gate\r"} {
+		v.send(t, websocket.MessageBinary, input)
+	}
 
-	closed := v.waitForClose(t)
-	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "pipeline retains custody" {
-		t.Errorf("the view closed with %d %q, want the gate's reason", closed.Code, closed.Reason)
+	// Assert: the relay answers a ping only after its loop has handled the
+	// input before it, so the pong proves the view stayed open through it.
+	v.waitFor(t, `{"type":"held","reason":"pipeline retains custody"}`)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := v.conn.Ping(ping); err != nil {
+		t.Fatalf("the view closed under the gate: %v", err)
 	}
 	if typed := terminal.exit(t); len(typed) != 0 {
 		t.Errorf("the terminal received %q under the gate, want nothing", typed)
 	}
 }
 
-// Custody is checked again on every tick, so a gate that takes a task over
-// after its view opened refuses the next key.
-func TestANativeTerminalNoticesAGateTakingOverOnItsTick(t *testing.T) {
+// Custody is checked again on every tick: a gate that takes a task over after
+// its view opened holds its typing, and one that lets it go frees it, and the
+// view is told each time while it stays open.
+func TestANativeViewIsToldOfAGateTakingOverAndLettingGoOnItsTick(t *testing.T) {
+	// Arrange
 	h, server := nativeBoard(t, "no-mistakes")
 	gitFixture(t, taskWorktree(t, h))
 	gate := &takingGate{}
@@ -1327,22 +1555,24 @@ func TestANativeTerminalNoticesAGateTakingOverOnItsTick(t *testing.T) {
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "before\r")
 	terminal.waitForLines(t, 1)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 
+	// Act: a key while the gate owns the task, handled before it lets go.
 	gate.taken.Store(true)
-	// The first refusal is kept before the next check starts.
-	for deadline := time.Now().Add(10 * time.Second); gate.refused.Load() < 2; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("no tick checked custody after the gate took over")
-		}
-	}
+	v.waitFor(t, `{"type":"held","reason":"pipeline owns this task"}`)
 	v.send(t, websocket.MessageBinary, "after\r")
-
-	closed := v.waitForClose(t)
-	if closed.Code != websocket.StatusPolicyViolation || closed.Reason != "pipeline owns this task" {
-		t.Errorf("the view closed with %d %q, want the gate's reason", closed.Code, closed.Reason)
+	if err := v.conn.Ping(ping); err != nil {
+		t.Fatalf("the view closed under the gate: %v", err)
 	}
-	if typed := terminal.exit(t); !reflect.DeepEqual(typed, []string{"before"}) {
-		t.Errorf("the terminal received %q, want only the line typed before the gate", typed)
+	gate.taken.Store(false)
+	v.waitFor(t, `{"type":"held","reason":""}`)
+	v.send(t, websocket.MessageBinary, "again\r")
+
+	// Assert
+	terminal.waitForLines(t, 2)
+	if typed := terminal.exit(t); !reflect.DeepEqual(typed, []string{"before", "again"}) {
+		t.Errorf("the terminal received %q, want the lines typed before and after the gate", typed)
 	}
 }
 
@@ -1362,14 +1592,14 @@ func TestANativeTerminalHoldsItsSizeWhileAGateOwnsTheTask(t *testing.T) {
 
 	v.send(t, websocket.MessageText, `{"type":"resize","cols":100,"rows":30}`)
 	// The relay answers a ping only after its loop has handled the resize, so the pong proves it arrived under custody.
-	ping, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := v.conn.Ping(ping); err != nil {
 		t.Fatalf("pinging the view: %v", err)
 	}
 	gate.taken.Store(false)
 	// The first allowance is kept before the next check starts.
-	for deadline := time.Now().Add(10 * time.Second); gate.allowed.Load() < 2; time.Sleep(5 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); gate.allowed.Load() < 2; time.Sleep(5 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("no tick checked custody after the gate released the task")
 		}

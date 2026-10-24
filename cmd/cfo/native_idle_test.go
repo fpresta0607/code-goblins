@@ -3,14 +3,19 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/digest"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/host/hosttest"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -19,6 +24,18 @@ import (
 // harness the terminal started.
 func nativeCFOTerminal(t *testing.T, dir string) {
 	t.Helper()
+	hostThisProcess(t, dir, "cfo")
+	t.Setenv(host.IDVariable, "cfo")
+	t.Setenv("HERDR_PANE_ID", "")
+	for _, name := range []string{"CFO_ROLE", "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {
+		t.Setenv(name, "")
+	}
+}
+
+// hostThisProcess hosts native terminal id in the state at dir and records
+// this test process as the program in it, until the test ends.
+func hostThisProcess(t *testing.T, dir, id string) {
+	t.Helper()
 	shell, err := exec.LookPath("cmd.exe")
 	if err != nil {
 		t.Fatal(err)
@@ -26,11 +43,11 @@ func nativeCFOTerminal(t *testing.T, dir string) {
 	ended := make(chan struct{})
 	go func() {
 		defer close(ended)
-		_ = host.Run(dir, host.Spec{ID: "cfo", Args: []string{shell, "/d", "/q", "/k"}, Cols: 80, Rows: 24})
+		_ = host.Run(dir, host.Spec{ID: id, Args: []string{shell, "/d", "/q", "/k"}, Cols: 80, Rows: 24})
 	}()
 	var record host.Record
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		if record, err = host.ReadRecord(dir, "cfo"); err == nil {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		if record, err = host.ReadRecord(dir, id); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -44,80 +61,82 @@ func nativeCFOTerminal(t *testing.T, dir string) {
 		}
 		select {
 		case <-ended:
-		case <-time.After(15 * time.Second):
+		case <-time.After(time.Minute):
 			t.Error("the terminal's host did not end")
 		}
 	})
-	hosttest.Rewrite(t, dir, "cfo", func(record *host.Record) { programIsThisProcess(t, record) })
-	t.Setenv(host.IDVariable, "cfo")
-	t.Setenv("HERDR_PANE_ID", "")
-	for _, name := range []string{"CFO_ROLE", "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID"} {
-		t.Setenv(name, "")
-	}
+	hosttest.Rewrite(t, dir, id, func(record *host.Record) { programIsThisProcess(t, record) })
 }
 
-// A Codex or pi CFO has no Stop hook that reopens its turn, so its native
-// hook raises the idle wake when its turn settles with no goblin at work
-// while queued work waits and memory is free; the supervisor types it into
-// the CFO's terminal, as it does every wake. A turn of a session that is not
-// the registered CFO raises nothing.
-func TestANativeCFOsIdleTurnRaisesTheIdleWake(t *testing.T) {
+// A registered Codex or pi CFO's native hook spools each event and returns,
+// as a Claude Code session's does: its turn end and its compaction raise no
+// wake and write no checkpoint inside the harness's wait, while work waits,
+// memory is free and the CFO holds the primary home, since the supervisor
+// does that as it ingests them. Only its SessionStart still registers it,
+// which only a process in its own session can (issue #1213).
+func TestARegisteredNativeCFOsHookOnlySpoolsItsTurnEndAndCompaction(t *testing.T) {
 	cases := []struct {
-		harness, start, settle string
-		isRegistered           bool
+		harness, start string
+		later          []string
 	}{
-		{harness: "codex", start: `{"hook_event_name":"SessionStart","session_id":"native-cfo"}`, settle: `{"hook_event_name":"Stop","session_id":"native-cfo"}`, isRegistered: true},
-		{harness: "pi", start: `{"hook_event_name":"session_start","session_id":"native-cfo"}`, settle: `{"hook_event_name":"agent_settled","session_id":"native-cfo","pending_messages":false}`, isRegistered: true},
-		{harness: "codex", settle: `{"hook_event_name":"Stop","session_id":"native-cfo"}`},
+		{harness: "codex", start: "SessionStart", later: []string{"Stop", "PreCompact", "PostCompact"}},
+		{harness: "pi", start: "session_start", later: []string{"agent_settled", "session_before_compact", "session_compact"}},
 	}
 	for _, testCase := range cases {
-		name := testCase.harness
-		if !testCase.isRegistered {
-			name += " not registered"
-		}
-		t.Run(name, func(t *testing.T) {
+		t.Run(testCase.harness, func(t *testing.T) {
 			// Arrange
-			root := t.TempDir()
+			root := newPrimaryHome(t)
 			dir := filepath.Join(root, "state")
 			nativeCFOTerminal(t, dir)
 			queueWork(t, root)
 			freeMemory(t, 8)
-			hook := func(payload string) {
+			hook := func(name string) {
 				t.Helper()
-				event := map[string]any{}
-				if err := json.Unmarshal([]byte(payload), &event); err != nil {
-					t.Fatal(err)
-				}
-				event["cwd"] = root
-				data, err := json.Marshal(event)
+				data, err := json.Marshal(map[string]string{"hook_event_name": name, "session_id": "native-cfo", "cwd": root})
 				if err != nil {
 					t.Fatal(err)
 				}
 				var out, errs bytes.Buffer
-				if exit := runNativeHook([]string{testCase.harness, "--home", root, "--state", dir}, bytes.NewReader(data), &out, &errs, commandRuntime{}); exit != 0 {
-					t.Fatalf("exit=%d %s", exit, errs.String())
+				if exit := runNativeHook([]string{testCase.harness, "--home", root, "--state", dir}, bytes.NewReader(data), &out, &errs, commandRuntime{}); exit != 0 || strings.TrimSpace(out.String()) != "{}" {
+					t.Fatalf("%s exit=%d reply=%q %s", name, exit, out.String(), errs.String())
 				}
 			}
-			if testCase.isRegistered {
-				hook(testCase.start)
+			hook(testCase.start)
+			if !supervisor.RunsUnderRegisteredCFO(dir) {
+				t.Fatal("the CFO's SessionStart did not register it, so the hooks after it prove nothing")
 			}
 
 			// Act
-			hook(testCase.settle)
+			for _, name := range testCase.later {
+				hook(name)
+			}
 
 			// Assert
-			pending, err := wake.Pending(dir)
+			if pending, err := wake.Pending(dir); err != nil || len(pending) != 0 {
+				t.Fatalf("wakes=%+v, %v; want none raised inside the harness's wait", pending, err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, digest.CheckpointFile)); !os.IsNotExist(err) {
+				t.Fatalf("the hook wrote the compact checkpoint inside the harness's wait: %v", err)
+			}
+			entries, err := os.ReadDir(nativehook.SpoolDir(dir))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !testCase.isRegistered {
-				if len(pending) != 0 {
-					t.Fatalf("wakes=%v, want none from a session that is not the CFO", pending)
+			var kinds []string
+			for _, entry := range entries {
+				data, err := os.ReadFile(filepath.Join(nativehook.SpoolDir(dir), entry.Name()))
+				if err != nil {
+					t.Fatal(err)
 				}
-				return
+				var event nativehook.Event
+				if err := json.Unmarshal(data, &event); err != nil {
+					t.Fatal(err)
+				}
+				kinds = append(kinds, event.Kind)
 			}
-			if len(pending) != 1 || pending[0].Kind != "idle" || !strings.Contains(pending[0].Detail, "next: start next-task") {
-				t.Fatalf("wakes=%v, want the idle wake naming next-task", pending)
+			slices.Sort(kinds)
+			if want := []string{"compacted", "compacting", "settled", "started"}; !slices.Equal(kinds, want) {
+				t.Fatalf("spooled %v, want %v for the supervisor to ingest", kinds, want)
 			}
 		})
 	}

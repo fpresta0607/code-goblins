@@ -1,21 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { credentialAsk, credentialHeading, credentialSettled, fetchOffer, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
+import { credentialAsk, credentialFinish, credentialHeading, credentialSettled, fetchOffer, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
 import { boardAlerts, outlived } from "./alertRules.ts";
 import { cfoSummary } from "./cfoSummary.ts";
-import { waitingItems } from "./commandQueue.ts";
+import { settledLabel, waitingItems } from "./commandQueue.ts";
 import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
+import { parseSnapshot } from "./types.ts";
 
 const request = (changes: Partial<CredentialRequest> = {}): CredentialRequest => ({
   id: "cred-0123456789abcdef", generation: "g", identity: "i", by: "goblin", task: "add-billing",
+  task_generation: "", grant_service: "",
   project: "precisiondocs", names: ["STRIPE_SECRET_KEY", "DATABASE_URL"], plain: [], labels: {}, why: "Charge test cards", link: "", steps: [],
-  window: false, window_state: "", received: [],
+  window: false, window_state: "", received: [], mail: null,
   env_file: "", existing: [], hints: [], services: {}, state: "open", saved: [], replaced: [], typed: [], fetched: [], written: [], reason: "",
   created_at: "2026-10-01T03:00:00Z", expires_at: "2026-10-02T03:00:00Z", closed_at: "", fetch: null, ...changes,
 });
 
 const board = (credentials: CredentialRequest[], runs: Run[] = []): Snapshot =>
   ({ tasks: [{ id: "add-billing", title: "Add Stripe billing", phase: "working", generation: "g1" } as Task], questions: [], reviews: [], runs, credentials, attention: [] as string[], afk: { state: "off" } }) as unknown as Snapshot;
+
+test("a service grant card names the service and task, and records its granted outcome", () => {
+  const [card] = parseSnapshot({ healthy: true, credentials: [{ ...request({ names: [] }), grant_service: "stripe", task_generation: "g1" }] }).credentials || [];
+  assert.equal(credentialAsk(card), "Grant stripe to add-billing");
+  assert.equal(credentialHeading(card), "Grant stripe to add-billing");
+  assert.equal(credentialSettled({ ...card, state: "granted" }), "Granted stripe to add-billing");
+});
+
+test("a recorded grant whose script refresh failed keeps its recovery instruction in the completed card and History", () => {
+  const reason = "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh add-billing: task cleanup is in progress";
+  const card = request({ names: [], grant_service: "stripe", state: "granted", reason });
+
+  const settled = credentialSettled(card);
+  const finish = credentialFinish(card);
+  const history = settledLabel({ kind: "credential", key: "credential:" + card.id, request: card }, []);
+
+  assert.equal(settled, "Granted stripe to add-billing. " + reason);
+  assert.deepEqual(finish, { heading: "Granted", label: settled });
+  assert.equal(history, settled);
+});
 
 test("a settled request says which names were saved for which project, or why it closed", () => {
   assert.equal(credentialSettled(request({ state: "saved", saved: ["STRIPE_SECRET_KEY", "DATABASE_URL"] })), "Saved STRIPE_SECRET_KEY and DATABASE_URL for precisiondocs");
@@ -95,7 +117,7 @@ test("a card offers to fetch the keys a reviewed page reads, saying where from a
 
 test("values are typed only on the board on this PC", () => {
   for (const host of ["127.0.0.1", "localhost", "[::1]"]) assert.equal(onThisMachine(host), true, host);
-  for (const host of ["sermon.tailcc4238.ts.net", "100.101.102.103", "goblins.local", "board.localhost"]) assert.equal(onThisMachine(host), false, host);
+  for (const host of ["pc.example.ts.net", "100.101.102.103", "goblins.local", "board.localhost"]) assert.equal(onThisMachine(host), false, host);
 });
 
 test("a new request alerts once, naming who asks and what, and opens its card", () => {

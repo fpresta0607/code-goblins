@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -38,6 +39,9 @@ type Operations struct {
 	// reason to keep it running.
 	Helpers func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error)
 	Prepare func(context.Context, state.TaskMeta, string) error
+	// Handoff is the handoff of a goblin that wrote none by its pause's
+	// deadline, as its task stands before the stop (HandoffWriter).
+	Handoff func(context.Context, state.TaskMeta) []byte
 	// Withdraw tells a goblin whose pause failed while it ran that it is
 	// not paused, taking back the instruction Prepare typed.
 	Withdraw   func(context.Context, state.TaskMeta) error
@@ -49,6 +53,25 @@ type Operations struct {
 	Memory     func() (available, commit uint64, err error)
 	Admit      func() error
 	Notify     func(state.Lifecycle) error
+	// HandOver hands on what the task's record keeps for a resume that
+	// never runs, as a resume whose session a later start replaced, before
+	// the operation writes its own record over it, and says whether it did:
+	// one that did not leaves the record as it was, and what one that did
+	// met after it is named in the operation's problems.
+	HandOver func(state.TaskMeta, state.Lifecycle) (bool, error)
+	// HandOverRelaunched hands on what an interrupted resume's record keeps
+	// once a Resume finds the terminal its relaunch started already up, as
+	// the board messages kept since that resume failed: the Resume relaunches
+	// nothing, so no instruction carries them. It runs and answers as
+	// HandOver does.
+	HandOverRelaunched func(state.Lifecycle) (bool, error)
+	// HandOverEnded hands on what the goblin's own record keeps for its
+	// resume once a stop or a pause, as the action names, writes its own
+	// record over it before that resume runs, as the board messages kept for
+	// a paused goblin: the stop's record keeps no note and no resume runs
+	// after it, and a pause over a failed resume's record replaces the
+	// resume it waited for. It runs and answers as HandOver does.
+	HandOverEnded func(meta state.TaskMeta, prior state.Lifecycle, action string) (bool, error)
 }
 
 type Service struct {
@@ -175,8 +198,40 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 			}
 		}
 	}
+	var handedOver error
+	if service.Operations.HandOver != nil {
+		var isHanded bool
+		if isHanded, handedOver = service.Operations.HandOver(meta, prior); !isHanded {
+			return result, handedOver
+		}
+	}
+	// A Resume that finds its interrupted resume's terminal already up
+	// relaunches nothing, so what that resume's record kept since its
+	// relaunch began is handed on here or never.
+	if isAlreadyRunning && service.Operations.HandOverRelaunched != nil {
+		isHanded, err := service.Operations.HandOverRelaunched(prior)
+		if !isHanded {
+			return result, err
+		}
+		handedOver = errors.Join(handedOver, err)
+	}
+	// A stop's record keeps no note and no resume runs after it, and a pause
+	// reaches here over its goblin's own record waiting for a resume only when
+	// that record is a failed resume, since a paused goblin is paused again in
+	// place above: the pause's record replaces it, so that resume never runs
+	// again. What the record keeps for its resume is handed on here or never.
+	if request.Action != "resume" && service.Operations.HandOverEnded != nil {
+		isHanded, err := service.Operations.HandOverEnded(meta, prior, request.Action)
+		if !isHanded {
+			return result, err
+		}
+		handedOver = errors.Join(handedOver, err)
+	}
 	result = state.Lifecycle{ID: request.ID, Generation: meta.SpawnGen, RequestGeneration: request.Generation, Operation: request.Operation, Action: request.Action, Started: time.Now().UTC(), Reason: request.Reason, Title: meta.Title, GoblinName: meta.GoblinName, GoblinTitle: meta.GoblinTitle, Project: meta.Project, Kept: []string{"worktree " + meta.Worktree, "task session and branch"}, Session: prior.Session, Watched: request.IsWatched}
-	if prior.Phase != "running" {
+	if handedOver != nil {
+		result.Problems = append(result.Problems, handedOver.Error())
+	}
+	if prior.Phase != "running" && (prior.Generation == meta.SpawnGen || prior.IsInterruptedResume(meta)) {
 		result.GateRun, result.GateIntent, result.GateHead = prior.GateRun, prior.GateIntent, prior.GateHead
 	}
 	if request.Session != "" {
@@ -280,7 +335,7 @@ func (service Service) Run(ctx context.Context, request Request) (result state.L
 				result.HandoffSaved = true
 			}
 			if !result.HandoffSaved {
-				result.Problems = append(result.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
+				service.writeHandoff(ctx, meta, &result)
 			}
 		}
 		result.Stopped, err = service.Operations.Stop(ctx, meta, &result)
@@ -350,6 +405,38 @@ func (service Service) hasRelaunched(meta state.TaskMeta) bool {
 // and by rename so a partly written file never counts.
 func PauseInstruction(handoff string) string {
 	return "Pause requested. You have five seconds to reach a stopping point: finish the step in hand, then push your branch if its mode allows. As your very last action, write your handoff to " + handoff + ".partial and rename it to " + handoff + "; that file ends the wait, and your session and processes stop right after it appears. Retain all work and never bypass a gate."
+}
+
+// writeHandoff writes the handoff of record's goblin, which wrote none by its
+// pause's deadline, before the stop ends the runs it names, and says so in
+// record's problems. A handoff the goblin published meanwhile is its own and
+// is never replaced.
+func (service Service) writeHandoff(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) {
+	if service.Operations.Handoff == nil {
+		record.Problems = append(record.Problems, "Stopping-point deadline reached or request failed; no new handoff was saved")
+		return
+	}
+	note := service.Operations.Handoff(ctx, meta)
+	file, err := fsx.CreateNewContext(ctx, record.Handoff, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		if info, statErr := os.Stat(record.Handoff); statErr == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			record.HandoffSaved = true
+			return
+		}
+	}
+	if err == nil {
+		_, err = file.Write(note)
+		err = errors.Join(err, file.Close())
+		if err != nil {
+			err = errors.Join(err, os.Remove(record.Handoff))
+		}
+	}
+	if err != nil {
+		record.Problems = append(record.Problems, "Stopping-point deadline reached or request failed, and the handoff the pause wrote for the goblin was not saved: "+err.Error())
+		return
+	}
+	record.HandoffSaved = true
+	record.Problems = append(record.Problems, "the goblin wrote no handoff by its stopping-point deadline, so the pause wrote one for it from the task's record")
 }
 
 // PAUSE_WITHDRAWAL takes back a PauseInstruction whose pause failed while the

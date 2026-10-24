@@ -222,7 +222,7 @@ func TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent(t *testing.T
 
 func TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents(t *testing.T) {
 	process, _ := startChrome(t, []string{"localhost"})
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	socket, err := browserSocket(ctx, process.URL)
 	if err != nil {
@@ -399,12 +399,12 @@ func busyBeside(t *testing.T, process Process) {
 	}
 	processor := uintptr(1) << (bits.Len(uint(allowed)) - 1)
 	var limits windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-	if err := windows.QueryInformationJobObject(process.job.handle, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits)), nil); err != nil {
+	if err := proc.QueryJobInformation(process.job.handle, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		t.Fatal(err)
 	}
 	limits.BasicLimitInformation.LimitFlags |= windows.JOB_OBJECT_LIMIT_AFFINITY
 	limits.BasicLimitInformation.Affinity = processor
-	if _, err := windows.SetInformationJobObject(process.job.handle, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := proc.SetJobInformation(process.job.handle, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		t.Fatal(err)
 	}
 	var isStopped atomic.Bool

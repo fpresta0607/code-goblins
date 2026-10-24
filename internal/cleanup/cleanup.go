@@ -66,6 +66,14 @@ type Service struct {
 	// its record is retired, and says what it did: the last holder's release
 	// stops what cfo started. Nil releases nothing.
 	ReleaseServices func(ctx context.Context, task string) ([]string, error)
+	// HandOver hands on what the task's lifecycle record keeps for a resume
+	// the retired task never runs, as the board messages kept for a paused
+	// goblin, once every guard has passed and before anything changes, and
+	// says whether the cleanup may go on: one that says not refuses the
+	// cleanup with nothing changed, and the error of one that goes on, such
+	// as a record it could not read or what it met after handing them on, is
+	// a warning in the output. Nil hands nothing on.
+	HandOver func(meta state.TaskMeta) (bool, error)
 }
 
 // Result reports the exact returned task identity.
@@ -167,6 +175,10 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
+	handedOver, err := s.handOver(meta)
+	if err != nil {
+		return Result{}, err
+	}
 
 	// The endpoint is proven agent-free: close the recorded tab so a completed
 	// task leaves no terminal behind, then return the worktree. A native
@@ -245,6 +257,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	}
 	result.Output += scratchNote
 	result.Output += left
+	result.Output += handedOver
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
@@ -267,7 +280,9 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 // every other command already.
 //
 // The cleanup records its purpose in the locks it takes, so the command it
-// keeps out says in one line that the task is being cleaned up.
+// keeps out says in one line that the task is being cleaned up, and the
+// monitor tells its cleanup lock from the same lock another command holds a
+// moment to write into the task's folder.
 func (s Service) holdTask(id string) (release func() error, err error) {
 	var held []string
 	release = func() error {
@@ -279,7 +294,7 @@ func (s Service) holdTask(id string) (release func() error, err error) {
 		}
 		return errs
 	}
-	if _, err := lock.AcquireExclusiveNamed(s.StateDir, state.CleanupLockName(id)); err != nil {
+	if _, err := lock.AcquireExclusiveNamedFor(s.StateDir, state.CleanupLockName(id), state.CleanupPurpose(id)); err != nil {
 		return nil, fmt.Errorf("cleanup: acquire task lock: %w", err)
 	}
 	held = append(held, state.CleanupLockName(id))
@@ -296,6 +311,23 @@ func (s Service) holdTask(id string) (release func() error, err error) {
 		held = append(held, other.name)
 	}
 	return release, nil
+}
+
+// handOver hands on what the task's record keeps for a resume the retired
+// task never runs, and says as a warning what one that lets the cleanup go on
+// met. One that does not refuses the cleanup, before anything changed.
+func (s Service) handOver(meta state.TaskMeta) (string, error) {
+	if s.HandOver == nil {
+		return "", nil
+	}
+	isRetirable, err := s.HandOver(meta)
+	if !isRetirable {
+		return "", fmt.Errorf("cleanup: the messages kept for the resume of %s could not be handed to the CFO, so nothing was removed: %w", meta.ID, err)
+	}
+	if err != nil {
+		return "\nwarning: " + err.Error(), nil
+	}
+	return "", nil
 }
 
 // endLeft ends what the task's terminal left running and says what it ended.
@@ -417,6 +449,10 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	if err != nil {
 		return Result{}, err
 	}
+	handedOver, err := s.handOver(meta)
+	if err != nil {
+		return Result{}, err
+	}
 	var notes []string
 	switch meta.Backend {
 	case "herdr":
@@ -457,6 +493,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 	}
 	result.Output += scratchNote
 	result.Output += left
+	result.Output += handedOver
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
@@ -469,6 +506,10 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 // archived. No branch or worktree is touched, since the folder has none.
 func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id, project, folder string) (Result, error) {
 	idle, err := s.requireInactive(ctx, meta)
+	if err != nil {
+		return Result{}, err
+	}
+	handedOver, err := s.handOver(meta)
 	if err != nil {
 		return Result{}, err
 	}
@@ -527,6 +568,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 	}
 	result.Output += scratchNote
 	result.Output += left
+	result.Output += handedOver
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil

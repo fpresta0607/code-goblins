@@ -1,0 +1,93 @@
+/* The Messages view: a Claude Code session's conversation in the box its
+   terminal fills, the same flex and the same rule above it as the terminal
+   deck, so the two take the one size. Every size in the list is in em of the
+   text size he chooses, so his size scales the whole conversation. */
+.messages-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border-top: 1px solid var(--glass-border); }
+/* The conversation over the message box, with what floats over it. */
+.conversation-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+/* The page scrolls itself and holds its place by its own anchor
+   (MessagesView), so the browser's anchoring stays out of it. */
+.conversation { flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 14px; color: #e3ecef; line-height: 1.55; }
+.conversation:focus-visible { outline-offset: -3px; }
+/* A short conversation sits at the bottom, by the latest, as a chat does,
+   and a wide panel keeps lines a readable length. */
+.conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: .875em; min-height: 100%; max-width: 60em; margin: 0 auto; }
+.message { position: relative; display: grid; gap: .4em; min-width: 0; }
+.message-from { display: flex; align-items: center; gap: .5em; min-height: 32px; color: var(--muted); font-size: .9375em; font-weight: 700; }
+.message-from > .icon { width: 1.1em; height: 1.1em; }
+.message-reply .message-from > .icon { color: rgb(215, 119, 87); }
+/* A prompt on the right in a bubble, under who it is from. */
+.message-prompt { align-self: flex-end; justify-items: end; max-width: min(78%, 46em); }
+.message-bubble { min-width: 0; max-width: 100%; padding: .625em .875em; border: 1px solid var(--glass-border-hover); border-radius: 14px 14px 4px 14px; background: linear-gradient(135deg, rgba(0, 229, 155, 0.10), rgba(0, 140, 255, 0.06)), var(--hero-surface); overflow-wrap: anywhere; }
+.message-prompt.cfo .message-bubble { border-color: var(--glass-border); background: var(--field-bg); }
+.message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
+.message-queued { padding: 0 .5em; border: 1px solid var(--glass-border); border-radius: 999px; font-size: .8125em; }
+.message-output, .call-result { max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-output { justify-self: stretch; }
+/* What Claude Code wrote, as the question cards draw a message, with its
+   code in Claude Code's blue. */
+.message-words { display: grid; gap: .5em; min-width: 0; overflow-wrap: anywhere; }
+.message-words p, .message-words ul { margin: 0; white-space: pre-line; }
+.message-words ul { display: grid; gap: .25em; padding-left: 1.4em; }
+.message-words strong, .message-heading { color: #fff; font-weight: 800; }
+.message-words code { padding: .05em .35em; border-radius: 6px; background: #0b171c; color: rgb(177, 185, 249); font: .9em/1.4 var(--font-mono); }
+.message-words .message-table { margin: 0; }
+.message-words .message-table table { font-size: 1em; }
+.message-words .message-table th { font-size: .8125em; }
+.message-code { margin: 0; padding: .625em .875em; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #d8e9e2; font: .875em/1.5 var(--font-mono); white-space: pre; }
+.message-words .message-code code { padding: 0; background: none; color: inherit; font: inherit; }
+/* A call as one row, its outcome's mark first, what came back folded under
+   it; a baby goblin's row dashed, as on the mockup he chose. */
+.message-call, .message-baby, .disclosure.message-call { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: rgba(7, 16, 21, 0.75); font-size: .9375em; }
+div.message-call, .message-baby, .disclosure.message-call > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .625em; padding: .4em .75em; }
+/* A row that unfolds leads with the Disclosure's caret, and one with nothing
+   to unfold keeps the caret's room, so the rows' marks line up. */
+.disclosure.message-call > summary { grid-template-columns: auto auto minmax(0, 1fr) auto; font-family: inherit; font-size: inherit; cursor: pointer; }
+div.message-call { padding-left: calc(1.375em + 1.1em); }
+.message-call .icon, .message-baby .icon, .disclosure.message-call > summary > .icon { width: 1.1em; height: 1.1em; }
+.call-mark { display: grid; color: var(--muted); }
+.call-mark.done { color: rgb(78, 186, 101); }
+.call-mark.running { color: var(--blue); }
+.call-mark.failed { color: rgb(255, 107, 128); }
+.call-mark.denied { color: var(--amber); }
+.call-what { display: flex; align-items: baseline; gap: .5em; min-width: 0; overflow: hidden; }
+.call-what > strong { flex: none; color: #dbe7ee; font-weight: 800; }
+.call-subject { min-width: 0; overflow: hidden; color: var(--muted); font: .9375em var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.call-end { display: flex; align-items: center; gap: .5em; color: var(--muted); white-space: nowrap; }
+.call-added { color: rgb(78, 186, 101); font-weight: 800; }
+.call-removed { color: rgb(255, 107, 128); font-weight: 800; }
+.disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: 0 .75em .75em; }
+.message-diff { max-height: 24em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #8fa3ad; font: .8125em/1.5 var(--font-mono); }
+.message-diff > div { min-width: max-content; padding: 0 .75em; white-space: pre; }
+.message-diff > .line-added { background: rgba(78, 186, 101, 0.12); color: #bfe9c9; }
+.message-diff > .line-removed { background: rgba(255, 107, 128, 0.10); color: #f3c0c8; }
+.message-baby { border-style: dashed; border-color: var(--glass-border-hover); }
+.message-baby .text-button { display: inline-flex; align-items: center; gap: .25em; font-size: 1em; }
+/* Thinking and a compaction's summary, folded, in muted words. */
+.message-thinking, .message-compaction { color: var(--muted); }
+.disclosure.message-thinking > summary, .message-compaction > .disclosure > summary { width: max-content; max-width: 100%; cursor: pointer; font-size: .9375em; font-style: italic; }
+.disclosure.message-thinking > summary > .icon, .message-compaction > .disclosure > summary > .icon { width: 1.1em; height: 1.1em; }
+.disclosure.message-thinking > .disclosure-content, .message-compaction > .disclosure > .disclosure-content { margin-top: .375em; padding: 0 0 0 1em; border-left: 2px solid var(--border); font-size: .9375em; }
+.message-compaction { position: relative; align-self: stretch; padding: 0 40px; }
+.message-compaction > .disclosure > summary { margin: 0 auto; }
+.message-notice, .message-interrupt { align-self: center; max-width: 46em; margin: 0; color: var(--muted); font-size: .9375em; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
+.message-notice { position: relative; width: 100%; padding: 0 40px; }
+.message-interrupt { display: flex; align-items: center; gap: .375em; font-style: italic; }
+.message-interrupt > .icon { width: 1.1em; height: 1.1em; }
+.message-pictures { display: flex; flex-wrap: wrap; gap: .5em; }
+.message-pictures img { max-width: min(100%, 24em); max-height: 18em; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; object-fit: contain; }
+/* Copy shows on a message he points at or moves into, and always on a touch
+   screen. */
+.message-copy { width: 32px; height: 32px; min-height: 32px; color: var(--muted); opacity: 0; transition: opacity .15s ease; }
+.message-copy .icon { width: 16px; height: 16px; }
+:is(.message, .message-compaction, .message-notice):is(:hover, :focus-within) .message-copy { opacity: 1; }
+:is(.message-reply, .message-compaction, .message-notice) > .message-copy { position: absolute; top: 0; right: 0; z-index: 1; border: 1px solid var(--glass-border); background: var(--hero-surface); }
+.message-reply > .message-copy:first-child + * { min-height: 32px; padding-right: 40px; }
+@media (pointer: coarse) { .message-copy { opacity: 1; } }
+.message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: rgba(3, 5, 10, 0.92); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; }
+.message-jump .icon { width: 16px; height: 16px; }
+.messages-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); pointer-events: none; }
+@media (max-width: 40rem) {
+  .conversation { padding: 12px 12px 10px; }
+  .message-prompt { max-width: 88%; }
+}

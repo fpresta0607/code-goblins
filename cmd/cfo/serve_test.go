@@ -10,6 +10,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
@@ -54,7 +55,7 @@ func TestFirstRunRecordsTheProjectsFolderOnThisMachineUnlessTheBoardIsAnExample(
 
 func TestTheBoardKeepsStartAtLoginOffTheRegistryWithAStandInUserEnvironment(t *testing.T) {
 	h := testHome(t)
-	t.Setenv(install.UserEnvFileVariable, filepath.Join(h.Root, "user-environment.json"))
+	t.Setenv(installbase.UserEnvFileVariable, filepath.Join(h.Root, "user-environment.json"))
 	if err := os.MkdirAll(h.State, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestTheBoardKeepsStartAtLoginOffTheRegistryWithAStandInUserEnvironment(t *t
 	if err == nil || !strings.Contains(err.Error(), "this machine keeps no Start at login entries") {
 		t.Fatalf("Start at login = %v, want a refusal without registry entries", err)
 	}
-	if choice, err := install.ReadStartAtLogin(h.State); err != nil || choice != install.StartAtLoginOn {
+	if choice, err := installbase.ReadStartAtLogin(h.State); err != nil || choice != installbase.StartAtLoginOn {
 		t.Fatalf("saved choice = %q, %v, want the choice retained in the scratch home", choice, err)
 	}
 }
@@ -92,10 +93,10 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 	copyFile(t, self, filepath.Join(bin, "claude.exe"))
 	t.Setenv("PATH", bin)
 	run := firstRunOn(h, t.TempDir(), true, func(string) error { return nil })
-	if _, err := lock.AcquireExclusiveNamed(h.State, cfoLaunchLock); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(h.State, supervisor.CFOLaunchLock); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock) })
+	t.Cleanup(func() { lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock) })
 	finished := make(chan error, 1)
 
 	go func() { finished <- run.StartCFO("claude") }()
@@ -105,9 +106,10 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 			closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal)
 		}
 		t.Fatalf("first-run Start returned while another start held the lock: %v", err)
+	// stall-accepted: nothing is meant to finish while the lock is held, and the start's own wait for it is 30 s, so a stall only makes this wait longer.
 	case <-time.After(200 * time.Millisecond):
 	}
-	if err := startNativeCFO(h, h.Root, "claude", nil); err != nil {
+	if err := startNativeCFO(h, h.Root, "claude", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
@@ -115,7 +117,7 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lock.ReleaseExclusiveNamed(h.State, cfoLaunchLock); err != nil {
+	if err := lock.ReleaseExclusiveNamed(h.State, supervisor.CFOLaunchLock); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -123,7 +125,7 @@ func TestTheFirstRunStartWaitsForAnotherCFOStartAndKeepsItsTerminal(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("first-run Start did not finish after the launch lock was released")
 	}
 

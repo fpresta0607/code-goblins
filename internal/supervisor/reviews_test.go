@@ -22,7 +22,7 @@ func openReview(id, task string, sums ...string) Review {
 func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 	sum := strings.Repeat("0", 64)
 	tailnet := openReview("mockups-review-1", "task-1", sum)
-	tailnet.Lavish = "http://sermon.tailcc4238.ts.net:4387/session/f26e"
+	tailnet.Lavish = "http://pc.example.ts.net:4387/session/f26e"
 	if err := validReview(tailnet); err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +69,38 @@ func TestValidReviewRefusesWhatTheBoardCannotShowSafely(t *testing.T) {
 	} {
 		if err := validReview(r); err == nil {
 			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// Only a goblin's wait that opens nothing follows a decision, named by a
+// question's ID: a review that is no wait, another goblin's wait name, the
+// CFO's item, a wait with a link or a page, and an ID no question can have
+// are refused.
+func TestValidReviewTakesAFollowedDecisionOnlyOnAGoblinsPlainWait(t *testing.T) {
+	following := func(r Review, follows string) Review {
+		r.Follows = follows
+		return r
+	}
+	wait := openReview("waiting-task-1-9", "task-1")
+	if err := validReview(following(wait, "pd-connector-parity")); err != nil {
+		t.Fatalf("a goblin's plain wait following a decision was refused: %v", err)
+	}
+	withLink, withPage := wait, wait
+	withLink.Link = "https://dashboard.stripe.com/login"
+	withPage.Lavish, withPage.LavishPage = "http://127.0.0.1:4387/session/f26e", `C:\work\.lavish\plan.html`
+	for name, r := range map[string]Review{
+		"a review that is no wait":   following(openReview("canvas-review-1", "task-1"), "pd-connector-parity"),
+		"another goblin's wait name": following(openReview("waiting-task-2-9", "task-1"), "pd-connector-parity"),
+		"the CFO's item":             following(openReview("cfo-review-1", ""), "pd-connector-parity"),
+		"a wait with a link":         following(withLink, "pd-connector-parity"),
+		"a wait with a page":         following(withPage, "pd-connector-parity"),
+		"an ID too short":            following(wait, "q-1"),
+		"an ID too long":             following(wait, strings.Repeat("q", 129)),
+		"an ID across lines":         following(wait, "pd-connector\nparity"),
+	} {
+		if err := validReview(r); err == nil {
+			t.Errorf("%s following a decision was accepted", name)
 		}
 	}
 }
@@ -526,6 +558,47 @@ func TestFullQuestionListDropsOnlyTheOldestSuperseded(t *testing.T) {
 	}
 	if err := store.acceptQuestion(question(2 * maxQuestions)); err != ErrDeferred {
 		t.Fatalf("a question past 128 pending ones = %v, want deferred", err)
+	}
+}
+
+// A new question is never refused because closed rows fill the board: with
+// two pending questions and 126 closed ones held, whatever closed them, an
+// answer nobody confirmed included, it takes the oldest closed one's place.
+func TestFullQuestionListDropsTheOldestClosedQuestion(t *testing.T) {
+	for _, status := range []string{"cleared", "succeeded", "failed", "uncertain"} {
+		t.Run(status, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			start := time.Now().UTC().Add(-time.Hour)
+			question := func(i int) Question {
+				return Question{ID: fmt.Sprintf("question-%03d", i), Identity: strings.Repeat("c", 64), Text: "Ship it?", Options: []string{"Yes", "No"}, CreatedAt: start.Add(time.Duration(i) * time.Second)}
+			}
+			for i := 0; i < maxQuestions; i++ {
+				if err := store.acceptQuestion(question(i)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			store.mu.Lock()
+			for i := 2; i < maxQuestions; i++ {
+				store.db.Questions[i].AnswerID, store.db.Questions[i].Status = fmt.Sprintf("answer-%03d", i), status
+			}
+			store.mu.Unlock()
+
+			// Act
+			err := store.acceptQuestion(question(maxQuestions))
+
+			// Assert
+			if err != nil {
+				t.Fatalf("a new question beside 126 %s ones = %v, want it admitted", status, err)
+			}
+			got := store.Snapshot().Questions
+			if len(got) != maxQuestions || got[0].Status != "pending" || got[1].Status != "pending" || got[len(got)-1].ID != "question-128" {
+				t.Fatalf("held %d questions, first two %s and %s, last %s; want 128 with both pending ones kept and the new one last", len(got), got[0].Status, got[1].Status, got[len(got)-1].ID)
+			}
+			if slices.ContainsFunc(got, func(q Question) bool { return q.ID == "question-002" }) {
+				t.Fatalf("question-002 was kept; want the oldest %s question dropped", status)
+			}
+		})
 	}
 }
 

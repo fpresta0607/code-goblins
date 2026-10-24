@@ -5,7 +5,6 @@ import { TaskView } from "./Details";
 import { WorkspaceDetails } from "./WorkspaceDetails";
 import { ownsTaskSession } from "./lineageTree";
 import type { ReviewControls } from "./review";
-import { panelViews } from "./cards";
 import { QueuedTasks } from "./QueuedTasks";
 import type { CardStarter } from "./useStart";
 import { queuedTasks } from "./workflow";
@@ -14,46 +13,49 @@ import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
 
-export type PanelView = "task" | "terminal";
+export type PanelView = "messages" | "terminal" | "task";
 
 // One panel for a goblin, the same from Board and Orchestration: its task
-// view and its live terminal, one tap apart on the pill. The terminals
-// themselves live in the terminal deck below the panel, which keeps each one
-// live while the board is open, so switching goblins never reconnects.
+// view and its live terminal, one tap apart on the pill, and for a Claude
+// Code session its messages first. The terminals themselves live in the
+// terminal deck below the panel, which keeps each one live while the board is
+// open, so switching goblins never reconnects; the messages lie beside the
+// deck in the same box, under the same compact header, so switching between
+// them never resizes a terminal.
 // A queued task's panel has the same Start as its card, the board's one
 // Start (the Overlord, 2026-10-08: "why no run button when it says play in
 // panel"). The CFO's Task view also lists every queued task, as the Tasks column does,
 // and says which conversation it could not resume when it came back; its
 // Restart is in its header. A goblin's baby goblin (child) has the same
 // panel, with its name and its task above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, now, presentations, cardStart, onView, onAnswer, onOpenTask, row }: {
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, now, presentations, cardStart, onView, onAnswer, onOpenTask, row }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
-  view: PanelView; now: number; presentations: BoardActivity[]; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
+  // views are the views the panel offers (panelViews).
+  view: PanelView; views: PanelView[]; now: number; presentations: BoardActivity[]; onView: (view: PanelView) => void; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
   // row is the top row's controls, corner button and notice (see PanelRow).
   cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode };
 }) {
   const owner = !!task && ownsTaskSession(node, task);
-  const terminal = !child && panelViews(task, node).includes("terminal");
   // A failure's Open the log opens the Activity section and brings it into view.
   const [isLogOpen, setLogOpen] = useState(false);
   const openLog = () => {
     setLogOpen(true);
     requestAnimationFrame(() => document.getElementById("task-activity")?.scrollIntoView({ block: "start", behavior: "smooth" }));
   };
-  return <section className={"goblin-panel" + (view === "terminal" ? " showing-terminal" : "")} aria-labelledby="panel-title">
-    <PanelRow view={terminal ? view : undefined} onView={onView} {...row} />
-    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
+  return <section className={"goblin-panel" + (view !== "task" ? " showing-terminal" : "")} aria-labelledby="panel-title">
+    <PanelRow view={child ? undefined : view} views={views} onView={onView} {...row} />
+    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={view !== "task"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     <div className="panel-task" hidden={view !== "task"}>
       {task && <div className="panel-content lifecycle-panel">
-        <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} labelled />
+        <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} />
         <LifecycleDetails task={task} />
       </div>}
       {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
         {!task && !node && snapshot.cfo_conversation_left && <p className="cfo-conversation-left">{snapshot.cfo_conversation_left}</p>}
-        <WorkspaceDetails task={task} node={node} runs={snapshot.runs} snapshot={snapshot} onRepair={onAnswer} />
+        <WorkspaceDetails task={task} node={node} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onAnswer} />
         {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
           <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
-          <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} cardStart={cardStart} onSelect={(next) => onOpenTask(next)} />
+          <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} onSelect={(next) => onOpenTask(next)} />
         </section>}
       </div>}
     </div>

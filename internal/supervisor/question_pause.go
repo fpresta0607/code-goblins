@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -32,6 +33,13 @@ func savePausedAnswer(stateDir, task, identity, text string) (isSaved bool, err 
 	if record.Generation != meta.SpawnGen || record.Phase != "paused" {
 		return false, nil
 	}
-	record.ResumeNote = text
+	// The answer joins what the note held before the board's messages kept
+	// in it, as keptMessages reads it, so those messages stay for the resume.
+	before, messages := keptMessages(record.ResumeNote)
+	note := []string{strings.TrimPrefix(before+"\n"+text, "\n")}
+	for _, message := range messages {
+		note = append(note, fromOverlord(message))
+	}
+	record.ResumeNote = strings.Join(note, "\n")
 	return true, state.WriteLifecycle(stateDir, record)
 }

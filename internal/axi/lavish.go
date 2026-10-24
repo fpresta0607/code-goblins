@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 )
 
 // Lavish invokes lavish-axi, the Overlord's review surface, to open a page
@@ -34,9 +36,10 @@ type PagePoll struct {
 	// page, agent for an agent that ran lavish-axi end.
 	EndedBy string
 	// Prompts is what the Overlord wrote on the page, one entry per prompt,
-	// when lavish-axi printed its prompts as a table, his changes of an
-	// answer aside.
+	// his changes of an answer aside.
 	Prompts []string
+	// Notes are those prompts, in order, each with what it is attached to.
+	Notes []PageNote
 	// Picked says a prompt picks an option the page declared in its
 	// data-lavish-choices block, which answers the page.
 	Picked bool
@@ -47,6 +50,20 @@ type PagePoll struct {
 	Output string
 }
 
+// PageNote is one prompt he sent on a page and what it is attached to: an
+// element by its tag, selector and text, with a table cell's row and column,
+// or, for a note from the page's message box, the whole page. Images are the
+// local paths lavish-axi gives the images he attached to it.
+type PageNote struct {
+	Prompt   string   `json:"prompt"`
+	Tag      string   `json:"tag,omitempty"`
+	Selector string   `json:"selector,omitempty"`
+	Text     string   `json:"text,omitempty"`
+	Row      string   `json:"row,omitempty"`
+	Column   string   `json:"column,omitempty"`
+	Images   []string `json:"images,omitempty"`
+}
+
 // PageChange is one answer he changed on a page: the question in his History
 // and the answer it takes now.
 type PageChange struct {
@@ -54,20 +71,42 @@ type PageChange struct {
 	Answer   string
 }
 
+// ErrSessionEnded refuses to open a page whose review the Overlord ended,
+// which lavish-axi reports as the session's address with the status
+// user-ended, exiting 0.
+var ErrSessionEnded = errors.New("axi: the page's review session has ended")
+
 // Open opens or resumes the page's review session without opening a browser,
-// and returns the page's address.
+// and returns the page's address. lavish-axi opens again a page whose review
+// an agent ended, but not one whose review the Overlord ended: that is
+// ErrSessionEnded.
 func (l Lavish) Open(ctx context.Context, file string) (string, error) {
-	req, err := l.request(file, "--no-open")
+	return l.open(ctx, file, "--no-open")
+}
+
+// Reopen is Open that also opens again a page whose review the Overlord
+// ended, which only his asking for another look warrants.
+func (l Lavish) Reopen(ctx context.Context, file string) (string, error) {
+	return l.open(ctx, file, "--no-open", "--reopen")
+}
+
+func (l Lavish) open(ctx context.Context, file string, flags ...string) (string, error) {
+	args := append([]string{file}, flags...)
+	req, err := l.request(args...)
 	if err != nil {
 		return "", err
 	}
-	result, err := run(ctx, l.Commands, "lavish-axi "+file+" --no-open", req)
+	result, err := run(ctx, l.Commands, "lavish-axi "+strings.Join(args, " "), req)
 	if err != nil {
 		return "", err
 	}
-	url := sessionField(string(result.Stdout), "url")
+	output := string(result.Stdout)
+	url := sessionField(output, "url")
 	if url == "" {
 		return "", errors.New("axi: lavish-axi reported no address for " + file)
+	}
+	if sessionField(output, "status") == "user-ended" {
+		return "", fmt.Errorf("%w at %s", ErrSessionEnded, url)
 	}
 	return url, nil
 }
@@ -96,19 +135,25 @@ func (l Lavish) Poll(ctx context.Context, file, reply string, timeout time.Durat
 	if status == "" {
 		return PagePoll{}, errors.New("axi: lavish-axi poll reported no session status for " + file)
 	}
-	prompts, tags, texts := promptColumn(output, "prompt"), promptColumn(output, "tag"), promptColumn(output, "text")
 	// A change is no prompt of his for anyone to read: it goes to the
 	// question it changes.
 	var changes []PageChange
 	var written []string
-	for i, prompt := range prompts {
-		if i < len(tags) && tags[i] == pageChangeTag && i < len(texts) {
-			changes = append(changes, PageChange{Question: texts[i], Answer: prompt})
-			continue
+	var notes []PageNote
+	isPicked := false
+	for _, p := range readPrompts(output) {
+		isPicked = isPicked || p.fields["tag"] == "choice"
+		prompt, hasPrompt := p.fields["prompt"]
+		switch {
+		case !hasPrompt:
+		case p.fields["tag"] == pageChangeTag:
+			changes = append(changes, PageChange{Question: p.fields["text"], Answer: prompt})
+		default:
+			written = append(written, prompt)
+			notes = append(notes, PageNote{Prompt: prompt, Tag: p.fields["tag"], Selector: p.fields["selector"], Text: p.fields["text"], Row: p.target["rowLabel"], Column: p.target["columnLabel"], Images: p.images})
 		}
-		written = append(written, prompt)
 	}
-	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: written, Picked: slices.Contains(tags, "choice"), Changes: changes, Output: output}, nil
+	return PagePoll{Status: status, Ended: sessionField(output, "session_ended") == "true", EndedBy: sessionField(output, "ended_by"), Prompts: written, Notes: notes, Picked: isPicked, Changes: changes, Output: output}, nil
 }
 
 // pageChangeTag is the tag a return page's Change sends its answer under.
@@ -135,13 +180,15 @@ func (l Lavish) request(args ...string) (execx.Request, error) {
 	if err != nil {
 		return execx.Request{}, fmt.Errorf("axi: lavish-axi has no folder to run in: %w", err)
 	}
-	return execx.Request{Dir: profile, Name: "lavish-axi", Args: args}, nil
+	return execx.Request{Dir: profile, Name: "lavish-axi", Args: args, Env: remoteaccess.LocalScrawlEnvironment(os.Environ())}, nil
 }
 
-// PageSession is one review session lavish-axi keeps: its page, its status
-// (open, feedback or ended), who ended an ended one, and how many of the
-// Overlord's prompts wait on it undelivered.
+// PageSession is one review session lavish-axi keeps: its key, which its
+// address ends with as /session/<key>, its page, its status (open, feedback or
+// ended), who ended an ended one, and how many of the Overlord's prompts wait
+// on it undelivered.
 type PageSession struct {
+	Key     string
 	File    string
 	Status  string
 	EndedBy string
@@ -181,40 +228,146 @@ func (l Lavish) Sessions() ([]PageSession, error) {
 		return nil, fmt.Errorf("axi: lavish-axi's state file is unreadable: %w", err)
 	}
 	sessions := make([]PageSession, 0, len(stored.Sessions))
-	for _, session := range stored.Sessions {
-		sessions = append(sessions, PageSession{File: session.File, Status: session.Status, EndedBy: session.EndedBy, Pending: max(session.PendingPrompts, len(session.Prompts))})
+	for key, session := range stored.Sessions {
+		sessions = append(sessions, PageSession{Key: key, File: session.File, Status: session.Status, EndedBy: session.EndedBy, Pending: max(session.PendingPrompts, len(session.Prompts))})
 	}
 	slices.SortFunc(sessions, func(a, b PageSession) int { return strings.Compare(a.File, b.File) })
 	return sessions, nil
 }
 
-// promptColumn reads one column of the top-level TOON `prompts` table, such as
-// prompt or tag, one entry per row, unquoting a quoted value. Prompts printed
-// as a list, or a table without that column, read as none.
-func promptColumn(output, name string) []string {
-	var texts []string
-	column := -1
-	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
-		if column < 0 {
-			header, ok := strings.CutPrefix(line, "prompts[")
-			_, fields, found := strings.Cut(header, "]{")
-			if ok && found && strings.HasSuffix(fields, "}:") {
-				column = slices.Index(strings.Split(strings.TrimSuffix(fields, "}:"), ","), name)
-				if column < 0 {
-					return nil
-				}
-			}
+// SessionAt finds the review session a Scrawl link names: the one whose key
+// the link's address ends with as /session/<key>, on whichever of
+// lavish-axi's addresses the link names. found is false for a link to no
+// session lavish-axi keeps.
+func (l Lavish) SessionAt(link string) (session PageSession, found bool, err error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return PageSession{}, false, nil
+	}
+	key, isSession := strings.CutPrefix(u.Path, "/session/")
+	if !isSession || key == "" || strings.Contains(key, "/") {
+		return PageSession{}, false, nil
+	}
+	sessions, err := l.Sessions()
+	if err != nil {
+		return PageSession{}, false, err
+	}
+	i := slices.IndexFunc(sessions, func(s PageSession) bool { return s.Key == key })
+	if i < 0 {
+		return PageSession{}, false, nil
+	}
+	return sessions[i], true, nil
+}
+
+// pagePrompt is one entry of a poll's top-level TOON `prompts` array: its own
+// fields, such as prompt, tag and text, its target's, such as a table cell's
+// rowLabel and columnLabel, and the path of each of its attachments.
+type pagePrompt struct {
+	fields, target map[string]string
+	images         []string
+}
+
+// readPrompts reads the top-level TOON `prompts` array in either form
+// lavish-axi prints it: a table, when every prompt has the same plain fields,
+// or a list, when one carries more, such as a table cell's target or its
+// attachments, which are a table or a list in their turn. Each value is
+// unquoted when quoted, and fields nested any deeper are passed over.
+func readPrompts(output string) []pagePrompt {
+	lines := strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		header, isPrompts := strings.CutPrefix(line, "prompts[")
+		_, form, isArray := strings.Cut(header, "]")
+		if !isPrompts || !isArray {
 			continue
 		}
-		row, ok := strings.CutPrefix(line, "  ")
-		if !ok {
-			break
+		var prompts []pagePrompt
+		if columns := tableColumns(form); columns != nil {
+			for _, line := range lines[i+1:] {
+				row, isRow := strings.CutPrefix(line, "  ")
+				if !isRow {
+					break
+				}
+				p := pagePrompt{fields: map[string]string{}}
+				for column, value := range tableRow(row) {
+					if column < len(columns) {
+						p.fields[columns[column]] = value
+					}
+				}
+				prompts = append(prompts, p)
+			}
+			return prompts
 		}
-		if values := tableRow(row); column < len(values) {
-			texts = append(texts, values[column])
+		// nested names the prompt's field whose lines follow, deeper in: its
+		// target, or its attachments, a table of them when columns names
+		// their columns.
+		nested, columns := "", []string(nil)
+		for _, line := range lines[i+1:] {
+			switch item, isItem := strings.CutPrefix(line, "  - "); {
+			case isItem:
+				prompts = append(prompts, pagePrompt{fields: map[string]string{}, target: map[string]string{}})
+				nested = ""
+				promptField(prompts[len(prompts)-1].fields, item)
+			case len(prompts) > 0 && strings.HasPrefix(line, "      "):
+				p := &prompts[len(prompts)-1]
+				value := strings.TrimPrefix(line, "      ")
+				switch {
+				case nested == "target":
+					promptField(p.target, value)
+				case nested == "attachments" && columns != nil:
+					if path, row := slices.Index(columns, "path"), tableRow(value); path >= 0 && path < len(row) {
+						p.images = append(p.images, row[path])
+					}
+				case nested == "attachments":
+					// A listed attachment's first line opens with a dash, and
+					// its others line up with the field after it.
+					attachment := map[string]string{}
+					promptField(attachment, strings.TrimLeft(value, "- "))
+					if path, hasPath := attachment["path"]; hasPath {
+						p.images = append(p.images, path)
+					}
+				}
+			case len(prompts) > 0 && strings.HasPrefix(line, "    "):
+				field := strings.TrimPrefix(line, "    ")
+				nested, columns = "", nil
+				if field == "target:" {
+					nested = "target"
+				}
+				if header, isAttachments := strings.CutPrefix(field, "attachments["); isAttachments {
+					_, form, _ := strings.Cut(header, "]")
+					nested, columns = "attachments", tableColumns(form)
+				}
+				promptField(prompts[len(prompts)-1].fields, field)
+			default:
+				return prompts
+			}
 		}
+		return prompts
 	}
-	return texts
+	return nil
+}
+
+// tableColumns reads the columns a TOON array's header names after its
+// length, the `{uid,prompt}:` of `prompts[2]{uid,prompt}:`, which make the
+// array a table. A list's header names none.
+func tableColumns(form string) []string {
+	names, isTable := strings.CutPrefix(form, "{")
+	if !isTable {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(names, "}:"), ",")
+}
+
+// promptField reads one `name: value` line of a prompt into fields, unquoting
+// a quoted value. A line that opens a nested field holds no value of its own.
+func promptField(fields map[string]string, line string) {
+	name, value, isField := strings.Cut(line, ": ")
+	if !isField {
+		return
+	}
+	if unquoted, err := strconv.Unquote(value); err == nil {
+		value = unquoted
+	}
+	fields[name] = value
 }
 
 // tableRow splits one row of a comma-delimited TOON table, unquoting each

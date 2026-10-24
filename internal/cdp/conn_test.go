@@ -30,7 +30,7 @@ func TestCallReadsOnlyItsReplyAndReportsProtocolFailures(t *testing.T) {
 		{"empty result object", []string{`{"id":1,"result":{}}`}, "", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			received := make(chan string, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

@@ -1,15 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { message, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
+import { attachDictatedInput } from "./dictated-input";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
 import { TerminalEmpty } from "./TerminalEmpty";
 import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
-import { clipboardInput, terminalKey } from "./terminal-keys";
+import { clipboardInput, imageKey, terminalKey } from "./terminal-keys";
+import { putImage } from "./terminal-image";
+import { TerminalTextSheet } from "./terminal-text-sheet";
+import { attachTouchScroll, terminalText } from "./terminal-touch";
+import { TerminalTouchTools } from "./terminal-touch-tools";
 import { useDictation } from "./useDictation";
 import { VoiceBubble } from "./VoiceBubble";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
@@ -81,9 +86,19 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
   }, [inHistory]);
   const [unavailable, setUnavailable] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const pasteText = useRef<((text: string) => void) | null>(null);
-  const dictation = useDictation((text) => pasteText.current?.(text), instance);
+  const pasteText = useRef<((text: string, isSent?: boolean) => void) | null>(null);
+  const dictation = useDictation((text, isSent) => pasteText.current?.(text, isSent), instance);
   const dictate = dictation.key;
+  // A picture reaches the harness as a desktop paste's does: on this PC's
+  // clipboard, then the harness's image key, which pressImageKey presses.
+  const pressImageKey = useRef<(() => void) | null>(null);
+  const [textSheet, setTextSheet] = useState<string | null>(null);
+  const addImage = useCallback((picture: Blob) => {
+    showFeedback("Adding the picture");
+    putImage(picture, instance).then(() => { showFeedback(""); pressImageKey.current?.(); }, (error: unknown) => showFeedback(message(error)));
+  }, [instance, showFeedback]);
+  const addImageValue = useRef(addImage);
+  useEffect(() => { addImageValue.current = addImage; }, [addImage]);
   const taskID = task?.id || "", generation = task?.generation || "", session = node?.id || "";
   const cfo = !task && !node;
   useEffect(() => {
@@ -356,15 +371,20 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     term.onData(send);
     // Typing in the history types into the pane and returns to its live screen.
     past.onData((text) => { closeHistory(); send(text); });
-    const typePaste = (text: string) => {
-      try { const paste = bracketedPaste(text); closeHistory(); send(paste); }
+    const detachDictatedInput = attachDictatedInput(term, (keys) => term.input(keys, true));
+    const detachPastDictatedInput = attachDictatedInput(past, (keys) => past.input(keys, true));
+    // A dictation stopped to send is typed and then entered.
+    const typePaste = (text: string, isSent = false) => {
+      try { const paste = bracketedPaste(text); closeHistory(); send(paste); if (isSent) send("\r"); }
       catch (error) { showFeedback(message(error)); }
     };
     pasteText.current = typePaste;
+    pressImageKey.current = () => { closeHistory(); send(imageKey(harnessValue.current)); };
     const paste = (event: ClipboardEvent) => {
       event.preventDefault(); event.stopImmediatePropagation();
       const input = clipboardInput(event, harnessValue.current);
       if (input && "text" in input) typePaste(input.text);
+      else if (input && "image" in input) addImageValue.current(input.image);
       else if (input) { closeHistory(); send(input.key); }
     };
     element.addEventListener("paste", paste, true);
@@ -477,21 +497,31 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     };
     term.attachCustomWheelEventHandler(wheel(false));
     past.attachCustomWheelEventHandler(wheel(true));
+    // scrollBy scrolls the live screen or the history by lines, as a turn of
+    // the wheel over it does.
+    const scrollBy = (fromHistory: boolean, lines: number) => {
+      const action = scrollAction(fromHistory, atBottom(), lines);
+      if (!fromHistory) liveTurn(lines);
+      if (action === "history") (fromHistory ? past : term).scrollLines(lines);
+      if (action === "close") closeHistory();
+    };
     // A screen fitted to the panel may fill only part of it, so the wheel
     // works over the whole panel: what lands beside the screen scrolls as if
     // it landed on it.
     const wheelBeside = (fromHistory: boolean) => (event: WheelEvent) => {
       const screen = fromHistory ? past : term;
       if (screen.element?.contains(event.target as Node)) return;
-      const { action, lines } = wheelStep(fromHistory, event);
+      const { lines } = wheelStep(fromHistory, event);
       event.preventDefault();
-      if (!fromHistory) liveTurn(lines);
-      if (action === "history") screen.scrollLines(lines);
-      if (action === "close") closeHistory();
+      scrollBy(fromHistory, lines);
     };
     const liveBeside = wheelBeside(false), historyBeside = wheelBeside(true);
     element.addEventListener("wheel", liveBeside, { passive: false });
     pastElement.addEventListener("wheel", historyBeside, { passive: false });
+    // A finger swiped over the panel scrolls it as the wheel does.
+    const rowHeight = () => (element.querySelector<HTMLElement>(".xterm-screen")?.offsetHeight ?? 0) / Math.max(1, term.rows);
+    const stopSwiping = attachTouchScroll(element, rowHeight, (lines) => scrollBy(false, lines));
+    const stopSwipingHistory = attachTouchScroll(pastElement, rowHeight, (lines) => scrollBy(true, lines));
     const refit = () => { if (active?.sized) resizeSized(); else fit(); };
     // While the panel's divider is dragged the screen keeps its grid and is
     // shown scaled into the panel, and it refits once when the drag ends.
@@ -633,7 +663,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       } catch (e: unknown) { if (!connection.abort.signal.aborted) ended(connection, message(e)); }
     };
     void connect(false);
-    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); window.removeEventListener("pointerup", release); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; setInHistory(false); };
+    return () => { lease = ""; liveValue.current = false; abort.abort(); queue.length = 0; clearTimeout(copiedTimer); clearTimeout(regrid); jumper.cancel(); resize.disconnect(); window.removeEventListener(PANEL_RESIZED, dropped); window.removeEventListener("focus", focused); shownChanged.current = null; element.removeEventListener("paste", paste, true); pastElement.removeEventListener("paste", paste, true); element.removeEventListener("pointerdown", startCopy); pastElement.removeEventListener("pointerdown", startCopy); element.removeEventListener("wheel", liveBeside); pastElement.removeEventListener("wheel", historyBeside); stopSwiping(); stopSwipingHistory(); window.removeEventListener("pointerup", release); detachDictatedInput(); detachPastDictatedInput(); term.dispose(); past.dispose(); terminal.current = null; history.current = null; pasteText.current = null; pressImageKey.current = null; setInHistory(false); };
   }, [taskID, generation, session, instance, visible, attempt, unavailable, dictate, showFeedback]);
   if (unavailable) return <TerminalEmpty text="Terminal unavailable" />;
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
@@ -648,7 +678,9 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       </span>}
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
-    <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }} />
+    {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); (inHistory ? history : terminal).current?.focus(); }} />}
+    <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }}
+      tools={<TerminalTouchTools events={{ text: (text) => pasteText.current?.(text), image: addImage, copy: () => { const shown = (inHistory ? history : terminal).current; setTextSheet(shown ? terminalText(shown) : ""); }, problem: showFeedback }} />} />
     {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
   </section>;
 }

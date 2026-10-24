@@ -34,8 +34,10 @@ async function open(page: Page) {
   await page.evaluate(() => document.fonts.ready);
 }
 
-// Jerry's card, the live one with no pull request, found without its name.
-const jerry = (page: Page) => page.locator(".task-card-shell").filter({ hasNot: page.locator(".card-pr") }).filter({ hasText: "northwind-api" });
+// A card found by the task in its tip, without its name: Jerry's, the live
+// one.
+const byTask = (page: Page, task: string) => page.locator(".task-card-shell").filter({ has: page.locator(`.task-card[data-tip="${task}"]`) });
+const jerry = (page: Page) => byTask(page, "Say why a billing sync fails");
 
 for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { name: "on a phone", width: 390, height: 844 }]) {
   test.describe(viewport.name, () => {
@@ -54,7 +56,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
     test("a queued task's card names its goblin with its avatar and harness, and shows its task in its tip", async ({ page }) => {
       // Arrange
       await open(page);
-      const queued = page.getByRole("region", { name: "Tasks", exact: true }).locator(".task-card-shell").filter({ hasText: "northwind-app" });
+      const queued = page.getByRole("region", { name: "Tasks", exact: true }).locator(".task-card-shell").filter({ has: page.locator('.task-card[data-tip="Hear a long dictation in full"]') });
 
       // Act
       await queued.locator(".card-title").hover();
@@ -66,10 +68,13 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await expect(page.getByRole("tooltip")).toHaveText("Hear a long dictation in full");
     });
 
-    test("a completed card leads with what it delivered", async ({ page }) => {
+    // The CFO's decision 1008011, 2026-10-17: a done row leads with the
+    // goblin's name like every other row, with the task in the name's tip.
+    test("a completed card leads with its goblin's name, with what it delivered in its tip", async ({ page }) => {
       await open(page);
       const done = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/51']") });
-      await expect(done.locator(".card-title")).toHaveText("Cache the exchange rates");
+      await expect(done.locator(".card-title")).toHaveText("Otis - Speed Tuner");
+      await expect(done.locator(".task-card")).toHaveAttribute("data-tip", "Cache the exchange rates");
     });
 
     test("the merge train names each pull request's goblin with its avatar, and its task in the tip", async ({ page }) => {
@@ -98,6 +103,9 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page);
       await jerry(page).locator(".card-title").click();
       await expect(page.locator("#panel-title")).toHaveText("Jerry - Code Designer");
+      // Its Terminal view names the task by its id, its Task view by its title.
+      await expect(page.locator(".panel-goblin-task")).toHaveText("nw-sync");
+      await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
       await expect(page.locator(".panel-goblin-task")).toHaveText("Say why a billing sync fails");
     });
 

@@ -43,7 +43,8 @@ type Settings struct {
 	CheckForUpdates bool `json:"check_for_updates"`
 	// GitHubOwners name the GitHub organizations, and any account besides
 	// the one gh works as, whose repositories the fleet owns: a teammate's
-	// pull request there is watched as the fleet's own are.
+	// pull request there is watched as the fleet's own are, and cfo issue
+	// file files a root issue only there.
 	GitHubOwners []string `json:"github_owners"`
 	// WeeklyFloorPercent is, by provider, the percent of its weekly
 	// allowance the fleet keeps back: once that little is left, its goblins

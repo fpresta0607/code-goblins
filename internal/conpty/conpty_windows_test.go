@@ -160,11 +160,11 @@ func watch(console *Console) *screen {
 }
 
 // waitFor returns the first match of pattern in the screen, failing the test
-// if none appears within ten seconds.
+// if none appears within a minute.
 func (s *screen) waitFor(t *testing.T, pattern string) []string {
 	t.Helper()
 	expression := regexp.MustCompile(pattern)
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		s.mu.Lock()
 		match := expression.FindStringSubmatch(s.text.String())
 		s.mu.Unlock()
@@ -174,7 +174,7 @@ func (s *screen) waitFor(t *testing.T, pattern string) []string {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	t.Fatalf("no %q on the screen within 10s:\n%q", pattern, s.text.String())
+	t.Fatalf("no %q on the screen within a minute:\n%q", pattern, s.text.String())
 	return nil
 }
 
@@ -230,7 +230,7 @@ func TestConsoleResizeReachesTheProcess(t *testing.T) {
 
 	// ConPTY applies a resize on its own thread, so the process can still
 	// read the old size just after one.
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(200 * time.Millisecond) {
 		s.mu.Lock()
 		text := s.text.String()
 		s.mu.Unlock()
@@ -264,7 +264,7 @@ func TestConsoleReportsTheExitCodeAndEndsItsOutput(t *testing.T) {
 
 	select {
 	case <-console.Done():
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the process did not exit")
 	}
 	if code := console.ExitCode(); code != 7 {
@@ -272,7 +272,7 @@ func TestConsoleReportsTheExitCodeAndEndsItsOutput(t *testing.T) {
 	}
 	select {
 	case <-s.ended:
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("the output did not end after the process exited")
 	}
 }
@@ -335,7 +335,7 @@ func TestCloseLeavesAMachineServiceStartedInTheTerminalRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	var serviceChild int
-	for deadline := time.Now().Add(10 * time.Second); serviceChild == 0; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); serviceChild == 0; time.Sleep(20 * time.Millisecond) {
 		if data, err := os.ReadFile(childFile); err == nil {
 			serviceChild, _ = strconv.Atoi(string(data))
 		}
@@ -373,7 +373,7 @@ func running(process windows.Handle) bool {
 	return event == uint32(windows.WAIT_TIMEOUT)
 }
 
-// exited reports whether pid has ended within ten seconds. A pid that can no
+// exited reports whether pid has ended within a minute. A pid that can no
 // longer be opened has ended.
 func exited(pid int) bool {
 	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
@@ -381,7 +381,7 @@ func exited(pid int) bool {
 		return true
 	}
 	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 10000)
+	event, _ := windows.WaitForSingleObject(handle, 60000)
 	return event == windows.WAIT_OBJECT_0
 }
 

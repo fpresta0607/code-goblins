@@ -30,12 +30,14 @@ export function appendDictation(prior: string, heard: string): string {
 // hands every key to key first: false means the terminal must not see the
 // key, true that it may, and null that the key is not dictation's. start and
 // stop listen for as long as a microphone button is held, from at, when it
-// went down. What was heard is typed with type, and joins the board's recent
+// went down, and toggle starts listening at one tap of a touch screen's
+// microphone and stops at the next, to send the words. What was heard is
+// typed with type, told whether it is sent, and joins the board's recent
 // dictations, which every window lists.
 // level reads the microphone while listening, for the voice bubble's waveform.
 // instance is the board's token, which the supervisor's speech model is asked
 // with, and model is that model's name once the supervisor has said it.
-export function useDictation(type: (text: string) => void, instance: string) {
+export function useDictation(type: (text: string, isSent: boolean) => void, instance: string) {
   const [listening, setListening] = useState(false);
   const [note, setNote] = useState<Note>(NO_NOTE);
   const [model, setModel] = useState("");
@@ -90,6 +92,17 @@ export function useDictation(type: (text: string) => void, instance: string) {
       following.current = false;
     }
   }, []);
+  // While it listens the screen is held awake. A dictation ends when the page
+  // is hidden, and speaking touches nothing, so a phone's own idle timer
+  // locked the screen mid-dictation and ended it where it was (the Overlord,
+  // 2026-10-22, "it only records like the first few sentences", "It's like a
+  // timer or something").
+  useEffect(() => {
+    if (!listening || !("wakeLock" in navigator)) return;
+    let isDone = false, lock: WakeLockSentinel | null = null;
+    navigator.wakeLock.request("screen").then((held) => { if (isDone) void held.release(); else lock = held; }, () => undefined);
+    return () => { isDone = true; void lock?.release(); };
+  }, [listening]);
   useEffect(() => {
     const stop = () => dictation.current?.stop();
     const release = (event: KeyboardEvent) => { if (dictationKey(event)?.action === "stop") stop(); };
@@ -106,9 +119,9 @@ export function useDictation(type: (text: string) => void, instance: string) {
   // start listens until stop, as holding the shortcut or a microphone button
   // does, from at, the time of the event that pressed it.
   const start = useCallback((at?: number) => {
-    const heard = (text: string) => {
-      typeText.current(followsDictation.current ? " " + text : text);
-      followsDictation.current = true;
+    const heard = (text: string, isSent: boolean) => {
+      typeText.current(followsDictation.current && !isSent ? " " + text : text, isSent);
+      followsDictation.current = !isSent;
       rememberDictation(text, token.current);
     };
     const problem = (text: string) => {
@@ -123,6 +136,10 @@ export function useDictation(type: (text: string) => void, instance: string) {
     dictation.current.start(at);
   }, [follow]);
   const stop = useCallback(() => dictation.current?.stop(), []);
+  const toggle = useCallback((at: number) => {
+    if (dictation.current?.isListening) dictation.current.stop(true);
+    else start(at);
+  }, [start]);
   const key = useCallback((event: KeyboardEvent): boolean | null => {
     const meaning = dictationKey(event);
     if (!meaning) {
@@ -135,5 +152,5 @@ export function useDictation(type: (text: string) => void, instance: string) {
     return !meaning.swallow;
   }, [start, stop]);
   const level = useCallback(() => dictation.current?.level() ?? 0, []);
-  return { listening, note: note.text, key, start, stop, level, model };
+  return { listening, note: note.text, key, start, stop, toggle, level, model };
 }

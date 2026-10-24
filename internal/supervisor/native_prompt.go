@@ -61,7 +61,7 @@ func promptSince(stateDir string, since time.Time, ours func(nativehook.Event) b
 			return false, err
 		}
 		var e nativehook.Event
-		if len(data) <= nativehook.MaxInputBytes && json.Unmarshal(data, &e) == nil && matches(e) {
+		if len(data) <= nativehook.MaxEventBytes && json.Unmarshal(data, &e) == nil && matches(e) {
 			return true, nil
 		}
 	}

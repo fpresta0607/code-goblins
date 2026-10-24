@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
@@ -16,6 +17,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/conpty"
 	"github.com/fpresta0607/code-goblins/internal/priority"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -25,7 +27,8 @@ import (
 
 // handshakeTimeout bounds how long a client takes to say hello, and
 // farewellTimeout how long an ending host waits for its viewers to hear how
-// the terminal ended.
+// the terminal ended. Only time the machine ran spends either (awake), since
+// a pause of the whole machine stops the other side too.
 var (
 	handshakeTimeout = 5 * time.Second
 	farewellTimeout  = 2 * time.Second
@@ -199,21 +202,31 @@ func Run(stateDir string, spec Spec) error {
 	// The terminal's last output is read before Close, which ends whatever
 	// the process left running and discards the output of a terminal that is
 	// closed early.
+	isClosed := false
 	select {
 	case <-outputEnded:
 	case <-closing:
+		isClosed = true
 	}
 	screens.Lock()
 	closeErr := console.Close()
 	screens.Unlock()
+	// How the program ended is kept before the record goes, so whoever finds
+	// the terminal ended finds how.
+	end := End{ID: spec.ID, HostPID: record.HostPID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: console.ExitCode(), Closed: isClosed}
+	if err := writeEnd(stateDir, end); err != nil {
+		fmt.Fprintf(os.Stderr, "host: record how terminal %s ended: %v\n", spec.ID, err)
+	}
 	farewell := make(chan struct{})
 	go func() {
 		viewers.Wait()
 		close(farewell)
 	}()
+	farewelling, cancelFarewelling := awake.WithTimeout(context.Background(), farewellTimeout)
+	defer cancelFarewelling()
 	select {
 	case <-farewell:
-	case <-time.After(farewellTimeout):
+	case <-farewelling.Done():
 	}
 	return closeErr
 }
@@ -271,8 +284,9 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 // alone.
 func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}, screens *sync.RWMutex) {
 	defer connection.Close()
-	_ = connection.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	lift := awake.Deadline(connection.SetReadDeadline, handshakeTimeout)
 	greeting, err := readHello(connection)
+	lift()
 	if err != nil {
 		return
 	}
@@ -284,7 +298,6 @@ func serve(connection *os.File, token string, console *conpty.Console, output *h
 		_ = writeHello(connection, hello{Version: Version, Error: "the token does not match this host"})
 		return
 	}
-	_ = connection.SetReadDeadline(time.Time{})
 	if greeting.Screen {
 		serveScreen(connection, console, screens)
 		return

@@ -74,9 +74,11 @@ type TaskTicket struct {
 	State  tickets.State `json:"state"`
 }
 
-// ProjectPeople are the people other than the Overlord, bots aside, active
-// in a collaborative project's repository in the last 30 days, most recently
-// active first, under the project name the board's tasks carry.
+// ProjectPeople is a project on the board whose origin is on GitHub, under
+// the project name the board's tasks carry: its repository, which its cards
+// link to, and the people other than the Overlord, bots aside, who committed
+// to its default branch or opened a pull request in it in the last 30 days,
+// most recently active first, none while only the Overlord works there.
 type ProjectPeople struct {
 	Name         string          `json:"name"`
 	Repository   string          `json:"repository"`
@@ -284,13 +286,15 @@ func (k *ticketKeeper) readPeople(ctx context.Context, tasks []Task, now time.Ti
 		known := k.repository(ctx, project, now)
 		switch {
 		case known.err != nil:
-		case known.IsCollaborative && len(known.People) > 0:
-			k.people[task.Project] = ProjectPeople{Name: task.Project, Repository: known.Repository, Contributors: known.People}
-			if err := tickets.RememberTeammates(k.home.State, known.People); err != nil {
-				k.note("teammates", "remember the teammates of "+known.Repository+": "+err.Error())
-			}
-		default:
+		case known.isNotGitHub:
 			delete(k.people, task.Project)
+		default:
+			k.people[task.Project] = ProjectPeople{Name: task.Project, Repository: known.Repository, Contributors: known.Active}
+			if len(known.People) > 0 {
+				if err := tickets.RememberTeammates(k.home.State, known.People); err != nil {
+					k.note("teammates", "remember the teammates of "+known.Repository+": "+err.Error())
+				}
+			}
 		}
 	}
 	maps.DeleteFunc(k.people, func(name string, _ ProjectPeople) bool { return !read[name] })

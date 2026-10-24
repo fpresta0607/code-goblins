@@ -134,6 +134,13 @@ func TestMain(m *testing.M) {
 			os.Exit(1)
 		}
 	}
+	// Nor does any test read the review sessions lavish-axi keeps on the
+	// machine the tests run on: their state folder is one that is not there,
+	// unless a test names one of its own.
+	if err := os.Setenv("LAVISH_AXI_STATE_DIR", filepath.Join(os.TempDir(), fmt.Sprintf("no-lavish-state-%d", os.Getpid()))); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	// A build stand-in an update test installs runs as that build.
 	if code, ok := runStandInBuild(); ok {
 		os.Exit(code)
@@ -153,6 +160,15 @@ func TestMain(m *testing.M) {
 	}
 	if len(os.Args) > 2 && os.Args[1] == ownConsoleTestProgram {
 		os.Exit(runOwnConsoleTestProgram(os.Args[2:]))
+	}
+	// A codex guard a test arms runs this binary as the home's cfo.exe.
+	if len(os.Args) > 1 && os.Args[1] == "codex-guard" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
+	// A native hook a test starts as a harness does runs this binary as the
+	// home's cfo.exe.
+	if len(os.Args) > 1 && os.Args[1] == "native-hook" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	treetest.Run()
 	// goblins starts its own program as serve. A test that reaches that start
@@ -202,6 +218,13 @@ func TestMain(m *testing.M) {
 	}
 	if strings.EqualFold(filepath.Base(os.Args[0]), "claude.exe") {
 		os.Exit(runFakeClaude())
+	}
+	// A goblin seal a test starts as Codex's shell or pi's extension does
+	// runs this binary, under its own name, as the home's cfo.exe. It comes
+	// after every stand-in above, so a stand-in session's cfo.exe, which runs
+	// hooks too, still acts only on its scratch home.
+	if len(os.Args) > 1 && os.Args[1] == "hook" {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	// HERDR_PANE_ID and CFO_HOST_ID are unset too: a hook under test must
 	// never register this machine's real Herdr pane or native terminal as a

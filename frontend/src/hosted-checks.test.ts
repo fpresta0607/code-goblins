@@ -4,7 +4,7 @@ import { hostedChecksLook } from "./hosted-checks.ts";
 import type { HostedChecks } from "./types.ts";
 
 const pr = "https://github.com/o/r/pull/209";
-const checks = (overrides: Partial<HostedChecks>): HostedChecks => ({ head: "", state: "pending", checks: 9, failed: [], link: "", approved: false, ...overrides });
+const checks = (overrides: Partial<HostedChecks>): HostedChecks => ({ head: "", state: "pending", checks: 9, failed: [], rate_limited: [], link: "", approved: false, ...overrides });
 
 test("each state of a pull request's checks reads in plain words and opens its checks", () => {
   for (const [state, text, tip, tone] of [
@@ -44,4 +44,15 @@ test("a failed check's page off GitHub opens the pull request's checks instead, 
 
 test("one check is counted as one", () => {
   assert.equal(hostedChecksLook(checks({ state: "passed", checks: 1 }), pr).tip, "All 1 check passed");
+});
+
+test("a deploy the host rate limited is named in the tip, never hidden, whatever the other checks say", () => {
+  for (const [state, failed, tip] of [
+    ["passed", [], "All 9 checks passed. The host rate limited the deploy of Vercel, which never built this head"],
+    ["failed", ["go"], "Failed: go. The host rate limited the deploy of Vercel, which never built this head"],
+  ] as const) {
+    const look = hostedChecksLook(checks({ state, failed: [...failed], rate_limited: ["Vercel"] }), pr);
+
+    assert.equal(look.tip, tip);
+  }
 });

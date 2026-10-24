@@ -27,12 +27,13 @@ func TestOwnedReleaseDeadlineCoversUnreadableRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	started := time.Now()
 	err = ReleaseExclusiveOwned(ctx, dir, name, *owner)
 	elapsed := time.Since(started)
 	windows.CloseHandle(handle)
+	// stall-accepted: it times the release, and the wait it rules out, the 5 s a read of a held record waits by default, is too short for a bound past a stall to tell apart.
 	if !errors.Is(err, context.DeadlineExceeded) || elapsed > time.Second {
 		t.Errorf("unreadable record ignored deadline: %v after %s", err, elapsed)
 	}
@@ -48,10 +49,11 @@ func TestContextAcquisitionBoundsAnUnfinishedPublisher(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer writer.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond) // stall-accepted: the test means this context to run out.
 	defer cancel()
 	started := time.Now()
 	owner, err := AcquireExclusiveNamedStrictContext(ctx, dir, name)
+	// stall-accepted: it times the acquire, and the wait it rules out, the 5 s a read of a held record waits by default, is too short for a bound past a stall to tell apart.
 	if owner != nil || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
 		t.Fatalf("publisher wait ignored deadline: %+v %v", owner, err)
 	}

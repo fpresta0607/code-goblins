@@ -30,9 +30,14 @@ import (
 )
 
 // The test binary plays every part of a native spawn: with nativeSpawnHost
-// first it is the terminal's host, and copied onto PATH as codex.exe or
-// claude.exe it is the harness, which cmd /c or the spawn finds there.
-const nativeSpawnHost = "native-spawn-host"
+// first it is the terminal's host, and copied onto PATH as codex.exe,
+// claude.exe or pi.exe it is the harness, which cmd /c or the spawn finds
+// there. With sleepChild first it is a process that only waits, a minute at
+// most.
+const (
+	nativeSpawnHost = "native-spawn-host"
+	sleepChild      = "sleep-child"
+)
 
 // The fake harness records what it sees to the file fakeCodexRecord names, and
 // fakeCodexMode picks what it shows: codex's update prompt, then its trust
@@ -44,13 +49,22 @@ const nativeSpawnHost = "native-spawn-host"
 // no focus for a moment after a move. At its composer, a prompt can open as
 // the typing starts ("late"), a submitted line can leave it looking idle
 // ("unmoved"), each turn can end a moment after it starts ("turns"), typed
-// text can show only once its console is resized ("undrawn"), or the first
-// Enter can be taken as part of the text ("swallow"), where
+// text can show only once its console is resized ("undrawn"), an Enter with
+// no End before it can be taken as part of the text ("swallow"), or the first
+// submit key can be taken seconds after it arrived ("slow"), where
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
-// Code shows over background work before it exits.
+// Code shows over background work before it exits. With "claude-lost-enter"
+// it is Claude Code's composer taking the first Enter that ends typed text
+// as a new line, with "claude-enters-lost" every one, and with
+// "claude-late-enter" taking the first seconds late. With "pi-starting" it is
+// pi 0.85.1 at its editor while its startup completes for a few seconds,
+// with "pi-stuck" one whose startup never completes, and with "pi-stale" one
+// whose first turn ends with the startup row still in its chat and which then
+// leaves whatever is submitted in its editor.
 const (
-	fakeCodexRecord = "SPAWN_TEST_CODEX_RECORD"
-	fakeCodexMode   = "SPAWN_TEST_CODEX_MODE"
+	fakeCodexRecord     = "SPAWN_TEST_CODEX_RECORD"
+	fakeCodexMode       = "SPAWN_TEST_CODEX_MODE"
+	fakeCodexTranscript = "SPAWN_TEST_CODEX_TRANSCRIPT"
 )
 
 func TestMain(m *testing.M) {
@@ -60,7 +74,9 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case slices.Contains([]string{"codex", "claude"}, strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))):
+	case len(os.Args) > 1 && os.Args[1] == sleepChild:
+		time.Sleep(time.Minute)
+	case slices.Contains([]string{"codex", "claude", "pi"}, strings.ToLower(strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0])))):
 		fakeHarness()
 	default:
 		os.Exit(m.Run())
@@ -77,7 +93,7 @@ type codexEvent struct {
 }
 
 // recordedEnv is what the fake codex records of its environment.
-var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING", standInDatabase, standInPayments, standInSource, standInStray}
+var recordedEnv = []string{"CFO_TASK_ID", "CFO_ROLE", "GOTMPDIR", "TEMP", "TMP", "TMPDIR", "CFO_HOME", "CFO_STATE_OVERRIDE", "CFO_PROJECTS_ROOT", "CFO_HOST_ID", "FIXTURE_TOKEN", "PLAYWRIGHT_BROWSERS_PATH", "LOCALAPPDATA", "XDG_CACHE_HOME", "HOME", "UV_CACHE_DIR", "UV_EXCLUDE_NEWER", "PIP_UPLOADED_PRIOR_TO", "npm_config_before", "DATABASE_URL", "OPENAI_API_KEY", "HERDR_PANE_ID", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_GIT_BASH_PATH", "CODEX_SANDBOX_NETWORK_DISABLED", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "HERDR_TAB_ID", "HERDR_WORKSPACE_ID", "A_SESSION_ONLY_VARIABLE", "USERS_OWN_SETTING", standInDatabase, standInPayments, standInSource, standInStray}
 
 // fakeHarness shows codex's own startup screens, as captured on this machine,
 // and answers keys the way codex does. It records its environment, every key
@@ -120,7 +136,7 @@ func fakeHarness() {
 			}
 			if process, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, pid); err == nil {
 				_ = windows.TerminateProcess(process, 1)
-				_, _ = windows.WaitForSingleObject(process, 10000)
+				_, _ = windows.WaitForSingleObject(process, 60000)
 				_ = windows.CloseHandle(process)
 			}
 		}
@@ -137,7 +153,7 @@ func fakeHarness() {
 		for {
 			var key string
 			var err error
-			if strings.HasPrefix(mode, "daybreak") {
+			if strings.HasPrefix(mode, "daybreak") || strings.HasPrefix(mode, "hooks-during-") || strings.HasPrefix(mode, "hooks-before-") || strings.HasPrefix(mode, "hooks-after-") {
 				// This offer takes a bare Escape, with no arrow sequence.
 				var character rune
 				character, _, err = reader.ReadRune()
@@ -162,18 +178,34 @@ func fakeHarness() {
 		}
 		return
 	}
+	if mode == "pi-ready" || mode == "pi-starting" || mode == "pi-stuck" || mode == "pi-stale" {
+		startup := 8 * time.Second
+		switch mode {
+		case "pi-ready":
+			startup = 0
+		case "pi-stuck":
+			startup = time.Hour
+		}
+		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
+		return
+	}
+	if mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" {
+		claudeComposer(mode, keys, record, draw)
+		return
+	}
 	composer := func(text string) {
 		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
 	}
+	if strings.HasPrefix(mode, "hooks-during-") || strings.HasPrefix(mode, "hooks-before-") || strings.HasPrefix(mode, "hooks-after-") {
+		lateHookComposer(mode, keys, record, draw, composer)
+		return
+	}
 	if mode == "resumed-working" {
 		if len(os.Args) > 1 && os.Args[1] == "resume" {
-			draw("    +151 lines (ctrl+t to view transcript)", "", "Working (1m 51s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close", "", "› Ask Codex to do anything", "", "  GPT-6.1-Sol xhigh · "+mustGetwd())
-			for key := range keys {
-				record(codexEvent{Event: "typed into resumed turn", Text: key})
-			}
-			return
+			mode = "working-at-start"
+		} else {
+			mode = "ready"
 		}
-		mode = "ready"
 	}
 	if mode == "working-at-start" {
 		// As cg-cards-stay-open was on 2026-10-15, when a cfo send reached it
@@ -187,7 +219,7 @@ func fakeHarness() {
 		for key := range keys {
 			switch key {
 			case "\r":
-				record(codexEvent{Event: "queued into the turn", Text: line.String()})
+				recordQueuedPrompt(line.String(), record)
 				line.Reset()
 				working("Ask Codex to do anything")
 			case "\x1b[A", "\x1b[B", "\x1b[F":
@@ -203,7 +235,7 @@ func fakeHarness() {
 	}
 	composer("Ask Codex to do anything")
 	var line strings.Builder
-	late, swallowed := false, false
+	late, hasPasteEnded, slow := false, false, mode == "slow"
 	resized := make(chan struct{}, 1)
 	if mode == "undrawn" {
 		go watchWidth(resized)
@@ -244,12 +276,20 @@ func fakeHarness() {
 					record(codexEvent{Event: "entered at a late prompt"})
 				}
 				late = true
-			case key == "\r" && mode == "swallow" && !swallowed:
-				// As Codex 0.154 did, the Enter ending a paste is taken as
-				// part of it, and the text stays in the composer.
-				swallowed = true
+			case key == "\r" && mode == "swallow" && !hasPasteEnded:
+				// As Codex 0.154 does, an Enter that no End ended the paste
+				// before is taken as part of it, and the text stays in the
+				// composer.
+				hasPasteEnded = true
 				record(codexEvent{Event: "swallowed enter"})
 			case key == "\r":
+				if slow {
+					// A loaded runner can leave an idle Codex taking its
+					// submit key seconds after it arrived, the text still
+					// showing in its composer.
+					time.Sleep(3 * time.Second)
+					slow = false
+				}
 				record(codexEvent{Event: "submitted", Text: line.String()})
 				// Like codex, it ends at a submitted /exit.
 				if line.String() == "/exit" {
@@ -274,7 +314,10 @@ func fakeHarness() {
 					time.Sleep(8 * time.Second)
 					composer("Ask Codex to do anything")
 				}
-			case key == "\x1b[A" || key == "\x1b[B" || key == "\x1b[F":
+			case key == "\x1b[F":
+				// End ends a paste and leaves the text as it is.
+				hasPasteEnded = true
+			case key == "\x1b[A" || key == "\x1b[B":
 			default:
 				line.WriteString(key)
 				if mode == "trickle" {
@@ -371,7 +414,7 @@ func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw
 			// As Codex 0.154 does, the review shows a moment before keys
 			// reach it, and a key sent meanwhile is lost.
 			review(0)
-			for deaf := time.After(1500 * time.Millisecond); deaf != nil; {
+			for deaf := time.After(1500 * time.Millisecond); deaf != nil; { // stall-accepted: the stand-in's deaf moment, which the spawn's longer settle outlasts on the same clock.
 				select {
 				case key := <-keys:
 					record(codexEvent{Event: "lost", Text: key})
@@ -408,6 +451,96 @@ func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw
 		}
 	}
 	return true
+}
+
+// piStartup shows pi 0.85.1's editor as it shows while its startup completes,
+// which on a machine without fd and rg includes downloading them: it takes
+// typed text at once, but until startup has run that long it answers Enter by
+// putting the text back in its editor and saying "Startup is still in
+// progress". After that, Enter submits the text and pi works on it. With
+// isTurnEnding its first turn ends a second later, its chat still showing that
+// row, and every later Enter leaves the text in its editor.
+func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
+	rule := strings.Repeat("─", 40)
+	footer := []string{`~\source\demo (detached)`, "0.0%/128k (auto)                                        stand-in"}
+	status := ""
+	editor := func(text string) {
+		draw(append([]string{"", status, rule, " " + text, rule}, footer...)...)
+	}
+	editor("")
+	started := time.Now().Add(startup)
+	hasTurned, hasRefused := false, false
+	var line strings.Builder
+	for key := range keys {
+		switch {
+		case key == "\r" && (time.Now().Before(started) || (startup > 0 && !hasRefused)):
+			record(codexEvent{Event: "refused while starting", Text: line.String()})
+			status = " Startup is still in progress"
+			hasRefused = true
+		case key == "\r" && line.Len() > 0 && hasTurned:
+			record(codexEvent{Event: "left in the editor", Text: line.String()})
+		case key == "\r" && line.Len() > 0:
+			record(codexEvent{Event: "submitted", Text: line.String()})
+			draw(append([]string{"", " " + line.String(), "", "── ⠸ Working ──", "", rule}, footer...)...)
+			line.Reset()
+			if !isTurnEnding {
+				continue
+			}
+			time.Sleep(time.Second)
+			hasTurned = true
+		case key == "\r":
+			continue
+		default:
+			line.WriteString(key)
+		}
+		editor(line.String())
+	}
+}
+
+// claudeComposer shows Claude Code's composer, between its rules above its
+// permission mode, as a resumed goblin's was on a loaded machine on
+// 2026-10-20: in mode "claude-lost-enter" the first Enter that ends typed
+// text, and in "claude-enters-lost" every one, is taken as a new line,
+// leaving the text in the composer over an empty row. In
+// "claude-late-enter" the first Enter that ends typed text is taken seconds
+// after it arrived, the text showing in the composer as it was until then,
+// and submits it. An Enter that submits the text starts a turn that never
+// ends.
+func claudeComposer(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
+	rule := strings.Repeat("─", 80)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	composer := func(rows ...string) {
+		draw(append(append([]string{"", rule}, rows...), rule, footer)...)
+	}
+	composer(">")
+	var line strings.Builder
+	lost, isLate := 0, mode == "claude-late-enter"
+	for key := range keys {
+		switch {
+		case key == "\r" && line.Len() > 0 && (mode == "claude-enters-lost" || (mode == "claude-lost-enter" && lost == 0)):
+			lost++
+			record(codexEvent{Event: "enter taken as a new line", Text: line.String()})
+		case key == "\r" && line.Len() > 0:
+			if isLate {
+				time.Sleep(3 * time.Second)
+				isLate = false
+			}
+			record(codexEvent{Event: "submitted", Text: line.String()})
+			draw("", "> "+line.String(), "", "✽ Reticulating… (esc to interrupt)", rule, ">", rule, footer)
+			line.Reset()
+			continue
+		case key == "\r":
+			record(codexEvent{Event: "enter on an empty composer"})
+			continue
+		default:
+			line.WriteString(key)
+		}
+		rows := []string{"> " + line.String()}
+		for range lost {
+			rows = append(rows, "")
+		}
+		composer(rows...)
+	}
 }
 
 // watchWidth signals resized each time its console's width changes.
@@ -585,10 +718,21 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 // harness's startup screens, with the composer's settle cut to two reads.
 func newQuickFixture(t *testing.T) *nativeFixture {
 	t.Helper()
+	return newQuickFixtureOf(t, harness.Codex)
+}
+
+// newQuickFixtureOf is newQuickFixture with its fake harness standing in for
+// kind; a fake pi shows its editor as it does once its startup has ended.
+func newQuickFixtureOf(t *testing.T, kind harness.Kind) *nativeFixture {
+	t.Helper()
 	previous := nativeReadySettle
 	nativeReadySettle = 2 * nativePoll
 	t.Cleanup(func() { nativeReadySettle = previous })
-	return newNativeFixture(t, harness.Codex, "ready")
+	mode := "ready"
+	if kind == harness.Pi {
+		mode = "pi-ready"
+	}
+	return newNativeFixture(t, kind, mode)
 }
 
 // A check the caller ran beside the start, such as who else works in the
@@ -649,20 +793,20 @@ func named(events []codexEvent, name string) []codexEvent {
 	return matched
 }
 
-// ended reports whether pid has ended within ten seconds.
+// ended reports whether pid has ended within thirty seconds.
 func ended(pid int) bool {
 	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return true
 	}
 	defer windows.CloseHandle(handle)
-	event, _ := windows.WaitForSingleObject(handle, 10000)
+	event, _ := windows.WaitForSingleObject(handle, 30000)
 	return event == windows.WAIT_OBJECT_0
 }
 
 func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testing.T) {
 	f := newNativeFixture(t, harness.Codex, "daybreak")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	_, err := f.service.Spawn(ctx, f.request)
@@ -713,9 +857,12 @@ func TestANativeSpawnDoesNotContinueUntilTheDaybreakOfferDisappears(t *testing.T
 // nothing that names the fleet's own session: no billing key, no Herdr pane,
 // no Claude Code or Codex session marker. A prompt still drawing, its options
 // not shown yet or its focus not shown for a moment after a move, is read
-// again until its focus shows, and answered as one drawn at once.
+// again until its focus shows, and answered as one drawn at once. A codex
+// that takes its submit key seconds late, the text still in its composer, is
+// sent that key once, so no second Enter reaches it after the instruction
+// (#1171).
 func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testing.T) {
-	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn", "an Enter taken as part of the paste": "swallow"} {
+	for name, mode := range map[string]string{"drawn at once": "", "half drawn": "halfdrawn", "typing drawn only at a redraw": "undrawn", "a paste that only End ends": "swallow", "a submit key taken late": "slow"} {
 		t.Run(name, func(t *testing.T) {
 			f := newNativeFixture(t, harness.Codex, mode)
 			t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
@@ -746,7 +893,8 @@ func TestANativeSpawnAnswersCodexsStartupAndDeliversItsInstructionOnce(t *testin
 			if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != pointer {
 				t.Errorf("submitted = %+v, want the line pointing at the instruction once:\n%s", submitted, pointer)
 			}
-			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship", TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7")}, nil) + credentialsInstruction(f.project, auth.Grant{}); written != instruction+"\n" {
+			cooldown := map[string]string{"PIP_UPLOADED_PRIOR_TO": "", "UV_EXCLUDE_NEWER": "", "npm_config_before": ""}
+			if instruction := spawnInstruction(f.brief, state.TaskMeta{ID: "task-7", Kind: "ship", Mode: meta.Mode, TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7")}, nil, "") + cooldownInstruction(cooldown) + credentialsInstruction(f.project, auth.Grant{}); written != instruction+"\n" {
 				t.Errorf("instruction.md = %q, want the whole instruction:\n%s", written, instruction)
 			}
 			env := named(events, "env")[0].Env
@@ -1143,6 +1291,104 @@ func TestANativeSpawnCountsAHarnessAlreadyWorkingAsStarted(t *testing.T) {
 	}
 }
 
+// pi 0.85 takes typed text while its startup completes, which on a machine
+// without fd and rg includes downloading them, but answers Enter by putting
+// the text back in its editor and saying "Startup is still in progress". On
+// 2026-10-14 a spawn on a clean runner pressed Enter once, and pi sat with its
+// instruction unsent until the spawn gave up (issue 919). The spawn presses
+// Enter again while pi says so, for longer than a submitted instruction is
+// given to show pi working, and the instruction is submitted once.
+func TestANativeSpawnSubmitsAgainWhilePiIsStillStarting(t *testing.T) {
+	// Arrange
+	previous := nativeAccepted
+	nativeAccepted = 3 * time.Second
+	t.Cleanup(func() { nativeAccepted = previous })
+	f := newNativeFixture(t, harness.Pi, "pi-starting")
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	events := f.events(t)
+	if refused := named(events, "refused while starting"); len(refused) == 0 {
+		t.Fatal("no Enter reached pi while it was starting, so this proves nothing")
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != spawnPointer(t, f.fixture) {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
+	}
+}
+
+// A pi whose startup never completes fails the spawn once it has said it is
+// still starting for as long as a harness's startup is given, and the error
+// shows what its screen says.
+func TestANativeSpawnFailsWhenPiNeverFinishesStarting(t *testing.T) {
+	// Arrange
+	previousAccepted, previousStartup := nativeAccepted, nativeStartup
+	nativeAccepted, nativeStartup = 3*time.Second, 15*time.Second
+	t.Cleanup(func() { nativeAccepted, nativeStartup = previousAccepted, previousStartup })
+	f := newNativeFixture(t, harness.Pi, "pi-stuck")
+
+	// Act
+	_, err := f.service.Spawn(context.Background(), f.request)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "native terminal task-7") || !strings.Contains(err.Error(), "still starting") || !strings.Contains(err.Error(), "Startup is still in progress") {
+		t.Fatalf("Spawn error = %v, want native terminal task-7 named as still starting, with its screen", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 0 {
+		t.Errorf("submitted = %+v, want nothing taken", submitted)
+	}
+}
+
+// pi keeps "Startup is still in progress" in its chat after it takes the
+// instruction, so a later cfo send can find that row already on its screen.
+// That row turned an earlier submit away, not this one: Enter is pressed once,
+// and a pi that never shows itself working fails the send once its acceptance
+// window has run, not its startup budget.
+func TestANativeSendIgnoresAStartupRowLeftFromAnEarlierSubmit(t *testing.T) {
+	// Arrange
+	previousAccepted, previousStartup := nativeAccepted, nativeStartup
+	nativeAccepted, nativeStartup = 3*time.Second, 2*time.Minute
+	t.Cleanup(func() { nativeAccepted, nativeStartup = previousAccepted, previousStartup })
+	f := newNativeFixture(t, harness.Pi, "pi-stale")
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Pi)
+	if _, err := f.service.awaitScreen(context.Background(), record, 30*time.Second, func(screen []string) bool {
+		return screens.IsStarting(screen) && screens.ComposerEmpty(screen) && !screens.IsWorking(screen)
+	}); err != nil {
+		t.Fatalf("the fake pi never ended its turn with the startup row on its screen: %v", err)
+	}
+
+	// Act
+	began := time.Now()
+	err = f.service.SendNative(context.Background(), meta, "CFO: run the tests")
+	took := time.Since(began)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "never showed its harness working") {
+		t.Errorf("SendNative = %v, want the acceptance window's error", err)
+	}
+	if took >= time.Minute {
+		t.Errorf("SendNative took %s, want it back once the %s acceptance window ran", took, nativeAccepted)
+	}
+	if left := named(f.events(t), "left in the editor"); len(left) != 1 || left[0].Text != "CFO: run the tests" {
+		t.Errorf("Enter presses on the send = %+v, want one", left)
+	}
+}
+
 // A screen the spawn recognizes nothing on is never typed into: the spawn
 // fails, naming the terminal and quoting its screen. The budget leaves a
 // loaded machine time to start the harness and draw it.
@@ -1216,9 +1462,10 @@ func TestAScreenReadThatFailsForAMomentIsReadAgain(t *testing.T) {
 	}
 }
 
-// A native terminal starts claude.exe itself, and codex and pi through cmd /c
-// with arguments cmd reads as plain text; a claude found only as a script shim,
-// or an argument cmd would interpret, is refused.
+// A native terminal starts claude.exe itself, and codex and pi by the path
+// PATH finds them at, through cmd /c with arguments cmd reads as plain text; a
+// claude found only as a script shim, or an argument cmd would interpret, is
+// refused.
 func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	bin := t.TempDir()
 	for _, name := range []string{"claude.cmd", "codex.cmd", "pi.cmd"} {
@@ -1231,8 +1478,8 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 		t.Errorf("claude as a script shim = %q, want refused", program)
 	}
 	program, err := nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}})
-	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}) {
-		t.Errorf("codex = %q, %v; want it through cmd /c", program, err)
+	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "codex.cmd"), "--model", "gpt-6-astra", "-c", "model_reasoning_effort=high"}) {
+		t.Errorf("codex = %q, %v; want the codex.cmd on PATH through cmd /c", program, err)
 	}
 	for _, arg := range []string{"a&b", `"quoted"`, "50%", "a|b"} {
 		if program, err := nativeProgram(harness.Pi, harness.Launch{Executable: "pi", Args: []string{arg}}); err == nil {
@@ -1241,10 +1488,10 @@ func TestANativeTerminalStartsEachHarnessAsItsProgramNeeds(t *testing.T) {
 	}
 }
 
-// A harness installed as a script shim leaves finding its program to cmd, in
-// the user environment the host runs with, so one not on this process's PATH
-// still starts through cmd /c.
-func TestAShimHarnessIsNotLookedUpOnThisProcessPath(t *testing.T) {
+// A harness installed as a script shim that this process's PATH, where its
+// spawn validated it, does not find is refused, never left to the terminal's
+// PATH to find another.
+func TestAShimHarnessNotOnThisProcessPathIsRefused(t *testing.T) {
 	// Arrange
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
@@ -1253,8 +1500,128 @@ func TestAShimHarnessIsNotLookedUpOnThisProcessPath(t *testing.T) {
 	program, err := nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--model", "gpt-6-astra"}})
 
 	// Assert
-	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", "codex", "--model", "gpt-6-astra"}) {
-		t.Errorf("codex not on PATH = %q, %v; want it through cmd /c", program, err)
+	if err == nil {
+		t.Errorf("codex not on PATH = %q, want refused", program)
+	}
+}
+
+// NativeProgram, which starts the CFO's harness and the connection checks',
+// starts a script shim by the path this process's PATH finds it at, so a
+// terminal or command whose PATH is the user's never starts another (#1155),
+// and refuses a name this PATH does not find.
+func TestNativeProgramStartsAShimByThePathThisProcessFinds(t *testing.T) {
+	// Arrange
+	bin := t.TempDir()
+	writeFile(t, filepath.Join(bin, "codex.cmd"), "@echo off\r\n")
+	t.Setenv("PATH", bin)
+	t.Setenv("ComSpec", `C:\Windows\System32\cmd.exe`)
+
+	// Act
+	program, err := NativeProgram("codex", "mcp", "list")
+	missing, missingErr := NativeProgram("pi", "--help")
+
+	// Assert
+	if err != nil || !slices.Equal(program, []string{`C:\Windows\System32\cmd.exe`, "/c", filepath.Join(bin, "codex.cmd"), "mcp", "list"}) {
+		t.Errorf("codex = %q, %v; want the codex.cmd on PATH through cmd /c", program, err)
+	}
+	if missingErr == nil {
+		t.Errorf("pi not on PATH = %q, want refused", missing)
+	}
+}
+
+// A shim whose path has a space in it is quoted on cmd's command line, and
+// once another argument is quoted too, cmd drops the path's opening quote and
+// runs the path's first word instead. Such a shim starts by its short name,
+// which has no space, and one on a volume that keeps no short names, such as
+// a Dev Drive, is refused, never left to cmd to start another program.
+func TestAShimAtAPathWithASpaceStartsAsItselfOrIsRefused(t *testing.T) {
+	for name, program := range map[string]func() ([]string, error){
+		"a goblin's harness": func() ([]string, error) {
+			return nativeProgram(harness.Codex, harness.Launch{Executable: "codex", Args: []string{"--prompt", "a prompt with spaces"}})
+		},
+		"a named program": func() ([]string, error) { return NativeProgram("codex", "--prompt", "a prompt with spaces") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			bin := filepath.Join(t.TempDir(), "npm shims")
+			if err := os.Mkdir(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(bin, "codex.cmd"), "@echo args=[%*]\r\n")
+			t.Setenv("PATH", bin)
+			from, err := windows.UTF16PtrFromString(filepath.Join(bin, "codex.cmd"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			buffer := make([]uint16, windows.MAX_LONG_PATH)
+			length, err := windows.GetShortPathName(from, &buffer[0], uint32(len(buffer)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasShortName := !strings.ContainsAny(windows.UTF16ToString(buffer[:length]), " \t")
+
+			// Act
+			command, err := program()
+
+			// Assert
+			if !hasShortName {
+				if err == nil {
+					t.Errorf("a shim at %s, which has no short name = %q, want refused", bin, command)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("a shim at %s: %v", bin, err)
+			}
+			output, err := execx.Command(command[0], command[1:]...).CombinedOutput()
+			if want := `args=[--prompt "a prompt with spaces"]`; err != nil || strings.TrimSpace(string(output)) != want {
+				t.Errorf("%q printed %q, %v; want the shim at %s to print %s", command, output, err, bin, want)
+			}
+		})
+	}
+}
+
+// On 2026-10-17 a rig proving Codex spawns with a stub codex first on its own
+// PATH started six real Codex sessions (#1075): the spawn validated the stub,
+// and its terminal ran cmd /c codex, which found the user's real codex on the
+// PATH of the user's environment the terminal starts from. A spawn starts the
+// codex it validated, the one first on its own PATH, whatever the terminal's
+// PATH finds.
+func TestANativeSpawnStartsTheHarnessItValidatedNotTheOneOnTheUsersPath(t *testing.T) {
+	// Arrange
+	f := newQuickFixture(t)
+	t.Setenv("CFO_CODEX_GUARD", "")
+	users := t.TempDir()
+	ran := filepath.Join(t.TempDir(), "users-codex-ran.txt")
+	writeFile(t, filepath.Join(users, "codex.cmd"), "@echo ran> \""+ran+"\"\r\n")
+	f.userEnv = slices.DeleteFunc(f.userEnv, func(entry string) bool {
+		name, _, _ := strings.Cut(entry, "=")
+		return strings.EqualFold(name, "PATH")
+	})
+	f.userEnv = append(f.userEnv, "Path="+users)
+	// The premise: codex started by name in the user's environment is the
+	// user's own.
+	premise := exec.Command(os.Getenv("ComSpec"), "/d", "/c", "codex")
+	premise.Env = f.userEnv
+	if output, err := premise.CombinedOutput(); err != nil {
+		t.Fatalf("codex in the user's environment: %v: %s", err, output)
+	}
+	if err := os.Remove(ran); err != nil {
+		t.Fatalf("codex in the user's environment is not the user's own: %v", err)
+	}
+
+	// Act
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	// Assert
+	if _, statErr := os.Stat(ran); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("the spawn started the codex on the user's PATH (%v)", statErr)
+	}
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if started := named(f.events(t), "env"); len(started) != 1 {
+		t.Errorf("the stub on the spawner's PATH started %d times, want once", len(started))
 	}
 }
 
@@ -1510,5 +1877,22 @@ func TestANativeGoblinKeepsTheProjectsRootItsSpawnerNames(t *testing.T) {
 				t.Errorf("the goblin's %s is %v, want %q", install.ProjectsRootVariable, recordedValue(got), test.want)
 			}
 		})
+	}
+}
+
+func recordQueuedPrompt(text string, record func(codexEvent)) {
+	record(codexEvent{Event: "queued into the turn", Text: text})
+	if path := os.Getenv(fakeCodexTranscript); path != "" {
+		transcript, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			panic(err)
+		}
+		entry := map[string]any{"timestamp": time.Now().UTC(), "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]string{{"type": "input_text", "text": text}}}}
+		if err := json.NewEncoder(transcript).Encode(entry); err != nil {
+			panic(err)
+		}
+		if err := transcript.Close(); err != nil {
+			panic(err)
+		}
 	}
 }

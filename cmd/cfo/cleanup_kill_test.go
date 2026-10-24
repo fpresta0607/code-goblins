@@ -13,6 +13,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // killedTask is a native task in a home of the test's own whose terminal has
@@ -48,6 +50,96 @@ func killedTask(t *testing.T) (home.Home, state.TaskMeta) {
 		t.Fatal(err)
 	}
 	return h, meta
+}
+
+// keptMessage is a board message as the supervisor keeps it in a paused
+// goblin's resume note.
+const keptMessage = "Message from the Overlord, typed on the board: use the staging database"
+
+// pausedWithKeptMessage records meta's goblin paused, with keptMessage kept
+// for its resume.
+func pausedWithKeptMessage(t *testing.T, h home.Home, meta state.TaskMeta) {
+	t.Helper()
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: keptMessage, NoticeSent: true}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// toldCFO is what task's notify wakes tell the CFO.
+func toldCFO(t *testing.T, h home.Home, task string) []string {
+	t.Helper()
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told []string
+	for _, record := range pending {
+		if record.Kind == "notify" && record.Key == task {
+			told = append(told, record.Detail)
+		}
+	}
+	return told
+}
+
+// A cfo cleanup that retires a paused goblin before its resume runs hands each
+// board message kept for that resume to the CFO with its words, and leaves
+// none in its record. Before, the messages stayed in the paused record, which
+// nothing reads once the task is retired (issue #1317).
+func TestACleanupOfAPausedGoblinHandsItsKeptMessagesToTheCFO(t *testing.T) {
+	// Arrange
+	h, meta := killedTask(t)
+	pausedWithKeptMessage(t, h, meta)
+
+	// Act
+	output, err := defaultCleanup(t.Context(), h, meta.ID, false)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("the cleanup = %q, %v, want the task retired", output, err)
+	}
+	want := "message not delivered: g1 was retired by a cleanup while it was paused, so the resume the message was kept for never runs, so it is yours to relay or answer. The Overlord wrote: use the staging database"
+	if told := toldCFO(t, h, meta.ID); len(told) != 1 || told[0] != want {
+		t.Fatalf("the CFO was told %q, want %q once", told, want)
+	}
+	if record, err := state.ReadLifecycle(h.State, meta.ID); err != nil || record.ResumeNote != "" {
+		t.Fatalf("the paused record after the cleanup = %+v, %v; want no message left in its note", record, err)
+	}
+}
+
+// cfo kill of a paused goblin stops it before the resume its record keeps a
+// board message for, so the stop hands the message to the CFO with its words
+// before it writes its own record, and the cleanup inside the stop finds
+// nothing more to hand on: the CFO is told once (issue #1317).
+func TestAKillOfAPausedGoblinHandsItsKeptMessagesToTheCFOOnce(t *testing.T) {
+	// Arrange
+	h, meta := killedTask(t)
+	pausedWithKeptMessage(t, h, meta)
+	service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
+		Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
+		Archive: func(ctx context.Context, meta state.TaskMeta, _ *state.Lifecycle) (lifecycle.Preservation, error) {
+			_, err := defaultCleanup(ctx, h, meta.ID, false)
+			return lifecycle.Preservation{}, err
+		},
+		Notify: func(state.Lifecycle) error { return nil },
+		HandOver: func(meta state.TaskMeta, prior state.Lifecycle) (bool, error) {
+			return supervisor.HandOverReplacedNote(h.State, meta, prior)
+		},
+		HandOverEnded: func(meta state.TaskMeta, prior state.Lifecycle, action string) (bool, error) {
+			return supervisor.HandOverEndedNote(h.State, meta, prior, action)
+		},
+	}}
+
+	// Act
+	record, err := service.Run(t.Context(), lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "kill-1", Action: "stop", Reason: "Requested by the CFO", IsWatched: true})
+
+	// Assert
+	if err != nil || record.Phase != "stopped" {
+		t.Fatalf("the kill = phase %q, %v, want the task stopped\nproblems: %s", record.Phase, err, strings.Join(record.Problems, "; "))
+	}
+	want := "message not delivered: g1 was stopped while it was paused, so the resume the message was kept for never runs, so it is yours to relay or answer. The Overlord wrote: use the staging database"
+	if told := toldCFO(t, h, meta.ID); len(told) != 1 || told[0] != want {
+		t.Fatalf("the CFO was told %q, want %q once", told, want)
+	}
 }
 
 // cfo kill stops its goblin and cleans it up in one process: the stop holds

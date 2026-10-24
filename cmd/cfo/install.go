@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/update"
 )
@@ -64,7 +65,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "cfo install: unexpected arguments")
 		return 2
 	}
-	if *startAtLogin != "" && *startAtLogin != install.StartAtLoginOn && *startAtLogin != install.StartAtLoginOff {
+	if *startAtLogin != "" && *startAtLogin != installbase.StartAtLoginOn && *startAtLogin != installbase.StartAtLoginOff {
 		fmt.Fprintln(stderr, "cfo install: --start-at-login is on or off")
 		return 2
 	}
@@ -96,8 +97,8 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if file := os.Getenv(install.UserEnvFileVariable); file != "" {
-		fmt.Fprintf(stdout, "cfo install: the user environment is %s, not this machine's (%s is set)\n", file, install.UserEnvFileVariable)
+	if file := os.Getenv(installbase.UserEnvFileVariable); file != "" {
+		fmt.Fprintf(stdout, "cfo install: the user environment is %s, not this machine's (%s is set)\n", file, installbase.UserEnvFileVariable)
 	}
 	service.EarlierWindow = install.EarlierWindowDir()
 	if target.Kept {
@@ -251,7 +252,7 @@ func installService(root string) (install.Service, error) {
 		Root:         root,
 		UserSettings: settings,
 		RepoSettings: filepath.Join(root, ".claude", "settings.json"),
-		Env:          install.NewEnvStore(commands),
+		Env:          installbase.NewEnvStore(commands),
 		Contract:     codegoblins.Contract,
 		Policy:       codegoblins.Policy,
 		Skills:       skills,
@@ -272,7 +273,7 @@ func installService(root string) (install.Service, error) {
 // or nothing where the user environment is a file standing in for this
 // machine's, so an install there never makes the real machine start it.
 func startAtLoginKey() string {
-	if os.Getenv(install.UserEnvFileVariable) != "" {
+	if os.Getenv(installbase.UserEnvFileVariable) != "" {
 		return ""
 	}
 	return install.StartAtLoginKey
@@ -282,29 +283,29 @@ func startAtLoginKey() string {
 // apps, or nothing where the user environment is a file standing in for this
 // machine's.
 func appsEntryKey() string {
-	if os.Getenv(install.UserEnvFileVariable) != "" {
+	if os.Getenv(installbase.UserEnvFileVariable) != "" {
 		return ""
 	}
 	return install.AppsEntryKey
 }
 
-// installTarget is the home install wires in, as install.FindTarget picks it:
+// installTarget is the home install wires in, as installbase.FindTarget picks it:
 // the home CFO_HOME names where a fleet lives there, kept where it is, and
 // otherwise the per-user home. A CFO_HOME naming a folder with no fleet never
 // decides it, so the one command that is supposed to repair the machine never
 // confirms a broken value, and the working directory never decides it either:
 // an install run from a code-goblins checkout sets up the same home the
 // desktop installer does.
-func installTarget() (install.Target, error) {
+func installTarget() (installbase.Target, error) {
 	local := os.Getenv("LOCALAPPDATA")
 	if local == "" {
-		return install.Target{}, fmt.Errorf("cfo install: LOCALAPPDATA is not set, so there is no per-user folder for a CFO home")
+		return installbase.Target{}, fmt.Errorf("cfo install: LOCALAPPDATA is not set, so there is no per-user folder for a CFO home")
 	}
 	standard, err := fsx.AbsClean(filepath.Join(local, "CodeGoblins"))
 	if err != nil {
-		return install.Target{}, fmt.Errorf("cfo install: resolve the per-user home: %w", err)
+		return installbase.Target{}, fmt.Errorf("cfo install: resolve the per-user home: %w", err)
 	}
-	return install.FindTarget(install.NewEnvStore(execx.OSRunner{}), standard)
+	return installbase.FindTarget(installbase.NewEnvStore(execx.OSRunner{}), standard)
 }
 
 // junction links a directory through cmd's mklink /J, which needs no

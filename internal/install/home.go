@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/access"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // markerText explains home.InstalledMarker to whoever finds it. After it,
@@ -34,11 +36,11 @@ const markerText = "This folder is a Code Goblins CFO home, which cfo install or
 // first on PATH, and leave its fleet's state unreachable. Once cfo home move
 // has carried the state away, the install takes over.
 func (s Service) formerHome() (string, error) {
-	current, set, err := s.Env.Get(homeVariable)
+	current, set, err := s.Env.Get(installbase.HomeVariable)
 	if err != nil {
 		return "", err
 	}
-	if !set || sameDirectory(current, s.Root) {
+	if !set || installbase.SameDirectory(current, s.Root) {
 		return "", nil
 	}
 	if info, err := os.Stat(filepath.Join(current, "state")); err != nil || !info.IsDir() {
@@ -73,6 +75,9 @@ func (s Service) writeHome(report *reporter) error {
 		}
 		created = append(created, folder)
 	}
+	if err := s.narrowFolders(report); err != nil {
+		return err
+	}
 	// A checkout carries the contract itself, as files git tracks, so the
 	// install writes none of it there. The marker still goes in, untracked:
 	// a checkout an older build made the home is the home in use, and this
@@ -94,6 +99,9 @@ func (s Service) writeHome(report *reporter) error {
 		return err
 	}
 	if err := s.copyWindow(s.bin(), report); err != nil {
+		return err
+	}
+	if err := s.copyHookProgram(s.bin(), report); err != nil {
 		return err
 	}
 	if err := s.retireRootBinaries(report); err != nil {
@@ -132,6 +140,50 @@ func (s Service) writeHome(report *reporter) error {
 		report.change("home", "marked "+s.Root+" as a CFO home again")
 	default:
 		report.same("home", s.Root+" is set up")
+	}
+	return nil
+}
+
+// narrowFolders keeps the home, and the Dev Drive folder its worktrees,
+// scratch and caches moved to when they did, to the account the install runs
+// as, SYSTEM and Administrators. A folder made under a drive's root, as a
+// home CFO_HOME puts there or a Dev Drive folder is, lets Authenticated Users
+// modify it, so any second account on the machine could read and write the
+// fleet's records and every goblin's work. A Dev Drive that is not attached,
+// and what a narrowing could not change, are narrowed by the next install
+// that finds them.
+func (s Service) narrowFolders(report *reporter) error {
+	config, err := home.ReadDevDriveConfig(s.Root)
+	if err != nil {
+		return fmt.Errorf("install: %w", err)
+	}
+	folders := []string{s.Root}
+	if config.Root != "" {
+		if _, err := os.Stat(config.Root); errors.Is(err, fs.ErrNotExist) {
+			report.same("access", config.Root+" is not there to narrow, as its Dev Drive is not attached")
+		} else {
+			folders = append(folders, config.Root)
+		}
+	}
+	for _, folder := range folders {
+		isNarrow, err := access.IsNarrow(folder)
+		if err != nil {
+			return fmt.Errorf("install: read who may open %s: %w", folder, err)
+		}
+		if isNarrow {
+			report.same("access", folder+"'s own access list admits only you, SYSTEM and Administrators")
+			continue
+		}
+		report.detail("narrowing " + folder + " and everything in it, which takes minutes for a folder holding many files")
+		var unchanged *access.Unchanged
+		switch err := access.Narrow(folder); {
+		case errors.As(err, &unchanged):
+			report.change("access", folder+" now open only to you, SYSTEM and Administrators, but "+unchanged.Error()+"; the next install tries them again, once an administrator lets you change their access")
+		case err != nil:
+			return fmt.Errorf("install: keep %s to you, SYSTEM and Administrators: %w", folder, err)
+		default:
+			report.change("access", folder+" and everything in it that takes its access from it now open only to you, SYSTEM and Administrators")
+		}
 	}
 	return nil
 }
@@ -373,7 +425,7 @@ const windowPicture = "goblins-window.png"
 // home: one shipped or built beside its binary, which it copies into bin. An
 // install run from the home's own bin only keeps the window there.
 func (s Service) suppliesWindow() bool {
-	if s.Contract == nil || s.Binary == "" || sameDirectory(filepath.Dir(s.Binary), s.bin()) {
+	if s.Contract == nil || s.Binary == "" || installbase.SameDirectory(filepath.Dir(s.Binary), s.bin()) {
 		return false
 	}
 	_, err := os.Stat(filepath.Join(filepath.Dir(s.Binary), windowName))
@@ -386,7 +438,7 @@ func (s Service) suppliesWindow() bool {
 // window removes the earlier copy once it stops running; one that retained a
 // window keeps the earlier copy and its entry. A home with no window keeps it.
 func (s Service) adoptEarlierWindow(report *reporter) error {
-	if s.EarlierWindow == "" || sameDirectory(s.EarlierWindow, s.Root) {
+	if s.EarlierWindow == "" || installbase.SameDirectory(s.EarlierWindow, s.Root) {
 		return nil
 	}
 	if _, err := os.Stat(s.EarlierWindow); err != nil {

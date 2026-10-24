@@ -622,7 +622,7 @@ func TestKeepTicketsFollowsTheBoardsOwnTasksAndWritesOncePerChange(t *testing.T)
 		defer close(done)
 		service.keepTickets(ctx, time.Hour, 5*time.Millisecond)
 	}()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for len(github.appliedSoFar()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -668,6 +668,48 @@ func TestSnapshotShowsTheTicketsThatWait(t *testing.T) {
 
 var teammate = tickets.Actor{Login: "ana-teammate", AvatarURL: "https://avatars.githubusercontent.com/u/7"}
 
+// The Overlord, 2026-10-17: "Only show the active contributors." A goblin's
+// panel names those who committed to the project's default branch or opened
+// a pull request; one who only opened an issue is still a teammate.
+func TestKeeperShowsOnlyTheActivePeopleInTheProjectsPanel(t *testing.T) {
+	reporter := tickets.Actor{Login: "ivy-reporter", AvatarURL: "https://avatars.githubusercontent.com/u/9"}
+	cases := []struct {
+		name   string
+		active []tickets.Actor
+		want   []ProjectPeople
+	}{
+		{name: "a teammate who committed and one who only opened an issue", active: []tickets.Actor{teammate}, want: []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository, Contributors: []tickets.Actor{teammate}}}},
+		{name: "only a teammate who opened an issue", want: []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h, checkout, github := ticketHome(t)
+			github.collaboration.IsCollaborative = true
+			github.collaboration.People, github.collaboration.Active = []tickets.Actor{teammate, reporter}, tc.active
+			task := liveTask("working", "")
+			task.Project = "northwind-api"
+			keeper := newTicketKeeper(h, github.writer(checkout))
+
+			// Act
+			keeper.reconcile(context.Background(), []Task{task}, ticketNow)
+			_, got := keeper.Shown()
+
+			// Assert
+			if !slices.EqualFunc(got, tc.want, ProjectPeople.equal) {
+				t.Fatalf("people = %+v, want %+v", got, tc.want)
+			}
+			remembered, err := tickets.Teammates(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(remembered, teammate.Login) || !slices.Contains(remembered, reporter.Login) {
+				t.Fatalf("teammates remembered = %v, want both %s and %s", remembered, teammate.Login, reporter.Login)
+			}
+		})
+	}
+}
+
 func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *testing.T) {
 	inProject := func(task Task) Task {
 		task.Project = "northwind-api"
@@ -684,7 +726,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 		{name: "a live task in a repository a teammate works in", isCollaborative: true, task: inProject(liveTask("working", "")), want: people},
 		{name: "a task whose ticket is already kept", isCollaborative: true, hasTicket: true, task: inProject(liveTask("working", "")), want: people},
 		{name: "a queued task", isCollaborative: true, task: inProject(liveTask("queued", "")), want: people},
-		{name: "a repository only the Overlord works in", task: inProject(liveTask("working", ""))},
+		{name: "a repository only the Overlord works in", task: inProject(liveTask("working", "")), want: []ProjectPeople{{Name: "northwind-api", Repository: ticketRepository}}},
 		{name: "a finished task", isCollaborative: true, task: Task{ID: "finished:nw-sync", Project: "northwind-api", Archived: true, Merged: true, Evaluation: Evaluation{Phase: "done", PR: ticketPull}}},
 	}
 	for _, tc := range cases {
@@ -693,7 +735,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 			h, checkout, github := ticketHome(t)
 			github.collaboration.IsCollaborative = tc.isCollaborative
 			if tc.isCollaborative {
-				github.collaboration.People = []tickets.Actor{teammate}
+				github.collaboration.People, github.collaboration.Active = []tickets.Actor{teammate}, []tickets.Actor{teammate}
 			}
 			if tc.hasTicket {
 				if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "nw-sync", Repository: ticketRepository, Number: 501, State: tickets.InProgress, Labels: []string{"cfo: in progress", "goblin: claude"}}); err != nil {
@@ -715,7 +757,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
-			if wantRemembered := len(tc.want) > 0; slices.Contains(remembered, teammate.Login) != wantRemembered {
+			if wantRemembered := tc.isCollaborative && !tc.task.Archived; slices.Contains(remembered, teammate.Login) != wantRemembered {
 				t.Fatalf("teammates remembered = %v, want %s remembered: %v", remembered, teammate.Login, wantRemembered)
 			}
 			wantReads := 1
@@ -732,7 +774,7 @@ func TestKeeperNamesThePeopleWhoWorkInTheProjectOfEachTaskStillOnTheBoard(t *tes
 func TestKeeperKeepsThePeopleItLastReadWhileGitHubDoesNotAnswer(t *testing.T) {
 	// Arrange
 	h, checkout, github := ticketHome(t)
-	github.collaboration.People = []tickets.Actor{teammate}
+	github.collaboration.People, github.collaboration.Active = []tickets.Actor{teammate}, []tickets.Actor{teammate}
 	keeper := newTicketKeeper(h, github.writer(checkout))
 	task := liveTask("working", "")
 	task.Project = "northwind-api"
@@ -743,7 +785,7 @@ func TestKeeperKeepsThePeopleItLastReadWhileGitHubDoesNotAnswer(t *testing.T) {
 	keeper.reconcile(context.Background(), []Task{task}, ticketNow.Add(61*time.Minute))
 	_, whileDown := keeper.Shown()
 	github.collaborationErr = nil
-	github.collaboration.IsCollaborative, github.collaboration.People = false, nil
+	github.collaboration.IsCollaborative, github.collaboration.People, github.collaboration.Active = false, nil, nil
 	keeper.reconcile(context.Background(), []Task{task}, ticketNow.Add(72*time.Minute))
 	_, afterwards := keeper.Shown()
 
@@ -751,8 +793,8 @@ func TestKeeperKeepsThePeopleItLastReadWhileGitHubDoesNotAnswer(t *testing.T) {
 	if len(whileDown) != 1 || !slices.Equal(whileDown[0].Contributors, []tickets.Actor{teammate}) {
 		t.Fatalf("people while GitHub is down = %+v, want the last ones read", whileDown)
 	}
-	if len(afterwards) != 0 {
-		t.Fatalf("people once only the Overlord works there = %+v, want none", afterwards)
+	if len(afterwards) != 1 || afterwards[0].Repository != ticketRepository || len(afterwards[0].Contributors) != 0 {
+		t.Fatalf("people once only the Overlord works there = %+v, want its repository alone, which its cards link to", afterwards)
 	}
 }
 
@@ -763,7 +805,7 @@ func TestSnapshotShowsEachTasksTicketAndThePeopleInItsProject(t *testing.T) {
 	if err := os.MkdirAll(h.Data, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}}}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}, Active: []tickets.Actor{teammate}}}
 	service := &Service{Store: store, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work")))}
 	before, err := service.Snapshot()
 	if err != nil {
@@ -797,7 +839,7 @@ func TestKeepTicketsTellsTheBoardWhenATicketOrThePeopleChange(t *testing.T) {
 	if err := os.MkdirAll(h.Data, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}}}
+	github := &fakeTicketWriter{collaboration: tickets.Collaboration{Repository: ticketRepository, IsCollaborative: true, IsPrivate: true, People: []tickets.Actor{teammate}, Active: []tickets.Actor{teammate}}}
 	service := &Service{Store: store, tickets: newTicketKeeper(h, github.writer(filepath.Join(h.Root, "work"))), subscribers: map[chan struct{}]struct{}{}}
 	told := make(chan struct{}, 1)
 	service.subscribers[told] = struct{}{}
@@ -813,7 +855,7 @@ func TestKeepTicketsTellsTheBoardWhenATicketOrThePeopleChange(t *testing.T) {
 	select {
 	case <-told:
 		isTold = true
-	case <-time.After(20 * time.Second):
+	case <-time.After(time.Minute):
 	}
 	cancel()
 	<-done

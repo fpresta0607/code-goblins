@@ -59,6 +59,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return reachHelpers(ctx, h, meta, record, runtime.taskLifecycle)
 		},
 		Prepare:  pauseInstruction(runtime, h),
+		Handoff:  lifecycle.HandoffWriter{StateDir: h.State, Commands: commands, Owner: lifecycle.OwnerOf(h)}.Handoff,
 		Withdraw: pauseWithdrawal(runtime, h),
 		Stop: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) ([]string, error) {
 			var stopped []string
@@ -140,6 +141,15 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 		Admit: admit,
 		Notify: func(record state.Lifecycle) error {
 			return lifecycle.Report(h.State, record)
+		},
+		HandOver: func(meta state.TaskMeta, prior state.Lifecycle) (bool, error) {
+			return supervisor.HandOverReplacedNote(h.State, meta, prior)
+		},
+		HandOverRelaunched: func(prior state.Lifecycle) (bool, error) {
+			return supervisor.HandOverRelaunchedNote(h.State, prior)
+		},
+		HandOverEnded: func(meta state.TaskMeta, prior state.Lifecycle, action string) (bool, error) {
+			return supervisor.HandOverEndedNote(h.State, meta, prior, action)
 		},
 	}}
 	return service.Run(ctx, request)

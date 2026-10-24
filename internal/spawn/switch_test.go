@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -57,18 +58,25 @@ type switchFixture struct {
 
 func newSwitchFixture(t *testing.T, control harness.Control) *switchFixture {
 	t.Helper()
-	f := newQuickFixture(t)
+	return newSwitchFixtureOf(t, harness.Codex, control)
+}
+
+// newSwitchFixtureOf is newSwitchFixture for a goblin of kind: the fake
+// harness on PATH stands in for kind, and the task runs it with control.
+func newSwitchFixtureOf(t *testing.T, kind harness.Kind, control harness.Control) *switchFixture {
+	t.Helper()
+	f := newQuickFixtureOf(t, kind)
 	closeCurrentTerminal(t, f)
 	git := &switchGit{next: f.runner, branch: "gb/task-7", log: "abc1234 first commit\ndef5678 second commit"}
 	f.service.Commands = git
-	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: control, specs: &f.fixture.specs}}}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{kind: nativeAdapter{kind: kind, control: control, specs: &f.fixture.specs}}}
 	meta := state.TaskMeta{
 		ID:             "task-7",
 		Window:         "native",
 		EndpointTaskID: "task-7",
 		Worktree:       f.worktree,
 		Project:        f.project,
-		Harness:        string(harness.Codex),
+		Harness:        string(kind),
 		Kind:           "ship",
 		Mode:           "no-mistakes",
 		Yolo:           "on",
@@ -221,6 +229,141 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	launches := named(f.events(t), "env")
 	if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume saved-session-42 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Fatalf("result = %+v, launches = %+v; want the saved session resumed", result, launches)
+	}
+}
+
+func TestPauseResumeSupersedesTheStopAndPreservesRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		isHandoffSaved bool
+		session        string
+	}{
+		{name: "completed handoff", isHandoffSaved: true, session: "saved-session"},
+		{name: "interrupted handoff", session: "saved-session"},
+		{name: "fresh conversation", isHandoffSaved: true},
+		{name: "fresh conversation without handoff"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume"}})
+			f.git.status = " M unfinished.go\n"
+			unfinished := filepath.Join(f.worktree, "unfinished.go")
+			if err := os.WriteFile(unfinished, []byte("unfinished work"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			const recovery = "Pause requested; do not resume until told. Decision 42: keep the existing branch. Verification was interrupted."
+			service := lifecycle.Service{StateDir: f.stateDir, PauseWait: time.Millisecond, Operations: lifecycle.Operations{
+				Prepare: func(_ context.Context, _ state.TaskMeta, handoff string) error {
+					if test.isHandoffSaved {
+						return os.WriteFile(handoff, []byte(recovery), 0600)
+					}
+					return errors.New("handoff interrupted")
+				},
+				Stop:   func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
+				Memory: func() (uint64, uint64, error) { return 6 << 30, 6 << 30, nil },
+				Notify: func(state.Lifecycle) error { return nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					handoff := ""
+					if prior.HandoffSaved {
+						handoff = prior.Handoff
+					}
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff, ResumeNote: "Decision 42: keep the existing branch."})
+					return err
+				},
+			}}
+			paused, err := service.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "memory-pause", Action: "pause", Reason: "memory", Session: test.session})
+			if err != nil || paused.Phase != "paused" || paused.HandoffSaved != test.isHandoffSaved {
+				t.Fatalf("pause = %+v, %v", paused, err)
+			}
+
+			// Act
+			resumed, err := service.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "memory-resume", Action: "resume"})
+
+			// Assert
+			if err != nil || resumed.Phase != "running" {
+				t.Fatalf("resume = %+v, %v", resumed, err)
+			}
+			submitted := submittedLines(t, f.nativeFixture, 1)
+			if len(submitted) != 1 {
+				t.Fatalf("submitted %q; want one recovery instruction", submitted)
+			}
+			instruction := delivered(t, submitted[0])
+			for _, want := range []string{"Resume now.", "supersedes the earlier pause", "Do not repeat the pause handoff", "Preserve unfinished work", "Check interrupted commands", "Do not ask again for a decision already answered", "Decision 42: keep the existing branch."} {
+				if !strings.Contains(instruction, want) {
+					t.Errorf("resume instruction lacks %q", want)
+				}
+			}
+			if !strings.HasPrefix(instruction, "Resume now.") {
+				t.Error("the current resume must precede the retained context")
+			}
+			if test.isHandoffSaved {
+				if !strings.Contains(instruction, paused.Handoff) {
+					t.Error("the resume omitted the saved recovery")
+				}
+				if data, err := os.ReadFile(paused.Handoff); err != nil || string(data) != recovery {
+					t.Fatalf("saved recovery changed: %q, %v", data, err)
+				}
+			} else if !strings.Contains(instruction, "No completed pause handoff was saved") {
+				t.Error("an interrupted handoff needs recovery from the retained task state")
+			}
+			if data, err := os.ReadFile(unfinished); err != nil || string(data) != "unfinished work" {
+				t.Fatalf("unfinished work changed: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+// A pi goblin resumes its own conversation as Claude Code and Codex goblins
+// do: a switch that changes only its model, and the resume of a paused one,
+// start pi on the recorded session with --session, and hand it no written
+// handoff. pi 0.85.1 writes a session's file only once its first reply ends
+// and exits on a --session it finds no file for, so a session pi has not
+// written yet starts pi cold with the handoff instead.
+func TestAPiGoblinResumesItsOwnSession(t *testing.T) {
+	const session = "01a14650-ac01-7127-9115-4f3a806b967f"
+	for _, test := range []struct {
+		name             string
+		isResume         bool
+		isSessionWritten bool
+	}{
+		{"a switch of its model", false, true},
+		{"the resume of its pause", true, true},
+		{"a switch before pi wrote its session", false, false},
+		{"the resume of a pause before pi wrote its session", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixtureOf(t, harness.Pi, harness.DefaultRegistry().Adapters[harness.Pi].Control())
+			profile := t.TempDir()
+			t.Setenv("USERPROFILE", profile)
+			if test.isSessionWritten {
+				sessions := makeDir(t, filepath.Join(profile, ".pi", "agent", "sessions", "--worktree--"))
+				writeFile(t, filepath.Join(sessions, "2026-10-16T09-00-00-000Z_"+session+".jsonl"), `{"type":"session","id":"`+session+`"}`+"\n")
+			}
+			request := SwitchRequest{ID: f.meta.ID, Model: "openrouter/deepseek/deepseek-v4.1-flash", Generation: f.meta.SpawnGen, ResumeSession: session}
+			if test.isResume {
+				request = SwitchRequest{ID: f.meta.ID, IsResume: true, ResumeSession: session}
+				if err := state.WriteLifecycle(f.stateDir, state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume", Phase: "resuming"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			result, err := f.service.Switch(context.Background(), request)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			launches := named(f.events(t), "env")
+			if len(launches) != 1 {
+				t.Fatalf("launches = %+v, want pi started once", launches)
+			}
+			isOnSession := strings.HasPrefix(launches[0].Text, "--session "+session+" ")
+			if result.Resumed != test.isSessionWritten || isOnSession != test.isSessionWritten || (result.Handoff == "") != test.isSessionWritten {
+				t.Fatalf("result = %+v, launch = %q; want pi started on its own session with no handoff only when pi wrote it (%v), else cold with the handoff", result, launches[0].Text, test.isSessionWritten)
+			}
+		})
 	}
 }
 
@@ -666,6 +809,43 @@ func TestSwitchRelaunchesIntoTheTasksScratchFolder(t *testing.T) {
 		if info, err := os.Stat(folder); err != nil || !info.IsDir() {
 			t.Errorf("stat %q = %v, %v, want the relaunch to have made the folder", folder, info, err)
 		}
+	}
+}
+
+// A goblin switched to Codex or pi takes that harness's goblin seal in its
+// new launch, as a spawn's does, so it is still stopped before a shell
+// command while its worktree holds a start hook no known package ships. The
+// build is refused here, so nothing starts.
+func TestSwitchStartsTheNewHarnessWithItsGoblinSeal(t *testing.T) {
+	for _, kind := range []harness.Kind{harness.Codex, harness.Pi} {
+		t.Run(string(kind), func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixtureOf(t, harness.Claude, harness.Control{StopCommand: "/exit"})
+			specs := []harness.LaunchSpec{}
+			f.service.Harness.Adapters[kind] = nativeAdapter{kind: kind, specs: &specs, buildErr: errors.New("nothing starts in this test")}
+
+			// Act
+			_, err := f.service.Switch(context.Background(), SwitchRequest{ID: f.meta.ID, Harness: kind, ForceDirty: true})
+
+			// Assert
+			if err == nil || len(specs) != 1 {
+				t.Fatalf("Switch = %v with %d builds, want the one refused build", err, len(specs))
+			}
+			seal := strings.Join(specs[0].CodexHooks, " ")
+			if kind == harness.Pi {
+				if specs[0].PiExtensionPath != filepath.Join(f.stateDir, goblinPiExtensionFile) {
+					t.Fatalf("PiExtensionPath = %q, want the home's goblin pi extension", specs[0].PiExtensionPath)
+				}
+				written, err := os.ReadFile(specs[0].PiExtensionPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				seal = string(written)
+			}
+			if want := "goblin-seal-" + string(kind); !strings.Contains(seal, want) {
+				t.Fatalf("the %s launch's seal is %q, want it to run %s", kind, seal, want)
+			}
+		})
 	}
 }
 

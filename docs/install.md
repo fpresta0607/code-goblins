@@ -19,6 +19,7 @@ It needs no clone and no Go, and `goblins` works in the same window as soon as i
 
 The setup first says what it will install, where, and what it changes, and starts when you press **Install** (or **Update**, where Code Goblins is already there).
 The setup downloads the newest release's install script and runs it out of sight.
+Its window and its log name the release that script installs, as in **Installing Code Goblins v0.5.20**.
 The one-line install runs that script in your window.
 Either way you see the same four steps, `[1/4] Download Code Goblins`, `[2/4] Check the download`, `[3/4] Install Code Goblins and its tools` and `[4/4] Open Code Goblins`, with a line under the third saying which tool it is installing and when it is setting up dictation, a `Note:` line for anything to know, and nothing else.
 Every other detail goes to the install's log, `CodeGoblinsInstall.log` in your temp folder.
@@ -26,7 +27,8 @@ When something stops the install, it says in one sentence what happened and what
 Closing the setup ends the install, and running it again finishes it.
 The install asks nothing: the app's first-run page starts the CFO and records [your projects folder](#your-projects-folder).
 
-The setup draws at your display's own scale, so its text is sharp at 100, 150 or 200 percent.
+The setup draws at your display's own scale, so its text is sharp at 100, 125, 150 or 200 percent.
+Every page fits its window at each of those scales, with Cancel and Install at the bottom and nothing to scroll.
 
 ### Which home it installs
 
@@ -47,8 +49,8 @@ Either way the steps are the script's.
 In order, it:
 
 1. Stops before changing anything when git or gh is missing and winget, which installs them, is missing too; the fix is App Installer from the Microsoft Store.
-2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` when the release lists one, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
-3. Sets up the CFO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` where the release ships one, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
+2. Downloads `cfo.exe`, and the desktop window `goblins-window.exe` and the hook program `cfo-hook.exe` when the release lists them, from the release this `install.ps1` was published with, so the script and the programs are always one release's, and refuses each unless it matches the release's `SHA256SUMS`.
+3. Sets up the CFO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` and the hook program as `cfo-hook.exe` where the release ships them, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
    `CFO_HOME` and the home's `bin` on your PATH are set for your user.
    The CFO's hooks go into no settings file of yours: [the CFO's own session](../AGENTS.md#the-cfos-own-session), the one `goblins` starts in native terminal `cfo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
@@ -56,21 +58,24 @@ In order, it:
    The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.cfo-install.rules` beside the file records which ones it added, for the uninstall.
    Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `cfo install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
    The home keeps the choice in `state\start-at-login`, so an update keeps it, and the board's switch and the tray's item change the same setting.
-4. Installs each missing tool the fleet drives: git and gh with winget, Claude Code with its own installer, no-mistakes from the release `install.ps1` pins, and Codex, pi and the axi tools with npm, which needs Node.js.
+4. Installs each missing tool the fleet drives: git and gh with winget, for you alone, so neither asks for administrator rights, Claude Code with its own installer, no-mistakes from the release the install script came with, and Codex, pi and the axi tools with npm, which needs Node.js.
    Each npm package is installed at the exact version `install.ps1` pins, so a new release upstream reaches an install only once it is pinned there.
-   no-mistakes is the gate every goblin's work passes, so every machine runs the one release `install.ps1` names.
-   The install downloads that release's archive and `checksums.txt` from its GitHub release page, never through GitHub's API, whose limit for anonymous callers failed installs on shared machines.
-   It installs no-mistakes only when the archive matches `checksums.txt`, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH and starts the no-mistakes daemon.
+   no-mistakes is the gate every goblin's work passes, so every machine runs the one build `install.ps1` pins: a commit of the fork whose `axi run` takes a gate's intent from a file and the launch selection every gate gives it ([What v6 needs](pipeline.md#what-v6-needs)).
+   Each release builds that commit with `tools\build-no-mistakes.ps1`, signs it as it signs its own programs, and publishes it as `no-mistakes.exe`, with the licences of what it compiles in as `no-mistakes-NOTICES`, so the install downloads no unsigned program for it, and never asks GitHub's API, whose limit for anonymous callers failed installs on shared machines.
+   It installs no-mistakes only when the program matches the release's `SHA256SUMS` and, for a signed release, carries its publisher's signature, puts it in `%LOCALAPPDATA%\no-mistakes`, where no-mistakes' own installer puts it, adds that folder to your PATH, starts the no-mistakes daemon, and checks that its `axi run` has `--intent-file` and `--launch-assertion`.
+   `install.cmd -Dev`, in a clone, which has no release, builds the pinned commit with `tools\build-no-mistakes.ps1` instead.
    A download that fails is tried twice more, a few seconds apart; if all three attempts fail, the install says why, goes on with the rest, and names no-mistakes among the installs that did not complete.
    Claude Code is the native build, `claude.exe`, because a native terminal starts it with no shell; a `claude` that is only a script, such as npm's `claude.cmd`, counts as missing, and the install adds `~\.local\bin`, where the native build lives, to your PATH.
    When npm's copy still comes first on your PATH, the closing note names claude, and the log has the command that removes it, `npm.cmd uninstall -g @anthropic-ai/claude-code`.
    Neither Herdr nor Kimi is installed or checked: every goblin and the CFO run in native terminals, and the fleet runs no Kimi for now.
 5. Installs the skills of gh-axi, chrome-devtools-axi and no-mistakes at user scope, for Claude Code, Codex and pi, through the version of the skills CLI `install.ps1` pins.
    A skill whose install fails is tried once more; one that fails again is named in the closing note, and the rest of the install goes on.
-6. Installs the board's native lifecycle hooks for each of Claude Code, Codex and pi that is installed.
+6. Installs pi's native lifecycle hooks, its extension, when pi is installed.
+   The fleet's Claude Code and Codex sessions carry theirs in their own launches, so the install writes none into the settings every Claude Code or Codex session on the machine loads.
 7. Sets up dictation, saying "Setting up dictation": the home's own build, with `cfo dictation setup`, downloads the speech engine and model it pins in `config\voice.json`, 483 MB, keeps each only when it matches its pinned SHA-256 and no program in it links a networking library, and puts them in the home's `caches\voice`, where the board's dictation looks, so the first dictation works at once.
    The model is Parakeet TDT 0.6B v2 by NVIDIA ([nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), converted to ONNX and quantized to int8 by the [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, whose release the install downloads unchanged.
    One already there is not downloaded again, and one an earlier build pinned is removed once the new one is in place, so a machine never keeps two models.
+   It needs none of the tools, so it runs out of sight from the start of step 4, beside them, and the install waits for it once they are in: on a GitHub runner it took 76 s of a fresh install's 298.
    A failure never fails the install: it notes that dictation finishes setting itself up the first time you dictate, and the log says why.
 8. Adds matching **Code Goblins** shortcuts to your Start menu and your desktop.
    The desktop shortcut follows Windows' desktop folder, including OneDrive redirection.
@@ -99,7 +104,7 @@ When it adopts the standalone copy's existing Start at login entry, that entry r
 ### What it leaves in your temp folder
 
 The install keeps one file in your temp folder, its log, `CodeGoblinsInstall.log`, which its last line names.
-Everything else it makes there it removes: the release it downloads, the no-mistakes archive, each installer it saves to a file, and the folder the setup downloads the install script to.
+Everything else it makes there it removes: the release it downloads, the no-mistakes download, each installer it saves to a file, and the folder the setup downloads the install script to.
 A virus scanner can still be reading a file it just saw, and Windows keeps a program for a moment after it ran, so a removal that fails at first is tried again as the install ends, for up to ten seconds.
 A folder that is still held then never fails the install.
 One `Note:` line names it, and it is safe to delete.
@@ -118,7 +123,7 @@ The tick and each agent's mark are drawn in Unicode where the console says it ca
    Its first line says which: `Supervisor already running`, or `Supervisor started`.
 2. When no CFO runs, it asks Claude Code, Codex and pi, each with its own read-only status command, whether it is installed and signed in, and shows them as one row of tabs, each with the agent's own mark, moved with Left and Right.
    Under the row is the marked agent's state: Ready, Not installed, Sign-in needed, or Sign-in could not be verified.
-   Claude Code's tab is marked as recommended, for the best experience, and Codex's and pi's notes say what a CFO in them gets: woken by a typed line, with no digest or guards, and for pi no resume.
+   Claude Code's tab is marked as recommended, for the best experience, and Codex's and pi's notes say what a CFO in them gets: woken by a typed line, with no digest or guards.
 3. When the agent you choose is missing, Enter installs it the way the install script does: Claude Code's native build from <https://claude.ai/install.ps1>, Codex and pi with `npm install -g`, which needs Node.js.
    When npm's `claude.cmd` comes before Claude Code's native build on PATH, which a native terminal cannot start, it shows the uninstall command to run instead, on a line of its own, and Enter checks again once you have run it.
 4. When nobody is signed in, Enter opens the agent's own sign-in in the same window (`claude auth login`, `codex login`, or pi itself, where `/login` signs in and `/model` picks the provider), and the quick start checks again when it ends.
@@ -139,10 +144,11 @@ Later runs skip what is already set up: with the remembered agent ready they go 
 `goblins resume` restarts a running CFO in its native terminal on its conversation, for a screen that froze, and with none running there does what `goblins` does; then, as after a reboot, it brings back every goblin whose terminal ended and lists which came back and which need a hand.
 A screen nobody can answer, as in a script or the install's own CI run, accepts nothing and says to run `goblins` in a terminal.
 
-A no-mistakes older than the release `install.ps1` pins is updated to it the same way, and a newer one is kept.
-The install downloads and verifies the pinned release first, then stops the no-mistakes daemon, replaces the program and starts the daemon again.
+A no-mistakes that cannot gate as the pinned build does is replaced with it the same way: one older than the build `install.ps1` pins, and one whose `axi run` has no `--intent-file` or no `--launch-assertion`, as no upstream release has.
+A later build of the same fork is kept.
+The install downloads and verifies the pinned build first, then stops the no-mistakes daemon, replaces the program and starts the daemon again.
 no-mistakes refuses to stop its daemon while a gate runs; the install then leaves the older no-mistakes as it is and says to rerun it once no gate runs.
-The install only ever updates the no-mistakes in `%LOCALAPPDATA%\no-mistakes`: an older one that comes first on PATH from anywhere else is left alone, and the install names its path and says to run `no-mistakes update` or remove it.
+The install only ever replaces the no-mistakes in `%LOCALAPPDATA%\no-mistakes`: one that comes first on PATH from anywhere else and cannot gate is left alone, and the install names its path and why, and says to remove it or put `%LOCALAPPDATA%\no-mistakes` before it.
 So when a Code Goblins release moves the pin forward, rerunning the install is how a machine moves to the no-mistakes it names.
 
 ## Updating
@@ -157,7 +163,7 @@ Only you press it, from a board of your own; `"check_for_updates": false` in the
 `goblins update`, run in a terminal of your own, does the same: it updates the home to the newest published release without touching your goblins or the CFO.
 It runs only as the home's own `goblins` or `cfo`, and it says four steps as it goes:
 
-1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub and downloads its `cfo.exe`, its desktop window `goblins-window.exe` where the release ships one, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
+1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub and downloads its `cfo.exe`, its desktop window `goblins-window.exe` and its hook program `cfo-hook.exe` where the release ships them, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
 2. `[2/4] Check the download`: it keeps a program only when it matches the release's `SHA256SUMS`, and, for a release whose `install.ps1` names a publisher, only when Windows reports it validly signed by that publisher, the same checks the one-line install makes.
    It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
    A program that fails a check is never run, and nothing in the home changes.
@@ -185,16 +191,24 @@ Rerunning the install still updates the tools it pins, such as no-mistakes, whic
 ## On a fresh PC
 
 A release says at the top of its notes whether its programs are code-signed, and by whom.
+Every release from v0.5.2 on is signed by SIQstack LLC, through Azure Artifact Signing, with a timestamp; v0.4.0 to v0.5.1 are not.
+A release that publishes no-mistakes signs it the same way.
 A signed release signs its `install.ps1` too, with the same certificate.
 The one-line install runs the script as text, where the signature is a block of comment lines at its end and changes nothing the script does.
-Until Code Goblins has a signing identity they are not: such a release says that it is unsigned, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.
+An unsigned release says so, lists the SHA-256 of each file, and its `install.ps1` names no publisher and checks the sums alone.
 A signed release's `install.ps1` names its publisher, and refuses a download that publisher did not sign.
 Windows knows an unsigned program only as an unknown program from an unknown publisher.
 Each program's file properties (right-click, Properties, Details) name the product Code Goblins and its version, and none asks for administrator rights.
+The setup's say its product version is "the newest release", since it carries nothing of the release that built it.
 
 - **The one-line install** runs nothing unless the downloaded `cfo.exe` matches the release's `SHA256SUMS`.
   Windows PowerShell does not mark that download as coming from the internet, so SmartScreen does not prompt.
-- **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it, so while it is unsigned SmartScreen stops it once with "Windows protected your PC" and an Unknown publisher.
+- **`CodeGoblinsSetup.exe`** is saved with a browser, which marks it.
+  A signed setup names SIQstack LLC as its publisher, but Windows still judges a program few people have run yet by its reputation, which builds over weeks of downloads: until then the browser can say it "isn't commonly downloaded", and SmartScreen can stop it once with "Windows protected your PC", as it does an unsigned one with an Unknown publisher.
+  So a release whose setup has the last release's code publishes the last release's signed setup again, and every download adds to the reputation of one file rather than starting a new one.
+  The setup links only a few small packages of this repository, and a test fails when it links another, since each package it links is a way its file changes.
+  It builds with the Go release that `go.mod`'s `go` line names, always a full release such as `go 1.26.5`, while every other program builds with the newest Go release and its security fixes.
+  Bumping that line is the one way the setup moves to a new Go release, and it makes a new setup file once.
   Check it first: `(Get-FileHash .\CodeGoblinsSetup.exe -Algorithm SHA256).Hash` must equal the first field of the `CodeGoblinsSetup.exe` line in the `SHA256SUMS` of the release you downloaded the setup from, in any letter case.
   Then **More info**, **Run anyway** runs it.
   The install script checks the programs it installs against the newest release's `SHA256SUMS`.
@@ -222,10 +236,10 @@ Type it in full: in PowerShell, `.\install -Dev` runs `install.ps1` itself, whic
 
 `-Dev` does everything the one-line install does, with the clone in place of the download:
 
-- It builds the board in the clone, then `cfo.exe` and the desktop window, `goblins-window.exe`, into a temporary folder of its own, runs that build's `cfo install`, which picks the home as the one-line install does, and removes the folder.
+- It builds the board in the clone, then `cfo.exe`, the hook program `cfo-hook.exe` and the desktop window, `goblins-window.exe`, into a temporary folder of its own, runs that build's `cfo install`, which picks the home as the one-line install does, and removes the folder.
   Its steps are `[1/3] Build Code Goblins from this clone`, then installing and opening as the one-line install's.
   The clone keeps only what git ignores: the board, which `cfo.exe` embeds from there, and the frontend's `node_modules`.
-  A copy in the home still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
+  A copy in the home still running, such as a supervisor, a terminal's host or an open window, cannot be overwritten, so it moves aside to a `cfo.exe.<id>.old`, `goblins.exe.<id>.old`, `cfo-hook.exe.<id>.old` or `goblins-window.exe.<id>.old` of its own and is removed once nothing runs it, on this run or a later one.
 - It says that the three programs are unsigned: they were built on this PC, and Windows runs a program built here without asking.
   A copy taken to another PC is unsigned there too, and [On a fresh PC](#on-a-fresh-pc) says what Windows shows for one.
 - The home's `bin` goes on your PATH; open a new terminal to use it, since `install.cmd` runs in a PowerShell of its own.

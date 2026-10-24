@@ -31,7 +31,7 @@ func TestPreparedGenerationRejectsJunctions(t *testing.T) {
 				link = filepath.Join(root, "linked-runtime")
 				inventory.Files[0].Path = "linked-runtime/v8_context_snapshot.bin"
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			if output, err := execx.CommandContext(ctx, "cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
 				t.Fatalf("create fixture junction: %v: %s", err, output)

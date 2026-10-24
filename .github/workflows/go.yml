@@ -3,9 +3,9 @@ name: go
 on:
   push:
     branches: [main]
-  # A draft runs nothing: its goblin pushes fix rounds to it before its head
-  # is final, and marking it ready runs every job on that head. A draft
-  # cannot merge, so its test check, skipped, approves nothing.
+  # A draft runs nothing but the draft job: its goblin pushes fix rounds to
+  # it before its head is final, and marking it ready runs every job on that
+  # head. A draft cannot merge, so its test check, skipped, approves nothing.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   # The merge queue tests each group of pull requests on main's tip before it
@@ -18,10 +18,15 @@ permissions:
 
 concurrency:
   # A newer commit on a pull request supersedes the run on the older one,
-  # which is cancelled. Every other run, on main, in the merge queue or
+  # which is cancelled. A run whose event saw a draft has a group apart from
+  # the one of runs whose event saw the pull request ready, so neither
+  # cancels the other: a pull request marked ready within seconds of a push
+  # has both on one head, the run that saw a draft may have read it ready
+  # and started its jobs, and every reader of that head's checks counts a
+  # cancelled one as failed. Every other run, on main, in the merge queue or
   # started by hand, has a group of its own, so none is ever cancelled or
   # held waiting.
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}{1}', github.event.pull_request.number, github.event.pull_request.draft && '-draft' || '') || github.run_id }}
   cancel-in-progress: true
 
 env:
@@ -34,7 +39,8 @@ env:
   #   and the licence check runs tools/notices, which reads the notices and
   #   the console host's licence.
   # - browser runs when a file under its paths changed: the board's own
-  #   source, and the two files outside it that a spec reads.
+  #   source, and the two files outside it that a spec reads, or the change
+  #   reaches internal/afk, which a spec builds to render the report page.
   #   frontend/src/outside-reads.test.ts holds the list to what the specs
   #   read.
   # - a go job runs when the change reaches one of its packages: a package
@@ -56,7 +62,13 @@ env:
   # middle of their time.
   # internal/conpty is fast but times keystrokes against bounds: beside the
   # rest job's other packages, which keep all four cores busy, one key's echo
-  # spent 429 ms waiting for a core, so it runs alone. The tests that drive a
+  # spent 429 ms waiting for a core, so it runs alone. internal/cirunner's
+  # tests wait, one after another, on the Windows PowerShell and other
+  # programs they start. In the rest job it starts in the first 25 s and runs
+  # while go test builds and tests most of the other packages on the same
+  # four cores: that took it 126 to 331 s, and 1201 s on a runner 4.3 times
+  # slow, where go test's 20-minute limit cut it off (#1017), so it runs
+  # alone. The tests that drive a
   # real Chrome run in the chrome job, one package at a time, so nothing
   # competes with Chrome for the runner's disk and cores: beside other tests
   # a fresh profile's Chrome took over a minute to start or 10 s to answer
@@ -73,20 +85,23 @@ env:
         "packages": ["./internal/boardweb", "./tools/notices"]
       },
       "browser": {
-        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"]
+        "paths": ["frontend/**", "internal/boardweb/dist/index.html", "cmd/goblins-window/notes.go"],
+        "packages": ["./internal/afk"]
       },
       "go": [
-        {"shard": "chrome", "packages": "./internal/browserlogin ./internal/supervisor", "run": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed)$"},
-        {"shard": "browserlogin", "packages": "./internal/browserlogin", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed)$"},
+        {"shard": "chrome", "packages": "./internal/browserlogin ./internal/supervisor ./cmd/goblins-setup", "run": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
+        {"shard": "browserlogin", "packages": "./internal/browserlogin", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
+        {"shard": "goblins-setup", "packages": "./cmd/goblins-setup", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
         {"shard": "cmd-cfo-1", "packages": "./cmd/cfo", "run": "Update|Recover"},
         {"shard": "cmd-cfo-2", "packages": "./cmd/cfo", "run": "^Test[A-H]", "skip": "Update|Recover"},
         {"shard": "cmd-cfo-3", "packages": "./cmd/cfo", "skip": "Update|Recover|^Test[A-H]"},
         {"shard": "spawn-1", "packages": "./internal/spawn", "run": "Spawn|Resume"},
         {"shard": "spawn-2", "packages": "./internal/spawn", "skip": "Spawn|Resume"},
-        {"shard": "supervisor-1", "packages": "./internal/supervisor", "run": "^Test[A-M]", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed)$"},
-        {"shard": "supervisor-2", "packages": "./internal/supervisor", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed)$|^Test[A-M]"},
+        {"shard": "supervisor-1", "packages": "./internal/supervisor", "run": "^Test[A-M]", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$"},
+        {"shard": "supervisor-2", "packages": "./internal/supervisor", "skip": "^(TestAChromeSlowToAnswerItsDevToolsStillStarts|TestAChromeThatCannotBeAskedToCloseIsEndedWithEverythingItStarted|TestCancellationDuringReadinessClosesBeforeReturning|TestCancelledStartDoesNotTouchTheProfileOrStartAProcess|TestChromeOnHostRulesReachesOnlyTheRecipeHosts|TestChromeStartCookieAndExitTimes|TestDevToolsRefusesASecondWindowsUserOnAnIsolatedCIRunner|TestFailedReadinessRetainsTheProcessWhenCleanupIsUnconfirmed|TestGoneConfirmsAChromeOnlyOnceItsEndedJobHasExited|TestPrivateChromeHasNoTCPListenerAndKeepsTwoClientsIndependent|TestPrivateChromeRoutesAutoAttachedPageCommandsAndEvents|TestReadKeysRefusesPagesItMustNotReadWithoutRepeatingThem|TestReadKeysRevealsAndReadsOnlyTheRecipesKeysInATabItCloses|TestStartedChromeAnswersOnItsProfilesPortAndClosesWhenAsked|TestAClosedTabIsNoLongerListedOnceCloseTabReturns|TestABrowserLentOverThePipeIsAHeadlessChromeOnTheLoginsProfileThatCloses|TestAKeyFetchAfterHisSignInReachesOnlyTheVault|TestBrowserSignInWindowOnAHiddenDesktop|TestAGoblinsHeadlessBrowserReachesHisStepAndGoesOnAtDone|TestAChromeClosedBesideBusyWorkKeepsItsSignInAndIsConfirmedClosed|TestEveryScreenFitsTheWindowAtEachScale|TestASendAndEndOnAScrawlPageClearsItsCardAtOnceAndDeliversHisNoteOnce)$|^Test[A-M]"},
         {"shard": "conpty", "packages": "./internal/conpty"},
-        {"shard": "rest", "except": "./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty ./internal/browserlogin"}
+        {"shard": "cirunner", "packages": "./internal/cirunner"},
+        {"shard": "rest", "except": "./cmd/cfo ./internal/spawn ./internal/supervisor ./internal/conpty ./internal/cirunner ./internal/browserlogin ./cmd/goblins-setup"}
       ]
     }
 
@@ -97,8 +112,36 @@ env:
 # the one check branch protection requires, and it passes only when every
 # job the plan started passed.
 jobs:
+  # A run whose event saw a draft asks GitHub whether the pull request is a
+  # draft now, and every other job runs unless it still is. An event can see
+  # the pull request as it was a moment before: on 2026-10-15 PR 961 was
+  # marked ready and pushed to within seconds, the push's event still saw a
+  # draft, and its run, which skipped every job, cancelled the ready run as
+  # it joined the pull request's group, so no run tested its last head. A
+  # read that fails runs every job, as for a pull request that is ready.
+  draft:
+    # The check this job makes tests nothing, and every reader of a head's
+    # checks passes over it by this name (train.DraftStateCheck).
+    name: draft state
+    if: github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      draft: ${{ steps.read.outputs.draft }}
+    steps:
+      - name: Read whether the pull request is a draft now
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: repos/${{ github.repository }}/pulls/${{ github.event.number }}
+        run: |
+          draft=$(gh api "$PULL_REQUEST" --jq .draft)
+          echo "draft=$draft" >> "$GITHUB_OUTPUT"
+
   plan:
-    if: ${{ !github.event.pull_request.draft }}
+    needs: draft
+    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' }}
     runs-on: windows-latest
     # A push reads the records pull request runs left (tools/pushreuse).
     permissions:
@@ -169,7 +212,7 @@ jobs:
 
   frontend:
     needs: plan
-    if: needs.plan.outputs.frontend == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.frontend == 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -223,7 +266,7 @@ jobs:
   # length.
   browser:
     needs: plan
-    if: needs.plan.outputs.browser == 'true'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.browser == 'true' }}
     name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: windows-latest
     strategy:
@@ -249,6 +292,11 @@ jobs:
           npm ci
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx playwright install chromium --only-shell
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # WebKit, which tests/iphone-terminal.spec.ts runs in, needs Media
+          # Foundation, which Windows Server leaves out.
+          Install-WindowsFeature Server-Media-Foundation | Out-Null
+          npx playwright install webkit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
@@ -283,7 +331,7 @@ jobs:
 
   go:
     needs: plan
-    if: needs.plan.outputs.go != '[]'
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.go != '[]' }}
     name: go (${{ matrix.shard }})
     runs-on: windows-latest
     strategy:
@@ -369,6 +417,27 @@ jobs:
           $tools >> $env:GITHUB_PATH
           $env:PATH = "$tools;$env:PATH"
           sqlite3 --version
+      # The chrome job's end-to-end test of a Scrawl answer runs Scrawl
+      # itself, the Code Goblins build install.ps1 pins, checked against the
+      # same SHA-256 before npm installs it.
+      - if: matrix.shard == 'chrome'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+      - name: Install Scrawl for the end-to-end test of an answer on its page
+        if: matrix.shard == 'chrome'
+        shell: pwsh
+        env:
+          SCRAWL_URL: https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.16/lavish-axi-0.1.79-codegoblins.16.tgz
+          SCRAWL_SHA256: 6ED51841F30351AC490D880597E7E613049F894136F650166CF64260A7B19BF3
+        run: |
+          $file = Join-Path $env:RUNNER_TEMP lavish-axi.tgz
+          Invoke-WebRequest -Uri $env:SCRAWL_URL -OutFile $file -TimeoutSec 120
+          $found = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+          if ($found -ne $env:SCRAWL_SHA256) { throw "The Scrawl download is not the pinned release: SHA-256 $found, want $env:SCRAWL_SHA256." }
+          npm install --global $file
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          lavish-axi --version
       - if: matrix.shard == 'rest'
         run: go vet ./...
       - name: Run Go tests with isolated CFO state
@@ -433,16 +502,21 @@ jobs:
         run: go build ./cmd/cfo
 
   # The check branch protection requires. It runs whatever happened above,
-  # and fails unless the plan succeeded and every job it started succeeded: a
-  # job that failed or was cancelled is not a pass, and neither is one that
-  # was skipped unless the plan left it out. Only a pull request's own run
-  # may leave a job out: in a merge train's run and every other, a job that
-  # did not succeed fails the check whatever the plan said, but for a push
-  # whose plan found a pull request run that passed its exact tree on the
-  # same main, which leaves every job out.
+  # but in a run of a draft and in one whose event saw a draft and that was
+  # cancelled, which it leaves as it leaves a draft's: such a run has a
+  # concurrency group of its own, so only a newer push whose event also saw
+  # a draft cancels it, or a person, and the head it stopped testing has a
+  # newer run or none that counts. It fails unless the plan succeeded and
+  # every job it started
+  # succeeded: a job that failed or was cancelled is not a pass, and neither
+  # is one that was skipped unless the plan left it out. Only a pull
+  # request's own run may leave a job out: in a merge train's run and every
+  # other, a job that did not succeed fails the check whatever the plan said,
+  # but for a push whose plan found a pull request run that passed its exact
+  # tree on the same main, which leaves every job out.
   test:
-    if: ${{ always() && !github.event.pull_request.draft }}
-    needs: [plan, frontend, browser, go]
+    if: ${{ always() && needs.draft.outputs.draft != 'true' && (needs.draft.result == 'skipped' || !cancelled()) }}
+    needs: [draft, plan, frontend, browser, go]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -455,7 +529,8 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           $needs = $env:RESULTS | ConvertFrom-Json
-          $jobs = @($needs.PSObject.Properties)
+          # The draft job tests nothing: it only says whether this run runs.
+          $jobs = @($needs.PSObject.Properties | Where-Object Name -ne 'draft')
           $jobs | ForEach-Object { "$($_.Name): $($_.Value.result)" }
           $plan = $needs.plan
           # What the plan left out, which only a plan that succeeded and said

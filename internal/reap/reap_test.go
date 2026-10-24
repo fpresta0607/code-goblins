@@ -1,17 +1,22 @@
 package reap
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/cleanup"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/terminal/terminaltest"
 )
 
 type fixedInventory Inventory
@@ -386,9 +391,9 @@ func TestWorkGateSaysItCouldNotLookRatherThanThatItFoundWork(t *testing.T) {
 	worktree := inventory.Worktrees[0].Path
 	service := newService(t, h, inventory, runner)
 	var cleaned []string
-	service.Clean = func(_ context.Context, id string, _ bool) error {
+	service.Clean = func(_ context.Context, id string, _ bool) (string, error) {
 		cleaned = append(cleaned, id)
-		return nil
+		return "", nil
 	}
 
 	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"old": true}})
@@ -431,9 +436,9 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 	runner := &gitRunner{}
 	service := newService(t, h, worktreeInventory(t, "done"), runner)
 	var cleaned []string
-	service.Clean = func(_ context.Context, id string, force bool) error {
+	service.Clean = func(_ context.Context, id string, force bool) (string, error) {
 		cleaned = append(cleaned, id)
-		return nil
+		return "", nil
 	}
 	// A meta beside the record is what routes the removal through cfo cleanup
 	// rather than through the bare worktree return.
@@ -453,6 +458,118 @@ func TestApplyReturnsACleanOrphanWorktree(t *testing.T) {
 	}
 	if len(cleaned) != 1 || cleaned[0] != "old" {
 		t.Fatalf("cleaned = %v, want [old] through the cfo cleanup path", cleaned)
+	}
+}
+
+func TestApplyReportsRetiredTaskCleanupWarning(t *testing.T) {
+	h := testHome(t)
+	meta := state.TaskMeta{
+		ID: "old", Backend: "herdr", Project: t.TempDir(), Worktree: filepath.Join(h.Root, "gone"),
+		Scratch:      filepath.Join(h.Root, "scratch", "old"),
+		HerdrSession: "default", HerdrWorkspaceID: "w", HerdrTabID: "t", HerdrPaneID: "pane-gone",
+	}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	inventory := Inventory{Tasks: []Task{{ID: meta.ID, Meta: meta, Verb: "done", Terminal: true}}}
+	runner := &gitRunner{}
+	service := newService(t, h, inventory, runner)
+	warning := "the messages kept for its resume went to the CFO, but the wake episode cannot be published"
+	var cleanupOutput string
+	service.Clean = func(ctx context.Context, id string, forceArchive bool) (string, error) {
+		result, err := (cleanup.Service{
+			StateDir: h.State, Commands: runner, ForceArchive: forceArchive,
+			Terminal: &terminaltest.Fake{Session: "default", Structure: herdr.SessionSnapshot{Protocol: herdr.SupportedProtocol}},
+			HandOver: func(state.TaskMeta) (bool, error) { return true, errors.New(warning) },
+		}).Cleanup(ctx, id)
+		cleanupOutput = result.Output
+		return result.Output, err
+	}
+
+	result, err := service.Apply(t.Context(), Options{})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Applied) != 1 || onlyFinding(t, result, OrphanMeta).Held() {
+		t.Fatalf("result = %+v, want the task retired despite the cleanup warning", result)
+	}
+	if _, err := state.ReadTaskMeta(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("task record after cleanup: %v, want it retired", err)
+	}
+	if !strings.Contains(cleanupOutput, warning) {
+		t.Fatalf("cleanup output = %q, want the handover warning", cleanupOutput)
+	}
+	var report bytes.Buffer
+	if err := Render(&report, result); err != nil {
+		t.Fatal(err)
+	}
+	if want := "cleanup old: warning: " + warning; !strings.Contains(report.String(), want) {
+		t.Fatalf("reap report = %q, want task-labeled cleanup warning %q", report.String(), want)
+	}
+}
+
+func TestApplyKeepsCleanupOutputForEachRetirementPath(t *testing.T) {
+	for _, class := range []Class{OrphanMeta, OrphanWorktree} {
+		for _, testCase := range []struct {
+			name   string
+			output string
+			err    error
+		}{
+			{name: "warnings", output: "cleaned old\r\n\r\nwarning: retained state could not be archived\r\nleft the scratch folder in place\nwarning: local services not released\n"},
+			{name: "output and error", output: "warning: wake episode cannot be published", err: errors.New("release cleanup lock")},
+			{name: "error only", err: errors.New("cleanup refused")},
+			{name: "no output"},
+		} {
+			t.Run(string(class)+"/"+testCase.name, func(t *testing.T) {
+				h := testHome(t)
+				inventory := worktreeInventory(t, "done")
+				if class == OrphanMeta {
+					inventory.Worktrees = nil
+				}
+				meta := inventory.Tasks[0].Meta
+				meta.HerdrSession, meta.HerdrWorkspaceID, meta.HerdrTabID = "default", "w", "t"
+				if err := state.WriteTaskMeta(h.State, meta); err != nil {
+					t.Fatal(err)
+				}
+				service := newService(t, h, inventory, &gitRunner{})
+				service.Clean = func(_ context.Context, id string, forceArchive bool) (string, error) {
+					if id != "old" || forceArchive != (class == OrphanMeta) {
+						t.Fatalf("cleanup(%q, %v), want the %s cleanup path", id, forceArchive, class)
+					}
+					return testCase.output, testCase.err
+				}
+
+				result, err := service.Apply(t.Context(), Options{})
+
+				if err != nil {
+					t.Fatal(err)
+				}
+				finding := onlyFinding(t, result, class)
+				if testCase.err != nil {
+					if !strings.Contains(finding.Hold(), testCase.err.Error()) || len(result.Applied) != 0 {
+						t.Fatalf("result = %+v, want cleanup failure held without recording an applied action", result)
+					}
+				} else if finding.Held() || len(result.Applied) != 1 {
+					t.Fatalf("result = %+v, want cleanup applied despite any warnings", result)
+				}
+				var wantNotes []string
+				switch testCase.name {
+				case "warnings":
+					wantNotes = []string{
+						"cleanup old: cleaned old",
+						"cleanup old: warning: retained state could not be archived",
+						"cleanup old: left the scratch folder in place",
+						"cleanup old: warning: local services not released",
+					}
+				case "output and error":
+					wantNotes = []string{"cleanup old: warning: wake episode cannot be published"}
+				}
+				if !slices.Equal(result.Notes, wantNotes) {
+					t.Fatalf("notes = %q, want %q", result.Notes, wantNotes)
+				}
+			})
+		}
 	}
 }
 
@@ -484,8 +601,8 @@ func TestTheReapedLineOutlivesTheRecordItRetires(t *testing.T) {
 		inventory := worktreeInventory(t, "done")
 		meta(t, h, inventory.Worktrees[0].Path)
 		service := newService(t, h, inventory, &gitRunner{})
-		service.Clean = func(_ context.Context, id string, _ bool) error {
-			return state.RemoveTaskMeta(h.State, id)
+		service.Clean = func(_ context.Context, id string, _ bool) (string, error) {
+			return "", state.RemoveTaskMeta(h.State, id)
 		}
 
 		if _, err := service.Apply(context.Background(), Options{}); err != nil {
@@ -501,8 +618,8 @@ func TestTheReapedLineOutlivesTheRecordItRetires(t *testing.T) {
 		gone := filepath.Join(t.TempDir(), ".worktrees", "gb-old")
 		meta(t, h, gone)
 		service := newService(t, h, Inventory{Tasks: []Task{task("old", gone, "pane-gone", "done")}}, &gitRunner{})
-		service.Clean = func(_ context.Context, id string, _ bool) error {
-			return state.RemoveTaskMeta(h.State, id)
+		service.Clean = func(_ context.Context, id string, _ bool) (string, error) {
+			return "", state.RemoveTaskMeta(h.State, id)
 		}
 
 		if _, err := service.Apply(context.Background(), Options{}); err != nil {
@@ -928,9 +1045,9 @@ func TestUnconfirmableRegistrationKeepsTheWorkGate(t *testing.T) {
 	runner := &gitRunner{unpushed: "abc1234 feat: the whole product of the run"}
 	service := newService(t, testHome(t), inventory, runner)
 	var cleaned []string
-	service.Clean = func(_ context.Context, id string, force bool) error {
+	service.Clean = func(_ context.Context, id string, force bool) (string, error) {
 		cleaned = append(cleaned, id)
-		return nil
+		return "", nil
 	}
 
 	result, err := service.Apply(context.Background(), Options{})
@@ -1187,8 +1304,8 @@ func TestOneTaskActedOnTwiceKeepsBothReapedLines(t *testing.T) {
 	service.CPU = func(int) (time.Duration, bool) { return 0, true }
 	// The cleanup path retires the record, which is what the second finding
 	// would otherwise read as a task that never had one.
-	service.Clean = func(_ context.Context, id string, _ bool) error {
-		return state.RemoveTaskMeta(h.State, id)
+	service.Clean = func(_ context.Context, id string, _ bool) (string, error) {
+		return "", state.RemoveTaskMeta(h.State, id)
 	}
 
 	result, err := service.Apply(context.Background(), Options{Force: map[string]bool{"555": true}})

@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -28,6 +29,19 @@ const (
 
 // relayMessage bounds one output message to a view.
 const relayMessage = 256 << 10
+
+// screenSettle is how long a terminal's output pauses before its relay reads
+// the screen, to tell its views whether the harness waits on an answer there,
+// which it reads too as a view opens. A turn's spinner draws more often than
+// this, so a turn costs no read, but
+// while a view was last told the harness waits, the screen is read this long
+// after the first output that follows, pause or not, so the view learns soon
+// that the answer was given and a turn runs.
+const screenSettle = 300 * time.Millisecond
+
+// screenAtOpen is how long after a view opens its relay reads the screen: at
+// once, and a test holds the read back so output follows the opening first.
+var screenAtOpen time.Duration
 
 // nativeRelay is one view's side of a native terminal: the output read from
 // the host and not yet sent, the sizes the terminal took at their places in
@@ -47,6 +61,18 @@ type nativeRelay struct {
 	// unread tells the view whether key presses sit unread in the terminal's
 	// input, while the view has not been told that yet.
 	unread []byte
+	// held tells the view whether typing is held, and why, while the view has
+	// not been told that yet.
+	held []byte
+	// screen tells the view whether the harness waits on an answer at a
+	// screen of its own, while the view has not been told that yet, asking is
+	// what the view was last told, looking says a read of the screen is due,
+	// and opening that the read the view's opening made due has not begun,
+	// which no output postpones.
+	screen  []byte
+	asking  *bool
+	looking bool
+	opening bool
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
@@ -56,6 +82,21 @@ type nativeRelay struct {
 type relaySize struct {
 	at      int64
 	message []byte
+}
+
+// heldNotice tells a view whether typing is held, by custody, and why: a gate
+// that owns the task, or a worktree on a detached HEAD. An empty reason says
+// typing is no longer held.
+func heldNotice(custody error) []byte {
+	notice := struct {
+		Type   string `json:"type"`
+		Reason string `json:"reason"`
+	}{Type: "held"}
+	if custody != nil {
+		notice.Reason = custody.Error()
+	}
+	data, _ := json.Marshal(notice)
+	return data
 }
 
 func (r *nativeRelay) signal() {
@@ -101,7 +142,19 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // waits on a slow window and no byte is dropped from a view that stays. The
 // view is bound to its terminal once, when it connects, by the host's own
 // pipe, so a key costs no check and starts no process; what it is bound to is
-// checked again on every tick. A resize under custody is ignored.
+// checked again on every tick. While custody holds typing, as a gate that
+// owns the task does, the view stays open and live: it is told
+// `{"type":"held","reason":"..."}` when it opens and whenever that changes,
+// an empty reason once typing is free, and its typing and resizes are
+// dropped. xterm sends input by itself, a focus report or a reply to a query
+// the replayed history holds, so closing the view on input under custody
+// closed every view of a task a gate owned as it opened (#1304). For a
+// harness whose screens it knows, the relay reads the terminal's screen as
+// the view opens, once its output pauses, and soon after output follows a
+// screen that asked, and tells the view as
+// `{"type":"screen","asking":true}` when the harness waits on an answer at a
+// screen of its own, which only its terminal takes, as Claude Code's
+// permission prompt, and with false once it no longer does.
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -128,8 +181,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(closeCode(err), err.Error())
 		return
 	}
-	if binding.isLocalOnly && offMachine(r, h.Host) != "" {
-		_ = view.Close(websocket.StatusPolicyViolation, "Values are typed only on the board's own page on this PC.")
+	if binding.localOnly != "" && offMachine(r, h.Host) != "" {
+		_ = view.Close(websocket.StatusPolicyViolation, binding.localOnly)
 		return
 	}
 	// A goblin's session shows on the board as soon as its start or resume
@@ -152,9 +205,11 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = view.Close(websocket.StatusNormalClosure, "No terminal is running for "+binding.name+".")
 		return
 	}
+	// A host that did not answer may be starting or busy, so the view tries
+	// again, as the board does for a view that may come back.
 	terminal, err := host.Watch(record)
 	if err != nil {
-		_ = view.Close(websocket.StatusPolicyViolation, "The terminal of "+binding.name+" did not answer.")
+		_ = view.Close(websocket.StatusTryAgainLater, "The terminal of "+binding.name+" did not answer.")
 		return
 	}
 	defer terminal.Close()
@@ -171,7 +226,36 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History()))}
+	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true, opening: true}
+	if custody != nil {
+		relay.held = heldNotice(custody)
+	}
+	look := time.AfterFunc(screenAtOpen, func() {
+		relay.mu.Lock()
+		relay.looking = false
+		relay.opening = false
+		relay.mu.Unlock()
+		if binding.harness == nil {
+			return
+		}
+		screens, readable := harness.NativeScreens(harness.Kind(binding.harness()))
+		if !readable {
+			return
+		}
+		rows, err := host.ReadScreen(record)
+		if err != nil {
+			return
+		}
+		asking := screens.IsAsking(rows)
+		relay.mu.Lock()
+		if relay.asking == nil || *relay.asking != asking {
+			relay.asking = &asking
+			relay.screen = []byte(fmt.Sprintf(`{"type":"screen","asking":%t}`, asking))
+		}
+		relay.mu.Unlock()
+		relay.signal()
+	})
+	defer look.Stop()
 	h.mu.Lock()
 	if h.relays[binding.key] == nil {
 		h.relays[binding.key] = map[*nativeRelay]struct{}{}
@@ -207,6 +291,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			default:
 				relay.pending = append(relay.pending, event.Output...)
 				relay.received += int64(len(event.Output))
+				if !relay.opening && (!relay.looking || relay.asking == nil || !*relay.asking) {
+					relay.looking = true
+					look.Reset(screenSettle)
+				}
 			}
 			closing := relay.closing != nil
 			relay.mu.Unlock()
@@ -220,8 +308,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			history, unread := relay.history, relay.unread
-			relay.history, relay.unread = nil, nil
+			history, unread, held, screen := relay.history, relay.unread, relay.held, relay.screen
+			relay.history, relay.unread, relay.held, relay.screen = nil, nil, nil, nil
 			var size, output []byte
 			if len(relay.sizes) > 0 && relay.sizes[0].at == relay.sent {
 				size = relay.sizes[0].message
@@ -241,14 +329,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				relay.sent += int64(n)
 			}
 			closing := relay.closing
-			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil {
+			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil || held != nil || screen != nil {
 				closing = nil
 			}
 			relay.mu.Unlock()
 			for _, message := range []struct {
 				kind websocket.MessageType
 				data []byte
-			}{{websocket.MessageText, history}, {websocket.MessageText, size}, {websocket.MessageBinary, output}, {websocket.MessageText, unread}} {
+			}{{websocket.MessageText, history}, {websocket.MessageText, held}, {websocket.MessageText, size}, {websocket.MessageBinary, output}, {websocket.MessageText, unread}, {websocket.MessageText, screen}} {
 				if message.data == nil {
 					continue
 				}
@@ -263,7 +351,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(closing.Code, closing.Reason)
 				return
 			}
-			if history == nil && size == nil && output == nil && unread == nil {
+			if history == nil && size == nil && output == nil && unread == nil && held == nil && screen == nil {
 				select {
 				case <-relay.wake:
 				case <-ctx.Done():
@@ -291,8 +379,15 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				mu.Lock()
+				isChanged := (custody == nil) != (refused == nil) || custody != nil && custody.Error() != refused.Error()
 				custody = refused
 				mu.Unlock()
+				if isChanged {
+					relay.mu.Lock()
+					relay.held = heldNotice(refused)
+					relay.mu.Unlock()
+					relay.signal()
+				}
 			}
 		}
 	}()
@@ -340,8 +435,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		refused := custody
 		mu.Unlock()
 		if refused != nil {
-			_ = view.Close(websocket.StatusPolicyViolation, closeReason(refused.Error()))
-			return
+			continue
 		}
 		if terminal.Input(data) != nil {
 			_ = view.Close(websocket.StatusGoingAway, "Input outcome is unknown. Inspect the terminal before typing again.")
@@ -356,12 +450,16 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 // run item's terminal is recorded as run, in the item's own directory. check
 // repeats what opening it proved: it returns an error once the view must
 // close, and custody, the reason typing is held while a gate owns the task.
-// A view of a terminal where values are typed opens only on the board's own
-// page on this PC. isLaunching, when set, says the terminal's host may not run
-// yet because its goblin starts or resumes now.
+// localOnly, when set, is why a view opens only on the board's own page on
+// this PC: a terminal where values are typed, or one that mends remote
+// access, which only this PC does. isLaunching, when set, says the terminal's host may not run
+// yet because its goblin starts or resumes now. harness, when set, returns the
+// harness the terminal runs at the moment, whose screens the relay reads: for
+// the CFO, the one it registered as. A run item's terminal has none.
 type nativeBinding struct {
 	id, name, dir, key string
-	isLocalOnly        bool
+	harness            func() string
+	localOnly          string
 	check              func(ctx context.Context) (custody, err error)
 	isLaunching        func() bool
 }
@@ -374,7 +472,14 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 		if !found {
 			return nativeBinding{}, terminalEnded("This command is not running.")
 		}
-		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, isLocalOnly: r.CredentialRequest != "", check: func(context.Context) (error, error) {
+		localOnly := ""
+		switch {
+		case r.CredentialRequest != "":
+			localOnly = "Values are typed only on the board's own page on this PC."
+		case r.RemoteFix != "":
+			localOnly = "Remote access is mended only on the board's own page on this PC."
+		}
+		return nativeBinding{id: runTerminal, name: "this command", dir: runDir(s.Store.Home.State, r), key: "run:" + id, localOnly: localOnly, check: func(context.Context) (error, error) {
 			if _, found := s.runOnCard(id, r.RunAction); !found {
 				return nil, terminalEnded("The command ended.")
 			}
@@ -391,7 +496,9 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 		if id != want {
 			return nativeBinding{}, terminalEnded("The CFO runs in another terminal now. Open the CFO again.")
 		}
-		return nativeBinding{id: id, name: "the CFO", dir: s.Store.Home.State, key: id, check: func(context.Context) (error, error) {
+		return nativeBinding{id: id, name: "the CFO", dir: s.Store.Home.State, key: id, harness: func() string {
+			return readCFOState(s.Store.Home.State).harness
+		}, check: func(context.Context) (error, error) {
 			if readCFOState(s.Store.Home.State).terminal != id {
 				return nil, terminalEnded("The CFO no longer runs in this terminal. Open the CFO again.")
 			}
@@ -403,7 +510,7 @@ func (s *Service) nativeBinding(query url.Values) (nativeBinding, error) {
 	if err != nil {
 		return nativeBinding{}, err
 	}
-	return nativeBinding{id: meta.ID, name: "this task", dir: s.Store.Home.State, key: meta.ID, check: func(ctx context.Context) (error, error) {
+	return nativeBinding{id: meta.ID, name: "this task", dir: s.Store.Home.State, key: meta.ID, harness: func() string { return meta.Harness }, check: func(ctx context.Context) (error, error) {
 		current, err := s.nativeTask(selection)
 		if err != nil {
 			return nil, err

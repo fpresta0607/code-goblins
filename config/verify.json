@@ -9,11 +9,11 @@
     "internal/supervisor",
     "internal/testguard"
   ],
-  "alone_packages": ["internal/browserlogin", "internal/supervisor"],
+  "alone_packages": ["cmd/goblins-setup", "internal/browserlogin", "internal/supervisor"],
   "guards": [
     {
       "package": ".",
-      "why": "its tests read every link of the contract, the workflows and the shipped skills"
+      "why": "its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name"
     },
     {
       "package": "cmd/cfo",
@@ -125,6 +125,10 @@
     {
       "paths": ["frontend/**"],
       "why": "the frontend's own checks cover it, and Go embeds only its build under internal/boardweb/dist"
+    },
+    {
+      "paths": ["tools/build-no-mistakes.ps1"],
+      "why": "the release and install workflows run it on GitHub's runners, where it fetches and builds a program, and the install workflow proves the build it makes"
     },
     {
       "paths": ["tests/**"],

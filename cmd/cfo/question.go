@@ -17,6 +17,8 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	id := f.String("id", "", "stable ID for this CFO question")
 	text := f.String("text", "", "the question deliberately escalated to the user: one short sentence that is the question, details on lines starting with \"- \", and **bold** only on the verdict or the blocking item")
 	recommended := f.String("recommend", "", "exact supplied choice to recommend; omit when there is no recommendation")
+	forTask := f.String("for", "", "the goblin's task ID when this puts that goblin's decision to the user; while this question waits, that goblin's waits on the user must declare whether they are this decision, and one it declares with cfo notify --follows <this question's ID> is hidden while this question waits and closed by its answer")
+	messageFile := f.String("message-file", "", messageFileUsage)
 	var options []string
 	f.Func("option", "one real choice; repeat for each choice; omit for written answers", func(value string) error { options = append(options, value); return nil })
 	if !parseFlags(f, args) {
@@ -25,6 +27,14 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 	if err := choicesAreAnswers(options); err != nil {
 		fmt.Fprintln(stderr, "cfo question: "+err.Error())
 		return 2
+	}
+	var mail *supervisor.Mail
+	if *messageFile != "" {
+		var err error
+		if mail, err = supervisor.ReadMail(*messageFile); err != nil {
+			fmt.Fprintln(stderr, "cfo question: --message-file "+err.Error())
+			return 2
+		}
 	}
 	h, err := runtime.resolveHome()
 	if err != nil {
@@ -39,7 +49,7 @@ func runQuestion(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		return 2
 	}
 	c := supervisor.CFOConnection{State: h.State}
-	if err := c.PublishQuestion(*id, *text, options, *recommended); err != nil {
+	if err := c.PublishQuestion(*id, *text, options, *recommended, *forTask, mail); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

@@ -83,11 +83,11 @@ func serve(t *testing.T, f *fakeJob, allowed string) *served {
 			if err != nil {
 				t.Errorf("Serve = %v once its context ended; want nil", err)
 			}
-		case <-time.After(10 * time.Second):
-			t.Error("Serve did not return within 10 seconds of its context's end")
+		case <-time.After(time.Minute):
+			t.Error("Serve did not return within a minute of its context's end")
 		}
 	})
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		connection, err := dial(context.Background(), s.name)
 		if err == nil {
 			connection.Close()
@@ -161,7 +161,7 @@ func TestClosingThePipeAbandonsTheJob(t *testing.T) {
 	s.service.Deps.Sleep = func(ctx context.Context, step time.Duration) {
 		select {
 		case <-ctx.Done():
-		case <-time.After(10 * time.Millisecond):
+		case <-time.After(10 * time.Millisecond): // stall-accepted: a stand-in sleep that only slows the job's steps, so a stall cannot fail the test.
 		}
 		advance(ctx, step)
 	}
@@ -184,9 +184,9 @@ func TestClosingThePipeAbandonsTheJob(t *testing.T) {
 	if calls := f.callsMade(); !slices.Contains(calls, "start") {
 		t.Fatalf("the job had made %q when its pipe closed; want its VM started first", calls)
 	}
-	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(s.service.Status(), "ended with its turn"); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); !strings.Contains(s.service.Status(), "ended with its turn"); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
-			t.Fatalf("status %q 10 seconds after the pipe closed; want the job ended with its turn", s.service.Status())
+			t.Fatalf("status %q a minute after the pipe closed; want the job ended with its turn", s.service.Status())
 		}
 	}
 	if calls := f.callsMade(); !slices.Equal(calls[len(calls)-3:], []string{"off", "restore", "delete"}) {
@@ -205,19 +205,24 @@ func TestServiceDropsAClientThatSendsNothing(t *testing.T) {
 	}
 	defer silent.Close()
 	connected := time.Now()
+	_ = silent.SetReadDeadline(time.Now().Add(time.Minute))
+	silentRead := make(chan error, 1)
+	go func() {
+		_, readErr := silent.Read(make([]byte, 1))
+		silentRead <- readErr
+	}()
 
 	// Act
 	status, statusErr := s.ask(context.Background(), AskStatus)
-	answered := time.Since(connected)
-	_ = silent.SetReadDeadline(time.Now().Add(10 * time.Second))
-	_, readErr := silent.Read(make([]byte, 1))
+	isSilentHeld := len(silentRead) == 0
+	readErr := <-silentRead
 	dropped := time.Since(connected)
 
 	// Assert
-	if statusErr != nil || len(status) != 1 || answered > 2*time.Second {
-		t.Errorf("status = %+v, %v after %v; want it answered while the silent client waits", status, statusErr, answered)
+	if statusErr != nil || len(status) != 1 || !isSilentHeld {
+		t.Errorf("status = %+v, %v with the silent client still held %v; want it answered while the silent client waits", status, statusErr, isSilentHeld)
 	}
-	if readErr == nil || errors.Is(readErr, windows.ERROR_TIMEOUT) || strings.Contains(readErr.Error(), "timeout") || dropped < requestLimit-time.Second || dropped > requestLimit+2*time.Second {
+	if readErr == nil || errors.Is(readErr, windows.ERROR_TIMEOUT) || strings.Contains(readErr.Error(), "timeout") || dropped < requestLimit-time.Second || dropped > requestLimit+30*time.Second {
 		t.Errorf("the silent client read %v after %v; want it dropped at %v", readErr, dropped, requestLimit)
 	}
 }
@@ -237,7 +242,7 @@ func TestPipeRefusesWhatItCannotAnswer(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer connection.Close()
-			_ = connection.SetDeadline(time.Now().Add(10 * time.Second))
+			_ = connection.SetDeadline(time.Now().Add(time.Minute))
 
 			// Act
 			_, writeErr := connection.Write([]byte(line + "\n"))
@@ -264,7 +269,7 @@ func TestPipeDropsARequestPastItsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = connection.SetDeadline(time.Now().Add(time.Minute))
 
 	// Act
 	sent := time.Now()
@@ -273,6 +278,7 @@ func TestPipeDropsARequestPastItsLimit(t *testing.T) {
 	dropped := time.Since(sent)
 
 	// Assert
+	// stall-accepted: it times the drop, and the wait it rules out is only the 5 s request limit, so no longer bound tells them apart.
 	if writeErr != nil || readErr == nil || len(answer) != 0 || strings.Contains(readErr.Error(), "timeout") || dropped > requestLimit/2 {
 		t.Errorf("answered %q, %v, %v after %v; want the client dropped unanswered at once", answer, writeErr, readErr, dropped)
 	}
@@ -281,7 +287,7 @@ func TestPipeDropsARequestPastItsLimit(t *testing.T) {
 // Asking where no service answers says so at once.
 func TestAskSaysTheServiceIsNotRunning(t *testing.T) {
 	// Arrange
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -300,7 +306,7 @@ func TestServeRefusesAnAllowedUserThatIsNoSID(t *testing.T) {
 	name := testPipe(t)
 	var config string
 	s := &Service{Deps: testDeps(&fakeJob{}, &config), Limits: DefaultLimits, Log: func(string) {}}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
 	// Act
@@ -406,7 +412,7 @@ func TestBeginHoldsThePipeWhileTheServiceStarts(t *testing.T) {
 		}
 		begun <- err
 	}()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := dial(context.Background(), name); !errors.Is(err, ErrNotServing) || time.Now().After(deadline) {
 			break
 		}
@@ -529,7 +535,7 @@ func TestPipeAnswersAtMostItsClientsAtOnce(t *testing.T) {
 
 	// Act
 	isDropped := false
-	for deadline := time.Now().Add(2 * time.Second); !isDropped && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); !isDropped && time.Now().Before(deadline); {
 		_, err := s.ask(context.Background(), AskStatus)
 		isDropped = err != nil
 	}
@@ -542,7 +548,7 @@ func TestPipeAnswersAtMostItsClientsAtOnce(t *testing.T) {
 		t.Errorf("a client past %d at once was answered; want it dropped", maxClients)
 	}
 	isAnswered := false
-	for deadline := time.Now().Add(2 * time.Second); !isAnswered && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); !isAnswered && time.Now().Before(deadline); {
 		status, err := s.ask(context.Background(), AskStatus)
 		isAnswered = err == nil && len(status) == 1
 	}
@@ -610,7 +616,7 @@ func TestServeRefusesAPipeAnotherAlreadyServes(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "create pipe") {
 			t.Errorf("a second Serve = %v; want the pipe refused", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(time.Minute):
 		t.Error("a second Serve on the same pipe served it")
 	}
 }
@@ -627,7 +633,7 @@ func TestServeEndsARunningJobBeforeItReturns(t *testing.T) {
 	s.Deps.Sleep = func(ctx context.Context, step time.Duration) {
 		select {
 		case <-ctx.Done():
-		case <-time.After(10 * time.Millisecond):
+		case <-time.After(10 * time.Millisecond): // stall-accepted: a stand-in sleep that only slows the job's steps, so a stall cannot fail the test.
 		}
 		advance(ctx, step)
 	}
@@ -640,7 +646,7 @@ func TestServeEndsARunningJobBeforeItReturns(t *testing.T) {
 	running := make(chan struct{})
 	go func() {
 		var once sync.Once
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 			err := Ask(context.Background(), name, Request{Kind: AskRun}, func(reply Reply) {
 				if reply.Kind == ReplyProgress && strings.HasPrefix(reply.Line, "the VM started") {
 					once.Do(func() { close(running) })

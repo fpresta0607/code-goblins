@@ -64,12 +64,40 @@ export function holdersLine(memory: Memory): string {
   return "Most commit: " + memory.holders.map((holder) => `${holder.name} ${held(holder.commit)} GB`).join(", ");
 }
 
-// The kernel's paged pool is under 2 GB on a healthy machine; past 4 GB a
-// driver is leaking memory, which only a reboot frees.
-const PAGED_POOL_WARNING = 4 * 2 ** 30;
+// How much the kernel's paged and nonpaged pools hold together: memory
+// Windows keeps for drivers, which no goblin can use and only a restart of
+// the PC gives back once a driver leaks it.
+export const kernelPools = (memory: Memory) => memory.paged_pool + memory.nonpaged_pool;
 
-export function poolWarning(memory: Memory): string {
-  return memory.paged_pool > PAGED_POOL_WARNING ? `Paged pool ${held(memory.paged_pool)} GB: Windows holds this in its kernel paged pool, where no goblin can use it. Restarting the PC frees it.` : "";
+// Whether the pools are past the line measured on this PC, past which free
+// memory can no longer hold the fleet and the CFO's panel offers Restart PC
+// (internal/supervisor/pc_restart.go). A snapshot that names no line is not.
+export function isPastPoolLine(memory: Memory | null): boolean {
+  return !!memory && memory.pool_line > 0 && kernelPools(memory) >= memory.pool_line;
+}
+
+// The pools' meter under the memory meter: red past the line.
+export function poolState(memory: Memory): { tone: "ready" | "under"; text: string } {
+  return isPastPoolLine(memory)
+    ? { tone: "under", text: `The kernel's pools hold ${held(kernelPools(memory))} GB, past the ${held(memory.pool_line)} GB line: Restart PC in the CFO's panel frees them.` }
+    : { tone: "ready", text: `The kernel's pools hold ${held(kernelPools(memory))} GB, under the ${held(memory.pool_line)} GB line.` };
+}
+
+// The pools' bar spans twice the line, so the line sits at its middle: the
+// fill and the mark as percents of the bar.
+export function poolScale(memory: Memory): { fill: number; line: number } {
+  return { fill: Math.min(100, kernelPools(memory) / (2 * memory.pool_line) * 100), line: 50 };
+}
+
+// A tag's growth in megabytes under a gigabyte, so a young leak reads as more
+// than nothing.
+const grown = (bytes: number) => bytes < 2 ** 30 ? `${Math.round(bytes / 2 ** 20)} MB` : `${held(bytes)} GB`;
+
+// What the pools' bar shows, for its tip: each pool, the line, and the pool
+// tags that grew most since the sign-in began, which name what leaks.
+export function poolMarks(memory: Memory): string {
+  const growth = memory.pool_growth.map((tag) => `${tag.tag.trim()} ${grown(tag.grown)} ${tag.pool}`).join(", ");
+  return `Paged ${held(memory.paged_pool)} GB, nonpaged ${held(memory.nonpaged_pool)} GB. Red mark: ${held(memory.pool_line)} GB, past which free memory cannot hold the fleet and the CFO's panel offers Restart PC.` + (growth ? ` Grew most since sign-in: ${growth}.` : "");
 }
 
 // The disk meter under the memory meter: under the floor no goblin or gate
@@ -211,16 +239,45 @@ export function nextInOrder(snapshot: Snapshot, now: number): NextUp | null {
   const tone = memoryBlock(snapshot.memory) ? "waiting" : "";
   const queued = startable(snapshot);
   if (queued[0]?.priority === "production-defect") return { id: queued[0].id, text: "Production defect: jumps the queue", tone: "defect" };
-  // A helper paused with its parent resumes once its parent runs again.
-  const isBackWithParent = (task: Task) => {
-    const parent = pausedWithParent(task, snapshot.tasks);
-    return !!parent && (!parent.lifecycle || parent.lifecycle.phase === "running");
-  };
   // The snapshot lists the goblins in the Overlord's In progress order, the
   // order the supervisor resumes them in.
-  const resumable = snapshot.tasks.filter((task) => task.phase === "paused" && task.lifecycle?.pause && (isClearing(task.lifecycle.pause, now) || isBackWithParent(task)));
-  if (resumable.length) return { id: resumable[0].id, text: "Next up", tone };
+  const resumable = snapshot.tasks.find((task) => isResumable(task, snapshot.tasks, now));
+  if (resumable) return { id: resumable.id, text: "Next up", tone };
   return queued.length ? { id: queued[0].id, text: nextChip(snapshot.memory), tone } : null;
+}
+
+// The Paused group top first, as its goblins resume: one resuming now or
+// whose Resume the Overlord clicked, which the supervisor takes before any
+// other; then each whose pause cleared or clears with memory, in his In
+// progress order, the order the supervisor resumes them in, so Next up is
+// first; then each paused until a time, earliest first; then each waiting on
+// another task, a pull request, CI or a person, in his In progress order.
+// tasks is the group in the snapshot's order. The Overlord, 2026-10-17:
+// "whatever goblins are going to resume first are at the top".
+export function resumeOrder(tasks: Task[], all: Task[], now: number): Task[] {
+  const group = (task: Task) => {
+    if (task.phase === "resuming" || task.asked) return 0;
+    if (isResumable(task, all, now)) return 1;
+    return Number.isNaN(resumesAt(task.lifecycle?.pause)) ? 3 : 2;
+  };
+  const byTime = (left: Task, right: Task) => group(left) === 2 ? resumesAt(left.lifecycle?.pause) - resumesAt(right.lifecycle?.pause) : 0;
+  return [...tasks].sort((left, right) => group(left) - group(right) || byTime(left, right));
+}
+
+// Whether the supervisor resumes a paused goblin at the next free slot: its
+// pause cleared or clears with memory, or it is a helper paused with its
+// parent and its parent runs again.
+function isResumable(task: Task, all: Task[], now: number): boolean {
+  if (task.phase !== "paused" || !task.lifecycle?.pause) return false;
+  const parent = pausedWithParent(task, all);
+  return isClearing(task.lifecycle.pause, now) || !!parent && (!parent.lifecycle || parent.lifecycle.phase === "running");
+}
+
+// When a pause until a time clears, or NaN for a pause no clock clears.
+function resumesAt(pause: PauseCondition | undefined): number {
+  const [kind, target] = pause?.until.split(/:(.*)/s) || [];
+  if (pause?.reason === "allowance") return Date.parse(pause.until);
+  return pause?.reason === "dependency" && kind === "date" ? Date.parse(target) : NaN;
 }
 
 // The queued tasks the supervisor can start, in the order it starts them

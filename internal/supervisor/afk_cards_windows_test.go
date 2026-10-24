@@ -1,12 +1,17 @@
 package supervisor
 
 import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // The 13:18Z report of 2026-10-14 left eight steps only the Overlord can take,
@@ -107,7 +112,7 @@ func TestAStepThatWasSettledOrStruckBecomesNoCard(t *testing.T) {
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
-	for _, step := range []afk.Entry{hisPlainStep(), hisCommandStep(), {Kind: afk.KindHis, What: "A step logged twice", Evidence: "his own sign-in"}} {
+	for _, step := range []afk.Entry{hisPlainStep(), hisCommandStep(), {Kind: afk.KindHis, What: "A step logged twice", Link: "https://vercel.com/login", Evidence: "his own sign-in"}} {
 		if err := LogAFKDecision(h, step); err != nil {
 			t.Fatal(err)
 		}
@@ -192,5 +197,58 @@ func TestACardStillWaitingSettlesNothing(t *testing.T) {
 	}
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+// A step an older build logged with nothing its card could do it with, as the
+// install steps of 2026-10-18 were, their command in their words alone and no
+// page to take them on, becomes no card when AFK mode turns off: his Done on
+// it would run nothing. The CFO is told which step could not become a card
+// and why, so it puts the step to him as one that acts.
+func TestAStepItsCardCouldNotDoBecomesNoCard(t *testing.T) {
+	// Arrange
+	s, h, _ := asTheCFO(t)
+	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
+		t.Fatal(err)
+	}
+	switched, err := afk.Read(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	install := afk.Entry{At: time.Now().UTC(), Session: switched.Session, Kind: afk.KindHis, What: "Install Code Goblins main-f8f1ee0c, which replaces main-6b7e7bc9", Evidence: "His command: powershell -NoProfile -File update-candidate.ps1 -Short f8f1ee0c"}
+	line, err := json.Marshal(install)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.OpenFile(filepath.Join(h.State, "afk.audit"), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = log.Write(append(line, '\n'))
+	if err := errors.Join(err, log.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if err := LogAFKDecision(h, hisPlainStep()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s.runRequests.Lock()
+	err = s.switchAFKAs("his own board (goblins-window.exe pid 4242)", "", false)
+	s.runRequests.Unlock()
+	questions, runs := cardsOf(s)
+
+	// Assert
+	if err != nil || len(questions) != 1 || len(runs) != 0 || !strings.HasPrefix(questions[0].Text, hisPlainStep().What) {
+		t.Fatalf("off = %v, cards = %+v and %+v, want only the step with its page as a card", err, questions, runs)
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(pending, func(r wake.Record) bool {
+		return strings.Contains(r.Detail, "could not become cards") && strings.Contains(r.Detail, install.What) && strings.Contains(r.Detail, "--link")
+	}) {
+		t.Errorf("wakes = %+v, want the CFO told the install step could not become a card, and why", pending)
 	}
 }

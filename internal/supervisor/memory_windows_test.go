@@ -39,3 +39,22 @@ func TestCommitHoldersReadsThisMachine(t *testing.T) {
 		t.Fatalf("holders = %+v, want named apps, most commit first", holders)
 	}
 }
+
+// The kernel lists its pool tags to a process run without administrator
+// rights, its own process objects under Proc in the nonpaged pool among them.
+func TestPoolTagsReadsThisMachine(t *testing.T) {
+	// Act
+	tags, err := PoolTags()
+
+	// Assert
+	if err != nil {
+		t.Fatalf("PoolTags: %v", err)
+	}
+	process := slices.IndexFunc(tags, func(tag PoolTag) bool { return tag.Tag == "Proc" })
+	if len(tags) < 100 || process < 0 || tags[process].Nonpaged == 0 {
+		t.Fatalf("%d tags, Proc at %d, want a real kernel's tags with its process objects", len(tags), process)
+	}
+	if index := slices.IndexFunc(tags, func(tag PoolTag) bool { return len(tag.Tag) != 4 }); index >= 0 {
+		t.Fatalf("tag %q is not four bytes", tags[index].Tag)
+	}
+}

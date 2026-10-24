@@ -30,6 +30,7 @@ func (s *scriptedCFO) terminal() cfoScreen {
 	shownAt := s.clock
 	return cfoScreen{
 		read: func() ([]string, error) {
+			// stall-accepted: a fake clock, not the runner's.
 			for len(s.screens) > 1 && s.screens[0].lasts > 0 && s.clock.Sub(shownAt) >= s.screens[0].lasts {
 				s.screens, shownAt = s.screens[1:], s.clock
 			}
@@ -50,8 +51,8 @@ func (s *scriptedCFO) terminal() cfoScreen {
 
 var (
 	claudeTrust  = []string{"Is this a project you created or one you trust?", "❯ 1. No, exit", "  2. Yes, I trust this folder"}
-	codexTrust   = []string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit"}
-	codexHooks   = []string{"Hooks need review", "2 hooks are new or changed", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting"}
+	codexTrust   = []string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "", "Press enter to continue"}
+	codexHooks   = []string{"Hooks need review", "2 hooks are new or changed", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting", "", "Press enter to confirm or esc to go back"}
 	claudeWaits  = []string{"> ", "? for shortcuts"}
 	themePicker  = []string{"Let's get started.", "Choose the text style that looks best with your terminal", "> 1. Dark mode"}
 	settleScreen = func(t *testing.T, kind harness.Kind) harness.Screens {
@@ -133,6 +134,7 @@ func TestTheWatchEndsOnceTheScreenSettles(t *testing.T) {
 	settleCFO("claude", settleScreen(t, harness.Claude), terminal.terminal())
 
 	// Assert
+	// stall-accepted: a fake clock, not the runner's.
 	if took := terminal.clock.Sub(time.Unix(0, 0)); took > cfoSettleQuiet+time.Second {
 		t.Errorf("the watch took %s on a settled screen, want about %s", took, cfoSettleQuiet)
 	}
@@ -204,6 +206,7 @@ func TestADialogShownBeforeTheHarnessIsWorkingIsStillAnswered(t *testing.T) {
 	if want := []string{"Answered the hook review prompt in the CFO's terminal: 3. Continue without trusting."}; !slices.Equal(notes, want) {
 		t.Errorf("notes %q, want %q", notes, want)
 	}
+	// stall-accepted: a fake clock, not the runner's.
 	if took := terminal.clock.Sub(time.Unix(0, 0)); took > cfoSettleQuiet {
 		t.Errorf("the watch took %s, want it to end once the turn shows, before the quiet window %s", took, cfoSettleQuiet)
 	}

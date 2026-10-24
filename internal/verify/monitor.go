@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
@@ -228,7 +229,7 @@ func (monitor Monitor) Watch(ctx context.Context, tree MeasuredJob) (Measurement
 			<-timer.C
 		}
 	}
-	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	cleanupContext, cancel := awake.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	usage, spared, cleanupError := tree.EndAndWait(cleanupContext)
 	if cleanupError == nil && len(spared) == 0 && usage.ActiveProcesses != 0 {

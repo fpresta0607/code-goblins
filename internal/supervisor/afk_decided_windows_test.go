@@ -75,7 +75,7 @@ func TestADecisionTheCFOAnsweredIsSettledInHistoryAndHisStepIsACardInTheCommandC
 	decided := decidedLine()
 
 	// Act
-	step := afk.Entry{Kind: afk.KindHis, What: "Sign in to Fly again", Evidence: "his own sign-in. Backlog row cg-fly-token-durable"}
+	step := afk.Entry{Kind: afk.KindHis, What: "Sign in to Fly again", Link: "https://fly.io/app/sign-in", Evidence: "his own sign-in. Backlog row cg-fly-token-durable"}
 	logged := awayAndBack(t, s, h, decided, step)
 
 	// Assert

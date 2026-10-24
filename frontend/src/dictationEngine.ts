@@ -1,6 +1,7 @@
 import { request } from "./api";
 import { speechRecognition, type Capture, type Recognizer } from "./dictation";
 import { DictationSetUp, downsample, localRecognizer, Pieces, type Recording, type Sound } from "./localDictation";
+import { TOUCH_SCREEN } from "./small-screen";
 import { object, string } from "./types";
 import { voiceLevel } from "./voice";
 
@@ -19,7 +20,9 @@ const BROWSER_KEY = "cfo-dictation-browser-v1";
 // The page's one recorder for dictation: an audio context with the capture
 // worklet loaded into it, the worklet's node, and the analyser the bubble's
 // bars read. It is made once, while the page is idle after a terminal or a
-// message box first shows, or else at the first press, and kept: a worklet
+// message box first shows (a second after it in Safari, which has no idle
+// callback, and never where there is no Web Audio), or else at the first
+// press, and kept: a worklet
 // loaded only once the microphone was open lost a dictation's first second,
 // and a context made at the press held the page still for 0.1 to 0.2 s on
 // this PC, while the bubble waited to show that it listened.
@@ -50,12 +53,15 @@ function recorderFor(): Promise<Recorder> {
 }
 
 // prepareDictation makes the recorder while the page is idle, before a press
-// needs it, and leaves it suspended until then.
+// needs it, and leaves it suspended until then. Safari has no idle callback,
+// and calling it there threw from the effect of every view with dictation,
+// which blanked the whole board on an iPhone; there it is made a moment after
+// the view instead. A browser without Web Audio has no recorder to make.
 export function prepareDictation(): void {
-  if (recorder) return;
-  requestIdleCallback(() => {
-    void recorderFor().then(rest, () => undefined);
-  }, { timeout: 5000 });
+  if (recorder || typeof AudioContext === "undefined") return;
+  const prepare = () => void recorderFor().then(rest, () => undefined);
+  if (typeof requestIdleCallback === "function") requestIdleCallback(prepare, { timeout: 5000 });
+  else setTimeout(prepare, 1000);
 }
 
 // The microphone opens at the first press and stays open while the board has
@@ -226,9 +232,10 @@ function store(): Storage | null {
 }
 
 // browserOffered says whether this browser has a speech recognition to fall
-// back on; the desktop app has none.
+// back on; the desktop app has none. Touch dictation records locally because
+// a phone can end browser recognition at a pause and ignore its restart.
 export function browserOffered(): boolean {
-  return !!speechRecognition();
+  return !matchMedia(TOUCH_SCREEN).matches && !!speechRecognition();
 }
 
 // usesBrowser says whether the Overlord turned the browser's speech

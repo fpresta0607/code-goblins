@@ -217,11 +217,22 @@ func (s Service) Scan(ctx context.Context) (ScanResult, error) {
 			continue
 		}
 
+		// A scan whose budget ran out has no answer for the goblins it did not
+		// reach: a lapsed deadline is no evidence about a goblin, so they keep
+		// the observation they have and are inspected on the next scan. The one
+		// whose probe was still waiting when it lapsed is held to the same
+		// grace as any probe that gave no answer.
+		if ctx.Err() != nil {
+			continue
+		}
 		observation, sample := s.classify(ctx, meta, prior, now, &tally)
 		observation = s.idleAtPrompt(ctx, meta, sample, observation, led, now)
 		observation = s.resurfaceDecision(observation, now, led.unanswered(meta.ID))
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return ScanResult{}, ctx.Err()
+		}
+		if s.isRetiring(id) {
+			continue
 		}
 		if err := WriteObservation(s.StateDir, observation); err != nil {
 			return ScanResult{}, err
@@ -302,8 +313,24 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	if s.Probe == nil {
 		return unknownObservation(observation, EndpointUnknown, "monitor probe is unavailable", now), EndpointSample{}
 	}
+	// A look that fails, whether the probe gave no answer or the screen read
+	// failed, can happen while the goblin works on, as one that times out on a
+	// loaded machine does. One failed look keeps the last reading and is made
+	// again on the next scan; only a second failure in a row is an unknown
+	// endpoint.
+	holdOnce := func(why string) bool {
+		if prior.Health == "" || prior.ScreenUnreadSince != nil {
+			return false
+		}
+		observation.ScreenUnreadSince = timePointer(now)
+		tally.suppress(meta.ID, EndpointUnknown, now.Format(time.RFC3339Nano), "one look failed and is made again next scan: "+why, now)
+		return true
+	}
 	sample, err := s.Probe.Inspect(ctx, meta)
 	if err != nil {
+		if holdOnce(err.Error()) {
+			return observation, sample
+		}
 		return unknownObservation(observation, EndpointUnknown, err.Error(), now), sample
 	}
 	// A native task publishes its metadata before its host starts, and the
@@ -317,13 +344,7 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 			return launchingObservation(observation, now), sample
 		}
 	}
-	// A screen read can fail while the goblin works on, as one that times out
-	// on a loaded machine does, so one failed read keeps the last reading and
-	// is read again on the next scan; only a second failure in a row is an
-	// unknown endpoint.
-	if sample.ReadFailed && prior.Health != "" && prior.ScreenUnreadSince == nil {
-		observation.ScreenUnreadSince = timePointer(now)
-		tally.suppress(meta.ID, EndpointUnknown, now.Format(time.RFC3339Nano), "one screen read failed and is read again next scan: "+sample.Detail, now)
+	if sample.ReadFailed && holdOnce(sample.Detail) {
 		return observation, sample
 	}
 	if !sample.ReadFailed {
@@ -1271,6 +1292,24 @@ func (s Service) isRelaunching(meta state.TaskMeta) bool {
 func (s Service) isStoppedOnRequest(meta state.TaskMeta) bool {
 	record, err := state.ReadLifecycle(s.StateDir, meta.ID)
 	return err == nil && record.Generation == meta.SpawnGen && record.Phase == "failed" && (record.Action == "pause" || record.Action == "stop")
+}
+
+// isRetiring reports whether a cleanup holds the task or has retired its
+// record, read once its terminal has been read. A cleanup closes the goblin's
+// terminal and retires the record only seconds later, once its worktree is
+// returned, so a scan that read the record before the cleanup took it read a
+// terminal the cleanup may have closed, and on 2026-10-20 woke the CFO twice
+// to bring back a goblin that was retired (issue #1225). The cleanup holds its
+// lock from before it closes the terminal to after the record is gone, so this
+// read sees the one or the other, and nothing the scan read of the task is
+// kept or raised. A cleanup that refuses lets go of the task, and the next
+// scan reads it again.
+func (s Service) isRetiring(id string) bool {
+	if _, err := os.Stat(state.TaskMetaPath(s.StateDir, id)); errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	holder, err := lock.ReadNamed(s.StateDir, state.CleanupLockName(id))
+	return err == nil && holder.Purpose == state.CleanupPurpose(id) && holder.Alive()
 }
 
 // lifecycleObservation is a goblin a pause, stop or resume accounts for,

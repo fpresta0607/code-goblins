@@ -27,18 +27,23 @@ var icons = map[string]string{
 	"clock":          "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM12 7.5V12l3 2",
 	"close":          "M6 6l12 12M18 6 6 18",
 	"codex":          "M14.02 4.47A4.62 4.62 0 0 1 19.53 9.98 4.62 4.62 0 0 1 17.52 17.52 4.62 4.62 0 0 1 9.98 19.53 4.62 4.62 0 0 1 4.47 14.02 4.62 4.62 0 0 1 6.48 6.48 4.62 4.62 0 0 1 14.02 4.47ZM8.7 9.7l1.5 2.3-1.5 2.3M13 14.3h2.8",
+	"comment":        "M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-7l-4.5 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5Z",
 	"command-center": "M6.5 3.5h11a2.5 2.5 0 0 1 2.5 2.5v7.5a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4a2.5 2.5 0 0 1-2.5-2.5V6a2.5 2.5 0 0 1 2.5-2.5ZM8.5 12.5l-.75-5 2.75 2L12 6.5l1.5 3 2.75-2-.75 5Z",
+	"download":       "M12 4v11M7 10.5l5 5 5-5M5 19.5h14",
 	"drive":          "M3.5 13.5h17M6.3 5.5 3.5 13.5V18A1.5 1.5 0 0 0 5 19.5h14a1.5 1.5 0 0 0 1.5-1.5v-4.5l-2.8-8a1.5 1.5 0 0 0-1.4-1H7.7a1.5 1.5 0 0 0-1.4 1ZM7 16.5h.01M10.5 16.5h.01",
 	"edit":           "m4 16-1 5 5-1L20 8l-4-4ZM14 6l4 4",
 	"external":       "M14 4h6v6M20 4l-8 8M10 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4",
 	"folder":         "M3.5 7a2 2 0 0 1 2-2H9l2 2h7.5a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z",
 	"images":         "M7.5 3.5h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-12a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1ZM3.5 7.5v12a1 1 0 0 0 1 1h12M6.5 14l4-4 3 3 2-2 5 5M15 7.5h.01",
+	"key":            "M14.5 4a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM10.6 13 3.5 20.1M5.5 18.1l2 2M8 15.6l2 2",
+	"lock":           "M7.5 10.5V8a4.5 4.5 0 0 1 9 0v2.5M6 10.5h12a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 19v-7A1.5 1.5 0 0 1 6 10.5ZM12 14.5v2.5",
 	"merge":          "M6 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM6 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM18 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM6 8v8M6 8a6 6 0 0 0 6 6h4",
 	"moon":           "M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z",
 	"next":           "M5 12h14M13 6l6 6-6 6",
 	"pause-circle":   "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM9.5 9v6M14.5 9v6",
 	"pi":             "M5 7h14M9.5 7v11M14.5 7v8.5a2.5 2.5 0 0 0 2.5 2.5",
 	"play":           "M8 5.5v13l11-6.5Z",
+	"question":       "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17ZM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.7M12 16.8v.2",
 	"refresh":        "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4.5H15",
 	"send":           "M20.5 3.5 10.5 13.5M20.5 3.5l-6.5 17-3.5-7-7-3.5Z",
 	"sparkle":        "M12 3.5 13.9 10.1 20.5 12 13.9 13.9 12 20.5 10.1 13.9 3.5 12 10.1 10.1Z",
@@ -93,10 +98,22 @@ type pageView struct {
 	Record   []recordRow
 }
 
+// needRow is one thing that needs him, drawn as the Command Center's waiting
+// row: who asks, what, and for an item in his Command Center its key and the
+// icon its Answer wears there. A step with no item opens its own card.
 type needRow struct {
-	Title, Where, Persona, Item string
-	Body                        []string
+	Title, Who, Persona, Item, Answer string
+	Body                              []string
 }
+
+// answerIcons are the icons the Command Center's Answer wears on a waiting
+// row, by the kind its item key starts with, from CommandCenter.tsx.
+var answerIcons = map[string]string{"question": "question", "review": "comment", "run": "play", "credential": "key", "browser-signin": "lock"}
+
+// releaseUpdate is the key of the board's own release update run, which
+// releases.go names update-<tag>-<16 hex nonce>. The CFO names its own runs,
+// update-node-1 among them, so the prefix alone is no release update.
+var releaseUpdate = regexp.MustCompile(`^run:update-.+-[0-9a-f]{16}$`)
 
 type projectRow struct {
 	Name    string
@@ -171,16 +188,28 @@ func (r Return) view() pageView {
 		switch {
 		case section.Group == GroupNeeds:
 			for _, entry := range section.Entries {
-				v.Needs = append(v.Needs, needRow{Title: entry.What, Where: "Only you can do this", Persona: "cfo", Body: []string{entry.Link, entry.Evidence}})
+				v.Needs = append(v.Needs, needRow{Title: entry.What, Who: "The CFO", Persona: "cfo", Body: []string{entry.Link, entry.Evidence}})
 			}
 		case section.Title == "Merged":
 			v.Merged = len(section.Entries)
 		}
 	}
 	for _, held := range report.Held {
-		if held.Waiting {
-			v.Needs = append(v.Needs, needRow{Item: held.Item, Title: held.What, Where: "In your Command Center", Persona: persona(held.Task), Body: []string{held.Now, held.Meanwhile, Recommends(held.Task, held.Recommendation, true)}})
+		if !held.Waiting {
+			continue
 		}
+		// As the Command Center names who asks: Code Goblins for its own
+		// release update, a run of no task, the goblin, or the CFO for an item
+		// of no task.
+		kind, _, _ := strings.Cut(held.Item, ":")
+		who, face, answer := "The CFO", "cfo", answerIcons[kind]
+		switch {
+		case held.Task == "" && releaseUpdate.MatchString(held.Item):
+			who, face, answer = "Code Goblins", "releases", "download"
+		case held.Task != "":
+			who, face = cmpOr(names[held.Task], held.Task), persona(held.Task)
+		}
+		v.Needs = append(v.Needs, needRow{Item: held.Item, Title: held.What, Who: who, Persona: face, Answer: answer})
 	}
 	for _, project := range r.Walkthrough() {
 		row := projectRow{Name: project.Name}

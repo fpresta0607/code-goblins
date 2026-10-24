@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { leadAndRest, messageBlocks, messageElements, plainMessage } from "./messageText.ts";
+import { leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -18,6 +18,52 @@ test("markup and entities in a question are shown as text, never interpreted; on
   assert.equal(html('<img src=x onerror="alert(1)"> & **<b>bold?</b>**'), '<p>&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; <strong>&lt;b&gt;bold?&lt;/b&gt;</strong></p>');
   assert.equal(html("[link](javascript:alert(1)) `code` _em_"), "<p>[link](javascript:alert(1)) <code>code</code> _em_</p>");
   assert.equal(html("`<script>alert(1)</script>`"), "<p><code>&lt;script&gt;alert(1)&lt;/script&gt;</code></p>");
+});
+
+for (const [name, text, want] of [
+  ["an https address", "Roll it at https://github.com/settings/tokens.", '<p>Roll it at <a class="message-link" href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">https://github.com/settings/tokens</a>.</p>'],
+  ["an http address in brackets", "(page http://127.0.0.1:4387/session/f26e)", '<p>(page <a class="message-link" href="http://127.0.0.1:4387/session/f26e" target="_blank" rel="noreferrer">http://127.0.0.1:4387/session/f26e</a>)</p>'],
+  ["a backticked address", "Open `https://github.com/settings/tokens`", '<p>Open <a class="message-link" href="https://github.com/settings/tokens" target="_blank" rel="noreferrer">https://github.com/settings/tokens</a></p>'],
+  ["a bold address", "**https://example.com/a?b=1**", '<p><strong><a class="message-link" href="https://example.com/a?b=1" target="_blank" rel="noreferrer">https://example.com/a?b=1</a></strong></p>'],
+  ["other schemes", "ftp://example.com, javascript:alert(1) and file:///C:/x", "<p>ftp://example.com, javascript:alert(1) and file:///C:/x</p>"],
+  ["a quote ending an address", 'see "https://example.com/x" now', '<p>see &quot;<a class="message-link" href="https://example.com/x" target="_blank" rel="noreferrer">https://example.com/x</a>&quot; now</p>'],
+] as const) {
+  test(`${name} in a message is a link only when it is http or https`, () => {
+    // Arrange, act
+    const shown = html(text);
+
+    // Assert
+    assert.equal(shown, want);
+  });
+}
+
+test("a line of plain text links its addresses and nothing else", () => {
+  // Arrange, act
+  const shown = renderToStaticMarkup(linkedText("Answered: **done** at https://github.com/example/board/pull/412"));
+
+  // Assert
+  assert.equal(shown, 'Answered: **done** at <a class="message-link" href="https://github.com/example/board/pull/412" target="_blank" rel="noreferrer">https://github.com/example/board/pull/412</a>');
+});
+
+test("phone prose, backticks and History validate Scrawl links while local rendering keeps them local", () => {
+  const review = "http://127.0.0.1:4387/session/existing?mode=notes#answer";
+  const before = Object.getOwnPropertyDescriptor(globalThis, "location");
+  try {
+    for (const [protocol, hostname, href] of [
+      ["http:", "127.0.0.1", review],
+      ["https:", "pc.example.ts.net", "/api/remote/scrawl-link?url=" + encodeURIComponent(review)],
+    ]) {
+      Object.defineProperty(globalThis, "location", { configurable: true, value: { protocol, hostname } });
+      const link = `<a class="message-link" href="${href}" target="_blank" rel="noreferrer">${review}</a>`;
+      assert.equal(html("Review " + review), `<p>Review ${link}</p>`);
+      assert.equal(html("Review `" + review + "`"), `<p>Review ${link}</p>`);
+      assert.equal(renderToStaticMarkup(linkedText("Answered on " + review)), "Answered on " + link);
+      assert.equal(html("https://example.org/session/review"), '<p><a class="message-link" href="https://example.org/session/review" target="_blank" rel="noreferrer">https://example.org/session/review</a></p>');
+    }
+  } finally {
+    if (before) Object.defineProperty(globalThis, "location", before);
+    else Reflect.deleteProperty(globalThis, "location");
+  }
 });
 
 test("a blank line starts a new paragraph and a single line break is kept inside one", () => {
@@ -119,4 +165,47 @@ test("a message that opens with a table has no lead line, so the table stays who
   assert.deepEqual(opensWithTable, { lead: "", rest: table });
   assert.deepEqual(messageBlocks(opensWithTable.rest).map((block) => block.kind), ["table", "paragraph"]);
   assert.deepEqual(opensWithWords, { lead: "Add these records", rest: table });
+});
+
+// The Overlord, 2026-10-17: "if there is a folder, there should be a link to
+// the open the file explorer folder on my PC". A path renders as a link the
+// way the supervisor finds it (internal/supervisor/card_paths.go).
+const linked = (path: string, key: number, isIcon?: boolean) => createElement("a", { key, className: isIcon ? "icon" : undefined }, isIcon ? "" : path);
+
+test("a local path in a card's text is drawn as a link, up to a space and without the punctuation that ends a sentence", () => {
+  // Arrange
+  const step = String.raw`Send the email in C:\dev\code-goblins\data\pd-proxy-primary\iproyal-refund.md.`;
+
+  // Act
+  const drawn = renderToStaticMarkup(createElement("p", null, ...pathElements(step, linked)));
+
+  // Assert
+  assert.equal(drawn, String.raw`<p>Send the email in <a>C:\dev\code-goblins\data\pd-proxy-primary\iproyal-refund.md</a>.</p>`);
+});
+
+// The board and the supervisor find the same paths in the same text, so a
+// link opens the path its card names: internal/supervisor/card_paths.go
+// holds this text too. A closing bracket stays with a path that opened it.
+test("a path keeps a closing bracket it opened and drops one that ends its sentence, as the supervisor finds it", () => {
+  // Arrange
+  const step = String.raw`Install it in C:\apps\tool(v2), not (C:\apps\old).`;
+
+  // Act
+  const drawn = renderToStaticMarkup(createElement("p", null, ...pathElements(step, linked)));
+
+  // Assert
+  assert.equal(drawn, String.raw`<p>Install it in <a>C:\apps\tool(v2)</a>, not (<a>C:\apps\old</a>).</p>`);
+});
+
+test("a code value that is a whole path keeps its copy and gains the path's icon, spaces and all, and text with no path renderer is unchanged", () => {
+  // Arrange
+  const text = String.raw`Keep the notes in ` + "`" + String.raw`C:\Users\fpres\OneDrive - SIQstack\Desktop` + "`" + String.raw` or (D:/CodeGoblins/scratch), not https://example.com/C:\x or 3:4.`;
+
+  // Act
+  const withLinks = renderToStaticMarkup(messageElements(text, undefined, linked));
+  const withoutLinks = html(text);
+
+  // Assert
+  assert.equal(withLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code><a class="icon"></a> or (<a>D:/CodeGoblins/scratch</a>), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
+  assert.equal(withoutLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code> or (D:/CodeGoblins/scratch), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
 });

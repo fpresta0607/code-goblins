@@ -1,6 +1,7 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHistory, parseSize, parseUnread, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { ackDue, ACK_STEP, closedReason, DEFAULT_FONT_SIZE, ended, type FitEvent, followFontSize, fontSizeFor, INPUT_MESSAGE, inputMessages, isWebKit, MAX_FONT_SIZE, MIN_FONT_SIZE, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, PHONE_FONT_SIZE, reconnects, storedFontSize, storeFontSize, usableSize } from "./terminalStream.ts";
+import { SMALL_SCREEN } from "./small-screen.ts";
 
 test("output is acknowledged in steps, and at once when the terminal has caught up", () => {
   const cases: [number, number, number, boolean][] = [
@@ -24,7 +25,8 @@ test("a long paste travels in ordered pieces the relay accepts, and nothing is l
   assert.deepEqual(inputMessages(new Uint8Array()), []);
 });
 
-test("Ctrl with plus, minus or zero sizes the font within bounds, and other keys leave it", () => {
+test("Ctrl with plus, minus or zero sizes the font within bounds, and other keys leave it", (t) => {
+  browser(t);
   assert.equal(fontSizeFor("=", 20), 21);
   assert.equal(fontSizeFor("+", MAX_FONT_SIZE), MAX_FONT_SIZE);
   assert.equal(fontSizeFor("-", 20), 19);
@@ -75,6 +77,18 @@ test("the relay says when key presses sit unread in a busy program's input and w
   for (const text of ['{"type":"unread"}', '{"type":"unread","unread":1}', '{"type":"unread","unread":"true"}', '{"type":"size","cols":100,"rows":30}', '{"type":"history","bytes":0}', "null", "nope"]) assert.equal(parseUnread(text), null, text);
 });
 
+test("the relay says why typing is held while the screen stays live, and when it is free", () => {
+  assert.equal(parseHeld('{"type":"held","reason":"pipeline owns this task"}'), "pipeline owns this task");
+  assert.equal(parseHeld('{"type":"held","reason":""}'), "");
+  for (const text of ['{"type":"held"}', '{"type":"held","reason":1}', '{"type":"unread","unread":true}', '{"type":"history","bytes":0}', "null", "nope"]) assert.equal(parseHeld(text), null, text);
+});
+
+test("the relay says when the harness asks at a screen only its terminal takes, and when it no longer does", () => {
+  assert.equal(parseScreen('{"type":"screen","asking":true}'), true);
+  assert.equal(parseScreen('{"type":"screen","asking":false}'), false);
+  for (const text of ['{"type":"screen"}', '{"type":"screen","asking":1}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
+});
+
 test("a terminal fills its panel with the same padding left, right and below, and its last row at the bottom", () => {
   const cases: { width: number; height: number; cell: { width: number; height: number } }[] = [
     { width: 1574, height: 749.8, cell: { width: 12.04, height: 31 } },
@@ -122,13 +136,15 @@ test("a panel too small for a usable grid, or an unmeasured cell, gives no fit",
 });
 
 // browser gives a test this device's storage, which can refuse writes as a
-// private window does, and the page's window.
-function browser(t: TestContext, items = new Map<string, string>(), isRefused = false) {
+// private window does, the page's window, and its screen: a phone's small
+// one, or a wider one.
+function browser(t: TestContext, items = new Map<string, string>(), isRefused = false, isPhone = false) {
   const storage = { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => { if (isRefused) throw new Error("storage refused"); items.set(key, value); } };
   const view = new EventTarget();
   Object.defineProperty(globalThis, "localStorage", { value: storage, configurable: true });
   Object.defineProperty(globalThis, "window", { value: view, configurable: true });
-  t.after(() => { Reflect.deleteProperty(globalThis, "localStorage"); Reflect.deleteProperty(globalThis, "window"); });
+  Object.defineProperty(globalThis, "matchMedia", { value: (query: string) => ({ matches: isPhone && query === SMALL_SCREEN }), configurable: true });
+  t.after(() => { for (const name of ["localStorage", "window", "matchMedia"]) Reflect.deleteProperty(globalThis, name); });
   return { items, view };
 }
 
@@ -197,4 +213,37 @@ test("a kept size outside 12 to 28 px, or none, draws at 20 px", (t) => {
     // Assert
     assert.equal(drawn, size, String(kept));
   }
+});
+
+test("on a phone a terminal with no size kept draws at 12 px, Ctrl+0 restores 12, and a kept size still wins", (t) => {
+  const cases: [string | null, number][] = [[null, PHONE_FONT_SIZE], ["11", PHONE_FONT_SIZE], ["abc", PHONE_FONT_SIZE], ["20", 20], ["16", 16]];
+  for (const [kept, size] of cases) {
+    // Arrange
+    browser(t, new Map(kept === null ? [] : [["cfo-terminal-font-size", kept]]), false, true);
+
+    // Act
+    const drawn = storedFontSize();
+
+    // Assert
+    assert.equal(drawn, size, String(kept));
+  }
+  assert.equal(fontSizeFor("0", 22), PHONE_FONT_SIZE);
+  assert.equal(PHONE_FONT_SIZE, 12);
+});
+
+test("every iPhone browser and Safari is WebKit, and Chromium and Firefox elsewhere are not", () => {
+  const agents: [string, string, boolean][] = [
+    ["Safari on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1", true],
+    ["Chrome on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/138.0.7204.156 Mobile/15E148 Safari/604.1", true],
+    ["Edge on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 EdgiOS/138.0.3351.83 Mobile/15E148 Safari/605.1.15", true],
+    ["Firefox on an iPhone", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/141.0 Mobile/15E148 Safari/605.1.15", true],
+    ["Safari on a Mac, as an iPad asks for desktop sites too", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15", true],
+    ["the board's window", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0", false],
+    ["Chrome on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36", false],
+    ["Chrome on Android", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36", false],
+    ["Edge on Android", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 EdgA/141.0.0.0", false],
+    ["Playwright's Chromium, which runs the browser tests", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.7390.37 Safari/537.36", false],
+    ["Firefox on Windows", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0", false],
+  ];
+  for (const [name, agent, want] of agents) assert.equal(isWebKit(agent), want, name);
 });

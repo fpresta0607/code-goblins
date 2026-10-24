@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -117,9 +118,16 @@ func Register(stateDir, harness, session string) (string, error) {
 		return "", err
 	}
 	// Plain cfo register names no session. Codex gives every command it runs
-	// its thread, which is the conversation a closed Codex CFO comes back on.
-	if session == "" && primary.Agent == "codex" {
-		session = os.Getenv("CODEX_THREAD_ID")
+	// its thread, and pi 0.85.1 its session, which is the conversation a closed
+	// CFO comes back on. Each reads only its own, since a CFO started inside
+	// another harness's session inherits that one's.
+	if session == "" {
+		switch primary.Agent {
+		case "codex":
+			session = os.Getenv("CODEX_THREAD_ID")
+		case "pi":
+			session = os.Getenv("PI_SESSION_ID")
+		}
 	}
 	// Custody is taken last, so a refused registration changes nothing.
 	if _, _, err := custody.Take(stateDir, ancestry[harnessAt].PID, session, "cfo register"); err != nil {
@@ -176,12 +184,13 @@ func nativeHarness(stateDir, harness string) (primaryRegistration, []proc.Entry,
 		program := ancestry[at].ExeBase
 		harness = strings.TrimSuffix(strings.ToLower(program), ".exe")
 		// Codex and pi install as npm script shims, which a native terminal
-		// runs as cmd /c <name> (spawn.NativeProgram), so cmd's own command
-		// line names the harness.
+		// runs as cmd /c <path> (spawn.NativeProgram), so the base name of
+		// the script cmd's own command line names is the harness.
 		if harness == "cmd" {
 			if identity, err := proc.Identify(ancestry[at].PID, ancestry[at].Start); err == nil && len(identity.Arguments) >= 3 && strings.EqualFold(identity.Arguments[1], "/c") {
-				program += " /c " + identity.Arguments[2]
-				harness = strings.ToLower(identity.Arguments[2])
+				script := identity.Arguments[2]
+				program += " /c " + script
+				harness = strings.ToLower(strings.TrimSuffix(filepath.Base(script), filepath.Ext(script)))
 			}
 		}
 		if harness != "claude" && harness != "codex" && harness != "pi" {
@@ -329,6 +338,11 @@ func LiveCFO(stateDir string) (herdr.Endpoint, bool) {
 // first-run page start the CFO in.
 const NativeCFOTerminal = "cfo"
 
+// CFOLaunchLock serializes starting the CFO, so two starts at once never
+// start two CFOs, and an end a start meets while it holds the lock is that
+// start's, never the automatic comeback's.
+const CFOLaunchLock = ".cfo-launch.lock"
+
 // NativeTerminalRuns reports whether native terminal id's host answers.
 func NativeTerminalRuns(stateDir, id string) bool {
 	record, err := host.ReadRecord(stateDir, id)
@@ -370,6 +384,9 @@ type cfoState struct {
 	since time.Time
 	// harness is the harness the registered CFO runs, as it registered.
 	harness string
+	// session is the board's key of the registered CFO's native session,
+	// harness/id, and empty when its registration names none.
+	session string
 	// identity is the fingerprint of the registration this read found, and
 	// empty when it found none it could read.
 	identity string
@@ -389,6 +406,9 @@ func readCFOState(stateDir string) cfoState {
 	primary, identity, err := readPrimary(stateDir)
 	if err == nil && primary.Process.VerifiedAlive() {
 		cfo := cfoState{registered: true, terminal: primary.Host, harness: primary.Agent, identity: identity}
+		if session := cfoSession(stateDir, primary); session != "" {
+			cfo.session = primary.Agent + "/" + session
+		}
 		if primary.Host != "" {
 			record, err := terminalLeft(stateDir, primary)
 			if err != nil {
@@ -471,7 +491,8 @@ const nativeSubmitSettle = 300 * time.Millisecond
 
 // nativeConfirm bounds how long a delivery to the native CFO waits after
 // submission to be shown taken before the delivery is left sent and awaiting
-// that; nativeConfirmPoll spaces the looks.
+// that, in time the machine ran (awake), since a pause of the whole machine
+// stops the CFO's harness too; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
@@ -532,7 +553,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if err := delivery.Write([]byte(instruction)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
 	}
-	for deadline := time.Now().Add(nativeConfirm); ; {
+	shown, cancelShown := awake.WithTimeout(context.Background(), nativeConfirm)
+	defer cancelShown()
+	for {
 		screen, err := read(record)
 		if err != nil {
 			return Evaluation{}, fmt.Errorf("the message was typed but the CFO's input cannot be read: %w", err)
@@ -543,7 +566,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		if screens.Shows(screen, instruction) {
 			break
 		}
-		if time.Now().After(deadline) {
+		if shown.Err() != nil {
 			return Evaluation{}, errors.New("The answer was typed but never showed in the CFO's input. Inspect its terminal; nothing was submitted.")
 		}
 		select {
@@ -567,7 +590,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	submit := "\r"
 	if primary.Agent == "codex" {
 		// End flushes Codex's paste burst without changing the text; otherwise
-		// Enter can join that paste instead of submitting it.
+		// Enter can join that paste instead of submitting it. It is pressed
+		// once: a Codex can take it late, its text still showing, and an Enter
+		// pressed again would reach it after the answer was submitted.
 		submit = "\x1b[F\r"
 	}
 	if err := delivery.Write([]byte(submit)); err != nil {
@@ -579,8 +604,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	digest := monitor.TextDigest(instruction)
 	session := cfoSession(c.State, primary)
 	conversation := monitor.Conversation{Harness: primary.Agent, Session: session}
-	pressed, presses := time.Now(), 0
-	for deadline := time.Now().Add(nativeConfirm); ; {
+	taken, cancelTaken := awake.WithTimeout(context.Background(), nativeConfirm)
+	defer cancelTaken()
+	for {
 		if busy && conversations().Took(ctx, conversation, digest, submitted) {
 			return Evaluation{Reason: "Taken by the CFO at its next tool call, as its own record of the conversation shows."}, nil
 		}
@@ -597,13 +623,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 		if !busy && !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, which started working on your answer."}, nil
 		}
-		if !busy && !dialog && screens.PasteTakesEnter && !screens.IsWorking(screen) && presses < 3 && time.Since(pressed) >= time.Duration(presses+1)*time.Second && screens.Shows(screen, instruction) {
-			if err := delivery.Write([]byte(submit)); err != nil {
-				return Evaluation{}, fmt.Errorf("the answer is in the CFO's input, and whether its submit key reached it is unknown: %w", err)
-			}
-			pressed, presses = time.Now(), presses+1
-		}
-		if time.Now().After(deadline) {
+		if taken.Err() != nil {
 			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -168,18 +169,24 @@ var (
 	bareKey = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
-type codexAdapter struct{}
+type codexAdapter struct {
+	isNoDaemonAdvertised atomic.Bool
+}
 
-func (codexAdapter) Kind() Kind {
+func (*codexAdapter) Kind() Kind {
 	return Codex
 }
 
-func (codexAdapter) Validate(ctx context.Context, runner execx.Runner) error {
-	_, err := validateExecutable(ctx, runner, "codex", "--version")
-	return err
+func (adapter *codexAdapter) Validate(ctx context.Context, runner execx.Runner) error {
+	result, err := validateExecutable(ctx, runner, "codex", "--help")
+	if err != nil {
+		return err
+	}
+	adapter.isNoDaemonAdvertised.Store(optionAdvertised(string(result.Stdout), "--no-daemon"))
+	return nil
 }
 
-func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
+func (adapter *codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	launch, err := buildBase(spec)
 	if err != nil {
 		return Launch{}, err
@@ -192,10 +199,26 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	// Its animations are off: in a terminal that says it is an xterm, idle
 	// Codex draws braille dots over every empty cell,
 	// the spaces of its composer included, which hides a message it holds.
-	// It draws inline rather than in the alternate screen, as a claude goblin
-	// does, so its history stays in the terminal's scrollback and a drag
-	// selects text.
-	launch.Args = []string{"--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false"}
+	// It draws on its own full screen, as a claude goblin does, which keeps
+	// its composer and footer on the bottom rows while its transcript scrolls
+	// above them; inline, the footer scrolled away with the history and a
+	// short conversation left the composer at the top. A drag there selects
+	// in Codex, which copies the selection when the button is released.
+	// Codex runs the commands its model asks for under an app-server, and
+	// with no word against it joins a shared background server any earlier
+	// Codex on the machine left running. Every process of the launch then
+	// descends from that detached server instead of the terminal the fleet
+	// started, and custody proves a goblin's and the CFO's own processes by
+	// exactly that: the terminal's program among their ancestors, or the
+	// terminal's proof value. On 2026-10-16 a CFO's registration was refused
+	// for hours because its cfo commands descended from a shared app-server
+	// an earlier session had left. --no-daemon keeps each launch on its own
+	// server, under its own terminal, even while another one runs; a Codex
+	// whose help does not list it would refuse it, so it is given none.
+	if adapter.isNoDaemonAdvertised.Load() {
+		launch.Args = append(launch.Args, "--no-daemon")
+	}
+	launch.Args = append(launch.Args, "--dangerously-bypass-approvals-and-sandbox", "-c", "check_for_update_on_startup=false", "-c", "tui.animations=false", "-c", "tui.copy_on_select=always")
 	// A goblin starts none of the operator's MCP servers, as claude's
 	// --strict-mcp-config starts none: each one runs its own processes per
 	// session, qdrant's alone about 900 MB.
@@ -205,6 +228,7 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	for _, name := range spec.CodexMCPServers {
 		launch.Args = append(launch.Args, "-c", "mcp_servers."+name+".enabled=false")
 	}
+	launch.Args = append(launch.Args, spec.CodexHooks...)
 	if hasValue(spec.Model) {
 		launch.Args = append(launch.Args, "--model", spec.Model)
 	}
@@ -219,10 +243,25 @@ func (codexAdapter) Build(spec LaunchSpec) (Launch, error) {
 	return configureSubagents(launch, Codex, spec)
 }
 
+// CodexNoDaemonArgs are the arguments that start the codex on PATH without
+// the shared background server, as a Codex goblin starts: --no-daemon where
+// its help lists it, read from its help as Validate reads it, and none where
+// it does not.
+func CodexNoDaemonArgs(ctx context.Context, runner execx.Runner) ([]string, error) {
+	result, err := validateExecutable(ctx, runner, "codex", "--help")
+	if err != nil {
+		return nil, err
+	}
+	if !optionAdvertised(string(result.Stdout), "--no-daemon") {
+		return nil, nil
+	}
+	return []string{"--no-daemon"}, nil
+}
+
 // Control resumes Codex through its resume subcommand, which is why
 // ResumeArgs lead the argument list: `codex resume --last` continues the most
 // recent recorded session without the picker.
-func (codexAdapter) Control() Control {
+func (*codexAdapter) Control() Control {
 	return Control{
 		StopKeys:    []string{"escape"},
 		StopCommand: "/quit",

@@ -58,7 +58,7 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 			os.Exit(2)
 		}
 	}
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := host.ReadRecord(stateDir, os.Getenv(host.IDVariable)); err == nil {
 			break
 		}
@@ -84,13 +84,13 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 		record("error", err.Error())
 		os.Exit(2)
 	}
-	busy := mode == "busy"
+	busy, slow := mode == "busy", mode == "slow"
 	draw := func(text string) {
-		status := "100% context left"
+		status := ""
 		if busy {
-			status = "• Working (1s • esc to interrupt)"
+			status = "• Working (1s • esc to interrupt)\r\n"
 		}
-		fmt.Print("\x1b[2J\x1b[H› " + text + "\r\n" + status)
+		fmt.Print("\x1b[2J\x1b[H" + status + "› " + text + "\r\n100% context left")
 	}
 	draw("Ask Codex to do anything")
 	record("ready", mode)
@@ -167,6 +167,13 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 					draw(draft.String())
 					continue
 				}
+				if slow {
+					// A loaded runner can leave an idle Codex taking its submit
+					// key well after it arrived, while the composer still shows
+					// the text, yet in time for the board to see it taken.
+					time.Sleep(nativeConfirm / 2)
+					slow = false
+				}
 				record("submitted", draft.String())
 				if busy {
 					queued = draft.String()
@@ -209,7 +216,7 @@ func codexSubmitEvents(t *testing.T, path string) []codexSubmitEvent {
 }
 
 func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
-	for _, mode := range []string{"idle", "busy"} {
+	for _, mode := range []string{"idle", "slow", "busy"} {
 		t.Run(mode, func(t *testing.T) {
 			records := useConversations(t)
 			store, _ := testStore(t)
@@ -221,7 +228,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 			output := filepath.Join(t.TempDir(), "events.jsonl")
 			release := filepath.Join(t.TempDir(), "turn-ended")
 			terminal := hostProgram(t, store.Home.State, "cfo", output, program, "-test.run=^TestNativeCodexSubmitProgram$", "--", "codex-submit-program", store.Home.State, output, release, mode)
-			for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 				if events := codexSubmitEvents(t, output); len(events) > 0 && events[0].Kind == "ready" {
 					break
 				}
@@ -230,7 +237,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 				}
 			}
 			identity := registrationIdentity(t, store.Home.State)
-			if err := store.Ingest(); err != nil {
+			if _, err := store.Ingest(); err != nil {
 				t.Fatal(err)
 			}
 			question := Question{ID: "multiline-decision", Identity: identity, Text: "Choose the recovery approach.\nKeep the existing conversation.\nDo not replay its old answer.", Options: []string{"Fix native submission", "Hold it"}, CreatedAt: time.Now().UTC()}
@@ -278,7 +285,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 				events = codexSubmitEvents(t, output)
 				var consumed []codexSubmitEvent
 				for _, event := range events {
@@ -299,7 +306,7 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 			}
 			// Codex records the decision it took in the session's rollout.
 			takenInRecord(t, records, "codex", "codex-submit-session", "", want)
-			if err := store.Ingest(); err != nil {
+			if _, err := store.Ingest(); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.settleDeliveries(time.Now(), service.lookAtTerminal); err != nil {

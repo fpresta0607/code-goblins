@@ -83,8 +83,10 @@ type CredentialRequest struct {
 	By       string `json:"by"`
 	// Task is the goblin that needs the values: the asker, or the goblin the
 	// CFO asked for.
-	Task    string `json:"task,omitempty"`
-	Project string `json:"project"`
+	Task           string `json:"task,omitempty"`
+	Project        string `json:"project"`
+	TaskGeneration string `json:"task_generation,omitempty"`
+	GrantService   string `json:"grant_service,omitempty"`
 	// Repository is the checkout the project scope is named for, when it is
 	// on this machine.
 	Repository string `json:"repository,omitempty"`
@@ -101,6 +103,8 @@ type CredentialRequest struct {
 	Link   string            `json:"link,omitempty"`
 	// Steps say how to get the values, in order, for the card's header.
 	Steps []string `json:"steps,omitempty"`
+	// Mail is a message the card gives him to send himself, such as an email.
+	Mail *Mail `json:"mail,omitempty"`
 	// Window says the step happens inside the goblin's own browser session,
 	// which the card's button brings to him; WindowState is "" while the
 	// button is offered, "requested" once he pressed it and "open" once the
@@ -170,13 +174,17 @@ func (r CredentialRequest) clone() CredentialRequest {
 		fetch.Names = slices.Clone(r.Fetch.Names)
 		r.Fetch = &fetch
 	}
+	if r.Mail != nil {
+		mail := *r.Mail
+		r.Mail = &mail
+	}
 	return r
 }
 
 // sameCredentialRequest reports whether two filings ask the same thing, so a
 // retry of one changes nothing.
 func sameCredentialRequest(a, b CredentialRequest) bool {
-	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.Project == b.Project && a.Repository == b.Repository && a.EnvFile == b.EnvFile && slices.Equal(a.Names, b.Names) && slices.Equal(a.Plain, b.Plain) && maps.Equal(a.Labels, b.Labels) && a.Why == b.Why && a.Link == b.Link && slices.Equal(a.Steps, b.Steps) && a.Window == b.Window
+	return a.Identity == b.Identity && a.By == b.By && a.Task == b.Task && a.TaskGeneration == b.TaskGeneration && a.GrantService == b.GrantService && a.Project == b.Project && a.Repository == b.Repository && a.EnvFile == b.EnvFile && slices.Equal(a.Names, b.Names) && slices.Equal(a.Plain, b.Plain) && maps.Equal(a.Labels, b.Labels) && a.Why == b.Why && a.Link == b.Link && slices.Equal(a.Steps, b.Steps) && sameMail(a.Mail, b.Mail) && a.Window == b.Window
 }
 
 // inputs are every name a request asks for: its secrets, then its plain
@@ -202,11 +210,12 @@ func validCredentialRequest(r CredentialRequest) error {
 }
 
 // CredentialRequestProblem refuses anything but names, their labels, a
-// reason, a page to open and the steps to take there. A card asks for at
-// least one input, gives a page or gives a step. A name, a label, a reason, a
-// link or a step shaped like a credential value is refused, and no refusal
-// repeats what it refused. A window is the goblin's own browser, so it needs
-// the goblin and the page to show in it.
+// reason, a page to open, the steps to take there and a message to send. A
+// card asks for at least one input, gives a page, a step or a message. A
+// name, a label, a reason, a link, a step or a message shaped like a
+// credential value is refused, and no refusal repeats what it refused. A
+// window is the goblin's own browser, so it needs the goblin and the page to
+// show in it.
 func CredentialRequestProblem(r CredentialRequest) error {
 	inputs := r.inputs()
 	switch {
@@ -224,8 +233,12 @@ func CredentialRequestProblem(r CredentialRequest) error {
 		return envFileNameProblem(r.EnvFile)
 	case len(inputs) > maxCredentialNames:
 		return fmt.Errorf("a credential request asks for at most %d names", maxCredentialNames)
-	case len(inputs) == 0 && r.Link == "" && len(r.Steps) == 0:
-		return errors.New("a card asks for a name, gives a page to open or gives a step")
+	case r.GrantService != "" && (r.Task == "" || len(inputs) > 0 || r.Link != "" || len(r.Steps) > 0 || r.Mail != nil || r.Window || r.EnvFile != ""):
+		return errors.New("a grant card names one task and service, with no inputs or browser steps")
+	case r.GrantService != "" && (len(r.GrantService) > 100 || strings.ContainsAny(r.GrantService, " \t\r\n") || auth.SecretShape(r.GrantService) != ""):
+		return errors.New("a grant card takes a service name, never a credential value")
+	case len(inputs) == 0 && r.Link == "" && len(r.Steps) == 0 && r.Mail == nil && r.GrantService == "":
+		return errors.New("a card asks for a name, gives a page to open, a step or a message to send")
 	case r.Window && (r.Task == "" || r.Link == ""):
 		return errors.New("a card's window is its goblin's own browser, so it names the goblin's task and the page to show")
 	}
@@ -275,6 +288,9 @@ func CredentialRequestProblem(r CredentialRequest) error {
 			}
 		}
 	}
+	if err := mailProblem(r.Mail); err != nil {
+		return err
+	}
 	if r.Link != "" {
 		return validCredentialLink(r.Link)
 	}
@@ -308,6 +324,9 @@ func FileCredentialRequest(h home.Home, r CredentialRequest) (CredentialRequest,
 	}
 	r.ID = "cred-" + hex.EncodeToString(random[:])
 	if r.Task != "" {
+		if meta, err := state.ReadTaskMeta(h.State, r.Task); err == nil {
+			r.TaskGeneration = meta.SpawnGen
+		}
 		if meta, goblinErr := goblinAsker(h.State, r.Task); goblinErr == nil {
 			r.Identity, r.By = goblinIdentity(meta), "goblin"
 			return r, spoolCredentialRequest(h.State, r)
@@ -421,6 +440,23 @@ func (s *Service) acceptCredentialRequest(r CredentialRequest) (CredentialReques
 	r.WindowState, r.Values, r.Received = "", nil, nil
 	if err := validCredentialRequest(r); err != nil {
 		return r, err
+	}
+	if r.Task != "" && r.TaskGeneration == "" {
+		if meta, err := state.ReadTaskMeta(s.Store.Home.State, r.Task); err == nil {
+			r.TaskGeneration = meta.SpawnGen
+		}
+	}
+	if r.GrantService != "" {
+		if _, err := s.credentialGrantTask(r); err != nil {
+			return r, err
+		}
+		manifest, err := auth.LoadManifest(s.Store.Home.Data, r.Project)
+		if err != nil {
+			return r, err
+		}
+		if len(manifest.Grant(auth.Need{Services: []string{r.GrantService}}).Unknown) > 0 {
+			return r, errors.New("the task's project does not declare that service")
+		}
 	}
 	if r.EnvFile != "" {
 		if err := EnvFileProblem(context.Background(), r.Repository, r.EnvFile); err != nil {
@@ -542,7 +578,10 @@ type credentialSave struct {
 	Generation string            `json:"generation"`
 	Values     map[string]string `json:"values"`
 	Replace    []string          `json:"replace"`
-	isFetched  bool
+	// NotSecret names the plain fields whose values he says are no secret,
+	// so a value shaped like a key goes to the goblin anyway.
+	NotSecret []string `json:"not_secret"`
+	isFetched bool
 }
 
 // credentialOutcome is a save's answer: names and states, never a value.
@@ -560,6 +599,9 @@ type credentialRefusal struct {
 	status   int
 	Message  string   `json:"error"`
 	Existing []string `json:"existing,omitempty"`
+	// LooksLikeKey says a plain value was refused for its shape, so the card
+	// can offer him to say it is no secret.
+	LooksLikeKey bool `json:"looks_like_key,omitempty"`
 }
 
 func (r credentialRefusal) Error() string { return r.Message }
@@ -632,6 +674,12 @@ func (h *HTTP) saveCredentials(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "Send one save: the request's ID and generation, and a value for each name.")
 		return
 	}
+	if card, found := h.Service.Store.credential(input.ID); found && card.TaskGeneration != "" && slices.ContainsFunc(card.Names, func(name string) bool { _, hasValue := input.Values[name]; return hasValue }) {
+		if _, err := h.Service.overlordsBoard(r, h.Host, time.Now(), grantingBoard); err != nil {
+			h.refuse(w, http.StatusForbidden, "credentials", "A task credential save on a board was refused", "", err)
+			return
+		}
+	}
 	outcome, err := h.Service.saveCredentials(input)
 	var refusal credentialRefusal
 	switch {
@@ -695,8 +743,8 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 			return refuse(http.StatusBadRequest, name+" holds a line break or a tab. Type it as one line. Nothing was sent.")
 		case slices.ContainsFunc(strings.Fields(value), func(word string) bool {
 			return auth.IsKeyValue(word) || auth.SecretShape(word) != "" && !strings.Contains(word, "=")
-		}):
-			return refuse(http.StatusBadRequest, name+" looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field.")
+		}) && !slices.Contains(input.NotSecret, name) && !auth.PlainIdentifier(name, strings.TrimSpace(value)):
+			return credentialOutcome{}, credentialRefusal{status: http.StatusBadRequest, LooksLikeKey: true, Message: name + " looks like a key, and this field goes to the goblin. Nothing was sent. A secret goes only in a hidden field."}
 		}
 	}
 	for _, name := range names {
@@ -741,6 +789,10 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	if request.EnvFile != "" {
 		written, unwritten = writeEnvFile(request, input.Values, saved)
 	}
+	grantReason := ""
+	if !input.isFetched {
+		grantReason = s.grantSavedCredentials(request, saved)
+	}
 	now := time.Now().UTC()
 	updated, err := s.Store.updateCredential(request.ID, func(r *CredentialRequest) {
 		for _, name := range saved {
@@ -772,6 +824,9 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 		if unwritten != "" {
 			reasons = append(reasons, unwritten)
 		}
+		if grantReason != "" {
+			reasons = append(reasons, grantReason)
+		}
 		if len(reasons) > 0 {
 			r.Reason = strings.Join(reasons, "; ")
 		}
@@ -791,6 +846,11 @@ func (s *Service) saveCredentials(input credentialSave) (credentialOutcome, erro
 	})
 	if err != nil {
 		return credentialOutcome{}, fmt.Errorf("stored %s, but the board could not record it: %w", strings.Join(slices.Concat(saved, plain), ", "), err)
+	}
+	if updated.State == "saved" {
+		if err := s.Store.closeWaitsForCard(updated, "overlord"); err != nil {
+			s.publish(err)
+		}
 	}
 	s.credentialWork.Add(1)
 	go s.afterCredentialSave(updated, saved, plain)
@@ -902,6 +962,12 @@ func (h *HTTP) openCredentialTerminal(w http.ResponseWriter, r *http.Request) {
 	if err := decodeBody(w, r, &input, 4096); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if card, found := h.Service.Store.credential(input.ID); found && card.TaskGeneration != "" {
+		if _, err := h.Service.overlordsBoard(r, h.Host, time.Now(), grantingBoard); err != nil {
+			h.refuse(w, http.StatusForbidden, "credentials", "A task credential terminal on a board was refused", "", err)
+			return
+		}
 	}
 	run, err := h.Service.credentialTerminal(input)
 	var refusal credentialRefusal
@@ -1021,6 +1087,7 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 		}
 		written, unwritten = writeEnvFile(request, values, typed)
 	}
+	grantReason := s.grantSavedCredentials(request, typed)
 	now := time.Now().UTC()
 	updated, err := s.Store.updateCredential(request.ID, func(c *CredentialRequest) {
 		for _, name := range typed {
@@ -1042,6 +1109,9 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 		if unwritten != "" {
 			c.Reason = unwritten
 		}
+		if grantReason != "" {
+			c.Reason = strings.TrimSpace(c.Reason + " " + grantReason)
+		}
 		if (finished || !slices.ContainsFunc(c.Names, func(name string) bool { return !slices.Contains(c.Saved, name) })) && !slices.ContainsFunc(c.Plain, func(name string) bool { return !slices.Contains(c.Received, name) }) {
 			c.State, c.ClosedAt = "saved", &now
 		}
@@ -1050,12 +1120,20 @@ func (s *Service) credentialTerminalEnded(r Run, code *int) {
 		s.publish(err)
 		return
 	}
+	if updated.State == "saved" {
+		if err := s.Store.closeWaitsForCard(updated, "overlord"); err != nil {
+			s.publish(err)
+		}
+	}
 	detail := strings.Join(typed, ", ") + " stored for " + request.Project + " in a terminal on this PC (" + request.ID + "); cfo auth store refreshed the project's running goblins itself"
 	if len(written) > 0 {
 		detail += "; " + strings.Join(written, ", ") + " written to " + request.EnvFile
 	}
 	if unwritten != "" {
 		detail += "; " + unwritten
+	}
+	if grantReason != "" {
+		detail += "; " + grantReason
 	}
 	if updated.State == "open" {
 		detail += "; the card still asks for " + strings.Join(stillAsked(updated), ", ")

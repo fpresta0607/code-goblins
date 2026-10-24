@@ -146,6 +146,9 @@
     # the session it runs in open.
     trap {
         Write-Detail ($_ | Out-String)
+        if ($dictation -and -not $dictation.HasExited) {
+            $dictation.Kill()
+        }
         Write-Plain "Failed: $($_.Exception.Message)"
         Complete-Removal
         Write-Plain "The full log is $log"
@@ -244,7 +247,8 @@
     }
 
     # Save-VerifiedRelease downloads the release's cfo.exe into $Folder, and
-    # its desktop window when the release's SHA256SUMS lists one, keeping each
+    # its desktop window and its hook program when the release's SHA256SUMS
+    # lists them, keeping each
     # only when it matches its sum and, where this script names the release's
     # publisher, is validly signed by it. It returns $false when the release
     # cannot be downloaded at all, and throws on a mismatch before anything
@@ -260,6 +264,9 @@
                 if (Read-ReleaseChecksum $sums "goblins-window.exe") {
                     $names += "goblins-window.exe"
                 }
+                if (Read-ReleaseChecksum $sums "cfo-hook.exe") {
+                    $names += "cfo-hook.exe"
+                }
                 foreach ($name in $names) {
                     $expected[$name] = Read-ReleaseChecksum $sums $name
                     Invoke-WebRequest -Uri "$releaseBase/$name" -OutFile (Join-Path $Folder "$name.download") -UseBasicParsing
@@ -274,29 +281,7 @@
                 Write-Detail "This copy of the install script names no publisher, so the download is checked against the release's SHA256SUMS only."
             }
             foreach ($name in $names) {
-                $download = Join-Path $Folder "$name.download"
-                $actual = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash
-                if (-not $expected[$name] -or $actual -ne $expected[$name]) {
-                    # The hashes go on a line of their own: PowerShell 7 wraps
-                    # a long error across its error view.
-                    Write-Detail "SHA256 of the download: $actual; the release's SHA256SUMS lists: '$($expected[$name])'"
-                    throw "The downloaded $name does not match the release's checksum, so nothing was installed. Try again in a few minutes."
-                }
-                $signed = ""
-                if ($releasePublisher) {
-                    $signature = Get-AuthenticodeSignature -LiteralPath $download
-                    $signer = ""
-                    if ($signature.SignerCertificate) {
-                        $signer = $signature.SignerCertificate.GetNameInfo("SimpleName", $false)
-                    }
-                    if ($signature.Status -ne "Valid" -or $signer -ne $releasePublisher) {
-                        Write-Detail "Signature of the download: $($signature.Status), by '$signer'; the release is signed by '$releasePublisher'"
-                        throw "The downloaded $name is not signed by $releasePublisher, so nothing was installed. Try again in a few minutes."
-                    }
-                    $signed = " and its signature by $releasePublisher"
-                }
-                Move-Item -LiteralPath $download -Destination (Join-Path $Folder $name) -Force
-                Write-Detail "Verified $name against the release's SHA256SUMS ($actual)$signed."
+                Confirm-ReleaseFile (Join-Path $Folder "$name.download") $name $expected[$name] "nothing was installed"
             }
             return $true
         }
@@ -304,6 +289,36 @@
             $leftovers = @($sums) + @($names | ForEach-Object { Join-Path $Folder "$_.download" })
             Remove-Item -LiteralPath $leftovers -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    # Confirm-ReleaseFile keeps $Download, the release's $Name just downloaded,
+    # as $Name beside it, once it matches $Expected, its sum in the release's
+    # SHA256SUMS, and, where this script names the release's publisher, is
+    # validly signed by it. Otherwise it throws, saying that $Outcome, before
+    # anything downloaded is run.
+    function Confirm-ReleaseFile([string]$Download, [string]$Name, [string]$Expected, [string]$Outcome) {
+        $actual = (Get-FileHash -LiteralPath $Download -Algorithm SHA256).Hash
+        if (-not $Expected -or $actual -ne $Expected) {
+            # The hashes go on a line of their own: PowerShell 7 wraps a long
+            # error across its error view.
+            Write-Detail "SHA256 of the download: $actual; the release's SHA256SUMS lists: '$Expected'"
+            throw "The downloaded $Name does not match the release's checksum, so $Outcome. Try again in a few minutes."
+        }
+        $signed = ""
+        if ($releasePublisher) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $Download
+            $signer = ""
+            if ($signature.SignerCertificate) {
+                $signer = $signature.SignerCertificate.GetNameInfo("SimpleName", $false)
+            }
+            if ($signature.Status -ne "Valid" -or $signer -ne $releasePublisher) {
+                Write-Detail "Signature of the download: $($signature.Status), by '$signer'; the release is signed by '$releasePublisher'"
+                throw "The downloaded $Name is not signed by $releasePublisher, so $Outcome. Try again in a few minutes."
+            }
+            $signed = " and its signature by $releasePublisher"
+        }
+        Move-Item -LiteralPath $Download -Destination (Join-Path (Split-Path -Parent $Download) $Name) -Force
+        Write-Detail "Verified $Name against the release's SHA256SUMS ($actual)$signed."
     }
 
     # Get-UserEnvironment returns the user-scope variable $Name. Where
@@ -401,6 +416,10 @@
                 if ((Invoke-Logged "npm.cmd" @("--prefix", "frontend", "ci")) -ne 0) { throw "npm ci in frontend failed: $($lastLine.Text)" }
                 if ((Invoke-Logged "npm.cmd" @("--prefix", "frontend", "run", "build")) -ne 0) { throw "npm run build in frontend failed: $($lastLine.Text)" }
                 if ((Invoke-Logged "go" @("build", "-trimpath", "-o", $dest, "./cmd/cfo")) -ne 0) { throw "go build failed: $($lastLine.Text)" }
+                # The hook program is the same cfo built as a program with no
+                # console, which Windows starts with no console host of its own
+                # for each of a goblin's hooks.
+                if ((Invoke-Logged "go" @("build", "-trimpath", "-o", (Join-Path $build "cfo-hook.exe"), "-ldflags", "-H windowsgui", "./cmd/cfo")) -ne 0) { throw "go build of the hook program failed: $($lastLine.Text)" }
                 # -H windowsgui: the window is a program with no console.
                 # production: as a release builds it, with no developer tools and
                 # no browser menu on a right click.
@@ -410,8 +429,8 @@
                 Pop-Location
             }
             # Said plainly, because nothing else will: a build from source has no
-            # publisher, and no release is signed yet.
-            Write-Detail "These programs are unsigned: they were built on this PC from this clone, and Code Goblins has no signed release yet."
+            # publisher, though every release from v0.5.2 on is signed.
+            Write-Detail "These programs are unsigned: they were built on this PC from this clone, while Code Goblins' releases from v0.5.2 on are signed by SIQstack LLC."
             Write-Detail "Windows runs a program built here without asking. A copy taken to another PC is unsigned there too: SmartScreen may show ""Windows protected your PC"" with an unknown publisher, where More info and then Run anyway starts it, and Smart App Control, where it is on, blocks it."
 
             # cfo install puts the window built beside it in the home.
@@ -458,6 +477,30 @@
     # not abort the install. Real failures are detected explicitly via exit
     # codes and existence checks instead.
     $ErrorActionPreference = "Continue"
+
+    # Dictation's speech engine and model, 483 MB the first time, need
+    # nothing the tools below install, so the home's build downloads them
+    # beside the tools, out of sight, and the install waits for it where it
+    # once ran it, after them: on a GitHub runner on 2026-10-18 it took 76 s
+    # of a fresh install's 298. What it prints goes to the log once it has
+    # ended. It runs on the install's own console, as the install ran it
+    # before, so an interrupt that ends the install ends it too.
+    $dictation = $null
+    try {
+        $start = New-Object System.Diagnostics.ProcessStartInfo
+        $start.FileName = $dest
+        $start.Arguments = "dictation setup"
+        $start.UseShellExecute = $false
+        $start.RedirectStandardOutput = $true
+        $start.RedirectStandardError = $true
+        $dictation = [Diagnostics.Process]::Start($start)
+        # Both streams are read as they come, so a full one never stops it.
+        $dictationOutput = $dictation.StandardOutput.ReadToEndAsync()
+        $dictationErrors = $dictation.StandardError.ReadToEndAsync()
+    }
+    catch {
+        Write-Detail "Dictation's setup did not start: $($_.Exception.Message)"
+    }
 
 
     # Add-UserPath puts $Folder on this session's PATH and on the user's, where
@@ -526,12 +569,18 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # no-mistakes gates every goblin's work, so the fleet runs the release
-    # pinned here. It is downloaded from the release itself, never through
-    # GitHub's API, which answers an anonymous caller 60 times an hour and
-    # failed the install on shared CI runners. Moving the pin forward and
-    # rerunning the install updates a machine to it.
-    $noMistakesVersion = "1.75.1"
+    # no-mistakes gates every goblin's work, so the fleet runs the build
+    # pinned here: the commit of the no-mistakes fork whose axi run takes a
+    # gate's intent from a file and the launch selection every gate cfo
+    # pipeline run starts gives it (docs/pipeline.md), and the version that
+    # build reports. Each release builds it from that commit with
+    # tools\build-no-mistakes.ps1, signs it as it signs its own programs and
+    # publishes it beside them, and the install takes it from there, so no
+    # unsigned program reaches a machine and moving the pin moves every
+    # machine the next release installs.
+    $noMistakesVersion = "1.88.0-24-gbcbb444"
+    $noMistakesRepository = "fpresta0607/no-mistakes"
+    $noMistakesCommit = "bcbb444ae2eb15b6db349b29f73252f63ebcb0d2"
     # Every package this install fetches from npm, the skills CLI among
     # them, is pinned to an exact version, so a release upstream reaches
     # users only when it is pinned here. On 2026-10-06 the skills CLI 1.7.1
@@ -547,42 +596,71 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # no-mistakes' own installer and its update put it.
     $noMistakesProgram = Join-Path $env:LOCALAPPDATA "no-mistakes\no-mistakes.exe"
 
-    # Read-NoMistakesVersion returns the version $Program reports, such as
-    # 1.75.1, or "" when it reports none. Only stdout holds the version:
-    # stderr may carry an update notice that names another.
-    function Read-NoMistakesVersion([string]$Program) {
-        if ((& $Program --version 2>$null | Out-String) -match '(?m)^no-mistakes version v(\d+\.\d+\.\d+)(\s|$)') {
-            return $Matches[1]
+    # Get-NoMistakesOrder orders a no-mistakes version as git describe names
+    # a build: by its release, then by how many commits past it the build is,
+    # so v1.88.0-20-g1234567 comes before v1.88.0-24-gbcbb444 and a release
+    # before every build past it.
+    function Get-NoMistakesOrder([string]$Version) {
+        $parts = [regex]::Match($Version, '^(\d+\.\d+\.\d+)(-(\d+)-g[0-9a-f]+)?')
+        $distance = if ($parts.Groups[3].Success) { $parts.Groups[3].Value } else { "0" }
+        return [version]"$($parts.Groups[1].Value).$distance"
+    }
+
+    # Test-NoMistakes says what keeps $Program from gating the fleet's work
+    # as the pinned build does, or "" when nothing does: it must run, its axi
+    # run must take a gate's intent from a file and a launch selection, and a
+    # version it reports must be no older than the pin's. A no-mistakes that
+    # takes the intent only on its command line puts prose naming a shell
+    # there, which Microsoft Defender detects as a lure, and one with no
+    # launch selection refuses every gate of a task frozen at policy v6. A
+    # build that reports no version of that shape, such as one built by hand,
+    # is judged by what it does alone. Only stdout holds the version: stderr
+    # may carry an update notice that names another.
+    function Test-NoMistakes([string]$Program) {
+        $said = & $Program --version 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0 -or $said -notmatch '(?m)^no-mistakes version ') {
+            return "$Program did not run"
+        }
+        $version = ""
+        if ($said -match '(?m)^no-mistakes version v(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)(\s|$)') {
+            $version = $Matches[1]
+        }
+        if ($version -and (Get-NoMistakesOrder $version) -lt (Get-NoMistakesOrder $noMistakesVersion)) {
+            return "$Program is v$version, older than the pinned v$noMistakesVersion"
+        }
+        $help = & $Program help axi run 2>$null | Out-String
+        $missing = @("--intent-file", "--launch-assertion" | Where-Object { -not $help.Contains($_) })
+        if ($missing.Count -gt 0) {
+            return "no-mistakes $(if ($version) { "v$version " })at $Program has no $($missing -join ' and '), which the fleet's gate needs"
         }
         return ""
     }
 
-    # Install-NoMistakes installs the pinned no-mistakes release from $Release,
-    # its download folder, as the managed copy, once the archive matches the
-    # release's checksums.txt, and starts its daemon. An older managed copy's
-    # daemon is stopped first; no-mistakes refuses that while a gate runs, and
-    # the older copy then stays as it is.
-    function Install-NoMistakes([string]$Release) {
-        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
-        $archive = "no-mistakes-v$noMistakesVersion-windows-$arch.zip"
+    # Install-NoMistakes puts the pinned build in place as the managed copy:
+    # the release's no-mistakes.exe, once it matches the release's SHA256SUMS
+    # and its publisher's signature, or, in a clone, which has no release, the
+    # pinned commit built by tools\build-no-mistakes.ps1. The copy it replaces
+    # has its daemon stopped first; no-mistakes refuses that while a gate
+    # runs, and that copy then stays as it is. It starts the daemon and checks
+    # that what it put there gates as the fleet needs.
+    function Install-NoMistakes {
         $target = $noMistakesProgram
         $folder = Split-Path -Parent $target
         $download = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Path $download | Out-Null
         try {
-            Save-Download "$Release/$archive" (Join-Path $download $archive)
-            Save-Download "$Release/checksums.txt" (Join-Path $download "checksums.txt")
-            $expected = Read-ReleaseChecksum (Join-Path $download "checksums.txt") $archive
-            $actual = (Get-FileHash -LiteralPath (Join-Path $download $archive) -Algorithm SHA256).Hash
-            if (-not $expected -or $actual -ne $expected) {
-                Write-Detail "SHA256 of the download: $actual; the release's checksums.txt lists: '$expected'"
-                throw "The downloaded $archive does not match the release's checksums.txt, so it was not installed."
-            }
-            Write-Detail "Verified $archive against the release's checksums.txt ($actual)."
-            Expand-Archive -LiteralPath (Join-Path $download $archive) -DestinationPath $download -ErrorAction Stop
             $program = Join-Path $download "no-mistakes.exe"
-            if (-not (Test-Path -LiteralPath $program -PathType Leaf)) {
-                throw "$archive holds no no-mistakes.exe, so it was not installed."
+            if ($Dev) {
+                $windowsPowerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+                $code = Invoke-Logged $windowsPowerShell @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $scriptFolder "tools\build-no-mistakes.ps1"), "-Destination", $program)
+                if ($code -ne 0) {
+                    throw "tools\build-no-mistakes.ps1 exited with code ${code}: $($lastLine.Text)"
+                }
+            }
+            else {
+                Save-Download "$releaseBase/SHA256SUMS" (Join-Path $download "SHA256SUMS")
+                Save-Download "$releaseBase/no-mistakes.exe" "$program.download"
+                Confirm-ReleaseFile "$program.download" "no-mistakes.exe" (Read-ReleaseChecksum (Join-Path $download "SHA256SUMS") "no-mistakes.exe") "it was not installed"
             }
 
             # A no-mistakes command still running holds its program, which can
@@ -613,6 +691,10 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         if ((Invoke-Logged $target @("daemon", "start")) -ne 0) {
             throw "no-mistakes v$noMistakesVersion is installed, but its daemon did not start; run: no-mistakes daemon start"
         }
+        $problem = Test-NoMistakes $target
+        if ($problem) {
+            throw $problem
+        }
     }
 
     # The toolchain mirrors `cfo doctor`; its hints are the source of truth for
@@ -621,7 +703,8 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # execution policy, where the npm.ps1 shim is refused by the default one and
     # the one-line install cannot set it. Kind says how a missing tool gets
     # installed:
-    #   winget     - a winget package (needs winget)
+    #   winget     - a winget package (needs winget), for this user alone,
+    #                so its installer asks for no administrator
     #   npm        - a global npm package (needs npm, i.e. Node.js)
     #   npm-file   - a global npm package from a release file, which npm would
     #                install unchecked: the file is downloaded here and handed
@@ -631,20 +714,21 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     #                install. It is never run as a download-and-run one-liner
     #                (irm <url> | iex) on a child's command line, which
     #                Defender blocks as Trojan:Win32/Commando.A!ml.
-    #   release    - the release pinned above, which Install-NoMistakes
-    #                installs, and updates when an older one is present
+    #   release    - the build pinned above, which Install-NoMistakes takes
+    #                from this release, or builds in a clone, and puts in
+    #                place of a copy that cannot gate as the fleet needs
     $tools = @(
-        @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements" },
-        @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --accept-package-agreements --accept-source-agreements" },
+        @{ Name = "git";                 Kind = "winget";     Cmd = "winget install -e --id Git.Git --scope user --accept-package-agreements --accept-source-agreements" },
+        @{ Name = "gh";                  Kind = "winget";     Cmd = "winget install -e --id GitHub.cli --scope user --accept-package-agreements --accept-source-agreements" },
         @{ Name = "claude";              Kind = "powershell"; Cmd = "https://claude.ai/install.ps1" },
         @{ Name = "codex";               Kind = "npm";        Cmd = "npm.cmd install -g @openai/codex@0.160.1" },
         @{ Name = "pi";                  Kind = "npm";        Cmd = "npm.cmd install -g @earendil-works/pi-coding-agent@1.0.4" },
         @{ Name = "tasks-axi";           Kind = "npm";        Cmd = "npm.cmd install -g tasks-axi@0.2.6" },
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi@0.1.58" },
-        @{ Name = "no-mistakes";         Kind = "release";    Cmd = "https://github.com/kunchenguid/no-mistakes/releases/download/v$noMistakesVersion" },
+        @{ Name = "no-mistakes";         Kind = "release";    Cmd = $(if ($Dev) { "tools\build-no-mistakes.ps1, $noMistakesRepository at $noMistakesCommit" } else { "$releaseBase/no-mistakes.exe" }) },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.35" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi@0.1.39" },
-        @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.3/lavish-axi-0.1.79-codegoblins.3.tgz"; Sha256 = "C9D491112C4B971A957B7B72D7E72378E42ECA20BFB4A3E725E60E76C18BA9B9" }
+        @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.17/lavish-axi-0.1.79-codegoblins.17.tgz"; Sha256 = "D6855256D03E281D66E55FDFDDECA589317A25DF1E5B439C750E5CFD8B9C2965" }
     )
 
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
@@ -659,23 +743,26 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         if ($found -and $tool.Name -eq "claude" -and [IO.Path]::GetExtension($found.Source) -ne ".exe") {
             $found = $null
         }
-        # The release is judged by the copy the install manages, whatever this
-        # window's PATH holds: a window opened before that copy was installed
-        # does not find it. An older copy that comes first on PATH from
-        # anywhere else is never replaced, only named. The managed copy is
-        # updated only when older than the pin; one that reports no version,
-        # such as a build of its own, is left alone.
+        # no-mistakes is judged by what the fleet's gate needs of it, and by
+        # the copy the install manages, whatever this window's PATH holds: a
+        # window opened before that copy was installed does not find it. A
+        # copy that comes first on PATH from anywhere else is never replaced,
+        # only named when it cannot gate as the pinned build does. The managed
+        # copy is kept while it can, as the pinned build and a later build of
+        # the same fork can, and otherwise replaced with the pinned build, as
+        # an older one and an upstream release without the fork's launch
+        # selection are.
         if ($tool.Kind -eq "release") {
-            $pathVersion = if ($found) { Read-NoMistakesVersion $found.Source } else { "" }
-            if ($pathVersion -and $found.Source -ne $noMistakesProgram -and [version]$pathVersion -lt [version]$noMistakesVersion) {
-                Write-Detail ("WARN     {0,-20} {1} is v{2}, older than the pinned v{3}, and comes first on PATH; run: no-mistakes update, or remove the older copy" -f $tool.Name, $found.Source, $pathVersion, $noMistakesVersion)
+            $problem = if ($found -and $found.Source -ne $noMistakesProgram) { Test-NoMistakes $found.Source } else { "" }
+            if ($problem) {
+                Write-Detail ("WARN     {0,-20} {1}, and it comes first on PATH; remove it, or put {2} before it" -f $tool.Name, $problem, (Split-Path -Parent $noMistakesProgram))
                 $failedInstalls += $tool.Name
                 continue
             }
             if (Test-Path -LiteralPath $noMistakesProgram) {
-                $managedVersion = Read-NoMistakesVersion $noMistakesProgram
-                if ($managedVersion -and [version]$managedVersion -lt [version]$noMistakesVersion) {
-                    Write-Detail ("update   {0,-20} v{1} is older than the pinned v{2}" -f $tool.Name, $managedVersion, $noMistakesVersion)
+                $problem = Test-NoMistakes $noMistakesProgram
+                if ($problem) {
+                    Write-Detail ("update   {0,-20} {1}" -f $tool.Name, $problem)
                     $found = $null
                 }
                 else {
@@ -707,7 +794,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             if ($tool.Kind -eq "release") {
                 # Install-NoMistakes puts its folder on this session's PATH
                 # itself, so the PATH needs no refresh for it.
-                Install-NoMistakes $tool.Cmd
+                Install-NoMistakes
             }
             elseif ($tool.Kind -eq "powershell") {
                 $installer = Join-Path ([IO.Path]::GetTempPath()) ("code-goblins-" + [Guid]::NewGuid().ToString("N") + ".ps1")
@@ -885,14 +972,14 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
-    # The board's native lifecycle hooks, for each harness installed here.
-    foreach ($harness in @("claude", "codex", "pi")) {
-        if (-not (Get-Command $harness -ErrorAction SilentlyContinue)) {
-            continue
-        }
-        if ((Invoke-Logged $dest @("hooks", "install", $harness)) -ne 0) {
-            Write-Detail ("WARN     {0,-20} native hooks were not installed; see the line above" -f $harness)
-            $failedInstalls += "$harness hooks"
+    # Pi's native lifecycle hooks, its extension, when pi is installed here.
+    # The fleet's Claude Code and Codex sessions carry theirs in their own
+    # launches, so nothing goes into the settings every Claude Code or Codex
+    # session on the machine loads.
+    if (Get-Command pi -ErrorAction SilentlyContinue) {
+        if ((Invoke-Logged $dest @("hooks", "install", "pi")) -ne 0) {
+            Write-Detail ("WARN     {0,-20} native hooks were not installed; see the line above" -f "pi")
+            $failedInstalls += "pi hooks"
         }
     }
 
@@ -903,7 +990,20 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # is replaced. It never fails the install: the first dictation sets up
     # whatever is still missing, as it always could.
     Write-Doing "Setting up dictation"
-    if ((Invoke-Logged $dest @("dictation", "setup")) -ne 0) {
+    $dictationCode = 1
+    if ($dictation) {
+        $dictation.WaitForExit()
+        $dictationCode = $dictation.ExitCode
+        foreach ($line in ($dictationOutput.Result + $dictationErrors.Result) -split "\r?\n") {
+            if ($line) {
+                Write-Detail $line
+            }
+            if ($line.StartsWith("Note: ")) {
+                Write-Host $line
+            }
+        }
+    }
+    if ($dictationCode -ne 0) {
         Write-Note "Dictation could not be set up now, so it finishes setting itself up the first time you dictate; the log says why."
     }
 

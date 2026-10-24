@@ -209,7 +209,7 @@ func TestAnAnswerAloneIsNotDelayedPastTheBatchingWindow(t *testing.T) {
 				if woken.IsZero() {
 					woken = time.Now()
 				}
-			case <-time.After(answerBatchWindow + 10*time.Second):
+			case <-time.After(answerBatchWindow + time.Minute):
 				t.Fatal("the worker was not woken as the window ended, so the answer waits for whichever cycle comes next")
 			}
 			s.process(context.Background())
@@ -219,6 +219,7 @@ func TestAnAnswerAloneIsNotDelayedPastTheBatchingWindow(t *testing.T) {
 		if len(held) != 0 {
 			t.Errorf("the CFO got %q inside the window, want the answer held for his next one", held)
 		}
+		// stall-accepted: it checks the wake came no earlier than the window's end, and a stall only makes it later.
 		if ends := given.Add(answerBatchWindow); woken.Before(ends.Add(-20 * time.Millisecond)) {
 			t.Errorf("the worker was woken %s before the window ended, want it woken as the window ends", ends.Sub(woken))
 		}

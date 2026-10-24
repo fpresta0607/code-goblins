@@ -1,4 +1,5 @@
 import type { CIDuration, PauseCondition, Task, Wait } from "./types.ts";
+import { cardDate } from "./cards.ts";
 
 // What the board says about a task, in words a person reads: the goblins and
 // the supervisor write for the fleet, with state words, semicolon chains,
@@ -130,10 +131,14 @@ export function teardownSentence(labels: string[]): string {
 // A title read inside a sentence starts with a small article.
 const inSentence = (title: string) => title.replace(/^(?:A|An|The)\b/, (article) => article.toLowerCase());
 
+// A resume or start time reads as a card's date does.
 function when(at: string): string {
   const date = new Date(at);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "its set time";
+  return Number.isFinite(date.getTime()) ? cardDate(date, Date.now()) : "its set time";
 }
+
+// A resume time inside a sentence: at a time today, on a weekday or a date.
+const atOrOn = (at: string) => (new Date(at).toDateString() === new Date().toDateString() ? "at " : "on ") + when(at);
 
 // pausedWithParent is the parent a helper was paused with, which resumes the
 // helper once it runs again, or nothing for any other task.
@@ -141,15 +146,6 @@ export function pausedWithParent(task: Task, tasks: Task[]): Task | undefined {
   return task.lifecycle?.with_parent ? tasks.find((other) => other.id === task.parent) : undefined;
 }
 
-// isPausedForItsPullRequest says a goblin's pause, or the pause or resume
-// under way, waits on its own pull request: until it merges, or until its CI
-// run on it finishes. Its work is done and its pull request is under test, so
-// the board shows that rather than a pause.
-export function isPausedForItsPullRequest(task: Task): boolean {
-  const pause = task.lifecycle?.pause;
-  if (!task.pr || !pause || !["paused", "pausing", "resuming"].includes(task.phase)) return false;
-  return pause.reason === "dependency" && pause.until === "pr:" + task.pr || pause.reason === "ci" && pause.until.startsWith("pr:" + task.pr + "@");
-}
 
 // What a paused goblin waits for and that it resumes by itself, from its
 // pause's condition, or for a helper the Overlord paused with its parent,
@@ -160,13 +156,13 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
   if (parent && pause?.reason === "overlord") return byItself + "when " + inSentence(goblinName(parent)) + " runs again.";
   switch (pause?.reason) {
     case "memory": return byItself + "once 5 GB of memory is free.";
-    case "allowance": return byItself + "when the allowance resets, " + when(pause.until) + ".";
+    case "allowance": return byItself + "when the allowance resets " + atOrOn(pause.until) + ".";
     case "question": return byItself + "when you answer its question.";
     case "ci": return byItself + "when its CI run finishes.";
     case "deploy": return byItself + "when its deploy finishes.";
     case "dependency": {
       if (kind === "pr") return byItself + "when " + plainText(target).replace(/\.$/, "") + " merges.";
-      if (kind === "date") return byItself + "on " + when(target) + ".";
+      if (kind === "date") return byItself + atOrOn(target) + ".";
       const awaited = tasks.find((candidate) => candidate.id === target);
       return byItself + "when " + (awaited ? inSentence(goblinName(awaited)) : "the task it waits on") + " finishes.";
     }
@@ -174,26 +170,29 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
   return "It stays paused until you resume it.";
 }
 
-// What a paused goblin says in place of Paused, on its card, its panel and its
-// canvas node: why it waits and what resumes it, in a few words, once; the
-// panel says what resumes it in a sentence behind Details. A CI or deploy
-// wait names how long the repository's runs usually take.
+// What a paused goblin says on its card and its panel:
+// Paused and why, in a few words, once; the panel says what resumes it in a
+// sentence behind Details. A pause is on the bench, never a wait, so it
+// never reads Waiting (the Overlord, 2026-10-16). A CI or deploy pause names
+// how long the repository's runs usually take. A pause on a goblin names the
+// goblin alone, as Paused until Benny delivers, without its title (the CFO's
+// decision 1008011, 2026-10-17).
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
-    case "memory": return "Memory: resumes at 5 GB free";
-    case "allowance": return "Allowance: resumes " + when(pause.until);
-    case "overlord": return parent ? "Resumes with " + goblinName(parent) : "Paused by you";
-    case "question": return "Waiting for your answer";
+    case "memory": return "Paused for memory";
+    case "allowance": return "Paused for allowance";
+    case "overlord": return parent ? "Paused with " + (parent.goblin_name || goblinName(parent)) : "Paused by you";
+    case "question": return "Paused until you answer";
     case "ci": case "deploy": {
       const usual = usualMinutes(durations, repositoryOf(target.split("@")[0]), pause.reason);
-      return "Waiting on " + (pause.reason === "ci" ? "CI" : "deploy") + (usual ? `, usually ${usual} min` : "");
+      return "Paused until " + (pause.reason === "ci" ? "CI" : "its deploy") + " finishes" + (usual ? `, usually ${usual} min` : "");
     }
     case "dependency": {
-      if (kind === "pr") return "Waiting on " + plainText(target).replace(/\.$/, "") + " to merge";
-      if (kind === "date") return "Resumes " + when(target);
+      if (kind === "pr") return "Paused until " + plainText(target).replace(/\.$/, "") + " merges";
+      if (kind === "date") return "Paused until " + when(target);
       const awaited = tasks.find((candidate) => candidate.id === target);
-      return "Waiting on " + (awaited ? goblinName(awaited) : "another task");
+      return "Paused until " + (awaited ? awaited.goblin_name || goblinName(awaited) : "another task") + " delivers";
     }
   }
   return "Paused";
@@ -300,10 +299,9 @@ function summaryOf(task: Task, tasks: Task[]): Summary {
   // waits for, and what Windows still closes ("a well written, proper case,
   // human readable little description about what that agent did or is
   // doing"). What its pause could not do is the CFO's to hear, in the
-  // pause's own report, and never the panel's to show. A goblin paused for
-  // its own pull request is shown under test, so nothing says it resumes.
+  // pause's own report, and never the panel's to show.
   if (task.phase === "paused") {
-    const waits = isPausedForItsPullRequest(task) ? "" : resumes(record?.pause, tasks, pausedWithParent(task, tasks));
+    const waits = resumes(record?.pause, tasks, pausedWithParent(task, tasks));
     const description = join(reportSaid(task.last_report || "").sentence, waits, teardown);
     return { sentence: "", details: description ? [description] : [], isFailure: false, isPlain: true };
   }

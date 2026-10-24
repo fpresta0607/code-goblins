@@ -24,7 +24,7 @@ func nextEvent(t *testing.T, events <-chan streamEvent, what string) streamEvent
 	select {
 	case event := <-events:
 		return event
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("the stream sent nothing while the test waited for %s", what)
 		return streamEvent{}
 	}

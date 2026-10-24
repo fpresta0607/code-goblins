@@ -66,13 +66,13 @@ func TestAuthStoreHidesAValueTypedAtTheConsole(t *testing.T) {
 			}
 		}
 	}()
-	prompted := c.shownWithin("typing is hidden", 15*time.Second)
+	prompted := c.shownWithin("typing is hidden", time.Minute)
 
 	// Act
 	if _, err := started.Write([]byte(canary + "\r")); err != nil {
 		t.Fatal(err)
 	}
-	stored := c.shownWithin("stored throwaway/CONSOLE_TOKEN", 15*time.Second)
+	stored := c.shownWithin("stored throwaway/CONSOLE_TOKEN", time.Minute)
 
 	// Assert
 	if strings.Contains(c.shown(), canary) {

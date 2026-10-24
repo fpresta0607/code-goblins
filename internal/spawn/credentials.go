@@ -142,13 +142,12 @@ func narrowedLine(id, project string, grant auth.Grant) string {
 }
 
 // credentialsInstruction tells a goblin which services' credentials its
-// terminal carries and how it comes by another: it says so in a blocked
-// report, and the CFO grants it. It names services, never a value.
+// terminal carries and how it requests another on a card, by name only.
 func credentialsInstruction(project string, grant auth.Grant) string {
 	carried := "no service's credentials"
 	if len(grant.Services) > 0 {
 		carried = "the credentials of these services of " + auth.ProjectName(project) + ": " + strings.Join(grant.Services, ", ")
 	}
 	return " Your terminal carries " + carried + ", and of no other." +
-		" When your task needs another service, say so in a blocked report that names the service and why, and never ask for a value: the CFO grants a service by name, and you are told to load it once he has."
+		" When your task needs another declared service, file cfo auth request --project <project> --task <your-task-id> --grant <service> --why \"<why you need it>\" --wait: the Overlord grants or denies it on its Command Center card. Never grant it yourself, and never ask for a value. Once granted, re-source your auth.ps1."
 }

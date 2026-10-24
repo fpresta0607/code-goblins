@@ -1,3 +1,4 @@
+import type { PanelView } from "./GoblinPanel";
 import type { Session, Snapshot, Task } from "./types.ts";
 import { sessionEnd } from "./session-end.ts";
 
@@ -55,9 +56,13 @@ export function cfoView(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_terminal_
   return { kind: "empty", text: snapshot.cfo_closed ? "The CFO is closed." : "No CFO is running." };
 }
 
+// A goblin the comeback after a restart could not bring back has no
+// terminal's host, so its slot says so and names the Task view's Restart and
+// Stop, and no view of a terminal that is not there is opened.
 export function goblinView(task: Task): DeckView {
   if (task.phase === "resuming" || task.phase === "stopping") return { kind: "empty", text: task.phase === "resuming" ? "Resuming session..." : "Stopping session..." };
   if (task.lifecycle?.action === "resume" && task.lifecycle.phase === "failed") return { kind: "empty", text: "Resume failed." };
+  if (task.comeback?.state === "stopped") return { kind: "empty", text: "No terminal: this goblin did not come back after the restart. On its Task view, Restart under Harness brings it back and Stop retires it." };
   return task.backend === "native" ? { kind: "host", query: new URLSearchParams({ task: task.id, generation: task.generation }).toString() } : { kind: "herdr" };
 }
 
@@ -76,13 +81,15 @@ export function keepLive(open: string[], key: string, herdr: (key: string) => bo
 }
 
 // The panel opens beside the board and is maximized per view: the Board's
-// terminal view and its task view each keep the Overlord's last choice.
+// terminal view and its task view each keep the Overlord's last choice. The
+// Messages view shares the terminal's box, so it follows the terminal's
+// choice and a switch between the two never resizes the terminal.
 // Orchestration follows the task view's choice, so its graph, where goblins
 // are picked, stays beside the panel.
 export const MAXIMIZED_KEYS = { task: "cfo-pane-maximized", terminal: "cfo-terminal-maximized" } as const;
 
-export function maximizedView(workspace: "Board" | "Orchestration", panel: "task" | "terminal"): "task" | "terminal" {
-  return workspace === "Board" ? panel : "task";
+export function maximizedView(workspace: "Board" | "Orchestration", panel: PanelView): "task" | "terminal" {
+  return workspace === "Board" && panel !== "task" ? "terminal" : "task";
 }
 
 export function maximizedFor(stored: string | null): boolean {

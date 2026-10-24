@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,10 +20,14 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/proc"
+	"github.com/fpresta0607/code-goblins/internal/proc/proctest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -111,7 +116,7 @@ func TestAContainedNativeSwitchIsReported(t *testing.T) {
 	}
 	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
+	if err := proc.SetJobInformation(job, windows.JobObjectExtendedLimitInformation, unsafe.Pointer(&limits), unsafe.Sizeof(limits)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { windows.CloseHandle(job) })
@@ -323,70 +328,207 @@ func TestANativeGoblinWhoseTerminalEndedResumesInPlace(t *testing.T) {
 	}
 }
 
-func TestResumeCompletesWhenTheOwnedNativeSessionIsAlreadyWorking(t *testing.T) {
-	// Arrange
-	f := newNativeFixture(t, harness.Codex, "resumed-working")
-	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
-	closeCurrentTerminal(t, f)
-	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+// A restart brings a goblin back on its own conversation once its terminal's
+// host has ended: when no process holds the host's pid, and when a later
+// process does, one this user may not open included, as a system service's
+// conhost.exe that took a host's pid after a restart was (issue #1206). A
+// host that runs and does not answer may still run its harness, so the
+// restart starts nothing beside it and leaves the task as it was.
+func TestARestartBringsBackAGoblinOnlyOnceItsHostHasEnded(t *testing.T) {
+	previous := nativeCloseWait
+	nativeCloseWait = time.Second
+	t.Cleanup(func() { nativeCloseWait = previous })
+	// Recorded before it ran, so a process that took its pid since started
+	// after the record too.
+	exitedRecorded := time.Now().UTC()
+	exited := exec.Command(os.Args[0], "-test.run=^$")
+	if err := exited.Run(); err != nil {
 		t.Fatal(err)
 	}
-	first, err := host.ReadRecord(f.stateDir, f.request.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
-		t.Fatal(err)
-	}
-	before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
-	if err := state.WriteLifecycle(f.stateDir, prior); err != nil {
-		t.Fatal(err)
-	}
-	previous := nativeStartup
-	nativeStartup = 10 * time.Second
-	t.Cleanup(func() { nativeStartup = previous })
-	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
-		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
-		Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
-			_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
-			return err
-		},
-		Notify: func(state.Lifecycle) error { return nil },
-	}}
+	for _, test := range []struct {
+		name          string
+		host          func(*testing.T) (pid int, recorded time.Time)
+		isBroughtBack bool
+	}{
+		{"no process holds its host's pid", func(*testing.T) (int, time.Time) { return exited.ProcessState.Pid(), exitedRecorded }, true},
+		{"a later process this user may not open holds its host's pid", func(t *testing.T) (int, time.Time) {
+			recorded := time.Now().UTC().Add(-time.Second)
+			return proctest.StartUnopenable(t, execx.Command(os.Args[0], sleepChild)), recorded
+		}, true},
+		// Ended before the fixture's own end, which closes the terminal its
+		// record names.
+		{"its host runs and answers nobody", func(t *testing.T) (int, time.Time) {
+			running := exec.Command(os.Args[0], sleepChild)
+			if err := running.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				_ = running.Process.Kill()
+				_ = running.Wait()
+			})
+			return running.Process.Pid, time.Now().UTC()
+		}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}})
+			pid, recorded := test.host(t)
+			record, err := json.Marshal(host.Record{ID: "task-7", Pipe: `\\.\pipe\spawn-test-nobody-serves-this`, Token: "t0ken", Version: host.Version, HostPID: pid, Started: recorded})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(makeDir(t, filepath.Join(f.stateDir, "hosts")), "task-7.json"), string(record))
 
-	// Act
-	result, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
+			// Act
+			result, err := f.service.Switch(context.Background(), SwitchRequest{ID: "task-7", Generation: f.meta.SpawnGen, Restart: true, ResumeSession: "owned-session-7"})
 
-	// Assert
-	if err != nil || result.Phase != "running" || len(result.Problems) != 0 {
-		t.Fatalf("resume=%+v, %v; want the already-working owned session running", result, err)
+			// Assert
+			var launches []codexEvent
+			if _, statErr := os.Stat(f.record); statErr == nil {
+				launches = named(f.events(t), "env")
+			}
+			after, metaErr := state.ReadTaskMeta(f.stateDir, "task-7")
+			current, recordErr := host.ReadRecord(f.stateDir, "task-7")
+			if !test.isBroughtBack {
+				if err == nil || !strings.Contains(err.Error(), "no second harness was started") {
+					t.Errorf("Switch = %v, want a refusal saying no second harness was started", err)
+				}
+				if len(launches) != 0 || metaErr != nil || after.SpawnGen != f.meta.SpawnGen || recordErr != nil || current.HostPID != pid {
+					t.Errorf("launches %+v, task generation %q (%v), terminal %+v (%v); want nothing started and the task left on generation %q in host %d", launches, after.SpawnGen, metaErr, current, recordErr, f.meta.SpawnGen, pid)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Switch: %v", err)
+			}
+			if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume owned-session-7 ") {
+				t.Errorf("result %+v, launches %+v; want the same harness started again on owned-session-7", result, launches)
+			}
+			if recordErr != nil || current.HostPID == pid || !host.Running(current) {
+				t.Errorf("the terminal is %+v, %v; want a new host in place of %d", current, recordErr, pid)
+			}
+		})
 	}
-	after, err := state.ReadTaskMeta(f.stateDir, before.ID)
-	if err != nil || after.SpawnGen == before.SpawnGen || after.SpawnGen != result.Generation || after.ResumeOperation != result.Operation {
-		t.Fatalf("replacement generation does not match successful resume: %+v, %v", after, err)
-	}
-	launches := named(f.events(t), "env")
-	if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume owned-session ") {
-		t.Fatalf("launches=%+v, want the exact owned conversation", launches)
-	}
-	if input := named(f.events(t), "typed into resumed turn"); len(input) != 0 {
-		t.Fatalf("startup typed into a turn already in progress: %+v", input)
-	}
-	status, err := os.ReadFile(filepath.Join(f.stateDir, before.ID+".status"))
-	if err != nil || strings.Contains(string(status), "failed:") {
-		t.Fatalf("resume published a failure: %s, %v", status, err)
-	}
-	for _, name := range []string{".spawn.lock", ".lifecycle-" + before.ID + ".lock", state.MetadataLockName(before.ID), switchLockName(before.ID)} {
-		if _, err := lock.AcquireExclusiveNamed(f.stateDir, name); err != nil {
-			t.Fatalf("resume retained %s: %v", name, err)
-		}
-		if err := lock.ReleaseExclusiveNamed(f.stateDir, name); err != nil {
-			t.Fatal(err)
-		}
+}
+
+func TestBusyResumeRecovery(t *testing.T) {
+	for name, test := range map[string]struct {
+		isTaken, hasLateDialog bool
+	}{
+		"queued":                 {false, false},
+		"consumed":               {true, false},
+		"late retained queued":   {false, true},
+		"late retained consumed": {true, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			isTaken := test.isTaken
+			f := newNativeFixture(t, harness.Codex, "resumed-working")
+			f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+			closeCurrentTerminal(t, f)
+			if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+				t.Fatal(err)
+			}
+			first, err := host.ReadRecord(f.stateDir, f.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
+				t.Fatal(err)
+			}
+			before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.hasLateDialog {
+				f.userEnv = append(f.userEnv, fakeCodexMode+"=hooks-before-submit-busy")
+			}
+			profile := t.TempDir()
+			const ownedSession = "11111111-aaaa-4bbb-8ccc-000000000001"
+			const foreignSession = "22222222-aaaa-4bbb-8ccc-000000000002"
+			for session, filed := range map[string]time.Time{ownedSession: time.Now().Add(-7 * 24 * time.Hour), foreignSession: time.Now()} {
+				path := filepath.Join(profile, ".codex", "sessions", filed.Format("2006"), filed.Format("01"), filed.Format("02"), "rollout-"+filed.Format("2006-01-02T15-04-05")+"-"+session+".jsonl")
+				opening, err := json.Marshal(map[string]any{"type": "session_meta", "payload": map[string]string{"id": session, "cwd": before.Worktree}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, append(opening, '\n'), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if isTaken == (session == ownedSession) {
+					f.userEnv = append(f.userEnv, fakeCodexTranscript+"="+path)
+				}
+			}
+			progress := &monitor.HostProgress{Home: profile}
+			f.service.Took = func(ctx context.Context, meta state.TaskMeta, session, instruction string, since time.Time) bool {
+				return progress.Took(ctx, monitor.Conversation{Harness: meta.Harness, Session: session, Dir: meta.Worktree, Started: since}, monitor.TextDigest(instruction), since)
+			}
+			prior := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, Operation: "pause-proof", Action: "pause", Phase: "paused", Session: ownedSession, Started: time.Now().UTC()}
+			if err := state.WriteLifecycle(f.stateDir, prior); err != nil {
+				t.Fatal(err)
+			}
+			previous := nativeStartup
+			nativeStartup = time.Minute
+			t.Cleanup(func() { nativeStartup = previous })
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, paused state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: paused.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			result, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
+
+			// Assert
+			if isTaken {
+				if err != nil || result.Phase != "running" || len(result.Problems) != 0 {
+					t.Fatalf("resume=%+v, %v; want the recovery receipt to finish the resume", result, err)
+				}
+			} else if !errors.Is(err, fleet.ErrQueuedForToolCall) || result.Phase != "failed" {
+				t.Fatalf("resume=%+v, %v; want queued recovery reported unconfirmed", result, err)
+			}
+			after, err := state.ReadTaskMeta(f.stateDir, before.ID)
+			if err != nil || after.SpawnGen == before.SpawnGen || after.SpawnGen != result.Generation || after.ResumeOperation != result.Operation {
+				t.Fatalf("replacement generation does not match successful resume: %+v, %v", after, err)
+			}
+			launches := named(f.events(t), "env")
+			if len(launches) != 2 || !strings.HasPrefix(launches[1].Text, "resume "+ownedSession+" ") {
+				t.Fatalf("launches=%+v, want the exact owned conversation", launches)
+			}
+			if queued := named(f.events(t), "queued into the turn"); len(queued) != 1 || !strings.HasPrefix(delivered(t, queued[0].Text), "Resume now.") {
+				t.Fatalf("queued=%+v; want exactly one current recovery instruction", queued)
+			}
+			if test.hasLateDialog {
+				if skips := named(f.events(t), "hooks skipped"); len(skips) != 1 {
+					t.Errorf("hook skips = %+v, want one Escape", skips)
+				}
+			}
+			if !nativeTerminalRuns(f.stateDir, before.ID) {
+				t.Fatal("the resume stopped the live terminal while its recovery was queued")
+			}
+			status, err := os.ReadFile(filepath.Join(f.stateDir, before.ID+".status"))
+			if err != nil || (strings.Contains(string(status), "failed:") && isTaken) {
+				t.Fatalf("unexpected resume status: %s, %v", status, err)
+			}
+			for _, name := range []string{".spawn.lock", ".lifecycle-" + before.ID + ".lock", state.MetadataLockName(before.ID), switchLockName(before.ID)} {
+				if _, err := lock.AcquireExclusiveNamed(f.stateDir, name); err != nil {
+					t.Fatalf("resume retained %s: %v", name, err)
+				}
+				if err := lock.ReleaseExclusiveNamed(f.stateDir, name); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, _ = controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-proof", Action: "resume"})
+			if queued := named(f.events(t), "queued into the turn"); len(queued) != 1 {
+				t.Fatalf("retry replayed the recovery: %+v", queued)
+			}
+		})
 	}
 }
 
@@ -544,6 +686,74 @@ func closeCurrentTerminal(t *testing.T, f *nativeFixture) {
 			}
 		}
 	})
+}
+
+// On 2026-10-20 a goblin auto-resumed on a loaded machine had its
+// instruction typed into Claude Code's composer, but the Enter did not submit
+// it: the text sat in the composer over an empty row until the resume's
+// window ran out, and the resume was recorded failed while the goblin waited
+// on a key. A resume reads the composer and presses Enter once more while the
+// text still waits there over the empty row the lost Enter left, so the
+// goblin resumes; one whose second Enter is lost too fails within the same
+// window, having pressed it only once more. A Claude Code that takes its
+// Enter seconds late shows the text in its composer as it was until then,
+// over no new row, and is pressed no Enter that would reach it after the
+// instruction (#1232).
+func TestAResumeSubmitsOnceMoreOnlyWhenItsFirstEnterWasLost(t *testing.T) {
+	for _, test := range []struct {
+		mode, wantPhase string
+		wantLost        int
+	}{
+		{mode: "claude-lost-enter", wantPhase: "running", wantLost: 1},
+		{mode: "claude-enters-lost", wantPhase: "failed", wantLost: 2},
+		{mode: "claude-late-enter", wantPhase: "running", wantLost: 0},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			// Arrange
+			previous := nativeAccepted
+			nativeAccepted = 10 * time.Second
+			t.Cleanup(func() { nativeAccepted = previous })
+			f := newSwitchFixtureOf(t, harness.Claude, harness.Control{})
+			f.userEnv = append(f.userEnv, fakeCodexMode+"="+test.mode)
+			paused := state.Lifecycle{ID: f.meta.ID, Generation: f.meta.SpawnGen, RequestGeneration: f.meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Session: "owned-session", Started: time.Now().UTC()}
+			if err := state.WriteLifecycle(f.stateDir, paused); err != nil {
+				t.Fatal(err)
+			}
+			controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session})
+					return err
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+
+			// Act
+			result, err := controller.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "resume-1", Action: "resume"})
+
+			// Assert
+			if result.Phase != test.wantPhase || (err == nil) != (test.wantPhase == "running") {
+				t.Fatalf("resume = %+v, %v; want it %s", result, err, test.wantPhase)
+			}
+			events := f.events(t)
+			if lost := named(events, "enter taken as a new line"); len(lost) != test.wantLost {
+				t.Errorf("Enters taken as a new line = %+v, want %d", lost, test.wantLost)
+			}
+			if empty := named(events, "enter on an empty composer"); len(empty) != 0 {
+				t.Errorf("Enters on an empty composer = %+v, want none after the instruction", empty)
+			}
+			submitted := named(events, "submitted")
+			if test.wantPhase == "failed" {
+				if len(submitted) != 0 || !strings.Contains(err.Error(), "never showed its harness working") {
+					t.Errorf("submitted = %+v after %v, want nothing taken and the window's error", submitted, err)
+				}
+				return
+			}
+			if len(submitted) != 1 || !strings.Contains(delivered(t, submitted[0].Text), "Your session was restarted") {
+				t.Errorf("submitted = %+v, want the resume instruction once", submitted)
+			}
+		})
+	}
 }
 
 // A paused goblin's resume is a refusal, which leaves it paused as it was,

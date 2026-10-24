@@ -250,9 +250,10 @@ func redactOperatorLines(lowered string) string {
 var quotedLinePrefix = regexp.MustCompile(`^(?:[+-]|[0-9]+[ \t]+[+-]|\S+\.[[:alnum:]_]+:[0-9]+:)`)
 
 // claudeToolCall is the row Claude Code draws for a tool call, lowercased:
-// "⏺ bash(go test ./...)", or "⏺ municode - search (mcp)(...)" for an MCP
-// tool. Its result follows on a "⎿" row, wrapped onto deeper-indented rows.
-var claudeToolCall = regexp.MustCompile(`^⏺ (?:[\w.:-]+|.+ \(mcp\))\(`)
+// "● bash(go test ./...)", or "● municode - search (mcp)(...)" for an MCP
+// tool, on its mark, "⏺" on macOS and "●" everywhere else. Its result
+// follows on a "⎿" row, wrapped onto deeper-indented rows.
+var claudeToolCall = regexp.MustCompile(`^[⏺●] (?:[\w.:-]+|.+ \(mcp\))\(`)
 
 // redactQuotedLines keeps source/diff excerpts, fenced quotations and the
 // output of a command a goblin ran, under Codex's "• Ran" or Claude Code's
@@ -345,23 +346,31 @@ func redactQuotedLines(lowered string) string {
 var harnessNotices = []string{"api error", "you've hit your", "claude usage limit", "usage limit reached", "error:", "stream error"}
 
 // redactReplies blanks what the agent wrote in its replies, which is its own
-// words, never its harness's: a row Claude Code opens with its reply mark
-// "⏺ " or Codex with "• ", short of a command a tool call ran or a notice of
-// the harness's own, and the indented rows the reply wraps or continues
-// onto, blank rows between its paragraphs included. A row that is not
-// indented, or opens with a harness mark, as a tool call, its result, a
-// refusal under it or a status row does, ends the reply. On 2026-10-15 a goblin writing "a
-// 429 that the classifier mistakes for rate limiting" woke the CFO as a
-// rate limit (#971). Lengths are kept, so an index into the result still
-// names the same place in the original tail.
+// words, never its harness's: a row Claude Code opens with its mark, "⏺ " on
+// macOS and "● " everywhere else, or Codex with "• ", short of a command a
+// tool call ran or a notice of the harness's own error, and the indented
+// rows the reply wraps or continues onto, blank rows between its paragraphs
+// included. Claude Code's Monitor and background-shell notices open on the
+// same mark and print any program's output, so they are blanked too. A row
+// that is not indented, or opens with a harness mark, as a tool call, its
+// result, a refusal under it or a status row does, ends the reply. On
+// 2026-10-15 a goblin writing "a 429 that the classifier mistakes for rate
+// limiting" woke the CFO as a rate limit (#971), and a Windows goblin's
+// Monitor notice printing a test's local 503 woke it as a provider outage
+// (#1027).
+// Lengths are kept, so an index into the result still names the same place
+// in the original tail.
 func redactReplies(lowered string) string {
 	lines := strings.Split(lowered, "\n")
 	isReply := false
 	for index, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
-		words, isOpened := strings.CutPrefix(trimmed, "⏺ ")
-		if !isOpened {
-			words, isOpened = strings.CutPrefix(trimmed, "• ")
+		var words string
+		isOpened := false
+		for _, mark := range []string{"⏺ ", "● ", "• "} {
+			if words, isOpened = strings.CutPrefix(trimmed, mark); isOpened {
+				break
+			}
 		}
 		if isOpened && !strings.HasPrefix(trimmed, "• ran ") && !claudeToolCall.MatchString(trimmed) {
 			isReply = !slices.ContainsFunc(harnessNotices, func(notice string) bool { return strings.HasPrefix(words, notice) })

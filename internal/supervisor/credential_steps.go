@@ -29,6 +29,10 @@ import (
 // closing.
 const credentialWaitTick = 200 * time.Millisecond
 
+// credentialWaitRecheck is every how many looks a wait on a card reads the
+// board's record whatever its stamp says.
+var credentialWaitRecheck = 10
+
 // maxCredentialAnswer is the longest answer he writes on a card instead of
 // its step.
 const maxCredentialAnswer = 4000
@@ -193,6 +197,8 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This card is not on the board. Refresh the board."}
 	case request.State != "open":
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This card was already " + request.State + "."}
+	case closed == "done" && request.GrantService != "":
+		return request, credentialRefusal{status: http.StatusConflict, Message: "Grant this service on its card, or deny the request."}
 	case closed == "done" && by == "overlord" && len(request.inputs()) > 0:
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This card closes by itself once its values arrive."}
 	case closed == "done" && credentialTerminalOpen(s.Store.Snapshot().Runs, request.ID):
@@ -208,10 +214,52 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 	if err != nil {
 		return updated, err
 	}
+	if closed == "done" || closed == "answered" {
+		if err := s.Store.closeWaitsForCard(updated, by); err != nil {
+			s.publish(err)
+		}
+	}
 	s.notify()
 	s.credentialWork.Add(1)
 	go s.afterCredentialClose(updated, by)
 	return updated, nil
+}
+
+// closeWaitsForCard closes, as answered on it, each wait on the Overlord that
+// the goblin who filed card opened while the card was open: the wait asked him
+// for the card's step, which its Done, its arrived inputs or his words from
+// Something else? settled. A wait opened before the card, or on a page, is a
+// card of its own and stays.
+func (s *Store) closeWaitsForCard(card CredentialRequest, by string) error {
+	if card.By != "goblin" {
+		return nil
+	}
+	reason := "Its step card " + card.ID + " closed as done: the goblin saw the step done."
+	switch {
+	case card.State == "saved":
+		reason = "Its step card " + card.ID + " closed once its inputs arrived."
+	case card.State == "answered":
+		reason = "You wrote on its step card " + card.ID + ": " + card.Reason
+	case by == "overlord":
+		reason = "You pressed Done on its step card " + card.ID + "."
+	case by == "cfo":
+		reason = "The CFO closed its step card " + card.ID + " as done."
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	isClosed := false
+	now := time.Now().UTC()
+	for i := range s.db.Reviews {
+		r := &s.db.Reviews[i]
+		if r.State == "open" && r.Task == card.Task && strings.HasPrefix(r.ID, "waiting-"+card.Task+"-") && r.LavishPage == "" && !r.CreatedAt.Before(card.CreatedAt) {
+			r.State, r.AnsweredBy, r.AnsweredIn, r.Reason, r.UpdatedAt = "answered", by, "step card", reason, now
+			isClosed = true
+		}
+	}
+	if !isClosed {
+		return nil
+	}
+	return s.save()
 }
 
 // afterCredentialClose tells whoever must hear that a card closed: the CFO
@@ -445,7 +493,7 @@ func WaitCredential(ctx context.Context, stateDir, id string, seen func(Credenti
 	// stamp says.
 	for look := 0; ; look++ {
 		info, statErr := os.Stat(filepath.Join(stateDir, ".supervisor.json"))
-		changed := statErr != nil || !info.ModTime().Equal(stamp) || info.Size() != size || look%10 == 0
+		changed := statErr != nil || !info.ModTime().Equal(stamp) || info.Size() != size || look%credentialWaitRecheck == 0
 		if statErr == nil {
 			stamp, size = info.ModTime(), info.Size()
 		}
@@ -486,27 +534,75 @@ var errStateBusy = errors.New("the board's record is being written")
 
 // readCredential reads card id from the board's record.
 func readCredential(stateDir, id string) (CredentialRequest, bool, error) {
-	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
-	if errors.Is(err, fs.ErrNotExist) {
+	credentials, err := readCredentials(stateDir)
+	if err != nil {
+		return CredentialRequest{}, false, err
+	}
+	i := slices.IndexFunc(credentials, func(r CredentialRequest) bool { return r.ID == id })
+	if i < 0 {
 		return CredentialRequest{}, false, nil
 	}
+	return credentials[i], true, nil
+}
+
+// readCredentials reads every card on the board's record.
+func readCredentials(stateDir string) ([]CredentialRequest, error) {
+	data, err := fsx.ReadFile(filepath.Join(stateDir, ".supervisor.json"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return CredentialRequest{}, false, errors.Join(errStateBusy, err)
+		return nil, errors.Join(errStateBusy, err)
 	}
 	if len(data) > maxStateBytes {
-		return CredentialRequest{}, false, errors.New("supervisor state exceeds its bound")
+		return nil, errors.New("supervisor state exceeds its bound")
 	}
 	var record struct {
 		Credentials []CredentialRequest `json:"credentials"`
 	}
 	if err := json.Unmarshal(data, &record); err != nil {
-		return CredentialRequest{}, false, errors.Join(errStateBusy, err)
+		return nil, errors.Join(errStateBusy, err)
 	}
-	i := slices.IndexFunc(record.Credentials, func(r CredentialRequest) bool { return r.ID == id })
-	if i < 0 {
-		return CredentialRequest{}, false, nil
+	return record.Credentials, nil
+}
+
+// OpenStepCard names the open step card goblin task filed itself, on the
+// board's record or waiting in its inbox for the board to take it, or is
+// empty when it has none. It only reads, as WaitCredential does.
+func OpenStepCard(stateDir, task string) (string, error) {
+	credentials, err := readCredentials(stateDir)
+	if err != nil {
+		return "", err
 	}
-	return record.Credentials[i], true, nil
+	if i := slices.IndexFunc(credentials, func(r CredentialRequest) bool { return r.By == "goblin" && r.Task == task && r.State == "open" }); i >= 0 {
+		return credentials[i].ID, nil
+	}
+	dir := filepath.Join(stateDir, credentialInbox)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries[:min(len(entries), maxCredentialRequests)] {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
+		if errors.Is(err, fs.ErrNotExist) {
+			// The board took it meanwhile, and its record has it from now.
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		var spooled CredentialRequest
+		if json.Unmarshal(data, &spooled) == nil && spooled.Task == task {
+			return spooled.ID, nil
+		}
+	}
+	return "", nil
 }
 
 // credentialSpooled reports whether card id waits in the inbox for the

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/fpresta0607/code-goblins/internal/installbase"
 )
 
 // AppsEntryKey is where Windows keeps Code Goblins' entry in its list of
@@ -90,7 +92,7 @@ func (s Service) AppsEntryThere() bool {
 	}
 	defer key.Close()
 	location, _, err := key.GetStringValue("InstallLocation")
-	return err != nil || sameDirectory(location, s.Root)
+	return err != nil || installbase.SameDirectory(location, s.Root)
 }
 
 // RemoveAppsEntry takes Code Goblins out of Installed apps.

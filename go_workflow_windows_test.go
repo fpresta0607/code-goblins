@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/installtest"
+	"github.com/fpresta0607/code-goblins/internal/train"
 	"gopkg.in/yaml.v3"
 )
 
@@ -251,15 +252,40 @@ func TestGoWorkflowSplitsCmdCfoIntoThreeJobs(t *testing.T) {
 }
 
 // A newer commit on a pull request supersedes the run validating the older
-// one, so that run is cancelled. A run on main or started by hand is never
+// one, so that run is cancelled. A run whose event saw a draft is grouped
+// apart from one whose event saw the pull request ready: marked ready within
+// seconds of a push, a pull request has both on one head, the one that saw a
+// draft may have read it ready and started its jobs, and a cancelled check
+// on that head counts as failed. A run on main or started by hand is never
 // cancelled or held: in a shared group it would wait behind another, and a
 // waiting run is cancelled when a newer one joins, leaving its commit
 // unvalidated. A release is never cancelled halfway. Every workflow says
 // which it is, so a new one cannot join a group by accident.
+//
+// The group is read as GitHub Actions makes it for each kind of run, never
+// compared as text: a mistake in the expression that the test also made
+// would pass as text. A group is shared across the repository's workflows,
+// so the runs of every workflow are read together, and no two workflows'
+// runs may share one.
 func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	// Arrange
-	const superseded = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}"
-	groups := map[string]string{"go.yml": superseded, "install.yml": superseded, "release.yml": "", "windows.yml": superseded}
+	type run struct {
+		event, number string
+		isDraft       bool
+	}
+	runs := map[string]run{
+		"a ready run of #7":            {"pull_request", "7", false},
+		"another ready run of #7":      {"pull_request", "7", false},
+		"a draft-seen run of #7":       {"pull_request", "7", true},
+		"another draft-seen run of #7": {"pull_request", "7", true},
+		"a ready run of #8":            {"pull_request", "8", false},
+		"a push to main":               {"push", "", false},
+		"another push to main":         {"push", "", false},
+		"a merge queue run":            {"merge_group", "", false},
+		"a run started by hand":        {"workflow_dispatch", "", false},
+	}
+	shared := [][2]string{{"a ready run of #7", "another ready run of #7"}, {"a draft-seen run of #7", "another draft-seen run of #7"}}
+	cancels := map[string]bool{"go.yml": true, "install.yml": true, "release.yml": false, "windows.yml": true}
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -268,33 +294,65 @@ func TestWorkflowsCancelOnlyASupersededPullRequestRun(t *testing.T) {
 	for _, file := range files {
 		names = append(names, filepath.Base(file))
 	}
-	if want := slices.Sorted(maps.Keys(groups)); !slices.Equal(names, want) {
+	if want := slices.Sorted(maps.Keys(cancels)); !slices.Equal(names, want) {
 		t.Fatalf("workflows %v, want %v: say whether a new workflow's pull request runs are cancelled when superseded", names, want)
 	}
 
-	for name, group := range groups {
-		t.Run(name, func(t *testing.T) {
-			source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
-			if err != nil {
-				t.Fatal(err)
+	// Act
+	groups := map[[2]string]string{}
+	for _, name := range names {
+		source, err := os.ReadFile(filepath.Join(".github", "workflows", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var workflow struct {
+			Name        string `yaml:"name"`
+			Concurrency struct {
+				Group            string `yaml:"group"`
+				CancelInProgress bool   `yaml:"cancel-in-progress"`
+			} `yaml:"concurrency"`
+		}
+		if err := yaml.Unmarshal(source, &workflow); err != nil {
+			t.Fatal(err)
+		}
+		isCancelling := cancels[name]
+		if workflow.Concurrency.CancelInProgress != isCancelling || (workflow.Concurrency.Group != "") != isCancelling {
+			t.Errorf("%s has concurrency group %q, cancel-in-progress %t; want a group that cancels %t", name, workflow.Concurrency.Group, workflow.Concurrency.CancelInProgress, isCancelling)
+			continue
+		}
+		if !isCancelling {
+			continue
+		}
+		for which, kind := range runs {
+			values := map[string]any{"github.workflow": workflow.Name, "github.event_name": kind.event, "github.run_id": fmt.Sprint(len(groups) + 1000)}
+			if kind.event == "pull_request" {
+				values["github.event.pull_request.number"] = kind.number
+				values["github.event.pull_request.draft"] = kind.isDraft
 			}
+			groups[[2]string{name, which}] = render(t, workflow.Concurrency.Group, values, func(function string, args []any) any {
+				if function != "format" || len(args) == 0 {
+					t.Fatalf("%s's group %q calls %s(), which this reading does not follow", name, workflow.Concurrency.Group, function)
+				}
+				formatted := fmt.Sprint(args[0])
+				for index, arg := range args[1:] {
+					if arg == nil {
+						arg = ""
+					}
+					formatted = strings.ReplaceAll(formatted, fmt.Sprintf("{%d}", index), fmt.Sprint(arg))
+				}
+				return formatted
+			})
+		}
+	}
 
-			// Act
-			var workflow struct {
-				Concurrency struct {
-					Group            string `yaml:"group"`
-					CancelInProgress bool   `yaml:"cancel-in-progress"`
-				} `yaml:"concurrency"`
+	// Assert
+	for first, firstGroup := range groups {
+		for second, secondGroup := range groups {
+			isShared := first == second || first[0] == second[0] && (slices.Contains(shared, [2]string{first[1], second[1]}) || slices.Contains(shared, [2]string{second[1], first[1]}))
+			if (firstGroup == secondGroup) != isShared {
+				t.Errorf("%s's %s is in group %q and %s's %s in %q; want them to share one %t", first[0], first[1], firstGroup, second[0], second[1], secondGroup, isShared)
 			}
-			if err := yaml.Unmarshal(source, &workflow); err != nil {
-				t.Fatal(err)
-			}
-
-			// Assert
-			if workflow.Concurrency.Group != group || workflow.Concurrency.CancelInProgress != (group != "") {
-				t.Errorf("concurrency group %q, cancel-in-progress %t; want group %q, cancelling only when it is set", workflow.Concurrency.Group, workflow.Concurrency.CancelInProgress, group)
-			}
-		})
+		}
 	}
 }
 
@@ -319,6 +377,16 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 						Types []string `yaml:"types"`
 					} `yaml:"merge_group"`
 				} `yaml:"on"`
+				Jobs map[string]struct {
+					If    string            `yaml:"if"`
+					Env   map[string]string `yaml:"env"`
+					Steps []struct {
+						If   string            `yaml:"if"`
+						Env  map[string]string `yaml:"env"`
+						With map[string]string `yaml:"with"`
+						Run  string            `yaml:"run"`
+					} `yaml:"steps"`
+				} `yaml:"jobs"`
 			}
 			if err := yaml.Unmarshal(source, &workflow); err != nil {
 				t.Fatal(err)
@@ -328,11 +396,20 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 			if workflow.On.MergeGroup == nil || !slices.Equal(workflow.On.MergeGroup.Types, []string{"checks_requested"}) {
 				t.Errorf("%s runs on merge_group %+v, want types [checks_requested]", name, workflow.On.MergeGroup)
 			}
-			// A job's draft condition reads one field too, which is empty in
-			// a queue run, so the job runs there.
-			reads := strings.Count(string(source), "github.event.pull_request") - strings.Count(string(source), draftCondition)
-			if reads != 1 {
-				t.Errorf("%s reads the pull request's fields %d times beside its draft conditions, want once, in the concurrency group with its fallback", name, reads)
+			// The draft job's condition reads one field too, which is empty
+			// in a queue run, so it is skipped there and every other job
+			// runs. Nothing else of any job reads one.
+			for job, spec := range workflow.Jobs {
+				reads := slices.Collect(maps.Values(spec.Env))
+				if job != "draft" {
+					reads = append(reads, spec.If)
+				}
+				for _, step := range spec.Steps {
+					reads = append(append(append(reads, step.If, step.Run), slices.Collect(maps.Values(step.Env))...), slices.Collect(maps.Values(step.With))...)
+				}
+				if i := slices.IndexFunc(reads, func(read string) bool { return strings.Contains(read, "github.event.pull_request") }); i >= 0 {
+					t.Errorf("%s job %s reads the pull request's fields in %q, want only the draft job's condition to", name, job, reads[i])
+				}
 			}
 		})
 	}
@@ -341,7 +418,11 @@ func TestWorkflowsRunInTheMergeQueue(t *testing.T) {
 // Branch protection requires the one check named test, so test must wait
 // for every other job and must run whatever became of them: a job test does
 // not need could fail unseen, and a test that is skipped counts as a pass.
-// The one run it skips is a draft's, which cannot merge.
+// It skips only a run of a pull request that is a draft, which cannot merge,
+// and one whose event saw a draft and that was cancelled, which only a newer
+// push whose event also saw a draft, or a person, cancels, since such runs
+// have a concurrency group of their own
+// (TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady).
 func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	// Arrange
 	jobs := goWorkflowJobs(t)
@@ -361,20 +442,47 @@ func TestGoWorkflowsRequiredCheckWaitsForEveryJob(t *testing.T) {
 	if len(others) == 0 || !slices.Equal(needs, others) {
 		t.Errorf("test needs %v, want every other job: %v", needs, others)
 	}
-	if want := "${{ always() && " + draftCondition + " }}"; check.If != want {
-		t.Errorf("test runs if %q, want %q, so a failed or cancelled job cannot leave it skipped", check.If, want)
+	for name, run := range map[string]pullRequestRun{
+		"every job failed in a run whose event saw no draft":              {draft: "skipped", others: "failure"},
+		"a run whose event saw no draft was cancelled":                    {draft: "skipped", others: "cancelled", isCancelled: true},
+		"every job failed once the draft job read the pull request ready": {isDraftSeen: true, draft: "success", read: "false", others: "failure"},
+		"every job failed once the draft job could not read":              {isDraftSeen: true, draft: "failure", others: "failure"},
+	} {
+		if !jobStarts(t, readWorkflowJobs(t, "go.yml"), "test", run) {
+			t.Errorf("test runs if %q, so it is skipped when %s, and a skipped check passes", check.If, name)
+		}
 	}
 }
 
-// draftCondition is a job's condition that it runs on anything but a draft.
-// Outside a pull request the field is empty, so the job runs.
-const draftCondition = "!github.event.pull_request.draft"
+// draftCondition is a job's condition that it runs on anything but a pull
+// request the draft job read as a draft. The draft job runs only when the
+// event saw a draft, so in any other run it says nothing and the job runs,
+// and so it does when the draft job could not read the pull request.
+const draftCondition = "needs.draft.outputs.draft != 'true'"
+
+// draftJobCondition is the draft job's condition: it runs only when the
+// event saw a draft. Outside a pull request the field is empty.
+const draftJobCondition = "github.event.pull_request.draft"
 
 // A goblin's pull request is a draft until its head is the one it means to
-// merge, and the fix rounds it pushes before that start no hosted job: every
-// job that waits on no other skips a draft, and the rest wait on those, so
-// nothing runs. Marking it ready is a pull_request event of its own, which
-// runs every job on that head.
+// merge, and the fix rounds it pushes before that start no hosted job but
+// the draft job, which reads whether the pull request is a draft now: every
+// other job waits on it and runs unless it read a draft. Marking it ready is
+// a pull_request event of its own, which runs every job on that head.
+//
+// An event can see the pull request as it was a moment before. On
+// 2026-10-15 PR 961 was marked ready and pushed to within seconds: the
+// ready event saw the head before the push, the push's event still saw a
+// draft, and its run, which skipped every job on the event's word,
+// cancelled the ready run as it joined the pull request's concurrency group,
+// so no run tested the last head (#963). A job that skipped on what the
+// event saw would skip that run again.
+//
+// A run whose event saw a draft starts nothing either once it is cancelled,
+// as a draft's run starts nothing: such runs have a concurrency group of
+// their own, so only a newer push whose event also saw a draft, or a person,
+// cancels one, and a required check it started would fail on a head it never
+// finished testing.
 func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
 	if err != nil {
@@ -401,8 +509,15 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 					} `yaml:"pull_request"`
 				} `yaml:"on"`
 				Jobs map[string]struct {
-					If    string          `yaml:"if"`
-					Needs goWorkflowNeeds `yaml:"needs"`
+					Name        string            `yaml:"name"`
+					If          string            `yaml:"if"`
+					Needs       goWorkflowNeeds   `yaml:"needs"`
+					Permissions map[string]string `yaml:"permissions"`
+					Outputs     map[string]string `yaml:"outputs"`
+					Steps       []struct {
+						ID  string `yaml:"id"`
+						Run string `yaml:"run"`
+					} `yaml:"steps"`
 				} `yaml:"jobs"`
 			}
 			if err := yaml.Unmarshal(source, &workflow); err != nil {
@@ -413,16 +528,112 @@ func TestWorkflowsRunNothingOnADraftAndEverythingOnceItIsReady(t *testing.T) {
 			if want := []string{"opened", "synchronize", "reopened", "ready_for_review"}; !slices.Equal(workflow.On.PullRequest.Types, want) {
 				t.Errorf("%s runs on pull_request types %v, want %v", name, workflow.On.PullRequest.Types, want)
 			}
-			for job, spec := range workflow.Jobs {
+			draft, ok := workflow.Jobs["draft"]
+			if !ok {
+				t.Fatalf("%s has no draft job, so its jobs skip on what the event saw", name)
+			}
+			isRead := len(draft.Steps) == 1 && draft.Steps[0].ID == "read"
+			if draft.If != draftJobCondition || len(draft.Needs) != 0 || !isRead || draft.Outputs["draft"] != "${{ steps.read.outputs.draft }}" || !maps.Equal(draft.Permissions, map[string]string{"pull-requests": "read"}) {
+				t.Fatalf("%s draft job runs if %q, needs %v, has permissions %v and outputs %v; want it to run only when the event saw a draft, need nothing, and give its one step's draft output", name, draft.If, draft.Needs, draft.Permissions, draft.Outputs)
+			}
+			if draft.Name != train.DraftStateCheck {
+				t.Errorf("%s draft job is named %q, want %q, the check every reader of a head's checks passes over as testing nothing", name, draft.Name, train.DraftStateCheck)
+			}
+			jobs := readWorkflowJobs(t, name)
+			for job, spec := range jobs {
 				isPushOnly := spec.If == "github.event_name == 'push'"
-				if (len(spec.Needs) == 0 || strings.Contains(spec.If, "always()")) && !strings.Contains(spec.If, draftCondition) && !isPushOnly {
-					t.Errorf("%s job %s runs if %q, which a draft does not stop", name, job, spec.If)
+				if job == "draft" || isPushOnly {
+					continue
+				}
+				for when, test := range map[string]struct {
+					run         pullRequestRun
+					shouldStart bool
+				}{
+					"the event saw no draft":                                        {pullRequestRun{draft: "skipped", others: "success"}, true},
+					"the draft job read that the pull request is ready now":         {pullRequestRun{isDraftSeen: true, draft: "success", read: "false", others: "success"}, true},
+					"the draft job could not read the pull request":                 {pullRequestRun{isDraftSeen: true, draft: "failure", others: "success"}, true},
+					"the draft job read a draft":                                    {pullRequestRun{isDraftSeen: true, draft: "success", read: "true", others: "success"}, false},
+					"the run that saw a draft was cancelled before it read":         {pullRequestRun{isDraftSeen: true, draft: "cancelled", others: "cancelled", isCancelled: true}, false},
+					"the run that saw a draft was cancelled after it read it ready": {pullRequestRun{isDraftSeen: true, draft: "success", read: "false", others: "cancelled", isCancelled: true}, false},
+				} {
+					if starts := jobStarts(t, jobs, job, test.run); starts != test.shouldStart {
+						t.Errorf("%s job %s runs if %q, so it starts %v when %s, want %v", name, job, spec.If, starts, when, test.shouldStart)
+					}
 				}
 			}
+			runDraftStep(t, draft.Steps[0].Run)
 		})
 	}
 	if checked < 3 {
 		t.Errorf("%d workflows run on pull requests, want go, install and windows at least: the glob or the trigger's spelling changed", checked)
+	}
+}
+
+// runDraftStep runs a draft job's step as GitHub Actions runs a bash step,
+// with a stand-in gh that says the pull request is or is not a draft, or
+// fails: the step gives the job its draft output from what gh read, and a
+// read that fails fails the step, so its draft output is empty and every
+// other job runs.
+func runDraftStep(t *testing.T, script string) {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("the step runs in Git's bash, and git is not installed")
+	}
+	// Git's own bash, never the one Windows may have on its path for WSL.
+	// git.exe is in Git's cmd, bin or mingw64\bin folder.
+	bash := ""
+	for dir := filepath.Dir(git); bash == "" && dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, "bin", "bash.exe")); err == nil {
+			bash = filepath.Join(dir, "bin", "bash.exe")
+		}
+	}
+	if bash == "" {
+		t.Skipf("the step runs in Git's bash, which is not in a folder above %s", git)
+	}
+	stubs := t.TempDir()
+	stub := "#!/bin/sh\necho \"$*\" >> \"$STUB_GH_CALLS\"\ncase \"$STUB_GH\" in\nfail) echo 'gh: HTTP 502' >&2; exit 1 ;;\n*) echo \"$STUB_GH\" ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(stubs, "gh"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		gh, want string
+		isFailed bool
+	}{
+		{"true", "draft=true", false},
+		{"false", "draft=false", false},
+		{"fail", "", true},
+	} {
+		t.Run("gh says "+test.gh, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			step := filepath.Join(dir, "step.sh")
+			if err := os.WriteFile(step, []byte(script), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, calls := filepath.Join(dir, "output"), filepath.Join(dir, "calls")
+			cmd := exec.Command(bash, "--noprofile", "--norc", "-eo", "pipefail", step)
+			cmd.Env = append(os.Environ(), "PATH="+stubs+string(os.PathListSeparator)+os.Getenv("PATH"), "GITHUB_OUTPUT="+output, "GH_TOKEN=token", "PULL_REQUEST=repos/o/r/pulls/7", "STUB_GH="+test.gh, "STUB_GH_CALLS="+calls)
+
+			// Act
+			out, err := cmd.CombinedOutput()
+
+			// Assert
+			said, _ := os.ReadFile(output)
+			asked, _ := os.ReadFile(calls)
+			if strings.TrimSpace(string(asked)) != "api repos/o/r/pulls/7 --jq .draft" {
+				t.Errorf("the step asked gh %q, want the pull request's draft field", asked)
+			}
+			if test.isFailed {
+				if err == nil || strings.Contains(string(said), "draft=") {
+					t.Errorf("a read that failed: step err %v, output %q, want the step failed and no draft output\n%s", err, said, out)
+				}
+				return
+			}
+			if err != nil || strings.TrimSpace(string(said)) != test.want {
+				t.Errorf("step err %v, output %q, want %q\n%s", err, said, test.want, out)
+			}
+		})
 	}
 }
 
@@ -443,6 +654,10 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 	needs := func(plan, frontend, browser, goJobs, saidFrontend, saidBrowser, saidGo string) string {
 		outputs, _ := json.Marshal(map[string]string{"frontend": saidFrontend, "browser": saidBrowser, "go": saidGo})
 		return fmt.Sprintf(`{"plan":{"result":%q,"outputs":%s},"frontend":{"result":%q,"outputs":{}},"browser":{"result":%q,"outputs":{}},"go":{"result":%q,"outputs":{}}}`, plan, outputs, frontend, browser, goJobs)
+	}
+	// withDraft adds the draft job, with its result, to results.
+	withDraft := func(result, results string) string {
+		return fmt.Sprintf(`{"draft":{"result":%q,"outputs":{}},`, result) + strings.TrimPrefix(results, "{")
 	}
 	const all = `[{"shard":"rest"}]`
 	for name, test := range map[string]struct {
@@ -467,6 +682,10 @@ func TestGoWorkflowsRequiredCheckPassesOnlyWhenEveryJobSucceeded(t *testing.T) {
 		"the plan said nothing and every job was skipped":        {needs("success", "skipped", "skipped", "skipped", "", "", ""), true, false},
 		"the plan said something that is neither true nor false": {needs("success", "skipped", "success", "success", "no", "true", all), true, false},
 		"no job at all":                                          {`{}`, true, false},
+		"the draft job read a pull request that is ready now":    {withDraft("success", needs("success", "success", "success", "success", "true", "true", all)), true, true},
+		"the draft job could not read and every job passed":      {withDraft("failure", needs("success", "success", "success", "success", "true", "true", all)), true, true},
+		"the draft job was skipped and every job passed":         {withDraft("skipped", needs("success", "success", "success", "success", "true", "true", all)), true, true},
+		"the draft job could not read and a job failed":          {withDraft("failure", needs("success", "success", "success", "failure", "true", "true", all)), true, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange: as GitHub Actions runs a pwsh step, which stops on

@@ -10,7 +10,9 @@ import "../../src/styles.css";
 // another goblin and has a pull request, beside queued work with a long title,
 // a finished task with its pull request and a goblin with its browser active,
 // each running Codex, so every card carries its harness mark, under a CFO
-// running Claude Code.
+// running Claude Code. Murray's paused card has a ticket, a pull request,
+// passed checks and a deploy, as the Overlord's crowded card had on
+// 2026-10-17.
 const long = "The board's terminal: Ctrl+C copies a selection or interrupts, Ctrl+V pastes (bracketed), and the agents' keys reach the program";
 const now = Date.parse("2026-09-30T12:00:00Z");
 const task = (fields: Record<string, unknown>) => ({ project: "code-goblins", harness: "codex", model: "gpt-6-astra", effort: "xhigh", verified: false, generation: "g1", since: "2026-09-29T08:00:00Z", ...fields });
@@ -22,7 +24,14 @@ const snapshot = parseSnapshot({
     task({ id: "cg-terminal-input", title: long, phase: "waiting", waiting_on: "cg-board-kill-with-a-long-goblin-name", pr: "https://github.com/fpresta0607/code-goblins/pull/205" }),
     task({ id: "cg-defender-safe-build", title: "cg-defender-safe-build", phase: "waiting", waiting_on: "deploy" }),
     task({ id: "queued-long", title: long, phase: "queued", generation: "", brief: true, since: "2026-09-30T11:00:00Z" }),
-    task({ id: "finished:cg-orchestration-pulse", title: "Orchestration pulses end smoothly", phase: "done", archived: true, merged: true, verified: true, generation: "", pr: "https://github.com/fpresta0607/code-goblins/pull/198", branch: "fix/orchestration-pulse-end" }),
+    task({ id: "finished:cg-orchestration-pulse", title: "Orchestration pulses end smoothly", phase: "done", archived: true, merged: true, verified: true, generation: "", pr: "https://github.com/fpresta0607/code-goblins/pull/198", branch: "fix/orchestration-pulse-end", at: "2026-09-30T09:15:00Z" }),
+    task({
+      id: "cg-api-artisan", title: "Shape the export API", goblin_name: "Murray", goblin_title: "API Artisan", phase: "paused", at: "2026-09-28T19:22:00Z",
+      pr: "https://github.com/fpresta0607/code-goblins/pull/210", ticket: { number: 211, url: "https://github.com/fpresta0607/code-goblins/issues/211", state: "paused" },
+      local_checks: { commit: "5f52309400", level: "affected", required_level: "affected", status: "passed", duration_seconds: 600, failed: [], at: "2026-09-28T19:00:00Z" },
+      hosted_checks: { head: "5f52309400", state: "passed", checks: 9, approved: true, at: "2026-09-28T19:10:00Z" },
+      deployment: { commit: "5f52309400", state: "deployed", workflows: ["Deploy"], link: "https://github.com/fpresta0607/code-goblins/actions/runs/81", at: "2026-09-28T19:20:00Z" },
+    }),
   ],
 });
 
@@ -45,9 +54,9 @@ function Fixture() {
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
-  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onCount={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} />;
+  const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
-    <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} cardStart={() => ({ blocked: "", onStart: () => Promise.resolve("") })} onSelect={select} />
+    <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={select} />
   </section></div></aside>;
   return width ? <main className="canvas-region" style={{ width }}>{board}</main> : board;
 }

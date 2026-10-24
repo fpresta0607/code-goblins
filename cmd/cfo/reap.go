@@ -19,6 +19,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/reap"
+	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
@@ -182,8 +184,8 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 		Commands: commands,
 		CPU:      proc.CPUTime,
 		Kill:     func(ctx context.Context, pid int) error { return killTree(ctx, commands, pid) },
-		Clean: func(ctx context.Context, id string, forceArchive bool) error {
-			_, err := cleanup.Service{
+		Clean: func(ctx context.Context, id string, forceArchive bool) (string, error) {
+			result, err := cleanup.Service{
 				StateDir:     h.State,
 				Data:         h.Data,
 				Commands:     commands,
@@ -192,8 +194,11 @@ func defaultReap(ctx context.Context, h home.Home, options reap.Options) (reap.R
 				ForceArchive: forceArchive,
 
 				LeaveRunningTerminals: true,
+				HandOver: func(meta state.TaskMeta) (bool, error) {
+					return supervisor.HandOverRetiredNote(h.State, meta)
+				},
 			}.Cleanup(ctx, id)
-			return err
+			return result.Output, err
 		},
 		Return: func(ctx context.Context, project, path string) error {
 			return worktree.Service{Commands: commands}.Return(ctx, project, path)

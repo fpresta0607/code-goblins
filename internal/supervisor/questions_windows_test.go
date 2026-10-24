@@ -23,7 +23,7 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	store, _ := testStore(t)
 	primary, _, _, cfo := primaryFixture(t, store)
 	servePipe(t, store, cfo)
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree"); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -32,10 +32,10 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if len(store.Snapshot().Questions) != 1 {
 		t.Fatal("missing published question")
 	}
-	if err := cfo.PublishQuestion("question-1", "Changed text", []string{"Other"}, ""); err == nil {
+	if err := cfo.PublishQuestion("question-1", "Changed text", []string{"Other"}, "", "", nil); err == nil {
 		t.Fatal("conflicting durable ID published")
 	}
-	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree"); err != nil {
+	if err := cfo.PublishQuestion("question-1", "Pick a layout", []string{"Board", "Tree"}, "Tree", "", nil); err != nil {
 		t.Fatal(err)
 	}
 	primary.Process.PID = 1
@@ -43,8 +43,224 @@ func TestCFOQuestionDurableConflictAndOwnedPublication(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.Home.State, "primary.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfo.PublishQuestion("question-2", "Worker impersonation", nil, ""); err == nil {
+	if err := cfo.PublishQuestion("question-2", "Worker impersonation", nil, "", "", nil); err == nil {
 		t.Fatal("non-CFO published a user modal")
+	}
+}
+
+// The CFO's question can name the goblin whose decision it puts to the
+// Overlord, as pd-mcp-only's parity sizing was on 2026-10-17, so a wait that
+// goblin raises while the question is open declares whether it follows it. A
+// task the fleet does not know is refused, and so is the same ID published
+// again for no goblin.
+func TestTheCFOsQuestionNamesTheGoblinItDecidesFor(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	_, _, _, cfo := primaryFixture(t, store)
+	servePipe(t, store, cfo)
+	meta := makeNative(t, store.Home.State, "task-1")
+
+	// Act
+	err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil)
+	unknown := cfo.PublishQuestion("other-parity", "Build them?", []string{"Yes", "No"}, "", "no-such-task", nil)
+	other := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", "", nil)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Questions; len(got) != 1 || got[0].ForTask != meta.ID || got[0].Task != "" {
+		t.Fatalf("questions = %+v, want the CFO's own question for %s", got, meta.ID)
+	}
+	if unknown == nil || !strings.Contains(unknown.Error(), "no-such-task") {
+		t.Errorf("a question for a task the fleet does not know = %v, want it refused", unknown)
+	}
+	if other == nil || !strings.Contains(other.Error(), "already used") {
+		t.Errorf("the same ID decided for no goblin = %v, want it refused", other)
+	}
+}
+
+// The Overlord, 2026-10-17, at "Wanda - API Ace is waiting on you" beside the
+// decision she waited for: "These follow-ups should not be notifications in
+// the Command Center ... But the initial one is critical". A goblin's wait on
+// him follows a decision only when the goblin declares it, by the question's
+// ID (cfo notify --follows), and nothing infers one: a wait that declares none
+// is its own card beside any decision open, the CFO's question for the goblin
+// or the goblin's own with choices, since a need he never sees stalls the
+// goblin and an extra card does not. A wait declared to follow a decision
+// already answered closes as it is taken in, answered with it, and one whose
+// decision he dismissed is its own card, as is one beside a file its goblin
+// delivered, which opens that file.
+func TestAGoblinsWaitFollowsADecisionOnlyWhenItDeclaresIt(t *testing.T) {
+	answerByCFO := func(t *testing.T, store *Store, q Question) {
+		if err := store.recordCFOAnswer(cfoAnswer{QuestionID: q.ID, Option: q.Options[0], Answer: q.Options[0], At: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answerOnBoard := func(t *testing.T, store *Store, q Question) {
+		if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: q.Options[0], AnswerKind: "option"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dismiss := func(t *testing.T, store *Store, q Question) {
+		if _, err := store.Queue(Action{ID: "dismiss-1", Kind: "question_clear", QuestionID: q.ID, Generation: q.Identity}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, test := range map[string]struct {
+		isCFOsQuestion, isDeclared, hasDeliveredFile bool
+		closeFirst                                   func(*testing.T, *Store, Question)
+		wantState, wantReason                        string
+		isHeld                                       bool
+	}{
+		"declared to follow the CFO's question for the goblin":   {isCFOsQuestion: true, isDeclared: true, wantState: "open"},
+		"declared to follow the goblin's own question":           {isDeclared: true, wantState: "open"},
+		"undeclared beside the CFO's question for the goblin":    {isCFOsQuestion: true, wantState: "open", isHeld: true},
+		"undeclared beside the goblin's own question":            {wantState: "open", isHeld: true},
+		"declared to follow a question the CFO already answered": {isDeclared: true, closeFirst: answerByCFO, wantState: "answered", wantReason: "The CFO answered the decision it waited on, "},
+		"declared to follow a question he already answered":      {isDeclared: true, closeFirst: answerOnBoard, wantState: "answered", wantReason: "You answered the decision it waited on, "},
+		"declared to follow a question he dismissed without one": {isCFOsQuestion: true, isDeclared: true, closeFirst: dismiss, wantState: "open", isHeld: true},
+		"declared beside a file its goblin delivered":            {isCFOsQuestion: true, isDeclared: true, hasDeliveredFile: true, wantState: "open", isHeld: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			_, _, _, cfo := primaryFixture(t, store)
+			servePipe(t, store, cfo)
+			meta, record, _, connection := goblinFixture(t, store)
+			var q Question
+			if test.isCFOsQuestion {
+				if err := cfo.PublishQuestion("pd-connector-parity", "Build the 63 parity tools?", []string{"Build them", "End her task"}, "", meta.ID, nil); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.ingestQuestions(); err != nil {
+					t.Fatal(err)
+				}
+				q = store.Snapshot().Questions[0]
+			} else {
+				q = surfaced(t, store, meta, record, connection)
+			}
+			if test.closeFirst != nil {
+				test.closeFirst(t, store, q)
+			}
+			if test.hasDeliveredFile {
+				file := openReview(meta.ID+"-site-plan", meta.ID)
+				file.Document = &ReviewDocument{Name: "site-plan.pdf", Size: 2048, Sum: strings.Repeat("b", 64), Kind: "application/pdf"}
+				if err := store.acceptReview(file); err != nil {
+					t.Fatal(err)
+				}
+			}
+			follows, wantFollows := "", ""
+			if test.isDeclared {
+				follows = q.ID
+			}
+			if !test.hasDeliveredFile {
+				wantFollows = follows
+			}
+			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: the parity sizing"); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishWait(h, meta.ID, record.Seq+1, "Waiting for the Overlord's answer on the parity sizing", "", "", "", follows); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			err := store.ingestReviews()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			reviews := store.Snapshot().Reviews
+			i := slices.IndexFunc(reviews, func(r Review) bool { return r.ID == fmt.Sprintf("waiting-%s-%d", meta.ID, record.Seq+1) })
+			if i < 0 {
+				t.Fatalf("reviews = %+v, want the wait taken in", reviews)
+			}
+			got := reviews[i]
+			if got.Follows != wantFollows || got.State != test.wantState || !strings.HasPrefix(got.Reason, test.wantReason) || test.wantReason != "" && !strings.Contains(got.Reason, q.ID) {
+				t.Fatalf("wait = %+v, want it %s following %q, reason %q naming %s", got, test.wantState, wantFollows, test.wantReason, q.ID)
+			}
+			isHeld := slices.ContainsFunc(waitingOnOverlord(store.Snapshot()), func(item heldItem) bool { return item.key() == "review:"+got.ID })
+			if isHeld != test.isHeld {
+				t.Errorf("the wait held for him = %t, want %t", isHeld, test.isHeld)
+			}
+		})
+	}
+}
+
+// Answering the decision a goblin declared its wait to follow closes the wait
+// at once, in the same change that records the answer, whoever answers it:
+// his answer from the board, the CFO's, or the CFO's ack of the goblin's
+// question once it answered it another way. Nothing stays open behind an
+// answered decision for the board to hide, and a wait that follows nothing
+// stays open.
+func TestAnsweringTheDecisionClosesTheWaitsThatFollowIt(t *testing.T) {
+	for name, answer := range map[string]func(t *testing.T, store *Store, q Question, connection *CFOConnection, seq int){
+		"his answer from the board": func(t *testing.T, store *Store, q Question, _ *CFOConnection, _ int) {
+			if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "SQLite", AnswerKind: "option"}); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the CFO's answer": func(t *testing.T, store *Store, _ Question, connection *CFOConnection, seq int) {
+			if _, _, err := connection.AnswerGoblin(context.Background(), fmt.Sprint(seq), "SQLite", ""); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the CFO's ack of the question": func(t *testing.T, store *Store, _ Question, _ *CFOConnection, seq int) {
+			if err := wake.AckThrough(store.Home.State, seq); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.supersedeQuestions(); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta, record, _, connection := goblinFixture(t, store)
+			servePipe(t, store, connection)
+			if err := PublishWait(h, meta.ID, record.Seq-1, "sign in to Stripe", "", "", "", ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+			q := surfaced(t, store, meta, record, connection)
+			if err := state.AppendStatus(h.State, meta.ID, "waiting on overlord: the store"); err != nil {
+				t.Fatal(err)
+			}
+			if err := PublishWait(h, meta.ID, record.Seq+1, "Waiting for the Overlord's answer on the store", "", "", "", q.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			answer(t, store, q, connection, record.Seq)
+			if err := store.ingestReviews(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			for _, r := range store.Snapshot().Reviews {
+				switch r.ID {
+				case fmt.Sprintf("waiting-%s-%d", meta.ID, record.Seq+1):
+					if r.State != "answered" || r.AnsweredIn != "question" || !strings.Contains(r.Reason, q.ID) {
+						t.Errorf("the wait that follows %s = %+v, want it answered with the decision", q.ID, r)
+					}
+				default:
+					if r.State != "open" {
+						t.Errorf("the wait raised before the decision, %s, = %s, want it open", r.ID, r.State)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -435,7 +651,7 @@ func goblinTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 // question the supervisor ingested.
 func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Record, connection *CFOConnection) Question {
 	t.Helper()
-	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(store.Home.State, meta.ID, record, record.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -454,7 +670,7 @@ func surfaced(t *testing.T, store *Store, meta state.TaskMeta, record wake.Recor
 func TestGoblinQuestionAnsweredOnceInItsOwnTerminal(t *testing.T) {
 	store, h := testStore(t)
 	meta, record, goblin, connection := goblinFixture(t, store)
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	q := surfaced(t, store, meta, record, connection)
@@ -512,7 +728,7 @@ func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T
 		t.Fatal(err)
 	}
 
-	if err := SurfaceNotify(h.State, meta.ID, record, asked, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, asked, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -614,19 +830,19 @@ func TestSurfaceNotifyNeedsChoicesAndTheGoblinsOwnTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, plain, plain.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, plain, plain.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := wake.Append(h.State, "notify", meta.ID, "failed: Tests fail. options: Retry (Recommended) | Abandon")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, meta.ID, failed, failed.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, meta.ID, failed, failed.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	// The System process is live and never the ancestor of a test.
 	goblin.runs(t, 4)
-	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", nil); err == nil {
+	if err := SurfaceNotify(h.State, meta.ID, record, record.Detail, "", "", nil, nil); err == nil {
 		t.Fatal("a process outside the goblin's terminal surfaced its question")
 	}
 	if err := store.ingestQuestions(); err != nil {
@@ -897,10 +1113,10 @@ func TestCFOAndBoardAnswersToDifferentGoblinsBothDeliver(t *testing.T) {
 		t.Fatal(err)
 	}
 	connectionB := &CFOConnection{State: h.State}
-	if err := SurfaceNotify(h.State, metaA.ID, recordA, recordA.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, metaA.ID, recordA, recordA.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := SurfaceNotify(h.State, metaB.ID, recordB, recordB.Detail, "", nil); err != nil {
+	if err := SurfaceNotify(h.State, metaB.ID, recordB, recordB.Detail, "", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ingestQuestions(); err != nil {

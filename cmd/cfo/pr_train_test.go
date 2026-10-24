@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
 )
 
@@ -41,9 +42,10 @@ type trainForge struct {
 	closed  bool
 	// labels are the labels the repository has, and wears the ones on the
 	// train's pull request.
-	labels []string
-	wears  []string
-	calls  []string
+	labels   []string
+	wears    []string
+	calls    []string
+	onceTest string
 }
 
 // merged names the pull requests GitHub shows merged, in the order they were
@@ -122,11 +124,16 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 	}
 	switch {
 	case request.Name != "gh":
+	case args[0] == "api" && args[1] == "graphql" && f.onceTest != "":
+		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"data":{"repository":{"object":{"checkSuites":{"nodes":[{"checkRuns":{"nodes":[{"annotations":{"nodes":[{"title":"Failed once","message":%q}]}}]}}]}}}}}`, f.onceTest))}, nil
 	case args[0] == "pr" && args[1] == "list":
 		merged := f.merged()
 		return answer(slices.DeleteFunc(slices.Clone(f.open), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))
 	case args[0] == "api" && args[1] == "user":
 		return execx.Result{Stdout: []byte("fleet\n")}, nil
+	case args[0] == "run" && args[1] == "list":
+		// Main has no deploy run for a green train to wait on.
+		return execx.Result{Stdout: []byte("[]")}, nil
 	case args[0] == "pr" && args[1] == "create":
 		f.branch, f.trainURL = args[slices.Index(args, "--head")+1], "https://github.com/o/r/pull/900"
 		return execx.Result{Stdout: []byte(f.trainURL + "\n")}, nil
@@ -164,6 +171,48 @@ func doneGoblin(t *testing.T, h home.Home, id, project string, pr train.PullRequ
 	}
 	if err := state.AppendStatus(h.State, id, "done: PR "+pr.URL); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPRTrainFilesRootsOnTheProjectIssueRepository(t *testing.T) {
+	for _, configuration := range []struct{ name, manifest, repository string }{
+		{"unset", `{"project":"app"}`, "o/r"},
+		{"explicit", `{"project":"app","issue_repository":"o/ops"}`, "o/ops"},
+		{"invalid", `{"project":"app","issue_repository":"o/ops/extra"}`, ""},
+	} {
+		t.Run(configuration.name, func(t *testing.T) {
+			// Arrange
+			forge := newTrainForge(t)
+			forge.onceTest = "go (cmd-cfo): github.com/o/r/cmd/cfo TestNativeHost"
+			h := testHome(t)
+			writeIssueManifest(t, h, forge.project, configuration.manifest)
+			pull := forge.pull(11, "feat/a", "a.txt")
+			doneGoblin(t, h, "g11", forge.project, pull)
+			gh := &issueGH{account: "o", remotes: map[string]map[string]string{"app": {"origin": "https://github.com/o/r.git"}}}
+			runtime := testCommandRuntimeForHome(h)
+			runtime.trainEvery = time.Millisecond
+			runtime.github = gh
+			runtime.repositoryOf = tickets.GitHub{Commands: gh}.RepositoryOf
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			code := runPRTrain([]string{forge.project}, &stdout, &stderr, forge, runtime)
+
+			// Assert
+			if configuration.repository == "" {
+				if code != 1 || !strings.Contains(stderr.String(), "issue_repository") || len(gh.writes) != 0 {
+					t.Fatalf("exit = %d, stderr = %s, writes = %v, want invalid record refused", code, stderr.String(), gh.writes)
+				}
+				return
+			}
+			want := []string{"repos/" + configuration.repository + "/labels", "repos/" + configuration.repository + "/issues"}
+			if code != 0 || !slices.Equal(gh.writes, want) {
+				t.Fatalf("exit = %d, stderr = %s, writes = %v, want %v", code, stderr.String(), gh.writes, want)
+			}
+			if !slices.Equal(forge.merged(), []string{pull.URL}) {
+				t.Fatalf("merged = %v, want the code repository's pull request", forge.merged())
+			}
+		})
 	}
 }
 

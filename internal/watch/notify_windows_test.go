@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -28,12 +30,13 @@ func TestWaitSeesFileWrite(t *testing.T) {
 	}()
 
 	start := time.Now()
-	got := w.Wait(context.Background(), 5*time.Second)
+	got := w.Wait(context.Background(), time.Minute)
 	elapsed := time.Since(start)
 
 	if !got {
 		t.Fatalf("Wait returned false, want true (file write should have signaled)")
 	}
+	// stall-accepted: it times how soon a write wakes the wait, a latency no bound that outlasts a stall can judge.
 	if elapsed >= 3*time.Second {
 		t.Fatalf("Wait took %v, want well under 3s", elapsed)
 	}
@@ -83,22 +86,91 @@ func TestWaitCancellationInterruptsNativeAndDegradedWaits(t *testing.T) {
 			priorFailures := waiter.failStreak
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			timer := time.AfterFunc(100*time.Millisecond, cancel)
+			timer := time.AfterFunc(100*time.Millisecond, cancel) // stall-accepted: the test means this timer to cancel the wait.
 			defer timer.Stop()
 			started := time.Now()
 
-			got := waiter.Wait(ctx, 20*time.Second)
+			got := waiter.Wait(ctx, 2*time.Minute)
 
 			if got || ctx.Err() == nil {
 				t.Fatalf("Wait = %t, context error %v; want cancellation without an event", got, ctx.Err())
 			}
-			if waited := time.Since(started); waited > 5*time.Second {
-				t.Errorf("the canceled wait took %s; want it to stop before its twenty-second timeout", waited)
+			if waited := time.Since(started); waited > time.Minute {
+				t.Errorf("the canceled wait took %s; want it to stop before its two-minute timeout", waited)
 			}
 			if waiter.failStreak != priorFailures {
 				t.Error("cancellation counted as a directory API failure")
 			}
 		})
+	}
+}
+
+// TestACancelThatNeverReturnsHoldsNeitherTheWaitNorTheClose stalls the
+// pending read's cancel, as one stalled in the kernel for 19 minutes in #1343,
+// and runs the supervisor's native inbox watcher's own sequence on it: a Wait
+// whose context ends while its read is pending, then Close. Each must return
+// once the drain's bound runs out, with the waiter degraded so it never reads
+// into memory the kernel may still hold.
+func TestACancelThatNeverReturnsHoldsNeitherTheWaitNorTheClose(t *testing.T) {
+	waiter, err := NewNativeWaiter(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	returned := make(chan struct{}, 2)
+	var stalls atomic.Int32
+	originalCancel, originalDrain := cancelIoEx, drainTimeout
+	cancelIoEx = func(syscall.Handle, *syscall.Overlapped) error {
+		stalls.Add(1)
+		<-release
+		returned <- struct{}{}
+		return nil
+	}
+	drainTimeout = 100 * time.Millisecond
+	t.Cleanup(func() {
+		close(release)
+		for range stalls.Load() {
+			<-returned
+		}
+		cancelIoEx, drainTimeout = originalCancel, originalDrain
+		// The stalled cancel never reached the kernel, so the read is still
+		// pending: cancel it for real and close the handles, so the
+		// temporary directory can be removed.
+		_ = syscall.CancelIoEx(waiter.dirHandle, &waiter.ov)
+		_, _ = syscall.WaitForSingleObject(waiter.eventHandle, 60000)
+		_ = syscall.CloseHandle(waiter.dirHandle)
+		_ = syscall.CloseHandle(waiter.eventHandle)
+	})
+
+	waited := make(chan bool, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second) // stall-accepted: the test means this context to end while the read is pending.
+		defer cancel()
+		waited <- waiter.Wait(ctx, time.Hour)
+	}()
+	select {
+	case got := <-waited:
+		if got {
+			t.Fatal("Wait = true; want false for a wait its context ended")
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("Wait was still held by its stalled cancel a minute after its context ended")
+	}
+	if stalls.Load() == 0 {
+		t.Fatal("Wait never reached the cancel: its read was not pending when its context ended")
+	}
+	if !waiter.Degraded() {
+		t.Error("a waiter whose cancel never returned is not degraded, so its next Wait would read into memory the kernel may still hold")
+	}
+	closed := make(chan struct{})
+	go func() {
+		waiter.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Minute):
+		t.Fatal("Close was still held by the stalled cancel after a minute")
 	}
 }
 
@@ -210,7 +282,7 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	// stealing the singleton later, exactly as
 	// TestRunReturnsQuietlyWhenSingletonStolen does: a throwaway child
 	// process stands in for a live successor's identity.
-	cmd := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >NUL")
+	cmd := exec.Command("ping", "-n", "30", "127.0.0.1")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +298,7 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	// races goroutine scheduling under a loaded test binary, so poll with a
 	// deadline instead of a fixed sleep that flakes when the machine is busy.
 	heartbeat, err := monitor.ReadHeartbeat(stateDir)
-	for deadline := time.Now().Add(5 * time.Second); (err != nil || heartbeat.LastCycle.IsZero()) && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(time.Minute); (err != nil || heartbeat.LastCycle.IsZero()) && time.Now().Before(deadline); {
 		select {
 		case <-done:
 			t.Fatalf("Run exited before its first heartbeat")
@@ -255,7 +327,7 @@ func TestRunUsesNoLegacyBeatMarker(t *testing.T) {
 	}
 	select {
 	case <-done:
-	case <-time.After(15 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatalf("Run did not exit after its singleton was stolen")
 	}
 

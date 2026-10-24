@@ -22,8 +22,9 @@ import (
 // not, kept with a paused goblin's resume for its resume prompt to carry, or
 // typed into the CFO's terminal once a CFO runs and its input is ready. A
 // goblin pausing, resuming or stopping, or whose terminal is not up yet, has
-// it wait; one that waits longer than messageWait goes to the CFO with its
-// words, so none is lost.
+// it wait; one that waits longer than messageWait, or is kept for a resume
+// whose session a later start replaced, goes to the CFO with its words, so
+// none is lost.
 
 // messageWait is how long a message waits for its goblin's terminal before
 // the CFO is given it instead.
@@ -67,11 +68,11 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Evaluation{}, err
 	}
-	isRecorded := err == nil
+	isRecorded := err == nil && isCurrentRecord(record, meta)
 	switch {
 	case isRecorded && record.Phase == "stopped":
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was stopped before it could take it")
-	case isRecorded && (record.Phase == "paused" && record.Generation == meta.SpawnGen || record.Action == "resume" && record.Phase == "failed"):
+	case isRecorded && waitsForResume(record):
 		isKept, err := keepForResume(stateDir, a.TaskID, text)
 		if err != nil {
 			return Evaluation{}, err
@@ -102,20 +103,26 @@ func (s *Service) waitForGoblin(a Action) (Evaluation, error) {
 	return Evaluation{Reason: "Waits for " + a.TaskID + "."}, ErrDeferred
 }
 
-// keepForResume adds text to what a paused goblin's resume tells it, under
-// its lifecycle lock, so a resume that starts meanwhile either carries it or
-// starts after it is kept. A lock a resume holds says nothing is kept yet.
+// keepForResume adds text to what a paused goblin's resume, or a failed
+// resume of its own, tells it, under its lifecycle lock, so a resume that
+// starts meanwhile either carries it or starts after it is kept. A lock a
+// resume holds says nothing is kept yet, and so does a record an earlier
+// session left.
 func keepForResume(stateDir, task, text string) (isKept bool, err error) {
 	name := ".lifecycle-" + task + ".lock"
 	if _, err := lock.AcquireExclusiveNamed(stateDir, name); err != nil {
 		return false, nil
 	}
 	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(stateDir, name)) }()
+	meta, err := state.ReadTaskMeta(stateDir, task)
+	if err != nil {
+		return false, err
+	}
 	record, err := state.ReadLifecycle(stateDir, task)
 	if err != nil {
 		return false, err
 	}
-	if !waitsForResume(record) {
+	if !waitsForResume(record) || !isCurrentRecord(record, meta) {
 		return false, nil
 	}
 	record.ResumeNote = strings.TrimSpace(record.ResumeNote + "\n" + text)
@@ -126,6 +133,112 @@ func keepForResume(stateDir, task, text string) (isKept bool, err error) {
 // the goblin is paused, or its resume failed.
 func waitsForResume(record state.Lifecycle) bool {
 	return record.Phase == "paused" || record.Action == "resume" && record.Phase == "failed"
+}
+
+// handOverReplacedResumes gives the CFO the board messages each task's
+// lifecycle record keeps for a resume whose session a later start replaced.
+func handOverReplacedResumes(stateDir string) error {
+	var problems error
+	for _, meta := range liveTasks(stateDir) {
+		problems = errors.Join(problems, handOverReplacedResume(stateDir, meta.ID))
+	}
+	return problems
+}
+
+// handOverReplacedResume takes the board messages task id's record keeps for
+// a resume whose session a later start replaced out of its note once
+// HandOverReplacedNote has given them to the CFO. The start publishes its
+// session without the lifecycle lock, so a message is kept for the replaced
+// session both before the start and while it runs. It works under the task's
+// lifecycle lock, so a message kept meanwhile is either handed on here or
+// never kept. A lock held by a pause or stop under way leaves the record to
+// it, which hands the messages on before it writes its own record, and one
+// held by a resume, refused for a replaced session, leaves them for the next
+// reading. The messages are handed on before they leave the note, so a
+// hand-off that fails leaves them for the next reading, and what the note
+// held before them, such as an answer given while paused, stays.
+func handOverReplacedResume(stateDir, id string) (err error) {
+	if _, _, isReplaced, err := replacedResume(stateDir, id); err != nil || !isReplaced {
+		return err
+	}
+	name := state.LifecycleLockName(id)
+	if _, err := lock.AcquireExclusiveNamed(stateDir, name); err != nil {
+		return nil
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(stateDir, name)) }()
+	record, meta, isReplaced, err := replacedResume(stateDir, id)
+	if err != nil || !isReplaced {
+		return err
+	}
+	isHanded, err := HandOverReplacedNote(stateDir, meta, record)
+	if !isHanded {
+		return err
+	}
+	record.ResumeNote, _ = keptMessages(record.ResumeNote)
+	return errors.Join(err, state.WriteLifecycle(stateDir, record))
+}
+
+// HandOverReplacedNote gives the CFO, with their words, the board messages
+// record keeps for a resume once a later start, such as a cfo switch, has
+// replaced the session that resume was for, since no resume of that record
+// runs again. It takes no lock and writes nothing: its caller holds the
+// task's lifecycle lock and takes the messages out of the note, or writes its
+// own record over it, once they are handed on. It says whether each is on the
+// CFO's notify wake, so a wake episode that fails to publish after them is
+// said without handing them on twice.
+func HandOverReplacedNote(stateDir string, meta state.TaskMeta, record state.Lifecycle) (isHanded bool, err error) {
+	messages := replacedMessages(record, meta)
+	if len(messages) == 0 {
+		return true, nil
+	}
+	why := meta.ID + "'s session was replaced by a later start while it was paused, so the resume the message was kept for never runs"
+	if record.Action == "resume" {
+		why = meta.ID + "'s session was replaced by a later start after its resume failed, so that resume never runs again; a message kept before it began at " + record.Started.UTC().Format(time.RFC3339) + " went with it, and one kept after it failed did not"
+	}
+	for _, message := range messages {
+		if err := handToCFO(stateDir, meta.ID, why, message); err != nil {
+			return false, err
+		}
+	}
+	_, err = wake.PublishEpisode(stateDir)
+	return true, err
+}
+
+// replacedResume reads task id's lifecycle record and task metadata, and
+// says whether the record keeps board messages for a resume a later start's
+// session replaced.
+func replacedResume(stateDir, id string) (state.Lifecycle, state.TaskMeta, bool, error) {
+	var meta state.TaskMeta
+	record, err := state.ReadLifecycle(stateDir, id)
+	if errors.Is(err, os.ErrNotExist) {
+		return record, meta, false, nil
+	}
+	if err != nil || !waitsForResume(record) {
+		return record, meta, false, err
+	}
+	meta, err = state.ReadTaskMeta(stateDir, id)
+	return record, meta, err == nil && len(replacedMessages(record, meta)) > 0, err
+}
+
+// replacedMessages are the board messages record keeps for a resume a later
+// start's session replaced: record waits for a resume, as a paused goblin's
+// or a failed resume's does, and is neither meta's session's nor its
+// interrupted resume.
+func replacedMessages(record state.Lifecycle, meta state.TaskMeta) []string {
+	if !waitsForResume(record) || isCurrentRecord(record, meta) {
+		return nil
+	}
+	_, messages := keptMessages(record.ResumeNote)
+	return messages
+}
+
+// isCurrentRecord says record is meta's goblin's own: meta's session's, or
+// the task's interrupted resume. A record an earlier session left says
+// nothing of the goblin, and decides nothing of where its message goes: a
+// failed resume whose session a later start replaced, as a cfo switch run to
+// rescue the goblin does, can never be resumed again.
+func isCurrentRecord(record state.Lifecycle, meta state.TaskMeta) bool {
+	return record.Generation == meta.SpawnGen || record.IsInterruptedResume(meta)
 }
 
 // keptMessages reads a resume note as what came before the board's first
@@ -163,7 +276,7 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 	}
 	remove := -1
 	if len(s.db.Actions) >= maxActions {
-		if remove = slices.IndexFunc(s.db.Actions, func(old Action) bool { return old.Status == "succeeded" || old.Status == "failed" }); remove < 0 {
+		if remove = slices.IndexFunc(s.db.Actions, isClosedHistory); remove < 0 {
 			return Action{}, errors.New("action queue is full. Resolve pending actions")
 		}
 	}
@@ -211,12 +324,19 @@ func withdrawFromResume(stateDir, task, text string) (err error) {
 // messageToCFO gives the CFO a message its goblin could not take, with its
 // words, and says why the message itself failed.
 func (s *Service) messageToCFO(a Action, why string) error {
-	detail := fmt.Sprintf("message not delivered: %s, so it is yours to relay or answer. The Overlord wrote: %s", why, a.Text)
-	if _, err := wake.Append(s.Store.Home.State, "notify", a.TaskID, bounded(detail, 4000)); err != nil {
+	if err := handToCFO(s.Store.Home.State, a.TaskID, why, a.Text); err != nil {
 		return err
 	}
 	if _, err := wake.PublishEpisode(s.Store.Home.State); err != nil {
 		s.publish(err)
 	}
 	return fmt.Errorf("%w: %s; the CFO has it", ErrRejected, why)
+}
+
+// handToCFO puts a message to task that its goblin could not take on the
+// task's notify wake, with its words and why it was not delivered.
+func handToCFO(stateDir, task, why, text string) error {
+	detail := fmt.Sprintf("message not delivered: %s, so it is yours to relay or answer. The Overlord wrote: %s", why, text)
+	_, err := wake.Append(stateDir, "notify", task, bounded(detail, 4000))
+	return err
 }

@@ -7,7 +7,7 @@ import (
 )
 
 func stepAt(minute int, what string) Entry {
-	return Entry{At: night.Add(time.Duration(minute) * time.Minute), Kind: KindHis, What: what, Evidence: "his own sign-in. Backlog row cg-sign-in"}
+	return Entry{At: night.Add(time.Duration(minute) * time.Minute), Kind: KindHis, What: what, Link: "https://vercel.com/login", Evidence: "his own sign-in. Backlog row cg-sign-in"}
 }
 
 func TestACardedStepIsToldByItsCardAndNotAsALineOfItsOwn(t *testing.T) {
@@ -111,6 +111,48 @@ func TestACommandIsLoggedOnlyOnAStepOnlyHeCanTake(t *testing.T) {
 			// Assert
 			if (err == nil) != tc.ok {
 				t.Errorf("Log = %v, want ok=%v", err, tc.ok)
+			}
+		})
+	}
+}
+
+// A step only he can take is logged only with what its card does it with: a
+// command he runs with one click, or the page he takes it on beside Done. On
+// 2026-10-18 the Overlord pressed Done on install and merge steps logged with
+// neither, and nothing ran, so a step with no page, and one whose words name
+// a command, are refused with the flag that makes its card act.
+func TestAStepIsLoggedOnlyWithWhatItsCardDoesItWith(t *testing.T) {
+	for name, tc := range map[string]struct {
+		entry   Entry
+		refusal string
+	}{
+		"a page he takes it on": {Entry{Kind: KindHis, What: "Give your GitHub account access to the project's Vercel team again", Link: "https://vercel.com/teams/acme/settings/members", Evidence: "Vercel refuses every deployment by its Git author"}, ""},
+		"a command he runs":     {Entry{Kind: KindHis, What: "Restart the shared no-mistakes daemon", Evidence: "the safety check refused it", Command: "no-mistakes daemon start", Shell: "powershell"}, ""},
+		"no page":               {Entry{Kind: KindHis, What: "Install Code Goblins main-3278b62b, which replaces every earlier build today", Evidence: "His command: powershell -NoProfile -File update-candidate.ps1 -Short 3278b62b"}, "--link"},
+		"a fleet command":       {Entry{Kind: KindHis, What: "Retire Kenny (cfo cleanup task-7), merge Teddy's no-mistakes PR 11", Link: "https://github.com/fpresta0607/no-mistakes/pull/11", Evidence: "the safety check refused each"}, "cfo cleanup"},
+		"a PowerShell call":     {Entry{Kind: KindHis, What: "Install it: powershell -NoProfile -File C:\\dev\\code-goblins\\state\\ops\\update-candidate.ps1", Link: "https://example.com/build", Evidence: "built clean"}, "--run"},
+		"a script":              {Entry{Kind: KindHis, What: "Run install-3278b62b.ps1 from his terminal", Link: "https://example.com/build", Evidence: "built clean"}, "install-3278b62b.ps1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			if _, _, err := TurnOn(dir, "the board", nil, night); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			_, err := Log(dir, tc.entry, night.Add(time.Minute))
+			check := CheckStep(tc.entry)
+
+			// Assert
+			if tc.refusal == "" {
+				if err != nil || check != nil {
+					t.Errorf("Log = %v, CheckStep = %v, want the step logged", err, check)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.refusal) || check == nil {
+				t.Errorf("Log = %v, CheckStep = %v, want it refused naming %q", err, check, tc.refusal)
 			}
 		})
 	}

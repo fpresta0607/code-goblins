@@ -43,6 +43,14 @@ var goblin []byte
 // it gives way to the app.
 const shownEnd = 3 * time.Second
 
+// windowWidth and windowHeight are the window's size in device-independent
+// pixels, the same at every display scale, and every screen of its page fits
+// the client area Windows gives a window of this size.
+const (
+	windowWidth  = 720
+	windowHeight = 500
+)
+
 func main() {
 	plan, err := findPlan()
 	if err != nil {
@@ -64,12 +72,7 @@ func main() {
 	var window *application.WebviewWindow
 	var app *application.App
 	call := func(function string, arguments ...any) {
-		texts := make([]string, len(arguments))
-		for i, argument := range arguments {
-			text, _ := json.Marshal(argument)
-			texts[i] = string(text)
-		}
-		window.ExecJS(function + "(" + strings.Join(texts, ",") + ")")
+		window.ExecJS(pageCall(function, arguments...))
 	}
 	install := func() {
 		if !busy.TryLock() {
@@ -88,6 +91,8 @@ func main() {
 					call("setupDoing", progress.Doing)
 				case progress.Note != "":
 					call("setupNote", progress.Note)
+				case progress.Release != "":
+					call("setupRelease", progress.Release)
 				}
 			})
 			// A window that was closed has nothing left to tell.
@@ -132,8 +137,8 @@ func main() {
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Code Goblins Setup",
 		HTML:   strings.Replace(page, `src="goblin.png"`, `src="data:image/png;base64,`+base64.StdEncoding.EncodeToString(goblin)+`"`, 1),
-		Width:  720,
-		Height: 500,
+		Width:  windowWidth,
+		Height: windowHeight,
 		// The board's own dark ground, so the window never flashes white.
 		BackgroundColour: application.NewRGB(0x03, 0x05, 0x0a),
 		Windows:          application.WindowsWindow{Theme: application.Dark},
@@ -152,4 +157,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// pageCall is the script that calls function, one of the page's, with each
+// argument as JSON.
+func pageCall(function string, arguments ...any) string {
+	texts := make([]string, len(arguments))
+	for i, argument := range arguments {
+		text, _ := json.Marshal(argument)
+		texts[i] = string(text)
+	}
+	return function + "(" + strings.Join(texts, ",") + ")"
 }

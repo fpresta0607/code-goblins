@@ -24,10 +24,12 @@ import (
 )
 
 type connectionRequest struct {
-	Task       string `json:"task"`
-	Generation string `json:"generation"`
-	Connection string `json:"connection"`
-	Action     string `json:"action"`
+	Task              string `json:"task"`
+	Generation        string `json:"generation"`
+	Connection        string `json:"connection"`
+	Action            string `json:"action"`
+	Request           string `json:"request,omitempty"`
+	RequestGeneration string `json:"request_generation,omitempty"`
 }
 
 func (s *Service) connections() (*connections.Cache, *connections.Inspector) {
@@ -191,8 +193,22 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 409, err.Error())
 		return
 	}
+	var card CredentialRequest
+	if input.Request != "" || input.RequestGeneration != "" {
+		s.credentialSaves.Lock()
+		defer s.credentialSaves.Unlock()
+		card, err = s.openCredential(input.Request, input.RequestGeneration)
+		if err != nil || !isGrant || kind != "service" || card.GrantService != name || card.Task != meta.ID || card.TaskGeneration != meta.SpawnGen {
+			apiError(w, http.StatusConflict, "This grant does not match an open request for this task and service.")
+			return
+		}
+		if _, err := s.credentialGrantTask(card); err != nil {
+			apiError(w, http.StatusConflict, err.Error())
+			return
+		}
+	}
 	stateDir := s.Store.Home.State
-	refresher := spawn.AuthRefresher{StateDir: stateDir, DataDir: s.Store.Home.Data, Panes: spawn.NativeLiveness{StateDir: stateDir}, By: "the Overlord from " + from}
+	refresher := spawn.AuthRefresher{StateDir: stateDir, DataDir: s.Store.Home.Data, Panes: spawn.NativeLiveness{StateDir: stateDir}, By: "the Overlord from " + from, Generation: meta.SpawnGen, Project: auth.ProjectName(meta.Project)}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	var item spawn.Refreshed
@@ -214,6 +230,21 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 	told := "connections: the Overlord " + map[bool]string{true: "granted", false: "revoked"}[isGrant] + " " + name + " from " + from
 	if err != nil {
 		told += ", but " + err.Error()
+	}
+	if card.ID != "" {
+		now := time.Now().UTC()
+		closed, closeErr := s.Store.updateCredential(card.ID, func(request *CredentialRequest) {
+			request.State, request.ClosedAt = "granted", &now
+			if err != nil {
+				request.Reason = err.Error()
+			}
+		})
+		if closeErr != nil {
+			s.publish(closeErr)
+		} else if waitErr := s.Store.closeWaitsForCard(closed, "overlord"); waitErr != nil {
+			s.publish(waitErr)
+		}
+		s.notify()
 	}
 	if _, err := wake.Append(stateDir, "notify", meta.ID, told); err != nil {
 		s.publish(err)

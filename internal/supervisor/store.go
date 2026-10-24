@@ -4,6 +4,7 @@ package supervisor
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -452,7 +453,11 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	if e.Prompt {
 		node.PromptAt = e.OccurredAt
 	}
-	s.db.Sessions[key] = node
+	// A compaction starts and ends no turn, so the session's record stays as
+	// its last turn left it.
+	if e.Kind != "compacting" && e.Kind != "compacted" {
+		s.db.Sessions[key] = node
+	}
 	if e.Role == "goblin" {
 		s.db.TaskSessions[e.TaskID] = key
 	}
@@ -486,8 +491,14 @@ func (s *Store) Queue(a Action) (Action, error) {
 // evaluation of its task is queued or running. It is the second of two
 // checks: the reconcile's snapshot catches an evaluation that finishes while
 // the reconcile reads, and this one, under the store lock, catches one queued
-// since the snapshot.
-func (s *Store) queueUnlessEvaluating(a Action) error {
+// since the snapshot. Its request ID names the minute and everything the
+// evaluation carries: two reconciles can fall in one minute, after a restart
+// or a slow cycle, and the second asks for the same evaluation only when it
+// saw the same session event and generation, and otherwise for a new one,
+// never for another under the first one's ID.
+func (s *Store) queueUnlessEvaluating(a Action, now time.Time) error {
+	sum := sha256.Sum256([]byte(a.Session + "\n" + a.EventID + "\n" + a.Generation))
+	a.ID = fmt.Sprintf("reconcile-%s-%d-%x", a.TaskID, now.Unix()/60, sum[:8])
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if evaluationPending(s.db.Actions, a.TaskID) {
@@ -542,7 +553,7 @@ func (s *Store) lookup(a Action) (Action, bool, error) {
 			continue
 		}
 		generation := a.Generation
-		if generation == "" && (existing.Kind == "evaluate" || existing.Kind == "feedback") {
+		if generation == "" && (existing.Kind == "evaluate" || existing.Kind == "feedback" || existing.Kind == "message") {
 			generation = existing.Generation
 		}
 		if existing.Kind != a.Kind || existing.TaskID != a.TaskID || existing.Generation != generation || existing.Session != a.Session || existing.EventID != a.EventID || existing.Text != a.Text || existing.File != a.File || existing.Head != a.Head || existing.Line != a.Line || existing.EndLine != a.EndLine || existing.Side != a.Side || existing.Revision != a.Revision || existing.DiffID != a.DiffID || existing.QuestionID != a.QuestionID || existing.ReviewID != a.ReviewID || existing.RunID != a.RunID || existing.AnswerKind != a.AnswerKind {
@@ -551,6 +562,16 @@ func (s *Store) lookup(a Action) (Action, bool, error) {
 		return existing, true, nil
 	}
 	return Action{}, false, nil
+}
+
+// isClosedHistory reports whether a can roll out of a full action bound to
+// make room for a new action: it succeeded, failed, or was never confirmed
+// (uncertain) and is no longer watched for a late take. Nothing resolves an
+// unconfirmed delivery, so held for good it would fill the bound and refuse
+// every new action. Queued and running work stays, and so does a delivery
+// still watched, which a late take may yet confirm.
+func isClosedHistory(a Action) bool {
+	return a.Status == "succeeded" || a.Status == "failed" || a.Status == "uncertain" && a.Awaiting == nil
 }
 
 func (s *Store) queue(a Action) (Action, error) {
@@ -651,14 +672,7 @@ func (s *Store) queue(a Action) (Action, error) {
 		}
 	}
 	if len(s.db.Actions) >= maxActions {
-		// Terminal actions can roll out; pending and uncertain intent stays.
-		remove := -1
-		for i, old := range s.db.Actions {
-			if old.Status == "succeeded" || old.Status == "failed" {
-				remove = i
-				break
-			}
-		}
+		remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
 		if remove < 0 {
 			return Action{}, errors.New("action queue is full; resolve pending actions")
 		}
@@ -679,6 +693,7 @@ func (s *Store) queue(a Action) (Action, error) {
 			if s.db.Questions[i].ID == a.QuestionID {
 				s.db.Questions[i].AnswerID, s.db.Questions[i].Status = a.ID, "queued"
 				s.db.Questions[i].Answer, s.db.Questions[i].AnswerKind = a.Text, a.AnswerKind
+				s.closeFollowUps(s.db.Questions[i], "overlord", a.CreatedAt)
 			}
 		}
 	}
@@ -745,6 +760,8 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 			return Action{}, errors.New("that run item expired; running it again needs a new item from the CFO")
 		case s.db.Runs[run].CFOUnwoken != 0:
 			return Action{}, errors.New("that item restarts the CFO with Restart the CFO; it runs no command")
+		case s.db.Runs[run].CFOStopped:
+			return Action{}, errors.New("that item reopens the CFO with Reopen the CFO; it runs no command")
 		case s.db.Runs[run].State == "withdrawn":
 			return Action{}, errors.New("the CFO withdrew that run item: " + s.db.Runs[run].Reason)
 		case s.db.Runs[run].State != "ready":
@@ -760,14 +777,14 @@ func (s *Store) queueItemAction(a Action) (Action, error) {
 		switch {
 		case declined < 0:
 			return Action{}, errors.New("that run item is not on the board; refresh the board")
-		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "":
+		case s.db.Runs[declined].Update != nil || s.db.Runs[declined].CFOUnwoken != 0 || s.db.Runs[declined].CFOStopped || s.db.Runs[declined].CredentialRequest != "" || s.db.Runs[declined].ConnectionTask != "" || s.db.Runs[declined].RemoteFix != "":
 			return Action{}, errors.New("that item is the board's own, not a command someone asked you to run")
 		case s.db.Runs[declined].State != "ready" || !time.Now().Before(s.db.Runs[declined].ExpiresAt):
 			return Action{}, errors.New("that run item is no longer waiting on you; refresh the board")
 		}
 	}
 	if len(s.db.Actions) >= maxActions {
-		remove := slices.IndexFunc(s.db.Actions, func(old Action) bool { return old.Status == "succeeded" || old.Status == "failed" })
+		remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
 		if remove < 0 {
 			return Action{}, errors.New("action queue is full; resolve pending actions")
 		}
@@ -930,8 +947,12 @@ func (s *Store) updateQuestionOutcomes() {
 				}
 				q.Message = a.Message
 				if a.Status == "succeeded" {
-					at := a.UpdatedAt
-					q.AnsweredBy, q.AnsweredAt = "overlord", &at
+					// A board answer is the Overlord's; an answer the CFO gave over
+					// the pipe records its own attribution, which stays.
+					if q.AnsweredBy == "" {
+						at := a.UpdatedAt
+						q.AnsweredBy, q.AnsweredAt = "overlord", &at
+					}
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
@@ -946,10 +967,13 @@ func (s *Store) updateQuestionOutcomes() {
 	}
 }
 
-func (s *Store) Ingest() error {
+// Ingest accepts the events waiting in the native inbox and returns each it
+// accepted for the first time, in the order it accepted them, also when it
+// stops short with an error: they have left the inbox.
+func (s *Store) Ingest() ([]nativehook.Event, error) {
 	entries, err := os.ReadDir(nativehook.SpoolDir(s.Home.State))
 	if err != nil {
-		return recoverNativeInbox(s.Home.State, err)
+		return nil, recoverNativeInbox(s.Home.State, err)
 	}
 	type record struct {
 		path  string
@@ -972,14 +996,14 @@ func (s *Store) Ingest() error {
 		r := record{path: filepath.Join(nativehook.SpoolDir(s.Home.State), entry.Name())}
 		info, statErr := entry.Info()
 		if statErr != nil {
-			return statErr
+			return nil, statErr
 		}
-		if info.Size() > nativehook.MaxInputBytes {
+		if info.Size() > nativehook.MaxEventBytes {
 			r.err = errors.New("oversized event")
 		} else {
 			data, readErr := fsx.ReadFile(r.path)
 			if readErr != nil {
-				return readErr
+				return nil, readErr
 			}
 			r.err = json.Unmarshal(data, &r.event)
 		}
@@ -992,19 +1016,27 @@ func (s *Store) Ingest() error {
 		return records[i].event.OccurredAt.Before(records[j].event.OccurredAt)
 	})
 	consumed := 0
+	var accepted []nativehook.Event
 	for _, r := range records {
 		if consumed >= 256 {
 			break
 		}
 		err := r.err
+		isReplay := false
 		if err == nil {
+			s.mu.Lock()
+			isReplay = slices.Contains(s.db.Seen, r.event.ID)
+			s.mu.Unlock()
 			err = s.Accept(r.event)
 		}
 		if errors.Is(err, ErrStorage) {
-			return err
+			return accepted, err
 		}
 		if errors.Is(err, ErrDeferred) {
 			continue
+		}
+		if err == nil && !isReplay {
+			accepted = append(accepted, r.event)
 		}
 		if err != nil {
 			// Quarantine stores bounded diagnostics only, not raw potentially
@@ -1017,15 +1049,15 @@ func (s *Store) Ingest() error {
 			saveErr := s.save()
 			s.mu.Unlock()
 			if saveErr != nil {
-				return saveErr
+				return accepted, saveErr
 			}
 		}
 		if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+			return accepted, err
 		}
 		consumed++
 	}
-	return nil
+	return accepted, nil
 }
 
 func bounded(s string, n int) string {
