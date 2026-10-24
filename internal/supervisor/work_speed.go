@@ -26,6 +26,29 @@ const (
 // board's reading of its family tree, may be and still count as a reading.
 const evidenceFresh = 2 * time.Minute
 
+// waitsOnWhatEndsItself reports whether a goblin's latest report is a wait that
+// ends and reports by itself, so nothing of the goblin's own is expected
+// meanwhile: CI, a deploy, the Overlord or memory. A run is not read from here
+// at all. A goblin waiting on one is paused with a record that names the run,
+// and pollAwaitedRuns watches that record, while a pause already keeps the
+// stall check off. No status line is therefore read as a run identifier, and a
+// bare number is not evidence of anything: a task ID may be numeric, so a wait
+// on a task is judged by the goblin's own progress.
+func waitsOnWhatEndsItself(report string) bool {
+	if !strings.HasPrefix(report, "waiting on ") {
+		return false
+	}
+	target, _, ok := strings.Cut(strings.TrimPrefix(report, "waiting on "), ":")
+	if !ok {
+		return false
+	}
+	switch strings.TrimSpace(target) {
+	case "ci", "deploy", "overlord", "memory":
+		return true
+	}
+	return false
+}
+
 type WorkProgress struct {
 	Generation string    `json:"generation"`
 	At         time.Time `json:"at"`
@@ -216,11 +239,15 @@ measuring:
 			prior.At, prior.Source, prior.Woken = progress.At, progress.Source+" (helper "+helper+")", false
 		}
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
-		// A goblin whose latest report is done, a question, or a wait on CI,
-		// a deploy, the Overlord or memory expects no progress until that
-		// changes, and each of those wakes the CFO on its own when it does.
+		// done and failed carry their own wake, and so does a parked decision
+		// the CFO already owns, whether it reads blocked, needs-decision or
+		// checks-passed. A declared wait carries one too when it names CI, a
+		// deploy, the Overlord or memory. A wait on a task, or on a bare target
+		// no record names, is judged by the goblin's own progress instead, so
+		// one that never moves still reports a stall.
 		kind := reportKind(prior.Report)
-		isReportedElsewhere := kind == "done" || kind == "blocked" || kind == "failed" || slices.ContainsFunc([]string{"ci", "deploy", "overlord", "memory"}, func(on string) bool { return strings.HasPrefix(prior.Report, "waiting on "+on+": ") })
+		isParkedNotWaiting := monitor.IsParkedDecisionVerb(kind) && kind != "waiting"
+		isReportedElsewhere := monitor.IsTerminalVerb(kind) || isParkedNotWaiting || waitsOnWhatEndsItself(prior.Report)
 		// Evidence a memory low left unread says nothing of the goblin.
 		isStarved := watched.MemoryLow && len(unread[id]) > 0
 		// A goblin waiting by design, on what resumes it when it ends, is
