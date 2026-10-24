@@ -1020,7 +1020,7 @@ func TestAGateHeldMessageIsQueuedAfterCustodyIsReadAndDeliveredAfterRelease(t *t
 
 // A custody nobody could read is not a hold: nothing is typed, and the board
 // says so in words he can act on rather than claiming the gate has it.
-func TestACustodyThatCannotBeReadTypesNothingAndSaysSo(t *testing.T) {
+func TestACustodyThatCannotBeReadQueuesAndTypesNothing(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		gate ProgressReader
@@ -1039,13 +1039,16 @@ func TestACustodyThatCannotBeReadTypesNothingAndSaysSo(t *testing.T) {
 			evaluation, err := service.deliverMessage(context.Background(), action)
 
 			// Assert
-			if !errors.Is(err, ErrRejected) {
-				t.Fatalf("an unreadable custody came back as %v %v, want it refused and recoverable", evaluation, err)
+			// It waits in the queue rather than being typed, so nothing can
+			// break a gate, and it says the custody could not be read rather
+			// than claiming the gate owns the branch.
+			if !errors.Is(err, ErrDeferred) {
+				t.Fatalf("an unreadable custody came back as %v %v, want it queued", evaluation, err)
 			}
-			if !strings.Contains(evaluation.Reason, "could not be read") {
-				t.Fatalf("the refusal reads %q", evaluation.Reason)
+			if !strings.Contains(evaluation.Reason, "Delivery waits until its gate custody can be read") {
+				t.Fatalf("the queue state reads %q", evaluation.Reason)
 			}
-			if strings.Contains(evaluation.Reason, "Queued for") {
+			if strings.Contains(evaluation.Reason, "holds the branch") {
 				t.Fatalf("an unreadable custody was reported as a hold: %q", evaluation.Reason)
 			}
 		})
@@ -1210,5 +1213,60 @@ func TestAHeldMessageSurvivesARestartAndIsDeliveredOnce(t *testing.T) {
 		if strings.Contains(said, "never deliver me") {
 			t.Fatalf("a withdrawn message was delivered: %q", said)
 		}
+	}
+}
+
+// Custody that cannot be read across a restart keeps its message: the reopened
+// store still holds it, and it is delivered exactly once when custody reads
+// clear, while a withdrawn one is never delivered.
+func TestAnUnreadableCustodyKeepsItsMessageAcrossARestart(t *testing.T) {
+	// Arrange: a gated goblin whose custody check fails, and a queued message.
+	store, h := testStore(t)
+	meta := gatedGoblin(t, h)
+	queued, err := store.Queue(Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "wait for clear custody"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unreadable := &gateFake{err: errors.New("the no-mistakes database cannot be read")}
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: unreadable}}
+	action := actionOf(store, queued.ID)
+	action.CreatedAt = time.Now().Add(-2 * messageWait)
+
+	// Act: the check fails, so the message waits even past the ordinary limit.
+	var evaluation Evaluation
+	evaluation, err = service.deliverMessage(context.Background(), action)
+
+	// Assert
+	if !errors.Is(err, ErrDeferred) || !strings.Contains(evaluation.Reason, "Delivery waits until its gate custody can be read") {
+		t.Fatalf("an unreadable custody came back as %v %v, want it queued in plain words", evaluation, err)
+	}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after := actionOf(reopened, queued.ID); after.Status != "queued" {
+		t.Fatalf("after a restart the message reads %+v, want it still queued", after)
+	}
+
+	// Act: custody reads clear, and the goblin's terminal takes it once.
+	goblin := goblinTerminal(t, h.State, meta.ID)
+	clear := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+	if err := reopened.ProcessOne(context.Background(), clear.execute); err != nil {
+		t.Fatal(err)
+	}
+	typed := goblin.waitForLines(t, 1)
+	if len(typed) != 1 || !strings.Contains(typed[0], "wait for clear custody") {
+		t.Fatalf("the goblin received %q, want it once", typed)
+	}
+	if err := reopened.ProcessOne(context.Background(), clear.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert: exactly one delivery.
+	if lines := goblin.lines(t); len(lines) != 1 {
+		t.Fatalf("the goblin received %d lines, want exactly one delivery", len(lines))
 	}
 }

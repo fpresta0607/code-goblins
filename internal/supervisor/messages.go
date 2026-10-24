@@ -65,7 +65,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if isStarting {
 		// A start under way reads the branch too, so a message held by a gate
 		// takes the same path across a restart as it does while it runs.
-		return s.waitForGoblin(a, isGateHeldNow(ctx, s, meta))
+		return s.waitForGoblin(a, isGateUnclearNow(ctx, s, meta))
 	}
 	record, err := state.ReadLifecycle(stateDir, a.TaskID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -89,14 +89,18 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		// it is kept as a durable queued action and delivered once custody is
 		// released. It never expires and is never handed to the CFO, because
 		// nothing is lost by waiting for the gate (the Overlord, 2026-10-23).
-		held, why := gateCustody(ctx, s, meta)
+		held, _ := gateCustody(ctx, s, meta)
 		switch held {
 		case gateHeld:
 			return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes."}, ErrDeferred
 		case gateUnknown:
-			// Nothing is typed when custody cannot be read: a message that went
-			// into a gate would break it. He can send it again.
-			return Evaluation{Reason: "Nothing was typed, because " + a.TaskID + "'s gate custody could not be read (" + why.Error() + "). Send it again in a moment."}, ErrRejected
+			// Custody nobody could read types nothing, so nothing can break a
+			// gate. The message waits in the queue like one behind a gate and is
+			// delivered the moment custody reads clear, and each attempt reads it
+			// again, so nothing is lost while the check is failing.
+			// The words he reads are plain; why the check failed stays in the
+			// record rather than in the board's copy.
+			return Evaluation{Reason: "Queued for " + a.TaskID + ". Delivery waits until its gate custody can be read."}, ErrDeferred
 		}
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
@@ -147,11 +151,14 @@ func gateCustody(ctx context.Context, s *Service, meta state.TaskMeta) (gateStat
 	}
 }
 
-// isGateHeldNow says a goblin's gate owns its branch at this moment, which is
-// the one state a message waits past the ordinary limit in.
-func isGateHeldNow(ctx context.Context, s *Service, meta state.TaskMeta) bool {
+// isGateUnclearNow says a goblin's gate custody is not known to be clear at
+// this moment: it owns the branch, or it could not be read. A message waits
+// past the ordinary limit in both, since neither can type it, and a start
+// under way that read custody as unreadable would otherwise expire a message
+// the gate is holding.
+func isGateUnclearNow(ctx context.Context, s *Service, meta state.TaskMeta) bool {
 	held, _ := gateCustody(ctx, s, meta)
-	return held == gateHeld
+	return held != gateClear
 }
 
 // waitForGoblin has a message wait for its goblin, until messageWait has
