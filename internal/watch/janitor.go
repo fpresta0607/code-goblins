@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -143,10 +144,11 @@ func runJanitor(cfg Config, inv reap.Inventory) {
 			IsLive:   services.LiveIn(cfg.Home.State),
 			Now:      time.Now,
 		}.Sweep,
-		Processes:  janitor.ReadProcesses,
-		Owners:     func() ([]janitor.Owner, []string) { return janitor.ReadOwners(ctx, cfg.Home, cfg.Tree) },
-		EndProcess: janitor.EndProcess,
-		Watched:    previous.Processes.Watched,
+		Processes:   janitor.ReadProcesses,
+		Controllers: lifecycle.VerificationControllers,
+		Owners:      func() ([]janitor.Owner, []string) { return janitor.ReadOwners(ctx, cfg.Home, cfg.Tree) },
+		EndProcess:  janitor.EndProcess,
+		Watched:     previous.Processes.Watched,
 
 		BrowserSessions: browserSessions,
 		Line:            line,

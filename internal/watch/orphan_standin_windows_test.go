@@ -184,6 +184,7 @@ func withoutMark() []string {
 // folder there.
 func startStandInFleet(t *testing.T) *standInFleet {
 	t.Helper()
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	standin.RemoveAtCleanup(t, root)
 	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}

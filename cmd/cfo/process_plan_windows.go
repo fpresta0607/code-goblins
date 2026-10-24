@@ -43,6 +43,7 @@ func defaultProcessPlan(ctx context.Context, h home.Home) (processPlan, error) {
 		Home:            h,
 		Now:             now,
 		Processes:       janitor.ReadAllProcesses,
+		Controllers:     lifecycle.VerificationControllers,
 		Owners:          func() ([]janitor.Owner, []string) { return janitor.Owners(ctx, h, tree) },
 		Watched:         previous.Processes.Watched,
 		BrowserSessions: browserSessions,

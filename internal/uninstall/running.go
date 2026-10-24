@@ -56,7 +56,7 @@ func owned(rest []Running, terminals []Terminal, folders []string, self int) []o
 		processes = append(processes, program.Process)
 	}
 	byTerminal := map[int]bool{}
-	for _, process := range lifecycle.OwnedProcesses(processes, directories, nil, marks) {
+	for _, process := range lifecycle.OwnedProcesses(processes, directories, nil, marks, nil) {
 		byTerminal[process.PID] = true
 	}
 	var programs []ownedProgram
