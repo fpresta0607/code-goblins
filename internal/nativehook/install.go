@@ -462,7 +462,16 @@ export default function (pi: ExtensionAPI) {
     const result = spawnSync(` + string(exe) + `, ` + string(args) + `, {
       input, encoding: "utf8", windowsHide: true, timeout: ` + strconv.Itoa(TimeoutSeconds*1000) + `,
     });
-    if (result.error || result.status !== 0) console.error("CFO native event could not be spooled");
+    // A hook that never ran, or was killed at its limit, is told apart from one
+    // that ran and failed, and neither claims the event was not recorded: on
+    // 2026-10-24 a turn end showed "could not be spooled" while its settled
+    // event had in fact reached the supervisor. Nothing of the child's output
+    // is repeated, since a tool result may carry private data.
+    if (result.error) {
+      console.error("CFO native hook did not run (" + (result.error.code || "process error") + "); the native event may not have been recorded");
+    } else if (result.status !== 0) {
+      console.error("CFO native hook exited with status " + result.status + (result.signal ? " on " + result.signal : "") + "; the native event may not have been recorded");
+    }
   };
   pi.on("session_start", (_event, ctx) => fire("session_start", ctx));
   pi.on("session_before_compact", (_event, ctx) => fire("session_before_compact", ctx));

@@ -147,3 +147,84 @@ process.stdout.write(String(calls));
 		})
 	}
 }
+
+// On 2026-10-24 a pi goblin's turn end showed "CFO native event could not be
+// spooled" while its settled event had in fact reached the supervisor four
+// seconds later. The message named a cause nobody could confirm, because the
+// extension printed it for every failure of the hook: a hook that never ran, a
+// hook killed at its limit, and a hook that ran and exited non-zero. Each now
+// says which it was, and none repeats the child's output, which may hold a
+// tool result. Issue recorded from the retained screen evidence of that turn
+// end.
+func TestPiExtensionNamesTheRealHookFailureWithoutClaimingALostEvent(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Pi requires Node")
+	}
+	for _, c := range []struct {
+		name    string
+		failure string
+		want    []string
+	}{
+		{name: "a hook that never ran or timed out", failure: "timeout", want: []string{"did not run (ETIMEDOUT)", "may not have been recorded"}},
+		{name: "a hook that ran and failed", failure: "status", want: []string{"exited with status 3", "may not have been recorded"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			directory := t.TempDir()
+			extension, err := Install(InstallConfig{Harness: "pi", ConfigDir: directory, Executable: filepath.Join(directory, "hook.exe"), Home: directory, State: filepath.Join(directory, "state")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			driver := filepath.Join(directory, "driver.mjs")
+			if err := os.WriteFile(driver, []byte(`import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+import { pathToFileURL } from "node:url";
+const failure = process.argv[3];
+const privateOutput = "fixture-output-must-not-be-logged";
+childProcess.spawnSync = () => {
+  if (failure === "timeout") {
+    const error = new Error(privateOutput);
+    error.code = "ETIMEDOUT";
+    return {error, signal: "SIGTERM", stdout: privateOutput, stderr: privateOutput};
+  }
+  return {status: 3, signal: null, stdout: privateOutput, stderr: privateOutput};
+};
+syncBuiltinESMExports();
+const extension = (await import(pathToFileURL(process.argv[2]).href)).default;
+const handlers = {};
+extension({on: (name, handler) => {handlers[name] = handler;}});
+const ctx = {cwd: process.cwd(), sessionManager: {getSessionId: () => "fixture-session"}, hasPendingMessages: () => false};
+handlers.agent_settled({}, ctx);
+`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_ROLE", "goblin")
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			command := execx.CommandContext(ctx, node, driver, extension, c.failure)
+			var diagnostics bytes.Buffer
+			command.Stderr = &diagnostics
+
+			// Act
+			_, err = command.Output()
+
+			// Assert
+			reported := diagnostics.String()
+			if err != nil || reported == "" {
+				t.Fatalf("the extension reported nothing of the failure: %v %q", err, reported)
+			}
+			if strings.Contains(reported, "could not be spooled") {
+				t.Fatalf("the extension still claims the event was not spooled: %q", reported)
+			}
+			if bytes.Contains(diagnostics.Bytes(), []byte("fixture-output")) {
+				t.Fatalf("the extension repeated the child's private output: %q", reported)
+			}
+			for _, want := range c.want {
+				if !strings.Contains(reported, want) {
+					t.Fatalf("reported %q, want it to name %q", reported, want)
+				}
+			}
+		})
+	}
+}
