@@ -163,21 +163,19 @@ func (s *Store) deliveredReview(action, task string) {
 // A task whose record can no longer be read names nothing the board can wait
 // on, so its delivery reads as unwatched says.
 func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatched string) Evaluation {
-	awaiting := awaitingGoblinDelivery(s.Store.Home.State, task, since, text)
-	if awaiting == nil {
+	meta, err := state.ReadTaskMeta(s.Store.Home.State, task)
+	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
-	return Evaluation{Reason: sentToGoblin, Awaiting: awaiting}
+	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
 }
 
-// awaitingGoblinDelivery is the delivery of text, typed into goblin task's
-// native terminal at since, that its harness has not yet been seen taking, or
-// nil when the task's record can no longer be read.
-func awaitingGoblinDelivery(stateDir, task string, since time.Time, text string) *Awaiting {
-	meta, err := state.ReadTaskMeta(stateDir, task)
-	if err != nil {
-		return nil
-	}
+// awaitingGoblinDelivery is the delivery of text, typed into meta's native
+// terminal at since, that its harness has not yet been seen taking. It takes
+// the recipient the delivery was verified against, never a fresh read: a
+// record that disappeared or was replaced meanwhile must not turn the delivery
+// into a different task's, nor bind it to a generation that never took it.
+func awaitingGoblinDelivery(meta state.TaskMeta, since time.Time, text string) *Awaiting {
 	return &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}
 }
 

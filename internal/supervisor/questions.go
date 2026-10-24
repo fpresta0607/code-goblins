@@ -485,6 +485,12 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	}
 	answer := withNote(chosen, note)
 	text := fmt.Sprintf("decision %d: %s", seq, answer)
+	// The recipient is read once, before anything is typed, so a queued
+	// delivery is tracked against the very generation submission verifies. A
+	// record that disappears or is replaced meanwhile must neither leave the
+	// question looking answered with nothing behind it, nor bind the text to a
+	// generation that never took it.
+	meta, metaErr := state.ReadTaskMeta(c.State, q.Task)
 	sent := time.Now().UTC()
 	_, err = c.SendGoblin(ctx, q.Task, q.Identity, text)
 	queued = errors.Is(err, fleet.ErrQueuedForToolCall)
@@ -497,7 +503,13 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	// from supervision before the goblin has it.
 	var awaiting *Awaiting
 	if queued {
-		awaiting = awaitingGoblinDelivery(c.State, q.Task, sent, text)
+		if metaErr != nil {
+			return chosen, true, fmt.Errorf("the answer was typed into %s, but its record could not be read to track the delivery, so nothing was recorded and it may be unconfirmed: %w", q.Task, metaErr)
+		}
+		if goblinIdentity(meta) != q.Identity {
+			return chosen, true, fmt.Errorf("the answer was typed into %s, but its task is no longer the one that asked, so the delivery was not recorded and may be unconfirmed", q.Task)
+		}
+		awaiting = awaitingGoblinDelivery(meta, sent, text)
 	}
 	var unrecorded []error
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
@@ -941,35 +953,45 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 		return errors.New("its question already closed as " + q.Status)
 	}
 	q, at := &s.db.Questions[i], a.At
+	// A queued delivery is only accountable through the delivery record that
+	// watches it, so room for that record is made before the question changes
+	// at all. An answer that cannot be tracked yet waits untouched, kept by
+	// the caller, and is recorded once room frees: it is never left looking
+	// answered with no delivery behind it. Room is never made by evicting a
+	// delivery still being watched, nor by raising the bound.
+	var awaiting *Awaiting
+	delivery := ""
+	if a.Awaiting != nil {
+		if len(s.db.Actions) >= maxActions {
+			remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
+			if remove < 0 {
+				return errAnswerWaits
+			}
+			delete(s.deferredUntil, s.db.Actions[remove].ID)
+			s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)
+		}
+		waiting := *a.Awaiting
+		if waiting.QuietSince.IsZero() {
+			waiting.QuietSince = waiting.Since
+		}
+		awaiting, delivery = &waiting, "cfo-answer-"+q.ID
+	}
 	q.Answer, q.AnswerKind = a.Answer, "option"
 	if a.Option == "" {
 		q.AnswerKind = "other"
 	}
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
-	if a.Awaiting != nil {
+	if awaiting != nil {
 		// Typed and submitted into the goblin's terminal while it was in a
 		// turn: the question stays open on its way, watched by the same
 		// delivery record the board's own answer keeps, until the goblin's
 		// record of the conversation shows it took the answer, or until the
 		// delivery is reported stuck.
-		awaiting := *a.Awaiting
-		if awaiting.QuietSince.IsZero() {
-			awaiting.QuietSince = awaiting.Since
-		}
-		id := "cfo-answer-" + q.ID
-		if len(s.db.Actions) >= maxActions {
-			remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
-			if remove < 0 {
-				return errors.New("action queue is full; resolve pending actions")
-			}
-			delete(s.deferredUntil, s.db.Actions[remove].ID)
-			s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)
-		}
-		q.AnswerID, q.Status, q.Message = id, "running", sentToGoblin
+		q.AnswerID, q.Status, q.Message = delivery, "running", sentToGoblin
 		s.db.Actions = append(s.db.Actions, Action{
-			ID: id, Kind: "goblin_answer", QuestionID: q.ID, Generation: q.Identity,
+			ID: delivery, Kind: "goblin_answer", QuestionID: q.ID, Generation: q.Identity,
 			Text: a.Answer, AnswerKind: q.AnswerKind, Status: "running",
-			Message: sentToGoblin, Awaiting: &awaiting, CreatedAt: at, UpdatedAt: at,
+			Message: sentToGoblin, Awaiting: awaiting, CreatedAt: at, UpdatedAt: at,
 		})
 	} else {
 		q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
@@ -1353,7 +1375,10 @@ func (s *Store) supersedeQuestions() error {
 		case errors.Is(err, os.ErrNotExist) || err == nil && goblinIdentity(meta) != q.Identity:
 			q.Status, q.Message = "superseded", "The goblin's task restarted or ended, so its question no longer applies."
 			changed = true
-		case pendingErr == nil && afkErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }):
+		case pendingErr == nil && afkErr == nil && !slices.ContainsFunc(pending, func(r wake.Record) bool { return r.Seq == q.Seq }) && !slices.ContainsFunc(s.db.CFOAnswers, func(a cfoAnswer) bool { return a.QuestionID == q.ID && a.Awaiting != nil }):
+			// An answer whose queued delivery has no record of its own yet is
+			// not closed by the ack: it is recorded and watched once room
+			// frees, and only then may it read answered.
 			// The CFO acks a goblin's question once it answered it, so it
 			// closes as answered by the CFO, with the check of any answer.
 			at := time.Now().UTC()

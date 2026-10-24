@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -158,6 +160,159 @@ func TestAQueuedCFOAnswerThatNeverArrivesWarnsAndALateTakeStillDeliversIt(t *tes
 	}
 	if delivered.Status != "succeeded" || delivered.Advice != "" || answered.Status != "succeeded" || answered.AnsweredBy != "cfo" {
 		t.Errorf("after a late take: action %s advice %q, question %+v; want both delivered", delivered.Status, delivered.Advice, answered)
+	}
+}
+
+// A queued CFO answer is accountable only through the delivery record that
+// watches it. When no room can be made for that record without evicting work
+// still being watched, the answer must not close its question as answered: it
+// is kept, an ack cannot close it, and a restart records and watches it once
+// room frees. Issue 1453.
+func TestAQueuedCFOAnswerWithNoRoomForItsDeliveryIsKeptAndTrackedLater(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	primaryFixture(t, store)
+	meta, record, goblin, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
+	q := surfaced(t, store, meta, record, connection)
+	goblin.startTurn(t)
+	now := time.Now().UTC()
+	store.mu.Lock()
+	for i := 0; i < maxActions; i++ {
+		store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("busy-%d", i), Kind: "message", TaskID: meta.ID, Status: "running", CreatedAt: now, UpdatedAt: now})
+	}
+	store.mu.Unlock()
+
+	// Act
+	chosen, queued, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", "")
+
+	// Assert
+	if err != nil || chosen != "SQLite" || !queued {
+		t.Fatalf("answer = %q, queued %v, %v; want SQLite sent once", chosen, queued, err)
+	}
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Fatalf("the goblin received %q, want the answer sent once", typed)
+	}
+	if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByCFO {
+		t.Fatalf("notify = %+v (%v), want it marked answered by the CFO", pending, err)
+	}
+	if kept := store.Snapshot().Questions[0]; kept.Status != "pending" || kept.AnsweredBy != "" || kept.AnswerID != "" {
+		t.Fatalf("question = %+v, want it unchanged until its delivery record can exist", kept)
+	}
+	// An ack cannot close it as answered while its delivery has no record.
+	if err := wake.AckThrough(h.State, record.Seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.supersedeQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if acked := store.Snapshot().Questions[0]; acked.Status != "pending" {
+		t.Fatalf("after the ack: question %s, want it still waiting for its delivery record", acked.Status)
+	}
+	// A restart keeps the delivery, and the room it frees lets the record be
+	// made and watched.
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.ingestAnswers(); err != nil {
+		t.Fatal(err)
+	}
+	onItsWay := reopened.Snapshot().Questions[0]
+	if onItsWay.Status != "running" || onItsWay.AnsweredBy != "cfo" || onItsWay.AnswerID == "" {
+		t.Fatalf("after the restart: question = %+v, want it on its way with a delivery record", onItsWay)
+	}
+	watched := false
+	for _, a := range reopened.Snapshot().Actions {
+		if a.ID == onItsWay.AnswerID {
+			watched = a.Status == "running" && a.Awaiting != nil
+		}
+	}
+	if !watched {
+		t.Fatalf("actions = %+v, want %s watched while it is on its way", reopened.Snapshot().Actions, onItsWay.AnswerID)
+	}
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Fatalf("the goblin received %q, want never a second send", typed)
+	}
+}
+
+// The delivery is tracked against the recipient submission verified, never a
+// record read after the text was typed: a record that disappears or is
+// replaced while the text is in flight must neither leave the question
+// answered with no delivery, nor bind the text to a generation that never
+// took it. Issue 1453.
+func TestAQueuedCFOAnswerBindsToTheRecipientItWasSentTo(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		during func(t *testing.T, stateDir string, meta state.TaskMeta)
+	}{
+		{name: "its record disappears while the text is in flight", during: func(t *testing.T, stateDir string, meta state.TaskMeta) {
+			if err := os.Remove(state.TaskMetaPath(stateDir, meta.ID)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "its record is replaced by another generation while the text is in flight", during: func(t *testing.T, stateDir string, meta state.TaskMeta) {
+			replacement := meta
+			replacement.SpawnGen = "s1792799999999999999"
+			if err := state.WriteTaskMeta(stateDir, replacement); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta, record, _, connection := goblinFixture(t, store)
+			servePipe(t, store, connection)
+			q := surfaced(t, store, meta, record, connection)
+			delivery := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = delivery })
+			sends := 0
+			typeIntoGoblin = func(_ context.Context, directory string, task state.TaskMeta, _ string) error {
+				sends++
+				c.during(t, directory, task)
+				return fleet.ErrQueuedForToolCall
+			}
+
+			// Act
+			chosen, queued, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", "")
+
+			// Assert
+			if err != nil || chosen != "SQLite" || !queued || sends != 1 {
+				t.Fatalf("answer = %q, queued %v, sends %d, %v; want one queued send", chosen, queued, sends, err)
+			}
+			onItsWay := store.Snapshot().Questions[0]
+			if onItsWay.Status != "running" || onItsWay.AnsweredBy != "cfo" || onItsWay.AnswerID == "" {
+				t.Fatalf("question = %+v, want it on its way against the recipient it was sent to", onItsWay)
+			}
+			actions := store.Snapshot().Actions
+			if len(actions) != 1 || actions[0].Awaiting == nil || actions[0].Awaiting.Generation != meta.SpawnGen {
+				t.Fatalf("actions = %+v, want the delivery bound to the generation %s it was sent to", actions, meta.SpawnGen)
+			}
+			// Its terminal is gone, so the delivery reads as never arrived,
+			// never as answered.
+			service := &Service{Store: store}
+			if err := store.settleDeliveries(time.Now().UTC().Add(time.Second), service.lookAtTerminal); err != nil {
+				t.Fatal(err)
+			}
+			if settled := store.Snapshot().Questions[0]; settled.Status != "uncertain" {
+				t.Fatalf("after settling: question %s, want it uncertain, never answered without a delivery", settled.Status)
+			}
+			// An ack and a restart send nothing again.
+			if err := wake.AckThrough(h.State, record.Seq); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.supersedeQuestions(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Open(h); err != nil {
+				t.Fatal(err)
+			}
+			if sends != 1 {
+				t.Fatalf("sends = %d, want never a second send", sends)
+			}
+		})
 	}
 }
 
