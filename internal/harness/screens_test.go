@@ -54,7 +54,7 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 			t.Errorf("focus on %q: dialog %q, chosen %v; want %v", focused, dialog.Name, dialog.Chosen(focused), want)
 		}
 	}
-	hooks := []string{"  Hooks need review", "  2 hooks are new or changed.", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)"}
+	hooks := []string{"  Hooks need review", "  2 hooks are new or changed.", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)", "", "Press enter to confirm or esc to go back"}
 	dialog, found := screens.Dialog(hooks)
 	for option, want := range map[string]bool{"1. Review hooks": false, "2. Trust all and continue": false, "3. Continue without trusting (hooks won't run)": true} {
 		if !found || dialog.Chosen(option) != want {
@@ -738,6 +738,77 @@ func TestCodexTrustHistoryDoesNotBecomeTheCurrentDialog(t *testing.T) {
 				if !screens.IsReady(rows) || !screens.ComposerEmpty(rows) {
 					t.Errorf("%s: quoted menu blocks the idle composer: %q", menu.name, rows)
 				}
+			}
+		}
+	}
+}
+
+func TestCodexHookHistoryDoesNotBecomeTheCurrentDialog(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, footer := range []string{"", "Press enter to confirm or esc to go back", "enter confirm / esc skip", "enter confirm · esc skip"} {
+		for _, draft := range []string{"3. Continue without trusting", "3. Continue without trusting with more retained text", "1. Inspect the failing test"} {
+			t.Run(footer+"/"+draft, func(t *testing.T) {
+				rows := []string{"Hooks need review"}
+				if footer != "" {
+					rows = append(rows, "1 hook is new or changed", "1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)", "", footer)
+				}
+				rows = append(rows, "", "› "+draft, "gpt-6.1-sol high")
+				if dialog, isShown := screens.Dialog(rows); isShown {
+					t.Errorf("current draft is misread as %s", dialog.Name)
+				}
+				if screens.ComposerEmpty(rows) || !screens.ComposerMatches(rows, draft) {
+					t.Error("hook history changed the complete retained draft")
+				}
+				if footer != "" {
+					rows[2] = "› 1. Review hooks"
+					if dialog, isShown := screens.Dialog(rows); isShown {
+						t.Errorf("quoted menu focus blocks the current draft as %s", dialog.Name)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestCodexHookMenusKeepTheirSafeAnswerAndFocus(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, footer := range []string{"Press enter to confirm or esc to go back", "enter confirm / esc skip", "enter confirm · esc skip"} {
+		for _, summary := range []string{"1 hook is new or changed", "2 hooks are new or changed"} {
+			for focus := range 3 {
+				t.Run(footer+"/"+summary+"/"+string(rune('1'+focus)), func(t *testing.T) {
+					options := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
+					rows := []string{"› Earlier quoted input", "enter confirm / esc skip", "", "Hooks need review", summary, ""}
+					for index, option := range options {
+						prefix := "  "
+						if index == focus {
+							prefix = "› "
+						}
+						rows = append(rows, prefix+option)
+					}
+					rows = append(rows, "", footer, "")
+					dialog, isShown := screens.Dialog(rows)
+					if !isShown {
+						t.Fatal("genuine hook menu is not recognized")
+					}
+					if focused, ok := dialog.Focused(rows); !ok || focused != options[focus] {
+						t.Errorf("focused = %q, %v; want the active menu option %q", focused, ok, options[focus])
+					}
+					if dialog.EscapeHint == "" {
+						for index, option := range options {
+							if dialog.Chosen(option) != (index == 2) {
+								t.Errorf("chosen %q = %v; want only continue without trusting", option, dialog.Chosen(option))
+							}
+						}
+					} else if dialog.EscapeHint != footer {
+						t.Errorf("escape hint = %q, want %q", dialog.EscapeHint, footer)
+					}
+					if dialog.Summary == nil || dialog.Summary.FindString(strings.Join(rows, "\n")) != summary {
+						t.Errorf("untrusted hook summary does not match %q", summary)
+					}
+					if screens.IsReady(rows) || screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, options[focus]) {
+						t.Error("genuine hook menu permits composer input")
+					}
+				})
 			}
 		}
 	}

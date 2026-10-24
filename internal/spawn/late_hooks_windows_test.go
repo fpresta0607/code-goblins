@@ -31,6 +31,10 @@ func lateHookComposer(mode string, keys <-chan string, record func(codexEvent), 
 			if strings.Contains(mode, "legacy") {
 				footer = "Press enter to confirm or esc to go back"
 			}
+			if strings.Contains(mode, "middle-dot") {
+				rows[1] = "1 hook is new or changed"
+				footer = "enter confirm · esc skip"
+			}
 			draw(append(rows, footer)...)
 		case "daybreak":
 			draw("Set up security for Daybreak mode", "\u203a 1. Set up security", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", "", "\u203a "+line, "100% context left")
@@ -143,7 +147,7 @@ func lateHookComposer(mode string, keys <-chan string, record func(codexEvent), 
 }
 
 func TestNativeSpawnRecoversALateDialogAndSubmitsOnce(t *testing.T) {
-	for _, mode := range []string{"hooks-during-typing", "hooks-during-typing-lost-key", "hooks-during-typing-legacy", "hooks-before-submit", "hooks-before-submit-daybreak", "hooks-before-submit-partial", "hooks-before-submit-partial-old-placeholder", "hooks-before-submit-extra-footer", "hooks-before-submit-extra-footer-model", "hooks-after-submit"} {
+	for _, mode := range []string{"hooks-during-typing", "hooks-during-typing-lost-key", "hooks-during-typing-legacy", "hooks-during-typing-legacy-middle-dot", "hooks-before-submit", "hooks-before-submit-daybreak", "hooks-before-submit-partial", "hooks-before-submit-partial-old-placeholder", "hooks-before-submit-extra-footer", "hooks-before-submit-extra-footer-model", "hooks-after-submit"} {
 		t.Run(mode, func(t *testing.T) {
 			// Arrange
 			previousKey, previousPace := nativeKeyEffect, nativeTypedPace
@@ -439,6 +443,75 @@ func TestNativeRecoveryDoesNotChooseATrustOptionQuotedInADraft(t *testing.T) {
 			}
 			if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
 				t.Errorf("submissions = %+v; want only the initial instruction, no trust choice or retained draft", submitted)
+			}
+		})
+	}
+}
+
+func TestNativeRecoveryDoesNotSubmitAHookOptionQuotedInADraft(t *testing.T) {
+	for _, footer := range []string{"", "Press enter to confirm or esc to go back", "enter confirm · esc skip"} {
+		t.Run(footer, func(t *testing.T) {
+			// Arrange
+			previousKey, previousSettle := nativeKeyEffect, nativeDialogSettle
+			nativeKeyEffect, nativeDialogSettle = time.Second, 0
+			t.Cleanup(func() { nativeKeyEffect, nativeDialogSettle = previousKey, previousSettle })
+			f := newQuickFixture(t)
+			if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+				t.Fatal(err)
+			}
+			terminal, err := host.ReadRecord(f.stateDir, f.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client, err := host.Dial(terminal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			draft := "3. Continue without trusting with more retained text"
+			if err := client.Input([]byte(draft)); err != nil {
+				t.Fatal(err)
+			}
+			screens, _ := harness.NativeScreens(harness.Codex)
+			if _, err := f.service.awaitScreen(t.Context(), terminal, nativeKeyEffect, func(rows []string) bool {
+				return screens.ComposerMatches(rows, draft)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			history := []string{"Hooks need review"}
+			if footer != "" {
+				history = append(history, "1 hook is new or changed", "1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)", "", footer)
+			}
+			f.service.ReadScreen = func(record host.Record) ([]string, error) {
+				rows, err := host.ReadScreen(record)
+				for index, row := range rows {
+					if strings.Contains(row, "100% context left") {
+						rows[index] = "gpt-6.1-sol high"
+					}
+				}
+				return append(append([]string{}, history...), rows...), err
+			}
+			rows, err := f.service.ReadScreen(terminal)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act: startup answers a recognized dialog before checking the draft.
+			if dialog, isShown := screens.Dialog(rows); isShown {
+				t.Logf("quoted history recognized as %s; answer returned %v", dialog.Name, f.service.answerDialog(t.Context(), terminal, dialog, rows))
+			}
+			_, submitErr := f.service.submitNative(t.Context(), terminal, screens, "Continue the unfinished work.", 0, true)
+
+			// Assert
+			if submitErr == nil {
+				t.Error("the unrelated retained draft was accepted for submission")
+			}
+			if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+				t.Errorf("submissions = %+v; want only the initial instruction, no hook choice or retained draft", submitted)
+			}
+			rows, err = f.service.ReadScreen(terminal)
+			if err != nil || !screens.ComposerMatches(rows, draft) {
+				t.Errorf("retained draft changed or is unreadable: %v; screen ends:\n%s", err, host.ScreenTail(rows, 8))
 			}
 		})
 	}

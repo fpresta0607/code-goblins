@@ -122,6 +122,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Choices: regexp.MustCompile(`^\s{2,}\d+\. \S`),
 		}, true
 	case Codex:
+		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
 		return Screens{
 			Dialogs: []Dialog{
 				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue", OverlayOption: regexp.MustCompile(`^\s*› 1\. Set up security\s*$`)},
@@ -133,8 +134,8 @@ func NativeScreens(kind Kind) (Screens, bool) {
 				// Trusting hooks is the Overlord's decision, never a spawn's: a
 				// goblin continues without trusting them, so they do not run,
 				// and the spawn reports them.
-				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, EscapeHint: "enter confirm / esc skip", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
-				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`)},
+				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, EscapeHint: "enter confirm / esc skip", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`), Menu: regexp.MustCompile(hookMenu + `enter confirm / esc skip[ \t\n]*\z`)},
+				{Name: "the hook review prompt", Markers: []string{"Hooks need review"}, Focus: []string{"›"}, Accept: "3. Continue without trusting", Summary: regexp.MustCompile(`\d+ hooks? (is|are) new or changed`), Menu: regexp.MustCompile(hookMenu + `(?:Press enter to confirm or esc to go back|enter confirm · esc skip)[ \t\n]*\z`)},
 			},
 			// Captured live on Codex 0.154: the empty composer shows its
 			// placeholder, at start and after a turn (the binary also holds
