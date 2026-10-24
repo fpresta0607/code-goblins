@@ -68,7 +68,8 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		if offer {
 			rows = append(rows, "Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue")
 		} else if mode == "late-modal" && line != "" {
-			rows = append(rows, "Do you trust the contents of this directory?", "› 1. Yes, continue")
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "", "Press enter to continue"}, "\r\n"))
+			return
 		}
 		if isWorking || mode == "busy" {
 			if harness == "claude" {

@@ -668,3 +668,77 @@ func TestAnEnterReadsTakenAsANewLineOnlyByTheEmptyRowItAdded(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexModelOnlyFooterBoundsTheCurrentComposer(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	instruction := "Continue the unfinished work."
+	for _, draft := range []string{"Ask Codex to do anything", instruction, instruction + " extra retained text"} {
+		rows := []string{"\u203a " + draft, "", "  gpt-6.1-sol high", ""}
+		if screens.ComposerEmpty(rows) != (draft == "Ask Codex to do anything") || screens.ComposerMatches(rows, instruction) != (draft == instruction) {
+			t.Errorf("model-only footer obscured the current draft %q", draft)
+		}
+	}
+	for _, draft := range []string{"Ask Codex to do anything", instruction} {
+		rows := []string{"\u203a " + draft, "", "  gpt-6.1-sol high", "extra retained text", "", "100% context left"}
+		if screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, instruction) {
+			t.Errorf("model-only footer quoted in draft %q hides additional text", draft)
+		}
+	}
+}
+
+func TestCodexTrustMenuBlocksARetainedDraft(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, prompt := range []struct {
+		title, option, other, footer string
+	}{
+		{"Do you trust the contents of this directory?", "\u203a 1. Yes, continue", "  2. No, quit", "Press enter to continue"},
+		{"Trust this folder? Codex can read, edit, and run files here.", "\u203a 1. Trust and continue", "  2. Quit", "enter continue · esc quit"},
+	} {
+		for _, draft := range []string{"Ask Codex to do anything", "Overlord: Reply received"} {
+			rows := []string{prompt.title, prompt.option, prompt.other, "", prompt.footer}
+			if _, isShown := screens.Dialog(rows); !isShown {
+				t.Errorf("trust menu hiding %q is not recognized", draft)
+			}
+			if screens.IsReady(rows) || screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, draft) {
+				t.Errorf("trust menu hiding %q permits composer input", draft)
+			}
+		}
+	}
+}
+
+func TestCodexTrustHistoryDoesNotBecomeTheCurrentDialog(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, menu := range []struct {
+		name, title, accept, other, footer string
+	}{
+		{"directory", "Do you trust the contents of this directory?", "1. Yes, continue", "2. No, quit", "Press enter to continue"},
+		{"folder", "Trust this folder?", "1. Trust and continue", "2. Quit", "enter continue · esc quit"},
+	} {
+		for _, footer := range []string{"100% context left", "gpt-6.1-sol high"} {
+			for _, draft := range []string{menu.accept, menu.accept + " with more retained text", "1. Inspect the failing test"} {
+				t.Run(menu.name+"/"+footer+"/"+draft, func(t *testing.T) {
+					rows := []string{menu.title, "", "› " + draft, footer}
+					if dialog, isShown := screens.Dialog(rows); isShown {
+						t.Errorf("current draft is misread as %s", dialog.Name)
+					}
+					if screens.ComposerEmpty(rows) || !screens.ComposerMatches(rows, draft) {
+						t.Error("quoted title changed the complete retained draft")
+					}
+				})
+			}
+			for _, history := range [][]string{
+				{menu.title, "› " + menu.accept},
+				{menu.title, "› 1. Inspect the failing test"},
+				{menu.title, "› " + menu.accept, "  " + menu.other, "", menu.footer},
+			} {
+				rows := append(append([]string{}, history...), "", "› Ask Codex to do anything", footer)
+				if dialog, isShown := screens.Dialog(rows); isShown {
+					t.Errorf("%s: history above an idle composer is misread as %s: %q", menu.name, dialog.Name, rows)
+				}
+				if !screens.IsReady(rows) || !screens.ComposerEmpty(rows) {
+					t.Errorf("%s: quoted menu blocks the idle composer: %q", menu.name, rows)
+				}
+			}
+		}
+	}
+}

@@ -78,6 +78,8 @@ type Dialog struct {
 	Summary    *regexp.Regexp
 	// OverlayOption distinguishes an offer over a composer from quoted text.
 	OverlayOption *regexp.Regexp
+	// Menu bounds focused choices to their confirmation footer at screen end.
+	Menu *regexp.Regexp
 }
 
 // NativeScreens returns what kind shows on its own screen, and false for a
@@ -124,10 +126,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Dialogs: []Dialog{
 				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue", OverlayOption: regexp.MustCompile(`^\s*› 1\. Set up security\s*$`)},
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: []string{"›"}, Accept: "2. Skip"},
-				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue"},
+				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue", Menu: regexp.MustCompile(`(?m)^[ \t]*(?:› )?1\. Yes, continue[ \t]*\n[ \t]*(?:› )?2\. No, quit[ \t]*\n[ \t\n]*Press enter to continue[ \t\n]*\z`)},
 				// Codex 0.160 asks this in its place, live on 2026-10-07 in a
 				// project it was never told to trust; Escape there quits Codex.
-				{Name: "the folder trust prompt", Markers: []string{"Trust this folder?"}, Focus: []string{"›"}, Accept: "1. Trust and continue"},
+				{Name: "the folder trust prompt", Markers: []string{"Trust this folder?"}, Focus: []string{"›"}, Accept: "1. Trust and continue", Menu: regexp.MustCompile(`(?m)^[ \t]*(?:› )?1\. Trust and continue[ \t]*\n[ \t]*(?:› )?2\. Quit[ \t]*\n[ \t\n]*enter continue · esc quit[ \t\n]*\z`)},
 				// Trusting hooks is the Overlord's decision, never a spawn's: a
 				// goblin continues without trusting them, so they do not run,
 				// and the spawn reports them.
@@ -151,7 +153,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			PasteTakesEnter: true,
 			Undrawn:         true,
 			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
-			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S)`),
+			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+) (minimal|low|medium|high|xhigh)\s*$)`),
 		}, true
 	case Pi:
 		return Screens{
@@ -201,6 +203,9 @@ func (s Screens) Dialog(screen []string) (Dialog, bool) {
 
 // Shows reports whether screen shows the dialog.
 func (d Dialog) Shows(screen []string) bool {
+	if d.Menu != nil && !d.Menu.MatchString(strings.Join(screen, "\n")) {
+		return false
+	}
 	if d.OverlayOption != nil && !anyRow(screen, d.OverlayOption) {
 		return false
 	}
@@ -430,6 +435,9 @@ func (d Dialog) Chosen(focused string) bool {
 // with one of the dialog's focus glyphs, after it. More or fewer than one such
 // row means the focus cannot be read.
 func (d Dialog) Focused(screen []string) (string, bool) {
+	if d.Menu != nil {
+		screen = strings.Split(d.Menu.FindString(strings.Join(screen, "\n")), "\n")
+	}
 	var focused []string
 	for _, row := range screen {
 		for _, glyph := range d.Focus {

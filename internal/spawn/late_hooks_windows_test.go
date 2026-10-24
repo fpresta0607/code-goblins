@@ -335,7 +335,7 @@ func TestNativeResumeKeepsItsWorkWhenALateDialogCannotRecover(t *testing.T) {
 }
 
 func TestNativeDeliveryDoesNotAnswerDialogTextInTheConversation(t *testing.T) {
-	for _, delivery := range []string{"spawn", "send during a turn", "send at idle", "send at idle with quoted Daybreak"} {
+	for _, delivery := range []string{"spawn", "send during a turn", "send at idle", "send at idle with quoted Daybreak", "send at idle with quoted folder trust", "send at idle with quoted directory trust"} {
 		t.Run(delivery, func(t *testing.T) {
 			previousKey, previousSettle := nativeKeyEffect, nativeDialogSettle
 			nativeKeyEffect, nativeDialogSettle = time.Second, 0
@@ -356,6 +356,10 @@ func TestNativeDeliveryDoesNotAnswerDialogTextInTheConversation(t *testing.T) {
 			quote := []string{"Hooks need review", "2 hooks are new or changed", "1. Review hooks", "2. Trust all and continue", "3. Continue without trusting", "enter confirm / esc skip", ""}
 			if strings.Contains(delivery, "Daybreak") {
 				quote = []string{"Set up security for Daybreak mode", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", ""}
+			} else if strings.Contains(delivery, "folder trust") {
+				quote = []string{"Trust this folder?", "› 1. Trust and continue", "  2. Quit", "", "enter continue · esc quit", ""}
+			} else if strings.Contains(delivery, "directory trust") {
+				quote = []string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "", "Press enter to continue", ""}
 			}
 			f.service.ReadScreen = func(record host.Record) ([]string, error) {
 				screen, err := host.ReadScreen(record)
@@ -385,6 +389,56 @@ func TestNativeDeliveryDoesNotAnswerDialogTextInTheConversation(t *testing.T) {
 			}
 			if submitted := named(f.events(t), "submitted"); len(submitted) != wantSubmissions {
 				t.Errorf("submitted = %+v, want %d", submitted, wantSubmissions)
+			}
+		})
+	}
+}
+
+func TestNativeRecoveryDoesNotChooseATrustOptionQuotedInADraft(t *testing.T) {
+	for _, menu := range []struct{ title, accept string }{
+		{"Trust this folder?", "1. Trust and continue"},
+		{"Do you trust the contents of this directory?", "1. Yes, continue"},
+	} {
+		t.Run(menu.title, func(t *testing.T) {
+			previousKey, previousSettle := nativeKeyEffect, nativeDialogSettle
+			nativeKeyEffect, nativeDialogSettle = time.Second, 0
+			t.Cleanup(func() { nativeKeyEffect, nativeDialogSettle = previousKey, previousSettle })
+			f := newQuickFixture(t)
+			if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+				t.Fatal(err)
+			}
+			terminal, err := host.ReadRecord(f.stateDir, f.request.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client, err := host.Dial(terminal)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			draft := menu.accept + " with more retained text"
+			if err := client.Input([]byte(draft)); err != nil {
+				t.Fatal(err)
+			}
+			screens, _ := harness.NativeScreens(harness.Codex)
+			if _, err := f.service.awaitScreen(t.Context(), terminal, nativeKeyEffect, func(rows []string) bool {
+				return screens.ComposerMatches(rows, draft)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			f.service.ReadScreen = func(record host.Record) ([]string, error) {
+				rows, err := host.ReadScreen(record)
+				return append([]string{menu.title, ""}, rows...), err
+			}
+
+			_, _, readyErr := f.service.awaitNativeReady(t.Context(), terminal, screens)
+			if readyErr != nil {
+				t.Errorf("quoted title blocks the current composer: %v", readyErr)
+			} else if _, err := f.service.submitNative(t.Context(), terminal, screens, "Continue the unfinished work.", 0, true); err == nil {
+				t.Error("the unrelated retained draft was submitted")
+			}
+			if submitted := named(f.events(t), "submitted"); len(submitted) != 1 {
+				t.Errorf("submissions = %+v; want only the initial instruction, no trust choice or retained draft", submitted)
 			}
 		})
 	}

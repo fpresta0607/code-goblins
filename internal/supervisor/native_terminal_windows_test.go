@@ -268,6 +268,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 					text = ""
 				}
 				drawComposer(text, true)
+			} else if hooked {
+				drawComposer("", false)
 			}
 			if hooked {
 				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})
