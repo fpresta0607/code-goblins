@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1072,5 +1073,51 @@ func TestAQueuedMessageForAGateHeldGoblinIsWithdrawn(t *testing.T) {
 		if left.Kind == "message" && left.Status == "queued" && left.TaskID == "gated" {
 			t.Fatalf("the withdrawn message is still queued: %+v", left)
 		}
+	}
+}
+
+// A goblin whose gate holds nothing keeps the ordinary handoff: a message its
+// terminal cannot take goes to the CFO once the ordinary wait passes, which is
+// what a queue that never expired had stopped doing.
+func TestAClearCustodyWithoutATerminalKeepsTheOrdinaryHandoff(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := gatedGoblin(t, h)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "too late", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
+
+	// Act
+	evaluation, err := service.deliverMessage(context.Background(), action)
+
+	// Assert
+	if !strings.Contains(evaluation.Reason, "CFO") && err == nil {
+		t.Fatalf("a message past the ordinary wait for a goblin with no terminal reads %q, want the ordinary handoff", evaluation.Reason)
+	}
+}
+
+// A withdrawal at a full queue is not refused when it also frees the slot it
+// took, since removing the queued message and keeping its receipt does not
+// grow the queue.
+func TestAWithdrawalAtAFullQueueStillWithdrawsAQueuedMessage(t *testing.T) {
+	// Arrange: the queue at its limit, with nothing closed to reuse.
+	store, _ := testStore(t)
+	store.db.Actions = nil
+	for i := 0; i < maxActions; i++ {
+		store.db.Actions = append(store.db.Actions, Action{ID: "f" + strconv.Itoa(i), Kind: "message", TaskID: "other-" + strconv.Itoa(i), Text: "filler", Status: "queued"})
+	}
+	store.db.Actions[0] = Action{ID: "m1", Kind: "message", TaskID: "gated", Text: "take this after the gate", Status: "queued"}
+
+	// Act
+	withdrawn, err := store.withdrawMessage(Action{ID: "m2", Kind: "message_withdraw", TaskID: "gated", Text: "take this after the gate"})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("a withdrawal at a full queue was refused: %v", err)
+	}
+	if withdrawn.Status != "succeeded" {
+		t.Fatalf("the withdrawal reads %+v", withdrawn)
+	}
+	if len(store.db.Actions) > maxActions {
+		t.Fatalf("the queue grew past its limit to %d", len(store.db.Actions))
 	}
 }

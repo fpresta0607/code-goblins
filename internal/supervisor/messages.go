@@ -55,6 +55,8 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	s.starts.Lock()
 	isStarting := s.starting == a.TaskID || s.isAsked(a.TaskID)
 	s.starts.Unlock()
+	// isGateHeldNow says this attempt found the goblin's gate owning its branch.
+	var isGateHeldNow bool
 	meta, err := state.ReadTaskMeta(stateDir, a.TaskID)
 	if errors.Is(err, os.ErrNotExist) && !isStarting {
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was not running and had no Start on its way")
@@ -87,7 +89,8 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		// it is kept as a durable queued action and delivered once custody is
 		// released. It never expires and is never handed to the CFO, because
 		// nothing is lost by waiting for the gate (the Overlord, 2026-10-23).
-		switch held, why := gateCustody(ctx, s, meta); held {
+		held, why := gateCustody(ctx, s, meta)
+		switch held {
 		case gateHeld:
 			return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes."}, ErrDeferred
 		case gateUnknown:
@@ -95,6 +98,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			// into a gate would break it. He can send it again.
 			return Evaluation{Reason: "Nothing was typed, because " + a.TaskID + "'s gate custody could not be read (" + why.Error() + "). Send it again in a moment."}, ErrRejected
 		}
+		isGateHeldNow = held == gateHeld
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
 			result, err := s.Options.CFO.SendGoblin(ctx, a.TaskID, goblinIdentity(meta), text)
@@ -104,9 +108,10 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			return result, err
 		}
 	}
-	// A message waiting behind a gate is never handed on for its age: the gate
-	// lets go in its own time, and nothing is lost by waiting for it.
-	return s.waitForGoblin(a, meta.Mode == "no-mistakes")
+	// A message waits past the ordinary limit only while its gate actually holds
+	// the branch, which the branch above returned on. Every other goblin keeps
+	// the ordinary handoff when its terminal cannot take the message.
+	return s.waitForGoblin(a, isGateHeldNow)
 }
 
 // gateState is what a check of a goblin's gate said: the branch is its
@@ -324,12 +329,6 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 	if a.TaskID == "" || strings.TrimSpace(a.Text) == "" || a.Generation != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" || a.AnswerKind != "" {
 		return Action{}, errors.New("a delete names only its goblin and the message's words")
 	}
-	remove := -1
-	if len(s.db.Actions) >= maxActions {
-		if remove = slices.IndexFunc(s.db.Actions, isClosedHistory); remove < 0 {
-			return Action{}, errors.New("action queue is full. Resolve pending actions")
-		}
-	}
 	// A message waiting for a gate to let go is withdrawn from the queue it
 	// waits in, so no later attempt delivers it.
 	if at := slices.IndexFunc(s.db.Actions, func(queued Action) bool {
@@ -341,6 +340,12 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 		a.Status, a.Message, a.CreatedAt, a.UpdatedAt = "succeeded", "Deleted before its gate let go.", now, now
 		s.db.Actions = append(s.db.Actions, a)
 		return a, nil
+	}
+	remove := -1
+	if len(s.db.Actions) >= maxActions {
+		if remove = slices.IndexFunc(s.db.Actions, isClosedHistory); remove < 0 {
+			return Action{}, errors.New("action queue is full. Resolve pending actions")
+		}
 	}
 	if err := withdrawFromResume(s.Home.State, a.TaskID, a.Text); err != nil {
 		return Action{}, err
