@@ -6,6 +6,8 @@ export const listNames = (names: string[]) => names.length < 2 ? names.join("") 
 // What became of a request: the secrets saved for its project and the plain
 // values sent to its goblin, his Done or Dismiss, or why it closed.
 export function credentialSettled(request: CredentialRequest): string {
+  if (request.state === "granted") return "Granted " + request.grant_service + " to " + request.task + (request.reason ? ". " + request.reason : "");
+  if (request.state === "dismissed" && request.grant_service) return "Denied " + request.grant_service + " for " + request.task;
   const sent = request.received.length ? "sent " + listNames(request.received) + " to " + (request.task || "the CFO") : "";
   if (request.state === "saved" && request.saved.length) return "Saved " + listNames(request.saved) + " for " + request.project + (sent ? " and " + sent : "");
   if (request.state === "saved") return sent.charAt(0).toUpperCase() + sent.slice(1);
@@ -21,6 +23,8 @@ export function credentialSettled(request: CredentialRequest): string {
 // answer is. A card that closed any other way, or is open, does not
 // finish this way.
 export function credentialFinish(request: CredentialRequest): { heading: string; label: string } | null {
+  if (request.state === "granted") return { heading: "Granted", label: credentialSettled(request) };
+  if (request.state === "dismissed" && request.grant_service) return { heading: "Denied", label: credentialSettled(request) };
   if (request.state === "saved") return { heading: request.saved.length ? "Stored" : "Sent", label: credentialSettled(request) };
   if (request.state === "done") return { heading: "Done", label: request.task ? "Its goblin goes on now." : "" };
   if (request.state === "dismissed") return { heading: "Closed", label: (request.task ? "Its goblin goes on without it. " : "") + closedLine(request) };
@@ -57,7 +61,7 @@ const inSentence = (request: CredentialRequest, name: string) => { const label =
 
 // Done closes an open card that asks for no input: one that asks closes once
 // its inputs arrive.
-export const canPressDone = (request: CredentialRequest) => request.state === "open" && !request.names.length && !request.plain.length;
+export const canPressDone = (request: CredentialRequest) => request.state === "open" && !request.grant_service && !request.names.length && !request.plain.length;
 
 // The inputs a request asks for: those still asked while it waits, and all
 // of them once nothing is.
@@ -66,6 +70,7 @@ const asked = (request: CredentialRequest) => { const open = stillAsked(request)
 // What a request asks in one line, for the inbox, the CFO bar and alerts: a
 // card of clicks by what it is for.
 export function credentialAsk(request: CredentialRequest): string {
+  if (request.grant_service) return "Grant " + request.grant_service + " to " + request.task;
   if (!request.names.length && !request.plain.length) return request.why;
   const names = asked(request).map((name) => inSentence(request, name));
   return (request.plain.length ? "Enter " : "Paste ") + listNames(names) + " for " + request.project;
@@ -75,6 +80,7 @@ export function credentialAsk(request: CredentialRequest): string {
 // count, and a card of clicks by what it is for. It stays the same while he
 // fills row after row.
 export function credentialHeading(request: CredentialRequest): string {
+  if (request.grant_service) return credentialAsk(request);
   if (!request.names.length && !request.plain.length) return request.why;
   const inputs = [...request.names, ...request.plain];
   if (!request.plain.length) return "Paste " + (inputs.length > 1 ? inputs.length + " credentials" : inputs[0]) + " for " + request.project;

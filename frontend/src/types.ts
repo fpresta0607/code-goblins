@@ -557,6 +557,7 @@ export interface BrowserSignIn {
 // never carries a value.
 export interface CredentialRequest {
   id: string; generation: string; identity: string;
+  task_generation: string; grant_service: string;
   // by is "cfo" or "goblin"; task is the goblin that needs the values.
   by: string; task: string;
   project: string;
@@ -746,6 +747,7 @@ function parseCredentialRequest(value: unknown): CredentialRequest {
   for (const [name, label] of Object.entries(c.labels == null ? {} : object(c.labels))) labels[name] = string(label);
   return {
     id: string(c.id), generation: string(c.generation), identity: string(c.identity), by: string(c.by), task: string(c.task),
+    task_generation: string(c.task_generation), grant_service: string(c.grant_service),
     project: string(c.project), env_file: string(c.env_file), names: strings(c.names), plain: strings(c.plain), labels, why: string(c.why), link: string(c.link), steps: strings(c.steps),
     window: c.window === undefined ? false : boolean(c.window), window_state: string(c.window_state), received: strings(c.received),
     existing: strings(c.existing), services,
