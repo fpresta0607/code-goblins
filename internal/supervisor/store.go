@@ -947,8 +947,12 @@ func (s *Store) updateQuestionOutcomes() {
 				}
 				q.Message = a.Message
 				if a.Status == "succeeded" {
-					at := a.UpdatedAt
-					q.AnsweredBy, q.AnsweredAt = "overlord", &at
+					// A board answer is the Overlord's; an answer the CFO gave over
+					// the pipe records its own attribution, which stays.
+					if q.AnsweredBy == "" {
+						at := a.UpdatedAt
+						q.AnsweredBy, q.AnsweredAt = "overlord", &at
+					}
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}
