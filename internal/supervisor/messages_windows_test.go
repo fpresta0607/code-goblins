@@ -1220,52 +1220,99 @@ func TestAHeldMessageSurvivesARestartAndIsDeliveredOnce(t *testing.T) {
 // store still holds it, and it is delivered exactly once when custody reads
 // clear, while a withdrawn one is never delivered.
 func TestAnUnreadableCustodyKeepsItsMessageAcrossARestart(t *testing.T) {
-	// Arrange: a gated goblin whose custody check fails, and a queued message.
+	// Arrange: a gated goblin whose custody check cannot be read, a message it
+	// keeps, and a pause already under way.
 	store, h := testStore(t)
 	meta := gatedGoblin(t, h)
 	queued, err := store.Queue(Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "wait for clear custody"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	unreadable := &gateFake{err: errors.New("the no-mistakes database cannot be read")}
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: unreadable}}
-	action := actionOf(store, queued.ID)
-	action.CreatedAt = time.Now().Add(-2 * messageWait)
-
-	// Act: the check fails, so the message waits even past the ordinary limit.
-	var evaluation Evaluation
-	evaluation, err = service.deliverMessage(context.Background(), action)
-
-	// Assert
-	if !errors.Is(err, ErrDeferred) || !strings.Contains(evaluation.Reason, "Delivery waits until its gate custody can be read") {
-		t.Fatalf("an unreadable custody came back as %v %v, want it queued in plain words", evaluation, err)
+	// The age is written to the store itself, so the restart reads the message
+	// it must keep rather than one this test aged in memory.
+	store.mu.Lock()
+	for i := range store.db.Actions {
+		if store.db.Actions[i].ID == queued.ID {
+			store.db.Actions[i].CreatedAt = time.Now().Add(-2 * messageWait)
+		}
 	}
+	store.mu.Unlock()
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
+	atPhase(t, h.State, meta, "pause", "pausing")
+	unreadable := &gateFake{err: errors.New("the no-mistakes database cannot be read")}
+
+	// Act: the store is reopened, as a restart opens it, and the pause's own
+	// attempt runs with custody still unreadable.
 	reopened, err := Open(h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after := actionOf(reopened, queued.ID); after.Status != "queued" {
-		t.Fatalf("after a restart the message reads %+v, want it still queued", after)
+	if after := actionOf(reopened, queued.ID); !after.CreatedAt.Equal(store.Snapshot().Actions[0].CreatedAt) {
+		t.Fatalf("the reopened message reads %v, want its saved age", after.CreatedAt)
+	}
+	paused := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: unreadable}}
+	// A deferred message answers ErrDeferred, which is the queue working, not a
+	// failure of the pass.
+	if err := reopened.ProcessOne(context.Background(), paused.execute); err != nil && !errors.Is(err, ErrDeferred) {
+		t.Fatal(err)
 	}
 
-	// Act: custody reads clear, and the goblin's terminal takes it once.
+	// Assert: it waited, though it is past the ordinary limit, and stayed queued.
+	waited := actionOf(reopened, queued.ID)
+	if waited.Status != "queued" {
+		t.Fatalf("after a restart an unreadable custody reads %+v, want it still queued", waited)
+	}
+	if !strings.Contains(waited.Message, "Waits for") && !strings.Contains(waited.Message, "gate custody can be read") {
+		t.Fatalf("the queued message reads %q, want it waiting rather than handed on", waited.Message)
+	}
+
+	// Act: a withdrawal while it still waits, then custody reads clear.
+	if _, err := reopened.withdrawMessage(Action{ID: "m2", Kind: "message_withdraw", TaskID: meta.ID, Text: queued.Text}); err != nil {
+		t.Fatalf("the withdrawal was refused: %v", err)
+	}
 	goblin := goblinTerminal(t, h.State, meta.ID)
+	// The pause has ended, so the goblin's terminal takes typing again.
+	atPhase(t, h.State, meta, "resume", "running")
 	clear := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
 	if err := reopened.ProcessOne(context.Background(), clear.execute); err != nil {
 		t.Fatal(err)
 	}
-	typed := goblin.waitForLines(t, 1)
-	if len(typed) != 1 || !strings.Contains(typed[0], "wait for clear custody") {
-		t.Fatalf("the goblin received %q, want it once", typed)
+	time.Sleep(200 * time.Millisecond)
+
+	// Assert: nothing was delivered, since the only message was withdrawn.
+	if lines := goblin.lines(t); len(lines) != 0 {
+		t.Fatalf("the goblin received %q, want nothing after a withdrawal", lines)
+	}
+
+	// Act and Assert: a message kept through the same unreadable custody is
+	// delivered exactly once once custody reads clear.
+	second, err := reopened.Queue(Action{ID: "m3", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "deliver me once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.ProcessOne(context.Background(), paused.execute); err != nil && !errors.Is(err, ErrDeferred) {
+		t.Fatal(err)
+	}
+	if kept := actionOf(reopened, second.ID); kept.Status != "queued" {
+		t.Fatalf("the second message reads %+v, want it queued while custody is unreadable", kept)
+	}
+	// Each pass takes one queued action, and a deferred one waits a second
+	// before the next try, so the queue is drained with that second between.
+	for pass := 0; pass < 4 && len(goblin.lines(t)) == 0; pass++ {
+		if err := reopened.ProcessOne(context.Background(), clear.execute); err != nil && !errors.Is(err, ErrDeferred) {
+			t.Fatal(err)
+		}
+		time.Sleep(1200 * time.Millisecond)
+	}
+	delivered := goblin.waitForLines(t, 1)
+	if len(delivered) != 1 || !strings.Contains(delivered[0], "deliver me once") {
+		t.Fatalf("the goblin received %q, want the second message once", delivered)
 	}
 	if err := reopened.ProcessOne(context.Background(), clear.execute); err != nil {
 		t.Fatal(err)
 	}
-
-	// Assert: exactly one delivery.
 	if lines := goblin.lines(t); len(lines) != 1 {
 		t.Fatalf("the goblin received %d lines, want exactly one delivery", len(lines))
 	}
