@@ -546,7 +546,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)
-		launch.Instruction = resumeInstruction(meta, target, s.StateDir)
+		launch.Instruction = resumeInstruction(meta, target, s.StateDir, briefPath)
 	} else {
 		handoff, err = s.writeHandoff(ctx, meta, target, worktreePath, briefPath, dirty)
 		if err != nil {
@@ -763,10 +763,13 @@ func handoffInstruction(handoff, briefPath string, meta state.TaskMeta) string {
 // stands now, the task's own status log and its handoff before acting: on
 // 2026-10-24 a resumed worker rechecked a pull request the CFO had already
 // merged while it was paused.
-func resumeInstruction(meta state.TaskMeta, target switchTarget, stateDir string) string {
-	brief := meta.Brief
+func resumeInstruction(meta state.TaskMeta, target switchTarget, stateDir, briefPath string) string {
+	// No relative brief path is ever invented here: a relative one resolves
+	// inside the worker's own worktree, where no brief is. briefPath is the
+	// resolved path the relaunch already holds.
+	brief := briefPath
 	if brief == "" {
-		brief = filepath.Join("data", meta.ID, "brief.md")
+		brief = "the task's own brief"
 	}
 	status := filepath.Join(stateDir, meta.ID+".status")
 	handoff := meta.TaskTmp
