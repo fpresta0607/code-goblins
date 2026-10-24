@@ -28,10 +28,10 @@ const evidenceFresh = 2 * time.Minute
 
 // waitsOnWhatEndsItself reports whether a goblin's latest report is a wait that
 // ends by itself and reports when it does, so nothing of the goblin's own is
-// expected meanwhile: a wait on CI, a deploy, the Overlord or memory, or a run
-// named by its number or by a gate run's ID. A gate run's ID carries capitals
-// and a run's number is all digits, which this fleet's task IDs never are, so a
-// wait on another task is never taken for either.
+// expected meanwhile: a wait on CI, a deploy, the Overlord, memory, or a hosted
+// run named by its number, which is all digits and names nothing else. A
+// capital letter is not evidence of a run: a task ID may hold one, so a wait on
+// a task name that does is still judged by the goblin's own progress.
 func waitsOnWhatEndsItself(report string) bool {
 	if !strings.HasPrefix(report, "waiting on ") {
 		return false
@@ -44,16 +44,13 @@ func waitsOnWhatEndsItself(report string) bool {
 	case "ci", "deploy", "overlord", "memory":
 		return true
 	}
-	isDigits, hasCapital := target != "", false
+	isDigits := target != ""
 	for _, ch := range target {
 		if ch < '0' || ch > '9' {
 			isDigits = false
 		}
-		if ch >= 'A' && ch <= 'Z' {
-			hasCapital = true
-		}
 	}
-	return isDigits || hasCapital
+	return isDigits
 }
 
 type WorkProgress struct {
