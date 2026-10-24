@@ -355,7 +355,7 @@ func TestAnUntypedWakeIsRecordedWithWhyAndTheCFOsScreen(t *testing.T) {
 		"a turn's own heading":            {[]string{"• Investigating the CFO's wake path (2m 05s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
 		"a dialog's words read in a turn": {[]string{"  Hooks need review", "• Working (12s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
 		"its agents run":                  {[]string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}, "its screen shows it in the middle of a turn"},
-		"at a dialog":                     {[]string{"  Set up security for Daybreak mode", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
+		"at a dialog":                     {[]string{"  Set up security for Daybreak mode", "› 1. Set up security", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
 		"holding text":                    {[]string{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}, "its screen does not show it waiting at an empty prompt"},
 		"no prompt":                       {[]string{"Starting Codex..."}, "its screen does not show it waiting at an empty prompt"},
 	} {

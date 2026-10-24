@@ -22,6 +22,7 @@ import (
 )
 
 type Resources struct {
+	StateDir    string
 	Directories []string
 	Hosts       []Identity
 	// Marks are the proofs the task's terminals gave what was started in
@@ -112,7 +113,7 @@ func TaskDirectories(h home.Home, meta state.TaskMeta) ([]string, error) {
 
 // ownResources are the directories and terminal one task holds itself.
 func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, commands execx.Runner) (Resources, error) {
-	var resources Resources
+	resources := Resources{StateDir: h.State}
 	stateDir := h.State
 	directories, err := TaskDirectories(h, meta)
 	if err != nil {
@@ -263,7 +264,7 @@ const hostStopWait = 10 * time.Second
 
 func stopResources(ctx context.Context, resources Resources, stop func(context.Context, Identity) (bool, error)) ([]string, []state.TeardownProcess, error) {
 	return endResources(ctx, resources, stop, func(ctx context.Context, job []Identity) ([]Process, error) {
-		return Inventory(ctx, resources.Directories, job, resources.Marks)
+		return Inventory(ctx, resources.Directories, job, resources.Marks, resources.StateDir)
 	})
 }
 
@@ -603,12 +604,21 @@ func leftBy(ctx context.Context, h home.Home, meta state.TaskMeta, read func(con
 	for _, entry := range running {
 		started[entry.PID] = entry.Start
 	}
-	processes, err := read(ctx, len(marks) > 0)
+	knownMarks, err := terminalMarks(h.State)
 	if err != nil {
 		return nil, err
 	}
+	processes, err := read(ctx, len(marks) > 0 || len(knownMarks) > 0)
+	if err != nil {
+		return nil, err
+	}
+	controllers, err := VerificationControllers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	processes = WithExecutionCustody(processes, controllers)
 	var left []LeftProcess
-	for _, process := range leftBehind(OwnedProcesses(processes, directories, nil, marks), started, marks) {
+	for _, process := range leftBehind(OwnedProcesses(processes, directories, nil, marks, knownMarks), started, marks) {
 		by := "parent"
 		switch {
 		case !process.IsGateAgent && slices.Contains(marks, process.Mark):

@@ -92,6 +92,7 @@ func TestTaskResourcesInterruptsOnlyAnOpenGateRun(t *testing.T) {
 // paused for memory too. On 2026-10-09 Murray's memory pause tried to abort
 // his live run, the abort failed, and no resume could bring him back.
 func TestAMemoryPauseLeavesAnOpenGateRunAlone(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	memory := &state.PauseCondition{Reason: "memory", At: time.Now().UTC()}
 	for _, testCase := range []struct {
 		name, action  string
@@ -132,6 +133,7 @@ func TestAMemoryPauseLeavesAnOpenGateRunAlone(t *testing.T) {
 }
 
 func TestStoppingATaskKeepsAnotherTasksGateTestUnderItsGoTemp(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	root := t.TempDir()
 	t.Setenv("LOCALAPPDATA", filepath.Join(root, "localappdata"))
 	stateDir := filepath.Join(root, "state")
@@ -365,6 +367,7 @@ func TestTaskResourcesCoverATasksFoldersInEitherPlaceOfAMovedHome(t *testing.T) 
 // helper's worktree too, whatever the helper's own stop left behind, and
 // nothing of any other goblin.
 func TestStoppingAParentStopsWhatRunsInItsHelpersWorktree(t *testing.T) {
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	// Arrange
 	root := t.TempDir()
 	h := home.Home{Root: root, State: filepath.Join(root, "state")}

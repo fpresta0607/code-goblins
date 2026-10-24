@@ -51,8 +51,8 @@ func (s *scriptedCFO) terminal() cfoScreen {
 
 var (
 	claudeTrust  = []string{"Is this a project you created or one you trust?", "❯ 1. No, exit", "  2. Yes, I trust this folder"}
-	codexTrust   = []string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit"}
-	codexHooks   = []string{"Hooks need review", "2 hooks are new or changed", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting"}
+	codexTrust   = []string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "", "Press enter to continue"}
+	codexHooks   = []string{"Hooks need review", "2 hooks are new or changed", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting", "", "Press enter to confirm or esc to go back"}
 	claudeWaits  = []string{"> ", "? for shortcuts"}
 	themePicker  = []string{"Let's get started.", "Choose the text style that looks best with your terminal", "> 1. Dark mode"}
 	settleScreen = func(t *testing.T, kind harness.Kind) harness.Screens {

@@ -86,11 +86,11 @@ func TestNativeCodexSubmitProgram(t *testing.T) {
 	}
 	busy, slow := mode == "busy", mode == "slow"
 	draw := func(text string) {
-		status := "100% context left"
+		status := ""
 		if busy {
-			status = "• Working (1s • esc to interrupt)"
+			status = "• Working (1s • esc to interrupt)\r\n"
 		}
-		fmt.Print("\x1b[2J\x1b[H› " + text + "\r\n" + status)
+		fmt.Print("\x1b[2J\x1b[H" + status + "› " + text + "\r\n100% context left")
 	}
 	draw("Ask Codex to do anything")
 	record("ready", mode)
