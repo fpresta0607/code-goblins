@@ -148,14 +148,13 @@ process.stdout.write(String(calls));
 	}
 }
 
-// On 2026-10-24 a pi goblin's turn end showed "CFO native event could not be
-// spooled" while its settled event had in fact reached the supervisor four
-// seconds later. The message named a cause nobody could confirm, because the
-// extension printed it for every failure of the hook: a hook that never ran, a
-// hook killed at its limit, and a hook that ran and exited non-zero. Each now
-// says which it was, and none repeats the child's output, which may hold a
-// tool result. Issue recorded from the retained screen evidence of that turn
-// end.
+// A hook's failure can mean several different things, and one message for all
+// of them misled a reading: on 2026-10-24 a turn end showed "could not be
+// spooled" although that turn end's settled event had reached the supervisor.
+// A timeout or a signal can follow a child that already recorded its event, so
+// each outcome now says only what is known and names the fixed event, which
+// lets a later failure be correlated. No child output is repeated, since a tool
+// result may carry private data.
 func TestPiExtensionNamesTheRealHookFailureWithoutClaimingALostEvent(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -166,8 +165,11 @@ func TestPiExtensionNamesTheRealHookFailureWithoutClaimingALostEvent(t *testing.
 		failure string
 		want    []string
 	}{
-		{name: "a hook that never ran or timed out", failure: "timeout", want: []string{"did not run (ETIMEDOUT)", "may not have been recorded"}},
-		{name: "a hook that ran and failed", failure: "status", want: []string{"exited with status 3", "may not have been recorded"}},
+		{name: "a hook held past its limit", failure: "timeout", want: []string{"for agent_settled", "timed out.", "may have started and recorded the event."}},
+		{name: "a hook that could not start", failure: "missing", want: []string{"for agent_settled", "could not start (ENOENT).", "The event was not recorded."}},
+		{name: "a hook terminated by a signal", failure: "signal", want: []string{"for agent_settled", "was terminated by SIGKILL.", "may have recorded the event."}},
+		{name: "a hook that ran and failed", failure: "status", want: []string{"for agent_settled", "exited with status 3.", "may have recorded the event."}},
+		{name: "a process error with no code", failure: "unknown", want: []string{"for agent_settled", "could not complete (unknown error).", "may have recorded the event."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -182,14 +184,14 @@ import { syncBuiltinESMExports } from "node:module";
 import { pathToFileURL } from "node:url";
 const failure = process.argv[3];
 const privateOutput = "fixture-output-must-not-be-logged";
-childProcess.spawnSync = () => {
-  if (failure === "timeout") {
-    const error = new Error(privateOutput);
-    error.code = "ETIMEDOUT";
-    return {error, signal: "SIGTERM", stdout: privateOutput, stderr: privateOutput};
-  }
-  return {status: 3, signal: null, stdout: privateOutput, stderr: privateOutput};
+const results = {
+  timeout: {error: Object.assign(new Error(privateOutput), {code: "ETIMEDOUT"}), signal: "SIGTERM", stdout: privateOutput, stderr: privateOutput},
+  missing: {error: Object.assign(new Error(privateOutput), {code: "ENOENT"}), stdout: privateOutput, stderr: privateOutput},
+  signal: {status: null, signal: "SIGKILL", stdout: privateOutput, stderr: privateOutput},
+  status: {status: 3, signal: null, stdout: privateOutput, stderr: privateOutput},
+  unknown: {error: new Error(privateOutput), stdout: privateOutput, stderr: privateOutput},
 };
+childProcess.spawnSync = () => results[failure];
 syncBuiltinESMExports();
 const extension = (await import(pathToFileURL(process.argv[2]).href)).default;
 const handlers = {};
@@ -214,11 +216,10 @@ handlers.agent_settled({}, ctx);
 			if err != nil || reported == "" {
 				t.Fatalf("the extension reported nothing of the failure: %v %q", err, reported)
 			}
-			if strings.Contains(reported, "could not be spooled") {
-				t.Fatalf("the extension still claims the event was not spooled: %q", reported)
-			}
-			if bytes.Contains(diagnostics.Bytes(), []byte("fixture-output")) {
-				t.Fatalf("the extension repeated the child's private output: %q", reported)
+			for _, refused := range []string{"could not be spooled", "fixture-output", ";"} {
+				if strings.Contains(reported, refused) {
+					t.Fatalf("reported %q, want no %q in a visible diagnostic", reported, refused)
+				}
 			}
 			for _, want := range c.want {
 				if !strings.Contains(reported, want) {
