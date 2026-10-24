@@ -424,13 +424,21 @@ A store failure prevents commands from starting.
 `cfo gate test`, `cfo gate prepush` and `cfo gate turn` wait through the same admission code in the same store, so a run of any of them waits for a run of the others.
 
 ```text
-cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
+cfo gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]
 ```
 
 Everything before `--` is `cfo`'s, and everything after it is the command's, its own flags and a `--` of its own included.
 `cfo` starts `<program>` as a process with exactly those arguments, unparsed and with no shell of its own in front, so a command that needs a shell names one: `cfo gate turn -- cmd.exe /c "npm test && npm run lint"`.
 `--as <name>` names the run to whoever reads the line.
-`--wait <duration>` bounds the wait for the turn, as `--wait 30s`: a run that takes no turn within it runs nothing and exits 125 with a last line that says so, and once it has its turn the wait no longer counts, so its command runs until it ends.
+`--wait <duration>` bounds the wait for the turn, as `--wait 30s`: a run that takes no turn within it runs nothing and exits 125 with a last line that says so, and once it has its turn the wait no longer counts.
+`--execution-limit <duration>`, as `--execution-limit 5m`, starts one deadline after admission, before startup, and keeps that deadline through the payload, descendants left by an exited parent, and finalization.
+It works with or without `--detach`, independently of `--wait`; both accept only positive durations, and an invalid, zero, negative or missing value starts nothing.
+Without an execution limit, the existing unlimited execution and ten-second descendant linger remain unchanged.
+A timeout exits 124 even if the command itself exited zero, names the execution record on standard error, and records `verify.ErrLimit` as a failure.
+A timeout during preparation records `not_started`, or an interrupted failed run once startup was recorded, with no invented command exit code when nothing launched.
+Cleanup still uses the existing measured job owner and spares machine services, with five seconds for the job cleanup proof, five seconds for the command wait, bounded custody release, and a final retry bounded to ten seconds.
+Those cleanup and receipt operations can extend elapsed time past the execution deadline, and native Windows calls must return before their cancellation can be observed; the limit is not a guarantee that the wrapper exits at that exact instant.
+A cleanup that cannot be confirmed keeps its custody and reports uncertainty; later confirmed cleanup never makes the timed-out run pass.
 `--low-priority` has the run wait at the lowest priority: it takes its turn only while no ordinary run waits, and an ordinary run that joins the line after it still goes first, unless the low-priority run is already taking its turn, as the desktop's CI jobs wait, and `cfo gate turns` marks it.
 `--memory <size>`, as `--memory 7GiB` or `--memory 512MiB`, is the most memory the run is expected to use, which a line of two slots weighs before it starts the run beside another, as [Taking turns](#taking-turns) says.
 Without it a run is expected to use 2.5 GiB.
@@ -461,7 +469,7 @@ A refused run tells its goblin that it ended, as a run that did not start does.
 A script the command runs is not read.
 
 **In the background.**
-`--detach <log-file>` starts the same run, with its name and its wait, as a process of its own and returns at once, printing its pid on standard output.
+`--detach <log-file>` starts the same run, with its name, wait and execution limit, as a process of its own and returns at once, printing its pid on standard output.
 The run starts the way the supervisor is started: in a console of its own with no window, which its command shares, so nothing of it ever shows on the desktop, in a process group of its own, and out of its caller's job where the job allows it, so it outlives its caller.
 Its standard output and error are appended to `<log-file>`, its pid is written to `<log-file>.pid` for its goblin to end it by, and its last line in the log is `cfo gate turn: the detached run ended with exit <code> after <time>`.
 A run that cannot be started detached starts nothing and exits 125.
@@ -470,7 +478,8 @@ Since no harness waits on a detached run, its end is told to the goblin of any h
 **What it waits for.**
 It waits while another run holds the turn, and at the head of the line while free physical memory or free commit is under the floor.
 It sets no limit of its own on either wait.
-Where `cfo gate test` refuses a run after an hour of memory under the floor, `cfo gate turn` waits for as long as memory is short, and the limits that end a run are its command's own and its caller's.
+Where `cfo gate test` refuses a run after an hour of memory under the floor, `cfo gate turn` waits for as long as memory is short unless `--wait` bounds admission.
+Its execution limit never counts that wait.
 The wait counts in the wrapper's wall time, so a caller that budgets its test command should start the budget at `took its turn`, or allow for the wait.
 
 **What it prints.**
@@ -517,7 +526,8 @@ The next run first proves the dead run's job ended, which takes a few seconds, a
 The command runs in a Windows job of its own that every process it starts joins and none can leave, whatever becomes of its parent, and the job ends with the wrapper, so a wrapper ended by force ends its command with everything the command started, and nothing the command started runs on outside the turn but a machine service, which the run leaves running by design, as below.
 On Ctrl+C or Ctrl+Break while it waits, `cfo` leaves the line and exits 125.
 While the command runs, `cfo` keeps the turn through the signal and exits with the command's code: the command shares the console, receives the same signal and answers for itself.
-Once the command's own process has exited, interrupted or not, what it left running may go on for ten seconds, after which `cfo` ends it and names each process it ended.
+Once the command's own process has exited, interrupted or not, what it left running may go on for ten seconds, or until an explicit execution limit expires first, after which `cfo` ends it.
+The normal linger names each process it ended.
 A machine service the command started, Docker Desktop with what it runs, the no-mistakes daemon with its gate agents or the Scrawl server, serves the whole machine, so it is left running and named:
 
 ```text
@@ -584,6 +594,7 @@ The command's output to its logs is limited to 1 GiB together, past which the ru
 A run whose command writes to its caller's own output, as `cfo gate turn`'s does, keeps no logs and has no such limit.
 Until the command's process exits the monitor still waits for the whole job, and it samples again as soon as that process exits rather than at its next poll.
 `RunWithin` bounds a command from the moment it starts, so its wait in line never counts against that limit, and the limit stops once the command's own process exits, so what it left is judged by the linger alone.
+The executor's separate `ExecutionLimit`, used by `cfo gate turn --execution-limit`, begins before startup and remains active through finalization, using the same absolute deadline throughout without changing `RunWithin`'s command-only limit.
 A command its limit ends fails with `verify.ErrLimit` and an interrupted record, which a tier records as timed out, while an internal wait that ran out of time is a failure but no timeout.
 A failed cleanup returns `cleanup_uncertain`, so its caller must retain admission custody, and successful cleanup does not turn an interrupted run into a completed one.
 `internal/verify.Executor` composes admission, per-command worker custody, job measurement and durable lifecycle records on Windows.

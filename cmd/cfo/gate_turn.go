@@ -23,6 +23,8 @@ import (
 // is a test result, and a command that itself exits with one is told apart
 // by the last line on standard error, which then is not cfo gate turn's.
 const (
+	// exitExecutionLimit says the requested execution deadline expired.
+	exitExecutionLimit = 124
 	// exitNoTurn says the run gave no result of its command's: the command
 	// never started, as no turn was taken or the run was interrupted before
 	// it could start, or the line ended the command for the machine's
@@ -36,7 +38,7 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
@@ -44,8 +46,8 @@ const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [-
 // goblin's own suite, a run one of the Overlord's sessions starts. It waits
 // while another run holds the turn and while free physical memory or free
 // commit is under the floor, for as long as that lasts unless --wait bounds
-// that wait: it sets no other limit of its own, and the limits that end a run
-// are its command's and its caller's.
+// that wait. An explicit --execution-limit bounds startup and execution
+// after admission, including what the command leaves running.
 // While it waits it says on standard error, as it starts to, whenever its
 // place in line changes and once a minute, which run holds the turn and
 // since when, and where this run stands.
@@ -156,6 +158,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	}
 	executor.Admission.IsLowPriority = request.isLowPriority
 	executor.Admission.Estimate = request.memory
+	executor.ExecutionLimit = request.executionLimit
 	// The command writes to this run's own output, which a process's always
 	// is a file of, so it sees what this run's caller gives it, console or
 	// pipe, and the caller keeps what it writes.
@@ -224,6 +227,10 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		fmt.Fprintf(stderr, "cfo gate turn: old execution records could not all be removed: %s\n", oneLine(err))
 	}
 	switch {
+	case errors.Is(runError, verify.ErrLimit):
+		fmt.Fprintf(stderr, "cfo gate turn: the run exceeded its execution limit of %s: %s; execution record: %s\n", request.executionLimit, oneLine(runError), record)
+		tell(exitExecutionLimit)
+		return exitExecutionLimit
 	case errors.Is(runError, verify.ErrNoTurn):
 		why := oneLine(runError)
 		switch {
@@ -268,6 +275,8 @@ type gateTurnRequest struct {
 	as string
 	// wait, when set, bounds the wait for the turn.
 	wait time.Duration
+	// executionLimit, when set, bounds the execution after admission.
+	executionLimit time.Duration
 	// isLowPriority has the run wait at the lowest priority, behind every
 	// other run that waits, whenever that one joined.
 	isLowPriority bool
@@ -297,6 +306,11 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			at++
 			waitText, isWaitGiven = args[at], true
 		}
+		limitText, isLimitGiven := strings.CutPrefix(args[at], "--execution-limit=")
+		if args[at] == "--execution-limit" && at+1 < len(args) && args[at+1] != "--" {
+			at++
+			limitText, isLimitGiven = args[at], true
+		}
 		memoryText, isMemoryGiven := strings.CutPrefix(args[at], "--memory=")
 		if args[at] == "--memory" && at+1 < len(args) && args[at+1] != "--" {
 			at++
@@ -311,6 +325,12 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 				return gateTurnRequest{}, fmt.Errorf("--wait takes a duration over nothing, as 30s, not %q", waitText)
 			}
 			request.wait = wait
+		case isLimitGiven:
+			limit, err := time.ParseDuration(limitText)
+			if err != nil || limit <= 0 {
+				return gateTurnRequest{}, fmt.Errorf("--execution-limit takes a duration over nothing, as 30s, not %q", limitText)
+			}
+			request.executionLimit = limit
 		case isMemoryGiven:
 			memory, err := parseMemory(memoryText)
 			if err != nil {
@@ -337,6 +357,8 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			return gateTurnRequest{}, errors.New("--as is given no name")
 		case args[at] == "--wait":
 			return gateTurnRequest{}, errors.New("--wait is given no duration")
+		case args[at] == "--execution-limit":
+			return gateTurnRequest{}, errors.New("--execution-limit is given no duration")
 		case args[at] == "--low-priority":
 			request.isLowPriority = true
 		case args[at] == "--memory":
@@ -386,6 +408,9 @@ func detachedArguments(request gateTurnRequest) []string {
 	}
 	if request.wait > 0 {
 		args = append(args, "--wait="+request.wait.String())
+	}
+	if request.executionLimit > 0 {
+		args = append(args, "--execution-limit="+request.executionLimit.String())
 	}
 	if request.memoryText != "" {
 		args = append(args, "--memory="+request.memoryText)
