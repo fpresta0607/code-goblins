@@ -210,7 +210,14 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 	if pausedAt.IsZero() || time.Since(pausedAt) >= 24*time.Hour || pausedAt.After(time.Now()) {
 		session = ""
 	}
-	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: meta.Brief, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
+	// A resume falls back to the task's brief under the home exactly as a switch
+	// and a comeback do, so a task whose record names none still reaches its
+	// relaunch with a real path and the worker is not sent to a relative one.
+	briefPath := meta.Brief
+	if briefPath == "" && h.Data != "" {
+		briefPath = filepath.Join(h.Data, meta.ID, "brief.md")
+	}
+	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: briefPath, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
 	// A gate run still running, left alone by a memory pause or by an abort
 	// that failed, is the goblin's to pick back up: it is told which, so it
 	// starts no other beside it.

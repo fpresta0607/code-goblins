@@ -101,7 +101,7 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 // the CFO, or reported its work finished, so it is not idle with work left.
 func (s Service) heldByVerb(id string, observation Observation) bool {
 	verb, line, ok := s.latestStatusVerb(id)
-	return ok && line > observation.ConsumedVerbLine && (verb == "paused" || parkedDecisionVerb(verb) || terminalVerb(verb))
+	return ok && line > observation.ConsumedVerbLine && (verb == "paused" || IsParkedDecisionVerb(verb) || IsTerminalVerb(verb))
 }
 
 // idleDetail is the goblin_idle wake: how long it has sat, what to do next,
