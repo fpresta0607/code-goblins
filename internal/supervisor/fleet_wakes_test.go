@@ -1410,6 +1410,9 @@ func TestMemoryReadyLeavesOutWorkItsOwnPauseHolds(t *testing.T) {
 		{name: "a dependency pause until a date", record: func(pausedAt time.Time) *state.Lifecycle {
 			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "pause-2", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "dependency", Until: "date:2026-10-31T00:41:03Z", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
 		}},
+		{name: "an Overlord pause, which he releases himself", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "pause-2", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
+		}},
 		{name: "a task already stopped", record: func(pausedAt time.Time) *state.Lifecycle {
 			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "stop-1", Action: "stop", Phase: "stopped", Reason: "Stopped from the board", Started: pausedAt, Updated: pausedAt}
 		}},
