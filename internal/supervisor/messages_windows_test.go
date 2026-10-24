@@ -1121,3 +1121,94 @@ func TestAWithdrawalAtAFullQueueStillWithdrawsAQueuedMessage(t *testing.T) {
 		t.Fatalf("the queue grew past its limit to %d", len(store.db.Actions))
 	}
 }
+
+// A message held by a gate keeps waiting across a restart: while a start is on
+// its way its terminal does not run yet, and the message must not take the
+// ordinary handoff just because the task is starting.
+func TestAHeldMessageKeepsWaitingWhileTheGoblinIsStarting(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := gatedGoblin(t, h)
+	gate := &gateFake{err: pipeline.ErrCustodyHeld}
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: gate}, starting: meta.ID}
+	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "hold this", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
+
+	// Act
+	evaluation, err := service.deliverMessage(context.Background(), action)
+
+	// Assert
+	if gate.asks == 0 {
+		t.Fatal("custody was never read for a task that is starting")
+	}
+	if !errors.Is(err, ErrDeferred) {
+		t.Fatalf("a held message for a starting goblin came back as %v %v, want it still waiting", evaluation, err)
+	}
+	if strings.Contains(evaluation.Reason, "CFO") {
+		t.Fatalf("a held message for a starting goblin was handed to the CFO: %q", evaluation.Reason)
+	}
+}
+
+// A message held by a gate survives a restart, is delivered to exactly one
+// recipient once the gate lets go, and one withdrawn first is never delivered.
+func TestAHeldMessageSurvivesARestartAndIsDeliveredOnce(t *testing.T) {
+	// Arrange: a queued message for a gated goblin, and the store reopened as
+	// a restart opens it.
+	store, h := testStore(t)
+	meta := gatedGoblin(t, h)
+	held, err := store.Queue(Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "deliver me once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Act: the reopened store holds it.
+	after := actionOf(reopened, held.ID)
+
+	// Assert
+	if after.ID != held.ID || after.Status != "queued" || after.Text != "deliver me once" {
+		t.Fatalf("after a restart the message reads %+v, want it still queued", after)
+	}
+
+	// Act: the gate lets go, and the goblin's terminal takes it once.
+	gate := &gateFake{}
+	goblin := goblinTerminal(t, h.State, meta.ID)
+	service := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: gate}}
+	first := reopened.ProcessOne(context.Background(), service.execute)
+	typedOnce := goblin.waitForLines(t, 1)
+	second := reopened.ProcessOne(context.Background(), service.execute)
+	typedTwice := goblin.lines(t)
+
+	// Assert: one recipient, one delivery.
+	if first != nil || second != nil {
+		t.Fatalf("the delivery ended %v and then %v", first, second)
+	}
+	if len(typedOnce) != 1 || !strings.Contains(typedOnce[0], "deliver me once") {
+		t.Fatalf("the goblin received %q, want the message once", typedOnce)
+	}
+	if len(typedTwice) != 1 {
+		t.Fatalf("the goblin received %d lines, want exactly one delivery", len(typedTwice))
+	}
+
+	// Act and Assert: a second message withdrawn before the gate lets go is
+	// never delivered.
+	withdrawn, err := reopened.Queue(Action{ID: "m2", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "never deliver me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.withdrawMessage(Action{ID: "m3", Kind: "message_withdraw", TaskID: meta.ID, Text: withdrawn.Text}); err != nil {
+		t.Fatalf("the withdrawal was refused: %v", err)
+	}
+	if err := reopened.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	for _, said := range goblin.lines(t) {
+		if strings.Contains(said, "never deliver me") {
+			t.Fatalf("a withdrawn message was delivered: %q", said)
+		}
+	}
+}

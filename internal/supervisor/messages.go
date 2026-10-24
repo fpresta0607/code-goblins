@@ -55,8 +55,6 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	s.starts.Lock()
 	isStarting := s.starting == a.TaskID || s.isAsked(a.TaskID)
 	s.starts.Unlock()
-	// isGateHeldNow says this attempt found the goblin's gate owning its branch.
-	var isGateHeldNow bool
 	meta, err := state.ReadTaskMeta(stateDir, a.TaskID)
 	if errors.Is(err, os.ErrNotExist) && !isStarting {
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" was not running and had no Start on its way")
@@ -65,7 +63,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		return Evaluation{}, err
 	}
 	if isStarting {
-		return s.waitForGoblin(a, false)
+		// A start under way reads the branch too, so a message held by a gate
+		// takes the same path across a restart as it does while it runs.
+		return s.waitForGoblin(a, isGateHeldNow(ctx, s, meta))
 	}
 	record, err := state.ReadLifecycle(stateDir, a.TaskID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -98,7 +98,6 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			// into a gate would break it. He can send it again.
 			return Evaluation{Reason: "Nothing was typed, because " + a.TaskID + "'s gate custody could not be read (" + why.Error() + "). Send it again in a moment."}, ErrRejected
 		}
-		isGateHeldNow = held == gateHeld
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
 			result, err := s.Options.CFO.SendGoblin(ctx, a.TaskID, goblinIdentity(meta), text)
@@ -108,10 +107,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			return result, err
 		}
 	}
-	// A message waits past the ordinary limit only while its gate actually holds
-	// the branch, which the branch above returned on. Every other goblin keeps
-	// the ordinary handoff when its terminal cannot take the message.
-	return s.waitForGoblin(a, isGateHeldNow)
+	// A hold returned above, so nothing here is waiting behind one: a goblin
+	// whose terminal cannot take the message keeps the ordinary handoff.
+	return s.waitForGoblin(a, false)
 }
 
 // gateState is what a check of a goblin's gate said: the branch is its
@@ -147,6 +145,13 @@ func gateCustody(ctx context.Context, s *Service, meta state.TaskMeta) (gateStat
 	default:
 		return gateUnknown, err
 	}
+}
+
+// isGateHeldNow says a goblin's gate owns its branch at this moment, which is
+// the one state a message waits past the ordinary limit in.
+func isGateHeldNow(ctx context.Context, s *Service, meta state.TaskMeta) bool {
+	held, _ := gateCustody(ctx, s, meta)
+	return held == gateHeld
 }
 
 // waitForGoblin has a message wait for its goblin, until messageWait has
