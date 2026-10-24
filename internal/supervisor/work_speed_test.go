@@ -200,6 +200,13 @@ func TestProgressWatchLeavesAGoblinThatSaidItWaitsOrFinished(t *testing.T) {
 	for _, report := range []string{
 		"waiting on ci: PR 432 is pushed and its one CI run is going",
 		"waiting on overlord: his sign-in on the page",
+		// The monitor parks these three exactly as it parks blocked, and each
+		// carries its own wake, so twenty quiet minutes is nothing new. They
+		// drew a stall until reportKind named them.
+		"needs-decision: Shall I take the slower route?",
+		"checks-passed: the suite is green and it needs his word",
+		"checks_passed: the suite is green and it needs his word",
+
 		"done: PR https://github.com/o/r/pull/432",
 		"blocked: Shall I fix the folder trust prompt? options: Fix it (Recommended) | Leave it",
 	} {
@@ -920,6 +927,51 @@ func TestAGoblinWaitingByDesignStallsOnlyPastTheBusyBudget(t *testing.T) {
 			}
 			if len(details) != 1 || !strings.Contains(details[0], test.names) {
 				t.Fatalf("progress_stalled wakes after %s of nothing new = %q, want one naming %q", test.stalled, details, test.names)
+			}
+		})
+	}
+}
+
+// A bare number is no evidence of a run. A task ID may be numeric, and a
+// malformed or unknown target proves nothing, so none of them may hold the
+// stall check off: a wait on a task is judged by the goblin's own progress. A
+// real run wait is recorded as a pause, and a pause already keeps the stall
+// check off. Issue recorded from the dependency-wait false alarms of
+// 2026-10-24.
+func TestABareTargetIsNoEvidenceOfAwaitedWork(t *testing.T) {
+	for _, c := range []struct {
+		report string
+		stalls bool
+	}{
+		{report: "waiting on 123: its work must land first", stalls: true},
+		{report: "waiting on 99999999999: its work must land first", stalls: true},
+		{report: "waiting on : no target at all", stalls: true},
+		{report: "waiting on other-task: its work must land first", stalls: true},
+		{report: "waiting on ci: the hosted run is going", stalls: false},
+		{report: "waiting on deploy: the release is rolling out", stalls: false},
+	} {
+		t.Run(c.report, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			liveGoblin(t, h, "slow-task", h.Root)
+			service.Options.Progress = &progressGit{head: strings.Repeat("a", 40), pushed: strings.Repeat("a", 40)}
+			now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+			writeFile(t, filepath.Join(h.State, "slow-task.status"), now.Format(time.RFC3339)+" "+c.report+string(rune(10)))
+
+			// Act
+			for _, elapsed := range []time.Duration{0, 25 * time.Minute} {
+				if err := service.checkFleet(t.Context(), now.Add(elapsed)); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			wakes := stallWakes(t, service, "slow-task")
+			if c.stalls && wakes == 0 {
+				t.Fatalf("%q drew no stall, want one", c.report)
+			}
+			if !c.stalls && wakes != 0 {
+				t.Fatalf("%q drew %d stalls, want none", c.report, wakes)
 			}
 		})
 	}

@@ -386,7 +386,9 @@ func standingReport(lines []string, spawned time.Time) (time.Time, string) {
 // blocked, failed, done or waiting, or empty for anything else, so the board
 // can tell a goblin's own failure or finish from routine news.
 func reportKind(report string) string {
-	for _, kind := range []string{"working", "blocked", "failed", "done"} {
+	// blocked and the three verbs the monitor parks beside it each carry their
+	// own wake, so the report's kind is the verb itself.
+	for _, kind := range []string{"working", "blocked", "failed", "done", "needs-decision", "checks-passed", "checks_passed"} {
 		if strings.HasPrefix(report, kind+": ") {
 			return kind
 		}
