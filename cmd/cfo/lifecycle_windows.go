@@ -194,14 +194,7 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		}
 		if shouldRestart {
 			if err := gate.RestartInterrupted(ctx, meta.Project, meta.Worktree, pipeline.InterruptedRun{ID: prior.GateRun, Branch: branchName, Intent: prior.GateIntent}, launch); err != nil {
-				// A restart that cannot happen, such as one whose frozen policy
-				// is older than the machine's, must not stop the goblin's own
-				// work. It comes back to its branch and is told the run was not
-				// restarted and why. Its gate state, its custody and its harness
-				// are left as they are, and a new run or a migration stays the
-				// CFO's decision.
-				prior.ResumeNote = strings.TrimPrefix(prior.ResumeNote+"\nYour validation run "+prior.GateRun+
-					" was not restarted: "+err.Error()+". Carry on with the work you can do alone and start no run beside it; a new validation run is the CFO's decision.", "\n")
+				return err
 			}
 		}
 	}
