@@ -758,9 +758,19 @@ func handoffInstruction(handoff, briefPath string, meta state.TaskMeta) string {
 	return instruction + ", then continue the work. Do not ask again for a decision already answered in the retained context or recovery notes; follow that answer. Only if a decision is still unanswered and blocks the next step, ask it again with cfo notify --blocked." + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
 }
 
+// resumeInstruction is what a session restarted in place is told. Its retained
+// context may be older than the durable record: work can land, be merged or be
+// decided while it is paused, so it reconciles the brief as it stands now, its
+// status log and its wake queue before it acts. On 2026-10-24 a resumed worker
+// carried on from its own context and rechecked a pull request the CFO had
+// already merged while it was paused.
 func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
-	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off. Do not ask again for a decision already answered in the retained context or recovery notes; follow that answer. Only if a decision is still unanswered and blocks the next step, ask it again with cfo notify --blocked.",
-		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta)
+	brief := meta.Brief
+	if brief == "" {
+		brief = filepath.Join("data", meta.ID, "brief.md")
+	}
+	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off. Before acting, read the brief at %s as it stands now and reconcile it with your status log and your wake queue: work may have landed, been merged or been decided while you were paused, and nothing here overrides what they now say. Do not ask again for a decision already answered in the retained context or recovery notes; follow that answer. Only if a decision is still unanswered and blocks the next step, ask it again with cfo notify --blocked.",
+		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort), brief) + notifyInstruction(meta)
 }
 
 // recentStatus returns the tail of the task's status log, which is the only

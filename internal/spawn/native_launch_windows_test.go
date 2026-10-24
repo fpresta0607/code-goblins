@@ -983,6 +983,26 @@ func spawnPointer(t *testing.T, f *fixture) string {
 // the model does not take as the operator's own words: on 2026-10-09 Uma,
 // Wanda and Lyle each asked whether to proceed with what they were resumed
 // with, and sat until someone said yes.
+// On 2026-10-24 a resumed session was told its prior context was intact and to
+// carry on, so it re-ran checks for a pull request the CFO had already merged
+// while it was paused. Nothing in the note sent it to the brief as it stood
+// then, so a resume now reconciles the current brief, the status log and the
+// wake queue before it acts.
+func TestAResumeReconcilesTheCurrentBriefBeforeActing(t *testing.T) {
+	// Arrange
+	meta := state.TaskMeta{ID: "task-7", Harness: "pi", Model: "deepseek", Effort: "high", Brief: filepath.Join("data", "task-7", "brief.md")}
+
+	// Act
+	resume := resumeInstruction(meta, switchTarget{Harness: harness.Pi, Model: "deepseek", Effort: "high"})
+
+	// Assert
+	for _, want := range []string{"Before acting", meta.Brief, "as it stands now", "status log", "wake queue", "nothing here overrides"} {
+		if !strings.Contains(resume, want) {
+			t.Fatalf("resume instruction %q does not name %q", resume, want)
+		}
+	}
+}
+
 func TestAnInstructionIsTypedAsOneShortLineIntoEveryHarness(t *testing.T) {
 	meta := state.TaskMeta{ID: "task-7", Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh"}
 	resume := resumeInstruction(meta, switchTarget{Harness: harness.Claude, Model: "claude-opus-5-5", Effort: "xhigh"})
