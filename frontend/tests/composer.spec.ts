@@ -215,3 +215,31 @@ test.describe("dictation into the box", () => {
     await expect(recent).toBeFocused();
   });
 });
+
+// The Overlord's screenshot: a custody check failing over a working goblin
+// must not cover the conversation or the box, and what he types is queued
+// rather than refused.
+test("a failing custody check shows no banner over the conversation and keeps the box usable", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await openGoblin(page);
+  const note = box(page).locator(".composer-note");
+
+  // Act: the check fails, the way it did on his screenshot.
+  relay.say({ type: "held", reason: "pipeline: native custody status check failed" });
+
+  // Assert: no pill over the thread, the plain copy beside the box, and Send
+  // usable so the message is queued.
+  await expect(page.locator(".terminal-held")).toHaveCount(0);
+  await expect(note).toHaveText("Queued. Delivery waits until this session takes input again.");
+  await expect(field(page)).toBeVisible();
+  await field(page).fill("send this while the check fails");
+  await expect(send(page)).toBeEnabled();
+
+  // Act: the check clears.
+  relay.say({ type: "held", reason: "" });
+
+  // Assert: the box still holds what he wrote and the note is clear again.
+  await expect(note).toHaveText("");
+  await expect(field(page)).toHaveValue("send this while the check fails");
+});
