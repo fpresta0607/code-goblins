@@ -480,6 +480,53 @@ func TestReadingDatesTheCredentialFileItRead(t *testing.T) {
 	}
 }
 
+// Only a credential the profile's own file holds is dated by that file. A key
+// it resolves from the session's environment has a value the file's time says
+// nothing about, so it carries no written time and is never attributed to a
+// session that started before an environment change nobody recorded.
+func TestReadingDatesOnlyACredentialItsOwnFileHolds(t *testing.T) {
+	written := time.Date(2026, 10, 10, 8, 30, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		auth   string
+		env    map[string]string
+		isDate bool
+	}{
+		{name: "a literal key", auth: `{"openrouter":{"type":"api_key","key":"` + testKey + `"}}`, isDate: true},
+		{name: "a key the entry's own environment holds", auth: `{"openrouter":{"type":"api_key","key":"$MY_KEY","env":{"MY_KEY":"` + testKey + `"}}}`, isDate: true},
+		{name: "a key the session's environment holds", auth: `{"openrouter":{"type":"api_key","key":"$MY_KEY"}}`, env: map[string]string{"MY_KEY": testKey}},
+		{name: "a braced key the session's environment holds", auth: `{"openrouter":{"type":"api_key","key":"${` + "MY_KEY" + `}"}}`, env: map[string]string{"MY_KEY": testKey}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			path := filepath.Join(dir, "auth.json")
+			writeFile(t, path, test.auth)
+			if err := os.Chtimes(path, written, written); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`{"data":{"usage":1,"usage_weekly":1,"limit":50,"limit_remaining":49,"limit_reset":"weekly"}}`))
+			}))
+			defer server.Close()
+
+			// Act
+			reading := Reader{Source: Source{Dir: dir, Env: test.env}, URL: server.URL}.Read(context.Background())
+
+			// Assert
+			if reading.Status != StatusAvailable || reading.KeyID != fingerprint(testKey) {
+				t.Fatalf("reading = %+v", reading)
+			}
+			if test.isDate && !reading.CredentialSince.Equal(written) {
+				t.Errorf("credential written at %v, want %v", reading.CredentialSince, written)
+			}
+			if !test.isDate && !reading.CredentialSince.IsZero() {
+				t.Errorf("a key the session's environment holds was dated %v", reading.CredentialSince)
+			}
+		})
+	}
+}
+
 // The request is one bounded GET of the current-key endpoint, carrying the
 // key in its Authorization header and nothing in a query, and it follows no
 // redirect, so the key never reaches a host the reading did not name.
