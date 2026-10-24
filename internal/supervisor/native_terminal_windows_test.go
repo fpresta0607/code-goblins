@@ -749,23 +749,6 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 	}
 }
 
-// awaitWithin fails when text has not arrived within d, which a view that only
-// opens after its custody answer arrives cannot meet.
-func (v *nativeView) awaitWithin(t *testing.T, text string, d time.Duration) {
-	t.Helper()
-	for deadline := time.Now().Add(d); ; time.Sleep(10 * time.Millisecond) {
-		v.mu.Lock()
-		screen := v.screen.String()
-		v.mu.Unlock()
-		if strings.Contains(screen, text) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%q did not arrive within %v while custody was still pending; the view shows %q", text, d, screen[max(0, len(screen)-300):])
-		}
-	}
-}
-
 // waitForSize asks the program its size until it reads size, such as
 // "100x30": ConPTY applies a resize on its own, so the program can still read
 // the old size just after one.
@@ -1826,22 +1809,34 @@ func TestACloseReasonFitsACloseFrame(t *testing.T) {
 	}
 }
 
-// blockingGate answers custody only when the test lets it, so a view's open
-// path can be observed while the check is deliberately still pending.
+// blockingGate answers custody only when the test lets it, and says when the
+// first check has returned, so a test can prove that check was still running
+// when the view's output arrived rather than having timed out first.
 type blockingGate struct {
-	entered chan struct{}
-	release chan struct{}
-	once    sync.Once
+	entered      chan struct{}
+	release      chan struct{}
+	returned     chan struct{}
+	enteredOnce  sync.Once
+	releaseOnce  sync.Once
+	returnedOnce sync.Once
 }
+
+// newBlockingGate is a gate nothing has asked yet.
+func newBlockingGate() *blockingGate {
+	return &blockingGate{entered: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{})}
+}
+
+// free releases the blocked check, and is safe to call more than once, so a
+// failing test still lets its probe go.
+func (g *blockingGate) free() { g.releaseOnce.Do(func() { close(g.release) }) }
 
 func (g *blockingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
 	return pipeline.Progress{}, pipeline.ErrNoProgress
 }
 
 func (g *blockingGate) CanSteer(ctx context.Context, _, _, _ string) error {
-	if g.entered != nil {
-		g.once.Do(func() { close(g.entered) })
-	}
+	g.enteredOnce.Do(func() { close(g.entered) })
+	defer g.returnedOnce.Do(func() { close(g.returned) })
 	select {
 	case <-g.release:
 		return nil
@@ -1850,13 +1845,17 @@ func (g *blockingGate) CanSteer(ctx context.Context, _, _, _ string) error {
 	}
 }
 
-// A custody check the gate answers slowly keeps nothing from the view: history
-// and output arrive while the first check is still pending, the view opens
-// readable, and nothing is typed or submitted until a clear answer arrives.
+// A custody check the gate answers slowly keeps nothing from the view: its
+// history and the program's output arrive while that first check is still
+// running, the view opens readable, and nothing is typed or submitted until a
+// clear answer arrives. The test proves the check was still pending when the
+// output arrived, so a view that only opens once the check answers, or after
+// its own budget expires, fails here rather than passing late.
 func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
 	h, server := nativeBoard(t, "no-mistakes")
 	gitFixture(t, taskWorktree(t, h))
-	gate := &blockingGate{entered: make(chan struct{}), release: make(chan struct{})}
+	gate := newBlockingGate()
+	t.Cleanup(gate.free)
 	h.Service.Options.Gate = gate
 	h.terminalTick = 50 * time.Millisecond
 	hostTask(t, h)
@@ -1864,18 +1863,17 @@ func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
 	// Act: the view opens while the check is blocked.
 	v := openNativeView(t, server, viewQuery)
 
-	// Assert: the check is genuinely pending and the program's output reached
-	// the view anyway, which is what the freeze kept from him.
+	// Assert: the check started, and the program's output reached the view
+	// while it was still running rather than after it gave up.
 	select {
 	case <-gate.entered:
 	case <-time.After(time.Minute):
 		t.Fatal("the custody check never started")
 	}
-	// The output must arrive while the check is still blocked: a view that only opens once the check answers is exactly the freeze, and custody has seconds of budget of its own.
-	v.awaitWithin(t, "program ready", 4*time.Second)
+	v.waitFor(t, "program ready")
 	select {
-	case <-gate.release:
-		t.Fatal("the check was released, so the wait proved nothing")
+	case <-gate.returned:
+		t.Fatal("the output arrived only after the custody check returned")
 	default:
 	}
 	select {
@@ -1889,8 +1887,7 @@ func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
 	v.send(t, websocket.MessageText, `{"type":"submit","submission":"while-pending"}`)
 	time.Sleep(300 * time.Millisecond)
 
-	// Assert: neither the text nor the submission reached the terminal, and
-	// nothing was marked as a submission of this view.
+	// Assert: neither the text nor the submission reached the terminal.
 	if v.shows("leak") {
 		t.Fatal("raw input reached the terminal before custody was answered")
 	}
@@ -1898,12 +1895,11 @@ func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
 		t.Fatal("a submission was delivered before custody was answered")
 	}
 
-	// Act: the gate answers clear, and the view is told before he types, so
-	// the typing cannot race the probe update.
-	close(gate.release)
+	// Act: the gate answers clear, and the view is told before he types.
+	gate.free()
 	v.waitFor(t, `"type":"held","reason":""`)
 
-	// Act and Assert: once clear, typing reaches the terminal.
+	// Assert: once clear, typing reaches the terminal.
 	v.send(t, websocket.MessageBinary, "after\r")
 	v.waitFor(t, "after")
 }

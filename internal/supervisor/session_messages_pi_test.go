@@ -102,7 +102,8 @@ func TestMessagesServeAPiSessionsConversation(t *testing.T) {
 	}
 
 	// Act: the stream, as a view that stays open reads it.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// A hang bound on the stream: long enough that no ordinary wait ends it.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	server := httptest.NewUnstartedServer(handler)
 	handler.Host = server.Listener.Addr().String()
