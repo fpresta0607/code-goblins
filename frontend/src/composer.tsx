@@ -56,6 +56,9 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   // the board. So is a running task whose terminal refuses typing: its send
   // goes the same durable way rather than into a screen that will not take it.
   const queues = !!task && takesMessages(task);
+  // Set once this box has kept a message as a board action, so its state stays
+  // on screen after a hold clears.
+  const [sentThroughBoard, setSentThroughBoard] = useState(false);
   const link = useTerminalLink(terminal);
   const live = queues ? undefined : link;
   const draftKey = task?.id || terminal;
@@ -103,6 +106,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     setSending(true);
     try {
       await post({ id: sendID.current, kind: "message", task_id: task.id, generation: "", text });
+      setSentThroughBoard(true);
       sendID.current = "";
       storeDraft(draftKey, "");
       setDraft("");
@@ -130,8 +134,13 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
   const note = held || unsent || (isUnread ? "Program busy. Typed keys are waiting." : "") || dictation.note;
-  const sent = task && queues ? messagesTo(snapshot, task.id).slice(-SHOWN) : [];
-  const kept = queues ? task?.lifecycle?.kept_messages ?? [] : [];
+  // The board's own copy of what was sent is shown wherever the board is what
+  // keeps it: a queued goblin always, and a running one whose input was held
+  // when he sent, which stays shown after the hold clears so the action can be
+  // read and withdrawn.
+  const throughBoard = queues || sentThroughBoard;
+  const sent = task && throughBoard ? messagesTo(snapshot, task.id).slice(-SHOWN) : [];
+  const kept = throughBoard ? task?.lifecycle?.kept_messages ?? [] : [];
   return <section className="composer" aria-label={"Messages to " + name}>
     {isAsking && <div className="composer-asking" role="status">
       <Icon name="warning" /><p>Waiting on you in the terminal</p>
