@@ -1226,6 +1226,16 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 // the ledger's fact, and resurfaceDecision reads it there. Relabelling an
 // unacknowledged failure as parked only changed how fleet view drew it, so
 // that arm is gone and the ledger keeps asking on its own.
+// IsParkedDecisionVerb reports whether a status verb parks the goblin while it
+// waits on something that ends by itself, so nothing of its own is expected
+// until that changes. The supervisor's stall check reads it, so the two agree
+// on what a declared wait is instead of keeping a second list of targets.
+func IsParkedDecisionVerb(verb string) bool { return parkedDecisionVerb(verb) }
+
+// IsTerminalVerb reports whether a status verb delivered a terminal outcome,
+// which its own wake already carries.
+func IsTerminalVerb(verb string) bool { return terminalVerb(verb) }
+
 func parkedDecisionVerb(verb string) bool {
 	switch verb {
 	case "blocked", "waiting", "needs-decision", "checks-passed", "checks_passed":

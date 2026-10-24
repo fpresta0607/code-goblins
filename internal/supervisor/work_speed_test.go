@@ -200,6 +200,11 @@ func TestProgressWatchLeavesAGoblinThatSaidItWaitsOrFinished(t *testing.T) {
 	for _, report := range []string{
 		"waiting on ci: PR 432 is pushed and its one CI run is going",
 		"waiting on overlord: his sign-in on the page",
+		// On 2026-10-24 two dependency waiters drew progress_stalled about
+		// twenty minutes after their own reports, although the monitor had
+		// already parked those same lines as decided waits.
+		"waiting on other-task: its fix must land in the daemon first",
+		"waiting on 40106041214: its hosted run is still going",
 		"done: PR https://github.com/o/r/pull/432",
 		"blocked: Shall I fix the folder trust prompt? options: Fix it (Recommended) | Leave it",
 	} {

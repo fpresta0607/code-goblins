@@ -219,8 +219,13 @@ measuring:
 		// A goblin whose latest report is done, a question, or a wait on CI,
 		// a deploy, the Overlord or memory expects no progress until that
 		// changes, and each of those wakes the CFO on its own when it does.
+		// Any wait a goblin declared ends by itself, on whatever it named: a
+		// dependency, a gate run, CI, a deploy, the Overlord or memory. The
+		// monitor parks the same report, so a dependency waiter is not judged
+		// stalled on the twenty-minute threshold while the board already reads
+		// it as waiting.
 		kind := reportKind(prior.Report)
-		isReportedElsewhere := kind == "done" || kind == "blocked" || kind == "failed" || slices.ContainsFunc([]string{"ci", "deploy", "overlord", "memory"}, func(on string) bool { return strings.HasPrefix(prior.Report, "waiting on "+on+": ") })
+		isReportedElsewhere := monitor.IsParkedDecisionVerb(kind) || monitor.IsTerminalVerb(kind)
 		// Evidence a memory low left unread says nothing of the goblin.
 		isStarved := watched.MemoryLow && len(unread[id]) > 0
 		// A goblin waiting by design, on what resumes it when it ends, is
