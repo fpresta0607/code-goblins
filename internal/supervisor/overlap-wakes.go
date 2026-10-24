@@ -300,6 +300,63 @@ func overlapsOf(matches tickets.Overlaps, own map[int]bool) []Overlap {
 	return overlaps
 }
 
+
+// resolveTarget reads the base of the goblin's pull request on the branch that
+// is checked out now, and names it on the goblin. A pull request of another
+// branch is not this branch's base, and one whose base cannot be read is
+// recorded as unread so the area is reported rather than measured elsewhere.
+func resolveTarget(ctx context.Context, runner execx.Runner, goblin ciGoblin) ciGoblin {
+	if goblin.target != "" || goblin.targetUnread != "" || len(goblin.pullRequests) == 0 || goblin.branch == "" {
+		return goblin
+	}
+	for _, url := range goblin.pullRequests {
+		base, head, err := prBaseBranch(ctx, runner, goblin.repo, url)
+		if err != nil {
+			goblin.targetUnread = url
+			continue
+		}
+		if head != goblin.branch {
+			continue
+		}
+		target, err := baseTarget(ctx, runner, goblin.repo, url, base)
+		if err != nil || target == "" {
+			goblin.targetUnread = url
+			continue
+		}
+		goblin.target, goblin.targetUnread = target, ""
+		break
+	}
+	return goblin
+}
+
+
+// areaBranchPaths reads the files a goblin's branch changes, resolving the
+// pull request's base here, under the overlap read's own guarded runner, so a
+// refusal holds it like every other GitHub read and the collection pass stays
+// local. A goblin that moved since collection is re-resolved for the branch
+// read now and read once more, so one branch's target is never applied to
+// another; a second move is errGoblinMoving, which is read on the next pass.
+func (s *Service) areaBranchPaths(ctx context.Context, runner execx.Runner, goblin ciGoblin) ([]string, string, error) {
+	goblin = resolveTarget(ctx, runner, goblin)
+	paths, branch, err := branchPaths(ctx, runner, goblin)
+	if err != nil {
+		return nil, "", err
+	}
+	if goblin.branch != "" && branch != goblin.branch {
+		goblin.branch, goblin.target, goblin.targetUnread = branch, "", ""
+		goblin = resolveTarget(ctx, runner, goblin)
+		repaths, again, err := branchPaths(ctx, runner, goblin)
+		if err != nil {
+			return nil, "", err
+		}
+		if again != branch {
+			return nil, "", errGoblinMoving
+		}
+		paths, branch = repaths, again
+	}
+	return paths, branch, nil
+}
+
 // errGoblinMoving says a goblin's own git work moved its branch, head or base
 // through both reads of its area: the goblin is working, so its area is read
 // on the next pass, and nothing is reported.
@@ -315,7 +372,7 @@ var errGoblinMoving = errors.New("the goblin's branch moved through both reads")
 func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, goblin ciGoblin) (tickets.Area, string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
-	paths, branch, err := branchPaths(ctx, runner, goblin)
+	paths, branch, err := s.areaBranchPaths(ctx, runner, goblin)
 	if err != nil {
 		return tickets.Area{}, "", "", err
 	}
@@ -375,9 +432,23 @@ func isBranchPath(path string) bool {
 // moves through both reads is errGoblinMoving.
 func branchPaths(ctx context.Context, runner execx.Runner, goblin ciGoblin) ([]string, string, error) {
 	worktree := goblin.meta.Worktree
-	defaultName, err := defaultBranch(ctx, runner, goblin.repo)
-	if err != nil {
-		return nil, "", err
+	// The branch is measured against what its pull request targets. Where its
+	// checkout's origin is the upstream project, the origin default counts
+	// everything the branch inherited from upstream as its own work: on
+	// 2026-10-24 two alerts named docs a fork branch never touched.
+	base := goblin.target
+	if base == "" {
+		if goblin.targetUnread != "" {
+			// The pull request's base could not be read, so this branch cannot
+			// be measured against what it targets. Saying so keeps the read
+			// honest instead of measuring it against another base.
+			return nil, "", fmt.Errorf("the base of %s could not be read, so its branch's change cannot be measured", goblin.targetUnread)
+		}
+		defaultName, err := defaultBranch(ctx, runner, goblin.repo)
+		if err != nil {
+			return nil, "", err
+		}
+		base = "origin/" + defaultName
 	}
 	read := func(args ...string) (string, error) { return runOutput(ctx, runner, worktree, "git", args...) }
 	for range 2 {
@@ -385,15 +456,19 @@ func branchPaths(ctx context.Context, runner execx.Runner, goblin ciGoblin) ([]s
 		if err != nil {
 			return nil, "", err
 		}
+		// The target was resolved for the branch read at collection. A
+		// checkout that moved since must not be measured against another
+		// branch's base: branch B against branch A's target is a wrong answer,
+		// not a retry.
 		head, err := read("rev-parse", "HEAD")
 		if err != nil {
 			return nil, "", err
 		}
-		base, err := read("rev-parse", "origin/"+defaultName)
+		baseCommit, err := read("rev-parse", base)
 		if err != nil {
 			return nil, "", err
 		}
-		ancestor, err := read("merge-base", head, base)
+		ancestor, err := read("merge-base", head, baseCommit)
 		if err != nil {
 			return nil, "", err
 		}
@@ -408,7 +483,7 @@ func branchPaths(ctx context.Context, runner execx.Runner, goblin ciGoblin) ([]s
 		if err != nil {
 			return nil, "", err
 		}
-		currentBase, err := read("rev-parse", "origin/"+defaultName)
+		currentBase, err := read("rev-parse", base)
 		if err != nil {
 			return nil, "", err
 		}
@@ -416,7 +491,7 @@ func branchPaths(ctx context.Context, runner execx.Runner, goblin ciGoblin) ([]s
 		if err != nil {
 			return nil, "", err
 		}
-		if head != currentHead || base != currentBase || branch != currentBranch {
+		if head != currentHead || baseCommit != currentBase || branch != currentBranch {
 			continue
 		}
 		var paths []string
