@@ -285,6 +285,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Quota:              runtime.quota,
 		KeySpend:           runtime.keySpend,
+		UserEnvironment:    spawn.UserEnvironment,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,
 		DevDrive:           devDrive,
