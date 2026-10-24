@@ -989,23 +989,44 @@ func spawnPointer(t *testing.T, f *fixture) string {
 // then, so a resume now reconciles the current brief, the status log and the
 // wake queue before it acts.
 func TestAResumeReconcilesTheCurrentBriefBeforeActing(t *testing.T) {
-	// Arrange
-	meta := state.TaskMeta{ID: "task-7", Harness: "pi", Model: "deepseek", Effort: "high", Brief: filepath.Join("data", "task-7", "brief.md")}
+	for _, c := range []struct {
+		name   string
+		brief  string
+		status string
+	}{
+		{name: "a task whose record names its brief", brief: filepath.Join("data", "task-7", "brief.md")},
+		{name: "a task whose record names no brief", brief: ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			meta := state.TaskMeta{ID: "task-7", Harness: "pi", Model: "deepseek", Effort: "high", Brief: c.brief, TaskTmp: filepath.Join(stateDir, "tasktmp", "task-7")}
+			wantBrief := c.brief
+			if wantBrief == "" {
+				wantBrief = filepath.Join("data", "task-7", "brief.md")
+			}
 
-	// Act
-	resume := resumeInstruction(meta, switchTarget{Harness: harness.Pi, Model: "deepseek", Effort: "high"})
+			// Act
+			resume := resumeInstruction(meta, switchTarget{Harness: harness.Pi, Model: "deepseek", Effort: "high"}, stateDir)
 
-	// Assert
-	for _, want := range []string{"Before acting", meta.Brief, "as it stands now", "status log", "wake queue", "nothing here overrides"} {
-		if !strings.Contains(resume, want) {
-			t.Fatalf("resume instruction %q does not name %q", resume, want)
-		}
+			// Assert
+			for _, want := range []string{"Before acting", wantBrief, filepath.Join(stateDir, "task-7.status"), meta.TaskTmp, "as it stands now", "nothing here overrides"} {
+				if !strings.Contains(resume, want) {
+					t.Fatalf("resume instruction %q does not name %q", resume, want)
+				}
+			}
+			for _, refused := range []string{"continue the task where you left off", "wake queue"} {
+				if strings.Contains(resume, refused) {
+					t.Fatalf("resume instruction still says %q", refused)
+				}
+			}
+		})
 	}
 }
 
 func TestAnInstructionIsTypedAsOneShortLineIntoEveryHarness(t *testing.T) {
 	meta := state.TaskMeta{ID: "task-7", Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh"}
-	resume := resumeInstruction(meta, switchTarget{Harness: harness.Claude, Model: "claude-opus-5-5", Effort: "xhigh"})
+	resume := resumeInstruction(meta, switchTarget{Harness: harness.Claude, Model: "claude-opus-5-5", Effort: "xhigh"}, t.TempDir())
 	if len([]rune(resume)) <= typedInstructionLimit {
 		t.Fatalf("the resume instruction is %d characters, so it proves nothing of a long one", len([]rune(resume)))
 	}
