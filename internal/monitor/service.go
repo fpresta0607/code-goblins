@@ -444,6 +444,21 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
 			return gated, sample
 		}
+		if sample.Status == herdr.AgentDone && meta.Backend == "native" {
+			// A native screen is one frame of a redraw, and a frame caught
+			// mid-turn can show the composer under partial output while the
+			// turn still runs. The harness's own record of the conversation
+			// says whether the turn is open, so a working turn is not read as
+			// an ended one. A record that cannot say leaves the screen evidence
+			// in place, so a genuine end is never lost, and an open turn that
+			// never closes falls to the busy-turn budget, which judges its own
+			// progress rather than suppressing the wake silently.
+			if turns, ok := s.Replies.(TurnStateReader); ok {
+				if open, known := turns.TurnOpen(ctx, meta, sample); known && open {
+					return workingObservation(observation, sample, now), sample
+				}
+			}
+		}
 		detail := "agent turn ended; waiting on input"
 		if sample.Status == herdr.AgentDone {
 			// A goblin that asked stays that one wake until it works again.
