@@ -240,11 +240,11 @@ measuring:
 		}
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
 		// done and failed carry their own wake, and so does a parked decision
-		// the CFO already owns. A declared wait carries one too, but only when
-		// what it names ends and reports by itself: CI, a deploy, the Overlord,
-		// memory, or a run named by its number or gate ID. A wait on another
-		// task is judged by the goblin's own progress instead, so a task that
-		// never moves for it still reports a stall.
+		// the CFO already owns, whether it reads blocked, needs-decision or
+		// checks-passed. A declared wait carries one too when it names CI, a
+		// deploy, the Overlord or memory. A wait on a task, or on a bare target
+		// no record names, is judged by the goblin's own progress instead, so
+		// one that never moves still reports a stall.
 		kind := reportKind(prior.Report)
 		isParkedNotWaiting := monitor.IsParkedDecisionVerb(kind) && kind != "waiting"
 		isReportedElsewhere := monitor.IsTerminalVerb(kind) || isParkedNotWaiting || waitsOnWhatEndsItself(prior.Report)
