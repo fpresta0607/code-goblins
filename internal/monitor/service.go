@@ -855,12 +855,12 @@ func (s Service) statusVerbObservation(observation Observation, id string, now t
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
 		return s.pauseObservation(observation, now), true
 	}
-	if parkedDecisionVerb(verb) {
+	if IsParkedDecisionVerb(verb) {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
 		return s.parkedObservation(observation, now), true
 	}
-	if terminalVerb(verb) {
+	if IsTerminalVerb(verb) {
 		observation.GatedVerbLine = line
 		observation.GatedStateChangeSeq = sample.StateChangeSeq
 		return s.terminalObservation(observation, now), true
@@ -1229,20 +1229,22 @@ func (s Service) latestStatusVerb(id string) (string, int64, bool) {
 	return "", 0, false
 }
 
-// parkedDecisionVerb reports whether a status verb parks the goblin awaiting
-// the CFO's decision. needs-decision and checks-passed wake through the
-// watcher's decision signal; blocked wakes through cfo notify's own record.
-// waiting (on another task, the Overlord, CI or a deploy) is held the same
-// way while it is the latest report: a wait on the Overlord already woke the
-// CFO through cfo notify, and any other wait must never wake the CFO at all.
-// The monitor must not re-wake any of them as a genuine stall.
+// IsParkedDecisionVerb reports whether a status verb parks the goblin on
+// something outside itself. needs-decision and checks-passed wake through the
+// watcher's decision signal, and blocked wakes through cfo notify's own
+// record. waiting names what it waits on, such as another task, a run, the
+// Overlord, CI or a deploy, and holds while it is the latest report until that
+// named thing changes: a wait on the Overlord already woke the CFO through cfo
+// notify, and any other wait must never wake the CFO at all. The monitor must
+// not re-wake any of them as a genuine stall. The supervisor's stall check
+// reads this too, so a declared wait has one definition.
 //
 // A failed goblin is terminal here whatever its wake record says. Health is
 // one cycle's label for a pane; whether the Overlord still owes an answer is
 // the ledger's fact, and resurfaceDecision reads it there. Relabelling an
 // unacknowledged failure as parked only changed how fleet view drew it, so
 // that arm is gone and the ledger keeps asking on its own.
-func parkedDecisionVerb(verb string) bool {
+func IsParkedDecisionVerb(verb string) bool {
 	switch verb {
 	case "blocked", "waiting", "needs-decision", "checks-passed", "checks_passed":
 		return true
@@ -1250,13 +1252,16 @@ func parkedDecisionVerb(verb string) bool {
 	return false
 }
 
-// terminalVerb reports whether a status verb delivered a terminal outcome.
+// IsTerminalVerb reports whether a status verb delivered a terminal outcome,
+// which its own wake already carries. The supervisor's stall check reads it so
+// a finished goblin is not judged stalled.
+//
 // done and failed woke the CFO through cfo notify's own record (or a
 // spawn/switch error surfaced directly), so the monitor must not re-wake the
 // finished goblin as a genuine stall. While that wake is still
 // unacknowledged, resurfaceDecision keeps asking from the ledger; this label
 // does not decide it.
-func terminalVerb(verb string) bool {
+func IsTerminalVerb(verb string) bool {
 	switch verb {
 	case "done", "failed":
 		return true
