@@ -398,6 +398,22 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 	}
 	observation.Digest = digest
 
+	// A native screen is one frame of a redraw, and a frame caught mid-turn can
+	// show the composer under partial output while the turn is still working.
+	// The harness's own record of the conversation says whether the turn is
+	// open, so such a frame is read as the working turn it is, through the same
+	// path a working sample takes: its busy stretch is kept rather than
+	// cleared, so the busy-turn budget still judges it, and the gate and
+	// progress checks run as they do for any working turn. A record that cannot
+	// say leaves the frame exactly as it was, so a genuine end still wakes.
+	if sample.Status == herdr.AgentDone && meta.Backend == "native" {
+		if turns, ok := s.Replies.(TurnStateReader); ok {
+			if open, known := turns.TurnOpen(ctx, meta, sample); known && open {
+				sample.Status, sample.Busy = herdr.AgentWorking, herdr.BusyWorking
+			}
+		}
+	}
+
 	// Any status other than working ends the busy stretch: the next working
 	// reading starts a fresh clock rather than inheriting an old one.
 	if sample.Status != herdr.AgentWorking {
@@ -443,21 +459,6 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		// blind to.
 		if gated, ok := s.statusVerbObservation(observation, meta.ID, now, sample); ok {
 			return gated, sample
-		}
-		if sample.Status == herdr.AgentDone && meta.Backend == "native" {
-			// A native screen is one frame of a redraw, and a frame caught
-			// mid-turn can show the composer under partial output while the
-			// turn still runs. The harness's own record of the conversation
-			// says whether the turn is open, so a working turn is not read as
-			// an ended one. A record that cannot say leaves the screen evidence
-			// in place, so a genuine end is never lost, and an open turn that
-			// never closes falls to the busy-turn budget, which judges its own
-			// progress rather than suppressing the wake silently.
-			if turns, ok := s.Replies.(TurnStateReader); ok {
-				if open, known := turns.TurnOpen(ctx, meta, sample); known && open {
-					return workingObservation(observation, sample, now), sample
-				}
-			}
 		}
 		detail := "agent turn ended; waiting on input"
 		if sample.Status == herdr.AgentDone {

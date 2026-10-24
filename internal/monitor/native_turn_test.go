@@ -184,3 +184,95 @@ func TestCodexTurnStateReadsTheRolloutsOwnTurnBoundaries(t *testing.T) {
 		})
 	}
 }
+
+// nativeTurnProgressFixture is a native goblin whose own progress evidence and
+// gate are read, as they are for any working turn.
+func nativeTurnProgressFixture(t *testing.T, turns turnsFake) (Service, *fakeProber, *fakeProgress, state.TaskMeta, *time.Time) {
+	t.Helper()
+	now := time.Date(2026, 10, 23, 14, 16, 0, 0, time.UTC)
+	clock := &now
+	stateDir := t.TempDir()
+	meta := nativeTask("task-1")
+	writeTask(t, stateDir, meta)
+	probe := &fakeProber{samples: map[string]EndpointSample{meta.ID: nativeSample(meta, herdr.AgentWorking, "working")}}
+	progress := &fakeProgress{}
+	service := testService(stateDir, probe, clock)
+	service.Gate = &fakeGate{sample: GateSample{Active: false}}
+	service.Progress = progress
+	service.Replies = turns
+	if result := nativeTurnScan(t, service, probe, meta, clock, herdr.AgentWorking, "working"); result.Event != nil {
+		t.Fatalf("a working goblin woke the CFO: %+v", *result.Event)
+	}
+	return service, probe, progress, meta, clock
+}
+
+// Reading a mid-turn frame as working must not hand a wedged turn a fresh
+// budget on every scan: the busy stretch it already had is kept, so a turn
+// whose rollout stays open with nothing moving still wakes the busy-turn
+// budget. Issue 1423.
+func TestAWedgedNativeTurnStillWakesTheBusyTurnBudget(t *testing.T) {
+	// Arrange
+	service, probe, _, meta, clock := nativeTurnProgressFixture(t, turnsFake{open: true, known: true})
+
+	// Act
+	for scan := 1; scan <= 25; scan++ {
+		result := nativeTurnScan(t, service, probe, meta, clock, herdr.AgentDone, "input prompt")
+
+		// Assert
+		if result.Event != nil {
+			if !strings.HasPrefix(result.Event.Detail, string(BusyTurnOverAge)) {
+				t.Fatalf("woke %q, want the busy-turn budget", result.Event.Detail)
+			}
+			return
+		}
+	}
+	t.Fatal("a wedged turn whose rollout stayed open never woke the busy-turn budget")
+}
+
+// A frame that reads done between working frames changes nothing of the busy
+// stretch: one turn that started at the first working frame keeps its clock
+// rather than starting a new one for every redraw. Issue 1423.
+func TestAlternatingDoneAndWorkingFramesKeepOneBusyStretch(t *testing.T) {
+	// Arrange
+	service, probe, _, meta, clock := nativeTurnProgressFixture(t, turnsFake{open: true, known: true})
+
+	// Act
+	for scan := 1; scan <= 14; scan++ {
+		status := herdr.AgentDone
+		if scan%2 == 0 {
+			status = herdr.AgentWorking
+		}
+		result := nativeTurnScan(t, service, probe, meta, clock, status, "input prompt")
+
+		// Assert: the budget is ten minutes from the first working frame, so a
+		// stretch that was never reset wakes inside these scans.
+		if result.Event != nil {
+			if !strings.HasPrefix(result.Event.Detail, string(BusyTurnOverAge)) {
+				t.Fatalf("woke %q, want the busy-turn budget", result.Event.Detail)
+			}
+			if scan > 12 {
+				t.Fatalf("the budget woke at scan %d, as though a done frame had reset the stretch", scan)
+			}
+			return
+		}
+	}
+	t.Fatal("a turn whose frames alternate done and working never woke the busy-turn budget")
+}
+
+// A turn that is genuinely moving is not woken, however many of its frames read
+// done: its own progress evidence is what the budget judges. Issue 1423.
+func TestAMovingNativeTurnStaysQuietWhileItsFramesReadDone(t *testing.T) {
+	// Arrange
+	service, probe, progress, meta, clock := nativeTurnProgressFixture(t, turnsFake{open: true, known: true})
+
+	// Act
+	for scan := 1; scan <= 25; scan++ {
+		progress.sample.TranscriptAt = clock.Add(9 * time.Minute).Add(time.Duration(scan) * time.Minute)
+		result := nativeTurnScan(t, service, probe, meta, clock, herdr.AgentDone, "input prompt")
+
+		// Assert
+		if result.Event != nil {
+			t.Fatalf("a moving turn woke the CFO: %q", result.Event.Detail)
+		}
+	}
+}
