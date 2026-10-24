@@ -118,7 +118,14 @@ type messagesRefused struct {
 
 func (refused messagesRefused) Error() string { return refused.reason }
 
-var claudeOnly = messagesRefused{404, "Messages are read from Claude Code sessions only."}
+// noMessages is why a session of a harness whose record the board cannot read
+// as messages answers: a Codex or pi one before pi was read, and any other.
+var noMessages = messagesRefused{404, "Messages are read from Claude Code and pi sessions only."}
+
+// messagesHarness says whether the board reads a harness's session as messages.
+func messagesHarness(harness string) bool {
+	return harness == "claude" || harness == "pi"
+}
 
 // messagesLocator finds the transcript of the session a request for messages
 // names, a task's goblin of the generation it names or the CFO in the
@@ -136,12 +143,16 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 				return "", messagesRefused{404, "No CFO is running in a native terminal."}
 			case cfo.terminal != want:
 				return "", messagesRefused{409, "The CFO runs in another terminal now. Open the CFO again."}
-			case cfo.harness != "" && cfo.harness != "claude":
-				return "", claudeOnly
+			case cfo.harness != "" && !messagesHarness(cfo.harness):
+				return "", noMessages
 			}
 			// A CFO still starting has registered no session yet.
 			_, session, _ := strings.Cut(cfo.session, "/")
-			return fleettree.SessionTranscript(home, "claude", session), nil
+			harness := cfo.harness
+			if harness == "" {
+				harness = "claude"
+			}
+			return fleettree.SessionTranscript(home, harness, session), nil
 		}, nil
 	}
 	task, generation := query.Get("task"), query.Get("generation")
@@ -155,8 +166,8 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 			return "", messagesRefused{404, "Task metadata unavailable"}
 		case meta.SpawnGen != generation:
 			return "", messagesRefused{409, "This task restarted or was replaced. Select its current session."}
-		case meta.Harness != "claude":
-			return "", claudeOnly
+		case !messagesHarness(meta.Harness):
+			return "", noMessages
 		}
 		// The conversation the board recorded for the generation, else the
 		// one its read of the goblin's tree proved the running harness in
@@ -167,12 +178,12 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 				return "", err
 			}
 		}
-		return fleettree.SessionTranscript(home, "claude", session), nil
+		return fleettree.SessionTranscript(home, meta.Harness, session), nil
 	}, nil
 }
 
-// messages answers a Claude Code session's messages for the board's message
-// view, read by fleettree.Reader from the conversation the supervisor finds
+// messages answers a Claude Code or pi session's messages for the board's
+// message view, read by fleettree.Reader from the conversation the supervisor finds
 // for the session the query names, never a path the browser names: a page
 // of them, the newest or those before seq before; a picture one of them
 // holds; or, with stream=1, a stream of server-sent events: a page, then the
