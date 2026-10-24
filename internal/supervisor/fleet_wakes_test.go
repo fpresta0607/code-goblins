@@ -1370,3 +1370,134 @@ func TestCIFinishedWakesForAGoblinsPullRequestOnABranchItsWorktreeHeldBefore(t *
 		})
 	}
 }
+
+// memoryQuietTask is a live goblin whose status log carries an older report of
+// a memory wait, as the tasks named by the repeated memory_ready wakes of
+// 2026-10-24 did, with the lifecycle record that has since replaced it.
+func memoryQuietTask(t *testing.T, h home.Home, pausedAt time.Time, record *state.Lifecycle) state.TaskMeta {
+	t.Helper()
+	meta := state.TaskMeta{ID: "cg-quiet", Project: `C:\dev\code-goblins`, Harness: "codex", Backend: "native", SpawnGen: "s1"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, meta.ID, "waiting on memory: the full test suite needs 5 GB"); err != nil {
+		t.Fatal(err)
+	}
+	if record != nil {
+		if err := state.WriteLifecycle(h.State, *record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return meta
+}
+
+// On 2026-10-24 repeated memory_ready wakes told the CFO to release Bea, Jules,
+// Marv and Lou, although the first three were paused until a weekly reset and
+// Lou waited on another task. A task's own pause outranks an older report of a
+// memory wait, because freeing memory cannot end a condition that is not
+// memory. Issue recorded in the task brief from wake1011964.
+func TestMemoryReadyLeavesOutWorkItsOwnPauseHolds(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		record func(pausedAt time.Time) *state.Lifecycle
+	}{
+		{name: "an allowance pause until a weekly reset", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "pause-2", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "allowance", Until: "2026-10-31T00:41:03Z", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
+		}},
+		{name: "a dependency pause on another task", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "pause-2", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "dependency", Until: "task:cg-other", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
+		}},
+		{name: "a dependency pause until a date", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "pause-2", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "dependency", Until: "date:2026-10-31T00:41:03Z", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
+		}},
+		{name: "a task already stopped", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "stop-1", Action: "stop", Phase: "stopped", Reason: "Stopped from the board", Started: pausedAt, Updated: pausedAt}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			s, h := fleetService(t)
+			meter := &memoryReadings{}
+			s.Options.Dispatch = &Dispatch{Memory: meter.read}
+			now := time.Date(2026, 10, 24, 11, 31, 41, 0, time.UTC)
+			memoryQuietTask(t, h, now.Add(-3*time.Hour), c.record(now.Add(-3*time.Hour)))
+			over := [2]float64{8, 8}
+
+			// Act
+			woke := readMemory(t, s, h, meter, &now, over, over)
+
+			// Assert
+			if woke != 0 {
+				t.Fatalf("memory_ready woke %d times, want none while %s holds the task", woke, c.name)
+			}
+		})
+	}
+}
+
+// The positive path is unchanged: a real memory wait still names the goblin, so
+// the precedence above never hides work a free reading can actually release.
+func TestMemoryReadyStillNamesARealMemoryWait(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		record func(pausedAt time.Time) *state.Lifecycle
+	}{
+		{name: "a memory pause", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "pause-1", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "memory", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
+		}},
+		{name: "an older report with no lifecycle record at all", record: func(time.Time) *state.Lifecycle { return nil }},
+		{name: "a record of another generation, which says nothing of this one", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s0", Operation: "pause-1", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "allowance", Until: "2026-10-31T00:41:03Z", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
+		}},
+		{name: "a paused record that names no condition", record: func(pausedAt time.Time) *state.Lifecycle {
+			return &state.Lifecycle{ID: "cg-quiet", Generation: "s1", Operation: "pause-1", Action: "pause", Phase: "paused", Reason: "Paused from the board", Started: pausedAt, Updated: pausedAt}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			s, h := fleetService(t)
+			meter := &memoryReadings{}
+			s.Options.Dispatch = &Dispatch{Memory: meter.read}
+			now := time.Date(2026, 10, 24, 11, 31, 41, 0, time.UTC)
+			memoryQuietTask(t, h, now.Add(-3*time.Hour), c.record(now.Add(-3*time.Hour)))
+			over := [2]float64{8, 8}
+
+			// Act
+			woke := readMemory(t, s, h, meter, &now, over, over)
+
+			// Assert
+			if woke != 1 {
+				t.Fatalf("memory_ready woke %d times, want one naming %s", woke, c.name)
+			}
+			if detail := fleetWakeRecords(t, h, "memory")[0].Detail; !strings.Contains(detail, "cg-quiet") {
+				t.Fatalf("memory wake %q does not name cg-quiet", detail)
+			}
+		})
+	}
+}
+
+// A lifecycle record that cannot be read is no evidence, so the older report
+// stands and a real waiter is never silently dropped.
+func TestMemoryReadyKeepsAReportWhoseLifecycleRecordIsUnreadable(t *testing.T) {
+	// Arrange
+	s, h := fleetService(t)
+	meter := &memoryReadings{}
+	s.Options.Dispatch = &Dispatch{Memory: meter.read}
+	now := time.Date(2026, 10, 24, 11, 31, 41, 0, time.UTC)
+	meta := memoryQuietTask(t, h, now.Add(-3*time.Hour), nil)
+	path := state.LifecyclePath(h.State, meta.ID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	over := [2]float64{8, 8}
+
+	// Act
+	woke := readMemory(t, s, h, meter, &now, over, over)
+
+	// Assert
+	if woke != 1 {
+		t.Fatalf("memory_ready woke %d times, want one, since unreadable lifecycle evidence must not drop the report", woke)
+	}
+}
