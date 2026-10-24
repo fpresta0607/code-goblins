@@ -9,8 +9,10 @@ import type { KeySpend } from "./types";
 // A key with no limit has no ring fraction, since a percentage of nothing is
 // no reading. The dollars are key-wide: every caller of one key shows one
 // total, and the external BYOK spend is reported beside them, never in them.
-export function KeySpendDial({ usage, now }: { usage: KeySpend; now: number }) {
-  const state = keySpendState(usage, now);
+// With more than one credential in use each dial names its Pi profile, so a
+// screen reader tells two of them apart.
+export function KeySpendDial({ usage, now, isSeveral }: { usage: KeySpend; now: number; isSeveral: boolean }) {
+  const state = keySpendState(usage, now, isSeveral);
   const description = useId();
   const brand = BRAND_MARKS.openrouter;
   const isRinged = state.percentRemaining !== null;

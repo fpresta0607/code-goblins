@@ -11,6 +11,6 @@ export function SubscriptionDials({ snapshot, now }: { snapshot: Snapshot; now: 
   if (!subscriptions.length && !keySpend.length) return null;
   return <div className="subscription-dials" role="group" aria-label="Subscription and API key usage">
     {subscriptions.map((usage) => <SubscriptionDial key={usage.provider} usage={usage} now={now} />)}
-    {keySpend.map((usage) => <KeySpendDial key={usage.provider} usage={usage} now={now} />)}
+    {keySpend.map((usage, index) => <KeySpendDial key={`${usage.provider}-${index}`} usage={usage} now={now} isSeveral={keySpend.length > 1} />)}
   </div>;
 }

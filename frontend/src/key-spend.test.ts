@@ -10,7 +10,7 @@ const RESET = "2026-10-20T00:00:00Z";
 const usd = (value: number) => value.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: Number.isInteger(value) ? 0 : 2, maximumFractionDigits: 2 });
 const reading = (changes: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, key_spend: [{
   provider: "openrouter", status: "available", spent_usd: 9.04, limit_usd: 50, remaining_usd: 40.96, period: "weekly",
-  resets_at: RESET, read_at: "2026-10-15T12:00:00Z", byok_usd: 0, includes_byok: false, blocking: null, detail: "", ...changes,
+  resets_at: RESET, read_at: "2026-10-15T12:00:00Z", byok_usd: 0, includes_byok: false, blocking: null, profile: "default", detail: "", ...changes,
 }] }).key_spend![0];
 
 // The Overlord's own row: $9.04 spent against a $50 week, dollars first and
@@ -81,8 +81,8 @@ test("a missing or unmeasurable figure is said, never shown as zero", () => {
 // A reading the dial cannot stand behind keeps its own words: no dollars as
 // the value, the age always, the last known dollars named as old, and never
 // an OpenAI subscription's allowance.
-test("a missing, refused, rate-limited or unavailable reading says which it is", () => {
-  for (const [status, words] of [["missing", "key missing"], ["auth_required", "key refused"], ["rate_limited", "rate limited"], ["unavailable", "unavailable"], ["stale", "stale"]] as const) {
+test("a missing, refused, rate-limited, unattributed or unavailable reading says which it is", () => {
+  for (const [status, words] of [["missing", "key missing"], ["auth_required", "key refused"], ["rate_limited", "rate limited"], ["unavailable", "unavailable"], ["stale", "stale"], ["unattributed", "not attributed to this session"]] as const) {
     const state = keySpendState(reading({ status, detail: `the provider said ${status}` }), NOW);
     assert.equal(state.text, "?", status);
     assert.equal(state.isUsable, false, status);
@@ -97,7 +97,7 @@ test("a missing, refused, rate-limited or unavailable reading says which it is",
 test("an old reading or one past its reset is stale, and its dollars are named as old", () => {
   const old = keySpendState(reading({ read_at: new Date(NOW - 90 * 60_000).toISOString() }), NOW);
   assert.equal(old.text, "?");
-  assert.match(old.details, /Reading 90 min ago\. Reading stale\./);
+  assert.match(old.details, /Reading 90 min ago\. Pi's profile: default\. Reading stale\./);
   assert.match(old.details, new RegExp(`Last read ${usd(9.04).replace(/[$]/g, "\\$")}`));
   const rolledOver = keySpendState(reading({ resets_at: new Date(NOW - 60_000).toISOString() }), NOW);
   assert.equal(rolledOver.text, "?");
@@ -140,6 +140,20 @@ test("a dollar figure carries cents only when it has them", () => {
   assert.doesNotMatch(money(50), /\.00/);
 });
 
+// Every dial names its Pi profile in the tip, and two dials in use are told
+// apart by it in the accessible name, never by a fragment of either key.
+test("each credential names its own profile, and only several name it on the dial", () => {
+  const one = keySpendState(reading(), NOW);
+  assert.doesNotMatch(one.label, /profile/);
+  assert.match(one.details, /Pi's profile: default\./);
+  const severalDefault = keySpendState(reading({ key_id: "a" }), NOW, true);
+  const severalWork = keySpendState(reading({ profile: "work" }), NOW, true);
+  assert.equal(severalDefault.label, `OpenRouter ${usd(9.04)} of ${usd(50)} this week (profile default)`);
+  assert.equal(severalWork.label, `OpenRouter ${usd(9.04)} of ${usd(50)} this week (profile work)`);
+  assert.notEqual(severalDefault.label, severalWork.label);
+  assert.doesNotMatch(severalWork.label, /sk-or|key_id/i);
+});
+
 // The snapshot's parse keeps a dollar figure only when it is a measured
 // figure, and drops a provider this board has no dial for.
 test("the snapshot keeps measured dollars and drops what it cannot state", () => {
@@ -154,6 +168,7 @@ test("the snapshot keeps measured dollars and drops what it cannot state", () =>
   assert.equal(held.remaining_usd, null);
   assert.equal(held.period, "");
   assert.equal(held.includes_byok, false);
+  assert.equal(held.profile, "");
   assert.equal(keySpendState(held, NOW).text, usd(9.04));
 });
 

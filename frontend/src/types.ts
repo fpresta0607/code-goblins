@@ -346,7 +346,7 @@ export interface SubscriptionUsage {
 // added to them.
 export interface KeySpend {
   provider: "openrouter";
-  status: "available" | "missing" | "auth_required" | "rate_limited" | "unavailable" | "stale";
+  status: "available" | "missing" | "auth_required" | "rate_limited" | "unavailable" | "stale" | "unattributed";
   spent_usd: number | null;
   limit_usd: number | null;
   remaining_usd: number | null;
@@ -360,6 +360,9 @@ export interface KeySpend {
   // blocking is a budget layer that is not this key's own and stops requests
   // first, whose spend is that scope's and not this key's.
   blocking: { scope: string; spent_usd: number; limit_usd: number; period: string } | null;
+  // profile names the Pi profile the key came from: default for Pi's own
+  // folder, else that folder's own name.
+  profile: string;
   // detail says in a few words why the status is what it is.
   detail: string;
 }
@@ -880,11 +883,11 @@ export function parseKeySpend(value: unknown): KeySpend | null {
   const blocking = usage.blocking == null ? null : ((budget) => ({ scope: string(budget.scope), spent_usd: number(budget.spent_usd), limit_usd: number(budget.limit_usd), period: string(budget.period) }))(object(usage.blocking));
   return { provider: "openrouter", status, spent_usd: dollars(usage.spent_usd), limit_usd: dollars(usage.limit_usd), remaining_usd: dollars(usage.remaining_usd), period,
     resets_at: string(usage.resets_at), read_at: string(usage.read_at), byok_usd: dollars(usage.byok_usd), includes_byok: usage.includes_byok === true,
-    blocking, detail: string(usage.detail) };
+    blocking, profile: string(usage.profile), detail: string(usage.detail) };
 }
 function keySpendStatus(value: unknown): KeySpend["status"] {
   switch (value) {
-    case "available": case "missing": case "auth_required": case "rate_limited": case "stale": return value;
+    case "available": case "missing": case "auth_required": case "rate_limited": case "stale": case "unattributed": return value;
   }
   return "unavailable";
 }

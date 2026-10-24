@@ -8,14 +8,15 @@ test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 const memory = { total: 32 * 2 ** 30, available: 7.3 * 2 ** 30, commit_limit: 48 * 2 ** 30, commit_available: 20 * 2 ** 30, floor: 4 * 2 ** 30, next: 5 * 2 ** 30 };
 const keySpend = (changes: Record<string, unknown> = {}) => ({
   provider: "openrouter", status: "available", spent_usd: 9.04, limit_usd: 50, remaining_usd: 40.96, period: "weekly",
-  resets_at: RESET, read_at: NOW, byok_usd: 0, includes_byok: false, blocking: null, detail: "", ...changes,
+  resets_at: RESET, read_at: NOW, byok_usd: 0, includes_byok: false, blocking: null, profile: "default", detail: "", ...changes,
 });
 
 // open gives the page a Pi home with one OpenRouter key reading and opens the
 // board, which holds the CFO's bar and the canvas.
-async function open(page: Page, spend = keySpend(), tasks: unknown[] = []) {
+async function open(page: Page, spend: unknown = keySpend(), tasks: unknown[] = []) {
   await page.clock.install({ time: new Date(NOW) });
-  await holdStream(page, { instance: "key-spend-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, cfo_harness: "pi", memory, subscriptions: [], key_spend: [spend], tasks });
+  const keySpendList = Array.isArray(spend) ? spend : [spend];
+  await holdStream(page, { instance: "key-spend-fixture", revision: 1, healthy: true, example: true, cfo_runs: true, cfo_harness: "pi", memory, subscriptions: [], key_spend: keySpendList, tasks });
   await page.goto("/");
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await expect(page.getByRole("region", { name: "Tasks", exact: true }).getByRole("group", { name: "Memory" })).toBeVisible();
@@ -54,6 +55,7 @@ for (const width of [1440, 390, 320]) {
       await expect(tip).toContainText("Spent $9.04 of $50 this week.");
       await expect(tip).toContainText("Resets Oct 19, 2026, 7:00 PM CDT");
       await expect(tip).toContainText("Reading just now");
+      await expect(tip).toContainText("Pi's profile: default.");
       await expect(tip).not.toContainText(/sk-or|OpenAI|weekly remaining/);
       const box = (await tip.boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
@@ -130,7 +132,7 @@ test("a key with no limit shows its dollars and no percentage", async ({ page })
 
 // Every way the reading can be absent says so in its own words, and none of
 // them reads as $0 or as an OpenAI subscription.
-for (const [status, name] of [["rate_limited", "OpenRouter spend rate limited"], ["missing", "OpenRouter spend key missing"], ["auth_required", "OpenRouter spend key refused"], ["unavailable", "OpenRouter spend unavailable"], ["stale", "OpenRouter spend stale"]] as const) {
+for (const [status, name] of [["rate_limited", "OpenRouter spend rate limited"], ["missing", "OpenRouter spend key missing"], ["auth_required", "OpenRouter spend key refused"], ["unavailable", "OpenRouter spend unavailable"], ["stale", "OpenRouter spend stale"], ["unattributed", "OpenRouter spend not attributed to this session"]] as const) {
   test(`a ${status} reading is named on the dial with its last dollars beside their age`, async ({ page }) => {
     const bar = await open(page, keySpend({ status, detail: status === "missing" ? "Pi has no OpenRouter key on this machine" : "" }));
     const dial = bar.getByRole("img", { name });
@@ -143,8 +145,24 @@ for (const [status, name] of [["rate_limited", "OpenRouter spend rate limited"],
     await expect(tip).toContainText(/Reading just now/);
     await expect(tip).not.toContainText("$0");
     await expect(tip).not.toContainText(/OpenAI/);
+    if (status === "unattributed") await expect(tip).toContainText(/not attributed to this session/);
   });
 }
+
+// Two live credentials are two dials whose dollars are never merged, each
+// told apart by its own Pi profile in the accessible name.
+test("two distinct credentials keep their own dollars and their own names", async ({ page }) => {
+  const bar = await open(page, [keySpend({ key_id: "one", profile: "default" }), keySpend({ key_id: "two", profile: "work", spent_usd: 4.5, limit_usd: 20, remaining_usd: 15.5 })]);
+  const first = bar.getByRole("progressbar", { name: "OpenRouter $9.04 of $50 this week (profile default)" });
+  const second = bar.getByRole("progressbar", { name: "OpenRouter $4.50 of $20 this week (profile work)" });
+  await expect(first).toBeVisible();
+  await expect(second).toBeVisible();
+  await expect(bar.locator(".key-spend-dial")).toHaveCount(2);
+  await first.hover();
+  await expect(page.getByRole("tooltip")).toContainText("Spent $9.04 of $50 this week.");
+  await expect(page.getByRole("tooltip")).not.toContainText("$4.50");
+});
+
 
 // A member budget that stops requests before the key's own is named as that
 // budget, with its own spend, and BYOK spend beside the key's dollars.

@@ -15,7 +15,7 @@ const SCOPES: Record<string, string> = { member: "member", workspace: "workspace
 
 // STATES names why a reading is not usable, in the few words a dial's
 // accessible name can carry.
-const STATES: Record<string, string> = { missing: "key missing", auth_required: "key refused", rate_limited: "rate limited", unavailable: "unavailable", stale: "stale" };
+const STATES: Record<string, string> = { missing: "key missing", auth_required: "key refused", rate_limited: "rate limited", unavailable: "unavailable", stale: "stale", unattributed: "not attributed to this session" };
 
 // money writes a dollar figure as the dial does: cents for part of a dollar,
 // whole dollars for a whole one, and never a figure rounded to a zero it is
@@ -26,10 +26,12 @@ export function money(value: number): string {
 
 // keySpendState is what the OpenRouter dial says: the dollars spent as its
 // primary value, the limit and window they count against beside it, and an
-// honest state for a reading that is missing, refused, rate limited, stale or
-// one this build cannot count. It never invents a percentage for a key with
-// no limit, and never shows dollars it cannot say the age of.
-export function keySpendState(usage: KeySpend, now: number) {
+// honest state for a reading that is missing, refused, rate limited, stale, or
+// one the fleet's records do not tie to the session that would show it. It
+// never invents a percentage for a key with no limit, and never shows dollars
+// it cannot say the age of. With more than one credential in use, each dial
+// names its Pi profile, so two of them are told apart in a screen reader.
+export function keySpendState(usage: KeySpend, now: number, isSeveral = false) {
   const readAt = Date.parse(usage.read_at), resetsAt = Date.parse(usage.resets_at);
   const isReadTime = Number.isFinite(readAt) && readAt > 0 && readAt <= now + 60_000;
   let status = usage.status;
@@ -50,7 +52,8 @@ export function keySpendState(usage: KeySpend, now: number) {
   // The ring states what is left of the limit, to the hundredth the dials
   // beside it are read to.
   const percentRemaining = isUsable && limit !== null && limit > 0 && usage.remaining_usd !== null ? Math.round(Math.max(0, Math.min(100, usage.remaining_usd / limit * 100)) * 100) / 100 : null;
-  const label = spent === null ? `OpenRouter spend ${STATES[status] ?? "unavailable"}` : limit === null ? `OpenRouter ${money(spent)} spent, no limit` : `OpenRouter ${money(spent)} of ${over}`;
+  const base = spent === null ? `OpenRouter spend ${STATES[status] ?? "unavailable"}` : limit === null ? `OpenRouter ${money(spent)} spent, no limit` : `OpenRouter ${money(spent)} of ${over}`;
+  const label = isSeveral && usage.profile ? `${base} (profile ${usage.profile})` : base;
 
   const parts: string[] = [];
   // Dollars the dial will not show as its value are still named, as the last
@@ -59,6 +62,7 @@ export function keySpendState(usage: KeySpend, now: number) {
   else if (limit !== null) parts.push(`Limit ${over}`);
   if (Number.isFinite(resetsAt) && resetsAt > 0) parts.push(`Resets ${new Date(resetsAt).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}`);
   parts.push(!isReadTime ? "Reading time unknown" : `Reading ${now - readAt < 60_000 ? "just now" : `${Math.floor((now - readAt) / 60_000)} min ago`}`);
+  if (usage.profile) parts.push(`Pi's profile: ${usage.profile}`);
   if (status === "stale") parts.push("Reading stale");
   else if (status !== "available" || !isUsable) parts.push(usage.detail || `Reading ${STATES[status] ?? "unavailable"}`);
   if (usage.byok_usd !== null && usage.byok_usd > 0) parts.push(`BYOK spend ${money(usage.byok_usd)} in the same window, counted ${usage.includes_byok ? "toward this limit" : "separately"}`);
