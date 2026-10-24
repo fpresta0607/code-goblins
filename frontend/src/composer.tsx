@@ -56,9 +56,6 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   // the board. So is a running task whose terminal refuses typing: its send
   // goes the same durable way rather than into a screen that will not take it.
   const queues = !!task && takesMessages(task);
-  // Set once this box has kept a message as a board action, so its state stays
-  // on screen after a hold clears.
-  const [sentThroughBoard, setSentThroughBoard] = useState(false);
   const link = useTerminalLink(terminal);
   const live = queues ? undefined : link;
   const draftKey = task?.id || terminal;
@@ -90,14 +87,17 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   const isAsking = !!live?.screen?.isOpen;
   const isUnread = !!live?.isUnread;
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
+  // What this box saves as a board action types nothing into the terminal, so
+  // a harness picker or a busy program does not stop it: those guard direct
+  // typing, which is the path they were written for.
+  const savesThroughBoard = !!task && (queues || !!held);
   const send = async () => {
     const text = draft.trim();
-    // A message sent while the harness holds its input is queued and
-    // delivered once the gate lets go, so Send stays usable.
-    if (!text || isSending || isAsking || isUnread) return;
-    // A held input, or custody nobody could read, is queued through the board
-    // so the message survives and is delivered once typing is possible.
-    if (!task || (!queues && !held)) {
+    if (!text || isSending) return;
+    if (!savesThroughBoard) {
+      // Direct typing waits for a readable program with no screen of its own
+      // open, since an Enter typed then would act on that screen.
+      if (isAsking || isUnread) return;
       const submission = live?.send(text)
       if (submission) { setDraft(""); setUnsent(""); onSent?.(submission); } else setUnsent(unsentWhy);
       return;
@@ -106,7 +106,6 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     setSending(true);
     try {
       await post({ id: sendID.current, kind: "message", task_id: task.id, generation: "", text });
-      setSentThroughBoard(true);
       sendID.current = "";
       storeDraft(draftKey, "");
       setDraft("");
@@ -134,13 +133,11 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
   const note = held || unsent || (isUnread ? "Program busy. Typed keys are waiting." : "") || dictation.note;
-  // The board's own copy of what was sent is shown wherever the board is what
-  // keeps it: a queued goblin always, and a running one whose input was held
-  // when he sent, which stays shown after the hold clears so the action can be
-  // read and withdrawn.
-  const throughBoard = queues || sentThroughBoard;
-  const sent = task && throughBoard ? messagesTo(snapshot, task.id).slice(-SHOWN) : [];
-  const kept = throughBoard ? task?.lifecycle?.kept_messages ?? [] : [];
+  // What the board has kept for this goblin is what the board's own record of
+  // it says, so it survives a reload and a remount, and it stays on screen
+  // after a gate lets go so the action can be read and withdrawn.
+  const sent = task ? messagesTo(snapshot, task.id).slice(-SHOWN) : [];
+  const kept = task?.lifecycle?.kept_messages ?? [];
   return <section className="composer" aria-label={"Messages to " + name}>
     {isAsking && <div className="composer-asking" role="status">
       <Icon name="warning" /><p>Waiting on you in the terminal</p>
@@ -149,7 +146,15 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     {isWorking && live && !isAsking && <p className="composer-working" role="status"><span className="composer-spinner" aria-hidden="true" />Working
       <button type="button" className="labelled-button" onClick={() => live.escape()}><Icon name="pause" />Stop</button></p>}
     {sent.length + kept.length > 0 && <ol className="composer-sent">
-      {sent.map((action) => <li key={action.id}><span className="composer-sent-text">{action.text}</span><span className="composer-sent-state">{messageState(action)}</span></li>)}
+      {sent.map((action) => {
+        const state = messageState(action);
+        return <li key={action.id}>
+          <span className="composer-sent-text">{action.text}</span>
+          <span className="composer-sent-state">{state}</span>
+          {state === "Queued" && <button type="button" className="icon-button" aria-label={"Withdraw: " + action.text} data-tip="Withdraw before it is delivered"
+            disabled={deleting === action.id} onClick={() => void withdraw(action.text, action.id)}><Icon name="trash" /></button>}
+        </li>;
+      })}
       {kept.map((text, index) => {
         const key = index + ":" + text;
         return <li key={key}>
@@ -169,7 +174,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
         <DictationButton dictation={dictation} />
         <button ref={recent} type="button" className="icon-button" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
         <p className="composer-note" role="status">{note}</p>
-        <button type="button" className="primary send-decision" disabled={isSending || !draft.trim() || isAsking || isUnread} onClick={() => void send()}>
+        <button type="button" className="primary send-decision" disabled={isSending || !draft.trim() || (!savesThroughBoard && (isAsking || isUnread))} onClick={() => void send()}>
           <Icon name={isSending ? "clock" : "send"} />{isSending ? "Sending" : "Send"}
         </button>
       </div>
