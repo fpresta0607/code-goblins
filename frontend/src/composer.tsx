@@ -86,7 +86,9 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const send = async () => {
     const text = draft.trim();
-    if (!text || isSending || held || isAsking || isUnread) return;
+    // A message sent while the harness holds its input is queued and
+    // delivered once the gate lets go, so Send stays usable.
+    if (!text || isSending || isAsking || isUnread) return;
     if (!task || !queues) {
       const submission = live?.send(text)
       if (submission) { setDraft(""); setUnsent(""); onSent?.(submission); } else setUnsent(unsentWhy);
@@ -153,7 +155,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
         <DictationButton dictation={dictation} />
         <button ref={recent} type="button" className="icon-button" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
         <p className="composer-note" role="status">{note}</p>
-        <button type="button" className="primary send-decision" disabled={isSending || !draft.trim() || !!held || isAsking || isUnread} onClick={() => void send()}>
+        <button type="button" className="primary send-decision" disabled={isSending || !draft.trim() || isAsking || isUnread} onClick={() => void send()}>
           <Icon name={isSending ? "clock" : "send"} />{isSending ? "Sending" : "Send"}
         </button>
       </div>
