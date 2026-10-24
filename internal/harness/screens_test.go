@@ -419,6 +419,83 @@ func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
 	}
 }
 
+func TestOnlyACompleteRetainedComposerCanBeSubmittedAfterADialog(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	instruction := "Read the saved instruction and continue the unfinished work."
+	for name, test := range map[string]struct {
+		kind    Kind
+		screen  []string
+		matches bool
+	}{
+		"codex complete":                 {Codex, []string{"› " + instruction, "", "100% context left"}, true},
+		"codex busy complete":            {Codex, []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a " + instruction, "", "100% context left"}, true},
+		"codex busy model footer":        {Codex, []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a " + instruction, "", "  GPT-6-Astra low \u00b7 work"}, true},
+		"codex blank before extra draft": {Codex, []string{"\u203a " + instruction, "", "  another instruction", "", "100% context left"}, false},
+		"codex wrapped":                  {Codex, []string{"› Read the saved instruction and continue", "  the unfinished work.", "", "100% context left"}, true},
+		"codex suffix only":              {Codex, []string{"› " + instruction[len(instruction)-40:], "", "100% context left"}, false},
+		"codex old prompt":               {Codex, []string{"› " + instruction, "", "• Done", "› Ask Codex to do anything", "", "100% context left"}, false},
+		"codex paste":                    {Codex, []string{"› [Pasted Content 58 chars]", "", "100% context left"}, false},
+		"codex missing footer":           {Codex, []string{"› " + instruction, ""}, false},
+		"codex Daybreak overlay":         {Codex, []string{"Set up security for Daybreak mode", "\u203a 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "› " + instruction, "", "100% context left"}, false},
+		"codex extra draft":              {Codex, []string{"› " + instruction + " do something else", "", "100% context left"}, false},
+		"claude complete":                {Claude, []string{rule, "❯ " + instruction, rule, "auto mode on"}, true},
+		"claude old draft":               {Claude, []string{rule, "❯ " + instruction, rule, "a reply", rule, "❯ another draft", rule, "auto mode on"}, false},
+		"pi complete":                    {Pi, []string{rule, instruction, rule, "0.0%/1.0M (auto)"}, true},
+		"pi partial":                     {Pi, []string{rule, "continue the unfinished work.", rule, "0.0%/1.0M (auto)"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screens, _ := NativeScreens(test.kind)
+			if got := screens.ComposerMatches(test.screen, instruction); got != test.matches {
+				t.Errorf("ComposerMatches = %v, want %v", got, test.matches)
+			}
+		})
+	}
+}
+
+func TestConversationTextIsNotAStartupDialog(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+	}{
+		"hook review in a turn":                {Codex, []string{"Hooks need review", "› 1. Review hooks", "enter confirm / esc skip", "• Working (0s • esc to interrupt)"}},
+		"hook review above composer":           {Codex, []string{"Hooks need review", "› 1. Review hooks", "enter confirm / esc skip", "› Ask Codex to do anything", "100% context left"}},
+		"old hook review above composer":       {Codex, []string{"Hooks need review", "› 1. Review hooks", "Press enter to confirm or esc to go back", "› Ask Codex to do anything", "100% context left"}},
+		"Daybreak quoted in a turn":            {Codex, []string{"Set up security for Daybreak mode", "Press a number to choose · esc to dismiss · type to continue", "• Working (0s • esc to interrupt)"}},
+		"Daybreak title and footer above idle": {Codex, []string{"Set up security for Daybreak mode", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", "", "\u203a Ask Codex to do anything", "100% context left"}},
+		"Claude trust above composer":          {Claude, []string{"Do you trust the files in this folder?", "> No, exit", rule, ">", rule, "auto mode on"}},
+		"Pi trust above composer":              {Pi, []string{"Trust project folder?", "→ Trust", rule, "", rule, "0.0%/1.0M (auto)"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screens, _ := NativeScreens(test.kind)
+			if dialog, isShown := screens.Dialog(test.screen); isShown {
+				t.Errorf("conversation text reads as %s", dialog.Name)
+			}
+		})
+	}
+}
+
+func TestOnlyTheTrailingFooterBoundsTheCurrentComposer(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	instruction := "Read the saved instruction and continue the unfinished work."
+	for _, footer := range []string{"100% context left", "GPT-6-Astra xhigh \u00b7 D:/x"} {
+		t.Run(footer, func(t *testing.T) {
+			for _, draft := range []string{instruction, "Ask Codex to do anything"} {
+				rows := []string{"\u203a " + draft, "", footer, "extra retained instruction", "", "100% context left"}
+				if screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, instruction) {
+					t.Errorf("draft %q with quoted footer %q reads as empty or exact", draft, footer)
+				}
+			}
+		})
+	}
+	for _, draft := range []string{instruction, "Ask Codex to do anything"} {
+		rows := []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a " + draft, "", "GPT-6-Astra xhigh \u00b7 D:/x", "? for shortcuts", ""}
+		if screens.ComposerMatches(rows, instruction) != (draft == instruction) || screens.ComposerEmpty(rows) != (draft != instruction) {
+			t.Errorf("genuine model and shortcuts footer obscured draft %q", draft)
+		}
+	}
+}
+
 // A stale wake needs evidence that the goblin is not working, and a pane that
 // shows a tool or a turn running is evidence that it is, whichever harness
 // drew it. The rows below are live captures: Claude Code 2.1 mid-tool and with
@@ -500,16 +577,21 @@ func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
 		screen []string
 		empty  bool
 	}{
-		"codex placeholder":        {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, true},
-		"codex follow-up":          {Codex, []string{"• ok", "› Ask a follow-up question", "  gpt-6-astra low · work"}, true},
-		"codex text typed":         {Codex, []string{"• ok", "› Reply with ok", "  gpt-6-astra low · work"}, false},
-		"pi empty editor":          {Pi, []string{"Done.", rule, "  ", rule, footer}, true},
-		"pi text typed":            {Pi, []string{"Done.", rule, " run the tests ", rule, footer}, false},
-		"pi two lines typed":       {Pi, []string{rule, "first", "second", rule, footer}, false},
-		"pi editor scrolled":       {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
-		"pi rule missing":          {Pi, []string{"Done.", footer}, false},
-		"claude is never typed in": {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
-		"unknown composer":         {Kind("unknown"), []string{"❯ "}, false},
+		"codex placeholder":                         {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, true},
+		"codex follow-up":                           {Codex, []string{"• ok", "› Ask a follow-up question", "  gpt-6-astra low · work"}, true},
+		"codex old placeholder above partial draft": {Codex, []string{"\u203a Ask Codex to do anything", "\u2022 Earlier quoted composer", "", "\u203a partial draft", "", "100% context left"}, false},
+		"codex old placeholder above bare prompt":   {Codex, []string{"\u203a Ask Codex to do anything", "\u2022 Earlier quoted composer", "", "\u203a", "", "100% context left"}, false},
+		"codex busy empty":                          {Codex, []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a Ask Codex to do anything", "", "100% context left"}, true},
+		"codex placeholder with continued draft":    {Codex, []string{"\u203a Ask Codex to do anything", "  continued draft", "", "100% context left"}, false},
+		"codex placeholder without footer":          {Codex, []string{"\u203a Ask Codex to do anything"}, false},
+		"codex text typed":                          {Codex, []string{"• ok", "› Reply with ok", "  gpt-6-astra low · work"}, false},
+		"pi empty editor":                           {Pi, []string{"Done.", rule, "  ", rule, footer}, true},
+		"pi text typed":                             {Pi, []string{"Done.", rule, " run the tests ", rule, footer}, false},
+		"pi two lines typed":                        {Pi, []string{rule, "first", "second", rule, footer}, false},
+		"pi editor scrolled":                        {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
+		"pi rule missing":                           {Pi, []string{"Done.", footer}, false},
+		"claude is never typed in":                  {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
+		"unknown composer":                          {Kind("unknown"), []string{"❯ "}, false},
 	} {
 		screens, _ := NativeScreens(test.kind)
 		if got := screens.ComposerEmpty(test.screen); got != test.empty {
