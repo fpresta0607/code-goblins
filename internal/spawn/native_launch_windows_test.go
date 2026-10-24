@@ -153,7 +153,7 @@ func fakeHarness() {
 		for {
 			var key string
 			var err error
-			if strings.HasPrefix(mode, "daybreak") {
+			if strings.HasPrefix(mode, "daybreak") || strings.HasPrefix(mode, "hooks-during-") || strings.HasPrefix(mode, "hooks-before-") || strings.HasPrefix(mode, "hooks-after-") {
 				// This offer takes a bare Escape, with no arrow sequence.
 				var character rune
 				character, _, err = reader.ReadRune()
@@ -196,6 +196,10 @@ func fakeHarness() {
 	composer := func(text string) {
 		draw("", "› "+text, "", "  ? for shortcuts                                                                    100% context left")
 	}
+	if strings.HasPrefix(mode, "hooks-during-") || strings.HasPrefix(mode, "hooks-before-") || strings.HasPrefix(mode, "hooks-after-") {
+		lateHookComposer(mode, keys, record, draw, composer)
+		return
+	}
 	if mode == "resumed-working" {
 		if len(os.Args) > 1 && os.Args[1] == "resume" {
 			mode = "working-at-start"
@@ -215,20 +219,7 @@ func fakeHarness() {
 		for key := range keys {
 			switch key {
 			case "\r":
-				record(codexEvent{Event: "queued into the turn", Text: line.String()})
-				if path := os.Getenv(fakeCodexTranscript); path != "" {
-					transcript, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
-					if err != nil {
-						panic(err)
-					}
-					entry := map[string]any{"timestamp": time.Now().UTC(), "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]string{{"type": "input_text", "text": line.String()}}}}
-					if err := json.NewEncoder(transcript).Encode(entry); err != nil {
-						panic(err)
-					}
-					if err := transcript.Close(); err != nil {
-						panic(err)
-					}
-				}
+				recordQueuedPrompt(line.String(), record)
 				line.Reset()
 				working("Ask Codex to do anything")
 			case "\x1b[A", "\x1b[B", "\x1b[F":
@@ -1886,5 +1877,22 @@ func TestANativeGoblinKeepsTheProjectsRootItsSpawnerNames(t *testing.T) {
 				t.Errorf("the goblin's %s is %v, want %q", install.ProjectsRootVariable, recordedValue(got), test.want)
 			}
 		})
+	}
+}
+
+func recordQueuedPrompt(text string, record func(codexEvent)) {
+	record(codexEvent{Event: "queued into the turn", Text: text})
+	if path := os.Getenv(fakeCodexTranscript); path != "" {
+		transcript, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			panic(err)
+		}
+		entry := map[string]any{"timestamp": time.Now().UTC(), "type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []map[string]string{{"type": "input_text", "text": text}}}}
+		if err := json.NewEncoder(transcript).Encode(entry); err != nil {
+			panic(err)
+		}
+		if err := transcript.Close(); err != nil {
+			panic(err)
+		}
 	}
 }
