@@ -26,6 +26,36 @@ const (
 // board's reading of its family tree, may be and still count as a reading.
 const evidenceFresh = 2 * time.Minute
 
+// waitsOnWhatEndsItself reports whether a goblin's latest report is a wait that
+// ends by itself and reports when it does, so nothing of the goblin's own is
+// expected meanwhile: a wait on CI, a deploy, the Overlord or memory, or a run
+// named by its number or by a gate run's ID. A gate run's ID carries capitals
+// and a run's number is all digits, which this fleet's task IDs never are, so a
+// wait on another task is never taken for either.
+func waitsOnWhatEndsItself(report string) bool {
+	if !strings.HasPrefix(report, "waiting on ") {
+		return false
+	}
+	target, _, ok := strings.Cut(strings.TrimPrefix(report, "waiting on "), ":")
+	if !ok {
+		return false
+	}
+	switch target = strings.TrimSpace(target); target {
+	case "ci", "deploy", "overlord", "memory":
+		return true
+	}
+	isDigits, hasCapital := target != "", false
+	for _, ch := range target {
+		if ch < '0' || ch > '9' {
+			isDigits = false
+		}
+		if ch >= 'A' && ch <= 'Z' {
+			hasCapital = true
+		}
+	}
+	return isDigits || hasCapital
+}
+
 type WorkProgress struct {
 	Generation string    `json:"generation"`
 	At         time.Time `json:"at"`
@@ -216,13 +246,15 @@ measuring:
 			prior.At, prior.Source, prior.Woken = progress.At, progress.Source+" (helper "+helper+")", false
 		}
 		prior.Seconds = max(0, int64(now.Sub(prior.At)/time.Second))
-		// A goblin whose latest report is done, a question, or a declared wait
-		// expects no progress until that changes, and each of those wakes the
-		// CFO on its own when it does. A wait on another task or a run is the
-		// same: it lasts until the task or run it names changes, and the board
-		// already reads it as a decided wait.
+		// done and failed carry their own wake, and so does a parked decision
+		// the CFO already owns. A declared wait carries one too, but only when
+		// what it names ends and reports by itself: CI, a deploy, the Overlord,
+		// memory, or a run named by its number or gate ID. A wait on another
+		// task is judged by the goblin's own progress instead, so a task that
+		// never moves for it still reports a stall.
 		kind := reportKind(prior.Report)
-		isReportedElsewhere := monitor.IsParkedDecisionVerb(kind) || monitor.IsTerminalVerb(kind)
+		isParkedNotWaiting := monitor.IsParkedDecisionVerb(kind) && kind != "waiting"
+		isReportedElsewhere := monitor.IsTerminalVerb(kind) || isParkedNotWaiting || waitsOnWhatEndsItself(prior.Report)
 		// Evidence a memory low left unread says nothing of the goblin.
 		isStarved := watched.MemoryLow && len(unread[id]) > 0
 		// A goblin waiting by design, on what resumes it when it ends, is

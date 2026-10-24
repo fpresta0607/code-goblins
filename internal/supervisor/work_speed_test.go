@@ -200,11 +200,12 @@ func TestProgressWatchLeavesAGoblinThatSaidItWaitsOrFinished(t *testing.T) {
 	for _, report := range []string{
 		"waiting on ci: PR 432 is pushed and its one CI run is going",
 		"waiting on overlord: his sign-in on the page",
-		// On 2026-10-24 two dependency waiters drew progress_stalled about
-		// twenty minutes after their own reports, although the monitor had
-		// already parked those same lines as decided waits.
-		"waiting on other-task: its fix must land in the daemon first",
+		// A run ends and reports by itself, whether it is a hosted run's number
+		// or a gate run's ID, so waiting on one is not a stall. A wait on
+		// another task is not one of these, which
+		// TestAParentWaitingOnItsHelperProgressesWithItsHelper holds.
 		"waiting on 40106041214: its hosted run is still going",
+		"waiting on 57W23TPZUWJPJDU4GCR6UX4ECF: the gate is running",
 		"done: PR https://github.com/o/r/pull/432",
 		"blocked: Shall I fix the folder trust prompt? options: Fix it (Recommended) | Leave it",
 	} {
