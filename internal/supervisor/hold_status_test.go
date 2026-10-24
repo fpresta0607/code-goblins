@@ -269,7 +269,6 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			now := time.Now().UTC()
 			store.db.Tasks["task-1"] = Evaluation{Generation: "g1", Phase: "working", Reason: "Historical turn"}
 			if test.gatePhase != "" {
 				store.db.Tasks["task-1"] = Evaluation{Generation: "g1", Phase: test.gatePhase, GateStep: "review", Reason: "Independent gate evidence", Verified: test.isVerified}
@@ -288,6 +287,7 @@ func TestSnapshotAcknowledgementDoesNotEraseFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			now := time.Now().UTC()
 			observation := monitor.Observation{TaskID: "task-1", Endpoint: (herdr.Target{Session: "test", Pane: "p1"}).String(), EndpointVerdict: monitor.ProbePresent, LastObserved: now, Health: test.health, Reason: monitor.None, Digest: "current-screen", LastSeen: now, LastProgress: now}
 			if test.health == monitor.HealthUnknown {
 				observation.EndpointVerdict, observation.Reason = monitor.ProbeMissing, monitor.EndpointMissing
