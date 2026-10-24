@@ -28,11 +28,12 @@ const evidenceFresh = 2 * time.Minute
 
 // waitsOnWhatEndsItself reports whether a goblin's latest report is a wait that
 // ends and reports by itself, so nothing of the goblin's own is expected
-// meanwhile: CI, a deploy, the Overlord or memory. A run it waits on is held as
-// a pause whose record names the run, and a pause already keeps the stall check
-// off, so no run ID is read from a status line. A bare number is not evidence,
-// and a task ID may be numeric, so a wait on a task is judged by the goblin's
-// own progress.
+// meanwhile: CI, a deploy, the Overlord or memory. A run is not read from here
+// at all. A goblin waiting on one is paused with a record that names the run,
+// and pollAwaitedRuns watches that record, while a pause already keeps the
+// stall check off. No status line is therefore read as a run identifier, and a
+// bare number is not evidence of anything: a task ID may be numeric, so a wait
+// on a task is judged by the goblin's own progress.
 func waitsOnWhatEndsItself(report string) bool {
 	if !strings.HasPrefix(report, "waiting on ") {
 		return false

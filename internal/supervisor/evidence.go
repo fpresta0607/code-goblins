@@ -391,6 +391,14 @@ func reportKind(report string) string {
 			return kind
 		}
 	}
+	// The monitor parks these three exactly as it parks blocked, and each one
+	// carries its own wake, so the report's kind is the verb itself rather than
+	// no kind at all.
+	for _, kind := range []string{"needs-decision", "checks-passed", "checks_passed"} {
+		if strings.HasPrefix(report, kind+": ") {
+			return kind
+		}
+	}
 	if strings.HasPrefix(report, "waiting on ") {
 		return "waiting"
 	}

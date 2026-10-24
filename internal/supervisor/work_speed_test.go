@@ -200,6 +200,12 @@ func TestProgressWatchLeavesAGoblinThatSaidItWaitsOrFinished(t *testing.T) {
 	for _, report := range []string{
 		"waiting on ci: PR 432 is pushed and its one CI run is going",
 		"waiting on overlord: his sign-in on the page",
+		// The monitor parks these three exactly as it parks blocked, and each
+		// carries its own wake, so twenty quiet minutes is nothing new. They
+		// drew a stall until reportKind named them.
+		"needs-decision: Shall I take the slower route?",
+		"checks-passed: the suite is green and it needs his word",
+		"checks_passed: the suite is green and it needs his word",
 
 		"done: PR https://github.com/o/r/pull/432",
 		"blocked: Shall I fix the folder trust prompt? options: Fix it (Recommended) | Leave it",
