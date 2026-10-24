@@ -112,15 +112,23 @@ async function open(page: Page): Promise<Board> {
     } else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   const terminals = new Map<string, { send: (text: string) => void }>();
+  // A reload closes the socket the last page opened, so its entry goes, and a
+  // test then waits for the one the new page connects.
   board.sayTo = async (task, message) => {
-    for (let attempt = 0; attempt < 100 && !terminals.has(task); attempt++) await new Promise((done) => setTimeout(done, 50));
+    for (let attempt = 0; attempt < 200 && !terminals.has(task); attempt++) await new Promise((done) => setTimeout(done, 50));
     const speaker = terminals.get(task);
     if (!speaker) throw new Error("no terminal connected for " + task);
     speaker.send(JSON.stringify(message));
   };
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+    // A task's terminal is keyed by its task; the CFO's names no task, so it is
+    // keyed by the empty name a test asks for.
     const owner = new URL(socket.url()).searchParams.get("task") || "";
-    if (owner) terminals.set(owner, { send: (text) => socket.send(text) });
+    const speaker = { send: (text: string) => socket.send(text) };
+    terminals.set(owner, speaker);
+    socket.onClose(() => {
+      if (terminals.get(owner) === speaker) terminals.delete(owner);
+    });
     board.say = (message) => socket.send(JSON.stringify(message));
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.onMessage((data) => {
@@ -587,29 +595,51 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
 });
 
-// Classic draws the harness's own terminal in the conversation's place, so the
-// board's message box is not on screen there: the terminal's own input is the
-// path, and a held terminal takes nothing. Nothing is typed into it either way.
-test("a held send in Classic types nothing, since the terminal's own input is the path", async ({ page }) => {
+// Classic draws the harness's own terminal in the conversation's place, and
+// while custody holds the input the board's own box comes back under it, with
+// the same queue: a message is kept and reloaded there, nothing is typed into
+// the terminal, and a clear custody leaves the terminal's own input to it.
+test("a held send in Classic is queued through the board, and its box goes once custody clears", async ({ page }) => {
   // Arrange
   const posted: { kind: string; task_id: string; text: string }[] = [];
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string });
-    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string };
+    posted.push(body);
+    await keepActions(page, body.kind === "message" ? [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }] : []);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
 
-  // Assert: Classic shows the harness's own terminal, with no pill over it.
+  // Assert: the terminal is in place, the pill is gone, and the box is there.
   await expect(page.locator(".native-terminal")).toBeVisible();
   await expect(page.locator(".terminal-held")).toHaveCount(0);
+  await expect(boxField(page, who)).toBeVisible();
 
-  // Assert: the board's message box is the Modern path, so Classic has none on
-  // screen, and nothing was saved or typed behind his back.
-  await expect(page.getByRole("region", { name: "Messages to Pia - Pi Pilot" })).toBeHidden();
-  expect(posted, "nothing was sent by itself").toEqual([]);
+  // Act: he sends while custody holds.
+  const sentText = "queued in classic";
+  await boxField(page, who).fill(sentText);
+  await boxSend(page, who).click();
+
+  // Assert: the board kept it, and the queue shows and survives a reload.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
+  expect(posted[0].task_id).toBe("cg-pi");
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+  await page.reload();
+  await openGoblin(page, who);
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+
+  // Act: the hold clears.
+  await board.sayTo("cg-pi", { type: "held", reason: "" });
+
+  // Assert: the board's box goes, leaving the terminal's own input to Classic.
+  await expect(boxField(page, who)).toHaveCount(0);
+  await expect(page.locator(".native-terminal")).toBeVisible();
 });
 
 // A harness picker guards direct typing: Send waits for it, so no Enter can act
@@ -648,4 +678,93 @@ test("a held goblin keeps its queued message past a picker, and the picker still
   await boxField(page, who).press("Enter");
   await page.waitForTimeout(300);
   expect(posted.map((each) => each.kind), "a picker never sends anything").toEqual(["message"]);
+});
+
+// A held session's chat opens at its latest message and stays where he reads:
+// new output never snaps it back, his input stays reachable through a resize,
+// a maximize and a phone, and the queue persists across a reload and a
+// withdrawal. Classic's conversation is the harness's own terminal, so there
+// the proof is that the box and its queue stay reachable at every size.
+test("Modern: a held chat opens at the bottom, stays where he reads, and keeps its queue", async ({ page }) => {
+  // Arrange
+  const posted: { kind: string; task_id: string; text: string }[] = [];
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  const board = await open(page);
+  await page.route("**/api/actions", async (route) => {
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string };
+    posted.push(body);
+    if (body.kind === "message") await keepActions(page, [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await keepActions(page, []);
+  // A conversation long enough to read up in, then the hold.
+  await send(page, "messages", range(100, 140));
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  const talk = list(page, who);
+  await expect(talk.locator("[data-message]")).toHaveCount(51);
+
+  // Assert: it opened at the latest content, once.
+  await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
+
+  // Act: he reads up, and a reply arrives below.
+  await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
+  const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
+  const before = await offset(talk, read);
+  await send(page, "messages", [reply(200, { kind: "text", text: "More arrived." })]);
+
+  // Assert: his place is kept rather than snapped to the end.
+  await expect(talk.locator("[data-message]")).toHaveCount(52);
+  await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
+
+  // Act and Assert: the input stays reachable through a maximize and a phone.
+  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+  await expect(boxField(page, who)).toBeVisible();
+  await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(boxField(page, who)).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // Act: he sends, reloads, and withdraws.
+  const sentText = "queued while the gate holds";
+  await boxField(page, who).fill(sentText);
+  await boxSend(page, who).click();
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
+  expect(posted[0].task_id).toBe("cg-pi");
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+  await page.reload();
+  await openGoblin(page, who);
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  const stillQueued = messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText });
+  await expect(stillQueued).toContainText("Queued");
+  await stillQueued.getByRole("button", { name: "Withdraw: " + sentText }).click();
+
+  // Assert: the withdrawal names the goblin and the words, and the row goes as
+  // the board answers.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
+  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText });
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
+});
+
+test("Classic: the held box and its queue stay reachable through resize, maximize and a phone", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const board = await open(page);
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+
+  // Assert: beside the board, maximized, and at phone width, the terminal keeps
+  // its place and the box under it stays reachable.
+  await expect(boxField(page, who)).toBeVisible();
+  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+  await expect(boxField(page, who)).toBeVisible();
+  await expect(page.locator(".native-terminal")).toBeVisible();
+  await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(boxField(page, who)).toBeVisible();
+  await expect(page.locator(".terminal-held")).toHaveCount(0);
 });

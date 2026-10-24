@@ -337,6 +337,9 @@ export function App() {
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
   const stepIn = () => { setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
   const stepOut = () => { setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
+  // Whether custody holds or cannot be read at this moment: the Classic box is
+  // offered exactly then, since a clear custody leaves typing to the terminal.
+  const heldCustody = !!live?.held;
   const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || terminalInPlace);
   const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !terminalInPlace;
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
@@ -460,6 +463,7 @@ export function App() {
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
+        <div className="panel-main">
         <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
@@ -471,6 +475,15 @@ export function App() {
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
         </PanelStage>
+        {/* Classic draws the harness's own terminal in the conversation's place,
+            so the board's box is not on screen there. While custody holds or
+            cannot be read, the box comes back under the terminal: the same box
+            and the same queue, typing nothing into the terminal, while a clear
+            custody leaves the terminal's own input to it. */}
+        {snapshot && classicInPlace && messagesSource && heldCustody && <div className="classic-queue">
+          <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking} />
+        </div>}
+        </div>
         {!compact && isPaneWide && <div ref={setSide} className="panel-side" hidden={!!child} />}
         </div>
       </aside>
