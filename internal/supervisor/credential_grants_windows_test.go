@@ -3,7 +3,9 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -97,6 +99,7 @@ func TestTaskCredentialSaveGrantsOnlyItsRequestingTask(t *testing.T) {
 func TestTaskCredentialSaveRequiresTheOverlordsOwnBoard(t *testing.T) {
 	// Arrange
 	s, stateDir := grantBoard(t)
+	s.peerOf = func(netip.AddrPort, netip.AddrPort) (int, error) { return 0, errors.New("unknown peer") }
 	s.Options.Credentials = auth.OpenStore
 	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "cfo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", Names: []string{"SAMPLE_TOKEN"}, Why: "Read the test service"})
 	if err != nil {
@@ -127,10 +130,11 @@ func TestTaskCredentialSaveRequiresTheOverlordsOwnBoard(t *testing.T) {
 }
 
 func TestTaskCredentialCardNeverGrantsOutsideItsRecordedScope(t *testing.T) {
-	for _, scenario := range []string{"dismissed", "withdrawn", "expired", "replaced", "cross-project", "undeclared", "changed declaration", "ambiguous", "fetched"} {
+	for _, scenario := range []string{"dismissed", "withdrawn", "expired", "stale card", "replaced", "cross-project", "undeclared", "changed declaration", "ambiguous", "fetched"} {
 		t.Run(scenario, func(t *testing.T) {
 			// Arrange
 			s, stateDir := grantBoard(t)
+			asOverlordsBoard(s)
 			s.Options.Credentials = auth.OpenStore
 			t.Cleanup(s.credentialWork.Wait)
 			card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "cfo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", Names: []string{"SAMPLE_TOKEN"}, Why: "Read the test service"})
@@ -172,8 +176,35 @@ func TestTaskCredentialCardNeverGrantsOutsideItsRecordedScope(t *testing.T) {
 				}
 			}
 
+			value := newCanary(t)
+			input := credentialSave{ID: card.ID, Generation: card.Generation, Values: map[string]string{"SAMPLE_TOKEN": value}, isFetched: scenario == "fetched"}
+			if scenario == "stale card" {
+				input.Generation = "old"
+			}
+			isRefused := slices.Contains([]string{"dismissed", "withdrawn", "expired", "stale card"}, scenario)
+
 			// Act
-			_, saveErr := s.saveCredentials(credentialSave{ID: card.ID, Generation: card.Generation, Values: map[string]string{"SAMPLE_TOKEN": newCanary(t)}, isFetched: scenario == "fetched"})
+			if scenario == "fetched" {
+				if _, err := s.saveCredentials(input); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				body, err := json.Marshal(input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				code, response := askTheBoard(t, s, "POST", "/api/credentials/save", string(body), nil)
+				want := http.StatusOK
+				if isRefused {
+					want = http.StatusConflict
+				}
+				if code != want {
+					t.Fatalf("save = %d %s, want %d", code, response, want)
+				}
+				if strings.Contains(response, value) {
+					t.Fatal("the save response disclosed its value")
+				}
+			}
 			s.credentialWork.Wait()
 
 			// Assert
@@ -181,8 +212,19 @@ func TestTaskCredentialCardNeverGrantsOutsideItsRecordedScope(t *testing.T) {
 			if err != nil || !slices.Equal(after.Credentials, []string{"other"}) {
 				t.Fatalf("grants changed to %v (%v)", after.Credentials, err)
 			}
-			if (scenario == "dismissed" || scenario == "withdrawn" || scenario == "expired") && saveErr == nil {
-				t.Fatal("a closed card accepted a save")
+			if isRefused {
+				store, err := auth.OpenStore()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, found, err := store.Get(auth.Key{Project: "work", Name: "SAMPLE_TOKEN"}); err != nil || found {
+					t.Fatal("a closed or stale card stored its value")
+				}
+			} else if scenario != "fetched" {
+				updated, found := s.Store.credential(card.ID)
+				if !found || !strings.HasPrefix(updated.Reason, "No service granted: ") {
+					t.Fatal("the save did not report its refused grant")
+				}
 			}
 		})
 	}
