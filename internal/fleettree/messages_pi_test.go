@@ -503,3 +503,63 @@ func TestAPiCursorAfterIdleEvictionIsNotAnsweredFromTheNewLog(t *testing.T) {
 		t.Fatalf("a read taken anew answered %d messages, want a page instead", len(changed))
 	}
 }
+
+func TestAPiBranchAtACallDropsTheResultOfTheAbandonedOne(t *testing.T) {
+	// Arrange: the call and its result are read first, so the view holds the
+	// call as done, and the tree then moves to a branch that ends at the call
+	// itself and leaves its result out.
+	picture := "iVBORw0KGgoAAAANSUhEUg=="
+	home := t.TempDir()
+	path := piSession(t, home,
+		piHeader(),
+		piMessageEntry("u1", "", "user", object{"content": "Read it"}),
+		piMessageEntry("a1", "u1", "assistant", object{
+			"provider": "acme", "model": "thinker-1", "stopReason": "toolUse",
+			"content": []object{{"type": "toolCall", "id": "call-1", "name": "read", "arguments": object{"path": "a.go"}}},
+		}),
+		piMessageEntry("t1", "a1", "toolResult", object{
+			"toolCallId": "call-1", "toolName": "read", "isError": true,
+			"content": []object{
+				{"type": "text", "text": "no such file"},
+				{"type": "image", "data": picture, "mimeType": "image/png"},
+			},
+		}),
+	)
+	reader := Reader{Home: t.TempDir()}
+	if page := readPi(t, &reader, path); len(page.Messages) != 2 || page.Messages[1].Blocks[0].State != "failed" {
+		t.Fatalf("the call first reads as %+v", page.Messages)
+	}
+
+	// Act: a new prompt hangs under the call, so its result is off the branch.
+	appendLines(t, path, piMessageEntry("u2", "a1", "user", object{"content": "Ask again instead"}))
+	page := readPi(t, &reader, path)
+
+	// Assert: the branch shows the call still running, with nothing of the
+	// abandoned result, and the retained entry is unchanged.
+	var call Block
+	found := false
+	for _, message := range page.Messages {
+		for _, block := range message.Blocks {
+			if block.CallID == "call-1" {
+				call, found = block, true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("the branch lost the call: %+v", page.Messages)
+	}
+	if call.State != "running" || call.Result != "" || len(call.Pictures) != 0 {
+		t.Fatalf("the call kept the abandoned branch's result: %+v", call)
+	}
+	log := reader.piLogs[path]
+	if log == nil {
+		t.Fatal("no pi log is kept")
+	}
+	for _, entry := range log.entries {
+		for _, block := range entry.blocks {
+			if block.CallID == "call-1" && (block.State != "running" || block.Result != "") {
+				t.Fatalf("the retained entry was mutated: %+v", block)
+			}
+		}
+	}
+}

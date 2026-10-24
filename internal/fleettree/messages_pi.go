@@ -325,7 +325,10 @@ func (l *piMessageLog) show(entry piRetained) {
 				l.calls[block.CallID] = piCallAt{message: at, block: index}
 			}
 		}
-		l.add(Message{ID: entry.id, Kind: MessageReply, At: entry.at, Model: entry.model, Blocks: entry.blocks})
+		// The blocks are the displayed message's own, since a result that
+		// answers a call fills that call in place, and the retained entry must
+		// stay as it was read for a branch that leaves the result out.
+		l.add(Message{ID: entry.id, Kind: MessageReply, At: entry.at, Model: entry.model, Blocks: slices.Clone(entry.blocks)})
 		if entry.stopReason == "aborted" || entry.stopReason == "error" {
 			why := strings.TrimSpace(entry.errorMessage)
 			if why == "" {
