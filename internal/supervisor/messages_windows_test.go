@@ -1317,3 +1317,162 @@ func TestAnUnreadableCustodyKeepsItsMessageAcrossARestart(t *testing.T) {
 		t.Fatalf("the goblin received %d lines, want exactly one delivery", len(lines))
 	}
 }
+
+// A message kept before a pause, resume or stop survives every one of those
+// transitions while the gate owns the branch or its custody cannot be read: it
+// stays queued past the ordinary wait and is never handed to the CFO, and it
+// keeps waiting once the transition has ended but custody still refuses.
+func TestAnOldQueuedMessageSurvivesEveryLifecycleTransitionWhileCustodyHolds(t *testing.T) {
+	for _, walk := range []struct{ action, phase string }{
+		{"pause", "pausing"},
+		{"resume", "resuming"},
+		{"stop", "stopping"},
+	} {
+		for _, held := range []struct {
+			name string
+			gate ProgressReader
+		}{
+			{"the gate owns the branch", &gateFake{err: pipeline.ErrCustodyHeld}},
+			{"custody cannot be read", &gateFake{err: errors.New("the no-mistakes database cannot be read")}},
+		} {
+			t.Run(walk.phase+"/"+held.name, func(t *testing.T) {
+				// Arrange: a message aged in the saved store, reopened as a
+				// restart leaves it, and the transition under way.
+				store, h := testStore(t)
+				meta := gatedGoblin(t, h)
+				queued, err := store.Queue(Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "kept across the " + walk.action})
+				if err != nil {
+					t.Fatal(err)
+				}
+				store.mu.Lock()
+				for i := range store.db.Actions {
+					store.db.Actions[i].CreatedAt = time.Now().Add(-2 * messageWait)
+				}
+				store.mu.Unlock()
+				if err := store.save(); err != nil {
+					t.Fatal(err)
+				}
+				reopened, err := Open(h)
+				if err != nil {
+					t.Fatal(err)
+				}
+				atPhase(t, h.State, meta, walk.action, walk.phase)
+				service := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: held.gate}}
+
+				// Act: the transition's own attempt runs, then the transition
+				// ends while custody still refuses.
+				for _, phase := range []string{walk.phase, "running"} {
+					atPhase(t, h.State, meta, walk.action, phase)
+					if err := reopened.ProcessOne(context.Background(), service.execute); err != nil && !errors.Is(err, ErrDeferred) {
+						t.Fatal(err)
+					}
+
+					// Assert: it waits rather than expiring to the CFO.
+					waiting := actionOf(reopened, queued.ID)
+					if waiting.Status != "queued" {
+						t.Fatalf("at %s an old message reads %+v, want it still queued", phase, waiting)
+					}
+					if strings.Contains(waiting.Message, "the CFO has it") {
+						t.Fatalf("at %s an old message was handed to the CFO: %q", phase, waiting.Message)
+					}
+				}
+			})
+		}
+	}
+}
+
+// Once the transition has ended and custody reads clear, the message the
+// goblin kept arrives exactly once, and one withdrawn on the way never does.
+func TestAMessageKeptThroughACustodyHoldIsDeliveredOnceAndAWithdrawnOneNever(t *testing.T) {
+	// Arrange: two aged messages and the goblin's own terminal.
+	store, h := testStore(t)
+	meta := gatedGoblin(t, h)
+	goblin := goblinTerminal(t, h.State, meta.ID)
+	kept, err := store.Queue(Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "delivered once"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withdrawn, err := store.Queue(Action{ID: "m2", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "never delivered"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	for i := range store.db.Actions {
+		store.db.Actions[i].CreatedAt = time.Now().Add(-2 * messageWait)
+	}
+	store.mu.Unlock()
+	atPhase(t, h.State, meta, "resume", "resuming")
+	heldService := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{err: pipeline.ErrCustodyHeld}}}
+	if err := store.ProcessOne(context.Background(), heldService.execute); err != nil && !errors.Is(err, ErrDeferred) {
+		t.Fatal(err)
+	}
+
+	// Act: he withdraws one, the transition ends, and custody reads clear.
+	if _, err := store.withdrawMessage(Action{ID: "w1", Kind: "message_withdraw", TaskID: meta.ID, Text: withdrawn.Text}); err != nil {
+		t.Fatalf("the withdrawal was refused: %v", err)
+	}
+	atPhase(t, h.State, meta, "resume", "running")
+	clear := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+	for pass := 0; pass < 6 && len(goblin.lines(t)) == 0; pass++ {
+		if err := store.ProcessOne(context.Background(), clear.execute); err != nil && !errors.Is(err, ErrDeferred) {
+			t.Fatal(err)
+		}
+		time.Sleep(1200 * time.Millisecond)
+	}
+
+	// Assert: the kept message arrived once, and the withdrawn one never did.
+	delivered := goblin.waitForLines(t, 1)
+	if len(delivered) != 1 || !strings.Contains(delivered[0], kept.Text) {
+		t.Fatalf("the goblin received %q, want the kept message once", delivered)
+	}
+	for pass := 0; pass < 3; pass++ {
+		if err := store.ProcessOne(context.Background(), clear.execute); err != nil && !errors.Is(err, ErrDeferred) {
+			t.Fatal(err)
+		}
+		time.Sleep(1200 * time.Millisecond)
+	}
+	if lines := goblin.lines(t); len(lines) != 1 || strings.Contains(strings.Join(lines, " "), withdrawn.Text) {
+		t.Fatalf("after clear the goblin received %q, want one delivery and no withdrawn message", lines)
+	}
+}
+
+// The controls the hold must not weaken: a clear custody keeps the ordinary
+// expiry to the CFO during a transition, and a stopped goblin's message is the
+// CFO's at once.
+func TestATransitionWithClearCustodyKeepsTheOrdinaryExpiryAndAStoppedTaskHandsOver(t *testing.T) {
+	t.Run("an old message expires to the CFO during a transition with clear custody", func(t *testing.T) {
+		// Arrange
+		store, h := testStore(t)
+		meta := gatedGoblin(t, h)
+		action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "too late", Status: "queued", CreatedAt: time.Now().Add(-2 * messageWait)}
+		store.db.Actions = append(store.db.Actions, action)
+		atPhase(t, h.State, meta, "resume", "resuming")
+		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{}}}
+
+		// Act
+		evaluation, err := service.deliverMessage(context.Background(), action)
+
+		// Assert
+		if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "the CFO has it") {
+			t.Fatalf("a clear custody during a transition reads %v %v, want the ordinary expiry to the CFO", evaluation, err)
+		}
+	})
+
+	t.Run("a stopped goblin's message is the CFO's at once", func(t *testing.T) {
+		// Arrange
+		store, h := testStore(t)
+		meta := gatedGoblin(t, h)
+		action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "nobody home", Status: "queued", CreatedAt: time.Now()}
+		store.db.Actions = append(store.db.Actions, action)
+		atPhase(t, h.State, meta, "stop", "stopped")
+		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: &gateFake{err: pipeline.ErrCustodyHeld}}}
+
+		// Act
+		_, err := service.deliverMessage(context.Background(), action)
+
+		// Assert: stopped hands over even while the gate holds.
+		if err == nil || !strings.Contains(err.Error(), "was stopped before it could take it") {
+			t.Fatalf("a stopped goblin's message reads %v, want it handed to the CFO", err)
+		}
+	})
+}
