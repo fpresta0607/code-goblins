@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -311,6 +312,64 @@ func TestAQueuedCFOAnswerBindsToTheRecipientItWasSentTo(t *testing.T) {
 			}
 			if sends != 1 {
 				t.Fatalf("sends = %d, want never a second send", sends)
+			}
+		})
+	}
+}
+
+// No valid recipient evidence means nothing is typed: the answer is refused
+// before any submission, so no report of it can close as answered while its
+// text is unsent and unrecorded, and the wake stays unanswered for a real try.
+// Issue 1453.
+func TestACFOAnswerWithNoValidRecipientEvidenceSendsNothing(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		read func(meta state.TaskMeta) (state.TaskMeta, error)
+	}{
+		{name: "its record cannot be read", read: func(state.TaskMeta) (state.TaskMeta, error) {
+			return state.TaskMeta{}, errors.New("the task record is unreadable")
+		}},
+		{name: "its record is another generation", read: func(meta state.TaskMeta) (state.TaskMeta, error) {
+			meta.SpawnGen = "s1792799999999999999"
+			return meta, nil
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primaryFixture(t, store)
+			meta, record, _, connection := goblinFixture(t, store)
+			servePipe(t, store, connection)
+			q := surfaced(t, store, meta, record, connection)
+			reader := readAnswerRecipient
+			t.Cleanup(func() { readAnswerRecipient = reader })
+			readAnswerRecipient = func(string, string) (state.TaskMeta, error) { return c.read(meta) }
+			sends := 0
+			delivery := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = delivery })
+			typeIntoGoblin = func(context.Context, string, state.TaskMeta, string) error {
+				sends++
+				return fleet.ErrQueuedForToolCall
+			}
+
+			// Act
+			_, _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", "")
+
+			// Assert
+			if err == nil {
+				t.Fatal("the answer was taken with no valid recipient evidence")
+			}
+			if sends != 0 {
+				t.Fatalf("sends = %d, want nothing typed", sends)
+			}
+			if pending, err := wake.Pending(h.State); err != nil || len(pending) != 1 || pending[0].Answered != "" {
+				t.Fatalf("notify = %+v (%v), want it still unanswered for a real try", pending, err)
+			}
+			if kept := store.Snapshot().Questions[0]; kept.Status != "pending" || kept.AnsweredBy != "" || kept.AnswerID != "" {
+				t.Fatalf("question = %+v, want it untouched and unanswered", kept)
+			}
+			if actions := store.Snapshot().Actions; len(actions) != 0 {
+				t.Fatalf("actions = %+v, want no delivery record", actions)
 			}
 		})
 	}

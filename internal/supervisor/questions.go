@@ -261,6 +261,11 @@ func goblinLine(text string) string {
 	return fleet.Stamp(oneLine(text))
 }
 
+// readAnswerRecipient reads the task metadata a CFO answer is submitted to
+// and tracked against, before anything is typed. It is a variable so a test
+// can prove what an answer does when that evidence is not there.
+var readAnswerRecipient = state.ReadTaskMeta
+
 // typeIntoGoblin delivers text into a goblin's native terminal. It is a
 // variable so a test can act while a delivery is in flight.
 var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string) error {
@@ -485,12 +490,19 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	}
 	answer := withNote(chosen, note)
 	text := fmt.Sprintf("decision %d: %s", seq, answer)
-	// The recipient is read once, before anything is typed, so a queued
-	// delivery is tracked against the very generation submission verifies. A
-	// record that disappears or is replaced meanwhile must neither leave the
-	// question looking answered with nothing behind it, nor bind the text to a
-	// generation that never took it.
-	meta, metaErr := state.ReadTaskMeta(c.State, q.Task)
+	// The recipient is read and verified once, before anything is typed, and
+	// that same metadata is what the delivery is tracked against. An answer
+	// whose evidence is not there yet is refused with nothing sent, so it can
+	// never be typed without a record behind it: a record that disappears or
+	// is replaced meanwhile must neither leave the question answered with
+	// nothing behind it, nor bind the text to a generation that never took it.
+	meta, err := readAnswerRecipient(c.State, q.Task)
+	if err != nil {
+		return "", false, fmt.Errorf("the goblin's task record cannot be read, so nothing was sent: %w", err)
+	}
+	if goblinIdentity(meta) != q.Identity {
+		return "", false, errors.New("the goblin's task restarted or ended; nothing was sent")
+	}
 	sent := time.Now().UTC()
 	_, err = c.SendGoblin(ctx, q.Task, q.Identity, text)
 	queued = errors.Is(err, fleet.ErrQueuedForToolCall)
@@ -503,12 +515,6 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	// from supervision before the goblin has it.
 	var awaiting *Awaiting
 	if queued {
-		if metaErr != nil {
-			return chosen, true, fmt.Errorf("the answer was typed into %s, but its record could not be read to track the delivery, so nothing was recorded and it may be unconfirmed: %w", q.Task, metaErr)
-		}
-		if goblinIdentity(meta) != q.Identity {
-			return chosen, true, fmt.Errorf("the answer was typed into %s, but its task is no longer the one that asked, so the delivery was not recorded and may be unconfirmed", q.Task)
-		}
 		awaiting = awaitingGoblinDelivery(meta, sent, text)
 	}
 	var unrecorded []error
