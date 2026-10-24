@@ -24,6 +24,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/execx/treetest"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -1149,6 +1150,9 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 		"an argument of no kind":          {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
 		"an empty program":                {"--", ""},
 		"a wait that is missing":          {"--wait"},
+		"a limit that is missing":         {"--execution-limit"},
+		"a limit missing before --":       {"--execution-limit", "--", os.Args[0], gateTurnTestArguments},
+		"a wait given a limit's flag":     {"--wait", "--execution-limit=1s", "--", os.Args[0], gateTurnTestArguments},
 		"a wait with nothing before --":   {"--wait", "--", os.Args[0], gateTurnTestArguments},
 		"a wait that is no duration":      {"--wait", "soon", "--", os.Args[0], gateTurnTestArguments},
 		"a wait of nothing":               {"--wait", "0s", "--", os.Args[0], gateTurnTestArguments},
@@ -1181,7 +1185,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
 			}
 			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
-			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
+			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
 				t.Errorf("stderr = %q; want the usage, then a last line that starts cfo gate turn: this run takes no turn: ", stderr.String())
 			}
 			if _, err := os.Stat(slots); !os.IsNotExist(err) {
@@ -1893,6 +1897,205 @@ func TestGateTurnMemoryIsReadAndCarriedDetached(t *testing.T) {
 				t.Errorf("detachedArguments = %q; want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestGateTurnExecutionLimitEndsAStalledCommand(t *testing.T) {
+	for _, isDetached := range []bool{false, true} {
+		t.Run(fmt.Sprintf("detached=%v", isDetached), func(t *testing.T) {
+			// Arrange
+			slots := turnLine(t)
+			programs := t.TempDir()
+			standin.RemoveAtCleanup(t, programs)
+			program := filepath.Join(programs, "stalled.exe")
+			standin.Put(t, program)
+			for _, variable := range standin.Env("", standin.Rule{Any: true, Hold: true}) {
+				name, value, _ := strings.Cut(variable, "=")
+				t.Setenv(name, value)
+			}
+			runtime := turnRuntime()
+			runtime.gateTurnSelf = []string{os.Args[0], gateTurnTestWrapper}
+			log := filepath.Join(t.TempDir(), "limited.log")
+			args := []string{"--execution-limit", "2s"}
+			if isDetached {
+				args = append(args, "--detach", log)
+			}
+			args = append(args, "--", program)
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(runtime, &stdout, &stderr, args...)
+			said := stderr.String()
+			if isDetached {
+				if exit != 0 {
+					t.Fatalf("detach = %d, %q; want the bounded run started", exit, said)
+				}
+				data, err := os.ReadFile(log + ".pid")
+				if err != nil {
+					t.Fatal(err)
+				}
+				pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				endAtCleanup(t, pid)
+				eventually(t, "the detached bounded run ends", func() bool {
+					data, _ := os.ReadFile(log)
+					said = string(data)
+					return strings.Contains(said, "the detached run ended with exit 124 after ")
+				})
+			} else if exit != 124 {
+				t.Fatalf("exit = %d, %q; want execution timeout 124", exit, said)
+			}
+
+			// Assert
+			if !strings.Contains(said, "execution limit of 2s") {
+				t.Fatalf("stderr = %q; want the execution timeout named", said)
+			}
+			records, err := filepath.Glob(filepath.Join(filepath.Dir(slots), "executions", "*.json"))
+			if err != nil || len(records) != 1 {
+				t.Fatalf("records = %v, %v; want one execution receipt", records, err)
+			}
+			record, err := verify.LoadExecution(records[0])
+			if err != nil || record.Status != "failed" || !strings.Contains(record.Failure, verify.ErrLimit.Error()) || !record.Measurement.CleanupConfirmed || record.Measurement.Usage.ActiveProcesses != 0 || record.Measurement.Usage.TotalProcesses == 0 {
+				t.Fatalf("receipt = %+v, %v; want a timed-out command with measured cleanup", record, err)
+			}
+			if holding, waiting, err := verify.Line(slots); err != nil || len(holding)+len(waiting) != 0 {
+				t.Fatalf("line = %+v, %+v, %v; want no remaining custody", holding, waiting, err)
+			}
+		})
+	}
+}
+
+func TestGateTurnRejectsInvalidExecutionLimitsBeforeStarting(t *testing.T) {
+	for _, value := range []string{"", "soon", "0", "0s", "-1s", "999999999999h", "--wait=1s"} {
+		t.Run(value, func(t *testing.T) {
+			// Arrange
+			slots := turnLine(t)
+			log := filepath.Join(t.TempDir(), "never.log")
+			var stdout, stderr lockedBuffer
+
+			// Act
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, "--execution-limit="+value, "--detach", log, "--", os.Args[0], gateTurnTestArguments)
+
+			// Assert
+			if exit != exitNoTurn || stdout.String() != "" || !strings.Contains(stderr.String(), "--execution-limit takes a duration") {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q; want a duration refusal before detaching", exit, stdout.String(), stderr.String())
+			}
+			for _, path := range []string{slots, log, log + ".pid", filepath.Join(filepath.Dir(slots), "executions")} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Errorf("refused run created %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestGateTurnCarriesExecutionLimitIndependentlyOfWait(t *testing.T) {
+	for _, option := range [][]string{{"--execution-limit", "3s"}, {"--execution-limit=3s"}} {
+		// Arrange
+		args := append(append([]string{}, option...), "--wait=9s", "--", "program", "--execution-limit=child-argument")
+
+		// Act
+		request, err := parseGateTurn(args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		detached, err := parseGateTurn(detachedArguments(request))
+
+		// Assert
+		if err != nil || !detached.isDetached || detached.wait != 9*time.Second || !slices.Equal(detached.command, []string{"program", "--execution-limit=child-argument"}) || !slices.Contains(detachedArguments(request), "--execution-limit=3s") {
+			t.Fatalf("detached = %+v, %v; want both independent limits and untouched command arguments", detached, err)
+		}
+	}
+}
+
+func TestGateTurnExecutionLimitEndsDescendantsAfterTheirParentExits(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := t.TempDir()
+	outsideDir := commandFolder(t)
+	outside := execx.Command(os.Args[0], gateTurnTestCommand, outsideDir, "outside", "0", "hold")
+	if err := outside.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { outside.Process.Kill(); outside.Wait() })
+	outsideHandle := standin.Hold(t, outside.Process.Pid)
+	args := append([]string{"--execution-limit=8s", "--", os.Args[0]}, treetest.Args(dir, false)...)
+	run := startGateTurn(t, dir, nil, args...)
+	found, err := treetest.Find(dir)
+	defer found.End()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := treetest.Release(dir); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the root command exits leaving its descendant", func() bool { return !found.Run.IsRunning() })
+	if !found.Helper.IsRunning() {
+		t.Fatal("the orphaned descendant did not survive its parent")
+	}
+
+	// Act
+	exit := run.exit(t, "the run with an orphaned descendant")
+
+	// Assert
+	if exit != 124 || !strings.Contains(run.stderr.String(), "execution limit of 8s") {
+		t.Fatalf("exit = %d, stderr = %q; want a timeout even though the command exited zero", exit, run.stderr.String())
+	}
+	for _, member := range found.Members() {
+		if !member.Ends() {
+			t.Errorf("owned process %d survived the timeout", member.PID)
+		}
+	}
+	if event, err := windows.WaitForSingleObject(outsideHandle, 0); err != nil || event != uint32(windows.WAIT_TIMEOUT) {
+		t.Fatalf("unrelated process was ended: event=%d, %v", event, err)
+	}
+	records, err := filepath.Glob(filepath.Join(filepath.Dir(slots), "executions", "*.json"))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records = %v, %v", records, err)
+	}
+	record, err := verify.LoadExecution(records[0])
+	if err != nil || record.ExitCode == nil || *record.ExitCode != 0 || record.Status != "failed" || !strings.Contains(record.Failure, verify.ErrLimit.Error()) || !record.Measurement.CleanupConfirmed || record.Measurement.Usage.ActiveProcesses != 0 {
+		t.Fatalf("receipt = %+v, %v; want the parent's zero and a failed run with confirmed cleanup", record, err)
+	}
+}
+
+func TestGateTurnExecutionLimitDoesNotCountAdmission(t *testing.T) {
+	// Arrange
+	slots := turnLine(t)
+	dir := commandFolder(t)
+	first := startGateTurn(t, dir, nil, turnCommand(dir, "first", 0, true)...)
+	eventually(t, "the first run holds its turn", func() bool { return left(dir, "first", "started") })
+	second := startGateTurn(t, dir, nil, append([]string{"--wait=20s", "--execution-limit=3s"}, turnCommand(dir, "second", 0, false)...)...)
+	eventually(t, "the bounded run queues", func() bool {
+		_, waiting, err := verify.Line(slots)
+		return err == nil && len(waiting) == 1
+	})
+
+	// Act
+	time.Sleep(4 * time.Second)
+	second.running(t, "the bounded run waiting longer than its execution limit")
+	letGo(t, dir, "first")
+	first.exit(t, "the first run")
+	exit := second.exit(t, "the bounded run after admission")
+
+	// Assert
+	if exit != 0 || !left(dir, "second", "ended") {
+		t.Fatalf("exit = %d, stderr = %q; want the command to complete after its independent admission wait", exit, second.stderr.String())
+	}
+	records, err := filepath.Glob(filepath.Join(filepath.Dir(slots), "executions", "*.json"))
+	if err != nil || len(records) != 2 {
+		t.Fatalf("records = %v, %v", records, err)
+	}
+	for _, path := range records {
+		record, err := verify.LoadExecution(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(record.Command, "second") && (record.Status != "passed" || record.QueueSeconds < 4) {
+			t.Fatalf("receipt = %+v; want a pass with admission longer than execution's budget", record)
+		}
 	}
 }
 
