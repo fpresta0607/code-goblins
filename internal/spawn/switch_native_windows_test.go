@@ -412,9 +412,17 @@ func TestARestartBringsBackAGoblinOnlyOnceItsHostHasEnded(t *testing.T) {
 }
 
 func TestBusyResumeRecovery(t *testing.T) {
-	for name, isTaken := range map[string]bool{"queued": false, "consumed": true} {
+	for name, test := range map[string]struct {
+		isTaken, hasLateDialog bool
+	}{
+		"queued":                 {false, false},
+		"consumed":               {true, false},
+		"late retained queued":   {false, true},
+		"late retained consumed": {true, true},
+	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
+			isTaken := test.isTaken
 			f := newNativeFixture(t, harness.Codex, "resumed-working")
 			f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
 			closeCurrentTerminal(t, f)
@@ -431,6 +439,9 @@ func TestBusyResumeRecovery(t *testing.T) {
 			before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if test.hasLateDialog {
+				f.userEnv = append(f.userEnv, fakeCodexMode+"=hooks-before-submit-busy")
 			}
 			profile := t.TempDir()
 			const ownedSession = "11111111-aaaa-4bbb-8ccc-000000000001"
@@ -492,6 +503,11 @@ func TestBusyResumeRecovery(t *testing.T) {
 			}
 			if queued := named(f.events(t), "queued into the turn"); len(queued) != 1 || !strings.HasPrefix(delivered(t, queued[0].Text), "Resume now.") {
 				t.Fatalf("queued=%+v; want exactly one current recovery instruction", queued)
+			}
+			if test.hasLateDialog {
+				if skips := named(f.events(t), "hooks skipped"); len(skips) != 1 {
+					t.Errorf("hook skips = %+v, want one Escape", skips)
+				}
 			}
 			if !nativeTerminalRuns(f.stateDir, before.ID) {
 				t.Fatal("the resume stopped the live terminal while its recovery was queued")
