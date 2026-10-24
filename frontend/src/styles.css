@@ -1242,6 +1242,17 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
 .subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }
 .subscription-dial.unknown .subscription-percent { color: var(--muted); }
+/* An API key's dollars are the dial's value, with the limit and the window it
+   resets over under them, so the number a person came for is never replaced by
+   a percentage of a limit nobody set. */
+.key-spend-values { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.key-spend-spent { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.key-spend-budget { color: var(--muted); font-size: .8125rem; white-space: nowrap; }
+.key-spend-dial.unknown .key-spend-spent { color: var(--muted); }
+/* The canvas card's foot is one row of 28px marks, so the dollars and the
+   budget they count against sit on one line there rather than two. */
+.flow-node-foot .key-spend-values { flex-direction: row; align-items: baseline; gap: 4px; }
+.flow-node-foot .key-spend-budget { font-size: .8125rem; }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
 /* A chip sizes to its label and never wraps it; on a card too narrow for the
