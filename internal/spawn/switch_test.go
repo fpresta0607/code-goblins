@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -228,6 +229,87 @@ func TestPausedResumeUsesTheSavedSessionInsteadOfTheLatestSession(t *testing.T) 
 	launches := named(f.events(t), "env")
 	if !result.Resumed || len(launches) != 1 || !strings.HasPrefix(launches[0].Text, "resume saved-session-42 ") || strings.Contains(launches[0].Text, "--last") {
 		t.Fatalf("result = %+v, launches = %+v; want the saved session resumed", result, launches)
+	}
+}
+
+func TestPauseResumeSupersedesTheStopAndPreservesRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		isHandoffSaved bool
+		session        string
+	}{
+		{name: "completed handoff", isHandoffSaved: true, session: "saved-session"},
+		{name: "interrupted handoff", session: "saved-session"},
+		{name: "fresh conversation", isHandoffSaved: true},
+		{name: "fresh conversation without handoff"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume"}})
+			f.git.status = " M unfinished.go\n"
+			unfinished := filepath.Join(f.worktree, "unfinished.go")
+			if err := os.WriteFile(unfinished, []byte("unfinished work"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			const recovery = "Pause requested; do not resume until told. Decision 42: keep the existing branch. Verification was interrupted."
+			service := lifecycle.Service{StateDir: f.stateDir, PauseWait: time.Millisecond, Operations: lifecycle.Operations{
+				Prepare: func(_ context.Context, _ state.TaskMeta, handoff string) error {
+					if test.isHandoffSaved {
+						return os.WriteFile(handoff, []byte(recovery), 0600)
+					}
+					return errors.New("handoff interrupted")
+				},
+				Stop:   func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
+				Memory: func() (uint64, uint64, error) { return 6 << 30, 6 << 30, nil },
+				Notify: func(state.Lifecycle) error { return nil },
+				Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+					handoff := ""
+					if prior.HandoffSaved {
+						handoff = prior.Handoff
+					}
+					_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, IsResume: true, ResumeSession: prior.Session, ResumeHandoff: handoff, ResumeNote: "Decision 42: keep the existing branch."})
+					return err
+				},
+			}}
+			paused, err := service.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "memory-pause", Action: "pause", Reason: "memory", Session: test.session})
+			if err != nil || paused.Phase != "paused" || paused.HandoffSaved != test.isHandoffSaved {
+				t.Fatalf("pause = %+v, %v", paused, err)
+			}
+
+			// Act
+			resumed, err := service.Run(t.Context(), lifecycle.Request{ID: f.meta.ID, Generation: f.meta.SpawnGen, Operation: "memory-resume", Action: "resume"})
+
+			// Assert
+			if err != nil || resumed.Phase != "running" {
+				t.Fatalf("resume = %+v, %v", resumed, err)
+			}
+			submitted := submittedLines(t, f.nativeFixture, 1)
+			if len(submitted) != 1 {
+				t.Fatalf("submitted %q; want one recovery instruction", submitted)
+			}
+			instruction := delivered(t, submitted[0])
+			for _, want := range []string{"Resume now.", "supersedes the earlier pause", "Do not repeat the pause handoff", "Preserve unfinished work", "Check interrupted commands", "Do not ask again for a decision already answered", "Decision 42: keep the existing branch."} {
+				if !strings.Contains(instruction, want) {
+					t.Errorf("resume instruction lacks %q", want)
+				}
+			}
+			if !strings.HasPrefix(instruction, "Resume now.") {
+				t.Error("the current resume must precede the retained context")
+			}
+			if test.isHandoffSaved {
+				if !strings.Contains(instruction, paused.Handoff) {
+					t.Error("the resume omitted the saved recovery")
+				}
+				if data, err := os.ReadFile(paused.Handoff); err != nil || string(data) != recovery {
+					t.Fatalf("saved recovery changed: %q, %v", data, err)
+				}
+			} else if !strings.Contains(instruction, "No completed pause handoff was saved") {
+				t.Error("an interrupted handoff needs recovery from the retained task state")
+			}
+			if data, err := os.ReadFile(unfinished); err != nil || string(data) != "unfinished work" {
+				t.Fatalf("unfinished work changed: %q, %v", data, err)
+			}
+		})
 	}
 }
 

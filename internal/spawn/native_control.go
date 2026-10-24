@@ -27,7 +27,7 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 		return fmt.Errorf("send: native task %s has no running terminal: %w: %w", meta.ID, fleet.ErrNotTyped, err)
 	}
 	if !fleet.IsCommand(text) {
-		return s.deliverNativeInstruction(ctx, record, screens, meta, text)
+		return s.deliverNativeInstruction(ctx, record, screens, meta, "", text)
 	}
 	if _, err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text)); err != nil {
 		return err
