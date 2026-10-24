@@ -166,6 +166,13 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     catch (failure: unknown) { showFeedback(message(failure)); }
     finally { setPressing(""); }
   };
+  const grant = async () => {
+    setPressing("grant"); showFeedback("");
+    try {
+      await call("/api/connections/grant", undefined, { method: "POST", headers, body: JSON.stringify({ task: request.task, generation: request.task_generation, connection: "service:" + request.grant_service, action: "grant", request: request.id, request_generation: request.generation }) });
+    } catch (failure: unknown) { showFeedback(message(failure)); }
+    finally { setPressing(""); }
+  };
   // His words from Something else? close the card as sent; a refusal goes back
   // to his window, which keeps them.
   const answer = async (text: string) => {
@@ -199,7 +206,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       <span><strong>{asker}</strong> {open ? "asks · waiting " + age(request.created_at).replace(/ ago$/, "") : "asked · closed " + age(request.closed_at || request.created_at)}</span></p>
     <header className="credential-heading">
       <h3 id={"credential-" + request.id} tabIndex={-1}>{inlineElements(credentialHeading(request), copyValues, paths)}</h3>
-      {request.why && inputs.length > 0 && <p className="credential-why">{inlineElements(request.why, copyValues, paths)}</p>}
+      {request.why && (inputs.length > 0 || request.grant_service) && <p className="credential-why">{inlineElements(request.why, copyValues, paths)}</p>}
+      {request.grant_service && <p className="credential-why">Service access for {request.task} in {request.project}.</p>}
       {(request.link || request.steps.length > 0) && <ol className="credential-steps" aria-label={inputs.length ? "How to get them" : "What to do"}>
         {request.link && (request.window
           ? <li>Press Open the browser window below</li>
@@ -215,7 +223,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       {windowNote && <p className="signin-waiting" role="status"><span className="credential-ring storing" aria-hidden="true" />{windowNote}</p>}
       {request.window_state === "" && request.reason && <p className="signin-note"><Icon name="warning" />{request.reason}</p>}
     </div>}
-    {open && !local && <p className="credential-remote"><Icon name="lock" />Values can only be typed on the board on your PC. Here, copy the terminal command instead.</p>}
+    {open && !local && <p className="credential-remote"><Icon name="lock" />{request.grant_service ? "Grant service access from the board on your PC." : "Values can only be typed on the board on your PC. Here, copy the terminal command instead."}</p>}
     {!open && <p className="credential-outcome" data-tip={request.reason}><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong></p>}
     {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."}</p>}
     {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
@@ -284,8 +292,12 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
     {(pager || feedback || open) && <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {open && <SkipWithNote asker={request.task ? asker : "the CFO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing}
+      {open && !request.grant_service && <SkipWithNote asker={request.task ? asker : "the CFO"} task={request.task} instance={snapshot.instance} disabled={!connected || !!pressing}
         onSkip={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")} onAnswer={answer} />}
+      {open && request.grant_service && <>
+        <button type="button" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "dismiss" }, "dismiss")}>Deny</button>
+        <button type="button" className="primary step-done" disabled={!connected || !local || !!pressing} onClick={() => void grant()}><Icon name={pressing === "grant" ? "clock" : "check"} />{pressing === "grant" ? "Granting" : "Grant"}</button>
+      </>}
       {canPressDone(request) && <button type="button" className="primary step-done" disabled={!connected || !!pressing} onClick={() => void press("/api/credentials/close", { action: "done" }, "done")}><Icon name={pressing === "done" ? "clock" : "check"} />Done</button>}
     </div>}
     {confirm && <CredentialReplaceDialog names={confirm.names} project={request.project} action={confirm.action} onCancel={() => setConfirm(null)}

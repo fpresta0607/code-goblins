@@ -527,14 +527,14 @@ func TestAuthGrantRefusesWhatItCannotGrant(t *testing.T) {
 	}
 }
 
-// A goblin that needs a service says so in a blocked report. It never grants
+// A goblin that needs a service requests a grant card. It never grants
 // itself one or revokes one, and neither does a gate agent.
 func TestAuthGrantAndRevokeAreRefusedInAGoblinsOrAGateAgentsTerminal(t *testing.T) {
 	commands := []struct {
 		args []string
 		want string
 	}{
-		{[]string{"grant", "live-1", "extra"}, "blocked report"},
+		{[]string{"grant", "live-1", "extra"}, "--grant <service>"},
 		{[]string{"grant", "live-1", "--mcp", "literal-env"}, "blocked report"},
 		{[]string{"revoke", "live-1", "stored"}, "the CFO revokes it"},
 		{[]string{"revoke", "live-1", "--mcp", "granted-server"}, "the CFO revokes it"},

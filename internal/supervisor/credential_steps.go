@@ -197,6 +197,8 @@ func (s *Service) closeCredential(id, generation, closed, by, reason string) (Cr
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This card is not on the board. Refresh the board."}
 	case request.State != "open":
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This card was already " + request.State + "."}
+	case closed == "done" && request.GrantService != "":
+		return request, credentialRefusal{status: http.StatusConflict, Message: "Grant this service on its card, or deny the request."}
 	case closed == "done" && by == "overlord" && len(request.inputs()) > 0:
 		return request, credentialRefusal{status: http.StatusConflict, Message: "This card closes by itself once its values arrive."}
 	case closed == "done" && credentialTerminalOpen(s.Store.Snapshot().Runs, request.ID):

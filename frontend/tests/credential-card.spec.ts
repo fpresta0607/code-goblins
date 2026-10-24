@@ -48,6 +48,57 @@ async function openCard(page: Page, origin = "") {
   return card;
 }
 
+for (const action of ["Grant", "Deny"] as const) {
+  test(`a grant request shows its task, service and reason, and ${action} sends only the recorded card action`, async ({ page }, testInfo) => {
+    // Arrange
+    const sent: Sent[] = [];
+    await page.route("**/api/connections/grant", async (route) => {
+      const request = route.request();
+      sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CFO-Token"), body: request.postDataJSON() });
+      await route.fulfill({ status: 200, json: {} });
+    });
+    await page.route("**/api/credentials/close", async (route) => {
+      const request = route.request();
+      sent.push({ path: new URL(request.url()).pathname, token: await request.headerValue("X-CFO-Token"), body: request.postDataJSON() });
+      await route.fulfill({ status: 200, json: {} });
+    });
+    const card = await openCard(page);
+    await page.evaluate((id) => window.board?.request(id, { names: [], existing: [], link: "", steps: [], grant_service: "stripe", task_generation: "g1" }), STRIPE);
+    await expect(card.getByRole("heading", { name: "Grant stripe to add-billing" })).toBeVisible();
+    await expect(card.getByText("Charge test cards in the billing tests")).toBeVisible();
+    await expect(card.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+    expect(sent).toEqual([]);
+    await recordDoneCards(page);
+    await page.screenshot({ path: testInfo.outputPath("grant-card.png") });
+
+    // Act
+    await card.getByRole("button", { name: action, exact: true }).click();
+    await expect.poll(() => sent.length).toBe(1);
+    await page.evaluate(([id, state]) => window.board?.request(id, { state, closed_at: "2026-10-01T03:10:00Z" }), [STRIPE, action === "Grant" ? "granted" : "dismissed"]);
+
+    // Assert
+    expect(sent).toEqual([{ path: action === "Grant" ? "/api/connections/grant" : "/api/credentials/close", token: "fixture-token", body: action === "Grant"
+      ? { task: "add-billing", generation: "g1", connection: "service:stripe", action: "grant", request: STRIPE, request_generation: STRIPE_GENERATION }
+      : { id: STRIPE, generation: STRIPE_GENERATION, action: "dismiss" } }]);
+    await expect.poll(() => doneCards(page)).toContainEqual(expect.stringMatching(action === "Grant" ? /^Granted/ : /^Denied/));
+  });
+}
+
+test("a refused grant stays open with the reason and can be retried", async ({ page }) => {
+  // Arrange
+  await page.route("**/api/connections/grant", (route) => route.fulfill({ status: 409, json: { error: "Task restarted or was replaced. Refresh connections." } }));
+  const card = await openCard(page);
+  await page.evaluate((id) => window.board?.request(id, { names: [], existing: [], link: "", steps: [], grant_service: "stripe", task_generation: "g1" }), STRIPE);
+
+  // Act
+  await card.getByRole("button", { name: "Grant", exact: true }).click();
+
+  // Assert
+  await expect(card.getByText("Task restarted or was replaced. Refresh connections.")).toBeVisible();
+  await expect(card.getByRole("button", { name: "Grant", exact: true })).toBeEnabled();
+  await expect(card.getByRole("button", { name: "Deny", exact: true })).toBeEnabled();
+});
+
 // paste puts text on the clipboard and pastes it into a field with Ctrl+V,
 // as he does.
 async function paste(page: Page, field: Locator, text: string) {

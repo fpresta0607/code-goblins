@@ -86,6 +86,21 @@ func TestWaitingOnACardThatClosedWithoutTheStep(t *testing.T) {
 	}
 }
 
+func TestWaitingOnAGrantCardReportsTheServiceAndResourceNotice(t *testing.T) {
+	// Arrange
+	h := home.Home{State: t.TempDir()}
+	writeCards(t, h.State, supervisor.CredentialRequest{ID: "cred-0123456789abcdef", Project: "throwaway", Task: "task-1", GrantService: "sample", State: "granted"})
+	var stdout, stderr strings.Builder
+
+	// Act
+	code := waitForCard(context.Background(), h, "cred-0123456789abcdef", "task-1", commandRuntime{}, &stdout, &stderr)
+
+	// Assert
+	if code != 0 || !strings.Contains(stdout.String(), "granted sample to task-1; re-source your auth.ps1") {
+		t.Fatalf("wait = %d %s %s", code, stdout.String(), stderr.String())
+	}
+}
+
 // His press of the window button shows the goblin's own browser session at
 // the card's page, on a profile of its task's, and tells the board. Once the
 // card closes, the session runs headless again on that same profile, so it
