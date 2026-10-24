@@ -52,6 +52,9 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   // harness's own that it opens can bring the terminal in.
   terminal: string; isWorking?: boolean; focus?: number; onAnswer?: () => void; onSent?: (submission: string) => void;
 }) {
+  // A task whose terminal reads and takes messages directly is queued through
+  // the board. So is a running task whose terminal refuses typing: its send
+  // goes the same durable way rather than into a screen that will not take it.
   const queues = !!task && takesMessages(task);
   const link = useTerminalLink(terminal);
   const live = queues ? undefined : link;
@@ -89,7 +92,9 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
     // A message sent while the harness holds its input is queued and
     // delivered once the gate lets go, so Send stays usable.
     if (!text || isSending || isAsking || isUnread) return;
-    if (!task || !queues) {
+    // A held input, or custody nobody could read, is queued through the board
+    // so the message survives and is delivered once typing is possible.
+    if (!task || (!queues && !held)) {
       const submission = live?.send(text)
       if (submission) { setDraft(""); setUnsent(""); onSent?.(submission); } else setUnsent(unsentWhy);
       return;

@@ -236,10 +236,27 @@ test("a failing custody check shows no banner over the conversation and keeps th
   await field(page).fill("send this while the check fails");
   await expect(send(page)).toBeEnabled();
 
+  // Act: he presses Send while the check still fails, with the board's action
+  // endpoint watching what it is asked to keep.
+  const queued: { kind: string; task_id: string; text: string }[] = [];
+  await page.route("**/api/actions", async (route) => {
+    queued.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string });
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+  const before = typed(relay);
+  await send(page).click();
+
+  // Assert: the message went the durable way as an action for this goblin, and
+  // nothing was typed into the held terminal.
+  await expect(field(page)).toHaveValue("");
+  expect(queued.map((action) => action.kind)).toEqual(["message"]);
+  expect(queued[0].text).toBe("send this while the check fails");
+  expect(typed(relay), "nothing is typed into a held terminal").toEqual(before);
+
   // Act: the check clears.
   relay.say({ type: "held", reason: "" });
 
-  // Assert: the box still holds what he wrote and the note is clear again.
+  // Assert: the note is clear again and the message has not been typed twice.
   await expect(note).toHaveText("");
-  await expect(field(page)).toHaveValue("send this while the check fails");
+  expect(typed(relay), "a queued message is not typed on release by this path").toEqual(before);
 });
