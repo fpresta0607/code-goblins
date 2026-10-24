@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { credentialAsk, credentialHeading, credentialSettled, fetchOffer, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
+import { credentialAsk, credentialFinish, credentialHeading, credentialSettled, fetchOffer, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
 import { boardAlerts, outlived } from "./alertRules.ts";
 import { cfoSummary } from "./cfoSummary.ts";
-import { waitingItems } from "./commandQueue.ts";
+import { settledLabel, waitingItems } from "./commandQueue.ts";
 import type { CredentialRequest, Run, Snapshot, Task } from "./types.ts";
 import { parseSnapshot } from "./types.ts";
 
@@ -24,6 +24,19 @@ test("a service grant card names the service and task, and records its granted o
   assert.equal(credentialAsk(card), "Grant stripe to add-billing");
   assert.equal(credentialHeading(card), "Grant stripe to add-billing");
   assert.equal(credentialSettled({ ...card, state: "granted" }), "Granted stripe to add-billing");
+});
+
+test("a recorded grant whose script refresh failed keeps its recovery instruction in the completed card and History", () => {
+  const reason = "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh add-billing: task cleanup is in progress";
+  const card = request({ names: [], grant_service: "stripe", state: "granted", reason });
+
+  const settled = credentialSettled(card);
+  const finish = credentialFinish(card);
+  const history = settledLabel({ kind: "credential", key: "credential:" + card.id, request: card }, []);
+
+  assert.equal(settled, "Granted stripe to add-billing. " + reason);
+  assert.deepEqual(finish, { heading: "Granted", label: settled });
+  assert.equal(history, settled);
 });
 
 test("a settled request says which names were saved for which project, or why it closed", () => {

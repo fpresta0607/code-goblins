@@ -88,7 +88,11 @@ func waitForCard(ctx context.Context, h home.Home, card, task string, runtime co
 	}
 	switch request.State {
 	case "granted":
-		fmt.Fprintf(stdout, "card %s granted %s to %s; re-source your auth.ps1\n", card, request.GrantService, request.Task)
+		if request.Reason != "" {
+			fmt.Fprintf(stdout, "card %s granted %s to %s\n%s\n", card, request.GrantService, request.Task, request.Reason)
+		} else {
+			fmt.Fprintf(stdout, "card %s granted %s to %s; re-source your auth.ps1\n", card, request.GrantService, request.Task)
+		}
 	case "saved":
 		fmt.Fprintf(stdout, "card %s is done: every value arrived\n", card)
 	case "done":

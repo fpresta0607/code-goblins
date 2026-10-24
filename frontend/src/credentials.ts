@@ -6,7 +6,7 @@ export const listNames = (names: string[]) => names.length < 2 ? names.join("") 
 // What became of a request: the secrets saved for its project and the plain
 // values sent to its goblin, his Done or Dismiss, or why it closed.
 export function credentialSettled(request: CredentialRequest): string {
-  if (request.state === "granted") return "Granted " + request.grant_service + " to " + request.task;
+  if (request.state === "granted") return "Granted " + request.grant_service + " to " + request.task + (request.reason ? ". " + request.reason : "");
   if (request.state === "dismissed" && request.grant_service) return "Denied " + request.grant_service + " for " + request.task;
   const sent = request.received.length ? "sent " + listNames(request.received) + " to " + (request.task || "the CFO") : "";
   if (request.state === "saved" && request.saved.length) return "Saved " + listNames(request.saved) + " for " + request.project + (sent ? " and " + sent : "");

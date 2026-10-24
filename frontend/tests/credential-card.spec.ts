@@ -99,6 +99,41 @@ test("a refused grant stays open with the reason and can be retried", async ({ p
   await expect(card.getByRole("button", { name: "Deny", exact: true })).toBeEnabled();
 });
 
+for (const hasRefreshFailure of [false, true]) {
+  test(`a recorded grant stays terminal in History${hasRefreshFailure ? " and keeps its refresh recovery instruction" : ""}`, async ({ page }, testInfo) => {
+    // Arrange
+    const sent = await answer(page);
+    await page.route("**/api/connections/grant", (route) => route.fulfill({ status: 200, json: {} }));
+    const card = await openCard(page);
+    const reason = hasRefreshFailure ? "spawn: the record of add-billing changed as asked, but its auth.ps1 was not rewritten, so run cfo auth refresh add-billing: task cleanup is in progress" : "";
+    await page.evaluate((id) => window.board?.request(id, { names: [], existing: [], link: "", steps: [], grant_service: "stripe", task_generation: "g1", expires_at: new Date(Date.now() + 86400000).toISOString() }), STRIPE);
+    await recordDoneCards(page);
+    await card.screenshot({ path: testInfo.outputPath("grant-card.png") });
+
+    // Act
+    await card.getByRole("button", { name: "Grant", exact: true }).click();
+    await page.evaluate(({ id, reason }) => window.board?.request(id, { state: "granted", reason, closed_at: new Date().toISOString() }), { id: STRIPE, reason });
+
+    // Assert
+    const outcome = "Granted stripe to add-billing" + (reason ? ". " + reason : "");
+    await expect.poll(() => doneCards(page)).toContainEqual(expect.stringContaining("Granted" + outcome));
+    await page.getByRole("button", { name: "Close the Command Center" }).click();
+    const menu = page.locator(".command-center-menu");
+    await menu.locator("> summary").click();
+    await menu.getByText("History").click();
+    const row = menu.locator(".inbox-history .inbox-list > li").filter({ hasText: "Grant stripe to add-billing" });
+    await row.locator(".history-open").click();
+    await expect(row.locator(".history-detail")).toHaveText(outcome);
+    const change = row.locator(".history-change");
+    await expect(change).toHaveAttribute("aria-disabled", "true");
+    await expect(change).toHaveAttribute("data-tip", "Its service was granted");
+    await expect(change).toHaveAccessibleName(/^Nothing to change:/);
+    await change.evaluate((element: HTMLButtonElement) => element.click());
+    expect(sent).toEqual([]);
+    await menu.locator(".command-center-updates").screenshot({ path: testInfo.outputPath("grant-history.png") });
+  });
+}
+
 // paste puts text on the clipboard and pastes it into a field with Ctrl+V,
 // as he does.
 async function paste(page: Page, field: Locator, text: string) {

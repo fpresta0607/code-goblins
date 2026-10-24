@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -282,6 +283,49 @@ func TestGrantRequestCardGrantsAfterThePressAndWakesTheCFO(t *testing.T) {
 	pending, err := wake.Pending(stateDir)
 	if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool { return strings.Contains(record.Detail, "granted sample") }) {
 		t.Fatal("the CFO was not told of the grant")
+	}
+}
+
+func TestGrantRequestCardKeepsTheRecordedGrantAndRecoveryWhenScriptRefreshFails(t *testing.T) {
+	// Arrange
+	s, stateDir := grantBoard(t)
+	asOverlordsBoard(s)
+	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "cfo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", GrantService: "sample", Why: "Read the test service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadTaskMeta(stateDir, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(before.TaskTmp, state.AuthScriptName)
+	const originalScript = "$env:STANDIN = 'unchanged'\n"
+	if err := os.WriteFile(script, []byte(originalScript), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cleanupLock := state.CleanupLockName(before.ID)
+	if _, err := lock.AcquireExclusiveNamed(stateDir, cleanupLock); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.ReleaseExclusiveNamed(stateDir, cleanupLock) })
+
+	// Act
+	code, body := askTheBoard(t, s, "POST", "/api/connections/grant", `{"task":"task-1","generation":"g1","connection":"service:sample","action":"grant","request":"`+card.ID+`","request_generation":"`+card.Generation+`"}`, nil)
+
+	// Assert
+	after, err := state.ReadTaskMeta(stateDir, "task-1")
+	closed, found := s.Store.credential(card.ID)
+	if code != http.StatusOK || err != nil || !slices.Equal(after.Credentials, []string{"other", "sample"}) || !found || closed.State != "granted" {
+		t.Fatalf("Grant = %d %s, grants %v, card %s (%v)", code, body, after.Credentials, closed.State, err)
+	}
+	for _, want := range []string{"its auth.ps1 was not rewritten", "run cfo auth refresh task-1"} {
+		if !strings.Contains(closed.Reason, want) {
+			t.Errorf("card reason = %q, want %q", closed.Reason, want)
+		}
+	}
+	content, err := os.ReadFile(script)
+	if err != nil || string(content) != originalScript {
+		t.Fatalf("script changed after failed refresh: %v", err)
 	}
 }
 
