@@ -1282,3 +1282,54 @@ func TestPauseAndStopReachTheHelpersBeforeTheParentsOwnProcesses(t *testing.T) {
 		}
 	})
 }
+
+func TestAMemoryPauseInheritsOnlyItsOwnGateRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name, action, phase                     string
+		isSameGeneration, ownsResume, wantsGate bool
+	}{
+		{name: "same generation paused gate", action: "pause", phase: "paused", isSameGeneration: true, wantsGate: true},
+		{name: "manual switch after pause", action: "pause", phase: "paused"},
+		{name: "same generation failed resume", action: "resume", phase: "failed", isSameGeneration: true, wantsGate: true},
+		{name: "manual switch after failed resume", action: "resume", phase: "failed"},
+		{name: "interrupted resume published its generation", action: "resume", phase: "resuming", ownsResume: true, wantsGate: true},
+		{name: "failed resume published its generation", action: "resume", phase: "failed", ownsResume: true, wantsGate: true},
+		{name: "successful resume finished its recovery", action: "resume", phase: "running", isSameGeneration: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, meta := lifecycleFixture(t)
+			prior := state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "old-recovery", Action: test.action, Phase: test.phase, GateRun: "run-a", GateIntent: "earlier validation", GateHead: strings.Repeat("a", 40)}
+			if !test.isSameGeneration {
+				meta.SpawnGen = "generation-2"
+			}
+			if test.ownsResume {
+				meta.ResumeOperation = prior.Operation
+			}
+			if err := state.WriteTaskMeta(service.StateDir, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(service.StateDir, prior); err != nil {
+				t.Fatal(err)
+			}
+			service.Operations.Prepare = func(_ context.Context, _ state.TaskMeta, handoff string) error {
+				return os.WriteFile(handoff, []byte("retained work"), 0o600)
+			}
+
+			// Act
+			paused, err := service.Run(t.Context(), Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "new-memory-pause", Action: "pause", Reason: "memory"})
+
+			// Assert
+			if err != nil || paused.Phase != "paused" || paused.Generation != meta.SpawnGen {
+				t.Fatalf("memory pause = %+v, %v", paused, err)
+			}
+			wantRun, wantIntent, wantHead := "", "", ""
+			if test.wantsGate {
+				wantRun, wantIntent, wantHead = prior.GateRun, prior.GateIntent, prior.GateHead
+			}
+			if paused.GateRun != wantRun || paused.GateIntent != wantIntent || paused.GateHead != wantHead {
+				t.Fatalf("inherited gate = %q, %q, %q; want %q, %q, %q", paused.GateRun, paused.GateIntent, paused.GateHead, wantRun, wantIntent, wantHead)
+			}
+		})
+	}
+}
