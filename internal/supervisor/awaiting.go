@@ -163,11 +163,22 @@ func (s *Store) deliveredReview(action, task string) {
 // A task whose record can no longer be read names nothing the board can wait
 // on, so its delivery reads as unwatched says.
 func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatched string) Evaluation {
-	meta, err := state.ReadTaskMeta(s.Store.Home.State, task)
-	if err != nil {
+	awaiting := awaitingGoblinDelivery(s.Store.Home.State, task, since, text)
+	if awaiting == nil {
 		return Evaluation{Reason: unwatched}
 	}
-	return Evaluation{Reason: sentToGoblin, Awaiting: &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}}
+	return Evaluation{Reason: sentToGoblin, Awaiting: awaiting}
+}
+
+// awaitingGoblinDelivery is the delivery of text, typed into goblin task's
+// native terminal at since, that its harness has not yet been seen taking, or
+// nil when the task's record can no longer be read.
+func awaitingGoblinDelivery(stateDir, task string, since time.Time, text string) *Awaiting {
+	meta, err := state.ReadTaskMeta(stateDir, task)
+	if err != nil {
+		return nil
+	}
+	return &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}
 }
 
 // lookAtTerminal reads the terminal a delivery waits in: gone when its host

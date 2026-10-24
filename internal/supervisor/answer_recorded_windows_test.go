@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -44,14 +45,167 @@ func TestCFOAnswerToABusyGoblinIsRecordedSoTheBoardRefusesAnother(t *testing.T) 
 		t.Fatal(err)
 	}
 	(&Service{Store: store, work: make(chan struct{}, 1)}).cycle(context.Background(), false)
-	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredOption != "SQLite" {
-		t.Fatalf("question = %+v, want it closed as answered by the CFO", got)
+	onItsWay := store.Snapshot().Questions[0]
+	if onItsWay.Status != "running" || onItsWay.AnsweredBy != "cfo" || onItsWay.AnsweredOption != "SQLite" || onItsWay.AnswerID == "" {
+		t.Fatalf("question = %+v, want it recorded as answered by the CFO and still on its way", onItsWay)
+	}
+	if actions := store.Snapshot().Actions; len(actions) != 1 || actions[0].Status != "running" || actions[0].Awaiting == nil {
+		t.Fatalf("actions = %+v, want the queued answer watched as one on its way", actions)
 	}
 	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err == nil {
 		t.Fatal("the board queued a second answer to a question the CFO had answered")
 	}
 	if typed := goblin.lines(t); len(typed) != 1 {
 		t.Fatalf("the goblin received %q, want only the CFO's answer", typed)
+	}
+	// Once the goblin's own record of the conversation shows it took the
+	// answer, the question closes as the CFO's.
+	if err := store.settleDeliveries(time.Now().UTC(), took); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Questions[0]; got.Status != "succeeded" || got.AnsweredBy != "cfo" || got.AnsweredOption != "SQLite" {
+		t.Fatalf("question = %+v, want it closed as answered by the CFO once the goblin took it", got)
+	}
+}
+
+// A queued CFO answer is a delivery on its way, not a delivered one: the
+// question stays open until the goblin's own record of the conversation shows
+// it took the answer, so the decision does not vanish from supervision while
+// the goblin is stuck in a long tool call with no next tool call. Issue 1453.
+func TestAQueuedCFOAnswerStaysOnItsWayUntilTheGoblinTakesIt(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	primaryFixture(t, store)
+	meta, record, goblin, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
+	q := surfaced(t, store, meta, record, connection)
+	goblin.startTurn(t)
+	since := time.Now().UTC()
+
+	// Act
+	chosen, queued, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", "")
+
+	// Assert
+	if err != nil || chosen != "SQLite" || !queued {
+		t.Fatalf("answer = %q, queued %v, %v; want SQLite queued for the goblin's next tool call", chosen, queued, err)
+	}
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Fatalf("the goblin received %q, want the answer submitted once", typed)
+	}
+	if pending, err := wake.Pending(store.Home.State); err != nil || len(pending) != 1 || pending[0].Answered != "SQLite" || pending[0].AnsweredBy != wake.AnsweredByCFO {
+		t.Fatalf("notify = %+v (%v), want it marked answered by the CFO", pending, err)
+	}
+	if onItsWay := store.Snapshot().Questions[0]; onItsWay.Status != "running" || onItsWay.AnsweredBy != "cfo" || onItsWay.AnsweredOption != "SQLite" || onItsWay.AnswerID == "" {
+		t.Fatalf("question = %+v, want it answered by the CFO and still on its way", onItsWay)
+	}
+	// A long tool call keeps it on its way: the quiet limit counts only from
+	// the last look that showed the turn.
+	for elapsed := time.Minute; elapsed <= time.Hour; elapsed += time.Minute {
+		if err := store.settleDeliveries(since.Add(elapsed), working); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if behind, _ := outcome(store); behind.Status != "running" {
+		t.Fatalf("behind an hour-long turn: question %s, want it still on its way", behind.Status)
+	}
+	if err := store.settleDeliveries(since.Add(time.Hour+time.Second), took); err != nil {
+		t.Fatal(err)
+	}
+	delivered := store.Snapshot().Questions[0]
+	if delivered.Status != "succeeded" || delivered.AnsweredBy != "cfo" || delivered.AnsweredOption != "SQLite" {
+		t.Fatalf("once taken: question = %+v, want it closed as answered by the CFO", delivered)
+	}
+	if _, err := store.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err == nil {
+		t.Fatal("the board queued a second answer to a question the CFO had answered")
+	}
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Fatalf("the goblin received %q, want only the CFO's answer", typed)
+	}
+}
+
+// A queued CFO answer whose goblin never takes it is reported stuck, in words
+// that say what to do, and a take that comes later still delivers it once.
+func TestAQueuedCFOAnswerThatNeverArrivesWarnsAndALateTakeStillDeliversIt(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	primaryFixture(t, store)
+	meta, record, goblin, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
+	q := surfaced(t, store, meta, record, connection)
+	goblin.startTurn(t)
+	since := time.Now().UTC()
+	if _, _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	early := store.settleDeliveries(since.Add(deliveryQuiet-time.Second), idle)
+	patient := store.Snapshot().Questions[0]
+	late := store.settleDeliveries(since.Add(deliveryQuiet+time.Second), idle)
+	warned, question := outcome(store)
+	after := store.settleDeliveries(since.Add(deliveryQuiet+2*time.Minute), took)
+	delivered, answered := outcome(store)
+
+	// Assert
+	if early != nil || late != nil || after != nil {
+		t.Fatal(early, late, after)
+	}
+	if patient.Status != "running" {
+		t.Errorf("just inside the quiet limit: question %s, want it still on its way", patient.Status)
+	}
+	if warned.Status != "uncertain" || question.Status != "uncertain" || !strings.Contains(warned.Advice, "press Enter") {
+		t.Errorf("past the quiet limit: action %s %q, question %s; want a warning that says what to do", warned.Status, warned.Message, question.Status)
+	}
+	if delivered.Status != "succeeded" || delivered.Advice != "" || answered.Status != "succeeded" || answered.AnsweredBy != "cfo" {
+		t.Errorf("after a late take: action %s advice %q, question %+v; want both delivered", delivered.Status, delivered.Advice, answered)
+	}
+}
+
+// Acknowledgement preserves delivery accountability: acking the notify and
+// restarting the supervisor leaves the queued answer on its way, refuses a
+// second decision, and never replays the text.
+func TestAQueuedCFOAnswerSurvivesAcknowledgementAndRestart(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	primaryFixture(t, store)
+	meta, record, goblin, connection := goblinFixture(t, store)
+	servePipe(t, store, connection)
+	q := surfaced(t, store, meta, record, connection)
+	goblin.startTurn(t)
+	since := time.Now().UTC()
+	if _, _, err := connection.AnswerGoblin(context.Background(), q.ID, "SQLite", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act: the CFO acks the notify, as cfo drain does, and the supervisor
+	// restarts.
+	if err := wake.AckThrough(h.State, record.Seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.supersedeQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	kept, question := outcome(reopened)
+	if kept.Status != "running" || kept.Awaiting == nil || question.Status != "running" || question.AnsweredBy != "cfo" {
+		t.Fatalf("after the ack and restart: action %s %q, question %+v; want it still on its way", kept.Status, kept.Message, question)
+	}
+	if _, err := reopened.Queue(Action{ID: "board-answer", Kind: "goblin_answer", Generation: q.Identity, QuestionID: q.ID, Text: "Postgres"}); err == nil {
+		t.Fatal("the board queued a second answer after the restart")
+	}
+	if typed := goblin.lines(t); len(typed) != 1 {
+		t.Fatalf("the goblin received %q, want only the CFO's answer, never a replay", typed)
+	}
+	if err := reopened.settleDeliveries(since.Add(time.Minute), took); err != nil {
+		t.Fatal(err)
+	}
+	if delivered := reopened.Snapshot().Questions[0]; delivered.Status != "succeeded" || delivered.AnsweredBy != "cfo" {
+		t.Fatalf("once taken: question = %+v, want it delivered with the CFO's attribution", delivered)
 	}
 }
 

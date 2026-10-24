@@ -409,6 +409,13 @@ type cfoAnswer struct {
 	// while AFK mode is on; whatever a sender puts here is replaced.
 	Away bool      `json:"away,omitempty"`
 	At   time.Time `json:"at"`
+	// Awaiting is set when the answer was typed into the goblin's terminal
+	// while it was in a turn and its harness has not yet been seen taking it:
+	// the question stays on its way until the goblin's own record of the
+	// conversation shows it, or the delivery is reported stuck. It is nil for
+	// an answer that reached the goblin's terminal outright, or that was only
+	// recorded on the board.
+	Awaiting *Awaiting `json:"awaiting,omitempty"`
 }
 
 // AnswerGoblin answers a goblin's blocked question as the CFO, the structured
@@ -477,17 +484,27 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		return "", false, fmt.Errorf("the Overlord is answering %s on the board (its answer is %s); nothing was sent", id, q.Status)
 	}
 	answer := withNote(chosen, note)
-	_, err = c.SendGoblin(ctx, q.Task, q.Identity, fmt.Sprintf("decision %d: %s", seq, answer))
+	text := fmt.Sprintf("decision %d: %s", seq, answer)
+	sent := time.Now().UTC()
+	_, err = c.SendGoblin(ctx, q.Task, q.Identity, text)
 	queued = errors.Is(err, fleet.ErrQueuedForToolCall)
 	if err != nil && !queued {
 		return "", false, err
+	}
+	// A delivery its harness queued is sent, not delivered: the board keeps
+	// the question on its way until the goblin's own record of the
+	// conversation shows it took the answer, so the decision never vanishes
+	// from supervision before the goblin has it.
+	var awaiting *Awaiting
+	if queued {
+		awaiting = awaitingGoblinDelivery(c.State, q.Task, sent, text)
 	}
 	var unrecorded []error
 	if err := wake.MarkAnswered(c.State, seq, wake.AnsweredByCFO, answer); err != nil {
 		unrecorded = append(unrecorded, fmt.Errorf("notify %d still reads unanswered: %w", seq, err))
 	}
 	if onBoard {
-		if err := c.recordAnswer(q, id, chosen, answer, ""); err != nil {
+		if err := c.recordAnswer(q, id, chosen, answer, "", awaiting); err != nil {
 			unrecorded = append(unrecorded, err)
 		}
 	}
@@ -593,7 +610,7 @@ func (c *CFOConnection) RecordAnswer(id, option, note, in string) (string, error
 	if err != nil {
 		return "", err
 	}
-	if err := c.recordAnswer(q, q.ID, chosen, withNote(chosen, note), in); err != nil {
+	if err := c.recordAnswer(q, q.ID, chosen, withNote(chosen, note), in, nil); err != nil {
 		return "", err
 	}
 	if in == "" {
@@ -641,13 +658,13 @@ func logAFKAnswer(stateDir string, q Question, answer string) error {
 // closes that question and only the waits the goblin declared to follow it
 // (cfo notify --follows): its other waits on the Overlord, such as a sign-in
 // only he can clear, stay his.
-func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string) error {
+func (c *CFOConnection) recordAnswer(q Question, id, chosen, answer, in string, awaiting *Awaiting) error {
 	// A goblin's page that declares no choices takes the CFO's own words.
 	option := chosen
 	if !slices.Contains(q.Options, chosen) {
 		option = ""
 	}
-	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, At: time.Now().UTC()}}); err != nil {
+	if err := sendPipeRequest(c.State, runPipeRequest{Kind: "answer", Answer: &cfoAnswer{QuestionID: id, Option: option, Answer: answer, In: in, Awaiting: awaiting, At: time.Now().UTC()}}); err != nil {
 		return fmt.Errorf("the board could not record it: %w", err)
 	}
 	return nil
@@ -924,12 +941,39 @@ func (s *Store) applyCFOAnswer(a cfoAnswer) error {
 		return errors.New("its question already closed as " + q.Status)
 	}
 	q, at := &s.db.Questions[i], a.At
-	q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
 	q.Answer, q.AnswerKind = a.Answer, "option"
 	if a.Option == "" {
 		q.AnswerKind = "other"
 	}
 	q.AnsweredOption, q.AnsweredBy, q.AnsweredAt, q.AnsweredAway = a.Option, "cfo", &at, a.Away
+	if a.Awaiting != nil {
+		// Typed and submitted into the goblin's terminal while it was in a
+		// turn: the question stays open on its way, watched by the same
+		// delivery record the board's own answer keeps, until the goblin's
+		// record of the conversation shows it took the answer, or until the
+		// delivery is reported stuck.
+		awaiting := *a.Awaiting
+		if awaiting.QuietSince.IsZero() {
+			awaiting.QuietSince = awaiting.Since
+		}
+		id := "cfo-answer-" + q.ID
+		if len(s.db.Actions) >= maxActions {
+			remove := slices.IndexFunc(s.db.Actions, isClosedHistory)
+			if remove < 0 {
+				return errors.New("action queue is full; resolve pending actions")
+			}
+			delete(s.deferredUntil, s.db.Actions[remove].ID)
+			s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)
+		}
+		q.AnswerID, q.Status, q.Message = id, "running", sentToGoblin
+		s.db.Actions = append(s.db.Actions, Action{
+			ID: id, Kind: "goblin_answer", QuestionID: q.ID, Generation: q.Identity,
+			Text: a.Answer, AnswerKind: q.AnswerKind, Status: "running",
+			Message: sentToGoblin, Awaiting: &awaiting, CreatedAt: at, UpdatedAt: at,
+		})
+	} else {
+		q.Status, q.Message, q.AnswerID = "succeeded", "Answered by the CFO.", ""
+	}
 	if a.In != "" {
 		q.Message, q.AnsweredBy, q.AnsweredIn = "You answered in "+a.In+"; the CFO recorded it.", "overlord", a.In
 		s.closePageQuestionAsks(*q, "overlord", "You answered its question in "+a.In+": "+a.Answer)
