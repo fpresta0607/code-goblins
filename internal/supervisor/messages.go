@@ -82,6 +82,13 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		}
 	case isRecorded && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping"):
 	default:
+		// A goblin whose gate owns its branch takes no typing, so a message for
+		// it is kept as a durable queued action and delivered once custody is
+		// released. It never expires and is never handed to the CFO, because
+		// nothing is lost by waiting for the gate (the Overlord, 2026-10-23).
+		if isGateHeld(ctx, s, meta) {
+			return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes."}, ErrDeferred
+		}
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
 			result, err := s.Options.CFO.SendGoblin(ctx, a.TaskID, goblinIdentity(meta), text)
@@ -92,6 +99,15 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		}
 	}
 	return s.waitForGoblin(a)
+}
+
+// isGateHeld says a goblin's gate owns its branch, so its terminal takes no
+// typing until custody is released.
+func isGateHeld(ctx context.Context, s *Service, meta state.TaskMeta) bool {
+	if meta.Mode != "no-mistakes" || s.Options.Gate == nil {
+		return false
+	}
+	return s.validateTerminalControl(ctx, meta) != nil
 }
 
 // waitForGoblin has a message wait for its goblin, until messageWait has

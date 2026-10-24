@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -907,5 +909,37 @@ func TestAMessageToTheCFOWaitsWhileNoCFORuns(t *testing.T) {
 	}
 	if store.HasRunnable() {
 		t.Fatal("a message to the CFO runs while no CFO runs")
+	}
+}
+
+// A goblin whose gate owns its branch takes no typing, so a message for it is
+// kept as a durable queued action: it is not typed into the gate, it does not
+// expire after the ordinary wait, and it is never handed to the CFO, since the
+// gate hands the branch back and the message is delivered then.
+func TestAMessageForAGateHeldGoblinWaitsWithoutExpiringOrGoingToTheCFO(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := treeGoblin(t, h.State, t.TempDir(), "gated", false)
+	meta.Mode, meta.Harness = "no-mistakes", "pi"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{value: pipeline.Progress{Status: "running"}}}}
+	// A message older than the ordinary wait, which would otherwise be the
+	// CFO's.
+	action := Action{ID: "m1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "take this after the gate", CreatedAt: time.Now().Add(-2 * messageWait)}
+
+	// Act
+	evaluation, err := service.deliverMessage(context.Background(), action)
+
+	// Assert
+	if !errors.Is(err, ErrDeferred) {
+		t.Fatalf("the message came back as %v %v, want it queued", evaluation, err)
+	}
+	if !strings.Contains(evaluation.Reason, "Queued for "+meta.ID) {
+		t.Fatalf("the queued state reads %q", evaluation.Reason)
+	}
+	if strings.Contains(evaluation.Reason, "CFO") {
+		t.Fatalf("a gate-held message was handed to the CFO: %q", evaluation.Reason)
 	}
 }
