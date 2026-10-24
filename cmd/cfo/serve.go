@@ -284,6 +284,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Quota:              runtime.quota,
+		KeySpend:           runtime.keySpend,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,
 		DevDrive:           devDrive,

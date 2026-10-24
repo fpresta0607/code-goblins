@@ -33,6 +33,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
+	"github.com/fpresta0607/code-goblins/internal/openrouter"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -184,6 +185,10 @@ type commandRuntime struct {
 	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
 	speedHint   func(context.Context, string) string
 	quota       func(context.Context) (quota.Report, string)
+	// keySpend reads the spend Pi's OpenRouter key reports at the provider,
+	// from Pi's own configuration folder on this machine, for the board's
+	// dial.
+	keySpend func(context.Context) openrouter.Reading
 	// now is the clock a quota reading is judged by, so a test's reading
 	// keeps the date it was taken on; nil is the real clock.
 	now func() time.Time
@@ -466,6 +471,7 @@ func defaultCommandRuntime() commandRuntime {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
+		keySpend:     func(ctx context.Context) openrouter.Reading { return readKeySpend(ctx, os.Getenv) },
 		projectsRoot: install.MachineProjectsRoot,
 		readDevDrive: func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
 		readDefender: func(ctx context.Context, since time.Time) (defender.Report, error) {
