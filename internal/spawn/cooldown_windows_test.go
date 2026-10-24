@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,10 @@ func TestSpawnHoldsTheGoblinsPackageManagersToReleasesAWeekOld(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newQuickFixture(t)
+			f.userEnv = slices.DeleteFunc(f.userEnv, func(entry string) bool {
+				name, _, _ := strings.Cut(entry, "=")
+				return strings.EqualFold(name, "UV_EXCLUDE_NEWER")
+			})
 			f.runner.uvLocks = test.uvLocks
 			writeWorktreeManifest(t, f.dataDir, f.project, worktree.Manifest{Project: "primary", Env: test.env})
 			started := time.Now()
