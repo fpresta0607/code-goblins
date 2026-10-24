@@ -485,6 +485,14 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .click-feedback { flex: 1 0 100%; margin: 0; color: var(--muted); }
+/* The Chat choice under Workspace: two compact picks, a keyboard away. */
+.chat-style-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.chat-style-choices { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--field-bg); }
+.chat-style-choice { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.chat-style-choice input { accent-color: var(--mint); width: 14px; height: 14px; margin: 0; }
+.chat-style-choice.chosen { background: rgba(0, 229, 155, 0.08); }
+.chat-style-choice:focus-within { outline: 2px solid var(--accent-green); outline-offset: 2px; }
+@media (max-width: 480px) { .chat-style-setting { gap: 8px; } .chat-style-choices { width: 100%; } .chat-style-choice { flex: 1; justify-content: center; } }
 .render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
 .render-error button { flex: none; margin: 0; }
 summary { cursor: pointer; }

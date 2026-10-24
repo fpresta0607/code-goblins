@@ -46,6 +46,7 @@ import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
 import { liveCfoSession } from "./workflow";
 import { messagesQuery } from "./session-messages";
+import { useChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
@@ -315,16 +316,29 @@ export function App() {
   // messages stay mounted from their first showing while the panel shows the
   // session, so a switch back reads nothing again and finds the place he read.
   const isSteppedIn = !!messagesSource && !!terminalKey && steppedIn === terminalKey;
+  // Classic draws the harness's own terminal in the conversation's place and
+  // Modern draws the conversation, from one saved choice. The conversation
+  // stays mounted under the terminal either way, so a change of style keeps
+  // the session, its history, an unsent draft and the place he read.
+  // Classic keeps the harness's own terminal in the conversation's place
+  // until he steps out of it for this session, and Modern shows the
+  // conversation until a screen or a tap steps the terminal in. The saved
+  // choice is the only thing that decides it, so a change of style carries
+  // the session, its history, an unsent draft and the place he read.
+  const [chatStyle] = useChatStyle();
+  const [classicOut, setClassicOut] = useState("");
+  const classicInPlace = chatStyle === "classic" && !!terminalKey && classicOut !== terminalKey;
+  const terminalInPlace = isSteppedIn || classicInPlace;
   if (sentFrom && (sentFrom.terminal !== terminalKey || live?.isReconnecting || live?.phase === "closed")) setSentFrom(null)
   else if (sentFrom && live?.screen?.submission === sentFrom.submission) {
     if (live.screen.hasStarted || live.screen.isWorking) setSentFrom(null)
     else if (live.screen.isOpen) { setSentFrom(null); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); }
   }
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
-  const stepIn = () => { setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
-  const stepOut = () => { setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
-  const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || isSteppedIn);
-  const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !isSteppedIn;
+  const stepIn = () => { setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
+  const stepOut = () => { setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
+  const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || terminalInPlace);
+  const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !terminalInPlace;
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
   if (messagesShown && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
