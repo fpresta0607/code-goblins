@@ -56,7 +56,9 @@ test("a busy program, a reconnecting terminal and typing a gate holds each say s
   await expect(field(page)).toHaveValue("merge it");
   relay.say({ type: "held", reason: "pipeline owns this task" });
   await expect(note).not.toHaveText("");
-  await expect(send(page)).toBeDisabled();
+  // A message sent while the gate holds the input is queued, so Send stays
+  // usable and the note says why nothing appears yet.
+  await expect(send(page)).toBeEnabled();
   relay.say({ type: "held", reason: "" });
   await expect(send(page)).toBeEnabled();
 
