@@ -19,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -26,6 +27,38 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
+
+// boardResumeSwitch is the fixture's stand-in for the terminal launch: it
+// replaces the task's generation and records the busy observation, as a real
+// switch leaves them. isLocked says whether it takes the record's metadata
+// lock, which production spawn.Service.Switch takes and this fake once
+// omitted: without it, goblinname.Backfill's read-modify-write could restore
+// the generation the switch had just replaced (#1459).
+func boardResumeSwitch(stateDir string, isLocked bool) func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error) {
+	return func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		if isLocked {
+			// The record's lock is exclusive and not waited for, exactly as
+			// spawn.Service.Switch takes it: a naming pass holding it makes the
+			// switch refuse rather than overwrite what that pass will write.
+			name := state.MetadataLockName(request.ID)
+			if _, err := lock.AcquireExclusiveNamed(stateDir, name); err != nil {
+				return spawn.SwitchResult{}, fmt.Errorf("switch: acquire metadata lock: %w", err)
+			}
+			defer func() { _ = lock.ReleaseExclusiveNamed(stateDir, name) }()
+		}
+		meta, err := state.ReadTaskMeta(stateDir, request.ID)
+		if err != nil {
+			return spawn.SwitchResult{}, err
+		}
+		meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UnixNano())
+		if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+			return spawn.SwitchResult{}, err
+		}
+		at := time.Now().UTC()
+		err = monitor.WriteObservation(stateDir, monitor.Observation{TaskID: meta.ID, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: "resumed-work", LastObserved: at, LastSeen: at, LastProgress: at, Health: monitor.HealthBusy, Reason: monitor.None})
+		return spawn.SwitchResult{}, err
+	}
+}
 
 func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 	// Arrange: the saved validation from an earlier direct-PR branch, and a
@@ -63,6 +96,10 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 			}
 			meta.PipelineHash, meta.PipelineClass = older.Hash, older.Class
 		}
+		// The fixture names its tasks, so the supervisor's own naming pass has
+		// nothing to write here: this test is the board's resume contract, not
+		// a naming race, and a pre-named record keeps the two apart.
+		meta.GoblinName, meta.GoblinTitle = "Bea", "Board Fixture"
 		if err := state.WriteTaskMeta(h.State, meta); err != nil {
 			t.Fatal(err)
 		}
@@ -80,19 +117,7 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 		}
 	}
 	runtime := commandRuntime{goblins: true, resolveHome: func() (home.Home, error) { return h, nil }}
-	runtime.switchTask = func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
-		meta, err := state.ReadTaskMeta(h.State, request.ID)
-		if err != nil {
-			return spawn.SwitchResult{}, err
-		}
-		meta.SpawnGen = fmt.Sprintf("s%d", time.Now().UnixNano())
-		if err := state.WriteTaskMeta(h.State, meta); err != nil {
-			return spawn.SwitchResult{}, err
-		}
-		at := time.Now().UTC()
-		err = monitor.WriteObservation(h.State, monitor.Observation{TaskID: meta.ID, Endpoint: (herdr.Target{}).String(), EndpointVerdict: monitor.ProbePresent, Digest: "resumed-work", LastObserved: at, LastSeen: at, LastProgress: at, Health: monitor.HealthBusy, Reason: monitor.None})
-		return spawn.SwitchResult{}, err
-	}
+	runtime.switchTask = boardResumeSwitch(h.State, true)
 	runtime.taskLifecycle = func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
 		controller := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
 			Memory: func() (uint64, uint64, error) { return 8 << 30, 8 << 30, nil },
@@ -187,7 +212,11 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 			if response.Code != 202 {
 				t.Fatalf("resume = %d %s", response.Code, response.Body)
 			}
-			awaitResumeBoard(t, board, id)
+			if id == "direct-task" {
+				awaitResumeBoard(t, board, h.State, id, "working")
+			} else {
+				awaitResumeBoard(t, board, h.State, id, "paused")
+			}
 		}
 	}
 
@@ -232,7 +261,11 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 	}
 }
 
-func awaitResumeBoard(t *testing.T, board *supervisor.Service, id string) {
+// awaitResumeBoard waits for the resumed task to settle on the outcome it is
+// meant to have: the record's own operation completed with a new generation, or
+// the managed refusal reported. Waiting only for working would hide a record
+// still naming the paused generation (#1459).
+func awaitResumeBoard(t *testing.T, board *supervisor.Service, stateDir, id, wantPhase string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Minute)
 	for time.Now().Before(deadline) {
@@ -241,11 +274,113 @@ func awaitResumeBoard(t *testing.T, board *supervisor.Service, id string) {
 			t.Fatal(err)
 		}
 		for _, task := range snapshot.Tasks {
-			if task.ID == id && (task.Phase == "working" || task.ActionError != "") {
+			if task.ID != id {
+				continue
+			}
+			if wantPhase == "paused" && task.Phase == "paused" && strings.Contains(task.ActionError, "cfo pipeline migrate "+id) {
+				return
+			}
+			if wantPhase != "working" || task.Phase != "working" {
+				continue
+			}
+			record, err := state.ReadLifecycle(stateDir, id)
+			if err != nil {
+				continue
+			}
+			meta, err := state.ReadTaskMeta(stateDir, id)
+			if err != nil {
+				continue
+			}
+			// The record's own generation must be the one the metadata now
+			// carries: a running record of the paused generation is exactly the
+			// interleaving this waits out.
+			if record.Phase == "running" && record.Operation == "resume-1" && meta.SpawnGen != "generation-1" && record.Generation == meta.SpawnGen {
 				return
 			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("board resume did not settle")
+	t.Fatal("board resume did not settle on its own outcome")
+}
+
+// The fixture's switch takes the record's metadata lock exactly as production
+// does, so a naming pass that read the record first cannot write the paused
+// generation back over the resumed one (#1459). The naming pass here is the
+// only concurrency in this file: the board-contract test above uses a
+// pre-named fixture, so this narrow proof carries the race alone.
+//
+// Two orderings are proven. While a naming pass holds the record, the switch
+// refuses with the lock error instead of writing into what that pass will put
+// back. Once the record is free, the switch writes its own generation and the
+// name the pass stored is kept.
+func TestTheBoardSwitchRefusesWhileANamingPassHoldsTheRecord(t *testing.T) {
+	// Arrange
+	stateDir := t.TempDir()
+	meta := state.TaskMeta{ID: "task", Worktree: t.TempDir(), Backend: "native", SpawnGen: "generation-1"}
+	if err := state.WriteTaskMeta(stateDir, meta); err != nil {
+		t.Fatal(err)
+	}
+	path := state.TaskMetaPath(stateDir, "task")
+	name := state.MetadataLockName("task")
+	if _, err := lock.AcquireExclusiveNamed(stateDir, name); err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			_ = lock.ReleaseExclusiveNamed(stateDir, name)
+		}
+	}()
+	held, err := state.ReadMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act: the switch runs against a held record.
+	_, switchErr := boardResumeSwitch(stateDir, true)(context.Background(), home.Home{State: stateDir}, spawn.SwitchRequest{ID: "task"})
+
+	// Assert: it refuses, and writes nothing.
+	if switchErr == nil || !strings.Contains(switchErr.Error(), "acquire metadata lock") {
+		t.Fatalf("switch = %v, want the lock refusal", switchErr)
+	}
+	unchanged, err := state.ReadMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged["spawn_gen"] != "generation-1" {
+		t.Fatalf("a refused switch changed the record: %q", unchanged["spawn_gen"])
+	}
+
+	// Act: the naming pass finishes and the resume runs again.
+	held["goblin_name"] = "Bea"
+	if err := state.WriteMeta(path, held); err != nil {
+		t.Fatal(err)
+	}
+	_ = lock.ReleaseExclusiveNamed(stateDir, name)
+	released = true
+	if _, err := boardResumeSwitch(stateDir, true)(context.Background(), home.Home{State: stateDir}, spawn.SwitchRequest{ID: "task"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert: the resumed generation stands and the name survives it.
+	final, err := state.ReadMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final["spawn_gen"] == "generation-1" || final["goblin_name"] != "Bea" {
+		t.Fatalf("after the resume: gen %q name %q, want a new generation keeping the name", final["spawn_gen"], final["goblin_name"])
+	}
+
+	// The control: the same switch without the lock writes into the held
+	// record, which is the overwrite the lock exists to refuse.
+	if _, err := boardResumeSwitch(stateDir, false)(context.Background(), home.Home{State: stateDir}, spawn.SwitchRequest{ID: "task"}); err != nil {
+		t.Fatal(err)
+	}
+	unlocked, err := state.ReadMeta(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unlocked["spawn_gen"] == final["spawn_gen"] {
+		t.Fatalf("the unlocked switch wrote nothing, so it does not show the overwrite it prevents")
+	}
 }
