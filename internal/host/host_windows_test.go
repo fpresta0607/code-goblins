@@ -1326,6 +1326,16 @@ func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 		end(pid)
 		t.Errorf("the host pid %d that did not answer in time still runs", pid)
 	}
+	// The log the error names carries what was true at the bound, so a host
+	// that never announced is not a launch with nothing to read: on
+	// 2026-10-24 it held only the breakaway notice and the phase was lost.
+	logged, readErr := os.ReadFile(match[2])
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(logged), "had not recorded itself after") || !strings.Contains(string(logged), "still running:") {
+		t.Errorf("the host log does not say the host had not recorded itself: %s", logged)
+	}
 }
 
 // A host whose terminal's program ends at once can record itself, serve and
