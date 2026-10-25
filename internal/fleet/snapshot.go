@@ -186,7 +186,12 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		var teardown []string
 		var pause *state.PauseCondition
 		record, lifecycleErr := state.ReadLifecycle(h.State, id)
-		if lifecycleErr == nil {
+		// A record of another generation describes a task that is not this one,
+		// so its teardown names processes this task never started. On
+		// 2026-10-24 the fleet showed a finished teardown naming git.exe that
+		// was by then an unrelated protected process, only because the
+		// generation was never checked here.
+		if lifecycleErr == nil && record.Generation == meta.SpawnGen {
 			teardown = record.TeardownLabels()
 		}
 		if lifecycleErr == nil && record.Generation == meta.SpawnGen && record.SuppressesMonitoring(h.State) {
