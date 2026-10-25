@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ import (
 var (
 	claudeGoblin = pipeline.Reviewer{Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh"}
 	codexGoblin  = pipeline.Reviewer{Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}
+	piGoblin     = pipeline.Reviewer{Harness: "pi", Model: "openrouter/deepseek/deepseek-v4.1-flash", Effort: "high"}
 )
 
 // gateStartRunner answers a gate start as pipelineStartRunner does, and a
@@ -46,6 +48,14 @@ func (r *gateStartRunner) Run(ctx context.Context, q execx.Request) (execx.Resul
 			return execx.Result{Stdout: []byte("Logged in using ChatGPT\n")}, nil
 		}
 		return execx.Result{Stderr: []byte("Not logged in\n"), ExitCode: 1}, nil
+	case "pi":
+		// pi answers for the provider it is asked about, and this one is
+		// signed in to openrouter alone.
+		r.probes = append(r.probes, q.Name+" "+strings.Join(q.Args, " "))
+		if r.signedIn[q.Name] && slices.Contains(q.Args, "openrouter") {
+			return execx.Result{Stdout: []byte(`{"status":"ready"}`)}, nil
+		}
+		return execx.Result{Stdout: []byte(`{"status":"not_ready"}`), ExitCode: 1}, nil
 	case "no-mistakes":
 		// This no-mistakes names no --intent-file in its help, as one before
 		// 1.86.0, so a run it starts has its intent on the command line.
@@ -267,12 +277,16 @@ func TestPipelineRunStartsNoSecondHarnessUnlessNamedAndSignedIn(t *testing.T) {
 		{"named and signed in", codexGoblin, true, []string{"claude", "codex"}, []string{"codex"}, "then the named fallback codex gpt-6.1-sol high"},
 		{"named and signed out", codexGoblin, false, []string{"claude"}, []string{"codex"}, "The named fallback codex is not signed in, so it is left out"},
 		{"named on the task's own harness", pipeline.Reviewer{Harness: "claude", Model: "sonnet", Effort: "medium"}, true, []string{"claude"}, nil, "with no fallback named on another harness\n"},
+		// pi signs in per provider, so the gate asks about the provider the
+		// fallback's model names, whatever pi's own default is.
+		{"pi named and signed in to its provider", piGoblin, true, []string{"claude", "pi"}, []string{"pi auth check --provider openrouter --json --no-refresh"}, "then the named fallback pi openrouter/deepseek/deepseek-v4.1-flash high"},
+		{"pi named and signed out of its provider", piGoblin, false, []string{"claude"}, []string{"pi auth check --provider openrouter --json --no-refresh"}, "The named fallback pi is not signed in, so it is left out"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			policy := versionSixPolicy(t, test.fallback)
 			h, nm := gateHome(t, policy, operatorMachineConfig)
 			wt, _ := gatedTask(t, h, "task", policy, claudeGoblin)
-			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}, signedIn: map[string]bool{"codex": test.isSignedIn, "claude": test.isSignedIn}}
+			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}, signedIn: map[string]bool{"codex": test.isSignedIn, "claude": test.isSignedIn, "pi": test.isSignedIn}}
 			var out bytes.Buffer
 
 			if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &out); err != nil {
@@ -328,19 +342,54 @@ func TestPipelineRunTakesAnUnnamedModelOrEffortFromTheMachineConfig(t *testing.T
 	})
 }
 
+// A task's gate starts the harness its goblin runs on, with the model and
+// effort the task names: a Pi task's gate starts Pi on its provider-qualified
+// model, so a goblin on Pi no longer has its managed validation restarted on
+// another harness, and a Codex or Claude Code task's gate starts its own.
+func TestPipelineRunStartsATasksGateOnItsOwnHarness(t *testing.T) {
+	for _, test := range []struct {
+		goblin      pipeline.Reviewer
+		serviceTier string
+	}{
+		{piGoblin, ""},
+		{codexGoblin, "default"},
+		{claudeGoblin, ""},
+	} {
+		t.Run(test.goblin.Harness, func(t *testing.T) {
+			policy := versionSixPolicy(t, pipeline.Reviewer{})
+			h, nm := gateHome(t, policy, operatorMachineConfig)
+			wt, _ := gatedTask(t, h, "task", policy, test.goblin)
+			runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}}
+
+			if err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{}); err != nil {
+				t.Fatalf("pipelineCommand: %v", err)
+			}
+
+			selection, raw, _, _ := launchedSelection(t, runner.native)
+			t.Logf("%s task's launch selection: %s", test.goblin.Harness, raw)
+			for _, role := range []string{"primary", "reviewer", "fixer"} {
+				chain := selection.Profiles[role]
+				if len(chain) != 1 || chain[0]["harness"] != test.goblin.Harness || chain[0]["model"] != test.goblin.Model || chain[0]["effort"] != test.goblin.Effort || chain[0]["service_tier"] != test.serviceTier {
+					t.Fatalf("launch selection = %s, want %s's %s on the task's own model and effort", raw, role, test.goblin.Harness)
+				}
+			}
+		})
+	}
+}
+
 func TestPipelineRunRefusesAGateForAHarnessItCannotProve(t *testing.T) {
 	policy := versionSixPolicy(t, codexGoblin)
 	h, nm := gateHome(t, policy, operatorMachineConfig)
-	wt, _ := gatedTask(t, h, "task", policy, pipeline.Reviewer{Harness: "pi", Model: "anthropic/claude-opus-5-5", Effort: "high"})
+	wt, _ := gatedTask(t, h, "task", policy, pipeline.Reviewer{Harness: "grok", Model: "grok-4", Effort: "high"})
 	runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{worktree: wt}, signedIn: map[string]bool{"codex": true}}
 
 	err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", "ship safely"}, &bytes.Buffer{})
 
-	if err == nil || !strings.Contains(err.Error(), "pi") {
-		t.Fatalf("error = %v, want the pi task refused by name", err)
+	if err == nil || !strings.Contains(err.Error(), "grok") {
+		t.Fatalf("error = %v, want the grok task refused by name", err)
 	}
 	if len(runner.native) != 0 || len(runner.probes) != 0 {
-		t.Fatalf("a pi task's gate started %+v after asking %v, though only its own harness may gate it first", runner.native, runner.probes)
+		t.Fatalf("a grok task's gate started %+v after asking %v, though only its own harness may gate it first", runner.native, runner.probes)
 	}
 }
 

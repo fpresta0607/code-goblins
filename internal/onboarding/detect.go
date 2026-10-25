@@ -78,6 +78,9 @@ type Detector struct {
 	// PiDirectory is pi's agent folder, whose settings.json names the
 	// provider pi signs in to.
 	PiDirectory string
+	// PiProvider, when set, is the provider pi's status command asks about
+	// in place of the one pi's settings name.
+	PiProvider string
 	// ClaudeDirectory is the folder Claude Code's native installer puts
 	// claude.exe in, ~\.local\bin.
 	ClaudeDirectory string
@@ -107,7 +110,10 @@ func (d Detector) Detect(ctx context.Context, id string) Agent {
 	agent.State, agent.Reason = Unverified, "Sign-in could not be verified"
 	args := map[string][]string{"claude": {"auth", "status", "--json"}, "codex": {"login", "status"}}[id]
 	if id == "pi" {
-		provider := piProvider(d.PiDirectory)
+		provider := d.PiProvider
+		if provider == "" {
+			provider = piProvider(d.PiDirectory)
+		}
 		if provider == "" {
 			agent.State, agent.Reason = SignedOut, "Sign-in needed: no provider chosen"
 			return agent

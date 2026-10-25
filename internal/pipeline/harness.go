@@ -11,7 +11,7 @@ import (
 // gateHarnesses are the harnesses whose model and effort no-mistakes can
 // prove before it starts an agent, which is what lets one daemon run each
 // gate on the harness its own run names.
-var gateHarnesses = []string{"claude", "codex"}
+var gateHarnesses = []string{"claude", "codex", "pi"}
 
 // gateEfforts are the reasoning efforts no-mistakes names for every harness.
 var gateEfforts = []string{"minimal", "low", "medium", "high", "xhigh", "max"}
@@ -39,6 +39,12 @@ func gateProfile(profile Reviewer) error {
 	if !isGateToken(profile.Model) {
 		return fmt.Errorf("pipeline: a gate agent on %s needs its model named as an exact identifier, not %q", profile.Harness, profile.Model)
 	}
+	if profile.Harness == "pi" {
+		provider, model, ok := strings.Cut(profile.Model, "/")
+		if !ok || provider == "" || model == "" {
+			return fmt.Errorf("pipeline: a gate agent on pi needs its model as provider/model, not %q", profile.Model)
+		}
+	}
 	if !slices.Contains(gateEfforts, profile.Effort) {
 		return fmt.Errorf("pipeline: a gate agent on %s needs one of the efforts %s, not %q", profile.Harness, strings.Join(gateEfforts, ", "), profile.Effort)
 	}
@@ -61,8 +67,10 @@ func isGateToken(value string) bool {
 // GateChain is the agents a version 6 gate may start, in order: the task's
 // own harness with its model and effort, then the fallback the operator named
 // when that is another harness and isSignedIn says somebody is signed in to
-// it. With no fallback named nothing is asked and no second harness starts.
-func (p Policy) GateChain(own Reviewer, isSignedIn func(harness string) bool) ([]Reviewer, error) {
+// it. isSignedIn is given the whole fallback, because pi signs in per provider
+// and the fallback's model names its provider. With no fallback named nothing
+// is asked and no second harness starts.
+func (p Policy) GateChain(own Reviewer, isSignedIn func(fallback Reviewer) bool) ([]Reviewer, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
@@ -73,7 +81,7 @@ func (p Policy) GateChain(own Reviewer, isSignedIn func(harness string) bool) ([
 		return nil, err
 	}
 	chain := []Reviewer{own}
-	if p.Fallback != (Reviewer{}) && p.Fallback.Harness != own.Harness && isSignedIn(p.Fallback.Harness) {
+	if p.Fallback != (Reviewer{}) && p.Fallback.Harness != own.Harness && isSignedIn(p.Fallback) {
 		chain = append(chain, p.Fallback)
 	}
 	return chain, nil
