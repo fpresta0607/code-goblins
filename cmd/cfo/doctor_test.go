@@ -202,7 +202,7 @@ func TestRunDoctorNamesEachHarnessVersionBesideTheNewest(t *testing.T) {
 	// Assert
 	for _, want := range []string{
 		"version  claude     1.0.0 installed, the newest on Claude Code's latest channel",
-		"version  codex      1.0.0 installed, 1.2.0 on npm: npm install -g @openai/codex@1.2.0",
+		"version  codex      1.0.0 installed, 1.2.0 on npm: codex update (fallback: npm install -g @openai/codex@1.2.0)",
 		"version  pi         1.0.0 installed; the newest could not be read: npm answered 404 Not Found",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -211,6 +211,16 @@ func TestRunDoctorNamesEachHarnessVersionBesideTheNewest(t *testing.T) {
 	}
 	if exit != 0 {
 		t.Errorf("exit = %d, want 0: an older or unread harness version is not unhealthy\n%s", exit, stdout.String())
+	}
+
+	// Act: pi's newest is readable too, and behind its installed version.
+	harnessReleaseServer(t, "1.0.0", "1.2.0", "1.4.0")
+	stdout.Reset()
+	exit = run([]string{"doctor"}, &stdout, &stderr)
+
+	// Assert
+	if want := "version  pi         1.0.0 installed, 1.4.0 on npm: pi update (fallback: npm install -g @earendil-works/pi-coding-agent@1.4.0)"; !strings.Contains(stdout.String(), want) || exit != 0 {
+		t.Errorf("exit = %d, doctor lacks %q\n%s", exit, want, stdout.String())
 	}
 }
 
