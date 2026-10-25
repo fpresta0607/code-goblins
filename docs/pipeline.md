@@ -219,6 +219,7 @@ This is a cooperative driver guard, not an operating-system sandbox around direc
 Agents must use the driver for managed tasks and must not invoke native mutation commands to bypass its budgets.
 
 `recover` returns custody after a failed or cancelled unpublished run when native recovery is blocked by a stale recorded head.
+It first preserves whatever the run's worktree still holds uncommitted, as described below, and names that commit in its output.
 For pipeline-owned recovery that keeps the submitted head, it requires a clean worktree whose head exactly matches both the submitted head and native gate branch.
 The stale recorded commit must be an ancestor of that preserved head, or the gate's own rebase of it.
 A run whose rebase step moved its recorded head and that then failed before it pushed leaves that rebase unverified, and native recovery refuses it with `blocked_recover_unverified_head`, with or without `--keep-local`.
@@ -245,6 +246,12 @@ The local branch and origin refs are never moved.
 The command never resets a branch or recovers a pushed run.
 Pipeline-owned recorded-head repair requires strict ancestry or that proof of a pure gate rebase.
 After native has already returned clean user-owned custody, the registered identity, unpublished-run state, stale-head anchor, and compare-and-swap guards are the authorized boundary, so the driver does not reject legitimate rebases or follow-up commits by comparing them with the stale head.
+
+A gate's fixer works in the run's worktree, which no-mistakes removes with force once the run is over, so the driver keeps what the fixer left uncommitted before anything takes that worktree away.
+Before `cfo pipeline recover` runs any native command, and before a pause aborts a live run, every tracked and untracked change in the run's worktree is committed and pinned under `refs/no-mistakes/recovery/<run>/worktree` in the gate repository, and that commit's parent is the head the run ended at.
+The commit is made from an index of the driver's own, so the goblin's staged and unstaged work is exactly as it left it, and a first capture stands rather than being replaced by a later one a goblin may already be restoring.
+The commit is named in the branch-sync evidence the recovery reads, in `cfo pipeline recover`'s output, and in the lifecycle record of a pause, so an interrupted fixer's repairs stay recoverable with `git cherry-pick -n <commit>` after the worktree is gone.
+On 2026-10-23 an allowance-interrupted review repair lost its frontend changes exactly this way: the step failed, custody returned at the submitted head, and native recovery swept the worktree before anything read it (issue 1416).
 
 This repository's committed automatic-fix overrides remain authoritative for a new submitted branch.
 Once the shared config runs the current policy, migrate each task frozen at an older version explicitly before its next gate command.

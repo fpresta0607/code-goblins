@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -22,6 +23,10 @@ type InterruptedRun struct {
 	PushedHead string `json:"pushed_head"`
 	Intent     string `json:"intent"`
 	Worktree   string `json:"worktree"`
+	// WorktreeEdits is the commit the run worktree's unfinished changes were
+	// preserved at, and empty when it held none. It is read beside the run's
+	// database row, never from it.
+	WorktreeEdits string `json:"worktree_edits"`
 }
 
 // IsTerminal reports whether the run has finished, so nothing is left to
@@ -32,6 +37,13 @@ func (run InterruptedRun) IsTerminal() bool {
 
 var gateIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
 var gateCommit = regexp.MustCompile(`^[a-f0-9]{40}$`)
+
+// WorktreeRef names where a run's unfinished worktree changes are kept. It
+// sits beside the refs recovery anchors its heads under, and it is bound to the
+// run, so a goblin recovering custody finds them without the worktree.
+func WorktreeRef(runID string) string {
+	return "refs/no-mistakes/recovery/" + runID + "/worktree"
+}
 
 func (reader Reader) Interruption(ctx context.Context, project, branch string) (InterruptedRun, error) {
 	var runs []InterruptedRun
@@ -62,7 +74,7 @@ func (reader Reader) Interrupt(ctx context.Context, project, worktree, branch, r
 		if err := reader.importInterruptedHead(ctx, worktree, run); err != nil {
 			return run, err
 		}
-		worktreeHead, err := reader.preserveInterruptedWorktree(ctx, worktree, run)
+		worktreeHead, edits, err := reader.preserveInterruptedWorktree(ctx, worktree, run)
 		if err != nil {
 			return run, err
 		}
@@ -98,20 +110,50 @@ func (reader Reader) Interrupt(ctx context.Context, project, worktree, branch, r
 		} else if worktreeHead != "" {
 			current.Head = worktreeHead
 		}
+		current.WorktreeEdits = edits
 		return current, nil
 	}
 	return run, errors.New("gate kept advancing while stopping; its commits are pinned, but the run was not aborted")
 }
 
-func (reader Reader) preserveInterruptedWorktree(ctx context.Context, worktree string, run InterruptedRun) (string, error) {
-	if run.Worktree == "" {
-		return "", nil
+// preserveInterruptedWorktree pins every commit and every unfinished change the
+// gate run's worktree holds before the run is aborted, and returns its head and
+// the commit its changes were preserved at.
+func (reader Reader) preserveInterruptedWorktree(ctx context.Context, worktree string, run InterruptedRun) (string, string, error) {
+	gateWorktree, err := reader.gateRunWorktree(ctx, run.ID, run.RepoID)
+	if err != nil {
+		return "", "", fmt.Errorf("%w; no run was aborted", err)
 	}
-	expected := filepath.Join(reader.Root, "worktrees", run.RepoID, run.ID)
-	if !strings.EqualFold(filepath.Clean(run.Worktree), expected) {
-		return "", errors.New("gate worktree differs from its verified run directory; no run was aborted")
+	if gateWorktree == "" {
+		return "", "", nil
 	}
-	if _, err := os.Stat(run.Worktree); errors.Is(err, os.ErrNotExist) {
+	result, err := reader.runGit(ctx, gateWorktree, false, "rev-parse", "HEAD")
+	head := strings.TrimSpace(string(result.Stdout))
+	if err != nil || result.ExitCode != 0 || !gateCommit.MatchString(head) {
+		return "", "", errors.New("gate worktree head could not be read; no run was aborted")
+	}
+	if head != run.Head {
+		actual := run
+		actual.Head = head
+		if err := reader.importInterruptedHead(ctx, worktree, actual); err != nil {
+			return "", "", err
+		}
+	}
+	edits, err := reader.preserveWorktreeEdits(ctx, run.ID, run.RepoID, gateWorktree, head)
+	if err != nil {
+		return "", "", fmt.Errorf("%w; no run was aborted", err)
+	}
+	return head, edits, nil
+}
+
+// gateRunWorktree is the verified worktree of a gate run, and "" when the run
+// has none left.
+func (reader Reader) gateRunWorktree(ctx context.Context, runID, repoID string) (string, error) {
+	if !gateIdentity.MatchString(runID) || !gateIdentity.MatchString(repoID) {
+		return "", errors.New("gate run identity could not be verified")
+	}
+	worktree := filepath.Join(reader.Root, "worktrees", repoID, runID)
+	if _, err := os.Stat(worktree); errors.Is(err, os.ErrNotExist) {
 		return "", nil
 	} else if err != nil {
 		return "", err
@@ -120,34 +162,105 @@ func (reader Reader) preserveInterruptedWorktree(ctx context.Context, worktree s
 		args []string
 		want string
 	}{
-		{[]string{"rev-parse", "--show-toplevel"}, run.Worktree},
-		{[]string{"rev-parse", "--path-format=absolute", "--git-common-dir"}, filepath.Join(reader.Root, "repos", run.RepoID+".git")},
+		{[]string{"rev-parse", "--show-toplevel"}, worktree},
+		{[]string{"rev-parse", "--path-format=absolute", "--git-common-dir"}, filepath.Join(reader.Root, "repos", repoID+".git")},
 	} {
-		result, err := reader.runGit(ctx, run.Worktree, false, check.args...)
+		result, err := reader.runGit(ctx, worktree, false, check.args...)
 		if err != nil || result.ExitCode != 0 || !strings.EqualFold(filepath.Clean(strings.TrimSpace(string(result.Stdout))), filepath.Clean(check.want)) {
-			return "", errors.New("gate worktree repository could not be verified; no run was aborted")
+			return "", errors.New("gate worktree repository could not be verified")
 		}
 	}
-	result, err := reader.runGit(ctx, run.Worktree, false, "rev-parse", "HEAD")
+	return worktree, nil
+}
+
+// preserveRunWorktreeEdits keeps whatever unfinished changes a failed or
+// cancelled run's worktree still holds. Native recovery removes that worktree
+// with force, so the fixer's tracked and untracked repairs are committed and
+// pinned before anything named recovery runs.
+func (reader Reader) preserveRunWorktreeEdits(ctx context.Context, run recoveryRecord) (string, error) {
+	worktree, err := reader.gateRunWorktree(ctx, run.RunID, run.RepoID)
+	if err != nil {
+		return "", fmt.Errorf("pipeline: gate worktree of run %s could not be verified: %w", run.RunID, err)
+	}
+	if worktree == "" {
+		return "", nil
+	}
+	result, err := reader.runGit(ctx, worktree, false, "rev-parse", "HEAD")
 	head := strings.TrimSpace(string(result.Stdout))
 	if err != nil || result.ExitCode != 0 || !gateCommit.MatchString(head) {
-		return "", errors.New("gate worktree head could not be read; no run was aborted")
+		return "", fmt.Errorf("pipeline: gate worktree of run %s could not be read, so its unfinished changes are not safe: %w", run.RunID, err)
 	}
-	if head != run.Head {
-		actual := run
-		actual.Head = head
-		if err := reader.importInterruptedHead(ctx, worktree, actual); err != nil {
-			return "", err
+	return reader.preserveWorktreeEdits(ctx, run.RunID, run.RepoID, worktree, head)
+}
+
+// preserveWorktreeEdits commits every tracked and untracked change the gate
+// run's worktree holds - the fixer's unfinished repairs - and pins that commit
+// under the run's own ref, so a teardown that removes the worktree with force
+// loses nothing. It is idempotent: the first capture stands, since it is what a
+// goblin may already be restoring. It returns the commit, and "" when the
+// worktree holds no change.
+func (reader Reader) preserveWorktreeEdits(ctx context.Context, runID, repoID, worktree, head string) (string, error) {
+	if !gateIdentity.MatchString(runID) || !gateIdentity.MatchString(repoID) {
+		return "", errors.New("gate run identity could not be verified")
+	}
+	bare := filepath.Join(reader.Root, "repos", repoID+".git")
+	ref := WorktreeRef(runID)
+	kept, found, err := reader.recoveryHead(ctx, bare, ref, true)
+	if err != nil {
+		return "", fmt.Errorf("gate worktree changes could not be checked: %w", err)
+	}
+	if found {
+		return kept, nil
+	}
+	status, err := reader.runGit(ctx, worktree, false, "status", "--porcelain", "--untracked-files=all")
+	if err != nil || status.ExitCode != 0 {
+		return "", errors.New("gate worktree changes could not be read")
+	}
+	if len(bytes.TrimSpace(status.Stdout)) == 0 {
+		return "", nil
+	}
+	index, err := os.CreateTemp("", "cfo-gate-worktree-")
+	if err != nil {
+		return "", err
+	}
+	indexPath := index.Name()
+	if err := index.Close(); err != nil {
+		return "", err
+	}
+	// git makes the index it is given, and refuses one that already exists.
+	if err := os.Remove(indexPath); err != nil {
+		return "", err
+	}
+	defer func() { _ = os.Remove(indexPath) }()
+	// The worktree's own index is never written: the changes are staged into an
+	// index of this read's own, so the goblin's next command sees what it left.
+	env := append(os.Environ(), "GIT_INDEX_FILE="+indexPath)
+	var tree string
+	for _, args := range [][]string{{"read-tree", head}, {"add", "--all", "--", "."}, {"write-tree"}} {
+		result, err := reader.runGitEnv(ctx, worktree, env, args...)
+		if err != nil || result.ExitCode != 0 {
+			return "", fmt.Errorf("gate worktree changes could not be preserved: %s failed", args[0])
+		}
+		if args[0] == "write-tree" {
+			tree = strings.TrimSpace(string(result.Stdout))
 		}
 	}
-	result, err = reader.runGit(ctx, run.Worktree, false, "status", "--porcelain", "--untracked-files=all")
-	if err != nil || result.ExitCode != 0 {
-		return head, errors.New("gate worktree changes could not be read; no run was aborted")
+	headTree, err := reader.runGit(ctx, worktree, false, "rev-parse", head+"^{tree}")
+	if err != nil || headTree.ExitCode != 0 {
+		return "", errors.New("gate worktree changes could not be preserved: the run head has no tree")
 	}
-	if len(result.Stdout) > 0 {
-		return head, fmt.Errorf("gate has unfinished changes retained at %s; committed fixes are pinned, and the run was not aborted", run.Worktree)
+	if tree == strings.TrimSpace(string(headTree.Stdout)) {
+		return "", nil
 	}
-	return head, nil
+	commit, err := reader.runGitEnv(ctx, worktree, env, "-c", "user.name=Code Goblins", "-c", "user.email=code-goblins@localhost", "-c", "commit.gpgsign=false", "commit-tree", tree, "-p", head, "-m", "cfo: preserve the gate worktree edits of run "+runID)
+	kept = strings.TrimSpace(string(commit.Stdout))
+	if err != nil || commit.ExitCode != 0 || !gateCommit.MatchString(kept) {
+		return "", errors.New("gate worktree changes could not be preserved: the commit could not be written")
+	}
+	if err := reader.preserveRecoveryHead(ctx, bare, ref, kept); err != nil {
+		return "", fmt.Errorf("gate worktree changes could not be pinned: %w", err)
+	}
+	return kept, nil
 }
 
 func (reader Reader) importInterruptedHead(ctx context.Context, worktree string, run InterruptedRun) error {

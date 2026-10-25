@@ -13,14 +13,16 @@ import (
 )
 
 type interruptionRunner struct {
-	run       InterruptedRun
-	commands  []string
-	failMerge bool
-	pins      map[string]string
-	startRun  bool
-	endStatus string
-	gateHead  string
-	gateDirty bool
+	run          InterruptedRun
+	commands     []string
+	failMerge    bool
+	pins         map[string]string
+	startRun     bool
+	endStatus    string
+	gateHead     string
+	gateDirty    bool
+	editsCommit  string
+	committedFor string
 }
 
 func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -89,6 +91,22 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 		}
 		return execx.Result{Stdout: []byte(runner.run.Head)}, nil
 	}
+	if strings.Contains(command, "^{tree}") {
+		return execx.Result{Stdout: []byte(strings.Repeat("d", 40))}, nil
+	}
+	if strings.Contains(command, "write-tree") {
+		if runner.gateDirty {
+			return execx.Result{Stdout: []byte(strings.Repeat("e", 40))}, nil
+		}
+		return execx.Result{Stdout: []byte(strings.Repeat("d", 40))}, nil
+	}
+	if strings.Contains(command, "commit-tree") {
+		runner.committedFor = request.Args[len(request.Args)-1]
+		if runner.editsCommit == "" {
+			runner.editsCommit = strings.Repeat("f", 40)
+		}
+		return execx.Result{Stdout: []byte(runner.editsCommit)}, nil
+	}
 	if strings.Contains(command, "rev-parse --show-toplevel") {
 		return execx.Result{Stdout: []byte(request.Dir)}, nil
 	}
@@ -114,15 +132,30 @@ func TestInterruptPreservesTheGateWorktreeBeyondItsRecordedHead(t *testing.T) {
 				t.Fatal(err)
 			}
 			runner := &interruptionRunner{run: run, gateHead: strings.Repeat("b", 40), gateDirty: isDirty}
-			_, err := (Reader{Root: root, Commands: runner}).Interrupt(context.Background(), "project", t.TempDir(), run.Branch, run.ID)
-			if (err != nil) != isDirty {
+			interrupted, err := (Reader{Root: root, Commands: runner}).Interrupt(context.Background(), "project", t.TempDir(), run.Branch, run.ID)
+			if err != nil {
 				t.Fatalf("interruption=%v", err)
 			}
 			commands := strings.Join(runner.commands, "\n")
 			pin := strings.Index(commands, "update-ref --no-deref refs/heads/archive/pause-run-1-"+runner.gateHead)
 			abort := strings.Index(commands, "axi abort --run")
-			if pin < 0 || isDirty && abort >= 0 || !isDirty && abort < pin {
+			if pin < 0 || abort < pin {
 				t.Fatalf("gate work was not preserved before abort:\n%s", commands)
+			}
+			// The abort removes the run's worktree with force, so the edits it
+			// holds are committed and pinned under the run before it runs.
+			edits := strings.Index(commands, "update-ref --no-deref "+WorktreeRef(run.ID)+" "+runner.editsCommit)
+			if !isDirty {
+				if edits >= 0 || interrupted.WorktreeEdits != "" {
+					t.Fatalf("a clean worktree was preserved as edits:\n%s", commands)
+				}
+				return
+			}
+			if edits < 0 || edits > abort {
+				t.Fatalf("unfinished gate changes were not pinned before the abort:\n%s", commands)
+			}
+			if interrupted.WorktreeEdits != runner.editsCommit {
+				t.Fatalf("worktree edits = %q, want the pinned %q", interrupted.WorktreeEdits, runner.editsCommit)
 			}
 		})
 	}
