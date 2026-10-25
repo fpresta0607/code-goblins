@@ -936,7 +936,12 @@ func gitWorktree(t *testing.T, dir string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"init", "-q", "-b", "feat/work"}, {"commit", "-q", "--allow-empty", "-m", "root"}} {
+	// The identity is named here, as the other fixtures do: a CI runner has no
+	// global git user, so a commit that relies on one dies at setup.
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "feat/work"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "root"},
+	} {
 		command := exec.Command("git", args...)
 		command.Dir = dir
 		if out, err := command.CombinedOutput(); err != nil {

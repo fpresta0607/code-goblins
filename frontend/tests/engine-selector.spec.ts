@@ -157,6 +157,9 @@ for (const width of [1440, 390]) {
       await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
       await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", cfo_runs: true, healthy: true, revision: 3, tasks: [live] } })), { ...task("working"), generation: "s2", model: "next-model", effort: "low" });
+      // A new generation remounts the panel, which folds its task list again, so
+      // the header he reads the harness in is opened once more.
+      await openTaskList(page);
       await page.locator("details.harness > summary").click();
       await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("next-model");
     });

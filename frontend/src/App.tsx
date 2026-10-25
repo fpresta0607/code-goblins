@@ -359,10 +359,12 @@ export function App() {
   const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || terminalInPlace);
   const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !terminalInPlace;
   // One box for the session, moved rather than copied: if each place drew its
-  // own, two of them would keep two drafts of the same words. It sits under the
-  // conversation, or under a terminal that cannot take typing itself, which is
-  // a held one and one whose goblin takes messages and has no terminal yet.
-  const queuedBox = terminalShown && !messagesShown && (heldCustody || takesTyping);
+  // own, two of them would keep two drafts of the same words. The deck draws a
+  // box of its own for a goblin that takes messages and has no conversation, so
+  // this one is the conversation's, shown under a terminal that cannot take
+  // typing: a held one, and one of a session the deck draws no box for.
+  const deckOwnsBox = !!task && !messagesSource && takesMessages(task);
+  const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && heldCustody;
   const boxOnScreen = messagesShown || queuedBox;
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
   if (messagesShown && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
