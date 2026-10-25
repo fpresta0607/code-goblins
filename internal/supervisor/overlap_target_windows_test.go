@@ -377,11 +377,14 @@ func (r *movingBranchRunner) Run(ctx context.Context, req execx.Request) (execx.
 func TestAFailedRemoteReadIsUnreadRatherThanMeasuredAgainstTheDefault(t *testing.T) {
 	for _, c := range []struct {
 		name        string
+		prURL       string
 		failRemotes bool
 		wantErr     bool
 	}{
-		{name: "remote enumeration fails", failRemotes: true, wantErr: true},
-		{name: "remote enumeration succeeds and holds no such base"},
+		{name: "remote enumeration fails", prURL: "https://github.com/fpresta0607/no-mistakes/pull/24", failRemotes: true, wantErr: true},
+		// No remote holds this base, which is a successful listing, so the
+		// ordinary default stands and nothing is read.
+		{name: "remote enumeration succeeds and holds no such base", prURL: "https://github.com/someone/else/pull/24"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange: origin and the default branch read fine, so only the
@@ -389,7 +392,7 @@ func TestAFailedRemoteReadIsUnreadRatherThanMeasuredAgainstTheDefault(t *testing
 			worktree := forkCheckout(t)
 			goblin := ciGoblin{
 				id: "task", repo: worktree, branch: "fix/daemon",
-				pullRequests: []string{"https://github.com/fpresta0607/no-mistakes/pull/24"},
+				pullRequests: []string{c.prURL},
 				meta:         state.TaskMeta{ID: "task", Worktree: worktree},
 			}
 			runner := &failingRemotesRunner{inner: execx.OSRunner{}, fail: c.failRemotes}
