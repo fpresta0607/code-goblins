@@ -1360,7 +1360,9 @@ Escape closes Recent messages while it is open, from its button or from inside i
 
 A harness keeps running the install it started from, so an update of Claude Code, Codex or pi installed while the CFO or a goblin runs takes effect only when that harness restarts.
 Every ten seconds the supervisor reads each running native terminal for one, the CFO's and every live goblin's that is not paused or changing.
-An update waits when the harness's own footer under its composer says so, which Claude Code 2.1.292 draws as "✓ Update installed · Restart to update" with a second half its servers may word as "/restart to apply" or "Restart to apply", or when its program on PATH, `claude.exe` or the npm shim `codex.cmd` or `pi.cmd` that every install writes again, was written after the terminal's program started.
+An update waits when the harness's own footer under its composer says so, which Claude Code 2.1.292 draws as "✓ Update installed · Restart to update" with a second half its servers may word as "/restart to apply" or "Restart to apply", or when its install was written after the terminal's program started.
+For Claude Code that install is `claude.exe`, which its installer writes again on every update.
+For Codex and pi it is the package npm installed under the shim `codex.cmd` or `pi.cmd` on PATH, read from its `package.json`, since npm writes a shim only when it links the bin and their own updaters, `codex update` and `pi update`, rewrite the package instead, so a shim npm linked again is no update and a package either route installed is one.
 Codex and pi announce only an update that is available, which a restart does not install, so for them the install is the signal; the same words above the composer are the conversation and never count.
 While one waits, the snapshot's `cfo_update` puts **Update** before the AFK switch in the CFO panel's header, and a task's `harness_update` puts it among the goblin's controls, on its card and in its panel.
 Nothing restarts until the Overlord presses it: an update waiting only shows the button, AFK mode never presses it, and the CFO never does.

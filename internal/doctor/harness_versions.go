@@ -21,10 +21,11 @@ import (
 )
 
 // Release is where a harness's publisher offers its newest version: the URL
-// answering with it and the source's name for the line. A harness installed
-// from npm names its Package, and npm installs the newest version of it; one
-// with an installer of its own names the command, Update, that installs the
-// newest.
+// answering with it and the source's name for the line. A harness with an
+// updater of its own names the command, Update, that installs the newest, and
+// one npm installs names its Package too, whose npm command installs the
+// newest as well and is the fallback where the harness's own updater does not
+// replace the install on this machine.
 type Release struct {
 	URL     string
 	Source  string
@@ -41,8 +42,8 @@ type Releases map[string]Release
 // one unauthenticated GET that costs nothing.
 var HarnessReleases = Releases{
 	"claude": {URL: "https://downloads.claude.ai/claude-code-releases/latest", Source: "Claude Code's latest channel", Update: "claude update"},
-	"codex":  {URL: "https://registry.npmjs.org/@openai/codex/latest", Source: "npm", Package: "@openai/codex"},
-	"pi":     {URL: "https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest", Source: "npm", Package: "@earendil-works/pi-coding-agent"},
+	"codex":  {URL: "https://registry.npmjs.org/@openai/codex/latest", Source: "npm", Package: "@openai/codex", Update: "codex update"},
+	"pi":     {URL: "https://registry.npmjs.org/@earendil-works/pi-coding-agent/latest", Source: "npm", Package: "@earendil-works/pi-coding-agent", Update: "pi update"},
 }
 
 // ReleasesVariable names a URL that stands in for every harness's release
@@ -109,15 +110,31 @@ func (releases Releases) Versions(ctx context.Context, client *http.Client, prob
 			}
 			version.Newest = newest
 			if newerVersion(newest, version.Installed) {
-				version.Update = release.Update
-				if release.Package != "" {
-					version.Update = "npm install -g " + release.Package + "@" + newest
-				}
+				version.Update = release.updateCommand(newest)
 			}
 		})
 	}
 	asked.Wait()
 	return versions
+}
+
+// updateCommand is what installs newest: the harness's own updater, and for a
+// harness npm installs, npm's command beside it as the fallback, since a
+// harness the fleet installed from npm is npm's to reinstall, and a harness
+// with no updater of its own gets npm's command alone.
+func (release Release) updateCommand(newest string) string {
+	npm := ""
+	if release.Package != "" {
+		npm = "npm install -g " + release.Package + "@" + newest
+	}
+	switch {
+	case release.Update == "":
+		return npm
+	case npm == "":
+		return release.Update
+	default:
+		return release.Update + " (fallback: " + npm + ")"
+	}
 }
 
 // newest asks the release source for its newest version.
