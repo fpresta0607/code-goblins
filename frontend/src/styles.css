@@ -938,6 +938,10 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
 /* Said while typed keys sit unread in a busy program's input, or while
    typing is held over a live screen, in the corner no other mark uses. */
+.host-terminal { flex-direction: column; }
+/* What a held terminal says is a plain line under it, never a pill over the
+   screen it would cover. */
+.terminal-held-line { flex: none; margin: 0; padding: 6px 12px; border-top: 1px solid var(--glass-border); color: #f1c598; overflow-wrap: anywhere; }
 .terminal-unread, .terminal-unsent { position: absolute; top: 10px; left: 12px; z-index: 2; max-width: calc(100% - 24px); color: #f1c598; }
 .terminal-unread .status-dot, .terminal-unsent .status-dot { background: var(--amber); }
 /* While he reads a terminal's history, the line he types on stays pinned over
@@ -1368,8 +1372,13 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */
 /* The panel's own header and its folded task list take what they need, and
-   the stage under them takes the rest of the panel. */
+   the stage under them takes the rest of the panel. On a screen too short to
+   hold both, the list stops at half the panel so the conversation and its box
+   keep the room they need to stay whole on screen. */
 .goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
+@media (max-height: 60rem) {
+  .goblin-panel.showing-terminal { max-height: 50%; }
+}
 /* The stage is the box under the panel's header that a session's Messages
    view and its terminal share: the Messages view lies over the terminal
    deck, which stays laid out unseen behind it, so the terminal has its size
