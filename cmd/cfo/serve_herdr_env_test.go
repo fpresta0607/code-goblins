@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // environmentReportVariable makes this test binary, started as a stand-in
@@ -146,6 +147,45 @@ func TestAServeStartedInANativeTerminalOpensTerminalsWithoutItsProof(t *testing.
 		if name, _, _ := strings.Cut(entry, "="); strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) {
 			t.Errorf("the terminal's herdr started with %s", entry)
 		}
+	}
+}
+
+// cfo serve started under an agent harness, as an update run in the CFO's own
+// native terminal starts it, forgets the marks that harness sets for every
+// command it runs: the supervisor is the fleet's own service, and on
+// 2026-10-25 one an update had started that way had every automatic start it
+// made refused as an agent's session (#1508).
+func TestAServeStartedUnderAnAgentHarnessForgetsItsMarks(t *testing.T) {
+	// Arrange: the CFO's terminal carried AI_AGENT=pi that day, since pi sets
+	// it for every command it runs, and Claude Code sets CLAUDECODE.
+	t.Setenv("AI_AGENT", "pi")
+	t.Setenv("CLAUDECODE", "1")
+	// A variable that marks no agent's session stays.
+	t.Setenv("HERDR_SESSION", "fleet")
+
+	// Act: serve starts as from the CFO's terminal and stops at an address it
+	// refuses.
+	var stdout, stderr bytes.Buffer
+	if exit := run([]string{"serve", "--listen", "example.invalid:1"}, &stdout, &stderr); exit != 2 {
+		t.Fatalf("serve exit = %d (stderr %q), want the address refused", exit, stderr.String())
+	}
+
+	// Assert: no command the supervisor runs carries a mark the CFO-act check
+	// reads as an agent's session.
+	for _, entry := range os.Environ() {
+		if name, _, _ := strings.Cut(entry, "="); supervisor.IsAgentSessionVariable(name) {
+			t.Errorf("a command the supervisor runs inherits %s", entry)
+		}
+	}
+	if os.Getenv("HERDR_SESSION") != "fleet" {
+		t.Errorf("serve forgot HERDR_SESSION, which marks no agent's session")
+	}
+	// A dispatch the supervisor makes by itself is no longer refused for a
+	// mark in its environment: the check finds none there.
+	dispatch := []string{"spawn", "g1", "--project", t.TempDir(), "--brief", filepath.Join(t.TempDir(), "brief.md")}
+	resolve := func() (home.Home, error) { return home.Home{State: t.TempDir()}, nil }
+	if refusal := refuseAnotherAgentsSession(dispatch, resolve); strings.Contains(refusal, "AI_AGENT") || strings.Contains(refusal, "CLAUDECODE") {
+		t.Errorf("the supervisor's own dispatch = %q, want the check to find no agent's mark in its environment", refusal)
 	}
 }
 
