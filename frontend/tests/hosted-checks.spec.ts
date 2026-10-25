@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, type Page, test } from "./site";
 
 // A live goblin's hosted checks and its change's newest cfo gate test run
 // beside its pull request in its panel, and never on its card (the Overlord,
@@ -37,9 +37,7 @@ async function open(page: Page) {
 const card = (page: Page, title: string) => page.locator(".task-card-shell").filter({ hasText: title });
 async function openPanel(page: Page, title: string) {
   await card(page, title).locator(".task-card").click();
-  const taskView = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await taskView.count()) await taskView.click();
-  return page.locator(".panel-header");
+  return openTaskList(page);
 }
 
 // The parts of a card's pull request row, as boxes: none covers another and
@@ -102,9 +100,7 @@ test("the panel shows the checks beside its pull request", async ({ page }) => {
   await open(page);
 
   await card(page, "Export the audit trail").locator(".task-card").click();
-  const taskView = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await taskView.count()) await taskView.click();
-  const header = page.locator(".panel-header");
+  const header = await openTaskList(page);
 
   await expect(header.locator(".hosted-checks")).toHaveText(["Checks passed", "Approved"]);
   await expect(header.locator("a.local-checks")).toHaveText("Local tests passed");

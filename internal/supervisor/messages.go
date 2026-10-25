@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -62,7 +63,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		return Evaluation{}, err
 	}
 	if isStarting {
-		return s.waitForGoblin(a)
+		// A start under way reads the branch too, so a message held by a gate
+		// takes the same path across a restart as it does while it runs.
+		return s.waitForGoblin(a, isGateUnclearNow(ctx, s, meta))
 	}
 	record, err := state.ReadLifecycle(stateDir, a.TaskID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -80,7 +83,29 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		if isKept {
 			return Evaluation{Reason: "Kept for its resume."}, nil
 		}
+	}
+	// A goblin whose gate owns its branch takes no typing, so a message for it
+	// is kept as a durable queued action and delivered once custody is released.
+	// It never expires and is never handed to the CFO, because nothing is lost by
+	// waiting for the gate (the Overlord, 2026-10-23). This holds whatever the
+	// goblin is doing, a pause, resume or stop under way included, since a
+	// transition reads no custody of its own.
+	switch held, _ := gateCustody(ctx, s, meta); held {
+	case gateHeld:
+		return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes."}, ErrDeferred
+	case gateUnknown:
+		// Custody nobody could read types nothing, so nothing can break a gate.
+		// The message waits in the queue like one behind a gate and is delivered
+		// the moment custody reads clear, and each attempt reads it again, so
+		// nothing is lost while the check is failing. The words he reads are
+		// plain, and no child output reaches them.
+		return Evaluation{Reason: "Queued for " + a.TaskID + ". Delivery waits until its gate custody can be read."}, ErrDeferred
+	}
+	switch {
 	case isRecorded && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping"):
+		// A transition under way has no terminal that takes typing now, and its
+		// custody read clear above, so the ordinary wait applies.
+		return s.waitForGoblin(a, false)
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
@@ -91,13 +116,60 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			return result, err
 		}
 	}
-	return s.waitForGoblin(a)
+	// A hold returned above, so nothing here is waiting behind one: a goblin
+	// whose terminal cannot take the message keeps the ordinary handoff.
+	return s.waitForGoblin(a, false)
+}
+
+// gateState is what a check of a goblin's gate said: the branch is its
+// goblin's, the gate owns it, or nobody could tell.
+type gateState int
+
+const (
+	gateClear gateState = iota
+	gateHeld
+	gateUnknown
+)
+
+// gateCustody reads whether a goblin's gate owns its branch. Only the two
+// refusals a gate makes for its own custody are a hold: a branch that cannot be
+// read, a gate this home cannot ask, or any other failure is custody nobody
+// could read, which is not a hold and is never reported as one.
+func gateCustody(ctx context.Context, s *Service, meta state.TaskMeta) (gateState, error) {
+	if meta.Mode != "no-mistakes" {
+		return gateClear, nil
+	}
+	if s.Options.Gate == nil {
+		return gateUnknown, errors.New("this home has no gate to ask")
+	}
+	branch, err := s.Git.Branch(ctx, meta.Worktree)
+	if err != nil {
+		return gateUnknown, err
+	}
+	switch err := s.Options.Gate.CanSteer(ctx, meta.Project, meta.Worktree, branch); {
+	case err == nil:
+		return gateClear, nil
+	case errors.Is(err, pipeline.ErrCustodyHeld), errors.Is(err, pipeline.ErrCustodyNotReturned):
+		return gateHeld, nil
+	default:
+		return gateUnknown, err
+	}
+}
+
+// isGateUnclearNow says a goblin's gate custody is not known to be clear at
+// this moment: it owns the branch, or it could not be read. A message waits
+// past the ordinary limit in both, since neither can type it, and a start
+// under way that read custody as unreadable would otherwise expire a message
+// the gate is holding.
+func isGateUnclearNow(ctx context.Context, s *Service, meta state.TaskMeta) bool {
+	held, _ := gateCustody(ctx, s, meta)
+	return held != gateClear
 }
 
 // waitForGoblin has a message wait for its goblin, until messageWait has
 // passed, when the CFO is given it instead.
-func (s *Service) waitForGoblin(a Action) (Evaluation, error) {
-	if time.Since(a.CreatedAt) > messageWait {
+func (s *Service) waitForGoblin(a Action, isGated bool) (Evaluation, error) {
+	if !isGated && time.Since(a.CreatedAt) > messageWait {
 		return Evaluation{}, s.messageToCFO(a, a.TaskID+" could not take it for "+messageWait.String())
 	}
 	return Evaluation{Reason: "Waits for " + a.TaskID + "."}, ErrDeferred
@@ -274,14 +346,48 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 	if a.TaskID == "" || strings.TrimSpace(a.Text) == "" || a.Generation != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" || a.AnswerKind != "" {
 		return Action{}, errors.New("a delete names only its goblin and the message's words")
 	}
+	// A message waiting for a gate to let go is withdrawn from the queue it
+	// waits in, by the identity the board named, so two messages with the same
+	// words are told apart and no other message is ever taken in its place.
+	if a.Target != "" {
+		at := slices.IndexFunc(s.db.Actions, func(queued Action) bool {
+			return queued.ID == a.Target && queued.Kind == "message" && queued.Status == "queued" && queued.TaskID == a.TaskID
+		})
+		if at < 0 {
+			return Action{}, errors.New("that queued message is no longer waiting for " + a.TaskID + ", so nothing was deleted")
+		}
+		delete(s.deferredUntil, s.db.Actions[at].ID)
+		s.db.Actions = slices.Delete(s.db.Actions, at, at+1)
+		now := time.Now().UTC()
+		a.Status, a.Message, a.CreatedAt, a.UpdatedAt = "succeeded", "Deleted before its gate let go.", now, now
+		s.db.Actions = append(s.db.Actions, a)
+		return a, nil
+	}
+	// A delete that names no action is one of a message kept for a resume, whose
+	// own action is gone, so the note is read first: a queued message that
+	// happens to say the same words is never taken in its place.
+	noteErr := withdrawFromResume(s.Home.State, a.TaskID, a.Text)
+	// A board from before a delete named its action has no target to give for
+	// a queued message, so one is still read from its words when the note holds
+	// nothing to withdraw.
+	if noteErr != nil {
+		if at := slices.IndexFunc(s.db.Actions, func(queued Action) bool {
+			return queued.Kind == "message" && queued.Status == "queued" && queued.TaskID == a.TaskID && strings.TrimSpace(queued.Text) == strings.TrimSpace(a.Text)
+		}); at >= 0 {
+			delete(s.deferredUntil, s.db.Actions[at].ID)
+			s.db.Actions = slices.Delete(s.db.Actions, at, at+1)
+			now := time.Now().UTC()
+			a.Status, a.Message, a.CreatedAt, a.UpdatedAt = "succeeded", "Deleted before its gate let go.", now, now
+			s.db.Actions = append(s.db.Actions, a)
+			return a, nil
+		}
+		return Action{}, noteErr
+	}
 	remove := -1
 	if len(s.db.Actions) >= maxActions {
 		if remove = slices.IndexFunc(s.db.Actions, isClosedHistory); remove < 0 {
 			return Action{}, errors.New("action queue is full. Resolve pending actions")
 		}
-	}
-	if err := withdrawFromResume(s.Home.State, a.TaskID, a.Text); err != nil {
-		return Action{}, err
 	}
 	if remove >= 0 {
 		s.db.Actions = slices.Delete(s.db.Actions, remove, remove+1)

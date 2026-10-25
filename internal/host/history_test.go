@@ -15,6 +15,55 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
+func TestHistoryKeepsSubmissionTurnEvidenceAcrossScreenReplacement(t *testing.T) {
+	for _, kind := range []string{"claude", "codex"} {
+		for _, isFragmented := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/fragmented=%t", kind, isFragmented), func(t *testing.T) {
+				output := newTestHistory(t, 100, 20)
+				working := "✽ Pondering… (esc to interrupt)"
+				if kind == "codex" {
+					working = "• Working (1s • esc to interrupt)"
+				}
+				output.write([]byte(working + "\r\n\x1b[2J\x1b[H"))
+				_, _, viewer, detach := output.attach()
+				defer detach()
+				_, _, other, detachOther := output.attach()
+				defer detachOther()
+				if err := viewer.submit(submission{ID: "prompt", Harness: kind}); err != nil {
+					t.Fatal(err)
+				}
+				if err := output.resize(110, 20, func() error { return nil }); err != nil {
+					t.Fatal(err)
+				}
+				output.write([]byte("1 shell\r\n> " + working + "\r\n"))
+				if viewer.hasStarted {
+					t.Fatal("history, a resize, background work or quoted text started this submission")
+				}
+
+				// One output burst starts a turn and replaces it with its question.
+				burst := []byte("\x1b[2J\x1b[H" + working + "\r\n\x1b[2J\x1b[HAllow this command?\r\n> 1. Yes\r\n  2. No")
+				if isFragmented {
+					for _, value := range burst {
+						output.write([]byte{value})
+					}
+				} else {
+					output.write(burst)
+				}
+				if !viewer.hasStarted || other.hasStarted || strings.Contains(strings.Join(output.screen.Rows(), "\n"), working) {
+					t.Fatal("the turn must remain proved only for its submission after its spinner disappeared")
+				}
+				if err := viewer.submit(submission{ID: "picker", Harness: kind}); err != nil {
+					t.Fatal(err)
+				}
+				output.write([]byte("\x1b[2J\x1b[HSelect model\r\n> 1. Default\r\n  2. Another model"))
+				if viewer.hasStarted || viewer.submission != "picker" {
+					t.Fatal("the next picker inherited a previous turn")
+				}
+			})
+		}
+	}
+}
+
 // A viewer that stops reading is dropped once it is further behind than a
 // replay reaches, rather than waited on, and the others keep receiving.
 func TestHistoryDropsAViewerThatCannotKeepUp(t *testing.T) {

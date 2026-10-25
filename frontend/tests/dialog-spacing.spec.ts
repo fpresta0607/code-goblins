@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Locator, type Page } from "./site";
+import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-09 about 13:55Z, with a screenshot of Restart the
 // CFO?: "spacing between description and box has no clean padding". Its
@@ -26,8 +26,7 @@ async function open(page: Page) {
 
 async function showTask(page: Page, title: string) {
   await expect(page.locator("#panel-title")).toHaveText(title);
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
+  await openTaskList(page);
 }
 
 // Each confirmation the class draws, and the presses that open it.

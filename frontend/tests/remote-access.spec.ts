@@ -1,4 +1,4 @@
-import { expect, servePages, test, type Page } from "./site";
+import { expect, openTaskList, type Page, servePages, test } from "./site";
 
 const URL = "https://my-desktop.example.ts.net:4311";
 const SERVE = "tailscale serve --bg --https=4311 http://127.0.0.1:4310";
@@ -69,7 +69,7 @@ async function open(page: Page, first: Status, { fail = false, origin = "", slow
     await page.goto(origin + "/");
   } else await page.goto("/");
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+  await openTaskList(page);
   await page.locator(".disclosure.remote-access > summary").click();
   const push = (snapshot: Status) => page.evaluate((data) => (window as unknown as { pushSnapshot: (data: string) => void }).pushSnapshot(data), JSON.stringify({ ...BOARD, ...snapshot }));
   return { actions, reads, push, pushes, panel: page.getByRole("region", { name: "Remote access" }), setStatus: (next: Status) => { status = next; } };

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, test as base, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test as base, type BrowserContext, type Locator, type Page } from "@playwright/test";
 
 export * from "@playwright/test";
 
@@ -81,6 +81,22 @@ const ROOM = 5 * 2 ** 30;
 
 // What a wait for room reads and how long it waits; a test of the wait itself
 // replaces them.
+export const taskList = (page: Page) => page.locator(".panel-task-fold, .panel-side-task, .goblin-panel > .panel-task")
+
+// openTaskList opens the panel's task list where it folds under the header,
+// as it does on a panel too narrow to hold it beside the messages or the
+// terminal, as he does, and leaves one beside them or open as it is. It
+// returns the header details in that list, or the standalone full header.
+export async function openTaskList(page: Page): Promise<Locator> {
+  const place = taskList(page)
+  await expect(place).toHaveCount(1);
+  const fold = page.locator(".panel-task-fold > details");
+  if (await fold.count() && !await fold.evaluate((element) => (element as HTMLDetailsElement).open)) await fold.locator("> summary").click();
+  const header = page.locator(".panel-header-details, .goblin-panel:not(.showing-terminal) > .panel-header");
+  await expect(header).toHaveCount(1);
+  return header;
+}
+
 // openItem opens the Command Center on the waiting item whose row in its
 // list reads text, as the Overlord does: nothing opens by itself.
 export async function openItem(page: Page, text: string): Promise<void> {
@@ -121,15 +137,20 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 // Every test waits for room before it starts. A test's own context has its
 // pages served, with hadTour passed to servePages; a test that opens another
 // context serves that one itself.
-export const test = base.extend<{ room: Room; paced: void; hadTour: boolean }>({
+export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],
   hadTour: [true, { option: true }],
+  // The stepped-in project's runs draw each fixture's terminal stepped into a
+  // Messages view's place (tests/fixtures/stepped-in.tsx).
+  isSteppedIn: [false, { option: true }],
   paced: [async ({ room }, use) => {
     await roomForATest(room);
     await use();
   }, { auto: true, timeout: MACHINE.limit + 10_000 }],
-  context: async ({ context, hadTour }, use) => {
+  context: async ({ context, hadTour, isSteppedIn }, use) => {
     await servePages(context, ORIGIN, hadTour);
+    // A page with no storage, as about:blank, is left as it is.
+    if (isSteppedIn) await context.addInitScript(() => { if (location.protocol.startsWith("http")) sessionStorage.setItem("fixture-stepped-in", "true"); });
     await use(context);
   },
 });

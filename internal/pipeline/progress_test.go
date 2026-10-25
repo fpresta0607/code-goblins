@@ -224,3 +224,80 @@ INSERT INTO step_results VALUES('now','test','running',1000,1000,NULL),('cut','l
 		t.Fatalf("UsualStepTimes = %v, %v; want %v", usual, err, want)
 	}
 }
+
+// A custody check that did not finish says nothing about custody, so it is
+// never reported as a hold: a probe that gave up before no-mistakes answered
+// must not read as the gate owning the branch, while a real refusal still is.
+func TestACustodyCheckThatCouldNotFinishIsNotAHold(t *testing.T) {
+	progress := Progress{RunID: recoveryRun, RepoID: recoveryRepo, Status: "cancelled", Head: recoveryRecorded, SubmittedHead: recoveryRecorded}
+	for _, test := range []struct {
+		name  string
+		check execx.Result
+		err   error
+		want  string
+	}{
+		{"the probe expired", execx.Result{}, context.DeadlineExceeded, custodyCheckTimedOut},
+		{"the probe was cancelled", execx.Result{}, context.Canceled, custodyCheckCancelled},
+		{"the program would not start", execx.Result{}, errors.New("exec: \"no-mistakes\": executable file not found"), custodyCheckLaunchFailed},
+		{"the check ended on another exit", execx.Result{ExitCode: 3, Stdout: []byte("branch_sync:\n  state: user_owned\n")}, nil, custodyCheckExit},
+		{"the check printed no state", execx.Result{ExitCode: 1, Stdout: []byte("not: [valid")}, nil, custodyCheckUnreadableOutput},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runner := &finishedCheckRunner{progress: progress, result: test.check, err: test.err}
+
+			// Act
+			err := newRecoveryReader(t, runner).CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+
+			// Assert: it is unreadable custody with its own class, and never a hold.
+			if !errors.Is(err, ErrCustodyCheckUnreadable) {
+				t.Fatalf("the check read as %v, want it named unreadable", err)
+			}
+			if errors.Is(err, ErrCustodyHeld) || errors.Is(err, ErrCustodyNotReturned) {
+				t.Fatalf("a check that said nothing about custody was reported as a hold: %v", err)
+			}
+			if !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("the class reads %q, want %q", err.Error(), test.want)
+			}
+			if test.err != nil && strings.Contains(err.Error(), test.err.Error()) {
+				t.Fatalf("the error repeats the command's own text: %q", err.Error())
+			}
+		})
+	}
+
+	// A blocked check still prints its state, which is a real hold.
+	t.Run("a blocked check is a hold", func(t *testing.T) {
+		// Arrange
+		runner := &finishedCheckRunner{progress: progress, result: execx.Result{ExitCode: 1, Stdout: []byte("branch_sync:\n  state: pipeline_owned\n  safety: blocked_pipeline_owned_recoverable\n")}}
+
+		// Act
+		err := newRecoveryReader(t, runner).CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+
+		// Assert
+		if !errors.Is(err, ErrCustodyHeld) && !errors.Is(err, ErrCustodyNotReturned) {
+			t.Fatalf("a blocked check read as %v, want a hold", err)
+		}
+	})
+}
+
+// finishedCheckRunner answers the run query, then whatever the custody check
+// was given, so each way a check can end is exercised.
+type finishedCheckRunner struct {
+	progress Progress
+	result   execx.Result
+	err      error
+}
+
+func (r *finishedCheckRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	if req.Name == "sqlite3" {
+		if strings.Contains(req.Args[len(req.Args)-1], "FROM step_results") {
+			return execx.Result{Stdout: []byte("[]")}, nil
+		}
+		data, _ := json.Marshal([]Progress{r.progress})
+		return execx.Result{Stdout: data}, nil
+	}
+	if req.Name == "no-mistakes" {
+		return r.result, r.err
+	}
+	return execx.Result{}, fmt.Errorf("unexpected program %s", req.Name)
+}

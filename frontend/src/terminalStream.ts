@@ -125,15 +125,26 @@ export function parseHeld(text: string): string | null {
   }
 }
 
-// The relay says when the harness waits on an answer at a screen of its own,
-// which only its terminal takes, as Claude Code's permission prompt, and when
-// it no longer does.
-export function parseScreen(text: string): boolean | null {
+// What the relay last read of the harness's screen: whether it waits on an
+// answer at a screen of its own, which only its terminal takes, as Claude
+// Code's permission prompt, and whether something of its own is open in its
+// input line's place, as a picker, a panel or that question, and whether a turn
+// is running.
+export interface ScreenState {
+  isAsking: boolean;
+  isOpen: boolean;
+  isWorking: boolean;
+  hasStarted: boolean;
+  submission: string;
+}
+
+// The relay says what it read of the harness's screen each time that changes.
+export function parseScreen(text: string): ScreenState | null {
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null) return null;
-    const { type, asking } = value as Record<string, unknown>;
-    return type === "screen" && typeof asking === "boolean" ? asking : null;
+    const { type, asking, open, working, submission, started } = value as Record<string, unknown>;
+    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true } : null;
   } catch {
     return null;
   }

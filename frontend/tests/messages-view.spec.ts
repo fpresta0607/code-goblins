@@ -1,9 +1,8 @@
 import { expect, test, type Locator, type Page } from "./site";
 
-// The Overlord chose design A on 2026-10-22: a Claude Code session's pill
-// reads Messages, Terminal and Task, and its Messages view shows the session's
-// conversation as the supervisor reads it (GET /api/messages), in the box the
-// terminal fills, so switching between them never resizes the terminal. The
+// The panel shows a Claude Code session's conversation as the supervisor
+// reads it (GET /api/messages), in the box the terminal fills, so stepping
+// the terminal in and out never resizes it. The
 // supervisor is played here: the board's snapshot and each session's message
 // stream on held streams, older pages and pictures from routes, and the
 // terminal's relay, which counts the sizes the board asks for. Every
@@ -17,7 +16,8 @@ const GOBLIN = {
   tree: { task_id: "cg-touch", generation: "cg-touch-1", harness: "claude", children: [{ id: "subagent:toolu_A", kind: "subagent", label: "Find the touch handlers", detail: "Explore", task: "Find the touch handlers", state: "done", started: at, finished: at }] },
 };
 const CODEX = { id: "cg-codex", title: "A Codex task", project: "code-goblins", phase: "working", verified: false, generation: "cg-codex-1", harness: "codex", backend: "native", since: at };
-const SNAPSHOT = { healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_terminal: "cfo-term", cfo_harness: "claude", afk: { state: "off" }, tasks: [GOBLIN, CODEX] };
+const PI = { id: "cg-pi", title: "A pi task", goblin_name: "Pia", goblin_title: "Pi Pilot", project: "code-goblins", phase: "working", verified: false, generation: "cg-pi-1", harness: "pi", backend: "native", since: at };
+const SNAPSHOT = { healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_terminal: "cfo-term", cfo_harness: "claude", afk: { state: "off" }, tasks: [GOBLIN, CODEX, PI], actions: [] };
 
 const message = (seq: number, fields: Record<string, unknown>) => ({ id: "m" + seq, seq, at, kind: "prompt", ...fields });
 const reply = (seq: number, ...blocks: Record<string, unknown>[]) => message(seq, { kind: "reply", blocks });
@@ -49,10 +49,18 @@ const range = (from: number, to: number) => Array.from({ length: to - from }, (_
 const NEWEST = { messages: range(50, 100), more: true };
 const OLDER = { messages: range(0, 50), more: false };
 
-interface Board { resizes: { cols: number; rows: number }[]; older: string[] }
+interface Board {
+  resizes: { cols: number; rows: number }[]; older: string[];
+  // say tells the terminal a session owns, by its task id, since a panel can
+  // hold more than one; say is the last terminal to connect.
+  say: (message: object) => void;
+  // sayTo waits for that task's terminal to connect, since a panel connects it
+  // a moment after it opens.
+  sayTo: (task: string, message: object) => Promise<void>;
+}
 
 async function open(page: Page): Promise<Board> {
-  const board: Board = { resizes: [], older: [] };
+  const board: Board = { resizes: [], older: [], say: () => {}, sayTo: async () => {} };
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
   // No WebGL, so a baby goblin's terminal draws its text with xterm's DOM
   // renderer, where a test reads it.
@@ -61,10 +69,16 @@ async function open(page: Page): Promise<Board> {
     Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value(this: HTMLCanvasElement, kind: string, options?: unknown) { return kind === "webgl2" ? null : getContext.call(this, kind, options); } });
   });
   await page.addInitScript(({ snapshot, pages }) => {
+    // The actions kept so far, which a reload must show again.
+    const kept: string = (() => { try { return localStorage.getItem("fixture-actions") ?? ""; } catch { return ""; } })();
+    const withKept = kept ? { ...(JSON.parse(snapshot) as object), actions: JSON.parse(kept) } : snapshot;
     // Every stream the board opens: the snapshot's, each session's messages,
     // and a baby goblin's output. A test sends a message stream an event.
     const streams: { url: URL; source: EventTarget & { readyState: number } }[] = [];
     Object.assign(window, { messageStreams: streams });
+    // The board's own stream is separate, so a test can send it a snapshot
+    // without counting it among the message streams.
+    const boards: (EventTarget & { readyState: number })[] = [];
     class Stream extends EventTarget {
       static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
       onerror: (() => void) | null = null;
@@ -77,7 +91,7 @@ async function open(page: Page): Promise<Board> {
           streams.push({ url, source: this });
           send("page", url.searchParams.get("cfo") ? pages.cfo : pages.goblin);
         } else if (url.pathname.endsWith("/agent")) send("output", { entries: [{ kind: "prompt", text: "Find the touch handlers" }, { kind: "reply", text: "Found them in terminal-touch.ts" }] });
-        else send("snapshot", snapshot);
+        else { boards.push(this); send("snapshot", withKept); }
       }
       close() { this.readyState = 2; }
     }
@@ -85,6 +99,8 @@ async function open(page: Page): Promise<Board> {
     window.addEventListener("fixture-stream", (event) => {
       const { type, data } = (event as CustomEvent<{ type: string; data: unknown }>).detail;
       for (const { source } of streams) if (source.readyState === 1) source.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) }));
+      // A snapshot goes to the board alone, which is where a test changes it.
+      if (type === "snapshot") for (const source of boards) if (source.readyState === 1) source.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) }));
     });
   }, { snapshot: JSON.stringify(SNAPSHOT), pages: { cfo: NEWEST, goblin: { messages: TALK, more: false } } });
   await page.route("**/api/**", async (route) => {
@@ -95,7 +111,25 @@ async function open(page: Page): Promise<Board> {
       await route.fulfill({ json: OLDER });
     } else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
+  const terminals = new Map<string, { send: (text: string) => void }>();
+  // A reload closes the socket the last page opened, so its entry goes, and a
+  // test then waits for the one the new page connects.
+  board.sayTo = async (task, message) => {
+    for (let attempt = 0; attempt < 200 && !terminals.has(task); attempt++) await new Promise((done) => setTimeout(done, 50));
+    const speaker = terminals.get(task);
+    if (!speaker) throw new Error("no terminal connected for " + task);
+    speaker.send(JSON.stringify(message));
+  };
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+    // A task's terminal is keyed by its task; the CFO's names no task, so it is
+    // keyed by the empty name a test asks for.
+    const owner = new URL(socket.url()).searchParams.get("task") || "";
+    const speaker = { send: (text: string) => socket.send(text) };
+    terminals.set(owner, speaker);
+    socket.onClose(() => {
+      if (terminals.get(owner) === speaker) terminals.delete(owner);
+    });
+    board.say = (message) => socket.send(JSON.stringify(message));
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.onMessage((data) => {
       if (typeof data !== "string") return;
@@ -113,9 +147,6 @@ async function open(page: Page): Promise<Board> {
 }
 
 const pill = (page: Page) => page.locator(".context-pane .panel-pill");
-const view = (page: Page, name: string) => pill(page).getByRole("button", { name, exact: true });
-// The views on the pill by name, which a narrow panel shows as icons alone.
-const views = (page: Page) => page.locator(".context-pane .panel-top > .panel-pill button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label") || button.textContent!.trim()));
 const list = (page: Page, name: string) => page.getByRole("log", { name: "Messages of " + name });
 const send = (page: Page, type: string, data: unknown) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-stream", { detail })), { type, data });
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
@@ -127,10 +158,17 @@ async function openCfo(page: Page) {
   await expect(page.locator("#panel-title")).toHaveText("CFO");
 }
 
-async function openGoblin(page: Page) {
-  await page.locator(".task-board .task-card-shell").filter({ hasText: "Zeke - Touch Wrangler" }).locator(".task-card").click();
-  await expect(page.locator("#panel-title")).toHaveText("Zeke - Touch Wrangler");
+async function openGoblin(page: Page, who = "Zeke - Touch Wrangler") {
+  await page.locator(".task-board .task-card-shell").filter({ hasText: who }).locator(".task-card").click();
+  await expect(page.locator("#panel-title")).toHaveText(who);
 }
+
+// keepActions saves the actions the board would hold, so a reload opens on the
+// same queue the supervisor still has.
+const keepActions = (page: Page, actions: object[]) => page.evaluate((held) => localStorage.setItem("fixture-actions", JSON.stringify(held)), actions);
+const messageBox = (page: Page, who: string) => page.getByRole("region", { name: "Messages to " + who });
+const boxField = (page: Page, who: string) => messageBox(page, who).getByRole("textbox", { name: "Message " + who });
+const boxSend = (page: Page, who: string) => messageBox(page, who).getByRole("button", { name: "Send", exact: true });
 
 // settled waits until the terminal stops asking for sizes, as it asks again
 // once its font loads, and returns how many it asked for.
@@ -154,27 +192,23 @@ const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => n
   element.scrollTop = top;
 }), top);
 
-test("a Claude Code session's pill offers Messages, Terminal and Task and opens on Messages, and a Codex goblin's keeps two and opens on its terminal", async ({ page }) => {
+test("a Claude Code session's panel is one view with its messages, and a Codex goblin's shows its terminal", async ({ page }) => {
   await open(page);
 
   await openCfo(page);
-  await expect.poll(() => views(page)).toEqual(["Messages", "Terminal", "Task"]);
-  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
+  await expect(pill(page)).toHaveCount(0);
+  await expect(list(page, "CFO")).toBeVisible();
   await openGoblin(page);
-  await expect.poll(() => views(page)).toEqual(["Messages", "Terminal", "Task"]);
-  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
+  await expect(list(page, "Zeke - Touch Wrangler")).toBeVisible();
   await page.locator(".task-board .task-card-shell").filter({ hasText: "A Codex task" }).locator(".task-card").click();
 
-  await expect.poll(() => views(page)).toEqual(["Terminal", "Task"]);
-  await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
+  await expect(pill(page)).toHaveCount(0);
   await expect(page.locator(".messages-view")).toHaveCount(0);
 });
 
 test("the Messages view draws the conversation as the session recorded it, under the terminal's compact header", async ({ page }) => {
   await open(page);
   await openGoblin(page);
-
-  await view(page, "Messages").click();
 
   const talk = list(page, "Zeke - Touch Wrangler");
   await expect(talk).toBeVisible();
@@ -205,7 +239,6 @@ test("the Messages view draws the conversation as the session recorded it, under
 test("a call's result, an edit's diff and thinking unfold under their rows", async ({ page }) => {
   await open(page);
   await openGoblin(page);
-  await view(page, "Messages").click();
   const talk = list(page, "Zeke - Touch Wrangler");
 
   await talk.locator(".message-call").filter({ hasText: "Read" }).filter({ hasText: "terminalView.ts" }).locator("summary").click();
@@ -221,7 +254,6 @@ test("a call's result, an edit's diff and thinking unfold under their rows", asy
 test("a baby goblin's row opens that baby goblin's own terminal", async ({ page }) => {
   await open(page);
   await openGoblin(page);
-  await view(page, "Messages").click();
   const row = list(page, "Zeke - Touch Wrangler").locator(".message-baby");
   await expect(row).toContainText("Zeke Jr. - ");
   await expect(row).toContainText("Explore · Find the touch handlers");
@@ -234,7 +266,6 @@ test("a baby goblin's row opens that baby goblin's own terminal", async ({ page 
 test("a message that changes takes its place, and a new one shows at the end he reads", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
@@ -250,7 +281,6 @@ test("a message that changes takes its place, and a new one shows at the end he 
 test("reading up, new and changed messages move nothing, and Jump to latest returns to the end", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   const { end } = await scroll(talk);
@@ -279,7 +309,6 @@ test("older messages are read a page at a time as he reads up, and his place is 
     await route.fallback();
   });
   await openCfo(page);
-  await view(page, "Messages").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   expect(board.older, "nothing older is read while he reads the end").toEqual([]);
@@ -307,7 +336,6 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
     await route.fulfill({ status: 503, json: { error: "The supervisor is restarting" } });
   });
   await openCfo(page);
-  await view(page, "Messages").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/cfo/report");
@@ -329,7 +357,6 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
 test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes to the pill and Escape goes back", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   await talk.focus();
@@ -340,7 +367,7 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   await page.keyboard.press("Shift+PageDown");
   await expect.poll(async () => (await scroll(talk)).top).toBeGreaterThan(top - 50);
   await page.keyboard.press("Shift+Escape");
-  await expect(view(page, "Messages")).toBeFocused();
+  await expect(page.locator(".context-pane .panel-top button:not(:disabled)").first()).toBeFocused();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
   await talk.focus();
   await page.keyboard.press("Escape");
@@ -352,7 +379,6 @@ test("Copy puts a message's words on the clipboard, and its text can be selected
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await open(page);
   await openGoblin(page);
-  await view(page, "Messages").click();
   const talk = list(page, "Zeke - Touch Wrangler");
   const command = talk.locator(".message-prompt.shell");
 
@@ -393,7 +419,6 @@ test.describe("on a phone's touch screen", () => {
   test("Copy, always shown, covers no word or call state of a reply, and lies beside a reply's name", async ({ page }) => {
     await open(page);
     await openGoblin(page);
-    await view(page, "Messages").click();
     const talk = list(page, "Zeke - Touch Wrangler");
     await expect(talk.locator("[data-message]")).toHaveCount(11);
 
@@ -423,7 +448,6 @@ test.describe("on a phone's touch screen", () => {
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
   const talk = list(page, "CFO");
   await expect(talk.locator("[data-message]")).toHaveCount(50);
   const size = () => talk.evaluate((element) => getComputedStyle(element).fontSize);
@@ -445,7 +469,6 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
   expect(await page.evaluate(() => localStorage.getItem("cfo-terminal-font-size")), "the terminals keep their own size").toBeNull();
   await page.reload();
   await openCfo(page);
-  await view(page, "Messages").click();
   await expect.poll(size).toBe("18px");
   await talk.focus();
   await page.keyboard.press("Control+0");
@@ -456,7 +479,6 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
 test("a stream the supervisor ends says why, and Reconnect reads the messages again", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
   await expect(list(page, "CFO").locator("[data-message]")).toHaveCount(50);
 
   await send(page, "unavailable", "The CFO runs in another terminal now. Open the CFO again.");
@@ -468,64 +490,358 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
   expect(await streams(page)).toBe(2);
 });
 
-test("switching back to the Messages view finds the place he read and reads nothing again", async ({ page }) => {
+test("Back from a goblin's panel returns to the CFO's messages", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await view(page, "Messages").click();
-  const talk = list(page, "CFO");
-  await expect(talk.locator("[data-message]")).toHaveCount(50);
-  const { end } = await scroll(talk);
-  await scrollTo(talk, Math.round(end / 2));
-  const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
-  const before = await offset(talk, read);
-
-  await view(page, "Terminal").click();
-  await view(page, "Task").click();
-  await view(page, "Messages").click();
-
-  await expect(talk).toBeVisible();
-  await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
-  expect(await streams(page)).toBe(1);
-});
-
-test("Back from a goblin's panel returns to the CFO's Messages view", async ({ page }) => {
-  await open(page);
-  await openCfo(page);
-  await view(page, "Messages").click();
   await expect(list(page, "CFO").locator("[data-message]")).toHaveCount(50);
   await openGoblin(page);
 
   await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
 
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await expect(view(page, "Messages")).toHaveAttribute("aria-pressed", "true");
   await expect(list(page, "CFO")).toBeVisible();
 });
 
 // The Messages view lies in the box the terminal fills, so no switch between
-// the views asks the terminal for another size: counted at the relay, for the
+// messages and terminal asks the terminal for another size: counted at the relay, for the
 // CFO and a goblin, beside the board and maximized.
 for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) {
-  test(`switching ${who}'s views sends the terminal no resize, beside the board and maximized`, async ({ page }) => {
+  test(`stepping ${who}'s terminal in and out sends no resize, beside the board and maximized`, async ({ page }) => {
     const board = await open(page);
     await choose(page);
-    await view(page, "Terminal").click();
-    await expect(view(page, "Terminal")).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
 
     for (const isMaximized of [false, true]) {
-      if (isMaximized) await page.getByRole("button", { name: "Maximize the panel" }).click();
+      if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
-      for (const name of ["Messages", "Task", "Terminal", "Messages", "Terminal", "Task", "Messages", "Terminal"]) {
-        await view(page, name).click();
-        await page.waitForTimeout(300);
-        if (name === "Messages") expect(await page.locator(".messages-view").boundingBox(), "the Messages view takes the terminal's box").toEqual(deck);
-      }
+      board.say({ type: "screen", asking: false, open: true, working: false, submission: "" });
+      await page.getByRole("button", { name: "Answer in the terminal" }).click();
+      await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
+      await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
+      await page.waitForTimeout(300);
+      expect(board.resizes.slice(asked), "stepping in sent no resize").toEqual([]);
+      expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
+      board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+      await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
+      await page.waitForTimeout(300);
+      expect(await page.locator(".messages-view").boundingBox(), "the messages take the terminal's box").toEqual(deck);
 
       expect(board.resizes.slice(asked), `${isMaximized ? "maximized" : "beside the board"}, the switches sent no resize`).toEqual([]);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
     }
   });
 }
+
+// A running pi goblin whose input a gate holds keeps what he sends as the
+// board's own action: the queue shows at once, survives a reload, stays after
+// the hold clears, and can be withdrawn before delivery, in Modern and in
+// Classic. Nothing is typed into the held terminal.
+test("a held pi goblin's send is queued, survives a reload, and can be withdrawn", async ({ page }) => {
+  // Arrange: the board is watching what it is asked to keep.
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const board = await open(page);
+  await page.route("**/api/actions", async (route) => {
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    posted.push(body);
+    if (body.kind === "message") {
+      await keepActions(page, [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
+    } else {
+      await keepActions(page, []);
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(messageBox(page, who).locator(".composer-note")).toHaveText("Queued. Delivery waits until this session takes input again.");
+
+  // Act: he sends while the input is held.
+  const typedBefore = board.say;
+  const sentText = "run the pi suite again";
+  await boxField(page, who).fill(sentText);
+  await boxSend(page, who).click();
+
+  // Assert: the board kept it as a message for this goblin, and nothing was
+  // typed into the held terminal.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
+  expect(posted[0].task_id).toBe("cg-pi");
+  expect(posted[0].text).toBe(sentText);
+  expect(typedBefore).toBe(board.say);
+
+  // Act and Assert: the queue shows now, and again after a reload.
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  const queued = messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText });
+  await expect(queued).toContainText("Queued");
+  await page.reload();
+  await openGoblin(page, who);
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+
+  // Act: the hold clears.
+  await board.sayTo("cg-pi", { type: "held", reason: "" });
+
+  // Assert: the queue is still there, and still withdrawable.
+  const stillQueued = messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText });
+  await expect(stillQueued).toContainText("Queued");
+  await stillQueued.getByRole("button", { name: "Withdraw: " + sentText }).click();
+
+  // Assert: the withdrawal names the goblin, the words and the queued action
+  // its row draws, so two messages with the same words are told apart.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
+  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
+});
+
+// Two queued messages may say the same words, so the withdraw on a row names
+// that row's own action rather than its words: picking the second of two equal
+// messages asks the board to delete the second one.
+test("a queued withdrawal names the row he picked, not just its words", async ({ page }) => {
+  // Arrange: the queue holds A, B, A.
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const board = await open(page);
+  await page.route("**/api/actions", async (route) => {
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    posted.push(body);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  const queue = [{ id: "a1", kind: "message", task_id: "cg-pi", text: "same words", status: "queued", message: "", awaiting: "" },
+    { id: "b1", kind: "message", task_id: "cg-pi", text: "other words", status: "queued", message: "", awaiting: "" },
+    { id: "a2", kind: "message", task_id: "cg-pi", text: "same words", status: "queued", message: "", awaiting: "" }];
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: queue });
+
+  // Act: he withdraws the second of the two equal messages.
+  const rows = messageBox(page, who).locator(".composer-sent > li").filter({ hasText: "same words" });
+  await expect(rows).toHaveCount(2);
+  await rows.nth(1).getByRole("button", { name: "Withdraw: same words" }).click();
+
+  // Assert: the board is asked for the last A by its own id, and only it.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message_withdraw"]);
+  expect(posted[0]).toMatchObject({ task_id: "cg-pi", text: "same words", target: "a2" });
+});
+
+// Classic draws the harness's own terminal in the conversation's place, and
+// while custody holds the input the board's own box comes back under it, with
+// the same queue: a message is kept and reloaded there, nothing is typed into
+// the terminal, and a clear custody leaves the terminal's own input to it.
+test("a held send in Classic is queued through the board, and its box goes once custody clears", async ({ page }) => {
+  // Arrange
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const board = await open(page);
+  await page.route("**/api/actions", async (route) => {
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    posted.push(body);
+    await keepActions(page, body.kind === "message" ? [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }] : []);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+
+  // Assert: the terminal is in place, the pill is gone, and the box is there.
+  await expect(page.locator(".native-terminal")).toBeVisible();
+  await expect(page.locator(".terminal-held")).toHaveCount(0);
+  await expect(boxField(page, who)).toBeVisible();
+
+  // Act: he sends while custody holds.
+  const sentText = "queued in classic";
+  await boxField(page, who).fill(sentText);
+  await boxSend(page, who).click();
+
+  // Assert: the board kept it, and the queue shows and survives a reload.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
+  expect(posted[0].task_id).toBe("cg-pi");
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+  await page.reload();
+  await openGoblin(page, who);
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+
+  // Act: the hold clears.
+  await board.sayTo("cg-pi", { type: "held", reason: "" });
+
+  // Assert: the board's box goes, leaving the terminal's own input to Classic.
+  await expect(boxField(page, who)).toHaveCount(0);
+  await expect(page.locator(".native-terminal")).toBeVisible();
+});
+
+// One session has one box, wherever the panel draws it: in Classic while
+// custody holds it sits under the terminal, and his draft is still there when
+// the hold clears and the box returns under the conversation.
+test("a draft typed in Classic's held box survives the hold clearing", async ({ page }) => {
+  // Arrange: Classic, a held goblin, and a draft typed into the held box.
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const board = await open(page);
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(page.locator(".classic-queue")).toHaveCount(1);
+  // One box, not two: the conversation's own box is not drawn beside this one.
+  await expect(page.locator("section.composer")).toHaveCount(1);
+  await boxField(page, who).fill("half a thought");
+
+  // Act: the hold clears, so Classic goes back to the terminal, and he takes
+  // its Back to messages to read the conversation and write to it.
+  await board.sayTo("cg-pi", { type: "held", reason: "" });
+  await expect(page.locator(".classic-queue")).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to messages" }).click();
+
+  // Assert: still one box, holding the very words he typed into the held one.
+  await expect(page.locator("section.composer")).toHaveCount(1);
+  await expect(boxField(page, who)).toHaveValue("half a thought");
+});
+
+// A keyboard switch in Classic reaches the terminal, since Classic draws it in
+// the conversation's place and its box is not on screen while custody is clear.
+test("a keyboard switch in Classic puts the keys in the terminal it shows", async ({ page }) => {
+  // Arrange: Classic, two goblins, and one of them open.
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const board = await open(page);
+  await openGoblin(page, "Pia - Pi Pilot");
+  await expect(page.locator(".native-terminal")).toBeVisible();
+  await expect(boxField(page, "Pia - Pi Pilot")).toHaveCount(0);
+
+  // Act: he switches sessions with the keyboard.
+  await page.keyboard.press("Control+Alt+2");
+
+  // Assert: the keys went to the terminal in the conversation's place, not to
+  // a box that is not on screen.
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? "")).toBe("Terminal input");
+  await expect(boxField(page, "Pia - Pi Pilot")).toHaveCount(0);
+  await expect(board.say).toBeTruthy();
+});
+
+// A harness picker guards direct typing: Send waits for it, so no Enter can act
+// on it. The message he saved before it opened is the board's own and stays.
+test("a held goblin keeps its queued message past a picker, and the picker still guards direct typing", async ({ page }) => {
+  // Arrange
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const board = await open(page);
+  await page.route("**/api/actions", async (route) => {
+    posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string });
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+
+  // Act: he sends while the hold is up.
+  await boxField(page, who).fill("queued past the picker");
+  await boxSend(page, who).click();
+
+  // Assert: the board kept it as one message for this goblin.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
+  expect(posted[0].text).toBe("queued past the picker");
+
+  // Act: the hold clears and the harness opens a picker of its own, and he
+  // types at it.
+  await board.sayTo("cg-pi", { type: "held", reason: "" });
+  await board.sayTo("cg-pi", { type: "screen", asking: true, open: true, working: false, submission: "" });
+  await expect(messageBox(page, who).locator(".composer-asking")).toBeVisible();
+  await boxField(page, who).fill("typed at a picker");
+
+  // Assert: a picker open in the harness leaves Send disabled and takes no
+  // Enter, since typing then would act on the picker, and the message he saved
+  // before it opened still stands as the board's one.
+  await expect(boxSend(page, who)).toBeDisabled();
+  await boxField(page, who).press("Enter");
+  await page.waitForTimeout(300);
+  expect(posted.map((each) => each.kind), "a picker never sends anything").toEqual(["message"]);
+});
+
+// A held session's chat opens at its latest message and stays where he reads:
+// new output never snaps it back, his input stays reachable through a resize,
+// a maximize and a phone, and the queue persists across a reload and a
+// withdrawal. Classic's conversation is the harness's own terminal, so there
+// the proof is that the box and its queue stay reachable at every size.
+test("Modern: a held chat opens at the bottom, stays where he reads, and keeps its queue", async ({ page }) => {
+  // Arrange
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  const board = await open(page);
+  await page.route("**/api/actions", async (route) => {
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    posted.push(body);
+    if (body.kind === "message") await keepActions(page, [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await keepActions(page, []);
+  // A conversation long enough to read up in, then the hold.
+  await send(page, "messages", range(100, 140));
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  const talk = list(page, who);
+  await expect(talk.locator("[data-message]")).toHaveCount(51);
+
+  // Assert: it opened at the latest content, once.
+  await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
+
+  // Act: he reads up, and a reply arrives below.
+  await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
+  const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
+  const before = await offset(talk, read);
+  await send(page, "messages", [reply(200, { kind: "text", text: "More arrived." })]);
+
+  // Assert: his place is kept rather than snapped to the end.
+  await expect(talk.locator("[data-message]")).toHaveCount(52);
+  await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
+
+  // Act and Assert: the input stays reachable through a maximize and a phone.
+  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+  await expect(boxField(page, who)).toBeVisible();
+  await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(boxField(page, who)).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // Act: he sends, reloads, and withdraws.
+  const sentText = "queued while the gate holds";
+  await boxField(page, who).fill(sentText);
+  await boxSend(page, who).click();
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
+  expect(posted[0].task_id).toBe("cg-pi");
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+  await page.reload();
+  await openGoblin(page, who);
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  const stillQueued = messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText });
+  await expect(stillQueued).toContainText("Queued");
+  await stillQueued.getByRole("button", { name: "Withdraw: " + sentText }).click();
+
+  // Assert: the withdrawal names the goblin, the words and the queued action
+  // its row draws, and the row goes as the board answers.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
+  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
+  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
+});
+
+test("Classic: the held box and its queue stay reachable through resize, maximize and a phone", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const board = await open(page);
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+
+  // Assert: beside the board, maximized, and at phone width, the terminal keeps
+  // its place and the box under it stays reachable.
+  await expect(boxField(page, who)).toBeVisible();
+  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+  await expect(boxField(page, who)).toBeVisible();
+  await expect(page.locator(".native-terminal")).toBeVisible();
+  await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(boxField(page, who)).toBeVisible();
+  await expect(page.locator(".terminal-held")).toHaveCount(0);
+});

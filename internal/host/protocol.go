@@ -51,6 +51,8 @@ const (
 	// unread in the terminal's input, with one byte 1, and that its program
 	// has read them, with one byte 0.
 	frameUnread byte = 'u'
+	// frameSubmission arms turn evidence for this viewer before its input.
+	frameSubmission byte = 't'
 )
 
 // maxFrame bounds one frame's payload.
@@ -65,6 +67,10 @@ type hello struct {
 	// not know it answers as to a viewer, and ReadScreen refuses the output
 	// frame that comes first.
 	Screen bool `json:"screen,omitempty"`
+	// View identifies the viewer whose output screen and submission evidence
+	// a screen request reads together. A viewer learns its ID at handshake.
+	View       uint64 `json:"view,omitempty"`
+	Submission string `json:"submission,omitempty"`
 	// Deliver, from a client, asks for a delivery: input only, each frame
 	// acknowledged once written. The host's answer carries it back when it
 	// serves one; a host that does not know it answers as to a viewer,
@@ -84,6 +90,11 @@ type hello struct {
 	// does not know it tells nothing.
 	Unread bool   `json:"unread,omitempty"`
 	Error  string `json:"error,omitempty"`
+}
+
+type submission struct {
+	ID      string `json:"id"`
+	Harness string `json:"harness"`
 }
 
 // sizePayload is a resize or size frame's payload.

@@ -195,11 +195,11 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
     box.focus({ preventScroll: true });
   };
   const keys = (event: KeyboardEvent<HTMLElement>) => {
-    // Shift+Escape leaves the messages for the panel's views, as it leaves a
+    // Shift+Escape leaves the messages for the panel's top row, as it leaves a
     // terminal.
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
-      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-pill button[aria-pressed='true']")?.focus();
+      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
       return;
     }
     const box = list.current;

@@ -47,12 +47,16 @@ type savedCursor struct {
 // Screen is a terminal's screen, main and alternate, its cursor, and the
 // modes its program set. It is not safe for concurrent use.
 type Screen struct {
-	parser     *vte.Parser
-	cols, rows int
-	main, alt  *grid
-	isAlt      bool
-	cursor     cursor
-	pen        style
+	// OnRow observes a row changed by output before a control can replace it,
+	// and at the end of a write. It never observes history replay or resizing.
+	OnRow        func(string)
+	isRowChanged bool
+	parser       *vte.Parser
+	cols, rows   int
+	main, alt    *grid
+	isAlt        bool
+	cursor       cursor
+	pen          style
 	// saved holds what DECSC saved on the main screen and on the
 	// alternate one.
 	saved [2]savedCursor
@@ -174,9 +178,27 @@ func (s *Screen) Write(output []byte) (forward, answers []byte) {
 			s.isStreaming = true
 		}
 	}
+	s.observeRow()
 	forward, answers = s.forward, s.answers
 	s.forward, s.answers = nil, nil
 	return forward, answers
+}
+
+func (s *Screen) observeRow() {
+	if !s.isRowChanged {
+		return
+	}
+	s.isRowChanged = false
+	if s.OnRow == nil {
+		return
+	}
+	var text []byte
+	for _, cell := range s.screen().rows[s.cursor.y].cells {
+		if cell.width != 0 {
+			text = cell.appendShown(text)
+		}
+	}
+	s.OnRow(string(text))
 }
 
 // endUnit follows the end of a sequence or a character: the next starts

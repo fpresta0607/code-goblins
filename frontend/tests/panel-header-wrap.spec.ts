@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-09 about 12:00Z, with a screenshot of Bernie's panel
 // in its Terminal view, 685 px wide at 150 percent: "fix header of terminal:
@@ -100,43 +100,39 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
     // across its screen.
     const widths = where === "a phone" ? ["maximized"] as const : [360, 685, 1000, "maximized"] as const;
     for (const pane of widths) {
-      for (const view of ["Terminal", "Task"]) {
-        test(`at ${pane === "maximized" ? "full" : pane + " px"} width the ${view} view keeps a long name and title readable, with the buttons beside or under the title`, async ({ page }, testInfo) => {
-          // Arrange
-          await open(page, pane);
-          const switcher = page.locator(".panel-pill").getByRole("button", { name: view, exact: true });
-          if (await switcher.count()) await switcher.click();
+      test(`at ${pane === "maximized" ? "full" : pane + " px"} width the panel keeps a long name and title readable, with the buttons beside or under the title`, async ({ page }, testInfo) => {
+        // Arrange
+        await open(page, pane);
 
-          // Act
-          const report = await page.evaluate(headerReport);
-          await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`panel-${view.toLowerCase()}-${pane}-${viewport.width}.png`) });
+        // Act
+        const report = await page.evaluate(headerReport);
+        await page.locator(".goblin-panel").screenshot({ path: testInfo.outputPath(`panel-${pane}-${viewport.width}.png`) });
 
-          // Assert: the Terminal view carries no buttons since 2026-10-17;
-          // they are the Task view's.
-          expect(report.buttons).toEqual(view === "Task" ? where === "a phone" ? PHONE_BUTTONS : BUTTONS : []);
-          expect(report.broken).toEqual([]);
-          expect(report.nameLines).toBe(1);
-          expect(report.titleLines).toBeLessThanOrEqual(2);
-          expect(report.besideOrUnder).toBe(true);
-          expect(report.underAt).toBe(0);
-          // The task's words take the header's width, less the portrait
-          // beside them; the Terminal view names the task by its short id.
-          if (view === "Task") expect(report.textWidth).toBeGreaterThan(report.headerWidth * .5);
-          expect(report.pageScroll).toBe(0);
-        });
-      }
+        // Assert: the header over the messages and the terminal carries no
+        // buttons since 2026-10-17, the task list beside or under it does.
+        expect(report.buttons).toEqual([]);
+        const detailsHeader = await openTaskList(page);
+        const listed = await detailsHeader.evaluate((details) => [...details.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility()).map((action) => action.getAttribute("aria-label") || action.textContent!.trim()));
+        expect(listed).toEqual(where === "a phone" ? PHONE_BUTTONS : BUTTONS);
+        expect(report.broken).toEqual([]);
+        expect(report.nameLines).toBe(1);
+        expect(report.titleLines).toBeLessThanOrEqual(2);
+        expect(report.besideOrUnder).toBe(true);
+        expect(report.underAt).toBe(0);
+        expect(report.pageScroll).toBe(0);
+      });
     }
   });
 }
 
-// A name cut to its one line, or a title cut to its two, shows in full in its
+// A name or task id cut to its line shows in full in its
 // tip; one shown whole has none.
-test("a name and a title cut short show in full in their tips", async ({ page }) => {
+test("a name and task id cut short show in full in their tips", async ({ page }) => {
   // Arrange
   const name = "Merge Maestro of the Connector Release Notes";
-  const title = "What's new in PrecisionDocs for the connector changes, with the release notes for every connector shipped this week and the steps each one needs";
-  await open(page, 360, { ...BERNIE, goblin_title: name, title });
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+  const id = "pd-whats-new-connectors-release-notes-for-every-connector-shipped-this-week";
+  await open(page, 360, { ...BERNIE, goblin_title: name, id });
+  await openTaskList(page);
   const header = page.locator(".panel-header");
 
   // Act
@@ -145,10 +141,10 @@ test("a name and a title cut short show in full in their tips", async ({ page })
   // Assert
   await expect(page.getByRole("tooltip")).toHaveText("Bernie - " + name);
   await header.locator(".panel-goblin-task").hover();
-  await expect(page.getByRole("tooltip")).toHaveText(title);
+  await expect(page.getByRole("tooltip")).toHaveText(id);
 });
 
-test("a name and a title shown whole carry no tip", async ({ page }) => {
+test("a name and task id shown whole carry no tip", async ({ page }) => {
   // Arrange
   await open(page, "maximized");
   const header = page.locator(".panel-header");
