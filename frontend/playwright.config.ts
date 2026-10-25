@@ -1,7 +1,15 @@
 import { defineConfig } from "@playwright/test";
 import { ORIGIN } from "./tests/site";
 
-export default defineConfig({
+// The terminal specs whose terminals a fixture page draws, each of which runs
+// a second time with its terminal stepped into a Messages view's place, in
+// the stage the board draws it in (tests/fixtures/stepped-in.tsx), so the
+// terminal stepping in keeps every checklist item it carries. The terminal
+// specs that load the whole board step it in themselves.
+const STEPPED_IN = ["terminal-keys", "terminal-input", "terminal-held", "terminal-harness-screens", "terminal-scroll", "terminal-zoom", "terminal-geometry", "voice-bubble",
+  "dictated-input", "touch-dictation", "phone-paste", "terminal-swipe", "phone-terminal-tools"].map((name) => `**/${name}.spec.ts`);
+
+export default defineConfig<{ isSteppedIn: boolean }>({
   testDir: "./tests",
   workers: 1,
   // In CI a test that fails runs once more, since one can fail by chance on a
@@ -26,4 +34,5 @@ export default defineConfig({
     // first try of one that then passed.
     trace: "retain-on-failure",
   },
+  projects: [{ name: "board" }, { name: "stepped-in", testMatch: STEPPED_IN, use: { isSteppedIn: true } }],
 });

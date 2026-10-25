@@ -4,6 +4,7 @@ import { knowInstance } from "../../src/api";
 import { useDictation } from "../../src/useDictation";
 import { VoiceBubble } from "../../src/VoiceBubble";
 import "../../src/styles.css";
+import { SteppedIn } from "./stepped-in";
 
 // The board learns its token from the supervisor's snapshot; a report to the
 // CFO carries it.
@@ -16,11 +17,11 @@ function Pane({ label, shown }: { label: string; shown: boolean }) {
   const [typed, setTyped] = useState<string[]>([]);
   const dictation = useDictation((text) => setTyped((prior) => [...prior, text]), "test-instance");
   return <main style={{ display: shown ? "flex" : "none", flexDirection: "column", height: 760 }}>
-    <section className="native-terminal host-terminal" aria-label={label} style={{ flex: 1 }}>
+    <SteppedIn><section className="native-terminal host-terminal" aria-label={label} style={{ flex: 1 }}>
       <textarea className="terminal-surface" aria-label="Terminal input" onKeyDown={(event) => dictation.key(event.nativeEvent)} onKeyUp={(event) => dictation.key(event.nativeEvent)} />
       <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => setTyped((prior) => [...prior, "pasted: " + text])} />
       {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
-    </section>
+    </section></SteppedIn>
     <output aria-label="Typed">{typed.join("\n")}</output>
   </main>;
 }

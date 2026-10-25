@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, type Page, test } from "./site";
 
 const catalog = { harnesses: [
   { id: "codex", name: "Codex", models: [
@@ -37,8 +37,7 @@ async function open(page: Page, phase: string, posts: unknown[], error = "", val
   await page.locator(".task-board .task-card").filter({ hasText: "Choose the task engine" }).click();
   // A task with a terminal opens on it; the selectors are on its Task view.
   await expect(page.locator("#panel-title")).toHaveText("Choose the task engine");
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
+  await openTaskList(page);
   const harness = page.locator("details.harness > summary");
   if (await harness.count()) await harness.click();
 }
@@ -158,6 +157,9 @@ for (const width of [1440, 390]) {
       await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
       await page.evaluate((live) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: { instance: "fixture", cfo_runs: true, healthy: true, revision: 3, tasks: [live] } })), { ...task("working"), generation: "s2", model: "next-model", effort: "low" });
+      // A new generation remounts the panel, which folds its task list again, so
+      // the header he reads the harness in is opened once more.
+      await openTaskList(page);
       await page.locator("details.harness > summary").click();
       await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("next-model");
     });

@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Locator, type Page } from "./site";
+import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-08 about 21:55Z, of Restart the CFO in the body of
 // the CFO's panel: "what does restart the cfo do.. i want it in header of
@@ -24,7 +24,7 @@ async function open(page: Page, first: object) {
   await page.goto("/");
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+  await openTaskList(page);
   await page.evaluate(() => document.fonts.ready);
 }
 
@@ -117,7 +117,6 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await open(page, snapshot());
 
       // Act
-      await page.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true }).click();
 
       // Assert
       await expect(page.locator(".panel-header")).toHaveClass(/compact/);

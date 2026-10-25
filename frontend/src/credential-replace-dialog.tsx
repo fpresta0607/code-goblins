@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { listNames } from "./credentials";
 
@@ -18,8 +19,8 @@ export function CredentialReplaceDialog({ names, project, action, onReplace, onC
     return () => { element?.close(); if (source instanceof HTMLElement && source.isConnected) source.focus(); };
   }, []);
   const several = names.length > 1;
-  return <dialog ref={dialog} className="credential-replace" aria-labelledby={title} aria-describedby={description}
-    onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onCancel(); }}>
+  return createPortal(<dialog ref={dialog} className="credential-replace" aria-labelledby={title} aria-describedby={description}
+    onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); event.stopPropagation(); onCancel(); }}>
     <h2 id={title}>Replace a stored credential?</h2>
     <p id={description}>
       {listNames(names)} already {several ? "have values" : "has a value"} for {project}. {action === "save" ? "Saving" : "Typing it in the terminal"} replaces {several ? "them" : "it"}, and running {project} goblins get the new {several ? "ones" : "one"}.
@@ -28,5 +29,5 @@ export function CredentialReplaceDialog({ names, project, action, onReplace, onC
       <button type="button" className="credential-replace-cancel" onClick={onCancel}><Icon name="close" />Cancel</button>
       <button type="button" className="credential-replace-confirm" onClick={onReplace}><Icon name="refresh" />{action === "save" ? "Replace and save" : "Replace and run"}</button>
     </div>
-  </dialog>;
+  </dialog>, document.body);
 }

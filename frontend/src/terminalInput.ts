@@ -276,10 +276,10 @@ export function typingHeldReason(raw: string): string {
 // What a native view says while custody holds its typing and its screen
 // stays live, in the Overlord's words.
 export function heldNotice(raw: string): string {
-  if (GATE_CUSTODY.test(raw)) return "The review gate owns this goblin's work right now, so typing is paused. The screen stays live.";
+  if (GATE_CUSTODY.test(raw)) return "The review gate owns this goblin's work right now, so what you send is queued and typed once it lets go.";
   const detached = raw.match(DETACHED_HOLD);
   if (detached) return `This goblin's worktree is on a detached HEAD at ${detached[1]}, so typing is held until it is on a branch.`;
-  return "Typing is paused: " + raw;
+  return "Queued. Delivery waits until this session takes input again.";
 }
 
 // A goblin whose worktree is on a detached HEAD, as a new task's starts, has

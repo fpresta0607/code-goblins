@@ -83,6 +83,7 @@ type Reader struct {
 	// counts their reads.
 	messagesMu   sync.Mutex
 	messageLogs  map[string]*messageLog
+	piLogs       map[string]*piMessageLog
 	messageEpoch atomic.Uint64
 }
 

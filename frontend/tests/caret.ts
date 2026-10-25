@@ -1,4 +1,4 @@
-import { expect, holdStream, type Locator, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Locator, type Page } from "./site";
 
 // The caret a summary draws as a person sees it once it has finished turning:
 // its shape, its size, its color, its weight and how far it is turned.
@@ -25,8 +25,7 @@ export async function panelCaret(page: Page) {
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await page.locator(".task-card").filter({ hasText: "caret-one" }).first().click();
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
+  await openTaskList(page);
   const workspace = page.locator(".goblin-panel .panel-content > details").filter({ has: page.locator("> summary", { hasText: "Workspace" }) }).locator("> summary");
   const closed = await caret(workspace);
   await workspace.click();

@@ -385,10 +385,10 @@ test("a refused input explains itself in plain words", () => {
 
 test("typing held over a live screen explains itself in plain words, with no Reconnect to ask for", () => {
   const cases: [string, string][] = [
-    ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "The review gate owns this goblin's work right now, so typing is paused. The screen stays live."],
-    ["pipeline custody has not been returned; use cfo pipeline recover", "The review gate owns this goblin's work right now, so typing is paused. The screen stays live."],
+    ["pipeline owns this task; use cfo pipeline respond or inspect its delivery evidence", "The review gate owns this goblin's work right now, so what you send is queued and typed once it lets go."],
+    ["pipeline custody has not been returned; use cfo pipeline recover", "The review gate owns this goblin's work right now, so what you send is queued and typed once it lets go."],
     ["HEAD is detached at 0123456789ab, and no gate custody can be read for a detached HEAD, so typing is held", "This goblin's worktree is on a detached HEAD at 0123456789ab, so typing is held until it is on a branch."],
-    ["pipeline: native custody status check failed", "Typing is paused: pipeline: native custody status check failed"],
+    ["pipeline: native custody status check failed", "Queued. Delivery waits until this session takes input again."],
   ];
   for (const [raw, plain] of cases) assert.equal(heldNotice(raw), plain, raw);
 });

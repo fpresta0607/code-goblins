@@ -33,7 +33,6 @@ const card = (page: Page) => shell(page).locator(".task-card");
 async function expectTerminalOpen(page: Page) {
   await expect(page.locator("#panel-title")).toHaveText("Export invoices as CSV");
   await expect(page.locator(".goblin-panel.showing-terminal")).toHaveCount(1);
-  await expect(page.locator(".panel-pill").getByRole("button", { name: "Messages", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("region", { name: "Messages to Export invoices as CSV" })).toBeVisible();
 }
 

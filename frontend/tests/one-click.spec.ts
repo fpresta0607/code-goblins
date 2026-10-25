@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "./site";
+import { expect, openTaskList, type Page, type Route, test } from "./site";
 
 // The Overlord, 2026-10-08: "resume goblin is glitchy should be smooth ... it
 // took multiple clicks with an error message ... i hate yellow text line
@@ -47,8 +47,7 @@ const neverAnswered = () => { /* the click stays on its way */ };
 async function control(page: Page, id: string, button: string) {
   await card(page, id).locator(".task-card").click();
   await expect(page.locator("#panel-title")).toHaveText(id);
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
+  await openTaskList(page);
   return page.locator(".goblin-panel").getByRole("button", { name: button, exact: true });
 }
 

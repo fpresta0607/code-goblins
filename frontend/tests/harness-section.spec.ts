@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, taskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-13: every harness control belongs in a category of
 // its own named Harness, for queued tasks, active goblins and the CFO.
@@ -44,18 +44,64 @@ async function open(page: Page, tasks: object[]) {
 async function openTask(page: Page) {
   await page.locator(".task-card").filter({ hasText: "Choose the task engine" }).first().click();
   await expect(page.locator("#panel-title")).toHaveText("Choose the task engine");
-  const pill = page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true });
-  if (await pill.count()) await pill.click();
+  await openTaskList(page);
 }
 
 async function openCfo(page: Page) {
   await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+  await openTaskList(page);
 }
 
 const harness = (page: Page) => page.locator("details.harness");
 const connections = (page: Page) => page.locator("details.connections");
+
+for (const who of ["goblin", "CFO"] as const) {
+  for (const transition of ["breakpoint", "maximize", "disclosure"] as const) {
+    test(`${who} keeps its unsaved harness choice through ${transition}`, async ({ page }) => {
+      // Arrange
+      await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "800"));
+      const posts = await open(page, [task("paused")]);
+      if (who === "goblin") await openTask(page);
+      else await openCfo(page);
+      await harness(page).locator("> summary").click();
+      const model = harness(page).getByRole("combobox", { name: "Model", exact: true });
+      if (who === "goblin") await model.selectOption("next-model");
+      else {
+        await harness(page).getByRole("button", { name: "Harness: Codex" }).click();
+        await page.getByRole("menuitemradio", { name: "Claude Code", exact: true }).click();
+      }
+
+      // Act
+      if (transition === "breakpoint") {
+        await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "1000px"; });
+        await expect(page.locator(".panel-side-task")).toBeVisible();
+        await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "800px"; });
+      } else if (transition === "maximize") {
+        await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+        await expect(page.locator(".panel-side-task")).toBeVisible();
+        await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
+      } else {
+        await page.locator(".panel-task-fold > details > summary").click();
+        await expect(harness(page)).toBeHidden();
+      }
+      await expect(page.locator(".panel-task-fold")).toBeVisible();
+      await openTaskList(page);
+
+      // Assert
+      await expect(harness(page)).toHaveAttribute("open", "");
+      if (who === "goblin") {
+        await expect(model).toHaveValue("next-model");
+        await harness(page).getByRole("button", { name: "Save for Resume", exact: true }).click();
+        await expect.poll(() => posts).toEqual([{ path: "/api/tasks/engine", body: { task: "engine-task", generation: "s1", revision: "q1", harness: "codex", model: "next-model", effort: "low", when: "" } }]);
+      } else {
+        await expect(harness(page).getByRole("button", { name: "Harness: Claude Code" })).toBeVisible();
+        await harness(page).getByRole("button", { name: "Restart the CFO" }).click();
+        await expect.poll(() => posts).toEqual([{ path: "/api/cfo/restart", body: { harness: "claude" } }]);
+      }
+    });
+  }
+}
 
 for (const phase of ["queued", "paused"]) {
   test(`a ${phase} task's selectors are under Harness, with nothing under them and no harness in Connections`, async ({ page }) => {
@@ -72,7 +118,7 @@ for (const phase of ["queued", "paused"]) {
     await expect(engine.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("current-model");
     await expect(engine.getByRole("combobox", { name: "Effort", exact: true })).toHaveValue("xhigh");
     await expect(engine.getByRole("button")).toHaveCount(0);
-    await expect(page.locator(".panel-task")).not.toContainText("No changes yet");
+    await expect(taskList(page)).not.toContainText("No changes yet");
     if (await connections(page).count()) {
       await connections(page).locator("> summary").click();
       await expect(connections(page)).not.toContainText("Codex");
