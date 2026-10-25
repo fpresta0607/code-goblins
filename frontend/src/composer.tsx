@@ -117,11 +117,14 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
   };
   // A delete names the message by its goblin and its words, which the
   // supervisor takes out of the resume note.
-  const withdraw = async (text: string, key: string) => {
+  // A queued message is withdrawn by its own identity, so two messages with the
+  // same words are told apart. A message kept for a resume has no action of its
+  // own left, so it is named by its words in the note that carries it.
+  const withdraw = async (text: string, key: string, target?: string) => {
     if (!task) return;
     setDeleting(key);
     try {
-      await post({ id: crypto.randomUUID(), kind: "message_withdraw", task_id: task.id, generation: "", text });
+      await post({ id: crypto.randomUUID(), kind: "message_withdraw", task_id: task.id, generation: "", text, ...(target ? { target } : {}) });
     } catch (error: unknown) {
       reportToCfo("deleting a message to " + name, message(error));
     } finally {
@@ -152,7 +155,7 @@ export function Composer({ snapshot, task, name, terminal, isWorking = false, fo
           <span className="composer-sent-text">{action.text}</span>
           <span className="composer-sent-state">{state}</span>
           {state === "Queued" && <button type="button" className="icon-button" aria-label={"Withdraw: " + action.text} data-tip="Withdraw before it is delivered"
-            disabled={deleting === action.id} onClick={() => void withdraw(action.text, action.id)}><Icon name="trash" /></button>}
+            disabled={deleting === action.id} onClick={() => void withdraw(action.text, action.id, action.id)}><Icon name="trash" /></button>}
         </li>;
       })}
       {kept.map((text, index) => {

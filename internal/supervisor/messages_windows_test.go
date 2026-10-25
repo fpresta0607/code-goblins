@@ -1476,3 +1476,122 @@ func TestATransitionWithClearCustodyKeepsTheOrdinaryExpiryAndAStoppedTaskHandsOv
 		}
 	})
 }
+
+// Two queued messages may say the same words, so a deletion names the one he
+// picked by its own identity: A, B, A withdrawing the last A keeps the first A
+// and B in their order, and a target that is gone or belongs to another goblin
+// is refused rather than taking a message with the same words in its place.
+func TestAQueuedWithdrawalNamesTheActionItDeletesAndNothingElse(t *testing.T) {
+	// Arrange: A, B, A in one goblin's queue.
+	newQueue := func(t *testing.T) (*Store, home.Home, state.TaskMeta) {
+		t.Helper()
+		store, h := testStore(t)
+		meta := gatedGoblin(t, h)
+		for _, queued := range []struct{ id, text string }{{"a1", "same words"}, {"b1", "other words"}, {"a2", "same words"}} {
+			if _, err := store.Queue(Action{ID: queued.id, Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: queued.text}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return store, h, meta
+	}
+	// order is the queue as the store holds it now, which a withdrawal made
+	// under the lock changes before any save.
+	order := func(store *Store) []string {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		var words []string
+		for _, action := range store.db.Actions {
+			if action.Kind == "message" && action.Status == "queued" {
+				words = append(words, action.ID+":"+action.Text)
+			}
+		}
+		return words
+	}
+
+	t.Run("the last A is the one deleted, and the rest keep their order", func(t *testing.T) {
+		// Arrange
+		store, _, meta := newQueue(t)
+
+		// Act: he picks the second A, which the board names by its own id.
+		if _, err := store.withdrawMessage(Action{ID: "w1", Kind: "message_withdraw", TaskID: meta.ID, Text: "same words", Target: "a2"}); err != nil {
+			t.Fatalf("the withdrawal was refused: %v", err)
+		}
+
+		// Assert: the first A and B survive, in that order.
+		if got := strings.Join(order(store), ","); got != "a1:same words,b1:other words" {
+			t.Fatalf("the queue reads %q, want the first A and B in their order", got)
+		}
+	})
+
+	t.Run("a target already delivered is refused, not answered with another message", func(t *testing.T) {
+		// Arrange: the last A has already left the queue.
+		store, _, meta := newQueue(t)
+		if _, err := store.withdrawMessage(Action{ID: "w1", Kind: "message_withdraw", TaskID: meta.ID, Text: "same words", Target: "a2"}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act: the board asks again for the same target.
+		_, err := store.withdrawMessage(Action{ID: "w2", Kind: "message_withdraw", TaskID: meta.ID, Text: "same words", Target: "a2"})
+
+		// Assert: it is refused, and the first A is still there.
+		if err == nil || !strings.Contains(err.Error(), "no longer waiting") {
+			t.Fatalf("a stale target reads %v, want it refused", err)
+		}
+		if got := strings.Join(order(store), ","); got != "a1:same words,b1:other words" {
+			t.Fatalf("a stale target took another message: %q", got)
+		}
+	})
+
+	t.Run("a target of another goblin is refused", func(t *testing.T) {
+		// Arrange: a second gated goblin with a message of its own.
+		store, h, meta := newQueue(t)
+		other := treeGoblin(t, h.State, t.TempDir(), "other", false)
+		other.Mode = "no-mistakes"
+		gitWorktree(t, other.Worktree)
+		if err := state.WriteTaskMeta(h.State, other); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Queue(Action{ID: "o1", Kind: "message", TaskID: other.ID, Generation: other.SpawnGen, Text: "same words"}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act: this goblin's board names the other goblin's action.
+		_, err := store.withdrawMessage(Action{ID: "w1", Kind: "message_withdraw", TaskID: meta.ID, Text: "same words", Target: "o1"})
+
+		// Assert: it is refused, and both queues are untouched.
+		if err == nil || !strings.Contains(err.Error(), "no longer waiting") {
+			t.Fatalf("a cross-task target reads %v, want it refused", err)
+		}
+		if got := strings.Join(order(store), ","); got != "a1:same words,b1:other words,a2:same words,o1:same words" {
+			t.Fatalf("a cross-task target changed the queue: %q", got)
+		}
+	})
+
+	t.Run("a message kept for a resume is still withdrawn by its words", func(t *testing.T) {
+		// Arrange: a message in a paused goblin's resume note.
+		store, h := testStore(t)
+		meta := makeNative(t, h.State, "task-1")
+		goblin := goblinTerminal(t, h.State, meta.ID)
+		atPhase(t, h.State, meta, "pause", "paused")
+		service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+		messageTo(t, store, meta, "m1", "kept for resume")
+		if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+			t.Fatal(err)
+		}
+		_ = goblin
+
+		// Act: no target, as a resume note has no action of its own.
+		if _, err := store.withdrawMessage(Action{ID: "w1", Kind: "message_withdraw", TaskID: meta.ID, Text: "kept for resume"}); err != nil {
+			t.Fatalf("a resume-note withdrawal was refused: %v", err)
+		}
+
+		// Assert
+		record, err := state.ReadLifecycle(h.State, meta.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(record.ResumeNote, "kept for resume") {
+			t.Fatalf("the resume note still carries it: %q", record.ResumeNote)
+		}
+	})
+}

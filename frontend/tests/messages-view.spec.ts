@@ -542,10 +542,10 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
 // Classic. Nothing is typed into the held terminal.
 test("a held pi goblin's send is queued, survives a reload, and can be withdrawn", async ({ page }) => {
   // Arrange: the board is watching what it is asked to keep.
-  const posted: { kind: string; task_id: string; text: string }[] = [];
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string };
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
     posted.push(body);
     if (body.kind === "message") {
       await keepActions(page, [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
@@ -588,11 +588,42 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   await expect(stillQueued).toContainText("Queued");
   await stillQueued.getByRole("button", { name: "Withdraw: " + sentText }).click();
 
-  // Assert: the withdrawal names the goblin and the words, and the row goes.
+  // Assert: the withdrawal names the goblin, the words and the queued action
+  // its row draws, so two messages with the same words are told apart.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
-  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText });
+  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
   await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
+});
+
+// Two queued messages may say the same words, so the withdraw on a row names
+// that row's own action rather than its words: picking the second of two equal
+// messages asks the board to delete the second one.
+test("a queued withdrawal names the row he picked, not just its words", async ({ page }) => {
+  // Arrange: the queue holds A, B, A.
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const board = await open(page);
+  await page.route("**/api/actions", async (route) => {
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    posted.push(body);
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  const queue = [{ id: "a1", kind: "message", task_id: "cg-pi", text: "same words", status: "queued", message: "", awaiting: "" },
+    { id: "b1", kind: "message", task_id: "cg-pi", text: "other words", status: "queued", message: "", awaiting: "" },
+    { id: "a2", kind: "message", task_id: "cg-pi", text: "same words", status: "queued", message: "", awaiting: "" }];
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: queue });
+
+  // Act: he withdraws the second of the two equal messages.
+  const rows = messageBox(page, who).locator(".composer-sent > li").filter({ hasText: "same words" });
+  await expect(rows).toHaveCount(2);
+  await rows.nth(1).getByRole("button", { name: "Withdraw: same words" }).click();
+
+  // Assert: the board is asked for the last A by its own id, and only it.
+  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message_withdraw"]);
+  expect(posted[0]).toMatchObject({ task_id: "cg-pi", text: "same words", target: "a2" });
 });
 
 // Classic draws the harness's own terminal in the conversation's place, and
@@ -601,11 +632,11 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
 // the terminal, and a clear custody leaves the terminal's own input to it.
 test("a held send in Classic is queued through the board, and its box goes once custody clears", async ({ page }) => {
   // Arrange
-  const posted: { kind: string; task_id: string; text: string }[] = [];
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string };
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
     posted.push(body);
     await keepActions(page, body.kind === "message" ? [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }] : []);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
@@ -646,7 +677,7 @@ test("a held send in Classic is queued through the board, and its box goes once 
 // on it. The message he saved before it opened is the board's own and stays.
 test("a held goblin keeps its queued message past a picker, and the picker still guards direct typing", async ({ page }) => {
   // Arrange
-  const posted: { kind: string; task_id: string; text: string }[] = [];
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
     posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string });
@@ -687,11 +718,11 @@ test("a held goblin keeps its queued message past a picker, and the picker still
 // the proof is that the box and its queue stay reachable at every size.
 test("Modern: a held chat opens at the bottom, stays where he reads, and keeps its queue", async ({ page }) => {
   // Arrange
-  const posted: { kind: string; task_id: string; text: string }[] = [];
+  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string };
+    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
     posted.push(body);
     if (body.kind === "message") await keepActions(page, [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
@@ -741,10 +772,10 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   await expect(stillQueued).toContainText("Queued");
   await stillQueued.getByRole("button", { name: "Withdraw: " + sentText }).click();
 
-  // Assert: the withdrawal names the goblin and the words, and the row goes as
-  // the board answers.
+  // Assert: the withdrawal names the goblin, the words and the queued action
+  // its row draws, and the row goes as the board answers.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
-  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText });
+  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
   await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
 });

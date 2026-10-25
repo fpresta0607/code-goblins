@@ -447,6 +447,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		ReviewID   string `json:"review_id"`
 		RunID      string `json:"run_id"`
 		AnswerKind string `json:"answer_kind"`
+		Target     string `json:"target"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 24<<10))
 	decoder.DisallowUnknownFields()
@@ -470,7 +471,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 400, "Unsafe file path")
 		return
 	}
-	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, ReviewID: input.ReviewID, RunID: input.RunID, AnswerKind: input.AnswerKind}
+	a := Action{ID: input.ID, Kind: input.Kind, TaskID: input.TaskID, Generation: input.Generation, Text: input.Text, File: input.File, Line: input.Line, EndLine: input.EndLine, Side: input.Side, Head: input.Head, Revision: input.Revision, DiffID: input.DiffID, QuestionID: input.QuestionID, ReviewID: input.ReviewID, RunID: input.RunID, AnswerKind: input.AnswerKind, Target: input.Target}
 	// An update is the Overlord's alone: Update runs only for a board of
 	// his own, proven as AFK mode's switch proves one.
 	if a.Kind == "run" && slices.ContainsFunc(h.Service.Store.Snapshot().Runs, func(run Run) bool { return run.ID == a.RunID && run.Update != nil }) {

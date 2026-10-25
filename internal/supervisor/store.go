@@ -93,6 +93,9 @@ type Action struct {
 	ReviewID    string    `json:"review_id,omitempty"`
 	RunID       string    `json:"run_id,omitempty"`
 	AnswerKind  string    `json:"answer_kind,omitempty"`
+	// Target is, on a delete of a queued message, that message's own action id,
+	// so two messages with the same words are told apart.
+	Target string `json:"target,omitempty"`
 	CFOIdentity string    `json:"cfo_identity,omitempty"`
 	Status      string    `json:"status"`
 	Message     string    `json:"message,omitempty"`

@@ -347,7 +347,24 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 		return Action{}, errors.New("a delete names only its goblin and the message's words")
 	}
 	// A message waiting for a gate to let go is withdrawn from the queue it
-	// waits in, so no later attempt delivers it.
+	// waits in, by the identity the board named, so two messages with the same
+	// words are told apart and no other message is ever taken in its place.
+	if a.Target != "" {
+		at := slices.IndexFunc(s.db.Actions, func(queued Action) bool {
+			return queued.ID == a.Target && queued.Kind == "message" && queued.Status == "queued" && queued.TaskID == a.TaskID
+		})
+		if at < 0 {
+			return Action{}, errors.New("that queued message is no longer waiting for " + a.TaskID + ", so nothing was deleted")
+		}
+		delete(s.deferredUntil, s.db.Actions[at].ID)
+		s.db.Actions = slices.Delete(s.db.Actions, at, at+1)
+		now := time.Now().UTC()
+		a.Status, a.Message, a.CreatedAt, a.UpdatedAt = "succeeded", "Deleted before its gate let go.", now, now
+		s.db.Actions = append(s.db.Actions, a)
+		return a, nil
+	}
+	// A message kept for a resume has no action of its own left, so it is named
+	// by its words in the note that carries it.
 	if at := slices.IndexFunc(s.db.Actions, func(queued Action) bool {
 		return queued.Kind == "message" && queued.Status == "queued" && queued.TaskID == a.TaskID && strings.TrimSpace(queued.Text) == strings.TrimSpace(a.Text)
 	}); at >= 0 {
