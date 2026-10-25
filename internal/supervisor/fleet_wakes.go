@@ -899,6 +899,28 @@ func pullRequestBaseRepository(url string) (host, repository string, ok bool) {
 	return parts[0], parts[1] + "/" + parts[2], true
 }
 
+
+// prBaseRemote names the remote that holds the pull request's base repository,
+// or reports that none does. That is a local question answered from the parsed
+// remotes, so a project whose base repository is not checked out here costs no
+// hosted read at all.
+func prBaseRemote(ctx context.Context, runner execx.Runner, repo, prURL string) (string, bool, error) {
+	_, repository, ok := pullRequestBaseRepository(prURL)
+	if !ok {
+		return "", false, nil
+	}
+	remotes, err := (tickets.GitHub{Commands: runner}).Remotes(ctx, repo)
+	if err != nil {
+		return "", false, err
+	}
+	for _, remote := range remotes {
+		if strings.EqualFold(remote.Repository, repository) {
+			return remote.Name, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 // baseTarget is the local ref a pull request targets, such as fork/main, from
 // the pull request's own URL and base branch. The remote is the one whose
 // parsed repository is exactly that repository, so a suffix or an owner alone
