@@ -1734,6 +1734,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		activity, pr := statusActivity(lines, spawned)
 		lastReport, lastReportedAt, _ := taskSessionSummary(lines, spawned)
+		// A helper hands completed work to its parent without a PR or gate.
+		// Its idle terminal does not turn that handoff into a request for input,
+		// and a line that is no report, such as a reap or a supersede, leaves
+		// the handoff its latest report made standing.
+		if meta.Parent != "" && reportKind(lastReport) == "done" && !isGateHeld && !(linked && node.PromptAt.Truncate(time.Second).After(lastReportedAt)) && !runtime.working() {
+			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = "done", strings.TrimPrefix(lastReport, "done: "), ""
+		}
 		if verb, detail, ok := waitingQuestion(decisions, id); ok {
 			evaluation.Phase, evaluation.Reason, evaluation.WaitingOn = verb, "Waiting on the CFO: "+detail, ""
 			activity = detail
