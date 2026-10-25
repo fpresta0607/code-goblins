@@ -158,18 +158,31 @@ func runInstallWithNoMistakes(t *testing.T, shell string, release noMistakesRele
 	for name, script := range setup.stubs {
 		all[name] = strings.ReplaceAll(script, "%RECORD%", record)
 	}
-	internet := "function Invoke-WebRequest {\n" +
+	// Every line this stand-in internet records is appended with IO.File, one
+	// open and close per line, and a stand-in that fails says so in the record
+	// before it rethrows: on 2026-10-24 a run reported its scanner as never
+	// released, and the record could not tell a stand-in that failed from one
+	// that never ran.
+	account := "function Record-Line([string]$Line) { [IO.File]::AppendAllText('" + record + "', $Line + \"`r`n\") }\n"
+	internet := account +
+		"function Invoke-WebRequest {\n" +
 		"  [CmdletBinding()] param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing)\n" +
-		"  Add-Content -LiteralPath '" + record + "' -Value \"download $Uri\"\n" +
+		"  try {\n" +
+		"  Record-Line \"download $Uri\"\n" +
 		"  if ($Uri.StartsWith('" + release.base + "/')) { Microsoft.PowerShell.Utility\\Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing; return }\n" +
 		"  throw \"offline: $Uri\"\n" +
+		// An offline answer is this stand-in working as designed, so only a real
+		// failure is recorded as one that made the run prove nothing.
+		"  } catch { if (-not $_.Exception.Message.StartsWith('offline: ')) { Record-Line ('stub-failed Invoke-WebRequest ' + $_.Exception.Message) }; throw }\n" +
 		"}\n" +
 		"function Invoke-RestMethod {\n" +
 		"  [CmdletBinding()] param([string]$Uri)\n" +
-		"  Add-Content -LiteralPath '" + record + "' -Value \"api $Uri\"\n" +
+		"  try {\n" +
+		"  Record-Line \"api $Uri\"\n" +
 		"  throw \"offline: $Uri\"\n" +
+		"  } catch { if (-not $_.Exception.Message.StartsWith('offline: ')) { Record-Line ('stub-failed Invoke-RestMethod ' + $_.Exception.Message) }; throw }\n" +
 		"}\n" +
-		"function Start-Sleep { param([int]$Seconds) Add-Content -LiteralPath '" + record + "' -Value \"wait $Seconds\" }\n"
+		"function Start-Sleep { param([int]$Seconds) Record-Line \"wait $Seconds\" }\n"
 	cmd, local, temp := StrippedCommand(t, release.base, all, shell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
 		internet+"Get-Content -Raw -LiteralPath '"+installScript(t)+"' | Invoke-Expression; exit $LASTEXITCODE")
 	var bin string

@@ -127,7 +127,12 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 		until        string
 		isNoMistakes bool
 	}{
-		"the release's download":   {until: "download https://claude.ai/install.ps1"},
+		// The release names the no-mistakes download, which the install always
+		// makes, so it cannot hinge on the official installer stand-in that
+		// fails by design here: on 2026-10-24 a run held the file, that
+		// stand-in failed, and the test reported only that the scanner was
+		// never released. It is set once the release server exists.
+		"the release's download":   {},
 		"the no-mistakes download": {until: "no-mistakes daemon start", isNoMistakes: true},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -140,12 +145,17 @@ func TestOneLineInstallRemovesAFolderAScannerHeldForAMoment(t *testing.T) {
 			release := serveNoMistakesRelease(t, standin.Bytes(t), 0, publishedSums, ready)
 			if held.isNoMistakes {
 				scan.after = release.asked
+			} else {
+				scan.until = "download " + release.base + "/no-mistakes.exe"
 			}
 
 			// Act
 			run := runInstallWithNoMistakes(t, WindowsPowerShell(), release, noMistakesSetup{scanner: scan, rules: []standin.Rule{reportsVersion(pinnedNoMistakes(t), ""), gates}})
 
 			// Assert
+			if recorded, _ := os.ReadFile(run.record); strings.Contains(string(recorded), "stub-failed") {
+				t.Fatalf("the fixture's own stand-in internet failed, so this run proves nothing:\n%s", recorded)
+			}
 			if scan.path == "" || !scan.sawUntil {
 				t.Fatalf("the stand-in scanner held %q and let go on %q: %v, so this run proved nothing:\n%s\n%s", scan.path, held.until, scan.sawUntil, run.record, run.output)
 			}
