@@ -57,6 +57,15 @@ var agentHarnesses = []string{string(harness.Claude), string(harness.Codex), str
 // theirs.
 var agentVariables = []string{"CLAUDECODE", "AI_AGENT"}
 
+// IsAgentSessionVariable says name is one a harness sets for every command it
+// runs, which harnessMark reads as an agent's session when the command's
+// parents were cut off. A process that is no agent's session, such as cfo
+// serve, forgets them from whoever started it, so the commands it runs are
+// not refused as an agent's.
+func IsAgentSessionVariable(name string) bool {
+	return slices.ContainsFunc(agentVariables, func(variable string) bool { return strings.EqualFold(name, variable) })
+}
+
 // desktopPrograms are the programs a terminal of the Overlord's own is opened
 // from, by executable name: the Windows desktop and Windows Terminal. A command
 // whose parents reach neither had them cut off on the way.

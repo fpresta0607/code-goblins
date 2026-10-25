@@ -141,3 +141,50 @@ func TestHarnessMarkNamesAnAgentHarnessAndNothingElse(t *testing.T) {
 		})
 	}
 }
+
+// The marks a serve forgets are exactly the variables the CFO-act check reads
+// in a command's environment, so a supervisor started under an agent harness,
+// whose parents a restart leaves cut off, gives the check nothing to refuse,
+// while a command that still carries one keeps the refusal it gives today.
+func TestTheMarksAServeForgetsAreTheOnesTheCheckReads(t *testing.T) {
+	// Arrange: pi sets AI_AGENT for every command it runs and Claude Code sets
+	// CLAUDECODE, and a supervisor started by an update from an agent's
+	// terminal has its parents cut off, so nothing but its environment can
+	// mark the session.
+	env := []string{`Path=C:\bin`, `CFO_HOME=C:\home`}
+	for _, name := range agentVariables {
+		env = append(env, name+"=1")
+	}
+
+	// Act: the check before the start forgot them, and the environment the
+	// start hands everything it runs after.
+	before := harnessMark(nil, env)
+	kept := make([]string, 0, len(env))
+	for _, entry := range env {
+		if name, _, _ := strings.Cut(entry, "="); !IsAgentSessionVariable(name) {
+			kept = append(kept, entry)
+		}
+	}
+	after := harnessMark(nil, kept)
+
+	// Assert
+	if !strings.Contains(before, "under an agent harness") {
+		t.Fatalf("harnessMark = %q, want an agent's session refused for the marks it carries", before)
+	}
+	if after != "" {
+		t.Errorf("harnessMark = %q after the start forgot the marks, want nothing refused", after)
+	}
+	// Every mark the check reads is one a serve forgets, and no other variable
+	// is: a goblin's role, a gate agent's and a terminal's id name a different
+	// thing, and a serve keeps them.
+	for _, name := range agentVariables {
+		if !IsAgentSessionVariable(name) {
+			t.Errorf("IsAgentSessionVariable(%q) = false, want the mark the check reads", name)
+		}
+	}
+	for _, name := range []string{"CFO_ROLE", gateAgentVariable, host.IDVariable, host.ProofVariable, "Path", "CFO_HOME"} {
+		if IsAgentSessionVariable(name) {
+			t.Errorf("IsAgentSessionVariable(%q) = true, want only the marks a harness sets", name)
+		}
+	}
+}
