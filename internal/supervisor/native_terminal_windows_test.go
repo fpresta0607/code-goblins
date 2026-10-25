@@ -749,6 +749,24 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 	}
 }
 
+// waitForAfter is waitFor for a line that says the same thing twice, such as a
+// hold that clears, opens again and clears once more: only what arrived after
+// the marker counts, so an earlier equal line cannot answer it.
+func (v *nativeView) waitForAfter(t *testing.T, marker, text string) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if at := strings.LastIndex(screen, marker); at >= 0 && strings.Contains(screen[at:], text) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed %q after %q; it shows %q", text, marker, screen[max(0, len(screen)-300):])
+		}
+	}
+}
+
 // waitForSize asks the program its size until it reads size, such as
 // "100x30": ConPTY applies a resize on its own, so the program can still read
 // the old size just after one.
@@ -1420,7 +1438,9 @@ func TestEveryNativeViewOfAnOldHostIsToldItsNewSizeAfterTheOutputBeforeIt(t *tes
 	held.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
 	close(after)
 
-	want := `{"type":"history","bytes":11}old historybefore the resize{"type":"size","cols":100,"rows":30}after the resize`
+	// A host from before turn tracking can be read but not typed into, so each
+	// view says so once and everything else arrives in the order it was sent.
+	want := `{"type":"history","bytes":11}{"type":"held","reason":"Restart this terminal to enable Chat turn tracking."}old historybefore the resize{"type":"size","cols":100,"rows":30}after the resize`
 	for name, v := range map[string]*nativeView{"watching": watching, "held": held} {
 		v.waitFor(t, "after the resize")
 		v.mu.Lock()
@@ -1731,7 +1751,9 @@ func TestANativeViewIsToldOfAGateTakingOverAndLettingGoOnItsTick(t *testing.T) {
 		t.Fatalf("the view closed under the gate: %v", err)
 	}
 	gate.taken.Store(false)
-	v.waitFor(t, `{"type":"held","reason":""}`)
+	// The view was told the hold cleared when it first opened, so the wait reads
+	// the screen after the refusal, which is this clearance and not that one.
+	v.waitForAfter(t, `{"type":"held","reason":"pipeline owns this task"}`, `{"type":"held","reason":""}`)
 	v.send(t, websocket.MessageBinary, "again\r")
 
 	// Assert
@@ -1899,6 +1921,9 @@ func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
 	gate.free()
 	v.waitFor(t, `"type":"held","reason":""`)
 
+	// Assert: the text typed while the answer was pending waited for it rather
+	// than being dropped, and is typed now that the branch is the goblin's.
+	v.waitFor(t, "leak")
 	// Assert: once clear, typing reaches the terminal.
 	v.send(t, websocket.MessageBinary, "after\r")
 	v.waitFor(t, "after")

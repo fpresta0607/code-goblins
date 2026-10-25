@@ -225,11 +225,15 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A host that did not answer may be starting or busy, so the view tries
 	// again, as the board does for a view that may come back.
 	terminal, err := host.Watch(record)
+	// A terminal from before turn tracking cannot prove which turn a key press
+	// belongs to, so nothing is ever typed into it and he is told to restart it.
+	// It is still read, because a view that showed nothing at all would hide a
+	// terminal he can see and a history he can still scroll.
+	untracked := errors.Is(err, host.ErrNoTurnEvidence)
+	if untracked {
+		terminal, err = host.View(record)
+	}
 	if err != nil {
-		if errors.Is(err, host.ErrNoTurnEvidence) {
-			_ = view.Close(websocket.StatusPolicyViolation, err.Error())
-			return
-		}
 		_ = view.Close(websocket.StatusTryAgainLater, "The terminal of "+binding.name+" did not answer.")
 		return
 	}
@@ -242,6 +246,13 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// the gate may own, so no second state variable exists.
 	var mu sync.Mutex
 	custody := error(custodyUnasked)
+	if untracked {
+		custody = host.ErrNoTurnEvidence
+	}
+	// asked closes once the first answer has arrived, so input typed while it
+	// was still being read waits for it instead of being dropped.
+	asked := make(chan struct{})
+	var askOnce sync.Once
 	// The relay opens before custody is asked, so history, scrolling and the
 	// composer never wait on a check the gate answers slowly. Until the first
 	// answer arrives nothing is released: typing stays held, which is what
@@ -251,7 +262,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// branch is the goblin's: a check the gate answers slowly must never keep
 	// history, scrolling or the composer waiting, while nothing is released
 	// into a branch the gate may own.
-	relay.held = heldNotice(custodyUnasked)
+	relay.held = heldNotice(custody)
 	look := time.AfterFunc(screenAtOpen, func() {
 		relay.mu.Lock()
 		relay.looking = false
@@ -399,9 +410,13 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(closeCode(revoked), closeReason(revoked.Error()))
 				return false
 			}
+			if untracked {
+				refused = host.ErrNoTurnEvidence
+			}
 			mu.Lock()
 			isChanged := (custody == nil) != (refused == nil) || custody != nil && refused != nil && custody.Error() != refused.Error()
 			custody = refused
+			askOnce.Do(func() { close(asked) })
 			mu.Unlock()
 			if isChanged {
 				relay.mu.Lock()
@@ -429,6 +444,26 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// settled is what typing is judged by: the answer now, or the first answer
+	// once it exists, since input typed while the check is still reading waits
+	// for it rather than being dropped. It reports false when the view ended
+	// before any answer arrived.
+	settled := func() (error, bool) {
+		mu.Lock()
+		refused := custody
+		mu.Unlock()
+		if refused != custodyUnasked {
+			return refused, true
+		}
+		select {
+		case <-asked:
+		case <-ctx.Done():
+			return nil, false
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return custody, true
+	}
 	view.SetReadLimit(1 << 20)
 	for {
 		kind, data, err := view.Read(ctx)
@@ -452,12 +487,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					_ = view.Close(websocket.StatusUnsupportedData, "A submission needs an ID of at most 128 bytes.")
 					return
 				}
-				mu.Lock()
-				refused := custody
-				mu.Unlock()
+				refused, isReading := settled()
 				// The hold until the first answer refuses every submission, and
 				// so does every later refusal.
-				if refused != nil || binding.harness == nil {
+				if !isReading || refused != nil || binding.harness == nil {
 					continue
 				}
 				if err := terminal.MarkSubmission(control.Submission, binding.harness()); err != nil {
@@ -480,10 +513,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				relay.signal()
 				continue
 			}
-			mu.Lock()
-			refused := custody
-			mu.Unlock()
-			if refused != nil || control.Cols < minTerminalCols || control.Rows < minTerminalRows || control.Cols > maxTerminalCols || control.Rows > maxTerminalRows {
+			refused, isReading := settled()
+			// A resize is a control action and types nothing, so a terminal that
+			// cannot prove its turns still takes one; a gate's hold refuses it.
+			if !isReading || !untracked && refused != nil || control.Cols < minTerminalCols || control.Rows < minTerminalRows || control.Cols > maxTerminalCols || control.Rows > maxTerminalRows {
 				continue
 			}
 			if terminal.Resize(control.Cols, control.Rows) != nil {
@@ -495,10 +528,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		mu.Lock()
-		refused := custody
-		mu.Unlock()
-		if refused != nil {
+		refused, isReading := settled()
+		if !isReading || refused != nil {
 			continue
 		}
 		if terminal.Input(data) != nil {

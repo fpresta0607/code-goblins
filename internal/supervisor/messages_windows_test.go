@@ -856,9 +856,15 @@ func TestDeletingAMessageIsRefusedOnceItWasDeliveredOrNeverKept(t *testing.T) {
 		deliver func(t *testing.T, store *Store, meta state.TaskMeta) (deleted string)
 	}{
 		{"typed into its terminal", func(t *testing.T, store *Store, meta state.TaskMeta) string {
+			// A no-mistakes goblin works in a real repository, so its gate
+			// can read the branch it is asked about.
+			gitWorktree(t, meta.Worktree)
 			goblin := goblinTerminal(t, store.Home.State, meta.ID)
 			messageTo(t, store, meta, "message-1", "use the staging database")
-			if err := store.ProcessOne(context.Background(), (&Service{Store: store, Options: Options{CFO: &CFOConnection{State: store.Home.State}}}).execute); err != nil {
+			// A gate that answers clear, as a live supervisor's does: custody
+			// nobody can read queues the message instead of typing it.
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: store.Home.State}, Gate: &gateFake{}}}
+			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
 				t.Fatal(err)
 			}
 			goblin.waitForLines(t, 1)
