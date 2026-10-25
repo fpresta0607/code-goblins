@@ -162,10 +162,12 @@ test("a task with no terminal yet says its status where its terminal will be", (
 
 test("a completed helper reports its parent handoff without claiming verification", () => {
   const snapshot = board({ parent: "parent-1", phase: "done", report: "done", reason: "ready for parent-1 to merge", runtime: { state: "idle" } });
+  const ordinary = board({ phase: "done", report: "done", runtime: { state: "idle" } });
 
   const status = taskStatus(zane(snapshot), snapshot);
 
   assert.deepEqual(status, { text: "Done, awaiting parent", phase: "done" });
-  assert.equal(zane(snapshot).verified, false);
-  assert.equal(zane(snapshot).pr, "");
+  assert.deepEqual(taskStatus(zane(ordinary), ordinary), { text: "Done, verifying", phase: "done" });
+  assert.equal(taskColumn(zane(snapshot)), "In progress", "unverified handoff work stays in progress");
+  assert.equal(taskColumn(zane(ordinary)), "In progress");
 });

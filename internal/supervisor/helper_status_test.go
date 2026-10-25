@@ -49,6 +49,44 @@ func TestCompletedHelperKeepsItsHandoffDespiteIdleRuntime(t *testing.T) {
 	}
 }
 
+func TestCompletedHelperKeepsItsHandoffAfterANonReportStatusLine(t *testing.T) {
+	for _, line := range []string{"reaped: removed its worktree after the handoff", "superseded: a newer task took its place"} {
+		t.Run(line, func(t *testing.T) {
+			store, h := atWorkFixture(t, "codex", "task-1")
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Parent, meta.Mode = "parent-1", "local-only"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			for _, moment := range []string{"start", "prompt", "settle"} {
+				harnessHook(t, store, h, "codex", meta.ID, moment, now.Add(-3*time.Minute))
+			}
+			store.db.Tasks[meta.ID] = Evaluation{Generation: meta.SpawnGen, Phase: "review", Reason: "Manual task mode requires its existing review and delivery evidence", At: now.Add(-3 * time.Minute)}
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+			fileReport(t, h, meta.ID, "done: ready for parent-1 to merge", now.Add(-2*time.Minute))
+			if err := state.AppendStatus(h.State, meta.ID, line); err != nil {
+				t.Fatal(err)
+			}
+			seeTerminal(t, h, meta.ID, monitor.HealthIdle)
+
+			got := snapshotTask(t, &Service{Store: store}, meta.ID)
+
+			if got.Phase != "done" || got.Reason != "ready for parent-1 to merge" {
+				t.Fatalf("completed helper = %+v, want its completed parent handoff", got)
+			}
+			if got.Verified || got.PR != "" || got.WaitingOn != "" || got.Runtime.State != string(monitor.HealthIdle) {
+				t.Fatalf("helper completion invented delivery or changed runtime: %+v", got)
+			}
+		})
+	}
+}
+
 func TestCompletedHelperPreservesNewWorkAndHeldStates(t *testing.T) {
 	for _, scenario := range []struct {
 		name, gatePhase, gateStep, wantPhase string
