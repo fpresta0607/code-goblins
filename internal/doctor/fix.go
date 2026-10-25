@@ -96,7 +96,7 @@ func (f Fixer) Fix(ctx context.Context, releases Releases, version HarnessVersio
 		return failed(version.Installed + " is kept: " + version.Newest + " did not reach its composer: " + err.Error())
 	}
 	if _, err := f.npm(ctx, "install", "-g", "--no-audit", "--no-fund", target); err != nil {
-		return failed(version.Update + " " + err.Error())
+		return failed("npm install -g " + target + " " + err.Error())
 	}
 	if probe := f.Probe(ctx, version.Name); versionIn(probe.Detail) != version.Newest {
 		return failed("installed, but " + version.Name + " --version answers " + probe.Detail)

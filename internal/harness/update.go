@@ -3,6 +3,7 @@ package harness
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -44,12 +45,22 @@ func UpdateNotice(kind Kind, screen []string) (string, bool) {
 	return "", false
 }
 
+// npmPackages are the packages npm installs for the harnesses this fleet
+// starts from npm, by the harness whose program on PATH is npm's script shim.
+var npmPackages = map[Kind]string{
+	Codex: "@openai/codex",
+	Pi:    "@earendil-works/pi-coding-agent",
+}
+
 // ProgramInstalled returns the program kind starts from, as a launch finds it
-// on PATH, and when it was last written. Claude Code's installer writes
-// claude.exe again on every update, leaving the one still running as
-// claude.exe.old.*, and npm writes the script shims codex and pi run through
-// again on every install of them, so a harness started before that time runs
-// an older install than the one there.
+// on PATH, and when that install was last written. Claude Code's installer
+// writes claude.exe again on every update, leaving the one still running as
+// claude.exe.old.*, so its program is the install. npm writes the script
+// shims codex and pi run through only when it links the bin, and not when the
+// harness's own updater rewrites the package under it (codex update, pi
+// update), so for those the package npm installed is read instead, which
+// every install of a new version writes. A program npm did not install beside
+// itself keeps its own time.
 func ProgramInstalled(kind Kind) (string, time.Time, error) {
 	program, err := exec.LookPath(string(kind))
 	if err != nil {
@@ -59,5 +70,24 @@ func ProgramInstalled(kind Kind) (string, time.Time, error) {
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	if pkg, fromNpm := npmPackages[kind]; fromNpm {
+		if at, isInstalled := npmPackageWritten(program, pkg); isInstalled {
+			return program, at, nil
+		}
+	}
 	return program, info.ModTime(), nil
+}
+
+// npmPackageWritten is when the package npm installed beside the shim was last
+// written, read from its package.json: npm links the bin in the folder the shim
+// sits in and unpacks the package under that folder's node_modules, and both
+// npm's install of a new version and the harness's own updater write the
+// manifest again.
+func npmPackageWritten(shim, pkg string) (time.Time, bool) {
+	manifest := filepath.Join(filepath.Dir(shim), "node_modules", filepath.FromSlash(pkg), "package.json")
+	info, err := os.Stat(manifest)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return info.ModTime(), true
 }
