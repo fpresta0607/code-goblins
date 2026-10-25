@@ -369,3 +369,59 @@ func (r *movingBranchRunner) Run(ctx context.Context, req execx.Request) (execx.
 	}
 	return r.inner.Run(ctx, req)
 }
+
+// A remote enumeration that fails says nothing about whether the base is
+// checked out here, so it must never leave the area measured against the
+// ordinary default. The success control is the same fixture with the read
+// working: no remote holds the base, so the default legitimately stands.
+func TestAFailedRemoteReadIsUnreadRatherThanMeasuredAgainstTheDefault(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		failRemotes bool
+		wantErr     bool
+	}{
+		{name: "remote enumeration fails", failRemotes: true, wantErr: true},
+		{name: "remote enumeration succeeds and holds no such base"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange: origin and the default branch read fine, so only the
+			// remote enumeration can decide this.
+			worktree := forkCheckout(t)
+			goblin := ciGoblin{
+				id: "task", repo: worktree, branch: "fix/daemon",
+				pullRequests: []string{"https://github.com/fpresta0607/no-mistakes/pull/24"},
+				meta:         state.TaskMeta{ID: "task", Worktree: worktree},
+			}
+			runner := &failingRemotesRunner{inner: execx.OSRunner{}, fail: c.failRemotes}
+			service := &Service{}
+
+			// Act
+			_, _, err := service.areaBranchPaths(context.Background(), runner, goblin)
+
+			// Assert
+			if c.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "could not be read") {
+					t.Fatalf("areaBranchPaths = %v, want the unread base reported rather than a measured fallback", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("areaBranchPaths = %v, want the ordinary default to stand", err)
+			}
+		})
+	}
+}
+
+// failingRemotesRunner fails the remote listing when asked, and runs every
+// other command for real.
+type failingRemotesRunner struct {
+	inner execx.Runner
+	fail  bool
+}
+
+func (r *failingRemotesRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	if r.fail && req.Name == "git" && slices.Contains(req.Args, "remote") && slices.Contains(req.Args, "-v") {
+		return execx.Result{ExitCode: 1, Stderr: []byte("fatal: not a git repository")}, nil
+	}
+	return r.inner.Run(ctx, req)
+}

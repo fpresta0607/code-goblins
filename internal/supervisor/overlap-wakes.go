@@ -311,9 +311,15 @@ func resolveTarget(ctx context.Context, runner execx.Runner, goblin ciGoblin) ci
 	}
 	for _, url := range goblin.pullRequests {
 		// A base repository no remote here holds is not checked out here, so
-		// there is nothing to read and the ordinary default stands. Only a base
-		// this checkout holds, whose branch then cannot be read, is unread.
-		if _, known, err := prBaseRemote(ctx, runner, goblin.repo, url); err != nil || !known {
+		// there is nothing to read and the ordinary default stands. A read that
+		// failed is different: nothing says the base is absent, so the target
+		// is unread rather than silently measured against another base.
+		_, known, err := prBaseRemote(ctx, runner, goblin.repo, url)
+		if err != nil {
+			goblin.targetUnread = url
+			continue
+		}
+		if !known {
 			continue
 		}
 		base, head, err := prBaseBranch(ctx, runner, goblin.repo, url)
