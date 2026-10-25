@@ -119,6 +119,13 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		default:
 		}
 	}
+	// A host that never announced leaves its log as the only evidence, and
+	// this launch ends it. So the log says what was true at the bound, since on
+	// 2026-10-24 a launch that timed out left nothing but the notice that it
+	// could not break away, and the phase the host had reached was lost with
+	// it.
+	alive := cmd.ProcessState == nil
+	fmt.Fprintf(log, "host: pid %d had not recorded itself after %s of the %s this launch allows (still running: %t); this launch ends it\n", cmd.Process.Pid, time.Since(launched).Round(time.Millisecond), launchTimeout, alive)
 	_ = cmd.Process.Kill()
 	return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s; see %s", cmd.Process.Pid, launchTimeout, logPath)
 }
