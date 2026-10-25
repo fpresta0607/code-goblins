@@ -102,13 +102,18 @@ func registerFixture(t *testing.T) (*Store, hostedTerminal, *CFOConnection) {
 
 // nativePrimary registers this test process as a CFO in native terminal cfo.
 func nativePrimary(t *testing.T, stateDir string) {
+	nativePrimaryAs(t, stateDir, "claude")
+}
+
+// nativePrimaryAs registers the CFO's native terminal as running agent.
+func nativePrimaryAs(t *testing.T, stateDir, agent string) {
 	t.Helper()
 	process, err := lock.Acquire(stateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lock.Release(stateDir) })
-	data, err := json.Marshal(primaryRegistration{Host: "cfo", Agent: "claude", Process: *process})
+	data, err := json.Marshal(primaryRegistration{Host: "cfo", Agent: agent, Process: *process})
 	if err != nil {
 		t.Fatal(err)
 	}

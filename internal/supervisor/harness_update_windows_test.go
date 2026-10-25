@@ -401,3 +401,176 @@ func TestTheCFOsUpdateIsReadFromItsTerminalAndWaitsOutItsTurn(t *testing.T) {
 		t.Fatalf("restarted %d times once the turn ended, want once", machine.restarted)
 	}
 }
+
+// npmInstalled writes npm's global layout for a harness into directory: the
+// script shim npm linked at linked, and the package npm unpacked under
+// node_modules at installed.
+func npmInstalled(t *testing.T, directory string, kind harness.Kind, pkg string, linked, installed time.Time) {
+	t.Helper()
+	shim := filepath.Join(directory, string(kind)+".cmd")
+	if err := os.WriteFile(shim, []byte("@echo off\r\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(shim, linked, linked); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(directory, "node_modules", filepath.FromSlash(pkg), "package.json")
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(manifest, installed, installed); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// npmPackageManifest is the manifest of the package npm installed in
+// directory, which the harness's own updater writes again.
+func npmPackageManifest(directory, pkg string) string {
+	return filepath.Join(directory, "node_modules", filepath.FromSlash(pkg), "package.json")
+}
+
+// npmOnPath puts npm's global folder first on PATH, so a harness is found
+// through the shim written there, with the rest of PATH kept for git.
+func npmOnPath(t *testing.T, directory string) {
+	t.Helper()
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// Codex and pi are installed from npm, whose shim npm writes once when it
+// links the bin: an install by the harness's own updater (codex update, pi
+// update) writes the package under the shim and leaves the shim's own time
+// alone. The supervisor reads the package, so the shim npm linked again since
+// a goblin started raises no update, and a package its updater wrote does.
+func TestACodexOrPiUpdateIsSeenFromItsPackageWhateverInstalledIt(t *testing.T) {
+	for kind, pkg := range map[string]string{
+		"codex": "@openai/codex",
+		"pi":    "@earendil-works/pi-coding-agent",
+	} {
+		t.Run(kind, func(t *testing.T) {
+			// Arrange
+			handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
+			s := handler.Service
+			s.Options.ReadScreen = (&standInScreen{}).read
+			started := time.Now().Add(-2 * time.Hour).UTC()
+			directory := t.TempDir()
+			npmInstalled(t, directory, harness.Kind(kind), pkg, started.Add(30*time.Minute), started.Add(-time.Hour))
+			npmOnPath(t, directory)
+			meta := state.TaskMeta{ID: "goblin", SpawnGen: "s1", Harness: kind, Model: "m", Effort: "high", Backend: "native", Worktree: h.Root, Project: h.Root}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			gitFixture(t, meta.Worktree)
+			recordTerminal(t, h.State, meta.ID, started)
+
+			// Act: npm linked the shim again since it started, and the package is older.
+			s.lookForHarnessUpdates()
+
+			// Assert
+			if card := engineCard(t, s, meta.ID); card.HarnessUpdate != nil {
+				t.Fatalf("card update = %+v, want none: only the shim was written since it started", card.HarnessUpdate)
+			}
+
+			// Act: its own updater writes the package, and the shim does not move.
+			updated := started.Add(time.Hour)
+			if err := os.Chtimes(npmPackageManifest(directory, pkg), updated, updated); err != nil {
+				t.Fatal(err)
+			}
+			s.lookForHarnessUpdates()
+
+			// Assert
+			if card := engineCard(t, s, meta.ID); card.HarnessUpdate == nil || !card.HarnessUpdate.Installed.Equal(updated) {
+				t.Fatalf("card update = %+v, want the install at %s by its own updater", card.HarnessUpdate, updated)
+			}
+		})
+	}
+}
+
+// A Codex CFO is read the same way, so its header offers Update on an install
+// written since its terminal started and on nothing else.
+func TestACodexCFOGetsUpdateWhenItsPackageWasInstalledSinceItStarted(t *testing.T) {
+	// Arrange
+	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
+	s := handler.Service
+	s.Options.ReadScreen = (&standInScreen{}).read
+	started := time.Now().Add(-2 * time.Hour).UTC()
+	directory := t.TempDir()
+	npmInstalled(t, directory, harness.Codex, "@openai/codex", started.Add(30*time.Minute), started.Add(-time.Hour))
+	npmOnPath(t, directory)
+	nativePrimaryAs(t, h.State, "codex")
+	recordTerminal(t, h.State, NativeCFOTerminal, started)
+
+	// Act: npm linked the shim again since it started, and the package is older.
+	s.lookForHarnessUpdates()
+
+	// Assert
+	if update := cfoUpdateOf(t, s); update != nil {
+		t.Fatalf("CFO update = %+v, want none: only the shim was written since it started", update)
+	}
+
+	// Act: its own updater writes the package.
+	updated := started.Add(time.Hour)
+	if err := os.Chtimes(npmPackageManifest(directory, "@openai/codex"), updated, updated); err != nil {
+		t.Fatal(err)
+	}
+	s.lookForHarnessUpdates()
+
+	// Assert
+	if update := cfoUpdateOf(t, s); update == nil || update.Harness != "codex" || !update.Installed.Equal(updated) {
+		t.Fatalf("CFO update = %+v, want the codex install at %s", update, updated)
+	}
+}
+
+// A pi goblin's Update press restarts it in place with its own harness, model
+// and effort, as Claude Code's does.
+func TestAPiGoblinsUpdatePressRestartsItInPlace(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{}
+	handler, h := startBoard(t, 5*gigabyte, spawner)
+	s := handler.Service
+	s.Options.FirstRun = newFirstRunMachine(t).run
+	started := time.Now().Add(-2 * time.Hour)
+	s.Options.ReadScreen = (&standInScreen{}).read
+	s.Options.ProgramInstalled = func(harness.Kind) (string, time.Time, error) {
+		return `C:\Tools\pi.cmd`, started.Add(time.Hour), nil
+	}
+	s.Options.Dispatch.Idle = func(context.Context, state.TaskMeta) (bool, error) { return true, nil }
+	s.Options.Gate = &engineGate{}
+	meta := state.TaskMeta{ID: "goblin", SpawnGen: "s1", Harness: "pi", Model: "pi-model", Effort: "high", Backend: "native", Worktree: h.Root, Project: h.Root}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	recordTerminal(t, h.State, meta.ID, started)
+	s.lookForHarnessUpdates()
+	if card := engineCard(t, s, meta.ID); card.HarnessUpdate == nil {
+		t.Fatal("no update offered on a pi goblin installed since it started")
+	}
+
+	// Act
+	response := taskControlRequest(handler, "/api/tasks/engine", map[string]string{"task": meta.ID, "generation": meta.SpawnGen, "when": "update"})
+	now := time.Now().UTC()
+	if err := s.applyEngineChoices(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	choice, err := state.ReadEngineChoice(h.State, meta.ID)
+	if response.Code != http.StatusAccepted || err != nil || choice.When != "update" || choice.Harness != "pi" || choice.Model != "pi-model" || choice.Effort != "high" || len(spawner.recorded()) != 0 {
+		t.Fatalf("press = %d %s, choice %+v %v, calls %+v; want its own values waiting for the end of its turn", response.Code, response.Body, choice, err, spawner.recorded())
+	}
+
+	// Act: its turn has ended.
+	if err := s.applyEngineChoices(t.Context(), now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	waitEngineChange(t, s, meta.ID)
+
+	// Assert
+	want := []string{"switch", meta.ID, "--generation", meta.SpawnGen, "--restart"}
+	if calls := spawner.recorded(); len(calls) != 1 || !slices.Equal(calls[0], want) {
+		t.Fatalf("calls %+v; want one %q", calls, want)
+	}
+}
