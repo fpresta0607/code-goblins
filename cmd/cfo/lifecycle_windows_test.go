@@ -406,7 +406,7 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 			}
 			f.meta.PipelineHash, f.meta.PipelineClass = older.Hash, older.Class
 		}, want: "Run cfo pipeline migrate task, then resume it"},
-		{name: "a gate that cannot run on its harness", isVersionSix: true, goblin: pipeline.Reviewer{Harness: "pi", Model: "kimi", Effort: "high"}, want: "Task task would come back on pi, so resume it on claude or codex"},
+		{name: "a gate that cannot run on its harness", isVersionSix: true, goblin: pipeline.Reviewer{Harness: "grok", Model: "grok-4", Effort: "high"}, want: "Task task would come back on grok, so resume it on a harness a gate can prove"},
 		{name: "a paused validation that cannot be recovered", goblin: claudeGoblin, want: "recover paused validation: the daemon is not running"},
 		{name: "a relaunch its switch refuses", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
 			f.commands, f.switched = &resumedGateRunner{}, errors.New("switch: validate harness claude: claude is not installed")
