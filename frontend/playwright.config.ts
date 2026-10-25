@@ -1,5 +1,5 @@
 import { defineConfig } from "@playwright/test";
-import { ORIGIN } from "./tests/site";
+import { ORIGIN } from "./tests/site.ts";
 
 // The terminal specs whose terminals a fixture page draws, each of which runs
 // a second time with its terminal stepped into a Messages view's place, in
@@ -8,6 +8,12 @@ import { ORIGIN } from "./tests/site";
 // specs that load the whole board step it in themselves.
 const STEPPED_IN = ["terminal-keys", "terminal-input", "terminal-held", "terminal-harness-screens", "terminal-scroll", "terminal-zoom", "terminal-geometry", "voice-bubble",
   "dictated-input", "touch-dictation", "phone-paste", "terminal-swipe", "phone-terminal-tools"].map((name) => `**/${name}.spec.ts`);
+
+// The WebKit spec is a project of its own, so the browser job's Chromium
+// shards never install WebKit and the Media Foundation it needs on a Windows
+// runner: that install waited 29 minutes on Windows Update on 2026-10-22, in
+// every shard, though only one shard runs this file (#1406).
+const IPHONE = ["**/iphone-terminal.spec.ts"];
 
 export default defineConfig<{ isSteppedIn: boolean }>({
   testDir: "./tests",
@@ -18,6 +24,13 @@ export default defineConfig<{ isSteppedIn: boolean }>({
   // desk a failure is the answer wanted, so nothing runs again.
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["dot"], ["./tests/failed-once.ts"]] : "list",
+  // A test that never finishes must fail a shard rather than hold the job to
+  // its own limit, and every merge train waiting on the run with it (#1406).
+  // In CI the run ends after 20 minutes, a little over twice a shard's normal
+  // 8 to 12, so the job's rerun of its failed checks takes over. At a desk a
+  // whole suite runs on one worker and may take longer than a shard, so only
+  // CI is bounded.
+  globalTimeout: process.env.CI ? 20 * 60_000 : 0,
   // The tests load the board and their fixture pages from a build, which
   // tests/site.ts answers from files: there is no web server, and baseURL is
   // only the origin the pages are given, on a port nothing is fetched from.
@@ -34,5 +47,9 @@ export default defineConfig<{ isSteppedIn: boolean }>({
     // first try of one that then passed.
     trace: "retain-on-failure",
   },
-  projects: [{ name: "board" }, { name: "stepped-in", testMatch: STEPPED_IN, use: { isSteppedIn: true } }],
+  projects: [
+    { name: "board", testIgnore: IPHONE },
+    { name: "stepped-in", testMatch: STEPPED_IN, use: { isSteppedIn: true } },
+    { name: "iphone", testMatch: IPHONE },
+  ],
 });

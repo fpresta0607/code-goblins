@@ -264,11 +264,24 @@ jobs:
   # in the list is one more job and no test is left out.
   # TestGoWorkflowRunsEveryBrowserTestOnce holds the list to 1 up to its
   # length.
+  #
+  # The WebKit spec runs in shard 1 alone, as its own Playwright project: it is
+  # the only shard that installs WebKit and the Media Foundation Windows Server
+  # leaves out, an install that waited 29 minutes on Windows Update on
+  # 2026-10-22 while every shard paid it, and it has a step limit of its own so
+  # a stalled install fails this job rather than spending its whole budget
+  # (#1406).
   browser:
     needs: plan
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.browser == 'true' }}
     name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: windows-latest
+    # A shard that hangs must fail rather than run to GitHub's six-hour job
+    # limit, with every merge train waiting on the run with it. 40 minutes is
+    # a few times a shard's normal 12 minutes, and Playwright's own
+    # globalTimeout bounds the test run inside it sooner still, so the run's
+    # rerun of its failed checks takes over (#1406).
+    timeout-minutes: 40
     strategy:
       # Every job runs to its end, so one run names every failure.
       fail-fast: false
@@ -285,7 +298,7 @@ jobs:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Run this job's share of the browser tests
+      - name: Install the browsers every shard runs
         working-directory: frontend
         shell: pwsh
         run: |
@@ -293,17 +306,37 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx playwright install chromium --only-shell
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # WebKit, which tests/iphone-terminal.spec.ts runs in, needs Media
-          # Foundation, which Windows Server leaves out.
+      # WebKit, which tests/iphone-terminal.spec.ts runs in, needs Media
+      # Foundation, which Windows Server leaves out. Only shard 1 runs that
+      # spec, so only shard 1 installs it.
+      - name: Install WebKit for the iPhone tests
+        if: matrix.shard == 1
+        timeout-minutes: 10
+        working-directory: frontend
+        shell: pwsh
+        run: |
           Install-WindowsFeature Server-Media-Foundation | Out-Null
           npx playwright install webkit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+      - name: Run this job's share of the browser tests
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} --project=board --project=stepped-in
         env:
           # A test that fails runs once more (playwright.config.ts), and
           # tests/failed-once.ts appends each one that passed only then to
           # this record, under this job's name.
           FAILED_ONCE_JOB: browser (${{ matrix.shard }}/${{ strategy.job-total }})
+          FAILED_ONCE_RECORD: ${{ runner.temp }}/failed-once.jsonl
+      - name: Run the iPhone tests in WebKit
+        if: matrix.shard == 1
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          npm run test:browser -- --project=iphone
+        env:
+          FAILED_ONCE_JOB: browser (iPhone)
           FAILED_ONCE_RECORD: ${{ runner.temp }}/failed-once.jsonl
       - name: Keep the record of each test that failed once
         if: always()
