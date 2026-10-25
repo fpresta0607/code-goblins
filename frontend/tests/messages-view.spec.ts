@@ -673,6 +673,52 @@ test("a held send in Classic is queued through the board, and its box goes once 
   await expect(page.locator(".native-terminal")).toBeVisible();
 });
 
+// One session has one box, wherever the panel draws it: in Classic while
+// custody holds it sits under the terminal, and his draft is still there when
+// the hold clears and the box returns under the conversation.
+test("a draft typed in Classic's held box survives the hold clearing", async ({ page }) => {
+  // Arrange: Classic, a held goblin, and a draft typed into the held box.
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const board = await open(page);
+  await openGoblin(page, "Pia - Pi Pilot");
+  const who = "Pia - Pi Pilot";
+  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(page.locator(".classic-queue")).toHaveCount(1);
+  // One box, not two: the conversation's own box is not drawn beside this one.
+  await expect(page.locator("section.composer")).toHaveCount(1);
+  await boxField(page, who).fill("half a thought");
+
+  // Act: the hold clears, so Classic goes back to the terminal, and he takes
+  // its Back to messages to read the conversation and write to it.
+  await board.sayTo("cg-pi", { type: "held", reason: "" });
+  await expect(page.locator(".classic-queue")).toHaveCount(0);
+  await page.getByRole("button", { name: "Back to messages" }).click();
+
+  // Assert: still one box, holding the very words he typed into the held one.
+  await expect(page.locator("section.composer")).toHaveCount(1);
+  await expect(boxField(page, who)).toHaveValue("half a thought");
+});
+
+// A keyboard switch in Classic reaches the terminal, since Classic draws it in
+// the conversation's place and its box is not on screen while custody is clear.
+test("a keyboard switch in Classic puts the keys in the terminal it shows", async ({ page }) => {
+  // Arrange: Classic, two goblins, and one of them open.
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const board = await open(page);
+  await openGoblin(page, "Pia - Pi Pilot");
+  await expect(page.locator(".native-terminal")).toBeVisible();
+  await expect(boxField(page, "Pia - Pi Pilot")).toHaveCount(0);
+
+  // Act: he switches sessions with the keyboard.
+  await page.keyboard.press("Control+Alt+2");
+
+  // Assert: the keys went to the terminal in the conversation's place, not to
+  // a box that is not on screen.
+  await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("aria-label") ?? "")).toBe("Terminal input");
+  await expect(boxField(page, "Pia - Pi Pilot")).toHaveCount(0);
+  await expect(board.say).toBeTruthy();
+});
+
 // A harness picker guards direct typing: Send waits for it, so no Enter can act
 // on it. The message he saved before it opened is the board's own and stays.
 test("a held goblin keeps its queued message past a picker, and the picker still guards direct typing", async ({ page }) => {

@@ -1573,6 +1573,44 @@ func TestAQueuedWithdrawalNamesTheActionItDeletesAndNothingElse(t *testing.T) {
 		}
 	})
 
+	t.Run("a keep-for-resume delete never takes a queued message with its words", func(t *testing.T) {
+		// Arrange: a gate-held goblin has A queued, and a pause kept A for its
+		// resume, so two rows read the same words: one waiting in the queue and
+		// one in the note.
+		store, h := testStore(t)
+		meta := gatedGoblin(t, h)
+		if _, err := store.Queue(Action{ID: "q1", Kind: "message", TaskID: meta.ID, Generation: meta.SpawnGen, Text: "same words"}); err != nil {
+			t.Fatal(err)
+		}
+		atPhase(t, h.State, meta, "pause", "paused")
+		record, err := state.ReadLifecycle(h.State, meta.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record.ResumeNote = fromOverlord("same words")
+		if err := state.WriteLifecycle(h.State, record); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act: he deletes the kept row, which carries no target because the
+		// note is what holds it.
+		if _, err := store.withdrawMessage(Action{ID: "w1", Kind: "message_withdraw", TaskID: meta.ID, Text: "same words"}); err != nil {
+			t.Fatalf("the note's copy was not deleted: %v", err)
+		}
+
+		// Assert: the note lost it, and the queued message is still waiting.
+		record, err = state.ReadLifecycle(h.State, meta.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(record.ResumeNote, "same words") {
+			t.Fatalf("the resume note still carries it: %q", record.ResumeNote)
+		}
+		if got := strings.Join(order(store), ","); got != "q1:same words" {
+			t.Fatalf("the queue reads %q, want the queued message untouched", got)
+		}
+	})
+
 	t.Run("a message kept for a resume is still withdrawn by its words", func(t *testing.T) {
 		// Arrange: a message in a paused goblin's resume note.
 		store, h := testStore(t)

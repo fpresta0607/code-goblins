@@ -225,10 +225,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A host that did not answer may be starting or busy, so the view tries
 	// again, as the board does for a view that may come back.
 	terminal, err := host.Watch(record)
-	// A terminal from before turn tracking cannot prove which turn a key press
-	// belongs to, so nothing is ever typed into it and he is told to restart it.
-	// It is still read, because a view that showed nothing at all would hide a
-	// terminal he can see and a history he can still scroll.
+	// A terminal from before turn tracking cannot say which turn a submission
+	// started, so it is read and typed into like any other and only that
+	// evidence is skipped. Refusing its input would leave a composer he can
+	// see and press untypable until he restarts the terminal.
 	untracked := errors.Is(err, host.ErrNoTurnEvidence)
 	if untracked {
 		terminal, err = host.View(record)
@@ -246,9 +246,6 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// the gate may own, so no second state variable exists.
 	var mu sync.Mutex
 	custody := error(custodyUnasked)
-	if untracked {
-		custody = host.ErrNoTurnEvidence
-	}
 	// asked closes once the first answer has arrived, so input typed while it
 	// was still being read waits for it instead of being dropped.
 	asked := make(chan struct{})
@@ -261,8 +258,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// Opened before any custody answer exists, and held until one says the
 	// branch is the goblin's: a check the gate answers slowly must never keep
 	// history, scrolling or the composer waiting, while nothing is released
-	// into a branch the gate may own.
-	relay.held = heldNotice(custody)
+	// into a branch the gate may own. Nothing is said about that first hold,
+	// which lasts one check: a notice that always flashed up and cleared would
+	// break the history it is drawn beside. A hold that lasts is announced by
+	// the answer that finds it.
 	look := time.AfterFunc(screenAtOpen, func() {
 		relay.mu.Lock()
 		relay.looking = false
@@ -410,11 +409,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(closeCode(revoked), closeReason(revoked.Error()))
 				return false
 			}
-			if untracked {
-				refused = host.ErrNoTurnEvidence
-			}
 			mu.Lock()
-			isChanged := (custody == nil) != (refused == nil) || custody != nil && refused != nil && custody.Error() != refused.Error()
+			// The first answer is quiet when it is clear, since the view opened on
+			// that silent hold and there is no notice to take back; a hold that
+			// lasts is announced by the answer that found it.
+			isChanged := refused != nil
+			if custody != custodyUnasked {
+				isChanged = (custody == nil) != (refused == nil) || custody != nil && refused != nil && custody.Error() != refused.Error()
+			}
 			custody = refused
 			askOnce.Do(func() { close(asked) })
 			mu.Unlock()
@@ -493,9 +495,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				if !isReading || refused != nil || binding.harness == nil {
 					continue
 				}
-				if err := terminal.MarkSubmission(control.Submission, binding.harness()); err != nil {
-					_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
-					return
+				// A host from before turn tracking has no viewer to mark the
+				// submission with, so the words and the Enter still go in and
+				// only the evidence of which turn they started is skipped.
+				if !untracked {
+					if err := terminal.MarkSubmission(control.Submission, binding.harness()); err != nil {
+						_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
+						return
+					}
 				}
 				relay.mu.Lock()
 				relay.submission = control.Submission
@@ -514,9 +521,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			refused, isReading := settled()
-			// A resize is a control action and types nothing, so a terminal that
-			// cannot prove its turns still takes one; a gate's hold refuses it.
-			if !isReading || !untracked && refused != nil || control.Cols < minTerminalCols || control.Rows < minTerminalRows || control.Cols > maxTerminalCols || control.Rows > maxTerminalRows {
+			if !isReading || refused != nil || control.Cols < minTerminalCols || control.Rows < minTerminalRows || control.Cols > maxTerminalCols || control.Rows > maxTerminalRows {
 				continue
 			}
 			if terminal.Resize(control.Cols, control.Rows) != nil {

@@ -1304,9 +1304,9 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The Messages view
 
-A Claude Code session's panel shows its messages, design A of the Overlord's choice on 2026-10-22, in the one view he asked for on 2026-10-23: "Can't we just have one, instead of the messages and terminal being split up?"
-The CFO has it while it runs Claude Code in a native terminal, and a goblin while it runs Claude Code in a native terminal, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
-A Codex or pi session, a session in Herdr and a stopped or retired goblin show their terminal in that view, and a baby goblin its terminal alone, and a CFO starting in its terminal, before it registers, shows that terminal, which may ask for a sign-in.
+A Claude Code or pi session's panel shows its messages, design A of the Overlord's choice on 2026-10-22, in the one view he asked for on 2026-10-23: "Can't we just have one, instead of the messages and terminal being split up?"
+The CFO has it while it runs Claude Code or pi in a native terminal, and a goblin while it runs Claude Code or pi in a native terminal, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
+A Codex session, a session in Herdr and a stopped or retired goblin show their terminal in that view, and a baby goblin its terminal alone, and a CFO starting in its terminal, before it registers, shows that terminal, which may ask for a sign-in.
 The messages fill the panel, so they fill the window while it is maximized.
 A switch by Ctrl+Alt with a digit or an arrow, the first open and the end of the tour hand the keyboard to the message box, or to the terminal where the session has no messages or its terminal stepped in.
 The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.

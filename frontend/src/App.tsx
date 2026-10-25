@@ -46,6 +46,7 @@ import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
 import { liveCfoSession } from "./workflow";
 import { messagesQuery } from "./session-messages";
+import { takesMessages } from "./messages";
 import { useChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
 
@@ -228,9 +229,24 @@ export function App() {
   // keyboardTo hands the keyboard to the session of key: the box under its
   // messages, or its terminal, where the board does not read it as messages
   // or its terminal stepped in.
+  const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
+  const terminalKey = cfoShown ? CFO_KEY : task?.id || "";
+  const live = useTerminalLink(terminalKey);
+  const heldCustody = !!live?.held;
+  const [chatStyle] = useChatStyle();
+  const [classicOut, setClassicOut] = useState("");
   const keyboardTo = (key: string) => {
-    const hasMessages = !!snapshot && !!(key === CFO_KEY ? messagesQuery(snapshot) : messagesQuery(snapshot, snapshot.tasks.find((each) => each.id === key)));
-    if (hasMessages && steppedIn !== key) setBoxFocus((prior) => prior + 1);
+    // The keyboard goes to whatever that session will actually show: the box
+    // the panel draws for it, or its terminal. Classic draws the terminal in
+    // the conversation's place, so a switch there reaches the terminal unless
+    // the goblin takes messages and has none, or custody holds and its box is
+    // the thing on screen.
+    const target = key === CFO_KEY ? undefined : snapshot?.tasks.find((each) => each.id === key);
+    const hasMessages = !!snapshot && !!messagesQuery(snapshot, target);
+    const takes = !!target && takesMessages(target);
+    const isTerminalHere = steppedIn === key || (chatStyle === "classic" && classicOut !== key && !takes);
+    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && key === terminalKey && heldCustody;
+    if (showsBox) setBoxFocus((prior) => prior + 1);
     else setSwitchFocus((prior) => prior + 1);
   };
   // A switch, by its keys or from the board, shows that session at once and
@@ -291,7 +307,6 @@ export function App() {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
   };
-  const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
   const showsPanel = !!snapshot && paneOpen && (view === "Orchestration" || !!task || !!train || cfoOpen);
   // The session whose messages the panel shows: the CFO's, or a task's own
   // session, never a child's (messagesQuery).
@@ -305,9 +320,7 @@ export function App() {
   // The session's own terminal, by the terminal deck's key, whether its
   // harness works, which the box's working line shows, and that terminal's
   // link, which says what it was last told of the harness's screen.
-  const terminalKey = cfoShown ? CFO_KEY : task?.id || "";
   const isWorking = ["busy", "working", "active"].includes((cfoShown ? snapshot && liveCfoSession(snapshot)?.runtime?.state : task?.runtime?.state) || "");
-  const live = useTerminalLink(terminalKey);
   // A session the board reads as messages shows them, with its terminal laid
   // out behind them in the same box for its box to type through. The terminal steps into their place, with the keyboard,
   // when what the box sent opens a screen of the harness's own before a turn
@@ -325,9 +338,8 @@ export function App() {
   // conversation until a screen or a tap steps the terminal in. The saved
   // choice is the only thing that decides it, so a change of style carries
   // the session, its history, an unsent draft and the place he read.
-  const [chatStyle] = useChatStyle();
-  const [classicOut, setClassicOut] = useState("");
-  const classicInPlace = chatStyle === "classic" && !!terminalKey && classicOut !== terminalKey;
+  const takesTyping = !!task && takesMessages(task);
+  const classicInPlace = chatStyle === "classic" && !!terminalKey && classicOut !== terminalKey && !takesTyping;
   const terminalInPlace = isSteppedIn || classicInPlace;
   if (sentFrom && (sentFrom.terminal !== terminalKey || live?.isReconnecting || live?.phase === "closed")) setSentFrom(null)
   else if (sentFrom && live?.screen?.submission === sentFrom.submission) {
@@ -335,13 +347,23 @@ export function App() {
     else if (live.screen.isOpen) { setSentFrom(null); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); }
   }
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
-  const stepIn = () => { setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
-  const stepOut = () => { setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
-  // Whether custody holds or cannot be read at this moment: the Classic box is
-  // offered exactly then, since a clear custody leaves typing to the terminal.
-  const heldCustody = !!live?.held;
+  const stepIn = () => { if (chatStyle === "classic") setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
+  // Stepping out is Modern's Back to the conversation and Classic's way back
+  // into it, so only Classic records it: Modern's press must not change what
+  // Classic shows for the session.
+  const stepOut = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
+  // Whether custody holds or cannot be read at this moment: the board's box is
+  // offered beside a terminal exactly then, since a clear custody leaves typing
+  // to the terminal itself. It is read here because a switch has to know
+  // whether that box is on screen.
   const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || terminalInPlace);
   const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !terminalInPlace;
+  // One box for the session, moved rather than copied: if each place drew its
+  // own, two of them would keep two drafts of the same words. It sits under the
+  // conversation, or under a terminal that cannot take typing itself, which is
+  // a held one and one whose goblin takes messages and has no terminal yet.
+  const queuedBox = terminalShown && !messagesShown && (heldCustody || takesTyping);
+  const boxOnScreen = messagesShown || queuedBox;
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
   if (messagesShown && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
@@ -464,24 +486,27 @@ export function App() {
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
         <div className="panel-main">
-        <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn} onBack={stepOut}>
+        {/* Classic draws the terminal in the conversation's place too, so its
+            Back bar is the way back to the conversation and its box. */}
+        <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn || classicInPlace} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
-            box={<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
+            box={queuedBox ? undefined : <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
               focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
         </PanelStage>
-        {/* Classic draws the harness's own terminal in the conversation's place,
-            so the board's box is not on screen there. While custody holds or
-            cannot be read, the box comes back under the terminal: the same box
-            and the same queue, typing nothing into the terminal, while a clear
-            custody leaves the terminal's own input to it. */}
-        {snapshot && classicInPlace && messagesSource && heldCustody && <div className="classic-queue">
-          <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking} />
+        {/* A terminal whose typing the board cannot use keeps the session's own
+            box under it: one held by a gate, or one whose goblin takes messages
+            and has no terminal to take them yet. It is the same Composer the
+            conversation uses, moved here rather than drawn twice, and it types
+            nothing into the terminal. */}
+        {snapshot && queuedBox && <div className="classic-queue">
+          <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
+            focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />
         </div>}
         </div>
         {!compact && isPaneWide && <div ref={setSide} className="panel-side" hidden={!!child} />}

@@ -749,6 +749,25 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 	}
 }
 
+// withoutHeldNotices is what a view was sent but for each line telling it
+// whether typing is held, which comes and goes as custody is read.
+func withoutHeldNotices(screen string) string {
+	var kept strings.Builder
+	for rest := screen; ; {
+		at := strings.Index(rest, `{"type":"held",`)
+		if at < 0 {
+			kept.WriteString(rest)
+			return kept.String()
+		}
+		kept.WriteString(rest[:at])
+		end := strings.Index(rest[at:], "}")
+		if end < 0 {
+			return kept.String()
+		}
+		rest = rest[at+end+1:]
+	}
+}
+
 // waitForAfter is waitFor for a line that says the same thing twice, such as a
 // hold that clears, opens again and clears once more: only what arrived after
 // the marker counts, so an earlier equal line cannot answer it.
@@ -1360,6 +1379,12 @@ func TestANativeViewIsToldEachSizeBetweenTheOutputDrawnBeforeAndAfterIt(t *testi
 // history as its first output, then the output before, and the output after
 // once after closes. It never tells a size.
 func oldHost(t *testing.T, h *HTTP, views int, after <-chan struct{}) {
+	oldHostTold(t, h, views, after, nil)
+}
+
+// oldHostTold is oldHost, and when typed is not nil it reports every chunk a
+// viewer sends into it there.
+func oldHostTold(t *testing.T, h *HTTP, views int, after <-chan struct{}, typed chan<- string) {
 	t.Helper()
 	name := fmt.Sprintf(`\\.\pipe\code-goblins-old-host-%d-%d`, os.Getpid(), time.Now().UnixNano())
 	path, err := windows.UTF16PtrFromString(name)
@@ -1393,6 +1418,20 @@ func oldHost(t *testing.T, h *HTTP, views int, after <-chan struct{}) {
 					return
 				}
 			}
+			if typed != nil {
+				go func() {
+					buffer := make([]byte, 512)
+					for {
+						read, err := connection.Read(buffer)
+						if err != nil {
+							return
+						}
+						if read > 0 {
+							typed <- string(buffer[:read])
+						}
+					}
+				}()
+			}
 			select {
 			case <-after:
 				_, _ = connection.Write(frame('o', "after the resize"))
@@ -1412,6 +1451,40 @@ func oldHost(t *testing.T, h *HTTP, views int, after <-chan struct{}) {
 	}
 	if err := os.WriteFile(filepath.Join(hosts, "task-1.json"), record, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A host from before turn tracking cannot say which turn a submission started,
+// so the view is still read and typed into and a submission is never refused in
+// a way that closes it: the words and the Enter land, and only the evidence of
+// the turn they started is missing.
+func TestAnOldHostTakesTypingAndSkipsOnlyTheSubmissionsEvidence(t *testing.T) {
+	// Arrange: an old host, and a view of it.
+	h, server := nativeBoard(t, "direct")
+	after := make(chan struct{})
+	defer close(after)
+	typed := make(chan string, 8)
+	oldHostTold(t, h, 4, after, typed)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "before the resize")
+
+	// Act: a typed line, and then a submission the host cannot mark.
+	v.send(t, websocket.MessageBinary, "typed")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"while-untracked"}`)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Assert: the view is still open, and the line reached the host.
+	if err := v.conn.Ping(ping); err != nil {
+		t.Fatalf("the view closed on an old host's submission: %v", err)
+	}
+	select {
+	case got := <-typed:
+		if !strings.Contains(got, "typed") {
+			t.Fatalf("the host was sent %q, want the words typed into it", got)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the words typed into an old host never reached it")
 	}
 }
 
@@ -1438,13 +1511,15 @@ func TestEveryNativeViewOfAnOldHostIsToldItsNewSizeAfterTheOutputBeforeIt(t *tes
 	held.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
 	close(after)
 
-	// A host from before turn tracking can be read but not typed into, so each
-	// view says so once and everything else arrives in the order it was sent.
-	want := `{"type":"history","bytes":11}{"type":"held","reason":"Restart this terminal to enable Chat turn tracking."}old historybefore the resize{"type":"size","cols":100,"rows":30}after the resize`
+	// A host from before turn tracking is read and typed into like any other,
+	// and only its submission's turn evidence is skipped. What a view is told
+	// about a hold, which lasts a probe's length here, is not this test's
+	// subject: the history, the output and the size are.
+	want := `{"type":"history","bytes":11}old historybefore the resize{"type":"size","cols":100,"rows":30}after the resize`
 	for name, v := range map[string]*nativeView{"watching": watching, "held": held} {
 		v.waitFor(t, "after the resize")
 		v.mu.Lock()
-		screen := v.screen.String()
+		screen := withoutHeldNotices(v.screen.String())
 		v.mu.Unlock()
 		if screen != want {
 			t.Errorf("the %s view was shown %q, want %q", name, screen, want)
@@ -1917,9 +1992,9 @@ func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
 		t.Fatal("a submission was delivered before custody was answered")
 	}
 
-	// Act: the gate answers clear, and the view is told before he types.
+	// Act: the gate answers clear. Nothing is announced, because a view that
+	// opened on the silent hold has no notice to take back.
 	gate.free()
-	v.waitFor(t, `"type":"held","reason":""`)
 
 	// Assert: the text typed while the answer was pending waited for it rather
 	// than being dropped, and is typed now that the branch is the goblin's.
