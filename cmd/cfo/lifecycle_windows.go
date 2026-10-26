@@ -81,6 +81,9 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			}
 			record.GateHead = preserved.Head
 			record.Kept = append(record.Kept, "gate commits "+preserved.Head+"; validation restarts on Resume")
+			if preserved.WorktreeEdits != "" {
+				record.Kept = append(record.Kept, "gate worktree edits "+preserved.WorktreeEdits+" under "+pipeline.WorktreeRef(preserved.ID)+"; restore them with git cherry-pick -n "+preserved.WorktreeEdits)
+			}
 			record.Stopped = append(record.Stopped, "validation run "+preserved.ID)
 			return nil
 		},
