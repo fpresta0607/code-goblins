@@ -546,7 +546,7 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   const frames = await page.evaluate(() => window.voiceProbe!.frames);
   await page.waitForTimeout(1000);
   expect(await page.evaluate(() => window.voiceProbe!.frames)).toBe(frames);
-  expect(await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").length)).toBe(0);
+  expect(await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !(animation as CSSAnimation).animationName?.startsWith("working-")).length)).toBe(0);
 
   await bubble.click();
   const recent = page.getByRole("dialog", { name: "Recent messages" });

@@ -102,7 +102,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         await expect(page.locator("#panel-title")).toHaveText("CFO");
         await expect(page.locator(".canvas-region")).toBeVisible();
         expect(Math.round((await pane(page).boundingBox())!.width)).toBe(width);
-        await expect(pane(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
+        await expect(pane(page).locator(".panel-top").getByRole("group", { name: "Panel view" })).toHaveCount(0);
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
         for (const essential of ["Open in Windows Terminal", "Maximize the panel", "Close panel"]) expect(report.shown).toContain(essential);
@@ -129,7 +129,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
         // A queued task has no terminal either: Back and what fits.
         await page.locator(".task-board .task-card").filter({ hasText: "queued-one" }).click();
         await expect(page.locator("#panel-title")).toHaveText("queued-one");
-        await expect(pane(page).getByRole("group", { name: "Panel view" })).toHaveCount(0);
+        await expect(pane(page).locator(".panel-top").getByRole("group", { name: "Panel view" })).toHaveCount(0);
         const report = await page.evaluate(rowReport);
         expect(report.problems).toEqual([]);
         expect(report.shown).toContain("Back to the CFO");

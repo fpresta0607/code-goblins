@@ -1420,6 +1420,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-side { display: flex; flex: none; width: clamp(300px, 32%, 460px); min-width: 0; min-height: 0; padding-left: 12px; }
 .panel-side > .panel-task { flex: 1; min-height: 0; }
 .panel-side .panel-content { padding: 0 18px 24px; }
+.panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
+.panel-header-details:empty { display: none; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
 .stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
 .stepped-in-bar > button { pointer-events: auto; }

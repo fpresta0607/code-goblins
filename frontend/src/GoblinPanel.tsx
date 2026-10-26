@@ -57,6 +57,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     requestAnimationFrame(() => document.getElementById("task-activity")?.scrollIntoView({ block: "start", behavior: "smooth" }));
   };
   const taskList = <>
+    {!child && <PanelHeader task={task} node={node} snapshot={snapshot} compact={false} isDetails onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     {task && <div className="panel-content lifecycle-panel">
       <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} />
       <LifecycleDetails task={task} />
@@ -78,7 +79,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
   </>;
   return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow {...row} />
-    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
+    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     {!child && !maximized && <PanelViewSwitch view={view} views={views} onView={onView} />}
     {list}
   </section>;

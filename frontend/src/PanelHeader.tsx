@@ -43,7 +43,7 @@ import { harnessInk } from "./harness-ink";
 // while an update of the CFO's harness waits and Restart PC before that while
 // the kernel's pools are past their line, and under them what a press of
 // Update waits for or why it did not restart the CFO.
-export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, compact, isDetails = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -116,6 +116,7 @@ export function PanelHeader({ task, node, snapshot, compact, onAnswer, onOpenTas
       <ClickFeedback text={feedback} />
     </div>;
   const awaitedLink = awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} data-tip={"Open " + goblinName(awaited)} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>;
+  if (isDetails) return <div className="panel-header-details">{projectLine}{helper}{partOf}{awaited && <p>{goblinName(awaited)}{awaitedLink}</p>}{activity}{detailsRow}{actions}</div>;
   return <header className={"panel-header" + (compact ? " compact" : "")}>
     <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
     <div className="panel-heading">

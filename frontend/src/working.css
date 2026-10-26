@@ -3,7 +3,7 @@
    Every place the board draws a session working uses it, so one session's
    working state looks the same wherever it is drawn. */
 .working-indicator { position: relative; display: inline-block; width: 24px; height: 24px; flex: none; color: currentColor; }
-.working-indicator.compact { width: 16px; height: 16px; }
+.working-indicator.compact { width: 9px; height: 9px; vertical-align: middle; }
 .working-helix, .working-dither { position: absolute; inset: 0; display: block; }
 .working-helix { animation: working-helix-out 1.2s ease-out both; }
 .working-dither { display: grid; grid-template-columns: repeat(4, 5px); gap: 1px; width: 23px; height: 23px; animation: working-dither-in 1.2s ease-out both; }
@@ -19,8 +19,8 @@
 @keyframes working-helix-out { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.78); } }
 @keyframes working-dither-in { 0% { opacity: 0; transform: scale(.78); } 100% { opacity: 1; transform: scale(1); } }
 /* A compact one keeps the same 4x4 shape in 15 px. */
-.working-indicator.compact .working-dither { grid-template-columns: repeat(4, 3px); gap: 1px; width: 15px; height: 15px; }
-.working-indicator.compact .working-dither > i { width: 3px; height: 3px; }
+.working-indicator.compact .working-dither { grid-template-columns: repeat(4, 2px); gap: .33px; width: 9px; height: 9px; }
+.working-indicator.compact .working-dither > i { width: 2px; height: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .working-helix { display: none; }
   .working-dither { animation: none; }
