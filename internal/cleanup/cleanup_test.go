@@ -21,6 +21,9 @@ import (
 
 type cleanupRunner struct {
 	gitStatus    string
+	// registered is the body git worktree list answers with, appended to the
+	// project's own line. Empty answers with the project's line alone.
+	registered   string
 	snapshotBody string
 	snapshotErr  bool
 	tabCloseErr  bool
@@ -36,6 +39,9 @@ func (r *cleanupRunner) Run(_ context.Context, req execx.Request) (execx.Result,
 		return execx.Result{ExitCode: 128, Stderr: []byte("fatal: not a git repository")}, nil
 	}
 	if req.Name == "git" {
+		if slices.Equal(req.Args, []string{"worktree", "list", "--porcelain"}) {
+			return execx.Result{Stdout: []byte("worktree " + req.Dir + "\n" + r.registered)}, nil
+		}
 		if len(req.Args) != 3 || req.Args[0] != "status" || req.Args[1] != "--porcelain=v1" || req.Args[2] != "--untracked-files=all" {
 			return execx.Result{}, fmt.Errorf("unexpected git request: %#v", req)
 		}
@@ -68,6 +74,9 @@ func jsonResultOK() execx.Result {
 type cleanupGit struct {
 	top       string
 	returnErr error
+	// returnErrPath limits returnErr to one worktree, so a harness worktree's
+	// refusal does not also refuse the task's own.
+	returnErrPath string
 	returned  [][2]string
 	// unlanded names the worktrees whose HEAD is not on the default branch,
 	// and tagged the archive tags made for them.
@@ -99,6 +108,9 @@ func (g *cleanupGit) WorktreeTop(_ context.Context, dir string) (string, error) 
 
 func (g *cleanupGit) Return(_ context.Context, project, worktree string) error {
 	g.returned = append(g.returned, [2]string{project, worktree})
+	if g.returnErrPath != "" && g.returnErrPath != worktree {
+		return nil
+	}
 	return g.returnErr
 }
 

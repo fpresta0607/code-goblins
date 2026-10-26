@@ -4,13 +4,16 @@
 // tab close of the exact recorded tab (after the endpoint is proven
 // agent-free), the close of a native task's terminal (after its harness is
 // proven idle at its composer, which the close ends) and
-// worktree.Service.Return for the task's worktree and every extra one it
-// recorded, and only after every guard has proven the exact recorded task
-// safe to release and every one of its worktrees clean. Work that is not on
-// the default branch is kept as a local archive tag before its worktree goes.
+// worktree.Service.Return for the task's worktree, every extra one it
+// recorded, and any worktree the project registers inside those folders, which
+// the task's own harness left there; the first two only after every guard has
+// proven the exact recorded task safe to release and its worktrees clean, and
+// the last with its own work proven safe as it goes. Work that is not on the
+// default branch is kept as a local archive tag before its worktree goes.
 // The one directory it removes outright holds no work - the task's scratch
 // folder, retired with the record because it lives outside the state tree the
-// archive rename carries away; see Service.removeScratch.
+// archive rename carries away, and then only while no harness worktree it
+// could not return still holds work there; see Service.removeScratch.
 package cleanup
 
 import (
@@ -82,12 +85,13 @@ type Result struct {
 	Output string
 }
 
-// Cleanup validates one task's metadata and isolation, proves its worktree
-// clean and its Herdr endpoint inactive, then delegates the worktree release
-// to worktree.Service.Return. Task metadata is preserved whenever any check
-// or the return itself fails, so the operator can diagnose and retry the
-// exact task. It holds the task against every other command that changes it
-// from before its first check to its end; see holdTask.
+// Cleanup validates one task's metadata and isolation, proves its Herdr
+// endpoint or native terminal inactive, returns any worktree its harness left
+// inside the task's own folders, proves its worktrees clean, then delegates
+// the worktree release to worktree.Service.Return. Task metadata is preserved
+// whenever any check or the return itself fails, so the operator can diagnose
+// and retry the exact task. It holds the task against every other command that
+// changes it from before its first check to its end; see holdTask.
 func (s Service) Cleanup(ctx context.Context, id string) (result Result, err error) {
 	if err := state.ValidTaskID(id); err != nil {
 		return Result{}, err
@@ -164,16 +168,27 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	if err != nil {
 		return Result{}, err
 	}
+	// The endpoint is proven agent-free before anything of the task's is
+	// touched: a harness at work is using the folders below.
+	idle, err := s.requireInactive(ctx, meta)
+	if err != nil {
+		return Result{}, err
+	}
+	// A harness's own tooling leaves worktrees of its own, in the task's
+	// scratch folder or inside the checkout the goblin worked in, and they go
+	// with the task's own. They are returned before the guards read the
+	// worktree's status, because a worktree nested in the goblin's own shows
+	// there as untracked and would refuse every cleanup that has one; each
+	// return proves its own work safe first, keeping unlanded work as an
+	// archive tag and refusing uncommitted work, which is the same rule the
+	// task's own worktrees get.
+	strays, strayNote := s.returnHarnessStrays(ctx, git, project, meta)
 	// Every worktree the task holds is proven clean before anything changes,
 	// so a refusal leaves the task exactly as it was.
 	for _, path := range append(extras, worktreePath) {
 		if err := s.requireClean(ctx, path); err != nil {
 			return Result{}, err
 		}
-	}
-	idle, err := s.requireInactive(ctx, meta)
-	if err != nil {
-		return Result{}, err
 	}
 	handedOver, err := s.handOver(meta)
 	if err != nil {
@@ -234,7 +249,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchNote := s.removeScratch(ctx, meta)
+	scratchNote := s.removeScratch(ctx, meta, strays)
 
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
@@ -257,10 +272,24 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	}
 	result.Output += scratchNote
 	result.Output += left
+	result.Output += strayNote
 	result.Output += handedOver
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
+}
+
+// returnHarnessStrays returns the worktrees the project registers inside the
+// task's own folders, which a harness's own tooling left rather than cfo, and
+// says what became of each. A worktree it cannot prove safe is kept and
+// named, never discarded.
+func (s Service) returnHarnessStrays(ctx context.Context, git worktree.Git, project string, meta state.TaskMeta) ([]worktree.Stray, string) {
+	folders := append([]string{meta.Worktree, meta.Scratch}, meta.Extras...)
+	returned, err := worktree.ReturnStrays(ctx, s.Commands, git, project, folders)
+	if err != nil {
+		return nil, "\nwarning: the worktrees a harness left in the task's folders could not be read (" + err.Error() + "), so the janitor returns them"
+	}
+	return returned, worktree.StrayNote(returned, "cleanup")
 }
 
 // holdTask takes the task for the cleanup: its cleanup lock, and the two
@@ -476,7 +505,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
-	scratchNote := s.removeScratch(ctx, meta)
+	scratchNote := s.removeScratch(ctx, meta, nil)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
 	for _, extra := range meta.Extras {
@@ -557,7 +586,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchNote := s.removeScratch(ctx, meta)
+	scratchNote := s.removeScratch(ctx, meta, nil)
 	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s: %s", id, removed)}
 	if archive != "" {
 		result.Output += " archive=" + archive
@@ -606,6 +635,20 @@ func (s Service) archive(id string) (string, error) {
 	return dir, nil
 }
 
+// keptInside names the first worktree the scan kept that lies inside dir, or
+// "" when none does.
+func keptInside(dir string, strays []worktree.Stray) string {
+	for _, stray := range strays {
+		if stray.Kept == "" {
+			continue
+		}
+		if rel, err := filepath.Rel(dir, stray.Path); err == nil && rel != "." && filepath.IsLocal(rel) {
+			return stray.Path
+		}
+	}
+	return ""
+}
+
 // removeScratch removes the task's scratch folder (for a task an older build
 // spawned, its Go temporary directory), which holds the build output, test
 // homes and logs a finished task no longer needs and which, living outside the
@@ -627,10 +670,16 @@ func (s Service) archive(id string) (string, error) {
 //
 // It returns what to say of a folder that stayed, on a line of its own, and
 // nothing of one that went.
-func (s Service) removeScratch(ctx context.Context, meta state.TaskMeta) string {
+func (s Service) removeScratch(ctx context.Context, meta state.TaskMeta, strays []worktree.Stray) string {
 	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
 		return fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", err)
+	}
+	// A harness worktree this cleanup could not return still holds work, and
+	// the scratch folder holds it: removing the folder would discard exactly
+	// what the worktree's own refusal just preserved.
+	if kept := keptInside(scratch, strays); kept != "" {
+		return fmt.Sprintf("\nleft the scratch folder %s in place: it still holds the harness worktree %s, and nothing removes work", scratch, kept)
 	}
 	heldBy, err := home.RemoveScratch(ctx, scratch, liveTemps)
 	switch {
