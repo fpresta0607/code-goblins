@@ -171,6 +171,15 @@ func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func()
 	if cfg.Now.Sub(newest) < tempAge {
 		return
 	}
+	repository, err := findRepository(path)
+	if err != nil {
+		record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "its repositories could not all be read: " + err.Error()})
+		return
+	}
+	if repository != "" {
+		record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "it still holds a git worktree or repository at " + repository})
+		return
+	}
 	// A folder that is a running Git Bash's /tmp, or holds it, stays however
 	// old: the runtime mounts /tmp once, at the TMP of its first shell, for
 	// every shell of the user until the last one ends, and no command line

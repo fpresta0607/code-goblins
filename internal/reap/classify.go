@@ -364,13 +364,30 @@ const (
 	RegistrationUnlisted Registration = "unlisted"
 )
 
+// Source names where a worktree directory was found. It decides what the
+// sweep may do with one no task records: the fleet's own folders hold only
+// goblin worktrees, while a checkout also holds whatever a harness's own
+// tooling left there.
+const (
+	// SourceFleet is the zero value: the home's worktrees folder, where spawn
+	// puts each goblin's, or a checkout's .worktrees/ where an older build
+	// put them.
+	SourceFleet = ""
+	// SourceCheckout is a worktree the project itself registers at a path the
+	// fleet's folders do not hold: one a harness's own tooling made, in a
+	// scratchpad or in the checkout it works in, rather than cfo.
+	SourceCheckout = "checkout"
+)
+
 // WorktreeDir is one directory found among the fleet's worktrees: in the
-// home's worktrees folder, or under a project's .worktrees/ where an older
-// build put them.
+// home's worktrees folder, under a project's .worktrees/ where an older build
+// put them, or, as SourceCheckout, wherever the project itself registers a
+// worktree that those folders do not hold.
 type WorktreeDir struct {
 	Path         string
 	Project      string
 	TaskID       string
+	Source       string
 	Registration Registration
 	// Created is when the directory was made, zero when it could not be
 	// read. It is what tells a live goblin's extra worktree from an older
@@ -746,14 +763,24 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			findings = append(findings, classifyDirectory(inv, supervised, worktree, task, known, unreadable[worktree.TaskID]))
 			continue
 		}
+		detail := placementOutcome(inv, task, known, unreadable[worktree.TaskID]) + extraWorktreeNote(task, known, worktree)
+		action := "return the worktree through cfo cleanup"
+		if worktree.Source == SourceCheckout {
+			// Nothing of this home records it, and it is not in a folder the
+			// fleet puts its own in: it is a harness's or an older session's,
+			// left in a checkout or a scratchpad, and returns through the
+			// worktree return primitive rather than through a task's cleanup.
+			detail = "a worktree " + worktree.Project + " registers at a path no task of this home records, left by a harness or an older session"
+			action = "return the worktree"
+		}
 		finding := Finding{
 			Class:      OrphanWorktree,
 			TaskID:     worktree.TaskID,
 			Path:       worktree.Path,
 			Project:    worktree.Project,
 			Registered: worktree.Registration == RegistrationListed,
-			Detail:     placementOutcome(inv, task, known, unreadable[worktree.TaskID]) + extraWorktreeNote(task, known, worktree),
-			Action:     "return the worktree through cfo cleanup",
+			Detail:     detail,
+			Action:     action,
 		}
 		finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
 		// A goblin whose pane died mid-work leaks its worktree just as surely

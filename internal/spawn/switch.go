@@ -342,6 +342,13 @@ func (s Service) Switch(ctx context.Context, req SwitchRequest) (result SwitchRe
 	// last one left in the background, so a server left running would hold
 	// its port against the one the goblin starts again.
 	left := s.endLeft(ctx, meta)
+	// A harness's own tooling leaves worktrees of its own, in the task's
+	// scratch folder or inside the checkout the goblin worked in, and nothing
+	// of the next harness would reach them. They go now, while no harness of
+	// the task runs, on the rule the task's own worktrees get: unlanded work is
+	// kept as an archive tag first, and one holding uncommitted work stays and
+	// is named.
+	left += s.returnHarnessStrays(ctx, git, project, meta, scratch, worktreePath)
 	// A worktree a build before this one provisioned shares its config files
 	// with the checkout as hard links, so a goblin editing .env there edits
 	// the Overlord's own file. Each ends here, while no harness of the task
@@ -502,6 +509,20 @@ func (s Service) endLeft(ctx context.Context, meta state.TaskMeta) string {
 		output += "\nwarning: not everything the last harness left running was ended (" + err.Error() + "), so the rest ends with the goblin's next pause, stop or cleanup, or once it has sat idle for an hour"
 	}
 	return output
+}
+
+// returnHarnessStrays returns the worktrees the project registers inside the
+// task's own folders, which a harness's own tooling left rather than cfo, and
+// says what became of each. A worktree it cannot prove safe is kept and
+// named, never discarded. A read that fails does not stop the relaunch, which
+// would leave the goblin with no harness.
+func (s Service) returnHarnessStrays(ctx context.Context, git worktree.Git, project string, meta state.TaskMeta, scratch, worktreePath string) string {
+	folders := append([]string{worktreePath, scratch}, meta.Extras...)
+	returned, err := worktree.ReturnStrays(ctx, s.commands(), git, project, folders)
+	if err != nil {
+		return "\nwarning: the worktrees a harness left in the task's folders could not be read (" + err.Error() + "), so the janitor returns them"
+	}
+	return worktree.StrayNote(returned, "relaunch")
 }
 
 // relaunchHarness injects credentials into the target's launch, writes the
