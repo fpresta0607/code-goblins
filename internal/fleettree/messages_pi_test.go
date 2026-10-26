@@ -563,3 +563,127 @@ func TestAPiBranchAtACallDropsTheResultOfTheAbandonedOne(t *testing.T) {
 		}
 	}
 }
+
+// A pi edit records the diff it applied in its result's details, drawn with
+// each line's number in the file. The board's message view shows the diff a
+// Claude Code edit shows: its added and removed lines, and the lines around
+// them, without pi's line numbers.
+func TestAPiEditShowsTheDiffItRecorded(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := piSession(t, home,
+		piHeader(),
+		piMessageEntry("u1", "", "user", object{"content": "Change it"}),
+		piMessageEntry("a1", "u1", "assistant", object{
+			"provider": "acme", "model": "thinker-1", "stopReason": "toolUse",
+			"content": []object{{"type": "toolCall", "id": "call-1", "name": "edit", "arguments": object{"path": "b.go"}}},
+		}),
+		piMessageEntry("t1", "a1", "toolResult", object{
+			"toolCallId": "call-1", "toolName": "edit", "isError": false,
+			"content": []object{{"type": "text", "text": "Successfully replaced 1 block(s) in b.go."}},
+			"details": object{"diff": "+  12 added line\n-  11 removed line\n   10 context line\n", "firstChangedLine": 12},
+		}),
+	)
+	reader := Reader{Home: t.TempDir()}
+
+	// Act
+	page := readPi(t, &reader, path)
+
+	// Assert
+	var call Block
+	for _, message := range page.Messages {
+		for _, block := range message.Blocks {
+			if block.CallID == "call-1" {
+				call = block
+			}
+		}
+	}
+	want := Edit{Added: 1, Removed: 1, Diff: []string{"+added line", "-removed line", " context line"}}
+	if call.State != "done" || !reflect.DeepEqual(call.Edit, want) {
+		t.Fatalf("the edit shows %+v, want %+v", call.Edit, want)
+	}
+}
+
+// A failed edit says nothing changed, whatever its details hold, as a call
+// that failed has no diff to show.
+func TestAFailedPiEditShowsNoDiff(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := piSession(t, home,
+		piHeader(),
+		piMessageEntry("u1", "", "user", object{"content": "Change it"}),
+		piMessageEntry("a1", "u1", "assistant", object{
+			"provider": "acme", "model": "thinker-1", "stopReason": "toolUse",
+			"content": []object{{"type": "toolCall", "id": "call-1", "name": "edit", "arguments": object{"path": "b.go"}}},
+		}),
+		piMessageEntry("t1", "a1", "toolResult", object{
+			"toolCallId": "call-1", "toolName": "edit", "isError": true,
+			"content": []object{{"type": "text", "text": "no match"}},
+			"details": object{"diff": "+  12 added line\n"},
+		}),
+	)
+	reader := Reader{Home: t.TempDir()}
+
+	// Act
+	page := readPi(t, &reader, path)
+
+	// Assert
+	var call Block
+	for _, message := range page.Messages {
+		for _, block := range message.Blocks {
+			if block.CallID == "call-1" {
+				call = block
+			}
+		}
+	}
+	if call.State != "failed" || len(call.Edit.Diff) != 0 || call.Edit.Added != 0 {
+		t.Fatalf("the failed edit shows %+v", call)
+	}
+}
+
+// An extension's message that pi shows is a prompt on the board, as pi draws
+// it in its own view, and one pi hides has no place there. Pi's own
+// documentation says a custom_message takes part in the conversation and its
+// display field controls whether the session shows it.
+func TestAPiExtensionMessageIsShownOnlyWhenPiShowsIt(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		display bool
+		shown   int
+	}{
+		{name: "an extension's shown message", display: true, shown: 1},
+		{name: "an extension's hidden message", display: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := piSession(t, home,
+				piHeader(),
+				piMessageEntry("u1", "", "user", object{"content": "Carry on"}),
+				piMessageEntry("a1", "u1", "assistant", object{
+					"provider": "acme", "model": "thinker-1", "stopReason": "stop",
+					"content": []object{{"type": "text", "text": "Working on it."}},
+				}),
+				piEntry("custom_message", "m1", "a1", object{"customType": "fleet", "content": "A note from an extension", "display": test.display}),
+			)
+			reader := Reader{Home: t.TempDir()}
+
+			// Act
+			page := readPi(t, &reader, path)
+
+			// Assert
+			shown := 0
+			for _, message := range page.Messages {
+				if message.ID == "m1" {
+					shown++
+					if message.Kind != MessagePrompt || message.Source != FromNotice || message.Text != "A note from an extension" {
+						t.Fatalf("the extension's message reads as %+v", message)
+					}
+				}
+			}
+			if shown != test.shown {
+				t.Fatalf("the session shows %d of the extension's messages, want %d: %+v", shown, test.shown, page.Messages)
+			}
+		})
+	}
+}
