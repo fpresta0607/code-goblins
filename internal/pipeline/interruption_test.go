@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -118,6 +119,32 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 		return execx.Result{Stdout: []byte(" M unfinished.go\n?? new-test.go\n")}, nil
 	}
 	return execx.Result{}, nil
+}
+
+// A gate's run worktree is verified against a folder the fleet computed, and
+// git answers with the name the operating system gives the folder it runs in.
+// On a CI runner's temporary folder that is the 8.3 short name of the very
+// same folder, so comparing the two as text stopped recovery before the
+// fixer's edits were kept (PR 1516).
+func TestSameFolderSeesThroughAnotherSpellingOfOneFolder(t *testing.T) {
+	// Arrange
+	folder := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(folder, alias); err != nil {
+		// Windows without Developer Mode and without the right to make
+		// symbolic links falls back to a junction, which needs neither.
+		if out, junctionErr := exec.Command("cmd", "/c", "mklink", "/J", alias, folder).CombinedOutput(); junctionErr != nil {
+			t.Skipf("no alias can be made here: %v (%s)", junctionErr, out)
+		}
+	}
+
+	// Act & Assert
+	if !sameFolder(alias, folder) || !sameFolder(folder, alias) {
+		t.Errorf("sameFolder(%q, %q) = false, want one folder under two names", alias, folder)
+	}
+	if sameFolder(alias, t.TempDir()) {
+		t.Error("two different folders were read as one")
+	}
 }
 
 func TestInterruptPreservesTheGateWorktreeBeyondItsRecordedHead(t *testing.T) {

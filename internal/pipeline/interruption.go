@@ -166,11 +166,26 @@ func (reader Reader) gateRunWorktree(ctx context.Context, runID, repoID string) 
 		{[]string{"rev-parse", "--path-format=absolute", "--git-common-dir"}, filepath.Join(reader.Root, "repos", repoID+".git")},
 	} {
 		result, err := reader.runGit(ctx, worktree, false, check.args...)
-		if err != nil || result.ExitCode != 0 || !strings.EqualFold(filepath.Clean(strings.TrimSpace(string(result.Stdout))), filepath.Clean(check.want)) {
-			return "", errors.New("gate worktree repository could not be verified")
+		got := strings.TrimSpace(string(result.Stdout))
+		if err != nil || result.ExitCode != 0 || !sameFolder(got, check.want) {
+			return "", fmt.Errorf("gate worktree repository could not be verified: git %s read %q, want %q", check.args[0], got, check.want)
 		}
 	}
 	return worktree, nil
+}
+
+// sameFolder reports whether a path a program reported names the folder the
+// fleet computed. git answers with the name the operating system gives the
+// folder it runs in, which is another spelling of the same folder when it is
+// reached through a symbolic link or, on Windows, through an 8.3 short name as
+// a CI runner's temporary folder is.
+func sameFolder(got, want string) bool {
+	gotInfo, gotErr := os.Stat(got)
+	wantInfo, wantErr := os.Stat(want)
+	if gotErr == nil && wantErr == nil && os.SameFile(gotInfo, wantInfo) {
+		return true
+	}
+	return strings.EqualFold(filepath.Clean(got), filepath.Clean(want))
 }
 
 // preserveRunWorktreeEdits keeps whatever unfinished changes a failed or
