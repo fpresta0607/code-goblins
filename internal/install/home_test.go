@@ -6,11 +6,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -59,6 +61,62 @@ func makePrimaryHome(t *testing.T, root string) {
 
 func primary(root string) bool {
 	return home.IsPrimary(home.Home{Root: root, State: filepath.Join(root, "state")})
+}
+
+func TestInstallAndUpdateShareSmartRoutingAcrossHarnesses(t *testing.T) {
+	// Arrange
+	f := installedFixture(t, map[string]string{"Path": `C:\Windows`}, codegoblins.Contract, codegoblins.Policy)
+	skills, err := fs.Sub(codegoblins.Skills, ".agents/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := fs.ReadFile(skills, "smart-routing/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.Skills = skills
+
+	// Act
+	f.install()
+
+	// Assert
+	shared := filepath.Join(f.profile, ".agents", "skills", "smart-routing", "SKILL.md")
+	claude := filepath.Join(f.profile, ".claude", "skills", "smart-routing", "SKILL.md")
+	for _, path := range []string{shared, claude} {
+		if got := readFile(t, path); got != string(want) {
+			t.Errorf("%s does not expose the shipped skill", path)
+		}
+	}
+	sharedInfo, err := os.Stat(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claudeInfo, err := os.Stat(claude)
+	if err != nil || !os.SameFile(sharedInfo, claudeInfo) {
+		t.Fatalf("Claude does not read the shared skill file: %v", err)
+	}
+	for _, harness := range []string{".codex", filepath.Join(".pi", "agent")} {
+		if _, err := os.Lstat(filepath.Join(f.profile, harness, "skills", "smart-routing")); !os.IsNotExist(err) {
+			t.Errorf("%s gained a duplicate instead of using shared discovery: %v", harness, err)
+		}
+	}
+	mapping, err := harnessmap.Read(filepath.Join(f.root, "state"))
+	if err != nil || !slices.Contains(mapping.Installed, "smart-routing") {
+		t.Fatalf("the installed skill is absent from the harness map: %+v, %v", mapping, err)
+	}
+	if mapping.SharedSkills != filepath.Dir(filepath.Dir(shared)) {
+		t.Fatalf("the discovery map points elsewhere: %s", mapping.SharedSkills)
+	}
+
+	// A newer build replaces the one owned source; every discovery path follows it.
+	updated := string(want) + "\nUpdated routing evidence.\n"
+	f.service.Skills = fstest.MapFS{"smart-routing/SKILL.md": {Data: []byte(updated)}}
+	f.install()
+	for _, path := range []string{shared, claude} {
+		if got := readFile(t, path); got != updated {
+			t.Errorf("%s did not receive the updated skill", path)
+		}
+	}
 }
 
 func TestInstallOutsideACheckoutSetsUpAPrimaryHomeFromTheBinary(t *testing.T) {

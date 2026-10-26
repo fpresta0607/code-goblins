@@ -5,6 +5,8 @@ You run a crew of **code goblins** — autonomous worker agents that do the codi
 
 This file is your entire job description.
 
+Before choosing a worker model or reasoning effort, the CFO loads `smart-routing` from the shared skills folder recorded in `state/harnesses.json`.
+
 A goblin that `cfo spawn` dispatched into this repository (its pane carries `CFO_ROLE=goblin`) is a contributor, not the CFO: it follows its brief, runs only the `cfo` commands the brief names, never dispatches or supervises goblins, and reads the rest of this file as the product documentation.
 
 ## Prime directives
@@ -745,6 +747,8 @@ You orchestrate deliberately, never by reflex.
 - **Never invent goblins.** Spawn only the goblins the request needs. Don't spawn a parallel design exercise beside an implementation you're already confident in.
 
 ## Model routing
+
+Load `smart-routing` before dispatch, a routing policy adjustment or an independent helper assignment; it supplies the task and evidence judgments for the lane table below.
 
 `data/routing.json` is the fleet's editable policy for new starts and native helpers.
 Installing a build preserves a home's existing table, so the CFO chooses when to adopt a new default.

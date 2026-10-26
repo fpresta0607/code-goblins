@@ -18,6 +18,28 @@ func shipped(t *testing.T, name string) string {
 	return strings.ReplaceAll(string(data), "\r\n", "\n")
 }
 
+func TestTheBinaryCarriesDiscoverableSmartRouting(t *testing.T) {
+	// Act
+	skill := shipped(t, "smart-routing")
+	header, _, isClosed := strings.Cut(strings.TrimPrefix(skill, "---\n"), "\n---\n")
+
+	// Assert
+	if !strings.HasPrefix(skill, "---\n") || !isClosed || !strings.Contains(header, "name: smart-routing\n") {
+		t.Fatalf("smart-routing has no discovery header: %s", header)
+	}
+	if !regexp.MustCompile(`(?m)^description: Use when .+`).MatchString(header) {
+		t.Fatalf("smart-routing has no discovery trigger: %s", header)
+	}
+	contract, err := fs.ReadFile(Contract, "AGENTS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup, _, _ := strings.Cut(string(contract), "## Prime directives")
+	if !strings.Contains(startup, "`smart-routing`") {
+		t.Fatal("the shared startup contract does not discover smart-routing before its size limit")
+	}
+}
+
 // A harness lists a skill by the name and description in its header, so a
 // skill without them is installed and never offered.
 func TestTheBinaryCarriesTheProjectCheckSkillWithItsHeader(t *testing.T) {
