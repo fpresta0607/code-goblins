@@ -14,7 +14,7 @@ const footer = (page: Page) => page.locator(".session-footer");
 
 test("the conversation's bottom line carries the time facts, not a wall of numbers", async ({ page }) => {
   // Arrange
-  await open(page, snapshot({}, MEMORY), "rebase onto main", PAGE_WITH_USAGE);
+  await open(page, snapshot({}, { ...MEMORY, phase: "settled" }), "rebase onto main", PAGE_WITH_USAGE);
   await openGoblin(page);
 
   // Assert
@@ -134,6 +134,16 @@ test("a selection he settles copies itself, with the quiet Copied, and a cleared
   // Assert: nothing new copied.
   await expect.poll(() => page.evaluate(() => (window as unknown as { __copied?: string[] }).__copied?.length ?? 0)).toBe(1);
 });
+
+for (const runtime of [undefined, { state: "idle" }]) {
+  test(`Codex keeps the board's working indicator in the footer when runtime is ${runtime ? "idle" : "unavailable"}`, async ({ page }) => {
+    await open(page, snapshot({}, { harness: "codex", phase: "working", runtime }), "", PAGE_WITH_USAGE);
+    await openGoblin(page);
+    await expect(footer(page).locator(".session-working")).toBeVisible();
+    await expect(page.locator(".panel-header .working-indicator")).toHaveCount(0);
+    await expect(page.locator(".context-pane .working-indicator:visible")).toHaveCount(1);
+  });
+}
 
 test("thinking keeps its paragraphs, lists and code readable without a drawer", async ({ page }) => {
   const thought = "First **read** the change.\n\n1. Check `input`.\n2. Keep the draft.\n\n```sh\ngit status --short\n```\n\n" + "https://example.test/" + "long".repeat(80);

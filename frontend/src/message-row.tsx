@@ -44,6 +44,7 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
     return () => document.removeEventListener("pointerdown", close);
   }, [isActionsOpen]);
   const words = copyText(message);
+  const when = sentAt(message.at);
   const copy = words && <button type="button" className="icon-button message-copy" aria-label="Copy" data-tip={copied ? "Copied" : "Copy"}
     onClick={(event) => { event.stopPropagation(); copyToClipboard(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), COPIED_MS); }, () => {}); }}><Icon name={copied ? "check" : "copy"} /></button>;
   if (message.kind === "interrupt") return <p className="message-interrupt" data-message={message.id}><Icon name="pause" />Interrupted</p>;
@@ -52,14 +53,13 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
     <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"}><MessageText text={message.text} /></Disclosure>
   </div>;
   if (message.kind === "reply") return <article className="message message-reply" data-message={message.id}>
-    {copy}
     {message.blocks.map((block, at) => block.kind === "text" ? <MessageText key={at} text={block.text} />
       : block.kind === "thinking" ? block.text && <div key={at} className="message-thinking-read"><span className="thinking-label">Thinking</span><MessageText text={block.text} /></div>
         : <MessageCall key={at} call={block} task={task} picture={picture} onChild={onChild} />)}
+    <div className="message-reply-actions">{copy}{when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}</div>
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";
-  const when = sentAt(message.at);
   return <article ref={row} className={"message message-prompt " + message.source + (isActionsOpen ? " actions-open" : "")} data-message={message.id}
     onClick={() => { if (!window.getSelection()?.toString()) setActionsOpen((prior) => !prior); }}>
     {message.queued && <span className="message-queued">Queued</span>}

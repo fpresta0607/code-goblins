@@ -29,7 +29,7 @@ const MAX_RETRIES = 5;
 // reportAs names the terminal in what it reports to the CFO. link, when set,
 // is the terminal deck's key it offers its link by (terminal-link.ts), so the
 // Messages view's box types through this terminal's own view.
-export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, link }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; link?: string }) {
+export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, link, onHistory }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; link?: string; onHistory?: () => void }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -38,6 +38,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const staged = useRef<TerminalView | null>(null);
   const shownValue = useRef(shown);
   const harnessValue = useRef(harness);
+  const onHistoryValue = useRef(onHistory);
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   // Why the view closed, while it is closed, and whether its terminal ended,
@@ -88,6 +89,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     }
   }, [shown]);
   useEffect(() => { harnessValue.current = harness; }, [harness]);
+  useEffect(() => { onHistoryValue.current = onHistory; }, [onHistory]);
   const reportAsValue = useRef(reportAs);
   useEffect(() => { reportAsValue.current = reportAs; }, [reportAs]);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
@@ -163,6 +165,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       held: (reason) => { if (current.current === view) setHeldWhy(reason); },
       unsent: () => { if (current.current === view) setUnsent(true); },
       screen: (state) => { if (current.current === view) setScreen(state); },
+      history: () => { if (current.current === view) onHistoryValue.current?.(); },
     });
     staged.current = view;
     view.show(shownValue.current);

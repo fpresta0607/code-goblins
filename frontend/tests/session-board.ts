@@ -69,15 +69,20 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", (route) => route.request().method() === "GET" ? route.fulfill({ json: { engine: "test-model", state: "ready" } }) : route.fulfill({ json: { text: heard, engine: "test-model" } }));
+  const holds = new Map<string, object>();
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     relay.views++;
     relay.addresses.push(socket.url());
     let submission = ""
-    relay.say = (message) => socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message))
+    relay.say = (message) => {
+      if ("type" in message && message.type === "held") holds.set(socket.url(), message);
+      socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message));
+    };
     relay.drop = () => socket.close({ code: 1001 });
     relay.end = () => socket.close({ code: 1000, reason: "No terminal is running for this task." });
     relay.write = (text) => socket.send(Buffer.from(text));
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+    if (holds.has(socket.url())) socket.send(JSON.stringify(holds.get(socket.url())));
     socket.onMessage((data) => {
       if (typeof data !== "string") { const text = data.toString("utf8"); relay.typed.push(text); relay.inputs.push({ address: socket.url(), text }); return; }
       const sent: unknown = JSON.parse(data);

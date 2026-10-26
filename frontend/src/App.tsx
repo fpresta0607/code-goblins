@@ -49,6 +49,7 @@ import { messagesQuery } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { useChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
+import { taskStatus } from "./task-status";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -313,7 +314,7 @@ export function App() {
   // harness works, which the box's working line shows, and that terminal's
   // link, which says what it was last told of the harness's screen.
   const cfoSession = snapshot && liveCfoSession(snapshot);
-  const isWorking = !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task?.runtime?.state) || "");
+  const isWorking = !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task && snapshot ? taskStatus(task, snapshot).phase : "") || "");
   // What the conversation's stats read: the session's harness, the model and
   // effort the board recorded for it, and the memory its processes hold.
   const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
@@ -321,7 +322,7 @@ export function App() {
   const panelEffort = cfoShown || !task ? "" : task.effort || "";
   const panelMemory = cfoShown || !task ? 0 : task.tree?.memory || 0;
   const panelWorkingSince = cfoShown || !task ? ((snapshot && liveCfoSession(snapshot)?.runtime?.at) || "") : task.runtime?.at || "";
-  const panelPending = task && !cfoShown && snapshot ? messagesTo(snapshot, task.id).filter(isPendingMessage) : [];
+  const panelPending = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "").filter(isPendingMessage) : [];
   // A session the board reads as messages shows them, with its terminal laid
   // out behind them in the same box for its box to type through. The terminal steps into their place, with the keyboard,
   // when what the box sent opens a screen of the harness's own before a turn
@@ -501,10 +502,10 @@ export function App() {
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending} onStop={() => live?.escape()}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
-            box={queuedBox ? undefined : <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey}
+            box={queuedBox ? undefined : <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation
               focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
-            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus}
+            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus} onHistory={messagesSource ? stepOut : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
         </PanelStage>

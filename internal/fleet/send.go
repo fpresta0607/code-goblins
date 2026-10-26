@@ -20,7 +20,7 @@ const (
 // Stamp marks a steer as the CFO's with routing.SteerPrefix, once, so the
 // fault detector can tell text the CFO wrote about a provider from text the
 // provider wrote. A message the CFO already prefixed is left alone, and so
-// is a slash or dollar command: that is for the harness, not the goblin,
+// is a slash, dollar or bang command: that is for the harness, not the goblin,
 // and a prefix would turn it into prose.
 func Stamp(message string) string {
 	if strings.HasPrefix(message, routing.SteerPrefix) || IsCommand(message) {
@@ -29,10 +29,10 @@ func Stamp(message string) string {
 	return routing.SteerPrefix + message
 }
 
-// IsCommand reports whether message is a slash or dollar command for the
+// IsCommand reports whether message is a slash, dollar or bang command for the
 // harness rather than text for the goblin.
 func IsCommand(message string) bool {
-	return strings.HasPrefix(message, "/") || strings.HasPrefix(message, "$")
+	return strings.HasPrefix(message, "/") || strings.HasPrefix(message, "$") || strings.HasPrefix(message, "!")
 }
 
 // TypeSettleFor is how long to wait after typing message before Enter submits

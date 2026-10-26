@@ -27,6 +27,10 @@ var composerExtension = regexp.MustCompile(`^\.[A-Za-z0-9]{1,10}$`)
 // the session reads the file from there, as answer_images.go does for a
 // picture pasted into an answer.
 func (h *HTTP) keepComposerFile(w http.ResponseWriter, r *http.Request) {
+	if media := r.Header.Get("Content-Type"); media != "application/octet-stream" && media != "image/png" {
+		apiError(w, http.StatusBadRequest, "Send the file as binary data.")
+		return
+	}
 	dir := filepath.Join(h.Service.Store.Home.State, composerFilesDir)
 	if task := r.URL.Query().Get("task"); task != "" {
 		meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, task)

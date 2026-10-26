@@ -497,6 +497,9 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if _, hasDialog := screens.Dialog(before); hasDialog {
 		return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, errNativeStartupDialog)
 	}
+	if screens.IsOpen(before) {
+		return nil, fmt.Errorf("%w: native terminal %s is waiting on its own screen", fleet.ErrNotTyped, record.ID)
+	}
 	shouldType := true
 	if isRecovering && !screens.ComposerEmpty(before) {
 		if !screens.ComposerMatches(before, instruction) {

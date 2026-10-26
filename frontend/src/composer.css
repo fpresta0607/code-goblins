@@ -1,9 +1,4 @@
-/* The message box at the foot of a session's messages, or of a terminal slot
-   that cannot take typing now: an amber card while the harness asks in its
-   terminal, a working line with Stop, his latest messages to a goblin with no
-   live terminal, then the box he writes in: its prompt over a row of small
-   pills and a round Send, with his recent dictations and what keeps a message
-   from the terminal beside them. */
+/* One input bar with plain controls beneath it, shared by both chat views. */
 .composer { position: relative; display: grid; align-content: start; gap: 8px; padding: 10px 14px 12px; }
 .deck-slot.with-messages { flex-direction: column; }
 .deck-slot.with-messages > .composer { background: #071015; }
@@ -16,47 +11,38 @@
 .composer-sent-state { flex: none; color: var(--muted); font-size: .875rem; }
 .composer-sent .icon-button { align-self: center; width: 32px; height: 32px; min-height: 32px; margin-block: -6px; color: var(--muted); }
 .composer-sent .icon-button .icon { width: 18px; height: 18px; }
-.composer-box { position: relative; display: grid; gap: 10px; padding: 12px 14px 10px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
-.composer-box:focus-within { border-color: var(--mint); }
-/* The prompt's own text line sits where the control row does, with the same
-   padding, and a long draft grows the row downward from it. */
-.composer textarea { display: block; width: 100%; min-height: 2.5em; max-height: 12em; padding: .15em 0; border: 0; background: none; color: #edf4f3; font: inherit; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.composer-box { position: relative; display: grid; gap: 4px; }
+.composer-input { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 7px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
+.composer-input:focus-within { border-color: var(--mint); }
+.composer textarea { display: block; flex: 1; min-width: 0; width: 100%; min-height: 1.5em; max-height: 12em; padding: 0; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
 .composer textarea::placeholder { color: var(--muted); opacity: .9; }
 .composer textarea:focus-visible { outline: none; }
-/* A control's focus ring is the board's own mint ring, rounding with the pill,
-   never the browser's hard white rectangle. */
 .composer :is(button, input):focus { outline: none; }
 .composer :is(button, input):focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
-.composer .composer-pill:focus-visible, .composer .voice-bubble:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; border-radius: 999px; box-shadow: none; }
-/* The prompt's row of small pills, what the box met, and the round Send that
-   lights up when there is something to send. */
-.composer-tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.composer-pills { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.composer-pill { display: inline-flex; align-items: center; gap: 6px; height: 32px; min-height: 32px; min-width: 32px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); color: var(--muted); font-size: .875rem; transition: color .16s ease, border-color .16s ease, background .16s ease, min-width .16s ease; }
-.composer-pill::before { content: none; }
-.composer-pill:hover { color: #edf4f3; border-color: var(--glass-border-hover); background: var(--glass-bg-hover); }
-.composer-pill .icon { width: 16px; height: 16px; }
-.composer-pill:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
-/* The add-files pill keeps its label folded until he points at it or reaches
-   it with the keyboard, as the reference widens it. */
-.composer-pill.add-files > span { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; transition: max-width .16s ease, opacity .16s ease; }
-.composer-pill.add-files:hover > span, .composer-pill.add-files:focus-visible > span { max-width: 6em; opacity: 1; }
-/* The microphone widens to its word while it records. */
-.composer-pill .pill-label { display: none; }
-.composer-pill.recording .pill-label { display: inline; }
-.composer-pill.recording { color: #ffd9cd; border-color: rgb(215, 119, 87); }
+.composer-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding: 0 5px; }
+.composer-controls { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.composer-control, .composer-input .voice-bubble { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 5px; height: 36px; min-height: 36px; min-width: 36px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font-size: .875rem; }
+.composer-control::before, .composer-input .voice-bubble::before { content: none; }
+.composer-control:hover, .composer-input .voice-bubble:hover { color: var(--bone); background: transparent; }
+.composer-control .icon, .composer-input .voice-bubble .icon { width: 18px; height: 18px; }
+.composer-input .voice-bubble.recording { color: var(--amber); }
 .composer-file-input { display: none; }
 .composer-style-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 9rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .composer-style-popover > button { justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
 .composer-style-popover > button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
-.composer-note { flex: 1; min-width: 0; margin: 0; color: #f1c598; font-size: .9375rem; overflow-wrap: anywhere; }
-.composer-send { display: grid; place-items: center; flex: none; width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border: 1px solid var(--glass-border); border-radius: 50%; background: var(--field-bg); color: var(--muted); transition: color .16s ease, background .16s ease, border-color .16s ease; }
-.composer-send[data-active] { border-color: var(--accent-green); background: var(--accent-green); color: #03130c; box-shadow: 0 0 20px #00e59b33; }
+.composer-note { min-width: 0; margin: 0; padding: 0 10px; color: #f1c598; font-size: .875rem; overflow-wrap: anywhere; }
+.composer-note:empty { display: none; }
+.composer-send { display: grid; place-items: center; flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+.composer-send[data-active] { color: var(--accent-green); }
+.composer-send:hover { background: transparent; }
 .composer-send:disabled { cursor: default; }
 .composer-send .icon { width: 18px; height: 18px; }
-.queued-control { flex: none; gap: 4px; padding: 0 9px; color: #f1c598; }
+.queued-control { color: #f1c598; }
 .queued-control > span { font-variant-numeric: tabular-nums; }
 .composer-box > .voice-recent { right: 0; bottom: calc(100% + 8px); }
+@media (pointer: coarse) {
+  .composer-control, .composer-input .voice-bubble, .composer-send { min-width: 44px; min-height: 44px; height: 44px; }
+}
 
 /* The session's own slash commands, above the prompt: filtered as he types
    the command word, arrow keys move the pick, Enter takes it, Escape closes

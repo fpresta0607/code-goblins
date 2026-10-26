@@ -14,7 +14,7 @@ export function UsageBanner({ reading, stats }: { reading: UsageReading; stats: 
   if (!banner) return null;
   return <section className="usage-banner" aria-label="Session usage">
     <div className="usage-banner-line">
-      <Icon name="warning" />
+      {reading.banner && <Icon name="warning" />}
       <p className="usage-banner-words"><strong>{banner.text}</strong><span>{banner.detail}</span></p>
       <button type="button" className="labelled-button" aria-expanded={isOpen} onClick={() => setOpen((prior) => !prior)}>{isOpen ? "Hide usage" : "Usage"}</button>
     </div>

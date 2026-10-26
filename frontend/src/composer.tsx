@@ -60,8 +60,8 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent }: {
-  snapshot: Snapshot; task?: Task; name: string;
+export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, hasConversation = false }: {
+  snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   // terminal is the terminal deck's key of the session's terminal, and
   // onSent is told of each message typed into it, so a screen of the
   // harness's own that it opens can bring the terminal in.
@@ -84,7 +84,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const [isStyleOpen, setStyleOpen] = useState(false);
   // The session's own slash commands, read from its harness, and the command
   // the list has picked while he types its word.
-  const commands = useResource(task ? "/api/commands?task=" + task.id + "&token=" + snapshot.instance : "/api/commands?cfo=1&token=" + snapshot.instance, parseCommands);
+  const commandQuery = new URLSearchParams(task ? { task: task.id, generation: task.generation } : { cfo: snapshot.cfo_terminal || "1", since: snapshot.cfo_terminal_since || "" });
+  commandQuery.set("token", snapshot.instance);
+  const commands = useResource("/api/commands?" + commandQuery.toString(), parseCommands);
   const [pick, setPick] = useState(0);
   const [isCommandsClosed, setCommandsClosed] = useState(false);
   const [adding, setAdding] = useState(0);
@@ -116,10 +118,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   // What this box saves as a board action types nothing into the terminal, so
   // a harness picker or a busy program does not stop it: those guard direct
   // typing, which is the path they were written for.
-  const savesThroughBoard = !!task && (queues || !!held);
+  const savesThroughBoard = queues || !!held || isUnread;
   const send = async () => {
     const text = draft.trim();
-    if (!text || isSending || adding) return;
+    if (!text || isSending || adding || isAsking && !held) return;
     if (!savesThroughBoard) {
       // Direct typing waits for a readable program with no screen of its own
       // open, since an Enter typed then would act on that screen.
@@ -131,7 +133,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
     sendID.current ||= crypto.randomUUID();
     setSending(true);
     try {
-      await post({ id: sendID.current, kind: "message", task_id: task.id, generation: "", text });
+      await post({ id: sendID.current, kind: "message", task_id: task?.id || "", generation: "", text });
       sendID.current = "";
       storeDraft(draftKey, "");
       setDraft("");
@@ -240,17 +242,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   // What the board has kept for this goblin is what the board's own record of
   // it says, so it survives a reload and a remount, and it stays on screen
   // after a gate lets go so the action can be read and withdrawn.
-  const sent = task ? messagesTo(snapshot, task.id) : [];
+  const sent = messagesTo(snapshot, task?.id || "");
   // A message the board still holds is in the conversation as its own entry;
   // the box keeps a quiet count of them and no second copy of their words.
   const queued = sent.filter(isPendingMessage);
   // Modern shows a pending message in the conversation and keeps only a
   // count here. Classic has no conversation on screen, so its queue list
   // keeps the message and its actions, as it always has.
-  const queueRows = (style === "classic" ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
+  const queueRows = (style === "classic" && !hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
   const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  const canSend = !isSending && !adding && !!draft.trim() && (savesThroughBoard || (!isAsking && !isUnread));
+  const canSend = !isSending && !adding && !!draft.trim() && (!isAsking || !!held) && (savesThroughBoard || !isUnread);
   return <section className="composer" aria-label={"Messages to " + name}>
     {isAsking && <div className="composer-asking" role="status">
       <Icon name="warning" /><p>Waiting on you in the terminal</p>
@@ -278,30 +280,32 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
       </ul>}
       {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { write((prior) => appendDictation(prior, text)); setRecentOpen(false); field.current?.focus(); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
-      <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
-        onChange={(event) => { const value = event.target.value; write(() => value); }} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+      <div className="composer-input">
+        <button type="button" className="composer-control add-files" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
+        <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
+        <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
+          onChange={(event) => { const value = event.target.value; write(() => value); }} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+        <DictationButton dictation={dictation} />
+      </div>
       <div className="composer-tools">
-        <div className="composer-pills">
-          {style !== "classic" && queued.length > 0 && <button type="button" className="composer-pill queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
-          <button type="button" className="composer-pill add-files" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}>
-            <Icon name="plus" /><span>Add files</span>
-          </button>
-          <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
-          <button type="button" className="composer-pill" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip="How this conversation is drawn"
-            onClick={() => setStyleOpen((prior) => !prior)}><Icon name="comment" /><span>{style === "classic" ? "Classic" : "Modern"}</span></button>
+        <div className="composer-controls">
+          <button type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip="How this conversation is drawn"
+            onClick={() => setStyleOpen((prior) => !prior)}>{style === "classic" ? "Classic" : "Modern"}</button>
           {isStyleOpen && <div className="composer-style-popover" role="group" aria-label="Chat style">
             <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}>Modern</button>
             <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}>Classic</button>
           </div>}
-          <DictationButton dictation={dictation} label />
-          <button ref={recent} type="button" className="composer-pill" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /><span>Recent</span></button>
-          {onAnswer && <button type="button" className="composer-pill" aria-label="Terminal controls" data-tip="The session's controls, prompts and mode footer" onClick={onAnswer}><Icon name="terminal" /></button>}
+          {(style !== "classic" || hasConversation) && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
         </div>
-        <p className="composer-note" role="status">{note}</p>
-        <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
-          <Icon name={isSending ? "clock" : "send"} />
-        </button>
+        <div className="composer-controls">
+          <button ref={recent} type="button" className="composer-control" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
+          {onAnswer && <button type="button" className="composer-control" aria-label="Terminal controls" data-tip="The session's controls, prompts and mode footer" onClick={onAnswer}><Icon name="terminal" /></button>}
+          <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
+            <Icon name={isSending ? "clock" : "send"} />
+          </button>
+        </div>
       </div>
+      <p className="composer-note" role="status">{note}</p>
     </div>
   </section>;
 }

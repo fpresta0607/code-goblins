@@ -32,6 +32,7 @@ func TestAPictureOrFilePastedIntoAMessageIsKeptWhereTheSessionReadsIt(t *testing
 	}{
 		{"a goblin's picture", "shot.png", onePixelPNG(t), "task-1", filepath.Join(meta.TaskTmp, composerFilesDir), ".png"},
 		{"a goblin's file", "notes.md", []byte("# notes\n"), "task-1", filepath.Join(meta.TaskTmp, composerFilesDir), ".md"},
+		{"a JSON attachment sent as binary", "notes.json", []byte(`{"value":"example"}`), "task-1", filepath.Join(meta.TaskTmp, composerFilesDir), ".json"},
 		{"the CFO's picture", "shot.png", onePixelPNG(t), "", filepath.Join(stateDir, composerFilesDir), ".png"},
 	} {
 		t.Run(c.what, func(t *testing.T) {

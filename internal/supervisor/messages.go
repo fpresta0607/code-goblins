@@ -124,6 +124,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {
 				return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
 			}
+			if errors.Is(err, fleet.ErrNotTyped) {
+				return Evaluation{Reason: "Queued until its terminal can take a message. Nothing was typed.", SendNowWhy: "Its terminal is not ready to take it yet."}, ErrDeferred
+			}
 			if errors.Is(err, ErrDeferred) {
 				result.CanSendNow, result.SendNowWhy = true, "Its terminal is not ready to take it yet."
 			}

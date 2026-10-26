@@ -137,3 +137,24 @@ func TestCodexMessageEndpointServesRecordedPicturesAndUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexCFOConversationNeedsNoHookRecordsOrTrust(t *testing.T) {
+	store, taskHome := testStore(t)
+	profile := t.TempDir()
+	codexGoblin(t, taskHome.State, profile, "codgester", "s1")
+	registerNativeCFO(t, taskHome.State, "codex", "codgester-session")
+	handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "127.0.0.1:50000", nil)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "http://"+handler.Host+"/api/messages?cfo="+NativeCFOTerminal+"&token=board-token", nil)
+	request.RemoteAddr = "127.0.0.1:50001"
+
+	handler.ServeHTTP(response, request)
+
+	var page fleettree.MessagePage
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil {
+		t.Fatalf("page: %d %s", response.Code, response.Body)
+	}
+	if len(page.Messages) != 2 || len(page.Messages[1].Blocks) != 2 || page.Messages[1].Blocks[1].Text != "Its gate failed." {
+		t.Fatalf("CFO conversation: %+v", page.Messages)
+	}
+}

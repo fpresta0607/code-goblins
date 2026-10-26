@@ -11,6 +11,41 @@ import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, sna
 // which the speech model played here hears as words.
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
+for (const width of [1440, 390]) {
+  test(`the slim composer keeps plain controls around the input at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await open(page);
+    await openGoblin(page);
+    const composer = box(page);
+    const input = composer.locator(".composer-input");
+    const add = composer.getByRole("button", { name: "Add files", exact: true });
+    const microphone = composer.locator(".voice-bubble");
+    const style = composer.getByRole("button", { name: "Style: modern", exact: true });
+
+    await expect(input).toBeVisible();
+    const reply = page.locator(".message-reply");
+    const replyText = await reply.locator(".message-words").boundingBox();
+    const replyActions = await reply.locator(".message-reply-actions").boundingBox();
+    expect(replyText && replyActions && replyActions.y >= replyText.y + replyText.height).toBeTruthy();
+    await expect(reply.locator(".message-reply-actions time")).toBeVisible();
+    const bounds = await Promise.all([input, add, field(page), microphone, style].map((part) => part.boundingBox()));
+    const [bar, plus, prompt, mic, footer] = bounds;
+    expect(bar && plus && prompt && mic && footer).toBeTruthy();
+    if (!bar || !plus || !prompt || !mic || !footer) return;
+    expect(plus.x + plus.width).toBeLessThanOrEqual(prompt.x);
+    expect(prompt.x + prompt.width).toBeLessThanOrEqual(mic.x);
+    expect(footer.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+    expect(bar.height).toBeLessThanOrEqual(60);
+    for (const button of [add, microphone, style, composer.getByRole("button", { name: "Recent messages", exact: true })]) {
+      expect(await button.evaluate((element) => ({ border: getComputedStyle(element).borderTopWidth, background: getComputedStyle(element).backgroundColor }))).toEqual({ border: "0px", background: "rgba(0, 0, 0, 0)" });
+    }
+    await field(page).fill("Keep this draft while changing the view");
+    await expect(field(page)).toHaveValue("Keep this draft while changing the view");
+    await expect(send(page)).toBeEnabled();
+    await composer.screenshot({ path: testInfo.outputPath(`slim-composer-${width}.png`) });
+  });
+}
+
 test("Send types what he wrote into the session's terminal once, as one paste, then Enter, and empties the box", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
@@ -40,16 +75,22 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
 
-test("a busy program, a reconnecting terminal and typing a gate holds each say so beside the box and hold Send, and his draft stays, never sent late", async ({ page }) => {
+test("busy and held messages use the durable queue while a reconnect keeps an unsent draft", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
   const note = box(page).locator(".composer-note");
   await field(page).fill("merge it");
+  const actions: object[] = [];
+  await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
 
   relay.say({ type: "unread", unread: true });
   await expect(note).toHaveText("Program busy. Typed keys are waiting.");
-  await expect(send(page)).toBeDisabled();
+  await expect(send(page)).toBeEnabled();
   await field(page).press("Enter");
+  await expect.poll(() => actions.length).toBe(1);
+  expect(actions[0]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "merge it" });
+  await expect(field(page)).toHaveValue("");
+  await field(page).fill("merge it");
   relay.say({ type: "unread", unread: false });
   await expect(note).toHaveText("");
   await expect(send(page)).toBeEnabled();

@@ -27,9 +27,8 @@ import (
 // the calls themselves, written when a call starts and answered by its output
 // when it ends, so a call still running is read from there.
 //
-// Codex records no thinking in words: a Reasoning item keeps its summary and
-// raw content empty and its reasoning encrypted, so no thinking block is read
-// from any rollout.
+// A Reasoning item's published summary is readable when recorded. Encrypted
+// reasoning and raw content are never read as thinking blocks.
 //
 // Nothing a rollout holds is rewritten once written, so the log reads on from
 // its last complete line, and only a file that shrank is read again.
@@ -215,8 +214,6 @@ func (l *codexMessageLog) completed(entry codexEntry, id string, offset int64) {
 			l.block(entry.Timestamp, id, Block{Kind: BlockText, Text: bounded(text, messageTextLimit)})
 		}
 	case "Reasoning":
-		// Every rollout read keeps its summary and raw content empty, and
-		// its reasoning encrypted only (19,842 items on 2026-10-27).
 		if text := strings.TrimSpace(codexText(item.SummaryText)); text != "" {
 			l.block(entry.Timestamp, id, Block{Kind: BlockThinking, Text: bounded(text, messageTextLimit)})
 		}

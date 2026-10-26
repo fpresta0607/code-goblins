@@ -60,6 +60,9 @@ export interface ViewEvents {
   // The relay read the harness's screen anew: whether it waits on an answer
   // at a screen of its own, and whether something of its own is open.
   screen: (state: ScreenState) => void;
+  // Full-screen programs own their history; while input is held or closed,
+  // the conversation record is the readable history instead.
+  history?: () => void;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -160,7 +163,12 @@ export class TerminalView {
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
     let wheelRest = 0;
     this.term.attachCustomWheelEventHandler((event) => {
-      if (this.term.buffer.active.type !== "normal" || !this.heldReason && this.socket.readyState === WebSocket.OPEN) return true;
+      if (!this.heldReason && this.socket.readyState === WebSocket.OPEN) return true;
+      if (this.term.buffer.active.type !== "normal") {
+        if (event.deltaY < 0) this.events.history?.();
+        event.preventDefault();
+        return false;
+      }
       const movement = wheelLines(wheelRest, event.deltaY, event.deltaMode, this.cell().height, this.term.rows);
       wheelRest = movement.rest;
       this.term.scrollLines(movement.lines);
@@ -447,6 +455,10 @@ export class TerminalView {
   private swipe(lines: number, at: { clientX: number; clientY: number }): void {
     const screen = this.term.element?.querySelector(".xterm-screen");
     if (!screen) return;
+    if (this.term.buffer.active.type !== "normal" && (this.heldReason || this.socket.readyState !== WebSocket.OPEN)) {
+      if (lines < 0) this.events.history?.();
+      return;
+    }
     if (this.term.buffer.active.type === "normal" && (!WHEEL_MOUSE_MODES.has(this.term.modes.mouseTrackingMode) || this.heldReason || this.socket.readyState !== WebSocket.OPEN)) { this.term.scrollLines(lines); return; }
     for (let turn = 0; turn < Math.abs(lines); turn++) screen.dispatchEvent(new WheelEvent("wheel", { deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: at.clientX, clientY: at.clientY, bubbles: true, cancelable: true }));
   }
@@ -457,9 +469,16 @@ export class TerminalView {
     const dictated = this.events.dictate(event);
     if (dictated !== null) return dictated;
     const down = event.type === "keydown";
-    if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && (event.key === "PageUp" || event.key === "PageDown") && this.term.buffer.active.type === "normal") {
+    if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && (event.key === "PageUp" || event.key === "PageDown")) {
       event.preventDefault();
-      if (down) this.term.scrollPages(event.key === "PageUp" ? -1 : 1);
+      if (down) {
+        const direction = event.key === "PageUp" ? -1 : 1;
+        if (this.term.buffer.active.type === "normal") this.term.scrollPages(direction);
+        else {
+          const bounds = this.element.getBoundingClientRect();
+          this.swipe(direction * Math.max(1, this.term.rows - 1), { clientX: bounds.x + bounds.width / 2, clientY: bounds.y + bounds.height / 2 });
+        }
+      }
       return false;
     }
     if (event.shiftKey && event.key === "Escape") {

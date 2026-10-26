@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -75,6 +76,35 @@ func TestAMessageToAWorkingGoblinIsTypedIntoItsTerminalOnce(t *testing.T) {
 	}
 	if action := actionOf(store, "message-1"); action.Status != "succeeded" && action.Awaiting == nil {
 		t.Fatalf("message = %+v, want it delivered", action)
+	}
+}
+
+func TestAMessageRefusedBeforeTypingStaysQueuedUntilTheComposerReturns(t *testing.T) {
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	gitWorktree(t, meta.Worktree)
+	goblinTerminal(t, h.State, meta.ID)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	messageTo(t, store, meta, "message-1", "keep this through the picker")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string) error { return fleet.ErrNotTyped }
+
+	err := store.ProcessOne(t.Context(), service.execute)
+	if !errors.Is(err, ErrDeferred) || actionOf(store, "message-1").Status != "queued" {
+		t.Fatalf("delivery = %v, action = %+v, want durable queue", err, actionOf(store, "message-1"))
+	}
+	var received []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		received = append(received, text)
+		return nil
+	}
+	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+	if err := store.ProcessOne(t.Context(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	if len(received) != 1 || !strings.Contains(received[0], "keep this through the picker") || actionOf(store, "message-1").Status != "succeeded" {
+		t.Fatalf("delivered %q, action = %+v, want the saved message once", received, actionOf(store, "message-1"))
 	}
 }
 
