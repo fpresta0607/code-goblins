@@ -119,12 +119,12 @@ type messagesRefused struct {
 func (refused messagesRefused) Error() string { return refused.reason }
 
 // noMessages is why a session of a harness whose record the board cannot read
-// as messages answers: a Codex or pi one before pi was read, and any other.
-var noMessages = messagesRefused{404, "Messages are read from Claude Code and pi sessions only."}
+// as messages answers: any harness but Claude Code, Codex and pi.
+var noMessages = messagesRefused{404, "Messages are read from Claude Code, Codex and pi sessions only."}
 
 // messagesHarness says whether the board reads a harness's session as messages.
 func messagesHarness(harness string) bool {
-	return harness == "claude" || harness == "pi"
+	return harness == "claude" || harness == "codex" || harness == "pi"
 }
 
 // messagesLocator finds the transcript of the session a request for messages
@@ -182,12 +182,12 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 	}, nil
 }
 
-// messages answers a Claude Code or pi session's messages for the board's
-// message view, read by fleettree.Reader from the conversation the supervisor finds
-// for the session the query names, never a path the browser names: a page
-// of them, the newest or those before seq before; a picture one of them
-// holds; or, with stream=1, a stream of server-sent events: a page, then the
-// messages that began or changed, as they are written.
+// messages answers a Claude Code, Codex or pi session's messages for the
+// board's message view, read by fleettree.Reader from the conversation the
+// supervisor finds for the session the query names, never a path the browser
+// names: a page of them, the newest or those before seq before; a picture one
+// of them holds; or, with stream=1, a stream of server-sent events: a page,
+// then the messages that began or changed, as they are written.
 func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	// A browser's event stream cannot send the board's token in a header,

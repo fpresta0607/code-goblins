@@ -761,13 +761,22 @@ func (r *Reader) forgetIdleMessages(now time.Time) {
 	}
 }
 
-// MessagePage reads the Claude Code conversation at path on from where the
-// last read stopped and returns the page of its messages before seq before,
-// or its newest page for a negative before, with where the reader then
-// stands.
+// MessagePage reads the conversation at path on from where the last read
+// stopped and returns the page of its messages before seq before, or its
+// newest page for a negative before, with where the reader then stands: a
+// Claude Code conversation, a pi session or a Codex rollout, each read by its
+// own harness's entries.
 func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCursor, error) {
 	if isPiSession(path) {
 		log, err := r.piLog(path)
+		if err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
+		defer log.mu.Unlock()
+		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+	}
+	if isCodexRollout(path) {
+		log, err := r.codexLog(path)
 		if err != nil {
 			return MessagePage{}, MessageCursor{}, err
 		}
@@ -790,6 +799,15 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, now MessageCursor, isAnew bool, err error) {
 	if isPiSession(path) {
 		log, err := r.piLog(path)
+		if err != nil {
+			return nil, MessageCursor{}, false, err
+		}
+		defer log.mu.Unlock()
+		messages, now, isAnew = log.since(cursor)
+		return messages, now, isAnew, nil
+	}
+	if isCodexRollout(path) {
+		log, err := r.codexLog(path)
 		if err != nil {
 			return nil, MessageCursor{}, false, err
 		}
