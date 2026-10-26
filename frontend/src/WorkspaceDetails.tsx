@@ -12,6 +12,8 @@ import { DevDriveSetting } from "./dev-drive-setting";
 import { isCfoRestartOffered, RestartCfoButton } from "./restart-cfo-button";
 import { RemoteAccessSetting } from "./remote-access-setting";
 import { AppBadgeSetting } from "./app-badge-setting";
+import { ChatStyleSetting } from "./chat-style-setting";
+import { messagesQuery } from "./session-messages";
 
 function parse(value: unknown) {
   const v = object(value);
@@ -41,12 +43,15 @@ export function WorkspaceDetails({ task, node, runs, snapshot, connected, onRepa
   const provider = modelMark(model.name);
   const isCfo = !task && !node;
   const hasConnections = child || !!task && !queued && !isArchived;
+  // The Chat choice matters only where the board reads the session as messages.
+  const hasChat = !child && (task ? !queued && !isArchived && !!messagesQuery(snapshot, task) : !!messagesQuery(snapshot));
   return <>
     <Disclosure kind="workspace-details" title="Workspace">
       {unlinked ? <p className="muted">No working folder.</p> : isArchived ? <p className="workspace-project">{task?.project || "Project not recorded"}</p> : queued ? <p className="workspace-project">{task.project || "Project not specified"}</p> : resource.error ? <button className="icon-button raised" aria-label="Retry" data-tip="Retry" onClick={resource.reload}><Icon name="refresh" /></button> : !details ? <p className="loading" role="status">Reading workspace…</p> : <>
         <dl>{[["Repository", details.repository], ["Branch", details.branch], [child ? "Owning task folder" : task ? "Working folder" : "CFO project root", details.root]].filter(([, value]) => value).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         {details.notes.map((note) => <p key={note}>{note}</p>)}
       </>}
+      {hasChat && <ChatStyleSetting />}
       {isCfo && snapshot.dev_drive && <DevDriveSetting drive={snapshot.dev_drive} instance={snapshot.instance} />}
     </Disclosure>
     {isCfo && !snapshot.example && <Disclosure kind="remote-access" title="Remote access"><RemoteAccessSetting instance={snapshot.instance} runs={snapshot.runs || []} connected={connected} /><AppBadgeSetting instance={snapshot.instance} /></Disclosure>}

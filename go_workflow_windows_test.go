@@ -20,9 +20,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// workflowStep is the run script of the step named step in job of the
-// workflow at path.
-func workflowStep(t *testing.T, path, job, step string) string {
+// goWorkflowStep is one step of a job, as far as its tests read it.
+type goWorkflowStep struct {
+	Name           string `yaml:"name"`
+	Run            string `yaml:"run"`
+	If             string `yaml:"if"`
+	TimeoutMinutes int    `yaml:"timeout-minutes"`
+}
+
+// goWorkflowSteps is the steps of job in the workflow at path.
+func goWorkflowSteps(t *testing.T, path, job string) []goWorkflowStep {
 	t.Helper()
 	source, err := os.ReadFile(path)
 	if err != nil {
@@ -30,16 +37,20 @@ func workflowStep(t *testing.T, path, job, step string) string {
 	}
 	var workflow struct {
 		Jobs map[string]struct {
-			Steps []struct {
-				Name string `yaml:"name"`
-				Run  string `yaml:"run"`
-			} `yaml:"steps"`
+			Steps []goWorkflowStep `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal(source, &workflow); err != nil {
 		t.Fatal(err)
 	}
-	for _, candidate := range workflow.Jobs[job].Steps {
+	return workflow.Jobs[job].Steps
+}
+
+// workflowStep is the run script of the step named step in job of the
+// workflow at path.
+func workflowStep(t *testing.T, path, job, step string) string {
+	t.Helper()
+	for _, candidate := range goWorkflowSteps(t, path, job) {
 		if candidate.Name == step {
 			return candidate.Run
 		}
@@ -66,10 +77,13 @@ func goWorkflowJobs(t *testing.T) map[string]goWorkflowJob {
 }
 
 type goWorkflowJob struct {
-	If       string            `yaml:"if"`
-	Needs    goWorkflowNeeds   `yaml:"needs"`
-	Outputs  map[string]string `yaml:"outputs"`
-	Strategy struct {
+	If      string            `yaml:"if"`
+	Needs   goWorkflowNeeds   `yaml:"needs"`
+	Outputs map[string]string `yaml:"outputs"`
+	// TimeoutMinutes is the job's own limit, which fails a job that hangs
+	// rather than leaving it to GitHub's six hours.
+	TimeoutMinutes int `yaml:"timeout-minutes"`
+	Strategy       struct {
 		Matrix struct {
 			// Include is the go job's list, which the plan job hands it.
 			Include string `yaml:"include"`
@@ -187,11 +201,11 @@ func TestGoWorkflowRunsEveryPackageOnce(t *testing.T) {
 // out of the number of jobs.
 func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
 	// Arrange
-	const share = "npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}"
+	const share = "npm run test:browser -- --shard=${{ matrix.shard }}/${{ strategy.job-total }} --project=board --project=stepped-in"
 
 	// Act
 	shards := goWorkflowJobs(t)["browser"].Strategy.Matrix.Shard
-	step := workflowStep(t, filepath.Join(".github", "workflows", "go.yml"), "browser", "Run this job's share of the browser tests")
+	steps := goWorkflowSteps(t, filepath.Join(".github", "workflows", "go.yml"), "browser")
 
 	// Assert
 	if len(shards) == 0 {
@@ -203,8 +217,62 @@ func TestGoWorkflowRunsEveryBrowserTestOnce(t *testing.T) {
 			break
 		}
 	}
-	if runs := strings.Count(step, "test:browser"); runs != 1 || !strings.Contains(step, share) {
-		t.Errorf("the browser job's step runs the browser tests %d times, want once, as %q:\n%s", runs, share, step)
+	// The iPhone spec runs in WebKit, which shard 1 installs for alone, so it
+	// is the one step beside the sharded one that runs browser tests.
+	var runners []string
+	for _, step := range steps {
+		if strings.Contains(step.Run, "test:browser") {
+			runners = append(runners, step.Run)
+		}
+	}
+	if len(runners) != 2 {
+		t.Fatalf("the browser job runs the browser tests in %d steps, want the sharded one and the iPhone one: %q", len(runners), runners)
+	}
+	if runs := strings.Count(runners[0], "test:browser"); runs != 1 || !strings.Contains(runners[0], share) {
+		t.Errorf("the browser job's share runs the browser tests %d times as %q, want once, as %q", runs, runners[0], share)
+	}
+	iphone := runners[1]
+	if !strings.Contains(iphone, "--project=iphone") || strings.Contains(iphone, "--shard") {
+		t.Errorf("the iPhone step runs %q, want the iphone project once, in no shard", iphone)
+	}
+	for _, step := range steps {
+		if strings.Contains(step.Run, "--project=iphone") && step.If != "matrix.shard == 1" {
+			t.Errorf("the iPhone step runs when %q, want matrix.shard == 1, so exactly one job runs it", step.If)
+		}
+	}
+}
+
+// On 2026-10-22 shard 3 of a merge train's run took 81 minutes and failed,
+// and while it ran the train waited with it. Its log showed a step that
+// installed WebKit and the Media Foundation Windows Server leaves out, an
+// install that waited 29 minutes on Windows Update in every shard, though
+// only one shard runs the WebKit spec (#1406). So the job is bounded, and
+// that install happens once, in a step with a limit of its own.
+func TestGoWorkflowBoundsTheBrowserJobThatHangs(t *testing.T) {
+	// Arrange
+	job := goWorkflowJobs(t)["browser"]
+	steps := goWorkflowSteps(t, filepath.Join(".github", "workflows", "go.yml"), "browser")
+
+	// Act
+	var webkit []goWorkflowStep
+	for _, step := range steps {
+		if strings.Contains(step.Run, "Install-WindowsFeature Server-Media-Foundation") || strings.Contains(step.Run, "playwright install webkit") {
+			webkit = append(webkit, step)
+		}
+	}
+
+	// Assert
+	if job.TimeoutMinutes < 30 || job.TimeoutMinutes > 60 {
+		t.Errorf("the browser job's timeout-minutes is %d, want 30 to 60, a few times its normal twelve", job.TimeoutMinutes)
+	}
+	if len(webkit) != 1 {
+		t.Fatalf("the browser job installs WebKit and Media Foundation in %d steps, want one that shard 1 alone runs: %v", len(webkit), webkit)
+	}
+	if webkit[0].If != "matrix.shard == 1" {
+		t.Errorf("the WebKit install runs when %q, want matrix.shard == 1", webkit[0].If)
+	}
+	if webkit[0].TimeoutMinutes == 0 || webkit[0].TimeoutMinutes > 15 {
+		t.Errorf("the WebKit install's timeout-minutes is %d, want its own limit of at most 15, so a stalled install fails the job", webkit[0].TimeoutMinutes)
 	}
 }
 

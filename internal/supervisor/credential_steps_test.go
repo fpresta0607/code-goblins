@@ -8,12 +8,14 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -27,6 +29,27 @@ func stepCard(t *testing.T, change func(*CredentialRequest)) *credentialBoard {
 		change(&filed)
 	}
 	return newCredentialBoardFor(t, filed)
+}
+
+// fromOwnersBrowser supplies the OS evidence for a browser opened from the
+// owner's desktop; the HTTP handler still runs the board's ownership proof.
+func (b *credentialBoard) fromOwnersBrowser() {
+	owner := proc.Owner{User: "test-owner", Session: 1}
+	b.service.windows = windowSystem{
+		identify: func(int, time.Time) (proc.Identity, error) {
+			return proc.Identity{Image: "chrome.exe"}, nil
+		},
+		owner:    func(int, time.Time) (proc.Owner, error) { return owner, nil },
+		ownOwner: func() (proc.Owner, error) { return owner, nil },
+	}
+	b.service.peerOf = func(netip.AddrPort, netip.AddrPort) (int, error) { return 7001, nil }
+	b.service.inspectCaller = func(int) ([]proc.Entry, []string, error) {
+		started := time.Now().Add(-time.Hour)
+		return []proc.Entry{
+			{PID: 7001, ParentPID: 900, ExeBase: "chrome.exe", Start: started},
+			{PID: 900, ExeBase: "explorer.exe", Start: started.Add(-time.Hour)},
+		}, nil, nil
+	}
 }
 
 // closeBody is a Done or Dismiss for the board's card.
@@ -52,6 +75,7 @@ func TestStepCardSendsAPlainValueToTheGoblinAndASecretToTheVault(t *testing.T) {
 		r.Names, r.Plain = []string{"STRIPE_SECRET_KEY"}, []string{"ACCOUNT_EMAIL"}
 		r.Labels = map[string]string{"ACCOUNT_EMAIL": "The account's email", "STRIPE_SECRET_KEY": "Its secret key"}
 	})
+	b.fromOwnersBrowser()
 	canary := newCanary(t)
 	email := "shop-owner@example.com"
 
@@ -254,6 +278,7 @@ func TestDismissTakesAnyCardBack(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			b := stepCard(t, test.change)
+			b.fromOwnersBrowser()
 
 			// Act
 			response := b.send(b.handler, "/api/credentials/close", b.closeBody("dismiss"), func(r *http.Request) { r.RemoteAddr = "100.64.0.7:50000" })

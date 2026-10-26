@@ -1,4 +1,4 @@
-import { doneCards, expect, openItem, recordDoneCards, test, type BrowserContext, type Page } from "./site";
+import { type BrowserContext, doneCards, expect, openItem, openTaskList, type Page, recordDoneCards, test } from "./site";
 
 // The Overlord, 2026-10-17, with a picture of Greta's card in the Command
 // Center: "I opened up a Scrawl page via this little drop-down on the Command
@@ -244,10 +244,10 @@ test("a goblin's panel offers Answer on the CFO's question for her, and Answer o
   await boardAsked(page, { questions: [question], reviews: [{ ...followUp, follows: question.id }] });
   await page.getByRole("button", { name: "Board", exact: true }).click();
   await page.getByRole("main", { name: "Board" }).getByRole("button", { name: /^Wanda - API Ace ,/ }).click();
-  await page.getByRole("group", { name: "Panel view" }).getByRole("button", { name: "Task", exact: true }).click();
+  const header = await openTaskList(page);
 
   // Act
-  await page.locator(".goblin-panel .panel-header").getByRole("button", { name: "Answer: " + question.text }).click();
+  await header.getByRole("button", { name: "Answer: " + question.text }).click();
 
   // Assert
   await expect(card(page).getByRole("form", { name: question.text })).toBeVisible();

@@ -35,6 +35,7 @@ const authUsage = `usage: cfo auth <project> [--check|--fix] [--env]
        cfo auth request --done <card> [--task <id>]   close your card once you see the step done
        cfo auth request --withdraw <card> [--task <id>] --reason "<why>"   take back a card nobody needs
        cfo auth request --reopen <card> [--task <id>]   bring back a card he closed
+       cfo auth request --project <p> --task <id> --grant <service> --why "<text>" [--wait]   ask for a service with Grant and Deny on its Command Center card
        cfo auth list [--project <p>]
        cfo auth copy <NAME> --to <project> [--from <project>]   (copy a stored value into a project scope; the source is left in place)
        cfo auth grant <task-id> <service> [<service>...]   give a running task the credentials of more of its project's services, by name
@@ -414,6 +415,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 	flags.SetOutput(stderr)
 	project := flags.String("project", "", "the project whose scope the values are stored in")
 	task := flags.String("task", "", "the goblin that needs the values; a goblin names its own task")
+	grantService := flags.String("grant", "", "ask the Overlord to grant this declared service to --task on its Command Center card")
 	why := flags.String("why", "", "what the card is for, in one line")
 	link := flags.String("link", "", "the https page he opens: the exact screen he must act on")
 	var steps, plain []string
@@ -448,7 +450,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return 2
 	}
 	if card := cmp.Or(*waitOn, *done, *withdraw, *reopen); card != "" {
-		isFiling := *project != "" || *why != "" || *link != "" || len(steps) > 0 || *messageFile != "" || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
+		isFiling := *grantService != "" || *project != "" || *why != "" || *link != "" || len(steps) > 0 || *messageFile != "" || len(plain) > 0 || len(labels) > 0 || *envFile != "" || *isWindow || *isWait || len(names) > 0
 		modes := len(slices.DeleteFunc([]string{*waitOn, *done, *withdraw, *reopen}, func(id string) bool { return id == "" }))
 		switch {
 		case isFiling || modes > 1:
@@ -498,7 +500,7 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintf(stderr, "cfo auth request: --window shows your own browser session, and this terminal's is %q, not that of --task %q\n", session, *task)
 		return 2
 	}
-	card := supervisor.CredentialRequest{Task: *task, Names: names, Plain: plain, Why: *why, Link: *link, Steps: steps, EnvFile: *envFile, Window: *isWindow}
+	card := supervisor.CredentialRequest{Task: *task, GrantService: *grantService, Names: names, Plain: plain, Why: *why, Link: *link, Steps: steps, EnvFile: *envFile, Window: *isWindow}
 	if len(labels) > 0 {
 		card.Labels = labels
 	}
@@ -534,7 +536,9 @@ func runAuthRequest(args []string, stdout, stderr io.Writer, runtime commandRunt
 		fmt.Fprintf(stderr, "cfo auth request: %v\n", err)
 		return 1
 	}
-	if len(names)+len(plain) == 0 {
+	if *grantService != "" {
+		fmt.Fprintf(stdout, "filed grant request %s for %s: the Overlord grants or denies %s on its Command Center card\n", filed.ID, *task, *grantService)
+	} else if len(names)+len(plain) == 0 {
 		fmt.Fprintf(stdout, "filed card %s for %s: he takes the step and presses Done on its card in the Command Center\n", filed.ID, scope)
 	} else {
 		fmt.Fprintf(stdout, "filed credential request %s for %s: %s\n", filed.ID, scope, strings.Join(slices.Concat(names, plain), ", "))
@@ -801,7 +805,7 @@ func refreshProjectAuth(ctx context.Context, runtime commandRuntime, scope strin
 // services, by their names in the manifest: its record names them, so every
 // later terminal of the task carries them, and its running terminal is told
 // to load its credential script. It is the CFO's act. A goblin that needs a
-// service says so in a blocked report, and this is refused in its terminal
+// service requests a grant card, and this is refused in its terminal
 // and in a gate agent's.
 //
 // With --mcp the names are MCP servers of the project's .mcp.json whose entry
@@ -827,7 +831,12 @@ func runAuthGrant(args []string, stdout, stderr io.Writer, runtime commandRuntim
 		return 2
 	}
 	if os.Getenv(harness.RoleVariable) == harness.RoleGoblin || os.Getenv(gateAgentVariable) != "" {
-		fmt.Fprintln(stderr, "cfo auth grant: granting a service is the CFO's act, never a goblin's or a gate agent's. Say which service your task needs and why in a blocked report, and the CFO grants it")
+		fmt.Fprint(stderr, "cfo auth grant: granting a service is the CFO's act, never a goblin's or a gate agent's. ")
+		if isMCP {
+			fmt.Fprintln(stderr, "Say which MCP server your task needs and why in a blocked report, and the CFO grants it")
+		} else {
+			fmt.Fprintln(stderr, "Request a service on its Command Center card with cfo auth request --project <project> --task <your-task-id> --grant <service> --why \"<why you need it>\" --wait")
+		}
 		return 2
 	}
 	if runtime.resolveHome == nil || runtime.authRefresher == nil {

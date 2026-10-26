@@ -7,7 +7,7 @@ import { putImage } from "./terminal-image";
 import { TerminalTextSheet } from "./terminal-text-sheet";
 import { TerminalTouchTools } from "./terminal-touch-tools";
 import { heldNotice, isDetachedHold } from "./terminalInput";
-import { closedReason, ended, reconnects, storedFontSize, storeFontSize } from "./terminalStream";
+import { closedReason, ended, reconnects, type ScreenState, storedFontSize, storeFontSize } from "./terminalStream";
 import { offerLink } from "./terminal-link";
 import { TerminalView } from "./terminalView";
 import { useDictation } from "./useDictation";
@@ -63,8 +63,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // Whether a key he typed was not sent, since the view had no connection
   // then, until a new connection is whole.
   const [isUnsent, setUnsent] = useState(false);
-  // Whether the harness waits on an answer at a screen of its own.
-  const [isAsking, setAsking] = useState(false);
+  // What the view was last told of the harness's screen.
+  const [screen, setScreen] = useState<ScreenState | null>(null);
   const dictation = useDictation((text, isSent) => { current.current?.paste(text); if (isSent) current.current?.enter(); }, instance);
   const dictate = dictation.key;
   // What a touch tool or a pasted picture met, for a moment, and the
@@ -121,7 +121,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setHistoryEnd(null);
         setUnread(view.unread);
         setHeldWhy(view.held);
-        setAsking(view.asking);
+        setScreen(view.screen);
         setUnsent(false);
         setReconnecting(false);
         setClosedWhy("");
@@ -156,7 +156,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       unread: (unread) => { if (current.current === view) setUnread(unread); },
       held: (reason) => { if (current.current === view) setHeldWhy(reason); },
       unsent: () => { if (current.current === view) setUnsent(true); },
-      asking: (asking) => { if (current.current === view) setAsking(asking); },
+      screen: (state) => { if (current.current === view) setScreen(state); },
     });
     staged.current = view;
     view.show(shownValue.current);
@@ -172,20 +172,20 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
-      phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, isAsking,
-      send: (text) => !!current.current && current.current.paste(text) && current.current.enter(),
+      phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, screen,
+      send: (text) => current.current?.submit(text) ?? null,
       escape: () => !!current.current?.escape(),
     });
     return () => offerLink(link, null);
-  }, [link, phase, reconnecting, visible, isUnread, heldWhy, isAsking]);
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen]);
   return <section className="native-terminal host-terminal" aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
     {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{closedWhy && <p>{closedWhy}</p>}{!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
-    {phase === "live" && heldWhy && <span className="terminal-state terminal-held" role="status"><span className="status-dot" />{heldNotice(heldWhy)}</span>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
     {phase !== "connecting" && isUnsent && <span className="terminal-state terminal-unsent" role="status"><span className="status-dot" />{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</span>}
+    {phase === "live" && heldWhy && <p className="terminal-held-line" role="status">{heldNotice(heldWhy)}</p>}
     {phase === "live" && isUnread && !isUnsent && !heldWhy && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
     {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); current.current?.focus(); }} />}

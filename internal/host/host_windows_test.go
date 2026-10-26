@@ -849,6 +849,23 @@ func TestAViewOfAHostThatSendsNoHistoryIsAnError(t *testing.T) {
 	}
 }
 
+func TestAWatchRefusesAHostWithoutSubmissionEvidenceBeforeInput(t *testing.T) {
+	for _, isToldSizes := range []bool{false, true} {
+		t.Run(fmt.Sprint(isToldSizes), func(t *testing.T) {
+			record, _ := scriptedHost(t, hello{Version: Version, Sizes: isToldSizes}, frame{frameOutput, []byte("history")})
+
+			client, err := Watch(record)
+
+			if err == nil {
+				client.Close()
+			}
+			if !errors.Is(err, ErrNoTurnEvidence) {
+				t.Fatalf("Watch = %v, want the old host refused before a viewer can submit input", err)
+			}
+		})
+	}
+}
+
 // A size frame whose payload is not a width and a height is refused by Next
 // rather than read as a size.
 func TestAMalformedSizeFrameIsRefused(t *testing.T) {
@@ -1325,6 +1342,16 @@ func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 	if !exited(pid) {
 		end(pid)
 		t.Errorf("the host pid %d that did not answer in time still runs", pid)
+	}
+	// The log the error names carries what was true at the bound, so a host
+	// that never announced is not a launch with nothing to read: on
+	// 2026-10-24 it held only the breakaway notice and the phase was lost.
+	logged, readErr := os.ReadFile(match[2])
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(logged), "had not recorded itself after") || !strings.Contains(string(logged), "still running:") {
+		t.Errorf("the host log does not say the host had not recorded itself: %s", logged)
 	}
 }
 

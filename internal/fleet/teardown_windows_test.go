@@ -55,3 +55,52 @@ func TestFleetStatusKeepsWindowsTeardownUntilTheIdentityDisappears(t *testing.T)
 		})
 	}
 }
+
+// A lifecycle record of another generation describes a task that is no longer
+// running, so its teardown names processes the current task never started. On
+// 2026-10-24 the fleet showed a finished teardown naming git.exe that had since
+// become an unrelated protected process. The same record, differing only by
+// generation, is the control.
+func TestFleetStatusLeavesOutATeardownFromAnotherGeneration(t *testing.T) {
+	// Arrange
+	started, exists := proc.StartTime(os.Getpid())
+	if !exists {
+		t.Fatal("could not identify the test process")
+	}
+	h := snapshotHome(t)
+	meta := writeSnapshotMeta(t, h, "task", t.TempDir(), t.TempDir())
+	record := state.Lifecycle{ID: "task", Generation: "an-earlier-generation", Operation: "action-1", Action: "pause", Phase: "paused", Teardown: []state.TeardownProcess{{PID: os.Getpid(), Started: started, Name: "git.exe"}}}
+	if err := state.WriteLifecycle(h.State, record); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	other, err := BuildSnapshot(t.Context(), h, &snapshotEndpoint{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var otherOut bytes.Buffer
+	if err := RenderMarkdown(&otherOut, other); err != nil {
+		t.Fatal(err)
+	}
+	record.Generation = meta.SpawnGen
+	if err := state.WriteLifecycle(h.State, record); err != nil {
+		t.Fatal(err)
+	}
+	own, err := BuildSnapshot(t.Context(), h, &snapshotEndpoint{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ownOut bytes.Buffer
+	if err := RenderMarkdown(&ownOut, own); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if strings.Contains(otherOut.String(), "finishing Windows teardown") {
+		t.Fatalf("another generation's teardown was shown: %s", otherOut.String())
+	}
+	if !strings.Contains(ownOut.String(), "finishing Windows teardown: git.exe pid") {
+		t.Fatalf("this generation's teardown was hidden: %s", ownOut.String())
+	}
+}

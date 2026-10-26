@@ -476,10 +476,28 @@ func diskLowDetail(h home.Home, reading Disk, now time.Time) string {
 func memoryWork(h home.Home, finished *finishedWork, reading rowReading) (queued, waiting []string) {
 	queued = startableQueued(h, finished, reading)
 	for _, meta := range liveTasks(h.State) {
-		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil && record.Pause.Reason == "memory" {
-			waiting = append(waiting, meta.ID)
-			continue
+		if record, err := state.ReadLifecycle(h.State, meta.ID); err == nil && record.Generation == meta.SpawnGen {
+			switch record.Phase {
+			case "paused":
+				// The pause in force says what holds the task now. Memory is
+				// work a free reading can release; any other condition ends by
+				// itself, so freeing memory cannot end it, and an older report
+				// of a memory wait must not name the task as work it releases.
+				if record.Pause != nil {
+					if record.Pause.Reason == "memory" {
+						waiting = append(waiting, meta.ID)
+					}
+					continue
+				}
+			case "pausing", "resuming", "stopping", "stopped", "done", "failed":
+				// A task being changed or already over is not work memory can
+				// release, whatever an older report said.
+				continue
+			}
 		}
+		// No record of this generation, or one that names no condition: an
+		// older report is the only evidence there is, and missing evidence
+		// never drops a real waiter.
 		lines, _ := state.TailStatus(h.State, meta.ID, 200)
 		if _, report := latestReport(lines, spawnTime(meta.SpawnGen)); strings.HasPrefix(report, "waiting on memory: ") {
 			waiting = append(waiting, meta.ID)
@@ -578,7 +596,15 @@ type ciGoblin struct {
 	id, repo, branch string
 	held             []string
 	pullRequests     []string
-	meta             state.TaskMeta
+	// target is the ref the goblin's pull request targets, as a local remote
+	// and branch, such as fork/main. It is read from the pull request's own
+	// base and repository, never from the branch's tracking ref, which is the
+	// published feature itself and would erase the whole real change.
+	target string
+	// targetUnread names the pull request whose base could not be read, so the
+	// overlap read says it could not be measured instead of using another base.
+	targetUnread string
+	meta         state.TaskMeta
 }
 
 // pollCI asks GitHub, every ciPollEvery, about the open pull requests of the
@@ -826,6 +852,94 @@ func isInside(path, folder string) bool {
 	}
 	relative, err := filepath.Rel(folder, path)
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+
+// prBaseBranch reads the base and head branch names of a pull request. The base
+// repository is not asked for: gh pr view rejects baseRepository as an unknown
+// JSON field, and the pull request's own URL names the repository its base
+// lives in. It is called only from the guarded overlap path, so its read waits
+// out a GitHub refusal and never runs on the collection pass.
+func prBaseBranch(ctx context.Context, runner execx.Runner, repo, url string) (base, head string, err error) {
+	out, err := runOutput(ctx, runner, repo, "gh", "pr", "view", url, "--json", "baseRefName,headRefName")
+	if err != nil {
+		return "", "", err
+	}
+	var read struct {
+		BaseRefName string `json:"baseRefName"`
+		HeadRefName string `json:"headRefName"`
+	}
+	if err := json.Unmarshal([]byte(out), &read); err != nil {
+		return "", "", err
+	}
+	if read.BaseRefName == "" || read.HeadRefName == "" {
+		return "", "", errors.New("the pull request names no base or head branch")
+	}
+	return read.BaseRefName, read.HeadRefName, nil
+}
+
+// pullRequestBaseRepository names the repository a pull request URL lives in,
+// which is the repository its base branch is in, and the host it was opened on.
+func pullRequestBaseRepository(url string) (host, repository string, ok bool) {
+	trimmed, isGitHub := strings.CutPrefix(url, "https://")
+	if !isGitHub {
+		return "", "", false
+	}
+	parts := strings.Split(trimmed, "/")
+	// Only the host the remotes are parsed for is a base a local remote can
+	// hold, so a pull request opened anywhere else names no base here.
+	if len(parts) != 5 || parts[0] != "github.com" || parts[3] != "pull" || parts[1] == "" || parts[2] == "" || parts[4] == "" {
+		return "", "", false
+	}
+	for _, digit := range parts[4] {
+		if digit < '0' || digit > '9' {
+			return "", "", false
+		}
+	}
+	return parts[0], parts[1] + "/" + parts[2], true
+}
+
+
+// prBaseRemote names the remote that holds the pull request's base repository,
+// or reports that none does. That is a local question answered from the parsed
+// remotes, so a project whose base repository is not checked out here costs no
+// hosted read at all.
+func prBaseRemote(ctx context.Context, runner execx.Runner, repo, prURL string) (string, bool, error) {
+	_, repository, ok := pullRequestBaseRepository(prURL)
+	if !ok {
+		return "", false, nil
+	}
+	remotes, err := (tickets.GitHub{Commands: runner}).Remotes(ctx, repo)
+	if err != nil {
+		return "", false, err
+	}
+	for _, remote := range remotes {
+		if strings.EqualFold(remote.Repository, repository) {
+			return remote.Name, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+// baseTarget is the local ref a pull request targets, such as fork/main, from
+// the pull request's own URL and base branch. The remote is the one whose
+// parsed repository is exactly that repository, so a suffix or an owner alone
+// never matches, and a base no remote holds is an error rather than a guess.
+func baseTarget(ctx context.Context, runner execx.Runner, repo, prURL, baseBranch string) (string, error) {
+	_, repository, ok := pullRequestBaseRepository(prURL)
+	if !ok {
+		return "", fmt.Errorf("%s is not a GitHub pull request URL", prURL)
+	}
+	remotes, err := (tickets.GitHub{Commands: runner}).Remotes(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	for _, remote := range remotes {
+		if strings.EqualFold(remote.Repository, repository) {
+			return remote.Name + "/" + baseBranch, nil
+		}
+	}
+	return "", fmt.Errorf("no remote of %s holds %s, the base repository of %s", repo, repository, prURL)
 }
 
 // ciGoblins reads every live goblin's repository, branches and pull requests.

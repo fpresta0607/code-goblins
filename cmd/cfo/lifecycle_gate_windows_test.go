@@ -157,11 +157,11 @@ func TestResumeStartsNoReplacementGateItCannotSelectAgentsFor(t *testing.T) {
 		want   string
 	}{
 		{"a goblin coming back on a harness no gate runs on", func(t *testing.T, meta *state.TaskMeta, h home.Home) {
-			choice := state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: "pi", Model: "anthropic/claude-opus-5-5", Effort: "high", When: "resume"}
+			choice := state.EngineChoice{ID: meta.ID, Generation: meta.SpawnGen, Harness: "grok", Model: "grok-4", Effort: "high", When: "resume"}
 			if err := state.WriteEngineChoice(h.State, choice); err != nil {
 				t.Fatal(err)
 			}
-		}, "resume it on claude or codex"},
+		}, "resume it on a harness a gate can prove"},
 		{"a snapshot its record does not match", func(_ *testing.T, meta *state.TaskMeta, _ home.Home) {
 			meta.PipelineHash = strings.Repeat("0", 64)
 		}, "cfo pipeline migrate task"},

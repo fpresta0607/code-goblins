@@ -33,6 +33,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
+	"github.com/fpresta0607/code-goblins/internal/openrouter"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -184,6 +185,9 @@ type commandRuntime struct {
 	leftRunning func(home.Home, string) ([]fleettree.Placed, error)
 	speedHint   func(context.Context, string) string
 	quota       func(context.Context) (quota.Report, string)
+	// keySpend reads the spend the OpenRouter key of one Pi credential source
+	// reports at the provider, for the board's dial.
+	keySpend func(context.Context, openrouter.Source) openrouter.Reading
 	// now is the clock a quota reading is judged by, so a test's reading
 	// keeps the date it was taken on; nil is the real clock.
 	now func() time.Time
@@ -395,6 +399,7 @@ func defaultCommandRuntime() commandRuntime {
 				EndLeft: func(ctx context.Context, meta state.TaskMeta) ([]string, error) {
 					return endLeftProcesses(ctx, h, meta)
 				},
+				Took: supervisor.NativeTook,
 			}
 			return service.Switch(ctx, request)
 		},
@@ -465,6 +470,9 @@ func defaultCommandRuntime() commandRuntime {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
+		keySpend:     func(ctx context.Context, source openrouter.Source) openrouter.Reading {
+			return openrouter.Reader{Source: source}.Read(ctx)
+		},
 		projectsRoot: install.MachineProjectsRoot,
 		readDevDrive: func(ctx context.Context) (devdrive.Machine, error) { return devdrive.Read(ctx, execx.OSRunner{}) },
 		readDefender: func(ctx context.Context, since time.Time) (defender.Report, error) {

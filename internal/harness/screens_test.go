@@ -54,7 +54,7 @@ func TestCodexsUpdatePromptIsAnsweredOnlyWithSkip(t *testing.T) {
 			t.Errorf("focus on %q: dialog %q, chosen %v; want %v", focused, dialog.Name, dialog.Chosen(focused), want)
 		}
 	}
-	hooks := []string{"  Hooks need review", "  2 hooks are new or changed.", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)"}
+	hooks := []string{"  Hooks need review", "  2 hooks are new or changed.", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)", "", "Press enter to confirm or esc to go back"}
 	dialog, found := screens.Dialog(hooks)
 	for option, want := range map[string]bool{"1. Review hooks": false, "2. Trust all and continue": false, "3. Continue without trusting (hooks won't run)": true} {
 		if !found || dialog.Chosen(option) != want {
@@ -231,6 +231,45 @@ func TestAHarnessAsksAtItsOwnScreenOnlyWhileItsChoicesWaitWithNoComposer(t *test
 			screens, _ := NativeScreens(test.kind)
 			if asks := screens.IsAsking(test.screen); asks != test.asks {
 				t.Errorf("%q asks %v; want %v", test.screen, asks, test.asks)
+			}
+		})
+	}
+}
+
+// A harness has a screen of its own open in its input line's place while no
+// row of its composer's footer shows and no turn runs, as Claude Code draws a
+// picker, a panel or a question, and nothing open once its input line is
+// back, a turn running over it or not. A footer the conversation above a
+// panel quotes leaves the panel open. The permission prompt and the footer
+// are Claude Code 2.1.302's recorded rows, and the picker and the panel are
+// made up in the shape of its model picker and its permissions panel.
+func TestAHarnessHasItsOwnScreenOpenOnlyWhileItsInputLineIsGone(t *testing.T) {
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	permission := []string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}
+	picker := []string{"● Done. The branch is pushed.", "", " Select model", " Switch between Claude models.", "", " ❯ 1. Default (recommended)", "   2. Sonnet", "   3. Haiku", "", " Enter to confirm · Esc to exit"}
+	panel := []string{"● Done. The branch is pushed.", "", " Permissions:  Allow   Ask   Deny   Workspace", "", "  ❯ Add a new rule…", "    Bash(go test:*)", "    Read(./**)", "", " Press ↑↓ to navigate · Enter to select · Esc to cancel"}
+	quoted := append([]string{"● Its footer reads ⏵⏵ bypass permissions on (shift+tab to cycle) while it waits."}, panel[1:]...)
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		open   bool
+	}{
+		"its permission prompt":                   {Claude, permission, true},
+		"its model picker":                        {Claude, picker, true},
+		"its permissions panel":                   {Claude, panel, true},
+		"a footer a reply quotes above its panel": {Claude, quoted, true},
+		"its composer with an update line":        {Claude, claudeScreen([]string{"● Done. The branch is pushed."}, footer, "  ✓ Update installed · Restart to update"), false},
+		"its composer":                            {Claude, claudeScreen([]string{"● Done. The branch is pushed."}, footer), false},
+		"a turn over its composer":                {Claude, claudeScreen([]string{"✽ Reticulating… (3s · esc to interrupt)"}, footer), false},
+		"a turn with no composer":                 {Claude, []string{"✽ Reticulating… (3s · esc to interrupt)"}, false},
+		"a blank screen":                          {Claude, []string{"", "   ", ""}, false},
+		"Codex at its composer":                   {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · ~"}, false},
+		"a harness it cannot read":                {Kind("other"), picker, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screens, _ := NativeScreens(test.kind)
+			if open := screens.IsOpen(test.screen); open != test.open {
+				t.Errorf("%q open %v; want %v", test.screen, open, test.open)
 			}
 		})
 	}
@@ -419,6 +458,83 @@ func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
 	}
 }
 
+func TestOnlyACompleteRetainedComposerCanBeSubmittedAfterADialog(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	instruction := "Read the saved instruction and continue the unfinished work."
+	for name, test := range map[string]struct {
+		kind    Kind
+		screen  []string
+		matches bool
+	}{
+		"codex complete":                 {Codex, []string{"› " + instruction, "", "100% context left"}, true},
+		"codex busy complete":            {Codex, []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a " + instruction, "", "100% context left"}, true},
+		"codex busy model footer":        {Codex, []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a " + instruction, "", "  GPT-6-Astra low \u00b7 work"}, true},
+		"codex blank before extra draft": {Codex, []string{"\u203a " + instruction, "", "  another instruction", "", "100% context left"}, false},
+		"codex wrapped":                  {Codex, []string{"› Read the saved instruction and continue", "  the unfinished work.", "", "100% context left"}, true},
+		"codex suffix only":              {Codex, []string{"› " + instruction[len(instruction)-40:], "", "100% context left"}, false},
+		"codex old prompt":               {Codex, []string{"› " + instruction, "", "• Done", "› Ask Codex to do anything", "", "100% context left"}, false},
+		"codex paste":                    {Codex, []string{"› [Pasted Content 58 chars]", "", "100% context left"}, false},
+		"codex missing footer":           {Codex, []string{"› " + instruction, ""}, false},
+		"codex Daybreak overlay":         {Codex, []string{"Set up security for Daybreak mode", "\u203a 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "› " + instruction, "", "100% context left"}, false},
+		"codex extra draft":              {Codex, []string{"› " + instruction + " do something else", "", "100% context left"}, false},
+		"claude complete":                {Claude, []string{rule, "❯ " + instruction, rule, "auto mode on"}, true},
+		"claude old draft":               {Claude, []string{rule, "❯ " + instruction, rule, "a reply", rule, "❯ another draft", rule, "auto mode on"}, false},
+		"pi complete":                    {Pi, []string{rule, instruction, rule, "0.0%/1.0M (auto)"}, true},
+		"pi partial":                     {Pi, []string{rule, "continue the unfinished work.", rule, "0.0%/1.0M (auto)"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screens, _ := NativeScreens(test.kind)
+			if got := screens.ComposerMatches(test.screen, instruction); got != test.matches {
+				t.Errorf("ComposerMatches = %v, want %v", got, test.matches)
+			}
+		})
+	}
+}
+
+func TestConversationTextIsNotAStartupDialog(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+	}{
+		"hook review in a turn":                {Codex, []string{"Hooks need review", "› 1. Review hooks", "enter confirm / esc skip", "• Working (0s • esc to interrupt)"}},
+		"hook review above composer":           {Codex, []string{"Hooks need review", "› 1. Review hooks", "enter confirm / esc skip", "› Ask Codex to do anything", "100% context left"}},
+		"old hook review above composer":       {Codex, []string{"Hooks need review", "› 1. Review hooks", "Press enter to confirm or esc to go back", "› Ask Codex to do anything", "100% context left"}},
+		"Daybreak quoted in a turn":            {Codex, []string{"Set up security for Daybreak mode", "Press a number to choose · esc to dismiss · type to continue", "• Working (0s • esc to interrupt)"}},
+		"Daybreak title and footer above idle": {Codex, []string{"Set up security for Daybreak mode", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", "", "\u203a Ask Codex to do anything", "100% context left"}},
+		"Claude trust above composer":          {Claude, []string{"Do you trust the files in this folder?", "> No, exit", rule, ">", rule, "auto mode on"}},
+		"Pi trust above composer":              {Pi, []string{"Trust project folder?", "→ Trust", rule, "", rule, "0.0%/1.0M (auto)"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screens, _ := NativeScreens(test.kind)
+			if dialog, isShown := screens.Dialog(test.screen); isShown {
+				t.Errorf("conversation text reads as %s", dialog.Name)
+			}
+		})
+	}
+}
+
+func TestOnlyTheTrailingFooterBoundsTheCurrentComposer(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	instruction := "Read the saved instruction and continue the unfinished work."
+	for _, footer := range []string{"100% context left", "GPT-6-Astra xhigh \u00b7 D:/x"} {
+		t.Run(footer, func(t *testing.T) {
+			for _, draft := range []string{instruction, "Ask Codex to do anything"} {
+				rows := []string{"\u203a " + draft, "", footer, "extra retained instruction", "", "100% context left"}
+				if screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, instruction) {
+					t.Errorf("draft %q with quoted footer %q reads as empty or exact", draft, footer)
+				}
+			}
+		})
+	}
+	for _, draft := range []string{instruction, "Ask Codex to do anything"} {
+		rows := []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a " + draft, "", "GPT-6-Astra xhigh \u00b7 D:/x", "? for shortcuts", ""}
+		if screens.ComposerMatches(rows, instruction) != (draft == instruction) || screens.ComposerEmpty(rows) != (draft != instruction) {
+			t.Errorf("genuine model and shortcuts footer obscured draft %q", draft)
+		}
+	}
+}
+
 // A stale wake needs evidence that the goblin is not working, and a pane that
 // shows a tool or a turn running is evidence that it is, whichever harness
 // drew it. The rows below are live captures: Claude Code 2.1 mid-tool and with
@@ -500,16 +616,21 @@ func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
 		screen []string
 		empty  bool
 	}{
-		"codex placeholder":        {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, true},
-		"codex follow-up":          {Codex, []string{"• ok", "› Ask a follow-up question", "  gpt-6-astra low · work"}, true},
-		"codex text typed":         {Codex, []string{"• ok", "› Reply with ok", "  gpt-6-astra low · work"}, false},
-		"pi empty editor":          {Pi, []string{"Done.", rule, "  ", rule, footer}, true},
-		"pi text typed":            {Pi, []string{"Done.", rule, " run the tests ", rule, footer}, false},
-		"pi two lines typed":       {Pi, []string{rule, "first", "second", rule, footer}, false},
-		"pi editor scrolled":       {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
-		"pi rule missing":          {Pi, []string{"Done.", footer}, false},
-		"claude is never typed in": {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
-		"unknown composer":         {Kind("unknown"), []string{"❯ "}, false},
+		"codex placeholder":                         {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, true},
+		"codex follow-up":                           {Codex, []string{"• ok", "› Ask a follow-up question", "  gpt-6-astra low · work"}, true},
+		"codex old placeholder above partial draft": {Codex, []string{"\u203a Ask Codex to do anything", "\u2022 Earlier quoted composer", "", "\u203a partial draft", "", "100% context left"}, false},
+		"codex old placeholder above bare prompt":   {Codex, []string{"\u203a Ask Codex to do anything", "\u2022 Earlier quoted composer", "", "\u203a", "", "100% context left"}, false},
+		"codex busy empty":                          {Codex, []string{"\u2022 Working (5s \u2022 esc to interrupt)", "", "\u203a Ask Codex to do anything", "", "100% context left"}, true},
+		"codex placeholder with continued draft":    {Codex, []string{"\u203a Ask Codex to do anything", "  continued draft", "", "100% context left"}, false},
+		"codex placeholder without footer":          {Codex, []string{"\u203a Ask Codex to do anything"}, false},
+		"codex text typed":                          {Codex, []string{"• ok", "› Reply with ok", "  gpt-6-astra low · work"}, false},
+		"pi empty editor":                           {Pi, []string{"Done.", rule, "  ", rule, footer}, true},
+		"pi text typed":                             {Pi, []string{"Done.", rule, " run the tests ", rule, footer}, false},
+		"pi two lines typed":                        {Pi, []string{rule, "first", "second", rule, footer}, false},
+		"pi editor scrolled":                        {Pi, []string{"─── ↑ 3 more ───────────────", "last line", rule, footer}, false},
+		"pi rule missing":                           {Pi, []string{"Done.", footer}, false},
+		"claude is never typed in":                  {Claude, []string{"❯ ", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, false},
+		"unknown composer":                          {Kind("unknown"), []string{"❯ "}, false},
 	} {
 		screens, _ := NativeScreens(test.kind)
 		if got := screens.ComposerEmpty(test.screen); got != test.empty {
@@ -582,6 +703,178 @@ func TestAnEnterReadsTakenAsANewLineOnlyByTheEmptyRowItAdded(t *testing.T) {
 			// Assert
 			if isNewLine != test.isNewLine {
 				t.Fatalf("TookEnterAsNewLine = %v, want %v", isNewLine, test.isNewLine)
+			}
+		})
+	}
+}
+
+func TestCodexModelOnlyFooterBoundsTheCurrentComposer(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	instruction := "Continue the unfinished work."
+	for _, draft := range []string{"Ask Codex to do anything", instruction, instruction + " extra retained text"} {
+		rows := []string{"\u203a " + draft, "", "  gpt-6.1-sol high", ""}
+		if screens.ComposerEmpty(rows) != (draft == "Ask Codex to do anything") || screens.ComposerMatches(rows, instruction) != (draft == instruction) {
+			t.Errorf("model-only footer obscured the current draft %q", draft)
+		}
+	}
+	for _, draft := range []string{"Ask Codex to do anything", instruction} {
+		rows := []string{"\u203a " + draft, "", "  gpt-6.1-sol high", "extra retained text", "", "100% context left"}
+		if screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, instruction) {
+			t.Errorf("model-only footer quoted in draft %q hides additional text", draft)
+		}
+	}
+}
+
+func TestCodexTrustMenuBlocksARetainedDraft(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, prompt := range []struct {
+		title, option, other, footer string
+	}{
+		{"Do you trust the contents of this directory?", "\u203a 1. Yes, continue", "  2. No, quit", "Press enter to continue"},
+		{"Trust this folder? Codex can read, edit, and run files here.", "\u203a 1. Trust and continue", "  2. Quit", "enter continue · esc quit"},
+	} {
+		for _, draft := range []string{"Ask Codex to do anything", "Overlord: Reply received"} {
+			rows := []string{prompt.title, prompt.option, prompt.other, "", prompt.footer}
+			if _, isShown := screens.Dialog(rows); !isShown {
+				t.Errorf("trust menu hiding %q is not recognized", draft)
+			}
+			if screens.IsReady(rows) || screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, draft) {
+				t.Errorf("trust menu hiding %q permits composer input", draft)
+			}
+		}
+	}
+}
+
+func TestCodexTrustHistoryDoesNotBecomeTheCurrentDialog(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, menu := range []struct {
+		name, title, accept, other, footer string
+	}{
+		{"directory", "Do you trust the contents of this directory?", "1. Yes, continue", "2. No, quit", "Press enter to continue"},
+		{"folder", "Trust this folder?", "1. Trust and continue", "2. Quit", "enter continue · esc quit"},
+	} {
+		for _, footer := range []string{"100% context left", "gpt-6.1-sol high"} {
+			for _, draft := range []string{menu.accept, menu.accept + " with more retained text", "1. Inspect the failing test"} {
+				t.Run(menu.name+"/"+footer+"/"+draft, func(t *testing.T) {
+					rows := []string{menu.title, "", "› " + draft, footer}
+					if dialog, isShown := screens.Dialog(rows); isShown {
+						t.Errorf("current draft is misread as %s", dialog.Name)
+					}
+					if screens.ComposerEmpty(rows) || !screens.ComposerMatches(rows, draft) {
+						t.Error("quoted title changed the complete retained draft")
+					}
+				})
+			}
+			for _, history := range [][]string{
+				{menu.title, "› " + menu.accept},
+				{menu.title, "› 1. Inspect the failing test"},
+				{menu.title, "› " + menu.accept, "  " + menu.other, "", menu.footer},
+			} {
+				rows := append(append([]string{}, history...), "", "› Ask Codex to do anything", footer)
+				if dialog, isShown := screens.Dialog(rows); isShown {
+					t.Errorf("%s: history above an idle composer is misread as %s: %q", menu.name, dialog.Name, rows)
+				}
+				if !screens.IsReady(rows) || !screens.ComposerEmpty(rows) {
+					t.Errorf("%s: quoted menu blocks the idle composer: %q", menu.name, rows)
+				}
+			}
+		}
+	}
+}
+
+func TestCodexHookHistoryDoesNotBecomeTheCurrentDialog(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, footer := range []string{"", "Press enter to confirm or esc to go back", "enter confirm / esc skip", "enter confirm · esc skip"} {
+		for _, draft := range []string{"3. Continue without trusting", "3. Continue without trusting with more retained text", "1. Inspect the failing test"} {
+			t.Run(footer+"/"+draft, func(t *testing.T) {
+				rows := []string{"Hooks need review"}
+				if footer != "" {
+					rows = append(rows, "1 hook is new or changed", "1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)", "", footer)
+				}
+				rows = append(rows, "", "› "+draft, "gpt-6.1-sol high")
+				if dialog, isShown := screens.Dialog(rows); isShown {
+					t.Errorf("current draft is misread as %s", dialog.Name)
+				}
+				if screens.ComposerEmpty(rows) || !screens.ComposerMatches(rows, draft) {
+					t.Error("hook history changed the complete retained draft")
+				}
+				if footer != "" {
+					rows[2] = "› 1. Review hooks"
+					if dialog, isShown := screens.Dialog(rows); isShown {
+						t.Errorf("quoted menu focus blocks the current draft as %s", dialog.Name)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestCodexHookMenusKeepTheirSafeAnswerAndFocus(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, footer := range []string{"Press enter to confirm or esc to go back", "enter confirm / esc skip", "enter confirm · esc skip"} {
+		for _, summary := range []string{"1 hook is new or changed", "2 hooks are new or changed"} {
+			for focus := range 3 {
+				t.Run(footer+"/"+summary+"/"+string(rune('1'+focus)), func(t *testing.T) {
+					options := []string{"1. Review hooks", "2. Trust all and continue", "3. Continue without trusting (hooks won't run)"}
+					rows := []string{"› Earlier quoted input", "enter confirm / esc skip", "", "Hooks need review", summary, ""}
+					for index, option := range options {
+						prefix := "  "
+						if index == focus {
+							prefix = "› "
+						}
+						rows = append(rows, prefix+option)
+					}
+					rows = append(rows, "", footer, "")
+					dialog, isShown := screens.Dialog(rows)
+					if !isShown {
+						t.Fatal("genuine hook menu is not recognized")
+					}
+					if focused, ok := dialog.Focused(rows); !ok || focused != options[focus] {
+						t.Errorf("focused = %q, %v; want the active menu option %q", focused, ok, options[focus])
+					}
+					if dialog.EscapeHint == "" {
+						for index, option := range options {
+							if dialog.Chosen(option) != (index == 2) {
+								t.Errorf("chosen %q = %v; want only continue without trusting", option, dialog.Chosen(option))
+							}
+						}
+					} else if dialog.EscapeHint != footer {
+						t.Errorf("escape hint = %q, want %q", dialog.EscapeHint, footer)
+					}
+					if dialog.Summary == nil || dialog.Summary.FindString(strings.Join(rows, "\n")) != summary {
+						t.Errorf("untrusted hook summary does not match %q", summary)
+					}
+					if screens.IsReady(rows) || screens.ComposerEmpty(rows) || screens.ComposerMatches(rows, options[focus]) {
+						t.Error("genuine hook menu permits composer input")
+					}
+				})
+			}
+		}
+	}
+}
+
+// pi collapses a long burst typed into its editor into a paste marker and
+// holds the text itself, as Claude Code and Codex do, so a steer or a wake
+// line long enough to collapse still reads as shown in the composer. The
+// marker was read off pi's own editor: "[paste #1 +12 lines]" or
+// "[paste #1 1200 chars]".
+func TestAPiComposerShowsACollapsedPaste(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	footer := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	screens, _ := NativeScreens(Pi)
+	typed := "CFO: fix the monitor's turn reading. " + strings.Repeat("and check the family tree too. ", 40)
+	for name, test := range map[string]struct {
+		screen []string
+		shows  bool
+	}{
+		"lines pasted":  {[]string{rule, "[paste #1 +12 lines]", rule, footer}, true},
+		"chars pasted":  {[]string{rule, "[paste #1 1200 chars]", rule, footer}, true},
+		"nothing typed": {[]string{rule, "", rule, footer}, false},
+		"another draft": {[]string{rule, "[paste #2 +3 lines]", rule, footer}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if shows := screens.Shows(test.screen, typed); shows != test.shows {
+				t.Fatalf("Shows = %v, want %v", shows, test.shows)
 			}
 		})
 	}

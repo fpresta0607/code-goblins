@@ -208,7 +208,7 @@ func (s *Service) tellAnswer(ctx context.Context, answer pageAnswer) error {
 				queuedReason = "You answered on its page; your answer is queued for the goblin's next tool call."
 			}
 			isTyped := answer.Status == "sending" || answer.Status == "awaiting"
-			isTaken := isTyped && metaErr == nil && NativeTook(ctx, meta, goblinLine(text), answer.SentAt)
+			isTaken := isTyped && metaErr == nil && NativeTook(ctx, meta, "", goblinLine(text), answer.SentAt)
 			switch {
 			case isTaken:
 				detail, reason = delivered, deliveredReason

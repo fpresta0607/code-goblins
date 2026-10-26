@@ -262,6 +262,16 @@ The dials' own read, under a 15-second bound, runs only when no read was made fo
 A read that measures nothing, refused or failed, leaves the reading before it, which reads `stale` once it is older than an hour or its week has reset, while a sign-in the provider asks for replaces it at once.
 A snapshot only reads what the reads kept.
 The Tasks column draws each as a ring around the provider's mark beside the memory meter, filled to the remaining percentage, turning amber within five points of the floor, and a dashed ring with **?** for anything but a fresh reading; its tip gives the reset time in the viewer's time zone, the reading's age and the reserve: **5% reserve** for a floor of 5, **5% reserve reached** at or under it, **No reserve, runs to 0%** for a floor of 0 and **Reserve unknown** while the floor cannot be read.
+The snapshot's `key_spend` states what an API key a harness bills by, rather than by a subscription window, has spent: Pi's OpenRouter key, whose spend is shared by every caller of that key and is never a sum of what the fleet's goblins estimate they used.
+It carries one entry for each distinct credential among the live Pi sessions, and none for a Pi session on another provider: a session's provider is the one its model names in Pi's own `provider/model` form, else Pi's `defaultProvider` in the profile's settings, and a session whose records name none is shown as unproven rather than attributed.
+A credential source is the profile folder and the environment a session's terminal started with, as the fleet's launch records name them: the project's worktree manifest `env` over the machine's user environment, read as a spawn reads it, and Pi's own `~/.pi/agent` when neither names `PI_CODING_AGENT_DIR`.
+`serve` resolves the key the way Pi's own resolver does, `auth.json`'s provider entry ahead of `OPENROUTER_API_KEY`: `$NAME` and `${NAME}` read the entry's own environment and then the session's, an empty value in either falls through, a braced name that is no environment name stands as written, and an entry that resolves its key by a command is refused rather than run, so drawing a dial executes nothing.
+It then reads `GET https://openrouter.ai/api/v1/key` under a 10-second bound on the dials' own timer, once for each source a snapshot found a live OpenRouter session using, and never while a snapshot is built.
+The entry carries the key's own dollars in the window its own limit resets over as `spent_usd`, `limit_usd`, `remaining_usd`, `period` (`daily`, `weekly`, `monthly`, `lifetime`, or empty for a window this build cannot count), `resets_at` and `read_at`, the external `byok_usd` beside them and never added to them, `includes_byok`, and `blocking` with the budget layer that stops requests first when that is not the key's own (`scope`, `spent_usd`, `limit_usd`, `period`), so a member or workspace budget is never called the key's spend.
+A window with no budget row of its own still rolls over at its documented UTC boundary, the next midnight for a daily window, the next Monday's midnight for a weekly one and the first of the next month for a monthly one, so a reading taken in a window that has ended shows stale rather than as this period's spend.
+`status` is `available`, `missing`, `stale`, `auth_required`, `rate_limited`, `unavailable` or `unattributed`, and `detail` says why in a few words this build fixes: no provider reason phrase, document or configuration text reaches it, and an answer with no key document or no usage figure is no reading at all.
+A reading is `unattributed` when the fleet's records do not prove it is the credential a session started with: a key whose value came from the environment, whose file was written after that session started, or for which no provider or session start was recorded, never shows its dollars as the value, and the tip names the last dollars by their age and why they are unproven.
+No key, authorization header, auth document or credential file time reaches the snapshot: `key_id` is a hash of the credential the reading was made with, so a rotated key never shows the dollars of the key it replaced, and `profile` names the Pi profile in use, `default` for Pi's own folder.
 `serve` also wakes the CFO about the machine and the forge, through the same wake queue as every other wake, so `cfo drain` shows them and each says what to do next in one line.
 `memory_ready` (wake kind `memory`): `serve` reads the memory meter once a minute, and once available memory and commit both read at or above the 5 GB mark on two readings in a row, while a queued task could start or a live goblin's latest report is `waiting on memory`, it wakes the CFO once, naming the next startable task in queue order and the goblins to release, and never the task the supervisor is starting already; it wakes again only after a reading falls under the 4 GB floor and crosses back, and never twice within fifteen minutes.
 `ci_finished` (wake kind `ci`): every two minutes `serve` asks GitHub through the authenticated `gh` about each watched repository, which are the repositories live goblins work in, kept for six hours after the last one leaves.
@@ -357,7 +367,7 @@ The supervisor waits for `cfo spawn` to end, which confirms the goblin works bef
 From the moment the supervisor starts a task, a Start's or its scheduler's own, the snapshot marks it `starting` and not `asked` and is published at once, whatever the snapshot's `scheduling` says, and the board takes the task out of Tasks into In progress, where the supervisor puts it once `cfo spawn` ends, at the top for the Overlord's own Start, which the snapshot marks `overlord_start`, and at the bottom for the scheduler's own: it reads Starting at a working dot on its card, its panel, its terminal pane and its canvas node until the supervisor has evidence of what its goblin does, which can follow the end of `cfo spawn` by some seconds, or for two minutes from its session's start at most.
 While a start or a resume runs, the supervisor looks for its task record and terminal host every 250 milliseconds and publishes a change the moment either is written, so the board opens the new terminal at once rather than at the next snapshot.
 Then it tells the CFO through the wake queue, as `cfo notify` does, with a notify keyed by the task: `started: the Overlord started this from the board, ...` after which the task goes to the top of the attention order, or `started: the supervisor started the next queued task ...` after which it joins the bottom of the attention order, under every goblin In progress lists, or `start failed: <the last line cfo spawn printed>`, which the snapshot carries as the task's `start_error`: the task stays in Tasks and reads Start failed at a red dot, never a yellow one, on its card and its panel, with that line behind its panel's Details, until its next Start; neither notify is a question.
-An accepted Start answers 202 with the revision from which every snapshot shows it, and the board opens the new goblin's Terminal view once the snapshot shows its session; an older snapshot that still carries the last Start's failure neither shows that failure on the card nor stops the wait.
+An accepted Start answers 202 with the revision from which every snapshot shows it, and the board opens the new goblin's panel once the snapshot shows its session; an older snapshot that still carries the last Start's failure neither shows that failure on the card nor stops the wait.
 Completed lists verified delivery, and within the last week the newest 20 entries of history: tasks cleanup finished, from a status log left without its record or one the archive holds, and pull requests merged into a fleet repository, read from merge commits on origin's default branch of this home and each checkout under the projects root, locally.
 History is rebuilt away from the supervisor's loop, so it never delays native events, the heartbeat or a snapshot: at start, within 10 seconds of a task record being removed, a gate seeing its task merge or a goblin reporting done, and otherwise every minute.
 A rebuild reads a checkout with git again only when a fetch or a remote change rewrote its git files, and one git cannot read is tried again after 30 minutes.
@@ -373,6 +383,9 @@ A history card is its pull request link, since it has no live worktree to review
 A finished task finds its merge among every merge of the week, not only the newest 20, so an older merge still marks it merged.
 A finished task's GitHub pull request that no merge commit shows is asked about with `gh pr view` on a history refresh: merged (a squash merge leaves no merge commit) reads Merged, closed without merging reads Closed, and open reads Finished.
 A merged or closed answer is kept and an open one is asked again after 10 minutes.
+A pull request GitHub no longer holds, because a repository was recreated under the same owner and name or the pull request is gone, is no answer at all: the task keeps the outcome and link it reported, its card reads Finished, evidence unavailable with why in its pull request's tip, and the address is not asked about again, since no later read can make it evidence.
+Nor is a newer pull request a recreated repository gave the same number: one opened after the task finished is never its result, so its merge and its title are not adopted and the card says so the same way.
+Neither wakes the CFO, since neither is a failed read it could act on.
 An ask that failed keeps what GitHub last answered and is asked again on the next refresh.
 The board reports it as an error, which wakes the CFO, only once it failed on three refreshes in a row, and from then on it is asked again after 10 minutes.
 The asks of one refresh share a 5-second budget, so a slow GitHub never holds up the supervisor; a pull request not asked before it runs out reads Finished and is asked on the next refresh, and an ask it cuts off counts as failed.
@@ -483,8 +496,8 @@ Either one takes the focus itself, so keys he was typing press neither button, a
 A switch the supervisor refuses there shows one short sentence that says what to do, never the supervisor's own words for why.
 When AFK mode turns off nothing opens over the board: the stretch becomes his page of it, one card in his Command Center ([AFK mode](#afk-mode)).
 See [AFK mode in the README](../README.md#afk-mode) for what the page shows.
-Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then a Terminal view and a Task view one tap apart on a pill at its top, Terminal first, and for a Claude Code session a [Messages view](#the-messages-view) before them, which the panel opens on.
-The CFO's header carries the toggle of AFK mode beside its status, in the Task view and the Terminal view alike: a small switch labelled AFK, in the board's green while it is on.
+Selecting a card or node opens the same goblin panel from either view: a header with the goblin, its plain status and icon actions, then one view with no tabs, the Overlord's ask of 2026-10-23: the goblin's messages or its live terminal, with its task list beside them on a panel 900 px wide or more, and folded under the header as Task on a narrower one or a small screen ([The Messages view](#the-messages-view)).
+The CFO's header carries the toggle of AFK mode beside its status, in its one view: a small switch labelled AFK, in the board's green while it is on.
 The turn-on question focuses Cancel, and a switch that cannot be read shows off with a tip saying that a press resets it.
 The [README](../README.md#afk-mode) describes the switch's loading and refusal displays.
 The header that carries it wraps, so on a panel at its narrowest the toggle drops under the status rather than cover it, and it is there at every width.
@@ -493,18 +506,21 @@ The header's status is the one place the panel says the task's state (`frontend/
 A resume or stop whose lifecycle record failed reads Resume failed or Stop failed, whatever the goblin's own last report says, on its card, node and panel alike.
 A failed resume whose goblin then reports from the session the resume started, working, waiting, asking or done, took its instruction after all: the supervisor's next reading finishes its record as running, under the task's lifecycle lock, so the card reads what the goblin reports.
 A pause whose lifecycle record failed shows what the goblin is doing, with no state of its own, and one whose native terminal no longer runs is served as paused, in the Paused section, and resumes (the Overlord, 2026-10-08, of a yellow Pause did not finish on Shirley's card).
-The Task view header shows one plain sentence under the status: the goblin's latest report without its leading state word (working:, waiting on ...:, blocked:, failed:, done:), split where a semicolon chained it, in sentence case, with a pull request link as PR #n, other links as their site, a path as the name it ends with and a commit hash left out, kept to whole sentences up to 280 characters.
+The full header, or the task list beside a compact one, shows one plain sentence under the status: the goblin's latest report without its leading state word (working:, waiting on ...:, blocked:, failed:, done:), split where a semicolon chained it, in sentence case, with a pull request link as PR #n, other links as their site, a path as the name it ends with and a commit hash left out, kept to whole sentences up to 280 characters.
 A paused task has no sentence, since its status already says why it waits and what resumes it (the Overlord, 2026-10-09: "in paused goblin panels the highlight line, it's not needed to be presented").
 Its Details is one description written for a person, in the panel's own type and not a terminal's: its goblin's latest own report (`last_report`, never a lifecycle line or its terminal's screen) as that sentence would say it, then what it waits for and that it resumes by itself, or that it stays paused until he resumes it, then any program Windows still closes, by name (the Overlord, 2026-10-09: "every time I look at the details it is the same text ... It should just be a well written, proper case, human readable little description about what that agent did or is doing").
 What a pause could not do, such as a handoff it did not save, is never in the panel: the CFO hears it in the pause's `lifecycle-<phase>` report.
 A goblin paused for its own pull request, which the board shows under test, says only what it did.
 Under Working and any failure the header shows no sentence, at the Overlord's word on 2026-10-05 ("dont need text under working", "dont need text under pause fialed") and 2026-10-08 ("everything error wise goes to cfo"); that sentence is the first line behind Details, the same at every width, and a failure keeps Open the log, which opens and shows Activity.
 For any other task, Details under the sentence shows the report or the supervisor's problems exactly as written; a read that fails shows Retry, and the CFO hears what could not be read.
-A goblin's Terminal view header is compact and headed as the CFO's is: its picture, its name and title, its task id and one status line, with no task description and no buttons, since its Task view holds them and the live screen shows the latest output (the Overlord, 2026-10-17: "If they exist on the task panel, we don't need them in the terminal header").
+A goblin's header over its messages or its terminal is compact and headed as the CFO's is: its picture, its name and title, its task id and one status line, with no task description and no buttons, since its task list holds them and the live screen shows the latest output (the Overlord, 2026-10-17: "If they exist on the task panel, we don't need them in the terminal header").
 In both views the goblin's name keeps to one line and its task to at most two, each shown in full in its tip once cut short, and no word breaks.
-In the Task view its buttons stay beside them only while all fit on one row, and otherwise take a row of their own under the task, starting where it starts (the Overlord, 2026-10-09: "Place buttons under when super long.").
-The Task view holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened; the Terminal view is that goblin's live native terminal, edge to edge.
-The Task view opens with one action row under the header, the task's own controls as labelled buttons, the only place they are: Start and Remove for a queued task, and Pause and Stop for a task that has started, or Resume and Stop for a paused one; a waiting goblin offers no Resume, and a completed one none of them.
+In a full header its buttons stay beside them only while all fit on one row, and otherwise take a row of their own under the task, starting where it starts (the Overlord, 2026-10-09: "Place buttons under when super long.").
+The task list holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened, beside the goblin's messages or its live native terminal.
+Its header details keep the link to a goblin this one waits on, both beside the conversation and in the Task fold.
+A tall Task fold scrolls within the panel while the messages or terminal below it keep room.
+The same task-list instance moves between placements, so unsaved harness choices and nested disclosures survive resizing, maximizing and closing the outer Task fold.
+The task list opens with one action row, the task's own controls as labelled buttons, the only place they are: Start and Remove for a queued task, and Pause and Stop for a task that has started, or Resume and Stop for a paused one; a waiting goblin offers no Resume, and a completed one none of them.
 A queued task is edited in its header, where its task line under the goblin's name carries a small pencil with the tip Edit task (the Overlord, 2026-10-10: "I get editing pencil a little icon"): the pencil, or a click on the task's text, turns that line into a box in the same type holding the task's title and detail, which grows with its text.
 The pencil is the one button on that line, for the keyboard and a screen reader, and closing the box hands the keyboard back to it.
 Enter or the check saves it through `POST /api/tasks/adjust` on the revision the box opened on, Shift+Enter adds a line, and Escape or the cross puts the line back unchanged.
@@ -515,12 +531,12 @@ Whatever opens and closes on the board is the one disclosure (`frontend/src/Disc
 The Command Center's button is a menu behind its own icon, and `frontend/src/disclosure.test.ts` names any other `details` the source draws.
 A caret only ever opens or closes what it stands before: the same test names every caret the source draws, which are the disclosure's, a tree's fold on a button that says whether it is open, and the pager's two arrows.
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust`, but nothing on the board files or shows one.
-The CFO's Task view holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
-Board and Orchestration both open a goblin, and the CFO, on its Terminal view, or a Claude Code session on its Messages view ([The Messages view](#the-messages-view)); Orchestration's Terminal view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
-A Claude Code session's Messages view stays mounted too, from its first showing while its panel shows the session.
+The CFO's task list holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
+Board and Orchestration both open a goblin, and the CFO, on its one view, a Claude Code session's showing its messages ([The Messages view](#the-messages-view)); Orchestration's view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
+A Claude Code session's messages stay mounted too, from their first showing while its panel shows the session.
 Typing happens in the terminal itself, or in a Claude Code session's message box, which types into it.
-Where a goblin's terminal cannot take typing, for a goblin paused, resuming or starting, the Terminal view of a session with no Messages view has a message box under what it shows instead, the same box a Messages view has: Send or Enter sends a `message` action through `POST /api/actions` with the task's id, and the supervisor delivers it once whatever the goblin is doing.
-The CFO's Terminal view has no message box: while no CFO runs, closed or between the two terminals of a restart, it shows only why it has no terminal (the Overlord, 2026-10-09: "when cfo is off no message box should exist").
+Where a goblin's terminal cannot take typing, for a goblin paused, resuming or starting, a session the board does not read as messages has a message box under its terminal's place instead, the same box the messages have: Send or Enter sends a `message` action through `POST /api/actions` with the task's id, and the supervisor delivers it once whatever the goblin is doing.
+The CFO's terminal has no message box under it: while no CFO runs, closed or between the two terminals of a restart, it shows only why it has no terminal (the Overlord, 2026-10-09: "when cfo is off no message box should exist").
 Holding the box's microphone, or Ctrl+Shift+Space in the box, dictates into it with the terminals' own dictation, on the supervisor's speech model, for as long as it is held.
 A paused goblin's message joins its resume note, which its resume prompt carries, and a goblin pausing, resuming or starting, or whose terminal is not up yet, has it wait, then typed into its terminal, where a busy harness takes it at its next tool call.
 A goblin whose resume failed has the message join its resume note the same way while that resume is its session's own or the task's interrupted resume, which a Resume takes up again.
@@ -544,7 +560,7 @@ Open in VS Code and Open folder require a deliberate click and resolve the selec
 The API accepts task identity and an editor enum, never a browser-provided path or command; it starts Code.exe directly with literal arguments and removes Electron Node/development flags from its inherited environment.
 Successful launch means the application was requested, not that a window was observed.
 A task reads one status, its words and the phase its dot is drawn in, on its card, its panel, its terminal pane and its canvas node, all from the same snapshot (`taskStatus` in `frontend/src/task-status.ts`), so they change together and never disagree (the Overlord, 2026-10-08: "status dots need to be better synched across pane and panels and boards"); a paused goblin reads why it waits and what resumes it on its card, its panel and its terminal pane, and its panel adds no sentence under that.
-Queued tasks show their known project, without querying nonexistent task metadata, and their panel is the Task view alone: the Terminal pill appears once the task has a terminal or its Start is on its way.
+Queued tasks show their known project, without querying nonexistent task metadata, and their panel is the task list alone, and a terminal takes its place beside it once the task has one or its Start is on its way.
 Operational wake records remain intact; only a deliberate CFO question is offered to the Overlord, and the Command Center opens when he chooses it.
 Task-semantic goblin avatars are presentation choices, not inferred native role evidence; a task no keyword classifies gets a stable artwork of its own instead of the shared app icon.
 
@@ -563,7 +579,7 @@ Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 A goblin's card on the canvas says what its card on the board says, with its project too and without the baby goblins the canvas draws under it: its name and title, its project and status, and in a row at its foot how long it has run, since a paused or finished goblin has no canvas card, its pull request with its number and its harness mark, drawn by the same parts as the board card's (`frontend/src/card-clock.tsx`, `frontend/src/card-pull-request.tsx`).
-The CFO's card has its weekly allowance dials, the button that opens its terminal and its harness mark there instead, as the board's CFO bar has.
+The CFO's card has its weekly allowance dials and the OpenRouter key's spend, the button that opens its terminal and its harness mark there instead, as the board's CFO bar has.
 Every card on the canvas, a baby goblin's included, holds all it says inside its border at any length, since each part keeps to its own lines and ends in an ellipsis past them (`frontend/tests/orchestration-card-text.spec.ts`).
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and down as far as 10%, so the whole of any tree shows, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
@@ -683,11 +699,11 @@ Drafts bind the task session identity at selection and survive view, file and re
 An unchanged submitted payload keeps its request ID after an ambiguous HTTP failure; an SSE outcome is displayed instead of dispatching it again.
 An interrupted external delivery becomes uncertain and is not replayed automatically.
 
-A goblin panel's Terminal view shows a task in a native terminal from its host, as described after this Herdr view, and the CFO and a task in Herdr through Herdr.
+A goblin panel shows a task in a native terminal from its host, as described after this Herdr view, and the CFO and a task in Herdr through Herdr.
 A panel with no terminal to show says why without opening any view: No CFO is running while no CFO runs (the snapshot's `cfo_runs`), the task's status, such as Queued or Starting, for a task with no terminal yet, and This child has no separate terminal, with **Open owning task**, for a child session.
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
-The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows its Terminal view.
-A goblin panel's Terminal view of a Herdr pane is a live view of the pane, and it never resumes or answers an agent.
+The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows a terminal.
+A goblin panel's view of a Herdr pane is a live view of the pane, and it never resumes or answers an agent.
 An open view keeps its pane live and sized to the panel at all times (the Overlord: "it should always be live"): once the view is shown it takes the pane's controller (`terminal session control --takeover`) and sizes the pane to the panel at the chosen text size, 20 px unless Ctrl+Plus, Ctrl+Minus or Ctrl+0 chose another, which native terminals share, and keeps it whether or not the board's window has the focus and while another view is shown; a Herdr window shows the pane at the board's size.
 The panel keeps an even inset around the screen, and a panel that changes size asks for the grid that fills it at once, then at most every 40 ms while it keeps changing and once more when it holds still.
 Dragging the divider between the board and the panel is the exception: every resize makes the pane's program redraw its whole screen, so while the divider moves the screen keeps its grid, shown scaled into the panel, and the view asks for the panel's grid once, when the drag ends; the board lays itself out at most once an animation frame during the drag.
@@ -725,7 +741,7 @@ Scrolling such a pane counts as working in the board, like typing: a view that d
 Herdr's frames carry no mouse modes, so a click never reaches the program and Claude Code's "Jump to bottom (ctrl+End)" note cannot be pressed; instead, a plain click (under 4 px of movement, not a drag or a selection) on a pane the board has scrolled up and could scroll now sends Ctrl+End, which jumps it back to its bottom, and Ctrl+End typed in the view does the same.
 The jump waits out the double-click interval, 300 ms after the release, and a further press in that time cancels it, so a double-click or triple-click selects the word or line it aimed at; a click on a pane the view does not hold, such as one a review gate owns, does nothing.
 A NUL key such as Ctrl+Space is typed like any other key.
-Shift+Escape moves keyboard focus out of the terminal to the panel's pill; ordinary Escape stays with the pane.
+Shift+Escape moves keyboard focus out of the terminal to the panel's top row; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C, or Ctrl+C while text is selected, copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
 At most eight views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
@@ -742,7 +758,7 @@ Paste reads the phone's clipboard, which the phone asks to allow, and types its 
 There is no second model session or generated reply.
 The native interface exposes rendered screen updates rather than original historical PTY bytes, and omits Kitty keyboard negotiation, graphics and host mouse notifications.
 
-A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; a goblin panel's Terminal view opens it for every such task, and the snapshot names each task's `backend` so the board knows which view to open.
+A task whose record names the `native` backend runs in a `cfo host` of its own, and `GET /api/terminal/native?task=ID&generation=GEN&token=TOKEN` relays one view of it over a WebSocket; a goblin panel opens it for every such task, and the snapshot names each task's `backend` so the board knows which view to open.
 A CFO registered in a native terminal is relayed the same way with `?cfo=TERMINAL&token=TOKEN`, and the snapshot's `cfo_terminal` names that terminal (native terminal `cfo` while a CFO is starting there unregistered), empty while the CFO runs in Herdr, so the CFO's entry in the panel shows the native terminal instead of a Herdr view that cannot show it.
 The view is refused unless the registration names a live CFO in exactly that terminal, or, with no CFO registered, the terminal is native terminal `cfo` and its host answers, and it closes once that stops holding, so typing never reaches a terminal the CFO has left.
 The upgrade needs the board's own origin and the board's token in the query, since a browser cannot set a WebSocket header, and anything else is refused with 403.
@@ -768,8 +784,8 @@ A size under 20 columns or 5 rows, measured while a panel was hidden, or over 10
 A host tells a viewer sizes only when its handshake asks for them; for a host started before hosts told sizes, the relay tells every view the size each of its own resizes gave the terminal, at the end of the output it had read by then.
 A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
 A view is told when key presses have sat unread in the terminal's input, as `{"type":"unread","unread":true}`, and with `false` once the program has read them.
-For a harness whose screens the supervisor knows, the CFO's being the one it registered as by the time of the read, the relay reads the terminal's screen as a view opens, which no output puts off, and once its output has paused for 300 ms, which a turn's spinner never lets it, and tells the view as `{"type":"screen","asking":true}` when the harness waits on an answer at a screen of its own, which only its terminal takes, and with `false` once it no longer does.
-For Claude Code that is a dialog the supervisor knows while no turn, composer or footer shows, or a list of numbered choices with one focused, as its permission prompt draws, while none of them shows under the list (`Screens.IsAsking` in `internal/harness/screens.go`).
+For a harness whose screens the supervisor knows, the CFO's being the one it registered as by the time of the read, the relay reads the terminal's screen as a view opens, which no output puts off, and once its output has paused for 300 ms, which a turn's spinner never lets it, and tells the view as `{"type":"screen","asking":true,"open":true}` each time what it read changes: asking while the harness waits on an answer at a screen of its own, which only its terminal takes, and open while something of its own is drawn in its input line's place, a picker, a panel or that question.
+For Claude Code that is a dialog the supervisor knows while no turn, composer or footer shows, or a list of numbered choices with one focused, as its permission prompt draws, while none of them shows under the list (`Screens.IsAsking` in `internal/harness/screens.go`), and something is open while it asks, or while no row of its composer's footer shows and no turn runs (`Screens.IsOpen`).
 What the conversation shows above decides nothing: a dialog's words a diff quotes have the composer waiting under them, and a mode a reply names lies above a list that asks.
 While the view was last told `true`, the screen is read 300 ms after the first output that follows, pause or not, so the turn an answer starts clears the card at once.
 A busy program takes a key only once it is free, as Claude Code does while it starts a tool and a shell does while a command runs, and until then nothing on its screen shows the key was pressed.
@@ -914,7 +930,7 @@ The board keeps these keys for itself:
 | --- | --- |
 | Ctrl+Plus, Ctrl+Minus, Ctrl+0 | Steps or restores the font size |
 | Ctrl+Shift+Space, held | Dictates |
-| Shift+Escape | Leaves the terminal for the panel's pill |
+| Shift+Escape | Leaves the terminal for the panel's top row |
 | Ctrl+Alt+Up, Ctrl+Alt+Down, Ctrl+Alt+1 to 9 | Switches terminals |
 | Ctrl+V, Ctrl+Shift+V, Shift+Insert | Pastes |
 | Ctrl+Shift+C, Ctrl+Insert, Ctrl+C while text is selected | Copies |
@@ -930,10 +946,10 @@ A browser tab keeps some keys before any page sees them, Ctrl+T, Ctrl+N and Ctrl
 
 Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, and each may briefly hold a second stream while it switches to or from sizing its pane, so another window still gets some of Herdr's eight streams.
 The shown terminal fills the panel, with no list beside it; the Overlord picks the goblin on the board.
-Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then each goblin with a terminal, and Ctrl+Alt+1 to Ctrl+Alt+9 jump to one in that order, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the keyboard to the view the session opens on ([The Messages view](#the-messages-view)), a Herdr terminal included.
+Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then each goblin with a terminal, and Ctrl+Alt+1 to Ctrl+Alt+9 jump to one in that order, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the keyboard to the session's message box, or to its terminal where it has no messages or its terminal stepped in ([The Messages view](#the-messages-view)), a Herdr terminal included.
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
-A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; every view opens beside the board until it is maximized, the Board's terminal view, with the Messages view that shares its box, and its Task view each keeping the last choice and the Orchestration view following the Task view's so its graph stays beside the panel, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden, the panel filling the screen on its own once opened on a small screen (below).
-The first open of the board in a browser, which is one that records no first open (`cfo-first-open` in its local storage) and keeps neither a panel width nor a maximize choice, arranges the panel once: with a CFO running it shows the Board with the CFO selected, its panel on the view it opens on beside the board at the default width, not maximized, and the keyboard in that view: a Claude Code CFO's Messages view, in its message box, or else its terminal.
+A divider between the board and the panel sizes the panel, keeping at least 360 px for the panel and 280 px for the board, and a maximize button gives the panel the whole window; every panel opens beside the board until it is maximized, a Board panel with a terminal or messages and one with its task list alone each keeping the last choice, and the Orchestration view following the latter's so its graph stays beside the panel, and the width and both choices are saved in the browser, a width saved on a wider window is held to the same bounds, and on a narrow window the board and the panel stack and the divider is hidden, the panel filling the screen on its own once opened on a small screen (below).
+The first open of the board in a browser, which is one that records no first open (`cfo-first-open` in its local storage) and keeps neither a panel width nor a maximize choice, arranges the panel once: with a CFO running it shows the Board with the CFO selected, its panel on the view it opens on beside the board at the default width, not maximized, and the keyboard in that view: a Claude Code CFO's message box, or else its terminal.
 With no CFO running in a home that has not chosen one, the first-run page comes first, and Start lands on the same view.
 On a small screen (40rem or less) an open panel fills the screen, so the first open there opens no panel and shows the board alone, with the keyboard and the scroll left where they are; between that and 1410 px the two sit side by side with the board stacked, since its three columns need 961 px beside the panel.
 The record is written as the board first shows, so nothing arranged later is undone, and a browser that kept a layout before the record existed counts as having had its first open.
@@ -949,11 +965,11 @@ On a small screen (40rem or less), such as a phone over remote access or the boa
 The top bar there is the brand with the Command Center and the connection beside it, and the view switch under them while no panel is open; the tour, the layout button and Open CFO are left off, as are the controls that act on the PC: Open in terminal, Open in VS Code and Open folder.
 The panel is held to the visual viewport, which the on-screen keyboard shrinks while the layout viewport stays as it was, so when the keyboard opens the terminal shrinks to the room above it, sends its new rows to the goblin's terminal and keeps its input line and footer in sight, and takes the room back when the keyboard closes; when Safari moves the visual viewport down the page to keep the focused field in sight, the panel moves with it.
 `frontend/tests/phone-terminal.spec.ts` checks this at 390 by 844 and 360 by 800, with the keyboard played by a visual viewport the test shrinks.
-The panel's top row is one line at every width the panel can take, 360 px at its narrowest: the switch between the panel's views, Messages, Terminal and Task in that order, when it has more than one, then its controls (Open in terminal and Maximize or Restore today, neither on a small screen), then the corner button, Close or Back.
+The panel's top row is one line at every width the panel can take, 360 px at its narrowest: its controls (Open in terminal and Maximize or Restore today, neither on a small screen), then the corner button, Close or Back.
 Nothing in the row overlaps or is cut, and nothing in it is drawn smaller to fit: an icon button stays 44 px square.
-The switch and the corner button always show; a control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else; a choice that gives the row room for every control again, so that More goes, hands the keyboard to the panel, and Escape still closes it or goes back.
-The switch gives up its words only when the row cannot hold them even with every control in More, and then shows its icons, each named by its tip and its accessible name; with its icons the row holds as many controls as fit again.
-With a Claude Code session's three views, a panel too narrow for all of it holds Open in terminal and Maximize in More, so the views keep their words.
+The corner button always shows.
+A control the row cannot hold at full size goes into More, a menu at the corner that lists each with its icon and its name, opens on its first item, moves with Up and Down and closes on a choice or on Escape, which hand the keyboard back to More, or on a press anywhere else.
+A choice that gives the row room for every control again, so that More goes, hands the keyboard to the panel, and Escape still closes it or goes back.
 The row is `PanelRow` in `frontend/src/panel-row.tsx`, used by every panel, and what fits is `rowFit` in `frontend/src/panel-fit.ts`.
 A control is a `PanelControl` (an id, a name for its tip and its menu item, an accessible name, an icon, an importance and what a press does); its importance is written beside the others in `PANEL_IMPORTANCE`, the highest staying in the row longest, and `App.tsx` builds the list.
 Until 2 October 2026 the row gave the controls half of what the switch left, so in a panel dragged narrow they were drawn over the switch.
@@ -1085,7 +1101,7 @@ Whenever a CFO coming back, closed or restarted, starts on a new conversation be
 The Harness section of the CFO's task panel offers the same restart for a CFO registered in its native terminal: **Restart** sends `POST /api/cfo/restart` immediately, guarded by the Host, Origin and token checks like every other change, and a CFO that could not be restarted says why beside its button.
 Beside Restart, a dropdown shows the selected harness's name and icon and offers Claude Code, Codex and pi, starting on the current harness.
 Selecting a harness sends nothing until Restart is pressed, which sends `harness` as `claude`, `codex` or `pi` without a confirmation dialog.
-Both controls are disabled while restarting and appear only under Harness in the CFO's Task view, never in its header or the CFO bar.
+Both controls are disabled while restarting and appear only under Harness in the CFO's task list, never in its header or the CFO bar.
 An omitted harness or the same choice keeps the existing resume behavior.
 A different choice starts a fresh conversation with the home's digest and saves the harness in `state/cfo-harness`, as `goblins resume --harness <harness>` does.
 The requested harness must be available and its choice saved before the current terminal closes, so a refused choice leaves the CFO running.
@@ -1273,7 +1289,7 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 The supervisor reads a Claude Code session as one list of messages, the first part of the message view the Overlord chose for the panel on 2026-10-22, which the board's [Messages view](#the-messages-view) shows.
 `GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board recorded for the generation, or else the one the board's read of the goblin's tree proved its running harness in and kept, as `fleettree.OwnedSession` reads them, and `?cfo=TERMINAL&token=TOKEN` reads the CFO registered in that native terminal, from the conversation it registered with.
 Finding it reads no process and parses no store file, so a goblin's conversation shows once a read of its tree, every fifteen seconds, has kept it.
-It reads Claude Code sessions alone: a Codex or pi session is refused with 404 and keeps its Terminal and Task views.
+It reads Claude Code sessions alone: a Codex or pi session is refused with 404 and keeps its terminal in its panel.
 The board's token comes in the query, as a terminal view's does, since a browser's event stream cannot send a header, and a request without it is refused with 403.
 An unknown task is refused with 404, a task that restarted or was replaced since the board named its generation with 409, and the CFO in another terminal than the one named with 409.
 Like a terminal view, and unlike a baby goblin's terminal, it is served over Remote access too, since it shows what the session's terminal already shows.
@@ -1301,11 +1317,11 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The Messages view
 
-A Claude Code session's panel has a third view, Messages, first on its pill: Messages, Terminal and Task, design A of the Overlord's choice on 2026-10-22.
-The CFO has it while it runs Claude Code in a native terminal, and a goblin while it runs Claude Code in a native terminal, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
-A Codex or pi session, a session in Herdr and a stopped or retired goblin keep the Terminal and Task views alone, and a baby goblin its terminal alone.
-The panel opens on its Messages view until he chooses the Terminal view on the pill of a session that has both, and then on the last of the two he chose there, kept in this browser as `cfo-panel-view`, and a CFO starting in its terminal opens on the terminal, which may ask for a sign-in.
-A switch by Ctrl+Alt with a digit or an arrow, the first open and the end of the tour hand the keyboard to the view the session opens on: the message box, or the terminal.
+A Claude Code or pi session's panel shows its messages, design A of the Overlord's choice on 2026-10-22, in the one view he asked for on 2026-10-23: "Can't we just have one, instead of the messages and terminal being split up?"
+The CFO has it while it runs Claude Code or pi in a native terminal, and a goblin while it runs Claude Code or pi in a native terminal, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
+A Codex session, a session in Herdr and a stopped or retired goblin show their terminal in that view, and a baby goblin its terminal alone, and a CFO starting in its terminal, before it registers, shows that terminal, which may ask for a sign-in.
+The messages fill the panel, so they fill the window while it is maximized.
+A switch by Ctrl+Alt with a digit or an arrow, the first open and the end of the tour hand the keyboard to the message box, or to the terminal where the session has no messages or its terminal stepped in.
 The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.
 A prompt sits on the right in a bubble under who it is from: You, CFO for the CFO's brief or line, or Command Center answer for his answer from the Command Center.
 Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it.
@@ -1323,9 +1339,9 @@ The page of 50 before the first message held is read once he reads within 600 px
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
-Shift+Escape leaves the messages for the pill, as it leaves a terminal, and Escape does what the corner button does.
-The view lies where the terminal deck lies, under the Terminal view's compact header, in the same flex and under the same rule, and it follows the Terminal view's Maximize choice, so its box is the terminal's.
-A switch between the views therefore never asks the terminal for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
+Shift+Escape leaves the messages for the panel's top row, as it leaves a terminal, and Escape does what the corner button does.
+The messages lie where the terminal deck lies, under the panel's compact header, beside its task list, in the same flex and under the same rule (`frontend/src/panel-stage.tsx`), so their box is the terminal's.
+Stepping the terminal in or out therefore never asks it for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
 It stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.
 A stream that drops reconnects by itself and says Reconnecting meanwhile.
 A stream the supervisor ends says why, and one that drops five times, or that the supervisor refuses, says the messages cannot be read, each with Reconnect.
@@ -1333,24 +1349,45 @@ What the board could not parse goes to the CFO.
 
 #### The message box
 
-Under the conversation is the session's message box, in place of its terminal's input, which never shows in the Messages view.
+Under the conversation is the session's message box, in place of its terminal's input, which shows only stepped in.
 The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
 While the harness works a working line says so with Stop, which presses Escape in its terminal.
 What keeps a message from the terminal is said beside the box, and his draft stays: Program busy while typed keys wait unread, Not sent while the terminal connects, reconnects or is closed, which is never sent late, and the reason a gate holds typing.
-While the harness waits on an answer at a screen of its own, as the relay reads it, an amber card says Waiting on you in the terminal with Answer in the terminal, which shows the Terminal view with the keyboard in the terminal, and Send waits, since an Enter typed then would answer that screen.
-A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the Terminal view's box does, listing his latest messages to it and those its resume will carry, each with a delete.
-While no CFO runs the CFO has no Messages view, and so no box, as its Terminal view has none.
+While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
+A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
+While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Recent messages beside the microphone lists the board's recent dictations, each with Copy and Paste into the message.
 His draft is kept per session in this tab (`cfo-draft:` and the task's id, or `cfo`, in its session storage), so a switch of view or session, a reconnect and a reload, as an update makes, all find it.
-In the Messages view Shift+Escape leaves the box for the pill, as it leaves the messages.
+Shift+Escape leaves the box for the panel's top row, as it leaves the messages.
 Escape closes Recent messages while it is open, from its button or from inside it, and puts the keyboard back on its button.
+
+#### The terminal stepping in
+
+What the box sends that opens a screen of the harness's own, a picker, a panel, a question, an editor, a sign-in or a script that asks for input, brings the session's live terminal into the messages' place: PR 4 of the message view plan, which the Overlord asked be proved first.
+The relay reads the screen as it does for the amber card and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`).
+The terminal steps in when the screen opens after a Send from the box and before the harness starts a turn, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
+The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`, so background work that makes the fleet busy does not cancel a Send waiting for its screen.
+Each Send marks its submitted input with an ID before typing it into the host, so a cached or in-flight reading from before the Send cannot cancel it.
+The host observes changed rows as it processes terminal output, before another cursor move or clear can replace them, and keeps turn-start evidence for that viewer's current submission.
+The relay reads that evidence with the host's output screen under the same lock, so a turn that reaches a permission question or ends between relay reads still clears the Send before an unrelated screen can open.
+History, resize repaints and another viewer's submission provide no turn-start evidence.
+An older terminal host needs a restart to provide this output-screen protocol, and the board refuses the connection before it can accept input so the draft stays intact.
+Every key is the terminal's while it is in, Escape included, and Shift+Escape leaves it for the panel's top row.
+It steps out by itself once the harness's input line is back, and Back to messages steps out at once, each handing the keyboard back to the box with his draft as he left it.
+A question that comes during a turn keeps the amber card, whose Answer in the terminal steps the terminal in.
+A step in or out asks the terminal for no new size, which `frontend/tests/terminal-steps-in.spec.ts` counts at the relay.
+Every terminal spec whose terminal a fixture page draws, including `terminal-held`, runs a second time stepped in, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
+A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box saying Not sent, and its terminal's own notice is behind them, while its task list names what brings it back.
+
 
 ### Harness updates
 
 A harness keeps running the install it started from, so an update of Claude Code, Codex or pi installed while the CFO or a goblin runs takes effect only when that harness restarts.
 Every ten seconds the supervisor reads each running native terminal for one, the CFO's and every live goblin's that is not paused or changing.
-An update waits when the harness's own footer under its composer says so, which Claude Code 2.1.292 draws as "✓ Update installed · Restart to update" with a second half its servers may word as "/restart to apply" or "Restart to apply", or when its program on PATH, `claude.exe` or the npm shim `codex.cmd` or `pi.cmd` that every install writes again, was written after the terminal's program started.
+An update waits when the harness's own footer under its composer says so, which Claude Code 2.1.292 draws as "✓ Update installed · Restart to update" with a second half its servers may word as "/restart to apply" or "Restart to apply", or when its install was written after the terminal's program started.
+For Claude Code that install is `claude.exe`, which its installer writes again on every update.
+For Codex and pi it is the package npm installed under the shim `codex.cmd` or `pi.cmd` on PATH, read from its `package.json`, since npm writes a shim only when it links the bin and their own updaters, `codex update` and `pi update`, rewrite the package instead, so a shim npm linked again is no update and a package either route installed is one.
 Codex and pi announce only an update that is available, which a restart does not install, so for them the install is the signal; the same words above the composer are the conversation and never count.
 While one waits, the snapshot's `cfo_update` puts **Update** before the AFK switch in the CFO panel's header, and a task's `harness_update` puts it among the goblin's controls, on its card and in its panel.
 Nothing restarts until the Overlord presses it: an update waiting only shows the button, AFK mode never presses it, and the CFO never does.
@@ -1996,6 +2033,7 @@ When the CFO or a goblin needs a secret the project's scope does not hold, such 
 ```powershell
 cfo auth request --project acme-shop --why "Charge test cards in the checkout tests" --link https://dashboard.stripe.com/test/apikeys --step "Sign in to the shop's Stripe account" --step "Reveal the test secret key and copy it" STRIPE_TEST_SECRET_KEY
 cfo auth request --project acme-shop --task add-billing --why "Check webhook signatures" STRIPE_WEBHOOK_SECRET
+cfo auth request --project acme-shop --task add-billing --grant stripe --why "Check webhook signatures" --wait
 ```
 
 A request takes names only, at most ten, each an environment variable name, with one line saying what they are for and optionally the https page they come from, with no credentials, query or fragment in its link.
@@ -2039,11 +2077,22 @@ Every refusal stores nothing and leaves the request open.
 The board holds at most 64 requests, never drops an open one to make room, and prunes a closed one a week after it closed.
 
 A taken save goes straight into the project's scope of the credential store through the same store `cfo auth store` writes, Windows Credential Manager or the file store.
+For a card naming a task, a secret saved on the board or typed in its terminal also grants the service that declares that name to the card's recorded task generation, through the same grant path as `cfo auth grant`.
+Each saved name must identify exactly one service, unchanged since filing, and the task must still belong to the card's project and generation; otherwise the value stays in the vault and the card's reason and CFO notice say why no grant was made.
+These task saves and terminal opens require the Overlord's own board, as connector grants do, and an automated key fetch grants nothing.
+No other task gains a service.
 The request closes before the board answers, and then the board runs `cfo auth store`'s own refresh: each live goblin of the project gets its `auth.ps1` regenerated from the store, for the services its task carries and no other, and the one-line re-source notice, and the CFO gets a `review` wake naming the names stored, the project and the goblins told.
 A saved value reaches goblins only through their `auth.ps1` environment, never their context: that script is an owner-only file under `state/tasktmp/<task>/`, which `cfo cleanup` deletes before it archives the task (refusing to archive one it cannot delete), and the notice names the script, never the value.
 A resume or a switch removes the script too: the goblin's new terminal starts with what its task carries in its environment, and a script written for the last one could hold more.
 Beside that, and the env file a request names, the value is nowhere else: not in `state/` otherwise, the inboxes, the board's snapshot or event stream, its logs, telemetry, a wake, an error message or the save's answer, which names names and states only.
 A save's body is never logged, and a panic while one is handled answers with a fixed message and logs nothing of it.
+
+When a task needs a service already declared by its project, the goblin or registered CFO can file `cfo auth request --project <project> --task <task> --grant <service> --why "<reason>" --wait`.
+This card carries the task, service and one-line reason, with Grant and Deny and no value inputs or browser steps.
+Filing it grants nothing.
+Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies.
+The card closes as `granted` only after the grant lands, the task is told to re-source, and the CFO gets the existing grant wake.
+Deny, withdrawal, expiry, a stale task or card generation, a different project or a missing service declaration grants nothing.
 
 The terminal fallback is `cfo auth store --project <project> <NAME>` on this machine: with no value argument it reads the value from stdin, and a value typed at a console is read without being shown, and its stored line then shows no part of it, not even the redacted shape.
 It refuses a value of the wrong shape with exit code 2, saying why and storing nothing, by the same check as the save.

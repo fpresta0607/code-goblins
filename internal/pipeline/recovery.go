@@ -14,9 +14,12 @@ import (
 )
 
 type RecoveryResult struct {
-	RunID        string
-	Head         string
-	NativeOutput []byte
+	RunID string
+	Head  string
+	// WorktreeEdits is the commit the run worktree's unfinished changes were
+	// preserved at, under WorktreeRef(run), and empty when it held none.
+	WorktreeEdits string
+	NativeOutput  []byte
 }
 
 type recoveryRecord struct {
@@ -45,6 +48,11 @@ type recoverySync struct {
 	NextAction struct {
 		Command string `yaml:"command"`
 	} `yaml:"next_action"`
+	// WorktreeEdits is the commit the driver preserved the run's unfinished
+	// worktree changes at. It is read beside the native evidence, which knows
+	// nothing of it, so a goblin recovering custody learns its fixer's
+	// unfinished repairs were kept.
+	WorktreeEdits string
 }
 
 func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch string, env []string) (RecoveryResult, error) {
@@ -52,7 +60,24 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 	if err != nil {
 		return RecoveryResult{}, err
 	}
+	// Native recovery removes a failed run's worktree with force, so the
+	// fixer's unfinished repairs are preserved before anything recovery runs.
+	// On 2026-10-23 an allowance-interrupted review repair lost its frontend
+	// changes exactly there (issue 1416).
+	edits, err := r.preserveRunWorktreeEdits(ctx, run)
+	if err != nil {
+		return RecoveryResult{}, err
+	}
+	result, err := r.recoverRun(ctx, project, worktree, branch, env, run, edits)
+	// A recovery that stops short keeps the artifact as firmly as one that
+	// finishes: the goblin restores its fixer's work either way.
+	result.WorktreeEdits = edits
+	return result, err
+}
+
+func (r Reader) recoverRun(ctx context.Context, project, worktree, branch string, env []string, run recoveryRecord, edits string) (RecoveryResult, error) {
 	status, output, err := r.readRecoverySync(ctx, worktree, env)
+	status.WorktreeEdits = edits
 	if err == nil && status.recoverableAtRecordedHead(run) {
 		if err := r.returnCustodyAtRecordedHead(ctx, worktree, branch, env, run); err != nil {
 			return RecoveryResult{}, err
@@ -66,6 +91,7 @@ func (r Reader) RecoverKeepLocal(ctx context.Context, project, worktree, branch 
 		}
 		run = returned
 		status, output, err = r.readRecoverySync(ctx, worktree, env)
+		status.WorktreeEdits = edits
 	}
 	if err == nil {
 		switch {
@@ -240,7 +266,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 		if err := r.requireRef(ctx, bare, gateRef, status.Local.Head); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: recovered gate branch is unsafe: %w", err)
 		}
-		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: output}, nil
+		return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, WorktreeEdits: status.WorktreeEdits, NativeOutput: output}, nil
 	}
 	for _, head := range []string{run.SubmittedHead, status.Local.Head} {
 		if err := r.requireCommit(ctx, worktree, head, false); err != nil {
@@ -313,7 +339,7 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 		}
 		return RecoveryResult{}, errors.Join(err, r.rollbackUserOwned(ctx, bare, gateRef, run, status.Local.Head))
 	}
-	return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, NativeOutput: postOutput}, nil
+	return RecoveryResult{RunID: run.RunID, Head: status.Local.Head, WorktreeEdits: post.WorktreeEdits, NativeOutput: postOutput}, nil
 }
 
 func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare string, env []string, run recoveryRecord) error {
@@ -350,20 +376,75 @@ func (r Reader) requireReturnedCustody(ctx context.Context, worktree, bare strin
 // state, such as a run that still owns the branch, and still prints the state.
 func (r Reader) readRecoverySync(ctx context.Context, worktree string, env []string) (recoverySync, []byte, error) {
 	result, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Env: env, Name: "no-mistakes", Args: []string{"axi", "sync", "--check"}})
-	if err != nil || result.ExitCode != 0 && result.ExitCode != 1 {
-		return recoverySync{}, nil, errors.New("pipeline: native custody status check failed")
+	// A check that did not run, or did not finish, says nothing about custody,
+	// and its class says which it was: a probe that ran out of time or was
+	// cancelled is not a gate that owns the branch, and neither is a launch
+	// failure.
+	if err != nil {
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckClass(err)}
+	}
+	if result.ExitCode != 0 && result.ExitCode != 1 {
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckExit, exit: result.ExitCode}
 	}
 	var status struct {
 		BranchSync recoverySync `yaml:"branch_sync"`
 	}
 	if yaml.Unmarshal(result.Stdout, &status) != nil {
-		return recoverySync{}, nil, errors.New("pipeline: invalid native custody status")
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckUnreadableOutput}
 	}
+	// A blocked check still prints the state. A nonzero exit with no state is a
+	// check whose output could not be read, which is not a hold.
 	if result.ExitCode != 0 && status.BranchSync.State == "" {
-		return recoverySync{}, nil, errors.New("pipeline: native custody status check failed")
+		return recoverySync{}, nil, &custodyCheckError{class: custodyCheckUnreadableOutput}
 	}
 	return status.BranchSync, append(append([]byte(nil), result.Stdout...), result.Stderr...), nil
 }
+
+// ErrCustodyCheckUnreadable says the custody check itself did not finish, so
+// nothing was learned about custody. It is not a hold and no caller may report
+// it as one.
+var ErrCustodyCheckUnreadable = errors.New("pipeline: the native custody check could not be read")
+
+// The classes of a check that said nothing about custody. They are fixed
+// words, so nothing a check printed can reach board copy through one.
+const (
+	custodyCheckLaunchFailed     = "the check could not be started"
+	custodyCheckTimedOut         = "the check ran out of time"
+	custodyCheckCancelled        = "the check was cancelled"
+	custodyCheckUnreadableOutput = "the check printed no readable state"
+	custodyCheckExit             = "the check ended on another exit"
+)
+
+// custodyCheckClass names why a check ended without a custody answer. A probe
+// that ran out of time or was cancelled ended on its context, which is not a
+// launch failure: the program started and the caller gave up on it.
+func custodyCheckClass(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return custodyCheckTimedOut
+	case errors.Is(err, context.Canceled):
+		return custodyCheckCancelled
+	default:
+		return custodyCheckLaunchFailed
+	}
+}
+
+// custodyCheckError is why a check said nothing about custody, as one of those
+// classes and, for an exit, its code. It carries no child output, which can
+// hold anything at all, so an error is safe to show and to log.
+type custodyCheckError struct {
+	class string
+	exit  int
+}
+
+func (e *custodyCheckError) Error() string {
+	if e.class == custodyCheckExit {
+		return fmt.Sprintf("%s: %s (%d)", ErrCustodyCheckUnreadable, e.class, e.exit)
+	}
+	return ErrCustodyCheckUnreadable.Error() + ": " + e.class
+}
+
+func (e *custodyCheckError) Unwrap() error { return ErrCustodyCheckUnreadable }
 
 func (s recoverySync) userOwned(run recoveryRecord, exactLocal bool) bool {
 	if s.State != "user_owned" || s.Safety != "user_owned" || !s.Local.Clean || s.Local.Head == "" || s.Pipeline.Run != run.RunID || s.Pipeline.SubmittedHead != run.SubmittedHead || s.Pipeline.CurrentHead != run.SubmittedHead {
@@ -411,6 +492,10 @@ func (r Reader) runGit(ctx context.Context, repo string, bare bool, args ...stri
 		args = append([]string{"--git-dir=" + repo}, args...)
 	}
 	return r.Commands.Run(ctx, execx.Request{Dir: repo, Name: "git", Args: args})
+}
+
+func (r Reader) runGitEnv(ctx context.Context, repo string, env []string, args ...string) (execx.Result, error) {
+	return r.Commands.Run(ctx, execx.Request{Dir: repo, Env: env, Name: "git", Args: args})
 }
 
 func (r Reader) requireRef(ctx context.Context, repo, ref, want string) error {

@@ -922,7 +922,7 @@ func weekReading(used float64) quota.Report {
 func holdReading(t *testing.T, s *Service, used float64) {
 	t.Helper()
 	s.Options.Quota = func(context.Context) (quota.Report, string) { return weekReading(used), "" }
-	s.refreshSubscriptionUsage(t.Context())
+	s.readQuota(t.Context(), 15*time.Second)
 }
 
 // A switch reads no allowance of its own: quota-axi took up to 20 seconds of
@@ -965,10 +965,10 @@ func TestTurningAFKModeOnOrOffNeverWaitsOnQuotaAxi(t *testing.T) {
 
 	// Act
 	answers <- weekReading(40)
-	s.refreshSubscriptionUsage(t.Context())
+	s.readQuota(t.Context(), 15*time.Second)
 	on := switchAFK(true)
 	answers <- weekReading(47)
-	s.refreshSubscriptionUsage(t.Context())
+	s.readQuota(t.Context(), 15*time.Second)
 	off := switchAFK(false)
 
 	// Assert

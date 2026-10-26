@@ -766,6 +766,14 @@ func (r *Reader) forgetIdleMessages(now time.Time) {
 // or its newest page for a negative before, with where the reader then
 // stands.
 func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCursor, error) {
+	if isPiSession(path) {
+		log, err := r.piLog(path)
+		if err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
+		defer log.mu.Unlock()
+		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+	}
 	log, err := r.messageLog(path)
 	if err != nil {
 		return MessagePage{}, MessageCursor{}, err
@@ -780,6 +788,15 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 // one replaced is, so nothing a page before it held still stands: the
 // reader takes a page again.
 func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, now MessageCursor, isAnew bool, err error) {
+	if isPiSession(path) {
+		log, err := r.piLog(path)
+		if err != nil {
+			return nil, MessageCursor{}, false, err
+		}
+		defer log.mu.Unlock()
+		messages, now, isAnew = log.since(cursor)
+		return messages, now, isAnew, nil
+	}
 	log, err := r.messageLog(path)
 	if err != nil {
 		return nil, MessageCursor{}, false, err
@@ -801,6 +818,9 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 // its messages found it: its media type and its bytes, read back from its
 // entry. It is ErrNoRecord for a picture no read found.
 func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
+	if isPiSession(path) {
+		return r.piMessagePicture(path, id)
+	}
 	r.messagesMu.Lock()
 	log := r.messageLogs[path]
 	r.messagesMu.Unlock()

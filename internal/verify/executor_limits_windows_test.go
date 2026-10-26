@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -135,6 +136,54 @@ func TestExecutorLimitCountsFromTheCommandsStartNotItsWait(t *testing.T) {
 	}
 	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < 11 {
 		t.Fatalf("evidence = %+v, want a pass after a wait longer than the limit", evidence)
+	}
+}
+
+// A run's wait is the whole time it waited for its turn, the setup it makes
+// before it joins the line included. A loaded machine stretched that setup
+// past a second on 2026-10-23, and the record said the run had waited a
+// hundredth of a second.
+func TestExecutorCountsTheSetupBeforeItsTurnInTheWait(t *testing.T) {
+	// Arrange
+	store := t.TempDir()
+	t.Setenv("CFO_VERIFY_DIR", store)
+	root := t.TempDir()
+	standin.RemoveAtCleanup(t, root)
+	program := filepath.Join(root, "workload.exe")
+	standin.Put(t, program)
+	executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
+	// A run takes the line's custody before it joins the line, so holding
+	// that custody stretches exactly the part of the wait the setup is.
+	unlock, err := custodyMutation(executor.Admission.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	release := func() {
+		once.Do(func() { _ = unlock() })
+	}
+	t.Cleanup(release)
+	const held = 2 * time.Second
+	go func() {
+		time.Sleep(held)
+		release()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, record, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env("", standin.Rule{Any: true, Stdout: "ran", Exit: 0})...)}, 0)
+
+	// Assert
+	if err != nil || result.ExitCode != 0 || string(result.Stdout) != "ran" {
+		t.Fatalf("a quick command behind a slow setup = %+v, %v", result, err)
+	}
+	// The run takes its turn only once the custody is given back, so it waited
+	// the whole hold, less the work it does before it asks for its turn (a few
+	// milliseconds, and a loaded machine's slower still), which is why half of
+	// the hold is the floor.
+	if evidence := readExecution(t, record); evidence.Status != "passed" || evidence.QueueSeconds < held.Seconds()/2 {
+		t.Fatalf("evidence = %+v, want a pass saying it waited the %s its setup held it", evidence, held)
 	}
 }
 

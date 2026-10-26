@@ -209,7 +209,10 @@ func TestASteerToANativeGoblinInATurnIsProvenByItsRecord(t *testing.T) {
 	}
 	var asked []ask
 	before := time.Now()
-	f.service.Took = func(_ context.Context, meta state.TaskMeta, text string, since time.Time) bool {
+	f.service.Took = func(_ context.Context, meta state.TaskMeta, session, text string, since time.Time) bool {
+		if session != "" {
+			t.Errorf("send unexpectedly selected a resume session: %s", session)
+		}
 		asked = append(asked, ask{meta.ID, meta.Worktree, text, since})
 		// The fake records a line once it takes it, as a harness's record does.
 		return len(named(f.events(t), "submitted")) == 2

@@ -233,7 +233,14 @@ export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
   if (node.task?.comeback?.state === "waiting") return "Comes back after the restart when memory allows";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
-  if (node.task?.archived) return node.task.merged ? "Merged" : node.task.closed ? "Closed" : "Finished";
+  if (node.task?.archived) {
+    // A finished task whose pull request GitHub no longer holds keeps its
+    // outcome and link; the card says the evidence is unavailable rather than
+    // reading it as neither merged nor closed.
+    if (node.task.merged) return "Merged";
+    if (node.task.closed) return "Closed";
+    return node.task.history_unavailable ? "Finished, evidence unavailable" : "Finished";
+  }
   if (node.task?.phase === "queued" && node.task.finished) return ALREADY_FINISHED;
   if (node.task?.phase === "queued" && node.task.waits.length) return waitStatus(node.task, tasks);
   if (node.task && ownsTaskSession(node.session, node.task)) {
@@ -245,7 +252,8 @@ export function nodeStatus(node: WorkflowNode, asking = false, tasks: Task[] = [
       return "Waiting on " + (WAITS[node.task.waiting_on] || (awaited ? goblinName(awaited) : node.task.waiting_on));
     }
     if (phase === "review" && Object.hasOwn(GATE_STEPS, node.task.gate_step)) return "In review gate: " + GATE_STEPS[node.task.gate_step];
-    return phase === "done" && !verified ? "Done, verifying" : statusText(phase);
+    if (phase === "done" && !verified) return node.task.parent ? "Done, awaiting parent" : "Done, verifying";
+    return statusText(phase);
   }
   return nativeStatus(node.session?.runtime?.state || node.session?.phase || "");
 }

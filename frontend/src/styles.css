@@ -485,6 +485,14 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .click-feedback { flex: 1 0 100%; margin: 0; color: var(--muted); }
+/* The Chat choice under Workspace: two compact picks, a keyboard away. */
+.chat-style-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.chat-style-choices { display: inline-flex; padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: var(--field-bg); }
+.chat-style-choice { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+.chat-style-choice input { accent-color: var(--mint); width: 14px; height: 14px; margin: 0; }
+.chat-style-choice.chosen { background: rgba(0, 229, 155, 0.08); }
+.chat-style-choice:focus-within { outline: 2px solid var(--accent-green); outline-offset: 2px; }
+@media (max-width: 480px) { .chat-style-setting { gap: 8px; } .chat-style-choices { width: 100%; } .chat-style-choice { flex: 1; justify-content: center; } }
 .render-error { display: flex; align-items: center; gap: 12px; margin: 0; }
 .render-error button { flex: none; margin: 0; }
 summary { cursor: pointer; }
@@ -760,32 +768,19 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .flow-node.is-working::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 0 1px #00e59b55, 0 0 28px #00e59b2e; pointer-events: none; }
 @keyframes entered { from { opacity: .3; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* The goblin panel: a top row with the Task and Terminal pill, a header that
-   says who the goblin is and what it is doing, then one of the two views. */
+/* The goblin panel: its controls, a header naming the goblin and its state,
+   then its task list beside the conversation or folded under the header. */
 .goblin-panel { container: goblin-panel / inline-size; display: flex; flex-direction: column; flex: 1; min-height: 0; }
-/* The panel's top row, on one line at any width: the Task and Terminal
-   switch in the middle while there is room, then the controls and the corner
-   button, Close or Back, which keep their own width whatever the switch
-   takes. PanelRow decides which controls stay in the row; the 8 px gap and an
-   icon button's 44 px are the numbers it fits them by. */
-.panel-top { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: 8px; padding: 10px 14px 0; flex: none; }
+/* The panel's top row keeps its controls and its corner button on one line.
+   PanelRow fits them by the 8 px gap and an icon button's 44 px width. */
+.panel-top { position: relative; display: flex; justify-content: flex-end; align-items: center; padding: 10px 14px 0; flex: none; }
 .panel-controls { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .panel-corner { display: flex; flex: none; }
-/* The switch in both its forms, measured out of sight: it takes no room. */
-.panel-measure { position: absolute; left: 0; top: 0; display: flex; gap: 8px; width: max-content; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 /* More holds the controls the row has no room for, each with its name. */
 .panel-more { position: relative; display: flex; }
 .panel-more-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; width: max-content; padding: 8px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
 .panel-more-menu .labelled-button { justify-content: flex-start; min-height: 40px; border-color: transparent; background: transparent; box-shadow: none; }
 .panel-more-menu .labelled-button:hover, .panel-more-menu .labelled-button:focus-visible { background: #ffffff0f; }
-.panel-pill { display: flex; padding: 4px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); box-shadow: inset 0 2px 6px #0007; }
-.panel-pill button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 18px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--font-display); font-size: 1.0625rem; }
-.panel-pill button .icon { width: 20px; height: 20px; }
-.panel-pill button:hover { color: #edf4f3; }
-/* In a row too narrow for its words the switch shows its icons, each a full
-   button. */
-.panel-pill.icons button { width: 44px; padding: 0; justify-content: center; }
-.panel-pill button[aria-pressed="true"] { color: #f4fbff; border-color: transparent; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
 .panel-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; border-bottom: 1px solid var(--border); flex: none; }
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
 .panel-identity { display: grid; gap: 4px; min-width: 0; }
@@ -943,8 +938,12 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .terminal-copied { position: absolute; top: 10px; right: 12px; z-index: 2; color: var(--mint); }
 /* Said while typed keys sit unread in a busy program's input, or while
    typing is held over a live screen, in the corner no other mark uses. */
-.terminal-unread, .terminal-unsent, .terminal-held { position: absolute; top: 10px; left: 12px; z-index: 2; max-width: calc(100% - 24px); color: #f1c598; }
-.terminal-unread .status-dot, .terminal-unsent .status-dot, .terminal-held .status-dot { background: var(--amber); }
+.host-terminal { flex-direction: column; }
+/* What a held terminal says is a plain line under it, never a pill over the
+   screen it would cover. */
+.terminal-held-line { flex: none; margin: 0; padding: 6px 12px; border-top: 1px solid var(--glass-border); color: #f1c598; overflow-wrap: anywhere; }
+.terminal-unread, .terminal-unsent { position: absolute; top: 10px; left: 12px; z-index: 2; max-width: calc(100% - 24px); color: #f1c598; }
+.terminal-unread .status-dot, .terminal-unsent .status-dot { background: var(--amber); }
 /* While he reads a terminal's history, the line he types on stays pinned over
    the panel's last row, drawn by a one-row terminal of its own, with a rule
    between it and the history; Jump to bottom sits just above it, in the
@@ -996,7 +995,6 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
   .panel-header { padding: 16px 18px 18px; gap: 12px; }
   .panel-header .goblin-avatar { width: 64px; height: 64px; }
   .panel-content { padding-inline: 18px; }
-  .panel-pill button { padding-inline: 14px; }
 }
 /* A panel too narrow for the Task view's portrait beside a name on one line
    gives its header the Terminal view's sizes. */
@@ -1242,6 +1240,17 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
 .subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }
 .subscription-dial.unknown .subscription-percent { color: var(--muted); }
+/* An API key's dollars are the dial's value, with the limit and the window it
+   resets over under them, so the number a person came for is never replaced by
+   a percentage of a limit nobody set. */
+.key-spend-values { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.key-spend-spent { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.key-spend-budget { color: var(--muted); font-size: .8125rem; white-space: nowrap; }
+.key-spend-dial.unknown .key-spend-spent { color: var(--muted); }
+/* The canvas card's foot is one row of 28px marks, so the dollars and the
+   budget they count against sit on one line there rather than two. */
+.flow-node-foot .key-spend-values { flex-direction: row; align-items: baseline; gap: 4px; }
+.flow-node-foot .key-spend-budget { font-size: .8125rem; }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
 /* A chip sizes to its label and never wraps it; on a card too narrow for the
@@ -1373,13 +1382,43 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */
-.goblin-panel.showing-terminal { flex: none; }
+/* The panel's own header and its folded task list take what they need, and
+   the stage under them takes the rest of the panel. On a screen too short to
+   hold both, the list stops at half the panel so the conversation and its box
+   keep the room they need to stay whole on screen. */
+.goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
+@media (max-height: 60rem) {
+  .goblin-panel.showing-terminal { max-height: 50%; }
+}
 /* The stage is the box under the panel's header that a session's Messages
    view and its terminal share: the Messages view lies over the terminal
    deck, which stays laid out unseen behind it, so the terminal has its size
-   before it is first seen and a switch between the two resizes nothing. */
+   before it is first seen and a step between the two resizes nothing. The
+   terminal stepped into the messages' place has a bar floating over its top
+   edge that takes none of its height. */
 .panel-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
+/* The panel's one view: the stage beside the column its task list is drawn
+   into, which a small screen folds under the header instead. */
+/* The stage takes what the panel's own header and its task list leave, so a
+   list that needs room never shrinks under its cards. */
+.panel-body { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+/* The stage and, in Classic while custody holds, the box under it. */
+.panel-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.panel-main > .classic-queue { flex: none; min-height: 0; border-top: 1px solid var(--glass-border); }
+.panel-main > .classic-queue .composer-sent { max-height: 30%; overflow: auto; }
+.panel-side { display: flex; flex: none; width: clamp(280px, 30%, 400px); min-height: 0; border-top: 1px solid var(--glass-border); border-left: 1px solid var(--glass-border); }
+.panel-side > .panel-task { flex: 1; }
+.panel-side .panel-content { padding: 0 18px 24px; }
+/* The gutter is always there, so a page that ends the scroll bar does not
+   give the cards ten pixels more width and fit a different number. */
+.panel-task-fold { flex: 0 1 auto; overflow: hidden auto; scrollbar-gutter: stable; border-top: 1px solid var(--glass-border); }
+.panel-task-fold > .disclosure { margin: 0; border: 0; border-radius: 0; }
+.panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
+.panel-header-details:empty { display: none; }
+.panel-side .panel-header-details { padding: 14px 18px 0; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
+.stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
+.stepped-in-bar > button { pointer-events: auto; }
 .terminal-deck { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--glass-border); background: #071015; }
 .terminal-deck.behind { visibility: hidden; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }

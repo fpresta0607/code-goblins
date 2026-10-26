@@ -1166,6 +1166,136 @@ func TestASlowGitHubHoldsARefreshOnlyForTheBudget(t *testing.T) {
 	}
 }
 
+// On 2026-10-23 a finished task's outcome still named its pull request for a
+// repository recreated under the same owner and name eight days after the
+// task finished. GitHub no longer held that pull request, and the supervisor
+// read its NOT_FOUND as an ordinary failed read until it woke the CFO with an
+// error nobody could act on. The outcome is valid historical evidence: it and
+// its link stay exactly as the goblin reported them, the card says the pull
+// request is unavailable, and the address is not asked about again.
+func TestAFinishedTasksPullRequestGitHubNoLongerHoldsKeepsItsOutcome(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	const pulled = "https://github.com/o/r/pull/1400"
+	finished := time.Now().UTC().Add(-5 * 24 * time.Hour)
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "old-task", Phase: "done", Title: "Ship the old report", Project: "r", PR: pulled, Evidence: "done: PR " + pulled, At: finished}); err != nil {
+		t.Fatal(err)
+	}
+	tasksAsked := 0
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
+		tasksAsked++
+		return PullRequestInfo{}, fmt.Errorf("%w: gh could not read %s: GraphQL: Could not resolve to a PullRequest with the number of 1400. (repository.pullRequest)", ErrPullRequestNotFound, pulled)
+	}}}
+	now := time.Now().UTC()
+
+	// Act
+	err := service.refreshHistory(t.Context(), now)
+	view, snapshotErr := service.Snapshot()
+
+	// Assert
+	if err != nil || snapshotErr != nil {
+		t.Fatalf("refresh = %v, snapshot = %v, want a pull request GitHub no longer holds left as historical evidence", err, snapshotErr)
+	}
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:old-task" })
+	if index < 0 {
+		t.Fatalf("tasks = %+v, want the finished task kept", view.Tasks)
+	}
+	card := view.Tasks[index]
+	if card.PR != pulled || card.Title != "Ship the old report" || card.Phase != "done" {
+		t.Fatalf("card = %+v, want the outcome and its original link kept", card)
+	}
+	if card.Merged || card.Closed {
+		t.Fatalf("card = %+v, want no merge or close read from a pull request GitHub no longer holds", card)
+	}
+	if !strings.Contains(card.HistoryUnavailable, "no longer holds") {
+		t.Fatalf("unavailable evidence = %q, want it to say GitHub no longer holds the pull request", card.HistoryUnavailable)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(pullRequestRecheck)); err != nil || tasksAsked != 1 {
+		t.Fatalf("after the recheck interval: error %v after %d asks, want the address never asked again", err, tasksAsked)
+	}
+}
+
+// A repository recreated under the same owner and name can hand an old
+// pull request number to a newer pull request. GitHub then answers about that
+// one, which is never the finished task's result: its state and title are not
+// adopted, and the card says the number now belongs to somebody else's work.
+func TestARecreatedRepositorysReusedNumberIsNotTheFinishedTasksResult(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	const pulled = "https://github.com/o/r/pull/1418"
+	finished := time.Now().UTC().Add(-3 * 24 * time.Hour)
+	if err := state.WriteOutcome(h.State, state.Outcome{ID: "old-task", Phase: "done", Title: "Ship the old report", Project: "r", PR: pulled, Evidence: "done: PR " + pulled, At: finished}); err != nil {
+		t.Fatal(err)
+	}
+	tasksAsked := 0
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
+		tasksAsked++
+		return PullRequestInfo{State: "MERGED", Title: "A different change", CreatedAt: finished.Add(24 * time.Hour)}, nil
+	}}}
+	now := time.Now().UTC()
+
+	// Act
+	err := service.refreshHistory(t.Context(), now)
+	view, snapshotErr := service.Snapshot()
+
+	// Assert
+	if err != nil || snapshotErr != nil {
+		t.Fatalf("refresh = %v, snapshot = %v, want the reused number left as historical evidence", err, snapshotErr)
+	}
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "finished:old-task" })
+	if index < 0 {
+		t.Fatalf("tasks = %+v, want the finished task kept", view.Tasks)
+	}
+	card := view.Tasks[index]
+	if card.Merged || card.Closed || card.Title != "Ship the old report" || card.PR != pulled {
+		t.Fatalf("card = %+v, want the new pull request's merge and title left off the old task", card)
+	}
+	if card.HistoryUnavailable == "" || !strings.Contains(card.HistoryUnavailable, "after this task finished") {
+		t.Fatalf("unavailable evidence = %q, want it to say GitHub's pull request was opened after the task finished", card.HistoryUnavailable)
+	}
+	if err := service.refreshHistory(t.Context(), now.Add(pullRequestRecheck)); err != nil || tasksAsked != 1 {
+		t.Fatalf("after the recheck interval: error %v after %d asks, want the reused number never asked again", err, tasksAsked)
+	}
+}
+
+// A pull request GitHub does not hold is only historical evidence once its
+// task has finished. A live goblin's missing pull request stays a failed read
+// the CFO hears of once it keeps failing, and never reads as unavailable.
+func TestALiveGoblinsMissingPullRequestStaysAFailedRead(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	const pulled = "https://github.com/o/r/pull/1419"
+	store.mu.Lock()
+	store.db.Tasks["task-1"] = Evaluation{Phase: "done", Generation: "g1", PR: pulled, At: time.Now().UTC()}
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "task-1", "done: PR "+pulled); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: store, Options: Options{PullRequestState: func(context.Context, string) (PullRequestInfo, error) {
+		return PullRequestInfo{}, fmt.Errorf("%w: gh could not read %s: GraphQL: Could not resolve to a PullRequest with the number of 1419. (repository.pullRequest)", ErrPullRequestNotFound, pulled)
+	}}}
+	now := time.Now().UTC()
+
+	// Act
+	first := service.refreshHistory(t.Context(), now)
+	second := service.refreshHistory(t.Context(), now.Add(time.Minute))
+	third := service.refreshHistory(t.Context(), now.Add(2*time.Minute))
+	view, snapshotErr := service.Snapshot()
+
+	// Assert
+	if first != nil || second != nil || !errors.Is(third, ErrPullRequestNotFound) || snapshotErr != nil {
+		t.Fatalf("refreshes = %v, %v then %v, want the live goblin's missing pull request reported on the third failed read", first, second, third)
+	}
+	index := slices.IndexFunc(view.Tasks, func(task Task) bool { return task.ID == "task-1" })
+	if index < 0 || view.Tasks[index].HistoryUnavailable != "" {
+		t.Fatalf("tasks = %+v, want a live goblin's missing pull request never read as historical evidence", view.Tasks)
+	}
+}
+
 type ghRunner struct {
 	result  execx.Result
 	err     error
@@ -1175,6 +1305,42 @@ type ghRunner struct {
 func (r *ghRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	r.request = req
 	return r.result, r.err
+}
+
+// gh says an address names nothing in one of two words, for a pull request
+// number a repository does not have and for a repository GitHub does not
+// have, which a recreated repository is not. Every other refusal, an auth
+// failure, a rate limit or gh signed out, stays an ordinary failed read the
+// CFO hears of.
+func TestGitHubPullRequestStateTellsAMissingPullRequestFromOtherRefusals(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		stderr    string
+		isMissing bool
+	}{
+		{"a number the repository does not have", "GraphQL: Could not resolve to a PullRequest with the number of 1400. (repository.pullRequest)", true},
+		{"a repository GitHub does not have", `GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)`, true},
+		{"an HTTP 404", "HTTP 404: Not Found (https://api.github.com/graphql)", true},
+		{"bad credentials", "HTTP 401: Bad credentials (https://api.github.com/graphql)", false},
+		{"a rate limit", "HTTP 403: API rate limit exceeded for user ID 1.", false},
+		{"gh signed out", "To get started with GitHub CLI, please run: gh auth login", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			gh := &ghRunner{result: execx.Result{ExitCode: 1, Stderr: []byte(c.stderr)}}
+
+			// Act
+			_, err := GitHubPullRequestState(gh)(t.Context(), "https://github.com/o/r/pull/1400")
+
+			// Assert
+			if errors.Is(err, ErrPullRequestNotFound) != c.isMissing {
+				t.Fatalf("err = %v, want a missing pull request %v", err, c.isMissing)
+			}
+			if err == nil {
+				t.Fatal("a refusal read as an answer")
+			}
+		})
+	}
 }
 
 func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
@@ -1201,7 +1367,7 @@ func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
 			if got.State != c.want || (err == nil) != (c.want != "") {
 				t.Fatalf("state = %q, %v; want %q", got, err, c.want)
 			}
-			if want := []string{"pr", "view", url, "--json", "state,title"}; runner.request.Name != "gh" || !slices.Equal(runner.request.Args, want) {
+			if want := []string{"pr", "view", url, "--json", "state,title,createdAt"}; runner.request.Name != "gh" || !slices.Equal(runner.request.Args, want) {
 				t.Fatalf("ran %s %v, want gh %v", runner.request.Name, runner.request.Args, want)
 			}
 		})

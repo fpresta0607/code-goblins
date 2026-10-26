@@ -26,6 +26,103 @@ type ReplyReader interface {
 	LastReply(ctx context.Context, meta state.TaskMeta, sample EndpointSample) string
 }
 
+// TurnStateReader reads whether a goblin's last turn is still open from the
+// harness's own record of the conversation. known is false when that record
+// cannot say, as for a harness that records no turn boundaries, so a caller
+// keeps the evidence it already has rather than inventing one. It is separate
+// from ReplyReader so a reader that does not provide it changes nothing.
+type TurnStateReader interface {
+	TurnOpen(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (open bool, known bool)
+}
+
+// TurnOpen reads whether goblin meta's last turn is still open, from the
+// record its harness keeps of the conversation, the one ReplyReader reads.
+func (h *HostProgress) TurnOpen(ctx context.Context, meta state.TaskMeta, sample EndpointSample) (bool, bool) {
+	var read func(entries [][]byte) (bool, bool)
+	switch strings.ToLower(sample.Harness) {
+	case "codex":
+		read = codexTurnState
+	case "pi":
+		read = piTurnState
+	default:
+		return false, false
+	}
+	meta.Harness = sample.Harness
+	goblin := fleettree.Goblin{Meta: meta, Session: sample.Session}
+	if sample.Session == "" {
+		goblin.HarnessPID, goblin.HarnessStarted, _ = h.harness(ctx, meta, sample)
+	}
+	return read(transcriptTail(h.tree().Conversation(ctx, goblin)))
+}
+
+// codexTurnState reads whether the last turn a Codex rollout records is still
+// open: open after a task_started or a user message, ended after a
+// task_complete or an aborted turn, and unknown when the record says neither.
+func codexTurnState(entries [][]byte) (open bool, known bool) {
+	for i := len(entries) - 1; i >= 0; i-- {
+		var entry struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Type string `json:"type"`
+				Role string `json:"role"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(entries[i], &entry) != nil {
+			continue
+		}
+		switch {
+		case entry.Type == "event_msg" && (entry.Payload.Type == "task_complete" || entry.Payload.Type == "turn_aborted"):
+			return false, true
+		case entry.Type == "event_msg" && (entry.Payload.Type == "task_started" || entry.Payload.Type == "user_message"),
+			entry.Type == "response_item" && entry.Payload.Role == "user":
+			return true, true
+		}
+	}
+	return false, false
+}
+
+// piTurnState reads whether the last turn a pi session records is still open,
+// from the entries pi writes as the turn runs: a prompt, a tool result, or an
+// assistant message stopped on a call or a deferred response leaves it open,
+// and an assistant message that stopped, failed, was cut off or was aborted
+// ends it. A record made only of entries that say nothing of a turn, such as
+// a model or thinking-level change or an extension's own message, says
+// nothing either, so the screen reading stands as it was. pi's session is a
+// tree: the newest entry on disk is the leaf the view follows, so the walk
+// starts there and passes over the entries that are no message.
+func piTurnState(entries [][]byte) (open bool, known bool) {
+	for i := len(entries) - 1; i >= 0; i-- {
+		var entry struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stopReason"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(entries[i], &entry) != nil || entry.Type != "message" {
+			continue
+		}
+		switch entry.Message.Role {
+		case "user", "toolResult":
+			return true, true
+		case "bashExecution":
+			// A shell command a person ran at the prompt is not a turn.
+			return false, true
+		case "assistant":
+			switch entry.Message.StopReason {
+			case "toolUse", "deferred", "pending":
+				return true, true
+			case "stop", "length", "error", "aborted":
+				return false, true
+			}
+			return false, false
+		default:
+			return false, false
+		}
+	}
+	return false, false
+}
+
 // LastReply reads the reply that ended the goblin's last turn from its
 // harness's own record: Claude Code's conversation, Codex's rollout or pi's
 // session, the goblin's own as the board's tree reads it, which is the

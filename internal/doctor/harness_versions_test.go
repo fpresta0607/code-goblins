@@ -141,3 +141,60 @@ func TestDesktopCodexIsFoundByItsPackageOrReportedAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Each harness behind its newest names its own updater, Claude Code's and npm's
+// alike, with npm's command beside it only where npm is the other route that
+// installs the newest; a harness at its newest names nothing to run.
+func TestAReleaseNamesEachHarnesssOwnUpdaterWithNpmAsTheFallback(t *testing.T) {
+	// Arrange
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch filepath.Base(request.URL.Path) {
+		case "claude":
+			_, _ = response.Write([]byte("2.1.293\n"))
+		case "codex":
+			_, _ = response.Write([]byte(`{"name":"@openai/codex","version":"0.164.0"}`))
+		case "pi":
+			_, _ = response.Write([]byte(`{"name":"@earendil-works/pi-coding-agent","version":"1.4.0"}`))
+		}
+	}))
+	defer server.Close()
+	releases := Releases{}
+	for name, release := range HarnessReleases {
+		release.URL = server.URL + "/" + name
+		releases[name] = release
+	}
+	behind := []HarnessProbe{
+		{Name: "claude", Detail: "2.1.292 (Claude Code)", OK: true},
+		{Name: "codex", Detail: "codex-cli 0.160.0", OK: true},
+		{Name: "pi", Detail: "0.85.1", OK: true},
+	}
+
+	// Act
+	versions := releases.Versions(context.Background(), server.Client(), behind)
+
+	// Assert
+	want := map[string]string{
+		"claude": "claude update",
+		"codex":  "codex update (fallback: npm install -g @openai/codex@0.164.0)",
+		"pi":     "pi update (fallback: npm install -g @earendil-works/pi-coding-agent@1.4.0)",
+	}
+	for _, version := range versions {
+		if version.Update != want[version.Name] {
+			t.Errorf("%s = %q, want %q", version.Name, version.Update, want[version.Name])
+		}
+	}
+
+	// Act: every harness is at its newest.
+	newest := []HarnessProbe{
+		{Name: "claude", Detail: "2.1.293 (Claude Code)", OK: true},
+		{Name: "codex", Detail: "codex-cli 0.164.0", OK: true},
+		{Name: "pi", Detail: "1.4.0", OK: true},
+	}
+
+	// Assert
+	for _, version := range releases.Versions(context.Background(), server.Client(), newest) {
+		if version.Update != "" {
+			t.Errorf("%s at its newest names %q, want nothing to run", version.Name, version.Update)
+		}
+	}
+}

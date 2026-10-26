@@ -83,9 +83,14 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	// too. Started from a CFO's session, it would hand that session to every
 	// goblin it starts, resumes or switches as its parent, long after that
 	// session ended, so it forgets the session too, and such a goblin records
-	// the CFO registered when it starts.
+	// the CFO registered when it starts. Started under an agent harness, as
+	// the update run in the CFO's own terminal started it on 2026-10-25, it
+	// would hand that harness's marks, CLAUDECODE and AI_AGENT, to every
+	// command it runs, and the CFO-act check reads them as an agent's session:
+	// that supervisor had every automatic start it made refused that way
+	// (#1508), so it forgets them as well.
 	for _, entry := range os.Environ() {
-		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) || spawn.IsCallerSessionVariable(name) {
+		if name, _, _ := strings.Cut(entry, "="); herdr.IsPaneVariable(name) || supervisor.IsAgentSessionVariable(name) || strings.EqualFold(name, host.IDVariable) || strings.EqualFold(name, host.ProofVariable) || spawn.IsCallerSessionVariable(name) {
 			if err := os.Unsetenv(name); err != nil {
 				fmt.Fprintf(stderr, "cfo serve: forget the starting terminal's %s: %v\n", name, err)
 				return 1
@@ -284,6 +289,8 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		Credentials:        auth.OpenStore,
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Quota:              runtime.quota,
+		KeySpend:           runtime.keySpend,
+		UserEnvironment:    spawn.UserEnvironment,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,
 		DevDrive:           devDrive,

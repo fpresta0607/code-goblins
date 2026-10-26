@@ -93,6 +93,9 @@ type Action struct {
 	ReviewID    string    `json:"review_id,omitempty"`
 	RunID       string    `json:"run_id,omitempty"`
 	AnswerKind  string    `json:"answer_kind,omitempty"`
+	// Target is, on a delete of a queued message, that message's own action id,
+	// so two messages with the same words are told apart.
+	Target string `json:"target,omitempty"`
 	CFOIdentity string    `json:"cfo_identity,omitempty"`
 	Status      string    `json:"status"`
 	Message     string    `json:"message,omitempty"`
@@ -947,8 +950,12 @@ func (s *Store) updateQuestionOutcomes() {
 				}
 				q.Message = a.Message
 				if a.Status == "succeeded" {
-					at := a.UpdatedAt
-					q.AnsweredBy, q.AnsweredAt = "overlord", &at
+					// A board answer is the Overlord's; an answer the CFO gave over
+					// the pipe records its own attribution, which stays.
+					if q.AnsweredBy == "" {
+						at := a.UpdatedAt
+						q.AnsweredBy, q.AnsweredAt = "overlord", &at
+					}
 					if a.AnswerKind != "other" && slices.Contains(q.Options, a.Text) {
 						q.AnsweredOption = a.Text
 					}

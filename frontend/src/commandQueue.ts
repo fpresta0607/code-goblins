@@ -266,7 +266,7 @@ export function answerMark(question: Question): "" | "you" | "cfo" | "away" {
 // its way or delivered, so he can choose another at any time. An answer that
 // did not arrive is none, and the supervisor checks the same again.
 export function canChange(question: Question): boolean {
-  if (question.status === "succeeded") return !!question.answered_by || !!question.answer_id;
+  if (question.status === "succeeded") return !!question.answered_by || !!question.answer_id || !!question.answer;
   return (question.status === "queued" || question.status === "running" || question.status === "uncertain") && !!question.answer_id;
 }
 
@@ -370,7 +370,7 @@ export function settledLabel(item: Item, actions: Action[]): string {
 
 export function settledIcon(item: Item, actions: Action[]): { icon: IconName; tone: string } {
   if (item.kind === "browser-signin") return item.signin.state === "signed_in" ? { icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.signin.state };
-  if (item.kind === "credential") return item.request.state === "saved" || item.request.state === "done" || item.request.state === "answered" ?{ icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.request.state };
+  if (item.kind === "credential") return item.request.state === "granted" || item.request.state === "saved" || item.request.state === "done" || item.request.state === "answered" ?{ icon: "check-double", tone: "succeeded" } : { icon: "close", tone: item.request.state };
   if (item.kind === "question") {
     const outcome = questionOutcome(item.question);
     // One check while a board answer is on its way, two once it is delivered.

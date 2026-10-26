@@ -167,7 +167,16 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
-	return Evaluation{Reason: sentToGoblin, Awaiting: &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}}
+	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
+}
+
+// awaitingGoblinDelivery is the delivery of text, typed into meta's native
+// terminal at since, that its harness has not yet been seen taking. It takes
+// the recipient the delivery was verified against, never a fresh read: a
+// record that disappeared or was replaced meanwhile must not turn the delivery
+// into a different task's, nor bind it to a generation that never took it.
+func awaitingGoblinDelivery(meta state.TaskMeta, since time.Time, text string) *Awaiting {
+	return &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}
 }
 
 // lookAtTerminal reads the terminal a delivery waits in: gone when its host
@@ -236,8 +245,10 @@ func cfoSession(stateDir string, primary primaryRegistration) string {
 // NativeTook reports whether native goblin meta's harness took text since,
 // as the record its harness keeps of the goblin's conversation shows: the
 // proof cfo send and the board wait for once a goblin is in a turn.
-func NativeTook(ctx context.Context, meta state.TaskMeta, text string, since time.Time) bool {
-	return conversations().Took(ctx, goblinConversation(meta), monitor.TextDigest(text), since)
+func NativeTook(ctx context.Context, meta state.TaskMeta, session, text string, since time.Time) bool {
+	conversation := goblinConversation(meta)
+	conversation.Session = session
+	return conversations().Took(ctx, conversation, monitor.TextDigest(text), since)
 }
 
 // goblinConversation names the record native goblin meta's harness keeps of

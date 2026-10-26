@@ -262,10 +262,14 @@ const lowPriorityPlace = "z-"
 // stands ahead of it in the line still waits, the machine has the memory, and a slot is free,
 // or was left by a process whose recorded identity is verifiably gone. A
 // run whose wait fails gets the time it had waited with the error, so the
-// wait is on record even though no turn came of it.
+// wait is on record even though no turn came of it. The wait is measured
+// from the moment the run asks for its turn, the custody it takes and the
+// line it joins included: a loaded machine stretches those past a second,
+// and a wait measured from after them says a run waited far less than it did.
 // If cancellation races admission and release fails, the returned turn still
 // owns that slot. Its caller must retain and retry Release despite the error.
 func (a Admission) Wait(ctx context.Context) (Turn, error) {
+	start := time.Now()
 	if err := ctx.Err(); err != nil {
 		return Turn{}, err
 	}
@@ -318,7 +322,6 @@ func (a Admission) Wait(ctx context.Context) (Turn, error) {
 		return Turn{}, err
 	}
 
-	start := time.Now()
 	var told time.Time
 	var toldAhead int
 	// shortSince is when this run, at the head of the line, first found memory

@@ -74,6 +74,8 @@ var (
 // maxDialogMoves bounds the focus moves one dialog takes.
 const maxDialogMoves = 8
 
+var errNativeStartupDialog = errors.New("a startup dialog interrupted instruction delivery")
+
 // launchNativeHost starts the harness in a native terminal of its own, the
 // task's id, and returns its host's record, the zero record when it launched
 // none. It is the last step of a start's turn: from here the host counts as a
@@ -112,7 +114,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	if !ok {
 		return fmt.Errorf("spawn: %s cannot run in a native terminal yet", kind)
 	}
-	untrusted, working, err := s.awaitNativeReady(ctx, record, screens)
+	untrusted, _, err := s.awaitNativeReady(ctx, record, screens)
 	if err != nil {
 		return err
 	}
@@ -121,22 +123,11 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 			return err
 		}
 	}
-	// A resumed conversation that came back in a turn is at work on its task
-	// already, so its instruction is not typed a second time.
-	if working && launch.Resumed {
-		return nil
-	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
 		return err
 	}
-	err = s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, instruction)
-	// A new goblin in a turn holds its instruction for that turn, as a
-	// harness holds any text typed into one.
-	if working && errors.Is(err, fleet.ErrQueuedForToolCall) {
-		return nil
-	}
-	return err
+	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, launch.ResumeSession, instruction, true)
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a
@@ -357,7 +348,9 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // it to its model at its next tool call, never interrupting the call that
 // runs, and runs its prompt hook as it queues it, so only its own record of
 // the conversation proves it taken; with none soon after the submit the
-// error says it is queued for that tool call. Either way it is typed once. A
+// error says it is queued for that tool call. Before submission, startup may
+// recover a recognized dialog and reuse a complete draft or type into a
+// proved-empty composer. A submitted instruction is never typed again. A
 // Codex has its submit key pressed once, and a Claude Code once more only
 // once its composer shows that key taken as a new line: either can take the
 // key late, the text still showing in its composer, and a key pressed again
@@ -367,16 +360,45 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // say so before the submit, Enter is pressed again until it does, for as long
 // as a harness's startup is given, and its time to show itself working counts
 // from the last press.
-func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, instruction string) error {
-	before, err := s.readNativeScreen(ctx, record)
-	if err != nil {
-		return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
+func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, session, instruction string, isStartup bool) error {
+	recoveries := 0
+	recoverStartup := func() error {
+		if !isStartup || recoveries == 3 {
+			return fmt.Errorf("spawn: native terminal %s: %w", record.ID, errNativeStartupDialog)
+		}
+		recoveries++
+		ctx, cancel := context.WithTimeout(ctx, nativeStartup)
+		defer cancel()
+		untrusted, _, err := s.awaitNativeReady(ctx, record, screens)
+		if err != nil {
+			return err
+		}
+		if untrusted != "" {
+			return s.reportUntrusted(meta.ID, harness.Kind(meta.Harness), meta.Worktree, untrusted)
+		}
+		return nil
 	}
-	busy := screens.IsWorking(before)
-	submitted := time.Now()
-	atPress, err := s.submitNative(ctx, record, screens, instruction, launchSettle)
-	if err != nil {
-		return err
+	var before, atPress []string
+	var busy bool
+	var submitted time.Time
+	for {
+		var err error
+		before, err = s.readNativeScreen(ctx, record)
+		if err != nil {
+			return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
+		}
+		busy = screens.IsWorking(before)
+		submitted = time.Now()
+		atPress, err = s.submitNative(ctx, record, screens, instruction, launchSettle, recoveries > 0)
+		if err == nil {
+			break
+		}
+		if !isStartup || !errors.Is(err, errNativeStartupDialog) {
+			return err
+		}
+		if err := recoverStartup(); err != nil {
+			return err
+		}
 	}
 	within := nativeAccepted
 	if busy {
@@ -386,7 +408,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	pressed, presses := time.Now(), 0
 	var startingSince, startingPressed time.Time
 	for {
-		if busy && s.Took != nil && s.Took(ctx, meta, instruction, submitted) {
+		if busy && s.Took != nil && s.Took(ctx, meta, session, instruction, submitted) {
 			return nil
 		}
 		if !busy && s.PromptSince != nil {
@@ -397,6 +419,15 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
 			return err
+		}
+		if _, hasDialog := screens.Dialog(screen); hasDialog {
+			if err := recoverStartup(); err != nil {
+				return err
+			}
+			// Enter already reached the harness. Dismiss the startup prompt,
+			// then await that submission without typing or submitting it again.
+			deadline = time.Now().Add(within)
+			continue
 		}
 		if !busy && screens.IsWorking(screen) {
 			return nil
@@ -458,14 +489,30 @@ func pressNativeEnter(record host.Record) error {
 // it settle after the composer shows it, since a dialog that opened meanwhile
 // would take the Enter as its answer. It returns the screen as the Enter was
 // pressed.
-func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration) ([]string, error) {
+func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration, isRecovering bool) ([]string, error) {
+	before, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
+	}
+	if _, hasDialog := screens.Dialog(before); hasDialog {
+		return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, errNativeStartupDialog)
+	}
+	shouldType := true
+	if isRecovering && !screens.ComposerEmpty(before) {
+		if !screens.ComposerMatches(before, instruction) {
+			return nil, fmt.Errorf("spawn: native terminal %s holds an incomplete or unreadable draft after its startup dialog, so nothing more was typed or submitted", record.ID)
+		}
+		shouldType = false
+	}
 	client, err := host.Dial(record)
 	if err != nil {
 		return nil, fmt.Errorf("spawn: type into native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, err)
 	}
 	defer client.Close()
-	if err := client.Input([]byte(instruction)); err != nil {
-		return nil, fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
+	if shouldType {
+		if err := client.Input([]byte(instruction)); err != nil {
+			return nil, fmt.Errorf("spawn: type the instruction into native terminal %s: %w", record.ID, err)
+		}
 	}
 	if err := s.awaitTyped(ctx, client, record, screens, instruction); err != nil {
 		return nil, fmt.Errorf("spawn: the instruction typed into native terminal %s never showed in its composer, so it was not submitted: %w", record.ID, err)
@@ -476,6 +523,12 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	atPress, err := s.readNativeScreen(ctx, record)
 	if err != nil {
 		return nil, err
+	}
+	if _, hasDialog := screens.Dialog(atPress); hasDialog {
+		return nil, errNativeStartupDialog
+	}
+	if !screens.Shows(atPress, instruction) {
+		return nil, fmt.Errorf("spawn: native terminal %s no longer shows the instruction, so it was not submitted", record.ID)
 	}
 	submit := "\r"
 	if screens.PasteTakesEnter && !fleet.IsCommand(instruction) {
@@ -507,6 +560,9 @@ func (s Service) awaitTyped(ctx context.Context, client *host.Client, record hos
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
 			return err
+		}
+		if _, hasDialog := screens.Dialog(screen); hasDialog {
+			return errNativeStartupDialog
 		}
 		if screens.Shows(screen, typed) {
 			return nil

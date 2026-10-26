@@ -3,9 +3,12 @@ package host
 import (
 	"bytes"
 	"errors"
+	"regexp"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/vtscreen"
 )
 
@@ -85,9 +88,10 @@ type history struct {
 	screen    *vtscreen.Screen
 	// sizes are kept's sizes in order; the first, at 0, is the size kept
 	// starts at.
-	sizes   []geometry
-	viewers map[*feed]struct{}
-	closed  bool
+	sizes    []geometry
+	viewers  map[*feed]struct{}
+	nextView uint64
+	closed   bool
 	// isUnread is whether key presses sit unread in the terminal's input, as
 	// its console last said.
 	isUnread bool
@@ -99,7 +103,11 @@ type history struct {
 // feed is one live viewer's share of the output: what the terminal wrote
 // that the viewer has not taken yet, and whether that is all it will get.
 type feed struct {
-	output *history
+	output     *history
+	id         uint64
+	submission string
+	working    *regexp.Regexp
+	hasStarted bool
 	// ready holds a signal while output or the feed's end waits to be taken.
 	ready   chan struct{}
 	pending []byte
@@ -117,7 +125,15 @@ func newHistory(cols, rows int) (*history, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &history{screen: screen, sizes: []geometry{{Cols: cols, Rows: rows}}, viewers: map[*feed]struct{}{}}, nil
+	history := &history{screen: screen, sizes: []geometry{{Cols: cols, Rows: rows}}, viewers: map[*feed]struct{}{}}
+	screen.OnRow = func(row string) {
+		for viewer := range history.viewers {
+			if viewer.working != nil && !viewer.hasStarted && viewer.working.MatchString(strings.TrimSpace(row)) {
+				viewer.hasStarted = true
+			}
+		}
+	}
+	return history, nil
 }
 
 // write takes output the terminal's program wrote, keeps and queues for
@@ -223,7 +239,8 @@ func (h *history) unread(isUnread bool) {
 func (h *history) attach() ([]byte, []geometry, *feed, func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	viewer := &feed{output: h, ready: make(chan struct{}, 1)}
+	h.nextView++
+	viewer := &feed{output: h, id: h.nextView, ready: make(chan struct{}, 1)}
 	if h.isUnread {
 		isUnread := true
 		viewer.unread = &isUnread
@@ -243,6 +260,17 @@ func (h *history) attach() ([]byte, []geometry, *feed, func()) {
 		defer h.mu.Unlock()
 		h.stop(viewer)
 	}
+}
+
+func (f *feed) submit(mark submission) error {
+	screens, isKnown := harness.NativeScreens(harness.Kind(mark.Harness))
+	if mark.ID == "" || len(mark.ID) > 128 || !isKnown {
+		return errors.New("host: invalid submission")
+	}
+	f.output.mu.Lock()
+	defer f.output.mu.Unlock()
+	f.submission, f.working, f.hasStarted = mark.ID, screens.Working, false
+	return nil
 }
 
 // stop ends viewer's feed once it has taken what is already queued. The

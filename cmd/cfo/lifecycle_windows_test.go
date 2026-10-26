@@ -406,7 +406,7 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 			}
 			f.meta.PipelineHash, f.meta.PipelineClass = older.Hash, older.Class
 		}, want: "Run cfo pipeline migrate task, then resume it"},
-		{name: "a gate that cannot run on its harness", isVersionSix: true, goblin: pipeline.Reviewer{Harness: "pi", Model: "kimi", Effort: "high"}, want: "Task task would come back on pi, so resume it on claude or codex"},
+		{name: "a gate that cannot run on its harness", isVersionSix: true, goblin: pipeline.Reviewer{Harness: "grok", Model: "grok-4", Effort: "high"}, want: "Task task would come back on grok, so resume it on a harness a gate can prove"},
 		{name: "a paused validation that cannot be recovered", goblin: claudeGoblin, want: "recover paused validation: the daemon is not running"},
 		{name: "a relaunch its switch refuses", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
 			f.commands, f.switched = &resumedGateRunner{}, errors.New("switch: validate harness claude: claude is not installed")
@@ -476,5 +476,72 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 				t.Errorf("status log = %q, want one line saying the resume was refused and why", lines)
 			}
 		})
+	}
+}
+
+// A task whose record names no brief must still come back with its brief under
+// the home, the path a switch and a comeback already use. On 2026-10-24 a
+// resumed worker was sent to a relative data/<id>/brief.md that resolved inside
+// its own worktree, where no brief is. This proves the caller wiring and the
+// fallback together, from a worker worktree as the working folder, with a real
+// brief file under the home.
+func TestResumeGivesAWorkerWithoutARecordedBriefItsRealBriefUnderTheHome(t *testing.T) {
+	// Arrange
+	h, _ := gateHome(t, versionSixPolicy(t, pipeline.Reviewer{}), operatorMachineConfig)
+	h.Data = filepath.Join(h.Root, "data")
+	worktree := filepath.Join(h.Root, "project", ".worktrees", "gb-task")
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	taskTmp := filepath.Join(h.State, "tasktmp", "task")
+	if err := os.MkdirAll(taskTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "direct-PR", Worktree: worktree, Project: filepath.Join(h.Root, "project"), TaskTmp: taskTmp, Harness: "claude", Model: "claude-opus-5-5", Effort: "xhigh", Backend: "native", SpawnGen: "generation-1"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	brief := filepath.Join(h.Data, "task", "brief.md")
+	if err := os.MkdirAll(filepath.Dir(brief), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brief, []byte("# Brief task\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(worktree); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
+	var switched []spawn.SwitchRequest
+	runtime := commandRuntime{switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+		switched = append(switched, request)
+		return spawn.SwitchResult{}, nil
+	}}
+	prior := state.Lifecycle{ID: "task", Phase: "paused", Started: time.Now().Add(-time.Hour)}
+
+	// Act
+	if err := resumeTask(t.Context(), h, runtime, &resumedGateRunner{}, pipeline.Reader{Root: h.State, Commands: &resumedGateRunner{}}, meta, prior, nil); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	// Assert
+	if len(switched) != 1 {
+		t.Fatalf("switches = %d, want the worker resumed once", len(switched))
+	}
+	if switched[0].BriefPath != brief {
+		t.Fatalf("resume brief = %q, want the home fallback %q", switched[0].BriefPath, brief)
+	}
+	if !filepath.IsAbs(switched[0].BriefPath) {
+		t.Fatalf("resume brief %q is not absolute", switched[0].BriefPath)
+	}
+	if _, err := os.Stat(switched[0].BriefPath); err != nil {
+		t.Fatalf("the resume brief %q is not a real file: %v", switched[0].BriefPath, err)
+	}
+	if want := filepath.Join(h.Data, "task", "brief.md"); switched[0].BriefPath != want {
+		t.Fatalf("resume brief = %q, want it resolved under the home as %q", switched[0].BriefPath, want)
 	}
 }

@@ -535,6 +535,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	s.nativeEnvironment(launch.Env, meta)
 
 	if resumed {
+		launch.ResumeSession = request.ResumeSession
 		launch.Env["CFO_PARENT_SESSION_ID"], launch.Env["CFO_PARENT_HARNESS"] = "", ""
 		resumeArgs := []string{"--resume", request.ResumeSession}
 		switch target.Harness {
@@ -545,8 +546,7 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 		}
 		// ResumeArgs lead because codex takes its resume as a subcommand.
 		launch.Args = append(append([]string{}, resumeArgs...), launch.Args...)
-		launch.Instruction = resumeInstruction(meta, target)
-		launch.Resumed = true
+		launch.Instruction = resumeInstruction(meta, target, s.StateDir, briefPath)
 	} else {
 		handoff, err = s.writeHandoff(ctx, meta, target, worktreePath, briefPath, dirty)
 		if err != nil {
@@ -558,8 +558,14 @@ func (s Service) relaunchHarness(ctx context.Context, meta state.TaskMeta, targe
 	// so the note stays the instruction's last word.
 	launch.Instruction += credentialsInstruction(meta.Project, preflight.Grant) + mcpInstruction(mcpHeld)
 	launch.Instruction += launch.SubagentInstruction
-	if request.IsResume && request.ResumeHandoff != "" {
-		launch.Instruction += " Read the retained pause handoff at " + request.ResumeHandoff + "."
+	if request.IsResume {
+		recovery := "Resume now. This current CFO instruction supersedes the earlier pause request: that pause has ended, and you are authorized to continue the unfinished task. Do not repeat the pause handoff or stop because the retained context says to pause. Preserve unfinished work and existing decisions. Check interrupted commands and verification results before continuing; do not assume they completed or restart work that is still running."
+		if request.ResumeHandoff != "" {
+			recovery += " Read the retained pause handoff at " + request.ResumeHandoff + " for recovery, not as a new pause instruction."
+		} else {
+			recovery += " No completed pause handoff was saved; recover from the retained conversation, brief, status and worktree."
+		}
+		launch.Instruction = recovery + "\n\n" + launch.Instruction
 	}
 	if request.ResumeNote != "" {
 		launch.Instruction += "\n" + request.ResumeNote
@@ -749,12 +755,29 @@ func handoffInstruction(handoff, briefPath string, meta state.TaskMeta) string {
 	if briefPath != "" {
 		instruction += ", then the brief at " + briefPath
 	}
-	return instruction + ", then continue the work. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked." + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
+	return instruction + ", then continue the work. Do not ask again for a decision already answered in the retained context or recovery notes; follow that answer. Only if a decision is still unanswered and blocks the next step, ask it again with cfo notify --blocked." + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
 }
 
-func resumeInstruction(meta state.TaskMeta, target switchTarget) string {
-	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact; continue the task where you left off. A question you asked the CFO before the restart was cancelled with it: if you were waiting on an answer, ask it again with cfo notify --blocked.",
-		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort)) + notifyInstruction(meta)
+// resumeInstruction is what a session restarted in place is told. Its retained
+// context can be older than the durable record, so it reads the brief as it
+// stands now, the task's own status log and its handoff before acting: on
+// 2026-10-24 a resumed worker rechecked a pull request the CFO had already
+// merged while it was paused.
+func resumeInstruction(meta state.TaskMeta, target switchTarget, stateDir, briefPath string) string {
+	// No relative brief path is ever invented here: a relative one resolves
+	// inside the worker's own worktree, where no brief is. briefPath is the
+	// resolved path the relaunch already holds.
+	brief := briefPath
+	if brief == "" {
+		brief = "the task's own brief"
+	}
+	status := filepath.Join(stateDir, meta.ID+".status")
+	handoff := meta.TaskTmp
+	if handoff == "" {
+		handoff = filepath.Join(stateDir, "tasktmp", meta.ID)
+	}
+	return fmt.Sprintf("Your session was restarted as %s (was %s). Your prior context is intact. Before acting, read the brief at %s as it stands now, the task's own status log at %s and the handoff kept in %s: work may have landed, been merged or been decided while you were paused, and nothing here overrides what they now say. Do not ask again for a decision already answered there; only a decision still unanswered and blocking the next step goes to cfo notify --blocked.",
+		describe(string(target.Harness), target.Model, target.Effort), describe(meta.Harness, meta.Model, meta.Effort), brief, status, handoff) + notifyInstruction(meta)
 }
 
 // recentStatus returns the tail of the task's status log, which is the only

@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Page } from "./site";
+import { expect, holdStream, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-17, of Frank's terminal header (his task's long
 // description, Waiting on the CFO, and VS Code and folder on a row of their
@@ -33,8 +33,6 @@ async function openTerminal(page: Page, goblin: Record<string, unknown>) {
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await page.locator(".task-card").filter({ hasText: "Frank" }).click();
-  const terminal = page.locator(".panel-pill").getByRole("button", { name: "Terminal", exact: true });
-  if (await terminal.count()) await terminal.click();
   await page.evaluate(() => document.fonts.ready);
   return page.locator(".panel-header");
 }
@@ -67,29 +65,31 @@ for (const [state, fields, status, phase] of STATES) {
   });
 }
 
-test("the Task view still names the task and holds VS Code, the folder, the ticket and the pull request", async ({ page }) => {
+test("the task list keeps the compact task id and holds VS Code, the folder, the ticket and the pull request", async ({ page }) => {
   // Arrange
   await openTerminal(page, FRANK);
 
   // Act
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
-  const header = page.locator(".panel-header");
+  const header = await openTaskList(page);
 
   // Assert
-  await expect(header.locator(".panel-goblin-task")).toHaveText(FRANK.title);
+  await expect(page.locator(".panel-header .panel-goblin-task")).toHaveText(FRANK.id);
   await expect(header.locator(".panel-actions").getByRole("button", { name: "Open in VS Code" })).toBeVisible();
   await expect(header.locator(".panel-actions").getByRole("button", { name: "Open folder" })).toBeVisible();
   await expect(header.locator(".panel-actions a.ticket-link, .panel-actions a[href$='/issues/88']")).toHaveCount(1);
   await expect(header.locator(".panel-actions a[href='" + REPO + "/pull/91']")).toHaveCount(1);
 });
 
-test("the Task view of a goblin waiting on another goblin still links to that goblin from its status", async ({ page }) => {
-  // Arrange
-  await openTerminal(page, { ...FRANK, phase: "waiting", waiting_on: WANDA.id });
+for (const width of [390, 1000]) {
+  test(`the task list at ${width} px links to the goblin being awaited`, async ({ page }) => {
+    await page.setViewportSize({ width: width === 390 ? 390 : 1707, height: 1067 });
+    await page.addInitScript((width) => localStorage.setItem("cfo-pane-width", String(width)), width);
+    await openTerminal(page, { ...FRANK, phase: "waiting", waiting_on: WANDA.id });
 
-  // Act
-  await page.locator(".panel-pill").getByRole("button", { name: "Task", exact: true }).click();
+    const header = await openTaskList(page);
+    await header.getByRole("button", { name: "Open Wanda - Map Maker, which this goblin is waiting on" }).click();
 
-  // Assert
-  await expect(page.locator(".panel-header .panel-status").getByRole("button", { name: "Open Wanda - Map Maker, which this goblin is waiting on" })).toBeVisible();
-});
+    await expect(page.locator("#panel-title")).toHaveText("Wanda - Map Maker");
+    await expect(page.locator(".panel-goblin-task")).toHaveText(WANDA.id);
+  });
+}

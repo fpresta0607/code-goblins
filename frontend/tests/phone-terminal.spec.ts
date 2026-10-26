@@ -1,4 +1,5 @@
 import { expect, holdStream, test, type Page } from "./site";
+import { RUNS, stepIn } from "./step-in";
 
 // The Overlord, 2026-10-20 about 12:20Z, on the board on his phone: "when I
 // hit the terminal button, it shouldn't just show up below the task panel. It
@@ -16,14 +17,15 @@ import { expect, holdStream, test, type Page } from "./site";
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
-const snapshot = {
+// Kip runs the harness of the run (tests/step-in.ts), the CFO Claude Code.
+const snapshot = (harness: string) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_harness: "claude", cfo_terminal: "cfo-1", afk: { state: "off" },
-  tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", goblin_name: "Kip", goblin_title: "Ledger Scout", phase: "working", verified: false, generation: "nw-invoice-export-1", harness: "claude", model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION }],
+  tasks: [{ id: "nw-invoice-export", title: "Export invoices as CSV", project: "northwind-api", goblin_name: "Kip", goblin_title: "Ledger Scout", phase: "working", verified: false, generation: "nw-invoice-export-1", harness, model: "claude-opus-5-5", effort: "xhigh", backend: "native", session: SESSION }],
   sessions: [
     { id: "cfo-1", role: "cfo", harness: "claude", host_id: "cfo-1", phase: "working" },
-    { id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "nw-invoice-export", role: "goblin", task_id: "nw-invoice-export", generation: "nw-invoice-export-1", harness: "claude", phase: "working" },
+    { id: SESSION, native_id: "9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34", host_id: "nw-invoice-export", role: "goblin", task_id: "nw-invoice-export", generation: "nw-invoice-export-1", harness, phase: "working" },
   ],
-};
+});
 
 // A phone's keyboard, portrait: an iPhone's with its suggestion bar, and an
 // Android phone's.
@@ -44,12 +46,12 @@ function harnessScreen(cols: number, rows: number): string {
   return "\x1b[2J\x1b[H" + drawn.join("") + `\x1b[${rows - 3};1H${rule}\x1b[${rows - 2};1H❯ \x1b[${rows - 1};1H${rule}\x1b[${rows};1H  ${FOOTER}\x1b[${rows - 2};3H`;
 }
 
-interface Relay { resizes: { cols: number; rows: number }[] }
+interface Relay { resizes: { cols: number; rows: number }[]; say: (message: object) => void }
 
 // open serves the board with a phone's visual viewport the test can shrink,
 // and a terminal relay that takes each size the view asks for and redraws
 // the harness's screen at it, as the real one does.
-async function open(page: Page): Promise<Relay> {
+async function open(page: Page, run: typeof RUNS[number]): Promise<Relay> {
   await page.addInitScript(() => {
     const real = window.visualViewport!;
     let keyboard = 0, top = 0;
@@ -64,10 +66,11 @@ async function open(page: Page): Promise<Relay> {
     Object.defineProperty(window, "visualViewport", { value: viewport, configurable: true });
     Object.assign(window, { keyboard: (height: number, offset = 0) => { keyboard = height; top = offset; viewport.dispatchEvent(new Event("resize")); } });
   });
-  const relay: Relay = { resizes: [] };
-  await holdStream(page, snapshot);
+  const relay: Relay = { resizes: [], say: () => {} };
+  await holdStream(page, snapshot(run.harness));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+    if (new URL(socket.url()).searchParams.has("task")) relay.say = (message) => socket.send(JSON.stringify(message));
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
     socket.onMessage((data) => {
       if (typeof data !== "string") return;
@@ -78,15 +81,18 @@ async function open(page: Page): Promise<Relay> {
       socket.send(Buffer.from(harnessScreen(message.cols, message.rows)));
     });
   });
-  // He chose the Terminal view, which a session then opens on, and which
-  // this spec is about.
-  await page.addInitScript(() => localStorage.setItem("cfo-panel-view", "terminal"));
   await page.goto("/");
   await expect(card(page)).toBeVisible();
   return relay;
 }
 
 const card = (page: Page) => page.locator(".task-board .task-card-shell").filter({ hasText: "Kip - Ledger Scout" }).locator(".task-card");
+// openGoblin opens Kip's terminal from his card, stepping it in where the run
+// does.
+async function openGoblin(page: Page, relay: Relay, run: typeof RUNS[number]) {
+  await card(page).click();
+  if (run.isSteppedIn) await stepIn(page, (message) => relay.say(message));
+}
 const terminal = (page: Page) => page.getByRole("region", { name: "Goblin terminal" });
 const keyboard = (page: Page, height: number, offset = 0) => page.evaluate(([height, offset]) => (window as unknown as { keyboard: (height: number, offset: number) => void }).keyboard(height, offset), [height, offset]);
 const box = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
@@ -106,17 +112,17 @@ async function settled(relay: Relay): Promise<{ cols: number; rows: number }> {
 // The rows xterm drew: the screen's last row holds the footer.
 const drawnRows = (page: Page) => terminal(page).locator(".terminal-view:not(.staged) .xterm-rows > div");
 
-for (const { name, viewport, keyboard: keyboardHeight } of PHONES) {
-  test.describe(`on ${name}, ${viewport.width} by ${viewport.height}`, () => {
+for (const run of RUNS) for (const { name, viewport, keyboard: keyboardHeight } of PHONES) {
+  test.describe(`on ${name}, ${viewport.width} by ${viewport.height}, ${run.name}`, () => {
     test.use({ viewport, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
 
     test("a goblin's terminal fills the screen below the top bar, fits its width, and stays above the keyboard", async ({ page }, testInfo) => {
       // Arrange
       test.slow();
-      const relay = await open(page);
+      const relay = await open(page, run);
 
       // Act
-      await card(page).click();
+      await openGoblin(page, relay, run);
       await expect(terminal(page).locator(".xterm-rows")).toContainText(FOOTER);
       await page.evaluate(() => document.fonts.ready.then(() => undefined));
       const full = await settled(relay);
@@ -174,8 +180,8 @@ for (const { name, viewport, keyboard: keyboardHeight } of PHONES) {
 
     test("Back returns from the terminal to the board, at the card it was opened from", async ({ page }) => {
       // Arrange
-      await open(page);
-      await card(page).click();
+      const relay = await open(page, run);
+      await openGoblin(page, relay, run);
       await expect(terminal(page)).toBeVisible();
 
       // Act
@@ -197,13 +203,13 @@ for (const [size, viewport, isShown] of [["a phone", { width: 390, height: 844 }
     // Arrange
     await page.setViewportSize(viewport);
     await page.addInitScript(() => localStorage.setItem("cfo-board-layout", "stacked"));
-    await open(page);
+    await open(page, RUNS[0]);
 
     // Act
     await page.getByRole("button", { name: "Open the CFO's terminal" }).first().click();
 
-    // Assert
-    await expect(page.getByRole("region", { name: "CFO terminal" })).toBeVisible();
+    // Assert: its Terminal view, which shows a Claude Code CFO's messages.
+    await expect(page.locator("#panel-title")).toHaveText("CFO");
     await expect(page.getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(isShown ? 1 : 0);
   });
 }

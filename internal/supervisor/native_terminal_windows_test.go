@@ -145,9 +145,23 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
+		case line == "background":
+			footer = "1 shell"
+			drawComposer("", false)
+		case line == "/model":
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{" Select model", " ❯ 1. Default", "   2. Another model", " Enter to confirm · Esc to cancel"}, "\r\n") + "\r\n")
 		case line == "permission":
 			// Claude Code's permission prompt, drawn in its composer's place.
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"● Write(nine.txt)", " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No"}, "\r\n") + "\r\n")
+		case line == "quick question":
+			fmt.Print("\x1b[2J\x1b[H✽ Pondering… (esc to interrupt)\r\n\x1b[2J\x1b[HDo you want to create nine.txt?\r\n ❯ 1. Yes\r\n   2. No\r\n")
+		case line == "quick completion":
+			rule := strings.Repeat("─", 80)
+			fmt.Print("\x1b[2J\x1b[H✽ Pondering… (esc to interrupt)\r\n\x1b[2J\x1b[H" + strings.Join([]string{rule, "❯ ", rule, mode}, "\r\n") + "\r\n")
+		case line == "panel":
+			// A panel of Claude Code's own, made up in the shape of its
+			// permissions panel, drawn in its composer's place.
+			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{" Permissions:  Allow   Ask   Deny", "", "  ❯ Add a new rule…", "    Bash(go test:*)", "", " Press ↑↓ to navigate · Esc to cancel"}, "\r\n") + "\r\n")
 		case line == "count":
 			// A row under the screen counts every 100 ms, 20 times, so the
 			// output never pauses while the rest of the screen stays, and
@@ -268,6 +282,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 					text = ""
 				}
 				drawComposer(text, true)
+			} else if hooked {
+				drawComposer("", false)
 			}
 			if hooked {
 				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})
@@ -733,6 +749,43 @@ func (v *nativeView) waitFor(t *testing.T, text string) {
 	}
 }
 
+// withoutHeldNotices is what a view was sent but for each line telling it
+// whether typing is held, which comes and goes as custody is read.
+func withoutHeldNotices(screen string) string {
+	var kept strings.Builder
+	for rest := screen; ; {
+		at := strings.Index(rest, `{"type":"held",`)
+		if at < 0 {
+			kept.WriteString(rest)
+			return kept.String()
+		}
+		kept.WriteString(rest[:at])
+		end := strings.Index(rest[at:], "}")
+		if end < 0 {
+			return kept.String()
+		}
+		rest = rest[at+end+1:]
+	}
+}
+
+// waitForAfter is waitFor for a line that says the same thing twice, such as a
+// hold that clears, opens again and clears once more: only what arrived after
+// the marker counts, so an earlier equal line cannot answer it.
+func (v *nativeView) waitForAfter(t *testing.T, marker, text string) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if at := strings.LastIndex(screen, marker); at >= 0 && strings.Contains(screen[at:], text) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed %q after %q; it shows %q", text, marker, screen[max(0, len(screen)-300):])
+		}
+	}
+}
+
 // waitForSize asks the program its size until it reads size, such as
 // "100x30": ConPTY applies a resize on its own, so the program can still read
 // the old size just after one.
@@ -946,13 +999,13 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "harness\r")
-	v.waitFor(t, `{"type":"screen","asking":false}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
 
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
-	asking, back := `{"type":"screen","asking":true}`, `{"type":"screen","asking":false}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -963,6 +1016,157 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("the view was never told the harness was back at its composer")
 		}
+	}
+}
+
+// A view is told while a panel of the harness's own is open in its
+// composer's place, one that asks nothing, and told again once its composer
+// is back.
+func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+
+	v.send(t, websocket.MessageBinary, "panel\r")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":""}`)
+	v.send(t, websocket.MessageBinary, "harness\r")
+
+	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, back) > strings.LastIndex(screen, open) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the panel closed and the harness was back at its composer")
+		}
+	}
+}
+
+func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	terminal := hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "background\r")
+	v.waitFor(t, "1 shell")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+
+	v.send(t, websocket.MessageBinary, "/model\r")
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	v.send(t, websocket.MessageBinary, "harness\r")
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		v.mu.Lock()
+		screen := v.screen.String()
+		v.mu.Unlock()
+		if strings.LastIndex(screen, `"open":false,"working":false`) > strings.LastIndex(screen, `"open":true,"working":false`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the view was never told the model picker closed")
+		}
+	}
+
+	v.send(t, websocket.MessageBinary, "turn for 20s\r")
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`)
+	if slices.Contains(terminal.lines(t), "turn ended") {
+		t.Error("the view learned of the turn only after its spinner stopped")
+	}
+}
+
+func TestANativeViewCorrelatesScreensWithSubmittedInput(t *testing.T) {
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	for _, submission := range []string{"turn-one", "turn-two"} {
+		v.send(t, websocket.MessageText, `{"type":"submit","submission":"`+submission+`"}`)
+		v.send(t, websocket.MessageBinary, "turn\r")
+		v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"`+submission+`",`)
+	}
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"model"}`)
+	v.send(t, websocket.MessageBinary, "harness\r/model\r")
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"model"}`)
+
+	second := openNativeView(t, server, viewQuery)
+	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+}
+
+func TestANativeViewKeepsATurnBetweenScreenReads(t *testing.T) {
+	for _, ending := range []string{"question", "completion"} {
+		t.Run(ending, func(t *testing.T) {
+			h, server := nativeBoard(t, "direct")
+			meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			hostTask(t, h)
+			v := openNativeView(t, server, viewQuery)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageBinary, "harness\r")
+			v.waitFor(t, `"open":false,"working":false,"submission":""`)
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"quick"}`)
+			v.send(t, websocket.MessageBinary, "quick "+ending+"\r")
+			v.waitFor(t, fmt.Sprintf(`"asking":%t,"open":%t,"working":false,"submission":"quick"`, ending == "question", ending == "question"))
+			v.mu.Lock()
+			seen := v.screen.String()
+			v.mu.Unlock()
+			if !strings.Contains(seen, `"submission":"quick","started":true`) {
+				t.Fatal("the screen lost the turn that preceded it")
+			}
+			if ending == "completion" {
+				v.send(t, websocket.MessageBinary, "panel\r")
+				v.waitFor(t, `"asking":false,"open":true,"working":false,"submission":"quick","started":true`)
+			}
+		})
+	}
+}
+
+func TestANativeViewRejectsAnInvalidSubmissionID(t *testing.T) {
+	for _, submission := range []string{"", strings.Repeat("x", 129)} {
+		t.Run(strconv.Itoa(len(submission)), func(t *testing.T) {
+			h, server := nativeBoard(t, "direct")
+			hostTask(t, h)
+			v := openNativeView(t, server, viewQuery)
+			v.waitFor(t, "program ready")
+			v.send(t, websocket.MessageText, `{"type":"submit","submission":"`+submission+`"}`)
+			if closed := v.waitForClose(t); closed.Code != websocket.StatusUnsupportedData {
+				t.Fatalf("invalid submission closed with %d, want unsupported data", closed.Code)
+			}
+		})
 	}
 }
 
@@ -986,12 +1190,12 @@ func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
 	first := openNativeView(t, server, viewQuery)
 	first.waitFor(t, "program ready")
 	first.send(t, websocket.MessageBinary, "permission\r")
-	first.waitFor(t, `{"type":"screen","asking":true}`)
+	first.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 	first.send(t, websocket.MessageBinary, "count\r")
 	first.waitFor(t, "count 00")
 
 	second := openNativeView(t, server, viewQuery)
-	second.waitFor(t, `{"type":"screen","asking":true}`)
+	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 
 	if second.shows("counted") {
 		t.Error("the view was told the harness asks only once the output after its opening paused, want it told as it opens")
@@ -1014,7 +1218,7 @@ func TestANativeViewOfACFOOpenedWhileItStartsIsToldWhenItsHarnessAsks(t *testing
 
 	v.send(t, websocket.MessageBinary, "permission\r")
 
-	v.waitFor(t, `{"type":"screen","asking":true}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 }
 
 // A view told the harness asks is told it no longer does while the turn the
@@ -1034,11 +1238,11 @@ func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraw
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
 
-	asking, back := `{"type":"screen","asking":true}`, `{"type":"screen","asking":false}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -1175,6 +1379,12 @@ func TestANativeViewIsToldEachSizeBetweenTheOutputDrawnBeforeAndAfterIt(t *testi
 // history as its first output, then the output before, and the output after
 // once after closes. It never tells a size.
 func oldHost(t *testing.T, h *HTTP, views int, after <-chan struct{}) {
+	oldHostTold(t, h, views, after, nil)
+}
+
+// oldHostTold is oldHost, and when typed is not nil it reports every chunk a
+// viewer sends into it there.
+func oldHostTold(t *testing.T, h *HTTP, views int, after <-chan struct{}, typed chan<- string) {
 	t.Helper()
 	name := fmt.Sprintf(`\\.\pipe\code-goblins-old-host-%d-%d`, os.Getpid(), time.Now().UnixNano())
 	path, err := windows.UTF16PtrFromString(name)
@@ -1208,6 +1418,20 @@ func oldHost(t *testing.T, h *HTTP, views int, after <-chan struct{}) {
 					return
 				}
 			}
+			if typed != nil {
+				go func() {
+					buffer := make([]byte, 512)
+					for {
+						read, err := connection.Read(buffer)
+						if err != nil {
+							return
+						}
+						if read > 0 {
+							typed <- string(buffer[:read])
+						}
+					}
+				}()
+			}
 			select {
 			case <-after:
 				_, _ = connection.Write(frame('o', "after the resize"))
@@ -1227,6 +1451,40 @@ func oldHost(t *testing.T, h *HTTP, views int, after <-chan struct{}) {
 	}
 	if err := os.WriteFile(filepath.Join(hosts, "task-1.json"), record, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A host from before turn tracking cannot say which turn a submission started,
+// so the view is still read and typed into and a submission is never refused in
+// a way that closes it: the words and the Enter land, and only the evidence of
+// the turn they started is missing.
+func TestAnOldHostTakesTypingAndSkipsOnlyTheSubmissionsEvidence(t *testing.T) {
+	// Arrange: an old host, and a view of it.
+	h, server := nativeBoard(t, "direct")
+	after := make(chan struct{})
+	defer close(after)
+	typed := make(chan string, 8)
+	oldHostTold(t, h, 4, after, typed)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "before the resize")
+
+	// Act: a typed line, and then a submission the host cannot mark.
+	v.send(t, websocket.MessageBinary, "typed")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"while-untracked"}`)
+	ping, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Assert: the view is still open, and the line reached the host.
+	if err := v.conn.Ping(ping); err != nil {
+		t.Fatalf("the view closed on an old host's submission: %v", err)
+	}
+	select {
+	case got := <-typed:
+		if !strings.Contains(got, "typed") {
+			t.Fatalf("the host was sent %q, want the words typed into it", got)
+		}
+	case <-time.After(time.Minute):
+		t.Fatal("the words typed into an old host never reached it")
 	}
 }
 
@@ -1253,11 +1511,15 @@ func TestEveryNativeViewOfAnOldHostIsToldItsNewSizeAfterTheOutputBeforeIt(t *tes
 	held.waitFor(t, `{"type":"size","cols":100,"rows":30}`)
 	close(after)
 
+	// A host from before turn tracking is read and typed into like any other,
+	// and only its submission's turn evidence is skipped. What a view is told
+	// about a hold, which lasts a probe's length here, is not this test's
+	// subject: the history, the output and the size are.
 	want := `{"type":"history","bytes":11}old historybefore the resize{"type":"size","cols":100,"rows":30}after the resize`
 	for name, v := range map[string]*nativeView{"watching": watching, "held": held} {
 		v.waitFor(t, "after the resize")
 		v.mu.Lock()
-		screen := v.screen.String()
+		screen := withoutHeldNotices(v.screen.String())
 		v.mu.Unlock()
 		if screen != want {
 			t.Errorf("the %s view was shown %q, want %q", name, screen, want)
@@ -1564,7 +1826,9 @@ func TestANativeViewIsToldOfAGateTakingOverAndLettingGoOnItsTick(t *testing.T) {
 		t.Fatalf("the view closed under the gate: %v", err)
 	}
 	gate.taken.Store(false)
-	v.waitFor(t, `{"type":"held","reason":""}`)
+	// The view was told the hold cleared when it first opened, so the wait reads
+	// the screen after the refusal, which is this clearance and not that one.
+	v.waitForAfter(t, `{"type":"held","reason":"pipeline owns this task"}`, `{"type":"held","reason":""}`)
 	v.send(t, websocket.MessageBinary, "again\r")
 
 	// Assert
@@ -1639,5 +1903,152 @@ func TestACloseReasonFitsACloseFrame(t *testing.T) {
 		if len(fitted) > 123 || !utf8.ValidString(fitted) || (len(reason) <= 123 && fitted != reason) {
 			t.Errorf("closeReason(%d bytes) = %d bytes %q, want the reason itself or a valid cut of at most 123", len(reason), len(fitted), fitted)
 		}
+	}
+}
+
+// blockingGate answers custody only when the test lets it, and says when the
+// first check has returned, so a test can prove that check was still running
+// when the view's output arrived rather than having timed out first.
+type blockingGate struct {
+	entered      chan struct{}
+	release      chan struct{}
+	returned     chan struct{}
+	enteredOnce  sync.Once
+	releaseOnce  sync.Once
+	returnedOnce sync.Once
+}
+
+// newBlockingGate is a gate nothing has asked yet.
+func newBlockingGate() *blockingGate {
+	return &blockingGate{entered: make(chan struct{}), release: make(chan struct{}), returned: make(chan struct{})}
+}
+
+// free releases the blocked check, and is safe to call more than once, so a
+// failing test still lets its probe go.
+func (g *blockingGate) free() { g.releaseOnce.Do(func() { close(g.release) }) }
+
+func (g *blockingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, pipeline.ErrNoProgress
+}
+
+func (g *blockingGate) CanSteer(ctx context.Context, _, _, _ string) error {
+	g.enteredOnce.Do(func() { close(g.entered) })
+	defer g.returnedOnce.Do(func() { close(g.returned) })
+	select {
+	case <-g.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// A custody check the gate answers slowly keeps nothing from the view: its
+// history and the program's output arrive while that first check is still
+// running, the view opens readable, and nothing is typed or submitted until a
+// clear answer arrives. The test proves the check was still pending when the
+// output arrived, so a view that only opens once the check answers, or after
+// its own budget expires, fails here rather than passing late.
+func TestANativeTerminalShowsItsOutputWhileCustodyIsStillPending(t *testing.T) {
+	h, server := nativeBoard(t, "no-mistakes")
+	gitFixture(t, taskWorktree(t, h))
+	gate := newBlockingGate()
+	t.Cleanup(gate.free)
+	h.Service.Options.Gate = gate
+	h.terminalTick = 50 * time.Millisecond
+	hostTask(t, h)
+
+	// Act: the view opens while the check is blocked.
+	v := openNativeView(t, server, viewQuery)
+
+	// Assert: the check started, and the program's output reached the view
+	// while it was still running rather than after it gave up.
+	select {
+	case <-gate.entered:
+	case <-time.After(time.Minute):
+		t.Fatal("the custody check never started")
+	}
+	v.waitFor(t, "program ready")
+	select {
+	case <-gate.returned:
+		t.Fatal("the output arrived only after the custody check returned")
+	default:
+	}
+	select {
+	case <-v.closed:
+		t.Fatal("the view closed while custody was still pending")
+	default:
+	}
+
+	// Act: typing and a submission while the answer is pending.
+	v.send(t, websocket.MessageBinary, "leak\r")
+	v.send(t, websocket.MessageText, `{"type":"submit","submission":"while-pending"}`)
+	time.Sleep(300 * time.Millisecond)
+
+	// Assert: neither the text nor the submission reached the terminal.
+	if v.shows("leak") {
+		t.Fatal("raw input reached the terminal before custody was answered")
+	}
+	if v.shows("submission while-pending") {
+		t.Fatal("a submission was delivered before custody was answered")
+	}
+
+	// Act: the gate answers clear. Nothing is announced, because a view that
+	// opened on the silent hold has no notice to take back.
+	gate.free()
+
+	// Assert: the text typed while the answer was pending waited for it rather
+	// than being dropped, and is typed now that the branch is the goblin's.
+	v.waitFor(t, "leak")
+	// Assert: once clear, typing reaches the terminal.
+	v.send(t, websocket.MessageBinary, "after\r")
+	v.waitFor(t, "after")
+}
+
+// stoppingGate refses with custody on the first ask and lets the task's
+// generation go on the second, so a view's identity revocation can be proved.
+type stoppingGate struct {
+	asks    atomic.Int32
+	refused atomic.Int32
+}
+
+func (g *stoppingGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	return pipeline.Progress{}, pipeline.ErrNoProgress
+}
+
+func (g *stoppingGate) CanSteer(context.Context, string, string, string) error {
+	if g.asks.Add(1) == 1 {
+		g.refused.Add(1)
+		return errors.New("pipeline owns this task")
+	}
+	return nil
+}
+
+// The second result of a custody check means the session the view names is
+// gone, so the view closes as it always did: a replaced generation does not
+// leave a readable view over a session that no longer exists.
+func TestANativeTerminalClosesWhenItsGenerationIsReplaced(t *testing.T) {
+	h, server := nativeBoard(t, "no-mistakes")
+	gitFixture(t, taskWorktree(t, h))
+	gate := &stoppingGate{}
+	h.Service.Options.Gate = gate
+	h.terminalTick = 50 * time.Millisecond
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+
+	// Act: the task is replaced under the open view.
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.SpawnGen = "g2"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	closed := v.waitForClose(t)
+
+	// Assert: it closed with the replaced-session reason, not a hold.
+	if !strings.Contains(closed.Reason, "restarted or was replaced") {
+		t.Fatalf("the view closed with %q, want the replaced session named", closed.Reason)
 	}
 }

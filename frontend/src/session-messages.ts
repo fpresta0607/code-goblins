@@ -101,17 +101,23 @@ export function olderMessages(held: MessagePage, page: MessagePage): MessagePage
   return { messages: [...page.messages.filter((message) => message.seq < first), ...held.messages], more: page.more };
 }
 
+// messagesHarness says whether the board reads a harness's session as messages,
+// which the supervisor serves from a Claude Code or a pi session.
+function messagesHarness(harness: string): boolean {
+  return harness === "claude" || harness === "pi";
+}
+
 // messagesQuery names the session whose messages a panel shows, as
-// /api/messages takes it: a Claude Code goblin's current generation in a
-// native terminal, or the CFO in its native terminal while it runs Claude
-// Code, since the Messages view's box types through that terminal. A paused
+// /api/messages takes it: a Claude Code or pi goblin's current generation in a
+// native terminal, or the CFO in its native terminal while it runs Claude Code
+// or pi, since the Messages view's box types through that terminal. A paused
 // goblin's conversation still reads. Empty for every other session, which
-// keeps its Terminal and Task views alone: a Codex or pi one, one in Herdr, a
-// task not started yet, and one stopped or retired.
+// keeps its Terminal and Task views alone: a Codex one, one in Herdr, a task
+// not started yet, and one stopped or retired.
 export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness">, task?: Task): string {
-  if (!task) return snapshot.cfo_terminal && snapshot.cfo_harness === "claude" ? new URLSearchParams({ cfo: snapshot.cfo_terminal }).toString() : "";
+  if (!task) return snapshot.cfo_terminal && messagesHarness(snapshot.cfo_harness) ? new URLSearchParams({ cfo: snapshot.cfo_terminal }).toString() : "";
   const ended = sessionEnd(task);
-  return task.harness === "claude" && task.backend === "native" && task.generation && !task.archived && (!ended || ended === "paused") ? new URLSearchParams({ task: task.id, generation: task.generation }).toString() : "";
+  return messagesHarness(task.harness) && task.backend === "native" && task.generation && !task.archived && (!ended || ended === "paused") ? new URLSearchParams({ task: task.id, generation: task.generation }).toString() : "";
 }
 
 // A reply's text in the parts it is drawn in: a fenced code block as written,

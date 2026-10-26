@@ -1,4 +1,4 @@
-import { expect, holdStream, test, type Locator, type Page } from "./site";
+import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-08, with the Tasks list and Zane's panel: his card
 // read "Not started" with Start while the supervisor had already started
@@ -7,7 +7,7 @@ import { expect, holdStream, test, type Locator, type Page } from "./site";
 // starting... it displays where the status dot is in the board panel as well
 // status dots need to be better synched across pane and panels and boards".
 // A task reads one status, the same words and the same dot, on its card, its
-// panel, its terminal pane and its canvas node, from one snapshot. The
+// panel and its canvas node, from one snapshot. The
 // supervisor is played by one held snapshot per state.
 const since = "2026-10-08T21:30:00Z";
 // The snapshot's time: half a minute after the goblin's session started.
@@ -50,7 +50,6 @@ async function open(page: Page, task: Record<string, unknown>, posted: Posted[] 
 const board = (page: Page) => page.locator(".task-board");
 const card = (page: Page) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(ZANE, { exact: true }) });
 const header = (page: Page) => page.locator(".goblin-panel .panel-header");
-const pill = (page: Page, view: "Task" | "Terminal") => page.locator(".panel-pill").getByRole("button", { name: view, exact: true });
 
 // A status as a surface draws it: its words and the phase its dot is drawn in.
 async function read(status: Locator) {
@@ -64,7 +63,7 @@ async function read(status: Locator) {
 const YELLOWS = ["rgb(243, 197, 120)", "rgb(217, 183, 106)"];
 
 for (const state of STATES) {
-  test(`${state.name} reads ${state.text} at the same dot on its card, its panel, its terminal pane and its canvas node`, async ({ page }) => {
+  test(`${state.name} reads ${state.text} at the same dot on its card, its panel and its canvas node`, async ({ page }) => {
     // Arrange
     await open(page, state.task);
 
@@ -72,13 +71,8 @@ for (const state of STATES) {
     const onCard = await read(card(page).locator(".plain-status"));
     await card(page).locator(".task-card").click();
     await expect(page.locator("#panel-title")).toHaveText(ZANE);
-    if (await pill(page, "Task").count()) await pill(page, "Task").click();
+    await openTaskList(page);
     const onPanel = await read(header(page).locator(".panel-status"));
-    let onPane = onPanel;
-    if (await pill(page, "Terminal").count()) {
-      await pill(page, "Terminal").click();
-      onPane = await read(header(page).locator(".panel-status"));
-    }
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     const node = page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: ZANE }) });
     const onCanvas = state.column === "Tasks" ? null : await read(node.locator(".plain-status"));
@@ -87,9 +81,7 @@ for (const state of STATES) {
     const want = { text: state.text, phase: state.phase };
     expect({ text: onCard.text, phase: onCard.phase }, "card").toEqual(want);
     expect({ text: onPanel.text, phase: onPanel.phase }, "panel").toEqual(want);
-    expect({ text: onPane.text, phase: onPane.phase }, "terminal pane").toEqual(want);
     expect(onPanel.dot, "the panel's dot is the card's").toBe(onCard.dot);
-    expect(onPane.dot, "the terminal pane's dot is the card's").toBe(onCard.dot);
     expect(YELLOWS, "never a yellow dot").not.toContain(onCard.dot);
     if (onCanvas) {
       expect({ text: onCanvas.text, phase: onCanvas.phase }, "canvas node").toEqual(want);
@@ -106,7 +98,7 @@ for (const state of STATES) {
     // A card carries no Start of its own, so the panel is where one would be.
     await card(page).locator(".task-card").click();
     await expect(page.locator("#panel-title")).toHaveText(ZANE);
-    if (await pill(page, "Task").count()) await pill(page, "Task").click();
+    await openTaskList(page);
     const controls = page.locator(".goblin-panel").getByRole("group", { name: "Controls for Train history" });
     await expect(controls).toBeVisible();
     await expect(controls.getByRole("button", { name: /^Start / })).toHaveCount(0);
@@ -151,6 +143,5 @@ test("a queued task's Start is in its panel, not on its card, and it starts the 
 test("a task with no terminal yet says its status where its terminal will be", async ({ page }) => {
   await open(page, zane({ phase: "queued", starting: true }));
   await card(page).locator(".task-card").click();
-  await pill(page, "Terminal").click();
   await expect(page.locator(".deck-slot:not([hidden]) .terminal-empty")).toHaveText("Starting");
 });

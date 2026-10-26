@@ -30,13 +30,9 @@ const (
 // relayMessage bounds one output message to a view.
 const relayMessage = 256 << 10
 
-// screenSettle is how long a terminal's output pauses before its relay reads
-// the screen, to tell its views whether the harness waits on an answer there,
-// which it reads too as a view opens. A turn's spinner draws more often than
-// this, so a turn costs no read, but
-// while a view was last told the harness waits, the screen is read this long
-// after the first output that follows, pause or not, so the view learns soon
-// that the answer was given and a turn runs.
+// screenSettle is how long after output the relay reads the screen to tell
+// its views whether the harness asks, has a screen open or runs a turn.
+// Further output does not postpone that read.
 const screenSettle = 300 * time.Millisecond
 
 // screenAtOpen is how long after a view opens its relay reads the screen: at
@@ -64,18 +60,27 @@ type nativeRelay struct {
 	// held tells the view whether typing is held, and why, while the view has
 	// not been told that yet.
 	held []byte
-	// screen tells the view whether the harness waits on an answer at a
-	// screen of its own, while the view has not been told that yet, asking is
-	// what the view was last told, looking says a read of the screen is due,
-	// and opening that the read the view's opening made due has not begun,
-	// which no output postpones.
-	screen  []byte
-	asking  *bool
-	looking bool
-	opening bool
+	// screen tells the view what its harness's screen shows, while the view
+	// has not been told that yet, told is what the view was last told,
+	// and looking says a read of the screen is due.
+	screen     []byte
+	told       *screenState
+	looking    bool
+	submission string
 	// closing is how the view closes once everything before it is sent.
 	closing *websocket.CloseError
 	wake    chan struct{}
+}
+
+// screenState is what a view is told of its harness's screen: whether the
+// harness waits on an answer at a screen of its own, and whether something of
+// its own is open in its input line's place or a turn is running.
+type screenState struct {
+	Asking     bool   `json:"asking"`
+	Open       bool   `json:"open"`
+	Working    bool   `json:"working"`
+	Submission string `json:"submission"`
+	HasStarted bool   `json:"started,omitempty"`
 }
 
 // relaySize is a size to tell the view once the output before it is sent.
@@ -150,11 +155,23 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // the replayed history holds, so closing the view on input under custody
 // closed every view of a task a gate owned as it opened (#1304). For a
 // harness whose screens it knows, the relay reads the terminal's screen as
-// the view opens, once its output pauses, and soon after output follows a
-// screen that asked, and tells the view as
-// `{"type":"screen","asking":true}` when the harness waits on an answer at a
-// screen of its own, which only its terminal takes, as Claude Code's
-// permission prompt, and with false once it no longer does.
+// the view opens and soon after output, and tells the view as
+// `{"type":"screen","asking":true,"open":true,"working":false}` when that changes: asking
+// while the harness waits on an answer at a screen of its own, which only its
+// terminal takes, as Claude Code's permission prompt, and open while
+// something of its own is drawn in its input line's place, as a picker, a
+// panel or that question, and working while a turn runs.
+// custodyProbeBudget is how long a custody check has. no-mistakes'
+// sync --check reads the whole branch state and takes several seconds, and a
+// probe shorter than it reports every check as a failure of the check rather
+// than of custody.
+const custodyProbeBudget = 8 * time.Second
+
+// custodyUnasked is the hold a view opens on, before any custody answer has
+// arrived: nothing is typed until one does, and the composer keeps what he
+// writes as a board action meanwhile.
+var custodyUnasked = errors.New("the gate has not answered yet")
+
 func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A browser cannot send the board's token in a WebSocket header, so it
 	// comes in the query.
@@ -208,6 +225,14 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	// A host that did not answer may be starting or busy, so the view tries
 	// again, as the board does for a view that may come back.
 	terminal, err := host.Watch(record)
+	// A terminal from before turn tracking cannot say which turn a submission
+	// started, so it is read and typed into like any other and only that
+	// evidence is skipped. Refusing its input would leave a composer he can
+	// see and press untypable until he restarts the terminal.
+	untracked := errors.Is(err, host.ErrNoTurnEvidence)
+	if untracked {
+		terminal, err = host.View(record)
+	}
 	if err != nil {
 		_ = view.Close(websocket.StatusTryAgainLater, "The terminal of "+binding.name+" did not answer.")
 		return
@@ -216,24 +241,31 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	// mu guards custody, which each tick refreshes.
+	// mu guards custody: the hold until a first answer arrives, then the latest
+	// one. Its non-nil guard is what keeps queued and raw input out of a branch
+	// the gate may own, so no second state variable exists.
 	var mu sync.Mutex
-	check, stop := context.WithTimeout(ctx, 8*time.Second)
-	custody, err := binding.check(check)
-	stop()
-	if err != nil {
-		_ = view.Close(closeCode(err), closeReason(err.Error()))
-		return
-	}
-
-	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true, opening: true}
-	if custody != nil {
-		relay.held = heldNotice(custody)
-	}
+	custody := error(custodyUnasked)
+	// asked closes once the first answer has arrived, so input typed while it
+	// was still being read waits for it instead of being dropped.
+	asked := make(chan struct{})
+	var askOnce sync.Once
+	// The relay opens before custody is asked, so history, scrolling and the
+	// composer never wait on a check the gate answers slowly. Until the first
+	// answer arrives nothing is released: typing stays held, which is what
+	// keeps queued and raw input out of a branch the gate may own.
+	relay := &nativeRelay{wake: make(chan struct{}, 1), history: []byte(fmt.Sprintf(`{"type":"history","bytes":%d}`, terminal.History())), looking: true}
+	// Opened before any custody answer exists, and held until one says the
+	// branch is the goblin's: a check the gate answers slowly must never keep
+	// history, scrolling or the composer waiting, while nothing is released
+	// into a branch the gate may own. Nothing is said about that first hold,
+	// which lasts one check: a notice that always flashed up and cleared would
+	// break the history it is drawn beside. A hold that lasts is announced by
+	// the answer that finds it.
 	look := time.AfterFunc(screenAtOpen, func() {
 		relay.mu.Lock()
 		relay.looking = false
-		relay.opening = false
+		submission := relay.submission
 		relay.mu.Unlock()
 		if binding.harness == nil {
 			return
@@ -242,15 +274,18 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		if !readable {
 			return
 		}
-		rows, err := host.ReadScreen(record)
+		rows, observed, hasStarted, err := terminal.Screen(record, submission)
 		if err != nil {
 			return
 		}
-		asking := screens.IsAsking(rows)
+		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: observed, HasStarted: hasStarted}
 		relay.mu.Lock()
-		if relay.asking == nil || *relay.asking != asking {
-			relay.asking = &asking
-			relay.screen = []byte(fmt.Sprintf(`{"type":"screen","asking":%t}`, asking))
+		if submission == relay.submission && (relay.told == nil || *relay.told != state) {
+			relay.told = &state
+			relay.screen, _ = json.Marshal(struct {
+				Type string `json:"type"`
+				screenState
+			}{"screen", state})
 		}
 		relay.mu.Unlock()
 		relay.signal()
@@ -291,7 +326,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			default:
 				relay.pending = append(relay.pending, event.Output...)
 				relay.received += int64(len(event.Output))
-				if !relay.opening && (!relay.looking || relay.asking == nil || !*relay.asking) {
+				if !relay.looking {
 					relay.looking = true
 					look.Reset(screenSettle)
 				}
@@ -363,6 +398,39 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		tick := time.NewTicker(h.terminalTick)
 		defer tick.Stop()
+		// The first ask, and then one each tick. Its first result is delivery
+		// custody, which may be an unreadable check, and its second means the
+		// generation, session or run this view was opened for is gone.
+		ask := func() bool {
+			check, stop := context.WithTimeout(ctx, custodyProbeBudget)
+			refused, revoked := binding.check(check)
+			stop()
+			if revoked != nil {
+				_ = view.Close(closeCode(revoked), closeReason(revoked.Error()))
+				return false
+			}
+			mu.Lock()
+			// The first answer is quiet when it is clear, since the view opened on
+			// that silent hold and there is no notice to take back; a hold that
+			// lasts is announced by the answer that found it.
+			isChanged := refused != nil
+			if custody != custodyUnasked {
+				isChanged = (custody == nil) != (refused == nil) || custody != nil && refused != nil && custody.Error() != refused.Error()
+			}
+			custody = refused
+			askOnce.Do(func() { close(asked) })
+			mu.Unlock()
+			if isChanged {
+				relay.mu.Lock()
+				relay.held = heldNotice(refused)
+				relay.mu.Unlock()
+				relay.signal()
+			}
+			return true
+		}
+		if !ask() {
+			return
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -371,27 +439,33 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				_ = view.Close(websocket.StatusGoingAway, "The board is restarting.")
 				return
 			case <-tick.C:
-				check, stop := context.WithTimeout(ctx, 8*time.Second)
-				refused, err := binding.check(check)
-				stop()
-				if err != nil {
-					_ = view.Close(closeCode(err), closeReason(err.Error()))
+				if !ask() {
 					return
-				}
-				mu.Lock()
-				isChanged := (custody == nil) != (refused == nil) || custody != nil && custody.Error() != refused.Error()
-				custody = refused
-				mu.Unlock()
-				if isChanged {
-					relay.mu.Lock()
-					relay.held = heldNotice(refused)
-					relay.mu.Unlock()
-					relay.signal()
 				}
 			}
 		}
 	}()
 
+	// settled is what typing is judged by: the answer now, or the first answer
+	// once it exists, since input typed while the check is still reading waits
+	// for it rather than being dropped. It reports false when the view ended
+	// before any answer arrived.
+	settled := func() (error, bool) {
+		mu.Lock()
+		refused := custody
+		mu.Unlock()
+		if refused != custodyUnasked {
+			return refused, true
+		}
+		select {
+		case <-asked:
+		case <-ctx.Done():
+			return nil, false
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		return custody, true
+	}
 	view.SetReadLimit(1 << 20)
 	for {
 		kind, data, err := view.Read(ctx)
@@ -400,14 +474,44 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 		if kind == websocket.MessageText {
 			var control struct {
-				Type  string `json:"type"`
-				Cols  int    `json:"cols"`
-				Rows  int    `json:"rows"`
-				Bytes int64  `json:"bytes"`
+				Type       string `json:"type"`
+				Cols       int    `json:"cols"`
+				Rows       int    `json:"rows"`
+				Bytes      int64  `json:"bytes"`
+				Submission string `json:"submission"`
 			}
-			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" {
-				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize or an acknowledgement.")
+			if json.Unmarshal(data, &control) != nil || control.Type != "resize" && control.Type != "ack" && control.Type != "submit" {
+				_ = view.Close(websocket.StatusUnsupportedData, "A text message must be a resize, an acknowledgement or a submission.")
 				return
+			}
+			if control.Type == "submit" {
+				if control.Submission == "" || len(control.Submission) > 128 {
+					_ = view.Close(websocket.StatusUnsupportedData, "A submission needs an ID of at most 128 bytes.")
+					return
+				}
+				refused, isReading := settled()
+				// The hold until the first answer refuses every submission, and
+				// so does every later refusal.
+				if !isReading || refused != nil || binding.harness == nil {
+					continue
+				}
+				// A host from before turn tracking has no viewer to mark the
+				// submission with, so the words and the Enter still go in and
+				// only the evidence of which turn they started is skipped.
+				if !untracked {
+					if err := terminal.MarkSubmission(control.Submission, binding.harness()); err != nil {
+						_ = view.Close(websocket.StatusPolicyViolation, closeReason(err.Error()))
+						return
+					}
+				}
+				relay.mu.Lock()
+				relay.submission = control.Submission
+				if !relay.looking {
+					relay.looking = true
+					look.Reset(screenSettle)
+				}
+				relay.mu.Unlock()
+				continue
 			}
 			if control.Type == "ack" {
 				relay.mu.Lock()
@@ -416,10 +520,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 				relay.signal()
 				continue
 			}
-			mu.Lock()
-			refused := custody
-			mu.Unlock()
-			if refused != nil || control.Cols < minTerminalCols || control.Rows < minTerminalRows || control.Cols > maxTerminalCols || control.Rows > maxTerminalRows {
+			refused, isReading := settled()
+			if !isReading || refused != nil || control.Cols < minTerminalCols || control.Rows < minTerminalRows || control.Cols > maxTerminalCols || control.Rows > maxTerminalRows {
 				continue
 			}
 			if terminal.Resize(control.Cols, control.Rows) != nil {
@@ -431,10 +533,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		mu.Lock()
-		refused := custody
-		mu.Unlock()
-		if refused != nil {
+		refused, isReading := settled()
+		if !isReading || refused != nil {
 			continue
 		}
 		if terminal.Input(data) != nil {

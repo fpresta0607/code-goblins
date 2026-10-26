@@ -424,6 +424,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             const reason = candidate.kind === "question" ? answerReason(candidate.question) : "";
             const changeBlock = candidate.kind === "question" ? canChange(candidate.question) ? "" : "It has no answer to change"
               : candidate.kind === "credential" ? candidate.request.state === "saved" ? "Its values are stored"
+                : candidate.request.state === "granted" ? "Its service was granted"
                 : candidate.request.state === "withdrawn" ? "Its asker took it back"
                 : Date.parse(candidate.request.expires_at) <= Date.now() || candidate.request.state === "expired" ? "It expired"
                 : ""

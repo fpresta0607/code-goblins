@@ -144,13 +144,10 @@ test("the CFO panel's header carries the AFK toggle beside its status: off at re
   await expect.poll(() => supervisor.asked.at(-1)).toEqual({ on: false, token: "fixture" });
 });
 
-test("the toggle is in the header in the panel's Task view and its Terminal view alike", async ({ page }) => {
+test("the toggle is in the panel's header", async ({ page }) => {
   await open(page, snapshot());
   await openCfoPanel(page);
-  for (const view of ["Task", "Terminal"]) {
-    await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-    await expect(toggle(page)).toBeVisible();
-  }
+  await expect(toggle(page)).toBeVisible();
 });
 
 // The Overlord, 2026-10-08: "this yellow text i hate. as an error". A refusal
@@ -519,8 +516,8 @@ test.describe("AFK report layout", () => {
     });
   });
 
-  test("the report opens the current decision in History's change card", async ({ page }) => {
-    const decided = { ...question("afk-left-20261015T050000.000000000Z", "Delete the idle cache database?"), status: "succeeded", options: ["Delete in a week", "Delete now", "Keep it longer"], answer: "Keep it longer", answered_option: "Keep it longer", answer_kind: "option", answered_by: "overlord" };
+  test("the report and History open the current decision in its own change card", async ({ page }) => {
+    const decided = { ...question("afk-left-20261015T050000.000000000Z", "Delete the idle cache database?"), status: "succeeded", options: ["Delete in a week", "Delete now", "Keep it longer"], answer: "Keep it longer", answered_option: "Keep it longer", answer_kind: "option" };
     await open(page, snapshot({ afk: KEPT, questions: [decided] }));
     await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
     const report = page.getByRole("dialog", { name: "Your AFK report" });
@@ -534,7 +531,18 @@ test.describe("AFK report layout", () => {
     await expect(change.getByRole("radio", { name: "Keep it longer" })).toBeChecked();
     await expect(change.getByRole("button", { name: "Change answer" })).toBeDisabled();
     await change.getByRole("radio", { name: "Delete now", exact: true }).check();
-    await expect(change.getByRole("button", { name: "Change answer" })).toBeEnabled();
+    const sent = page.waitForRequest((request) => request.url().endsWith("/api/actions") && request.method() === "POST");
+    await change.getByRole("button", { name: "Change answer" }).click();
+    expect(JSON.parse((await sent).postData() || "{}").kind).toBe("answer_change");
+
+    await page.keyboard.press("Escape");
+    await page.locator("details.command-center-menu > summary").click();
+    await page.locator("details.command-center-menu details").filter({ hasText: "History" }).locator("summary").click();
+    await page.getByRole("button", { name: /Change the answer to/ }).first().click();
+    const fromHistory = page.locator("dialog.question-modal .change-card");
+    await expect(fromHistory).toContainText(decided.text);
+    await expect(fromHistory.getByRole("radio", { name: "Keep it longer" })).toBeChecked();
+    await expect(fromHistory.getByRole("radio", { name: "Delete now", exact: true })).toBeVisible();
   });
 
   test("a report that cannot load can be retried and Escape inside it returns focus", async ({ page }) => {
@@ -683,14 +691,11 @@ test.describe("in the desktop window", () => {
     await open(page, snapshot({ questions: QUESTIONS, afk: on({ decided: 4, held: HELD }) }));
     await expect(bar(page).getByRole("button", { name: "Open Command Center: 2 waiting on you" })).toBeVisible();
     await openCfoPanel(page);
-    for (const view of ["Task", "Terminal"]) {
-      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-      const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
-      // The toggle is beside the CFO's portrait, name and status, not under them.
-      expect(rows[1][0], view + " view").toBeLessThan(rows[0][1]);
-      expect(rows[1][1], view + " view").toBeGreaterThan(rows[0][0]);
-      expect(await within(page, ".panel-header"), view + " view").toBe(true);
-    }
+    const rows = await header(page).evaluate((element) => [".goblin-avatar", ".afk-toggle"].map((selector) => { const box = element.querySelector(selector)!.getBoundingClientRect(); return [Math.round(box.top), Math.round(box.bottom)]; }));
+    // The toggle is beside the CFO's portrait, name and status, not under them.
+    expect(rows[1][0], "the panel").toBeLessThan(rows[0][1]);
+    expect(rows[1][1], "the panel").toBeGreaterThan(rows[0][0]);
+    expect(await within(page, ".panel-header"), "the panel").toBe(true);
     expect(await within(page, ".cfo-rest")).toBe(true);
     expect(await fits(page)).toBe(true);
   });
@@ -701,17 +706,14 @@ test.describe("in the desktop window", () => {
     await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
     await open(page, snapshot({ afk: on() }));
     await openCfoPanel(page);
-    for (const view of ["Task", "Terminal"]) {
-      await page.locator(".panel-pill").getByRole("button", { name: view, exact: true }).click();
-      expect(Math.round((await page.locator(".context-pane").boundingBox())!.width), view + " view").toBe(360);
-      await expect(toggle(page)).toBeVisible();
-      expect(await within(page, ".panel-header"), view + " view").toBe(true);
-      const overlap = await header(page).evaluate((element) => {
-        const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
-        return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
-      });
-      expect(overlap, view + " view: the status and the toggle overlap").toBe(false);
-    }
+    expect(Math.round((await page.locator(".context-pane").boundingBox())!.width), "the panel").toBe(360);
+    await expect(toggle(page)).toBeVisible();
+    expect(await within(page, ".panel-header"), "the panel").toBe(true);
+    const overlap = await header(page).evaluate((element) => {
+      const status = element.querySelector(".panel-status")!.getBoundingClientRect(), switched = element.querySelector(".afk-toggle")!.getBoundingClientRect();
+      return status.right > switched.left && status.left < switched.right && status.bottom > switched.top && status.top < switched.bottom;
+    });
+    expect(overlap, "the status and the toggle overlap").toBe(false);
   });
 });
 
