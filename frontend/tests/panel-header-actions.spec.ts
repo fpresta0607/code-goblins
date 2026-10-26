@@ -1,4 +1,4 @@
-import { expect, holdStream, type Locator, openTaskList, type Page, test } from "./site";
+import { expect, holdStream, type Locator, openChat, openTaskList, type Page, test } from "./site";
 
 // The Overlord, 2026-10-08 about 21:55Z, of Restart the CFO in the body of
 // the CFO's panel: "what does restart the cfo do.. i want it in header of
@@ -117,6 +117,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await open(page, snapshot());
 
       // Act
+      await openChat(page);
 
       // Assert
       await expect(page.locator(".panel-header")).toHaveClass(/compact/);

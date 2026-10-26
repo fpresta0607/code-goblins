@@ -4,9 +4,9 @@
 .working-helix, .working-dither { position: absolute; inset: 0; display: block; }
 .working-helix { animation: working-helix-morph 8s infinite ease-in-out; }
 .working-dither { display: grid; grid-template-columns: repeat(4, 1fr); gap: .0417em; animation: working-dither-morph 8s infinite ease-in-out; }
-.working-row { position: absolute; left: 50%; width: .1667em; height: .1667em; }
-.working-row > i { position: absolute; left: 0; width: .1667em; height: .1667em; border-radius: 50%; background: currentColor; transform: translateX(-50%); animation: working-helix-a 1.4s infinite ease-in-out; animation-delay: inherit; }
-.working-row > i.b { animation-name: working-helix-b; }
+.working-helix-row { position: absolute; left: 50%; width: .1667em; height: .1667em; }
+.working-helix-row > i { position: absolute; left: 0; width: .1667em; height: .1667em; border-radius: 50%; background: currentColor; transform: translateX(-50%); animation: working-helix-a 1.4s infinite ease-in-out; animation-delay: inherit; }
+.working-helix-row > i.b { animation-name: working-helix-b; }
 @keyframes working-helix-a { 0%, 100% { transform: translateX(calc(-50% + .375em)) scale(1); opacity: 1; } 50% { transform: translateX(calc(-50% - .375em)) scale(.5); opacity: .45; } }
 @keyframes working-helix-b { 0%, 100% { transform: translateX(calc(-50% - .375em)) scale(.5); opacity: .45; } 50% { transform: translateX(calc(-50% + .375em)) scale(1); opacity: 1; } }
 .working-dither > i { background: currentColor; opacity: .1; animation: working-dither 1.1s infinite linear; }
@@ -14,8 +14,8 @@
 @keyframes working-helix-morph { 0%, 30%, 100% { opacity: 1; transform: scale(1); } 45%, 85% { opacity: 0; transform: scale(.78); } }
 @keyframes working-dither-morph { 0%, 30%, 100% { opacity: 0; transform: scale(.78); } 45%, 85% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
-  .working-helix, .working-row > i { animation: none; }
+  .working-helix, .working-helix-row > i { animation: none; }
   .working-dither { display: none; }
-  .working-row > i { transform: translateX(calc(-50% + .25em)); }
-  .working-row > i.b { transform: translateX(calc(-50% - .25em)); }
+  .working-helix-row > i { transform: translateX(calc(-50% + .25em)); }
+  .working-helix-row > i.b { transform: translateX(calc(-50% - .25em)); }
 }

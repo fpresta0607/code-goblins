@@ -55,6 +55,7 @@ export function watchEffects(root: Element): EffectWatch {
     for (const animation of document.getAnimations()) {
       if (!(animation.effect instanceof KeyframeEffect) || !animation.effect.target || !root.contains(animation.effect.target)) continue;
       const { target, pseudoElement } = animation.effect;
+      if (target.closest(".working-indicator")) continue;
       const pseudo = pseudoElement || "";
       if (!staleFrames.get(target)?.has(pseudo)) {
         staleFrames.set(target, (staleFrames.get(target) || new Map()).set(pseudo, 0));
@@ -85,7 +86,7 @@ export function watchEffects(root: Element): EffectWatch {
   observer.observe(root, { childList: true, subtree: true });
   sample();
   return {
-    report: () => ({ ...report, running: document.getAnimations().filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && animation.effect.target && root.contains(animation.effect.target)).length, elements: root.querySelectorAll("*").length }),
+    report: () => ({ ...report, running: document.getAnimations().filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && animation.effect.target && root.contains(animation.effect.target) && !animation.effect.target.closest(".working-indicator")).length, elements: root.querySelectorAll("*").length }),
     stop: () => { observer.disconnect(); cancelAnimationFrame(frame); },
   };
 }

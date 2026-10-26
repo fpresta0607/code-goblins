@@ -200,7 +200,7 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
   const reviewer = baby(page, "Grub III - Test Runner");
   const chip = reviewer.locator(".state-chip");
   await expect(chip).toHaveText("Working 40m");
-  const look = (locator: typeof chip) => locator.evaluate((node) => ({ color: getComputedStyle(node).color, dot: getComputedStyle(node.querySelector(".status-dot")!).backgroundColor }));
+  const look = (locator: typeof chip) => locator.evaluate((node) => ({ color: getComputedStyle(node).color, indicator: getComputedStyle(node.querySelector(".working-indicator")!).color }));
   const working = await look(baby(page, "Grub Jr. - Plumbing Mapper").locator(".state-chip"));
   expect(await look(chip)).toEqual(working);
   await reviewer.hover();

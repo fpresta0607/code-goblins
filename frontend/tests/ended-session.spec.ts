@@ -1,4 +1,4 @@
-import { expect, openTaskList, type Page, test } from "./site";
+import { expect, openChat, openTaskList, type Page, test } from "./site";
 import { parseSnapshot, type Snapshot } from "../src/types";
 
 test.use({ timezoneId: "UTC", viewport: { width: 1440, height: 900 } });
@@ -324,8 +324,6 @@ test("a paused Herdr goblin resumed in the background stays within three live st
 });
 
 for (const backend of ["native", "herdr"] as const) {
-  // A Codex goblin's Terminal view is its terminal, which a Claude Code
-  // goblin's shows only stepped into its messages.
   test(`${backend}: a failed resume opens no transport and Resume from the Task view connects only the resumed generation`, async ({ page }) => {
     const lifecycle = { action: "resume", phase: "failed", at: "2026-09-30T09:58:00Z", kept: [], stopped: [], problems: [], handoff_saved: false, validation_restarts: false };
     const snapshot = parseSnapshot({ healthy: true, instance: "resume-proof", cfo_runs: true, revision: 1,
@@ -351,7 +349,9 @@ for (const backend of ["native", "herdr"] as const) {
     await panel.getByRole("button", { name: "Resume Terminal fixes and handoff" }).click();
     await expect.poll(() => requests).toEqual([expect.objectContaining({ task: "input-proof", generation: "s2-9d41", revision: "q7", action: "resume" })]);
     await publish({ ...snapshot, revision: 2, tasks: [{ ...snapshot.tasks[0], phase: "resuming" }] });
-    await expect(page.getByText("Resuming session...", { exact: true })).toBeVisible();
+    await openChat(page);
+    await expect(panel.locator(".panel-status")).toHaveText("Resuming");
+    await expect(page.getByRole("textbox", { name: "Message Terminal fixes and handoff", exact: true })).toBeVisible();
     expect(await connections()).toEqual([]);
     await publish({ ...snapshot, revision: 3, tasks: [{ ...snapshot.tasks[0], generation: "s3-a17c", phase: "working", runtime: { state: "busy", reason: "", at: "2026-09-30T10:02:00Z" }, lifecycle: undefined, action_error: "" }] });
 

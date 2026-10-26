@@ -81,7 +81,7 @@ const ROOM = 5 * 2 ** 30;
 
 // What a wait for room reads and how long it waits; a test of the wait itself
 // replaces them.
-export const taskList = (page: Page) => page.locator(".goblin-panel > .panel-task")
+export const taskList = (page: Page) => page.locator(".goblin-panel > .panel-task, .panel-side-task")
 
 // openTaskList switches the panel to its task view, as he does with the
 // selector at its top, and returns its full header. A queued task has no
@@ -92,7 +92,8 @@ export async function openTaskList(page: Page): Promise<Locator> {
   const task = page.locator(".panel-view-switch").getByRole("button", { name: "Task", exact: true });
   if (await task.count() && await task.getAttribute("aria-pressed") !== "true") await task.click();
   await expect(place).toBeVisible();
-  const header = page.locator(".goblin-panel > .panel-header");
+  const sideHeader = place.locator(".panel-header-details");
+  const header = await sideHeader.count() ? sideHeader : page.locator(".goblin-panel > .panel-header");
   await expect(header).toHaveCount(1);
   return header;
 }

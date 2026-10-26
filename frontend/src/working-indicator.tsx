@@ -14,7 +14,7 @@ const ROWS = 7;
 export function WorkingIndicator({ ink, label = "Working", compact = false }: { ink: string; label?: string; compact?: boolean }) {
   return <span className={"working-indicator" + (compact ? " compact" : "")} role="status" aria-label={label} style={{ color: ink }}>
     <span className="working-helix" aria-hidden="true">
-      {Array.from({ length: ROWS }, (_, row) => <span className="working-row" key={row} style={{ top: `${(row / (ROWS - 1)) * 75}%`, animationDelay: `${(row / ROWS) * 1.4}s` }}>
+      {Array.from({ length: ROWS }, (_, row) => <span className="working-helix-row" key={row} style={{ top: `${(row / (ROWS - 1)) * 75}%`, animationDelay: `${(row / ROWS) * 1.4}s` }}>
         <i /><i className="b" />
       </span>)}
     </span>
