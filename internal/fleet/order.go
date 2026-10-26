@@ -131,7 +131,7 @@ func queuedBlocks(lines []string, live map[string]bool) ([]queuedBlock, int) {
 	section, first := "", true
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
-		if heading := levelTwoHeading.FindStringSubmatch(trimmed); heading != nil {
+		if heading := levelTwoHeading.FindStringSubmatch(lines[i]); heading != nil {
 			if section == "queued" {
 				first = false
 			}
@@ -173,12 +173,12 @@ func queuedBlocks(lines []string, live map[string]bool) ([]queuedBlock, int) {
 	return blocks, anchor
 }
 
-// continuesRow says an indented line belongs to the row above it: a detail
-// line, not a heading or a nested row of its own.
+// continuesRow says an indented line belongs to the row above it, including
+// a body heading but not a nested row of its own.
 func continuesRow(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	return (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) &&
-		levelTwoHeading.FindStringSubmatch(trimmed) == nil && !parseBacklogRow(trimmed).Structured
+		!parseBacklogRow(trimmed).Structured
 }
 
 // ReadAttention reads the Overlord's order of the goblins in progress, top
