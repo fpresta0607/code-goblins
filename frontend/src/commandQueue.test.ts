@@ -249,6 +249,7 @@ test("he can change any answer a question has, whoever gave it, at any time", ()
   const cfo = { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A", answered_by: "cfo", answered_at: "2026-10-06T02:00:00Z", generation: "g1", change_id: "" };
   const cases: [string, Record<string, unknown>, boolean][] = [
     ["the CFO's answer", cfo, true],
+    ["the CFO's answer with no one named, as an AFK left question settles", { status: "succeeded", answer: "A", answer_kind: "option", answered_option: "A" }, true],
     ["the CFO's answer while he was away", { ...cfo, answered_away: true }, true],
     ["the CFO's answer closed by its ack, with no choice recorded", { ...cfo, answer: "", answered_option: "" }, true],
     ["his own answer", { ...cfo, answered_by: "overlord", answer_id: "x" }, true],
