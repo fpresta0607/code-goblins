@@ -72,6 +72,10 @@ export interface Task extends Evaluation {
   merged: boolean;
   // closed says GitHub closed a finished task's pull request without merging.
   closed: boolean;
+  // history_unavailable says GitHub no longer holds a finished task's pull
+  // request, as when a repository was recreated under the same name: why what
+  // became of it cannot be read, while its outcome and link stay as reported.
+  history_unavailable: string;
   // since is when a live task's session started, or when queued work's brief
   // was written; empty when neither is known.
   since: string;
@@ -1000,6 +1004,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         archived: t.archived === undefined ? false : boolean(t.archived),
         merged: t.merged === undefined ? false : boolean(t.merged),
         closed: t.closed === undefined ? false : boolean(t.closed),
+        history_unavailable: t.history_unavailable === undefined ? "" : string(t.history_unavailable),
         since: string(t.since),
         brief: t.brief === undefined ? false : boolean(t.brief),
         starting: t.starting === undefined ? false : boolean(t.starting),

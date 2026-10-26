@@ -383,6 +383,9 @@ A history card is its pull request link, since it has no live worktree to review
 A finished task finds its merge among every merge of the week, not only the newest 20, so an older merge still marks it merged.
 A finished task's GitHub pull request that no merge commit shows is asked about with `gh pr view` on a history refresh: merged (a squash merge leaves no merge commit) reads Merged, closed without merging reads Closed, and open reads Finished.
 A merged or closed answer is kept and an open one is asked again after 10 minutes.
+A pull request GitHub no longer holds, because a repository was recreated under the same owner and name or the pull request is gone, is no answer at all: the task keeps the outcome and link it reported, its card reads Finished, evidence unavailable with why in its pull request's tip, and the address is not asked about again, since no later read can make it evidence.
+Nor is a newer pull request a recreated repository gave the same number: one opened after the task finished is never its result, so its merge and its title are not adopted and the card says so the same way.
+Neither wakes the CFO, since neither is a failed read it could act on.
 An ask that failed keeps what GitHub last answered and is asked again on the next refresh.
 The board reports it as an error, which wakes the CFO, only once it failed on three refreshes in a row, and from then on it is asked again after 10 minutes.
 The asks of one refresh share a 5-second budget, so a slow GitHub never holds up the supervisor; a pull request not asked before it runs out reads Finished and is asked on the next refresh, and an ask it cuts off counts as failed.

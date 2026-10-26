@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,14 +14,16 @@ import (
 )
 
 type interruptionRunner struct {
-	run       InterruptedRun
-	commands  []string
-	failMerge bool
-	pins      map[string]string
-	startRun  bool
-	endStatus string
-	gateHead  string
-	gateDirty bool
+	run          InterruptedRun
+	commands     []string
+	failMerge    bool
+	pins         map[string]string
+	startRun     bool
+	endStatus    string
+	gateHead     string
+	gateDirty    bool
+	editsCommit  string
+	committedFor string
 }
 
 func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -89,6 +92,22 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 		}
 		return execx.Result{Stdout: []byte(runner.run.Head)}, nil
 	}
+	if strings.Contains(command, "^{tree}") {
+		return execx.Result{Stdout: []byte(strings.Repeat("d", 40))}, nil
+	}
+	if strings.Contains(command, "write-tree") {
+		if runner.gateDirty {
+			return execx.Result{Stdout: []byte(strings.Repeat("e", 40))}, nil
+		}
+		return execx.Result{Stdout: []byte(strings.Repeat("d", 40))}, nil
+	}
+	if strings.Contains(command, "commit-tree") {
+		runner.committedFor = request.Args[len(request.Args)-1]
+		if runner.editsCommit == "" {
+			runner.editsCommit = strings.Repeat("f", 40)
+		}
+		return execx.Result{Stdout: []byte(runner.editsCommit)}, nil
+	}
 	if strings.Contains(command, "rev-parse --show-toplevel") {
 		return execx.Result{Stdout: []byte(request.Dir)}, nil
 	}
@@ -100,6 +119,32 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 		return execx.Result{Stdout: []byte(" M unfinished.go\n?? new-test.go\n")}, nil
 	}
 	return execx.Result{}, nil
+}
+
+// A gate's run worktree is verified against a folder the fleet computed, and
+// git answers with the name the operating system gives the folder it runs in.
+// On a CI runner's temporary folder that is the 8.3 short name of the very
+// same folder, so comparing the two as text stopped recovery before the
+// fixer's edits were kept (PR 1516).
+func TestSameFolderSeesThroughAnotherSpellingOfOneFolder(t *testing.T) {
+	// Arrange
+	folder := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(folder, alias); err != nil {
+		// Windows without Developer Mode and without the right to make
+		// symbolic links falls back to a junction, which needs neither.
+		if out, junctionErr := exec.Command("cmd", "/c", "mklink", "/J", alias, folder).CombinedOutput(); junctionErr != nil {
+			t.Skipf("no alias can be made here: %v (%s)", junctionErr, out)
+		}
+	}
+
+	// Act & Assert
+	if !sameFolder(alias, folder) || !sameFolder(folder, alias) {
+		t.Errorf("sameFolder(%q, %q) = false, want one folder under two names", alias, folder)
+	}
+	if sameFolder(alias, t.TempDir()) {
+		t.Error("two different folders were read as one")
+	}
 }
 
 func TestInterruptPreservesTheGateWorktreeBeyondItsRecordedHead(t *testing.T) {
@@ -114,15 +159,30 @@ func TestInterruptPreservesTheGateWorktreeBeyondItsRecordedHead(t *testing.T) {
 				t.Fatal(err)
 			}
 			runner := &interruptionRunner{run: run, gateHead: strings.Repeat("b", 40), gateDirty: isDirty}
-			_, err := (Reader{Root: root, Commands: runner}).Interrupt(context.Background(), "project", t.TempDir(), run.Branch, run.ID)
-			if (err != nil) != isDirty {
+			interrupted, err := (Reader{Root: root, Commands: runner}).Interrupt(context.Background(), "project", t.TempDir(), run.Branch, run.ID)
+			if err != nil {
 				t.Fatalf("interruption=%v", err)
 			}
 			commands := strings.Join(runner.commands, "\n")
 			pin := strings.Index(commands, "update-ref --no-deref refs/heads/archive/pause-run-1-"+runner.gateHead)
 			abort := strings.Index(commands, "axi abort --run")
-			if pin < 0 || isDirty && abort >= 0 || !isDirty && abort < pin {
+			if pin < 0 || abort < pin {
 				t.Fatalf("gate work was not preserved before abort:\n%s", commands)
+			}
+			// The abort removes the run's worktree with force, so the edits it
+			// holds are committed and pinned under the run before it runs.
+			edits := strings.Index(commands, "update-ref --no-deref "+WorktreeRef(run.ID)+" "+runner.editsCommit)
+			if !isDirty {
+				if edits >= 0 || interrupted.WorktreeEdits != "" {
+					t.Fatalf("a clean worktree was preserved as edits:\n%s", commands)
+				}
+				return
+			}
+			if edits < 0 || edits > abort {
+				t.Fatalf("unfinished gate changes were not pinned before the abort:\n%s", commands)
+			}
+			if interrupted.WorktreeEdits != runner.editsCommit {
+				t.Fatalf("worktree edits = %q, want the pinned %q", interrupted.WorktreeEdits, runner.editsCommit)
 			}
 		})
 	}
