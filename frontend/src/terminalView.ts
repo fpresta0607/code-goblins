@@ -3,7 +3,7 @@ import { drawOnGpu } from "./terminal-gpu";
 import { terminalDocument } from "./terminalDocument";
 import { copyText } from "./clipboard.ts";
 import { attachDictatedInput } from "./dictated-input";
-import { clipboardInput, imageKey, terminalKey } from "./terminal-keys";
+import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
 import { stripPasteEscapes } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, type ScreenState } from "./terminalStream";
@@ -39,6 +39,9 @@ export interface ViewEvents {
   // A picture pasted on another device, to put on this PC's clipboard before
   // the harness's image key is pressed.
   image: (picture: File) => void;
+  // What a paste the browser could not start met, such as a clipboard read it
+  // refused, to say beside the terminal.
+  problem: (why: string) => void;
   // While he reads the history, where it ends, the top of the panel's last
   // row in px from the panel's top, which Jump to bottom sits above; null at
   // the live end.
@@ -421,6 +424,11 @@ export class TerminalView {
       if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
       return false;
     }
+    if (down && event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      void this.pasteClipboardKey();
+      return false;
+    }
     const shortcut = terminalKey(event, this.term, this.copy);
     if (shortcut !== null) return shortcut;
     if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing) {
@@ -456,6 +464,16 @@ export class TerminalView {
     if (!this.term.hasSelection()) return;
     copyText(this.term.getSelection()).then(() => this.events.copied(), () => {});
   };
+
+  // pasteClipboardKey pastes what the clipboard holds for Alt+V, which the
+  // browser starts no paste event for: its text as a paste, its picture on
+  // this PC's clipboard for the harness's image key, and a refusal said.
+  private async pasteClipboardKey(): Promise<void> {
+    const input = await readClipboard();
+    if ("text" in input) { if (!this.paste(input.text)) this.isSendable(); }
+    else if ("image" in input) this.events.image(input.image);
+    else this.events.problem(input.error);
+  }
 
   private readonly pasteClipboard = (event: ClipboardEvent): void => {
     event.preventDefault();

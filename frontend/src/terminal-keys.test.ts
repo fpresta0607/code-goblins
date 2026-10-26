@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Terminal } from "@xterm/xterm";
-import { clipboardInput, terminalKey } from "./terminal-keys.ts";
+import { clipboardInput, readClipboard, terminalKey } from "./terminal-keys.ts";
 
 const terminal = { hasSelection: () => false, clearSelection: () => {} } as unknown as Terminal;
 
@@ -83,3 +83,36 @@ for (const hostname of ["127.0.0.1", "localhost", "[::1]"]) {
     assert.deepEqual(input, { key: "\x1bv" });
   });
 }
+
+// A clipboard item as the browser's own read hands one on.
+const item = (types: string[], blob: Blob) => ({ types, getType: async () => blob });
+
+const withClipboard = (read: () => Promise<unknown[]>) => {
+  Object.defineProperty(navigator, "clipboard", { value: { read }, configurable: true });
+};
+
+test("Alt+V's read hands on the clipboard's text", async () => {
+  withClipboard(async () => [item(["text/plain"], new Blob(["pasted words"], { type: "text/plain" }))]);
+
+  assert.deepEqual(await readClipboard(), { text: "pasted words" });
+});
+
+test("Alt+V's read hands on a picture in the clipboard", async () => {
+  withClipboard(async () => [item(["image/png"], new Blob([new Uint8Array([137, 80, 78, 71])], { type: "image/png" }))]);
+
+  const input = await readClipboard();
+
+  assert.ok("image" in input && input.image.type === "image/png", "the picture itself, not a key");
+});
+
+test("a clipboard read the browser refuses says so rather than dropping the paste", async () => {
+  withClipboard(async () => { throw new Error("denied"); });
+
+  assert.deepEqual(await readClipboard(), { error: "The browser refused to read the clipboard. Press Ctrl+V to paste." });
+});
+
+test("an empty clipboard says it holds nothing to paste", async () => {
+  withClipboard(async () => []);
+
+  assert.deepEqual(await readClipboard(), { error: "The clipboard holds nothing to paste." });
+});

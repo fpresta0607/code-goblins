@@ -10,7 +10,7 @@ import { TerminalEmpty } from "./TerminalEmpty";
 import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
 import { terminalDocument } from "./terminalDocument";
-import { clipboardInput, imageKey, terminalKey } from "./terminal-keys";
+import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal-keys";
 import { putImage } from "./terminal-image";
 import { TerminalTextSheet } from "./terminal-text-sheet";
 import { attachTouchScroll, terminalText } from "./terminal-touch";
@@ -387,6 +387,19 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
       else if (input && "image" in input) addImageValue.current(input.image);
       else if (input) { closeHistory(); send(input.key); }
     };
+    // Alt+V starts no browser paste event, so the board reads the clipboard
+    // itself: text as a paste, a picture on this PC's clipboard for the
+    // harness's image key, and a refusal said rather than dropped.
+    const pasteKey = (event: KeyboardEvent): boolean => {
+      if (event.type !== "keydown" || !event.altKey || event.ctrlKey || event.metaKey || event.key.toLowerCase() !== "v") return false;
+      event.preventDefault();
+      void readClipboard().then((input) => {
+        if ("text" in input) typePaste(input.text);
+        else if ("image" in input) addImageValue.current(input.image);
+        else showFeedback(input.error);
+      });
+      return true;
+    };
     element.addEventListener("paste", paste, true);
     pastElement.addEventListener("paste", paste, true);
     const copy = (from: Terminal = showing ? past : term) => {
@@ -438,6 +451,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     term.attachCustomKeyEventHandler((event) => {
       // Escape belongs to the pane, never the surrounding panel.
       event.stopPropagation();
+      if (pasteKey(event)) return false;
       const dictated = dictate(event);
       if (dictated !== null) return dictated;
       if (event.shiftKey && event.key === "Escape") {
@@ -458,6 +472,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     });
     past.attachCustomKeyEventHandler((event) => {
       event.stopPropagation();
+      if (pasteKey(event)) return false;
       const dictated = dictate(event);
       if (dictated !== null) return dictated;
       const shortcut = terminalKey(event, past, () => copy(past));

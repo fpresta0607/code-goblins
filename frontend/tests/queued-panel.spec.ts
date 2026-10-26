@@ -64,7 +64,7 @@ function crowded(): string[] {
   const GAP = 8;
   const region = document.querySelector(".context-pane")!;
   const frame = region.getBoundingClientRect();
-  const controls = [...region.querySelectorAll<HTMLElement>(":is(.panel-header, .panel-task, .panel-task-fold) :is(button, a, textarea)")].filter((element) => element.getClientRects().length && !element.closest("dialog"));
+  const controls = [...region.querySelectorAll<HTMLElement>(":is(.panel-header, .panel-task, .panel-view-switch) :is(button, a, textarea)")].filter((element) => element.getClientRects().length && !element.closest("dialog"));
   const name = (element: HTMLElement) => element.getAttribute("aria-label") || element.textContent || element.tagName;
   const problems: string[] = [];
   controls.forEach((first, at) => {

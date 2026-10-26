@@ -1,5 +1,5 @@
-import { expect, test } from "./site";
-import { at, box, card, field, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { expect, test, type Page } from "./site";
+import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 // The Overlord chose design A on 2026-10-22, and two tabs that evening: a
 // Claude Code session's Terminal view shows its messages, and the box under
@@ -259,4 +259,142 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // Assert: the note is clear again and the message has not been typed twice.
   await expect(note).toHaveText("");
   expect(typed(relay), "a queued message is not typed on release by this path").toEqual(before);
+});
+
+// A 1x1 PNG, the smallest picture a paste can carry.
+const PICTURE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const KEPT = "/home/goblin/composer-files/pasted-1.png";
+
+async function pastePicture(page: Page) {
+  await field(page).evaluate((element, picture) => {
+    const bytes = Uint8Array.from(atob(picture), (letter) => letter.charCodeAt(0));
+    const clipboard = new DataTransfer();
+    clipboard.items.add(new File([bytes], "shot.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: clipboard }));
+  }, PICTURE);
+}
+
+async function readClipboardOf(page: Page, text: string, picture = "") {
+  await page.addInitScript(({ words, image }) => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { read: async () => {
+      if (!image) return [{ types: ["text/plain"], getType: async () => new Blob([words], { type: "text/plain" }) }];
+      const bytes = Uint8Array.from(atob(image), (letter) => letter.charCodeAt(0));
+      return [{ types: ["image/png"], getType: async () => new File([bytes], "shot.png", { type: "image/png" }) }];
+    } } });
+  }, { words: text, image: picture });
+}
+
+test("a picture pasted into the box is kept where the session reads it, and the message names its path", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  const posts: { url: string; body: string }[] = [];
+  await page.route("**/api/composer/file**", async (route) => {
+    posts.push({ url: route.request().url(), body: route.request().postDataBuffer()?.toString("base64") ?? "" });
+    await route.fulfill({ json: { path: KEPT } });
+  });
+  await openGoblin(page);
+
+  // Act
+  await pastePicture(page);
+
+  // Assert
+  await expect(field(page)).toHaveValue(KEPT);
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].url).toContain("task=" + GOBLIN.id);
+  expect(posts[0].url).toContain("name=shot.png");
+  expect(posts[0].body.length, "the picture's own bytes went, not the clipboard's name").toBeGreaterThan(80);
+  await send(page).click();
+  await expect.poll(() => typed(relay)).toContain(pasted(KEPT) + "\r");
+});
+
+test("a picture the board cannot keep says so in the box rather than disappearing", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 500, json: { error: "The file could not be kept: no room" } }));
+  await openGoblin(page);
+
+  // Act
+  await pastePicture(page);
+
+  // Assert
+  await expect(field(page)).toHaveValue("");
+  await expect(box(page).locator(".composer-note")).toHaveText("That picture was not added: The file could not be kept: no room");
+});
+
+test("Alt+V pastes the clipboard's text into the box, as Ctrl+V does", async ({ page }) => {
+  // Arrange
+  await readClipboardOf(page, "from the clipboard");
+  await open(page);
+  await openGoblin(page);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("Alt+v");
+
+  // Assert
+  await expect(field(page)).toHaveValue("from the clipboard");
+});
+
+test("Alt+V pastes a picture into the box by the path the session reads", async ({ page }) => {
+  // Arrange
+  await readClipboardOf(page, "", PICTURE);
+  await open(page);
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ json: { path: KEPT } }));
+  await openGoblin(page);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("Alt+v");
+
+  // Assert
+  await expect(field(page)).toHaveValue(KEPT);
+});
+
+test("a slash command offers the session's own commands, filters, takes the keyboard and keeps its arguments", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ["compact", "context", "cost"] } }));
+  await openGoblin(page);
+  const list = page.getByRole("listbox", { name: "Commands", exact: true });
+
+  // Act: the command word filters the list.
+  await field(page).fill("/co");
+
+  // Assert
+  await expect(list).toBeVisible();
+  await expect(list.getByRole("option")).toHaveText(["/compact", "/context", "/cost"]);
+  await field(page).fill("/cos");
+  await expect(list.getByRole("option")).toHaveText(["/cost"]);
+
+  // Act: the keyboard picks it.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+
+  // Assert: the command is in the box with room for its arguments.
+  await expect(field(page)).toHaveValue("/cost ");
+  await expect(list).toHaveCount(0);
+
+  // Act: Escape closes the list without clearing the draft.
+  await field(page).fill("/co");
+  await expect(list).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Assert
+  await expect(field(page)).toHaveValue("/co");
+  await expect(list).toHaveCount(0);
+  await field(page).press("Enter");
+  await expect.poll(() => typed(relay)).toContain(pasted("/co") + "\r");
+});
+
+test("a leading ! command is typed into the session as the harness's own shell command", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await openGoblin(page);
+
+  // Act
+  await field(page).fill("!git status --short");
+  await field(page).press("Enter");
+
+  // Assert
+  await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
 });

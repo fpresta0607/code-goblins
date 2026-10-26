@@ -7,21 +7,21 @@
 .conversation-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* The page scrolls itself and holds its place by its own anchor
    (MessagesView), so the browser's anchoring stays out of it. */
-.conversation { flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 14px; color: #e3ecef; line-height: 1.55; }
+.conversation { flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 40px; color: #e3ecef; line-height: 1.55; }
 .conversation:focus-visible { outline-offset: -3px; }
 /* A short conversation sits at the bottom, by the latest, as a chat does,
    and a wide panel keeps lines a readable length. */
 .conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: .875em; min-height: 100%; }
 .message { position: relative; display: grid; gap: .4em; min-width: 0; }
-.message-from { display: flex; align-items: center; gap: .5em; min-height: 32px; color: var(--muted); font-size: .9375em; font-weight: 700; }
-.message-from > .icon { width: 1.1em; height: 1.1em; }
-.message-reply .message-from > .icon { color: rgb(215, 119, 87); }
-/* A prompt on the right in a bubble, under who it is from. */
+/* A prompt on the right in a bubble, with its Copy in the corner the speaker
+   line used to hold. */
 .message-prompt { align-self: flex-end; justify-items: end; max-width: min(78%, 46em); }
+.message-prompt > .message-copy { position: absolute; top: 0; right: 100%; margin-right: .25em; z-index: 1; }
 .message-bubble { min-width: 0; max-width: 100%; padding: .625em .875em; border: 1px solid var(--glass-border-hover); border-radius: 14px 14px 4px 14px; background: linear-gradient(135deg, rgba(0, 229, 155, 0.10), rgba(0, 140, 255, 0.06)), var(--hero-surface); overflow-wrap: anywhere; }
 .message-prompt.cfo .message-bubble { border-color: var(--glass-border); background: var(--field-bg); }
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
-.message-queued { padding: 0 .5em; border: 1px solid var(--glass-border); border-radius: 999px; font-size: .8125em; }
+.message-origin { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
+.message-queued { justify-self: end; padding: 0 .5em; border: 1px solid var(--glass-border); border-radius: 999px; font-size: .8125em; }
 .message-output, .call-result { max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-output { justify-self: stretch; }
 /* What Claude Code wrote, as the question cards draw a message, with its
@@ -50,10 +50,13 @@ div.message-call { padding-left: calc(1.375em + 1.1em); }
 .call-mark.running { color: var(--blue); }
 .call-mark.failed { color: rgb(255, 107, 128); }
 .call-mark.denied { color: var(--amber); }
-.call-what { display: flex; align-items: baseline; gap: .5em; min-width: 0; overflow: hidden; }
+.call-what { display: flex; align-items: baseline; gap: .5em; min-width: 0; }
 .call-what > strong { flex: none; color: #dbe7ee; font-weight: 800; }
-.call-subject { min-width: 0; overflow: hidden; color: var(--muted); font: .9375em var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.call-end { display: flex; align-items: center; gap: .5em; color: var(--muted); white-space: nowrap; }
+/* A long command wraps in place rather than being cut with an ellipsis: the
+   row grows to what it ran, so nothing re-truncates as the panel resizes. */
+.call-subject { min-width: 0; color: var(--muted); font: .9375em/1.5 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+.call-end { display: flex; align-items: start; gap: .5em; color: var(--muted); white-space: nowrap; }
+div.message-call, .message-baby, .disclosure.message-call > summary { align-items: start; }
 .call-added { color: rgb(78, 186, 101); font-weight: 800; }
 .call-removed { color: rgb(255, 107, 128); font-weight: 800; }
 .disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: 0 .75em .75em; }
@@ -65,9 +68,13 @@ div.message-call { padding-left: calc(1.375em + 1.1em); }
 .message-baby .text-button { display: inline-flex; align-items: center; gap: .25em; font-size: 1em; }
 /* Thinking and a compaction's summary, folded, in muted words. */
 .message-thinking, .message-compaction { color: var(--muted); }
-.disclosure.message-thinking > summary, .message-compaction > .disclosure > summary { width: max-content; max-width: 100%; cursor: pointer; font-size: .9375em; font-style: italic; }
-.disclosure.message-thinking > summary > .icon, .message-compaction > .disclosure > summary > .icon { width: 1.1em; height: 1.1em; }
-.disclosure.message-thinking > .disclosure-content, .message-compaction > .disclosure > .disclosure-content { margin-top: .375em; padding: 0 0 0 1em; border-left: 2px solid var(--border); font-size: .9375em; }
+.message-compaction > .disclosure > summary { width: max-content; max-width: 100%; cursor: pointer; font-size: .9375em; font-style: italic; }
+.message-compaction > .disclosure > summary > .icon { width: 1.1em; height: 1.1em; }
+.message-compaction > .disclosure > .disclosure-content { margin-top: .375em; padding: 0 0 0 1em; border-left: 2px solid var(--border); font-size: .9375em; }
+/* Thinking is text he can read: quieter than the reply, with no chevron and
+   no state to open (the Overlord, 2026-10-26). */
+.message-thinking-read { display: grid; gap: .3em; padding: .1em 0 .1em .85em; border-left: 2px solid var(--border); color: #9fb0ba; font-size: .9375em; }
+.thinking-label { color: #7f95a2; font: 700 .75em/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 .message-compaction { position: relative; align-self: stretch; padding: 0 40px; }
 .message-compaction > .disclosure > summary { margin: 0 auto; }
 .message-notice, .message-interrupt { align-self: center; max-width: 46em; margin: 0; color: var(--muted); font-size: .9375em; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
@@ -91,3 +98,65 @@ div.message-call { padding-left: calc(1.375em + 1.1em); }
   .conversation { padding: 12px 12px 10px; }
   .message-prompt { max-width: 88%; }
 }
+
+/* The conversation's bottom corner: the harness's streaming animation while
+   it works, the stats beside it, and when it last wrote once it rests. Small
+   and quiet, part of the conversation, never a pill over it. */
+.session-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .3em .9em; padding: 0 4px .2em; color: var(--muted); font-size: .8125em; }
+.session-working { display: inline-flex; align-items: center; gap: .5em; font-weight: 800; }
+.session-worked { white-space: nowrap; }
+.session-fact { white-space: nowrap; }
+.session-stop { min-height: 26px; margin-left: .4em; padding: 2px 10px; font-size: .8125em; }
+.session-stop .icon { width: 14px; height: 14px; }
+.session-fact.muted { opacity: .8; }
+/* The composer floats over the conversation, at the bottom, as the reference
+   card sits over the page: no outer frame, a rounded card with its prompt
+   over the row of pills, and the banner above it. */
+.composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; gap: 8px; padding: 0 16px 16px; }
+.composer-dock > .composer { padding: 0; border-top: 0; background: transparent; }
+.composer-dock .composer-box { border-radius: 20px; border: 0; background: #0b171cf2; box-shadow: 0 18px 44px #000a, inset 0 1px 0 #ffffff0a; backdrop-filter: blur(14px); }
+.composer-dock .composer-sent { max-height: 10rem; overflow: auto; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: 14px; background: #0b171ce6; }
+.composer-dock .usage-banner { margin: 0; }
+/* A message the board still holds for delivery, in the conversation. */
+.queued-message.pane { display: grid; align-self: flex-end; gap: .35em; max-width: min(78%, 46em); padding: .55em .75em; border: 1px dashed var(--glass-border-hover); border-radius: 14px 14px 4px 14px; background: #0b171cf2; scroll-margin-bottom: 18px; }
+.queued-bubble { border-style: dashed; }
+.queued-line { display: flex; flex-wrap: wrap; gap: .25em .6em; margin: 0; color: var(--muted); font-size: .8125em; }
+.queued-line strong { color: var(--amber); }
+.queued-state { display: grid; place-items: center; width: 22px; height: 22px; margin: 0; color: var(--amber); }
+.queued-state .icon { width: 16px; height: 16px; }
+.queued-actions { display: flex; flex-wrap: wrap; gap: .35em; }
+.queued-actions .labelled-button { min-height: 30px; padding: 2px 10px; font-size: .8125em; }
+.queued-actions .icon { width: 15px; height: 15px; }
+.queued-problem { margin: 0; color: var(--amber); font-size: .8125em; }
+.queued-edit { display: grid; gap: .4em; }
+.queued-edit textarea { width: 100%; min-height: 3em; padding: .5em .65em; border: 1px solid var(--glass-border-hover); border-radius: 10px; background: var(--field-bg); color: #edf4f3; resize: vertical; }
+.queued-message.queue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .25em .6em; }
+.queued-message.queue .composer-sent-text { grid-column: 1 / -1; }
+.queued-message.queue .queued-line, .queued-message.queue .queued-actions, .queued-message.queue .queued-problem, .queued-message.queue .queued-edit { grid-column: 1 / -1; }
+/* The session's usage above the composer: one line, and the full stats it
+   opens in place, scrolling in its own box so the composer stays in reach. */
+.usage-banner { display: grid; flex: none; gap: 8px; margin: 0 14px 8px; padding: 8px 12px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f6dcb6; }
+.usage-banner-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.usage-banner-line > .icon { flex: none; width: 20px; height: 20px; color: var(--amber); }
+.usage-banner-words { flex: 1; min-width: 0; display: grid; gap: 2px; margin: 0; }
+.usage-banner-words strong { font-weight: 800; }
+.usage-banner-words span { color: #e0c7a4; font-size: .875em; }
+.usage-stats { display: grid; gap: 4px; max-height: 30dvh; margin: 0; padding-top: 8px; overflow: auto; border-top: 1px solid #73533855; }
+.usage-stats > div { display: flex; gap: 12px; font-size: .875em; }
+.usage-stats dt { flex: none; width: 10em; color: #e0c7a4; }
+.usage-stats dd { margin: 0; color: #f6dcb6; overflow-wrap: anywhere; }
+
+/* Each of his messages keeps Copy and when it was sent in a small row under
+   it, hidden until he taps the message or points at it, and closed when he
+   taps away. On a touch screen only the tap opens it. */
+.message-actions { display: flex; align-items: center; justify-content: flex-end; gap: .5em; min-height: 24px; color: var(--muted); font-size: .8125em; visibility: hidden; opacity: 0; transition: opacity .12s ease; }
+.message-prompt:hover .message-actions, .message-prompt:focus-within .message-actions, .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }
+.message-actions .message-copy { position: static; opacity: 1; border: 1px solid var(--glass-border); background: var(--hero-surface); }
+.message-actions time { white-space: nowrap; }
+@media (hover: none) {
+  .message-prompt .message-actions { visibility: hidden; opacity: 0; }
+  .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }
+}
+
+/* A settled selection copies itself, and says so quietly in the corner. */
+.conversation-copied { position: absolute; top: 10px; right: 14px; z-index: 2; padding: 3px 10px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--hero-surface); color: var(--mint); font-size: .8125em; }

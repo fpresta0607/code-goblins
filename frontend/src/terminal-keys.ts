@@ -42,3 +42,31 @@ export function clipboardInput(event: ClipboardEvent, harness: string): { text: 
   if (!isKey) return null;
   return { key: imageKey(harness) };
 }
+
+// What a clipboard read hands on, and why it could not when it could not.
+export type ClipboardRead = { text: string } | { image: File } | { error: string };
+
+// readClipboard reads what the clipboard holds for a paste the browser does
+// not start itself, such as Alt+V: its text, or its picture. The browser may
+// refuse the read, and then the answer says so rather than dropping the
+// paste (the Overlord, 2026-10-26: "alt + v or ctrl + c both should work for
+// paste").
+export async function readClipboard(): Promise<ClipboardRead> {
+  if (!navigator.clipboard?.read) return { error: "The browser cannot read the clipboard here. Press Ctrl+V to paste." };
+  try {
+    const items = await navigator.clipboard.read();
+    let image: File | null = null;
+    for (const item of items) {
+      if (item.types.includes("text/plain")) {
+        const text = await (await item.getType("text/plain")).text();
+        if (text) return { text };
+      }
+      const type = item.types.find((each) => each.startsWith("image/"));
+      if (type && !image) image = new File([await item.getType(type)], "pasted.png", { type });
+    }
+    if (image) return { image };
+    return { error: "The clipboard holds nothing to paste." };
+  } catch {
+    return { error: "The browser refused to read the clipboard. Press Ctrl+V to paste." };
+  }
+}

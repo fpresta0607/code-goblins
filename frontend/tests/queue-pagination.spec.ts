@@ -28,10 +28,10 @@ test("the CFO queue can turn to its short final page without a render loop", asy
   await openBoardPastFirstRun(page);
   await page.keyboard.press("Control+Alt+1");
   await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
-  await expect(page.locator(".panel-side-task")).toHaveCount(1)
+  await expect(page.locator(".panel-view-switch")).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "832px"; });
-  await expect(page.locator(".panel-task-fold")).toHaveCount(1)
+  await expect(page.locator(".panel-view-switch")).toBeVisible();
   await openTaskList(page)
   const queue = page.locator(".cfo-queue");
   let held = 0;

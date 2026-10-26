@@ -472,6 +472,15 @@ func (s *Service) Done() <-chan struct{} { return s.done }
 // Overlord's business.
 const storageGrace = 30 * time.Second
 
+// wakeActions asks the worker to take the next queued action now rather than
+// at its next cycle, as Send now on a queued message does.
+func (s *Service) wakeActions() {
+	select {
+	case s.work <- struct{}{}:
+	default:
+	}
+}
+
 func (s *Service) publish(err error) {
 	if errors.Is(err, ErrStorage) {
 		if since := s.Store.failingSince.Load(); since == 0 || time.Since(time.Unix(0, since)) < storageGrace {

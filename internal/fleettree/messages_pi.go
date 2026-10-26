@@ -56,6 +56,18 @@ type piMessage struct {
 	Output       string          `json:"output"`
 	ExitCode     *int            `json:"exitCode"`
 	Summary      string          `json:"summary"`
+	Usage        piUsage         `json:"usage"`
+}
+
+// piUsage is what one assistant message says the request spent.
+type piUsage struct {
+	Input       int64 `json:"input"`
+	Output      int64 `json:"output"`
+	CacheRead   int64 `json:"cacheRead"`
+	TotalTokens int64 `json:"totalTokens"`
+	Cost        struct {
+		Total float64 `json:"total"`
+	} `json:"cost"`
 }
 
 // piBlock is one block of a user's or an assistant's content.
@@ -90,6 +102,11 @@ type piRetained struct {
 	errorMessage string
 	blocks       []Block
 	pictures     []Picture
+	// inputTokens, outputTokens, cacheReadTokens and costUSD are what one
+	// assistant message recorded, and contextTokens what its request carried.
+	inputTokens, outputTokens, cacheReadTokens int64
+	contextTokens                              int64
+	costUSD                                    float64
 
 	// A tool result answers the call answers, with result or a failure.
 	answers        string
@@ -134,6 +151,13 @@ type piMessageLog struct {
 	pictures map[string]piPictureAt
 	revision uint64
 	epoch    uint64
+	// home reads the harness's own model catalog for the context window, and
+	// usage is what the branch says the session spent; windowFor is the model
+	// whose window window holds.
+	home      string
+	usage     Usage
+	window    int64
+	windowFor string
 }
 
 // reset starts the log over, reading the conversation anew from its first byte.
@@ -146,6 +170,7 @@ func (l *piMessageLog) reset(epoch uint64) {
 	l.pictures = map[string]piPictureAt{}
 	l.revision = 0
 	l.epoch = epoch
+	l.usage, l.window, l.windowFor = Usage{}, 0, ""
 }
 
 // update reads the lines written since the last read, and does nothing at all
@@ -244,6 +269,7 @@ func (l *piMessageLog) rebuild(epoch func() uint64) {
 	l.epoch = epoch()
 	l.messages, l.changed = nil, nil
 	l.calls = map[string]piCallAt{}
+	l.usage, l.window, l.windowFor = Usage{}, 0, ""
 	order := l.branchOrder()
 	if len(order) > 0 {
 		l.leaf = l.entries[order[len(order)-1]].id
@@ -329,6 +355,14 @@ func (l *piMessageLog) show(entry piRetained) {
 		// answers a call fills that call in place, and the retained entry must
 		// stay as it was read for a branch that leaves the result out.
 		l.add(Message{ID: entry.id, Kind: MessageReply, At: entry.at, Model: entry.model, Blocks: slices.Clone(entry.blocks)})
+		l.usage.add(entry.inputTokens, entry.outputTokens, entry.cacheReadTokens, entry.model)
+		l.usage.CostUSD += entry.costUSD
+		if entry.contextTokens > 0 {
+			l.usage.ContextTokens = entry.contextTokens
+		}
+		if entry.model != "" && entry.model != l.windowFor {
+			l.windowFor, l.window = entry.model, piContextWindow(l.home, entry.model)
+		}
 		if entry.stopReason == "aborted" || entry.stopReason == "error" {
 			why := strings.TrimSpace(entry.errorMessage)
 			if why == "" {
@@ -391,6 +425,8 @@ func (l *piMessageLog) retain(entry piSessionEntry, offset int64) piRetained {
 	case "assistant":
 		kept.model = strings.Trim(strings.Join([]string{said.Provider, said.Model}, "/"), "/")
 		kept.stopReason, kept.errorMessage = said.StopReason, said.ErrorMessage
+		kept.inputTokens, kept.outputTokens, kept.cacheReadTokens = said.Usage.Input, said.Usage.Output, said.Usage.CacheRead
+		kept.contextTokens, kept.costUSD = said.Usage.TotalTokens, said.Usage.Cost.Total
 		for index, block := range piBlocks(said.Content) {
 			switch block.Type {
 			case "text":
@@ -518,7 +554,7 @@ func (r *Reader) piLog(path string) (*piMessageLog, error) {
 	}
 	log := r.piLogs[path]
 	if log == nil {
-		log = &piMessageLog{path: path}
+		log = &piMessageLog{path: path, home: r.Home}
 		log.reset(epoch())
 		r.piLogs[path] = log
 	}
@@ -608,7 +644,43 @@ func (l *piMessageLog) page(before int) MessagePage {
 	for _, message := range l.messages[start:end] {
 		page.Messages = append(page.Messages, shared(message))
 	}
+	if l.usage != (Usage{}) {
+		usage := l.usage
+		usage.ContextWindow = l.window
+		page.Usage = &usage
+	}
 	return page
+}
+
+// piContextWindow reads the context window pi's own model catalog names for
+// model, whose recorded name is provider/model, and 0 when the catalog or the
+// model is not there. It reads nothing else and changes nothing.
+func piContextWindow(home, model string) int64 {
+	data, err := fsx.ReadFile(filepath.Join(home, ".pi", "agent", "models-store.json"))
+	if err != nil {
+		return 0
+	}
+	var catalog map[string]struct {
+		Models []struct {
+			ID            string `json:"id"`
+			ContextWindow int64  `json:"contextWindow"`
+		} `json:"models"`
+	}
+	if json.Unmarshal(data, &catalog) != nil {
+		return 0
+	}
+	id := model
+	if at := strings.LastIndex(id, "/"); at >= 0 {
+		id = id[at+1:]
+	}
+	for _, provider := range catalog {
+		for _, listed := range provider.Models {
+			if listed.ID == id {
+				return listed.ContextWindow
+			}
+		}
+	}
+	return 0
 }
 
 // since is every message that began or changed after cursor, with where the

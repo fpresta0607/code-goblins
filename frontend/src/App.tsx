@@ -46,7 +46,7 @@ import { Composer } from "./composer";
 import { useTerminalLink } from "./terminal-link";
 import { liveCfoSession } from "./workflow";
 import { messagesQuery } from "./session-messages";
-import { takesMessages } from "./messages";
+import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { useChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
 
@@ -91,9 +91,6 @@ const BOARD_LAYOUT_KEY = "cfo-board-layout";
 // the 960 px container rule on .task-board in styles.css, which
 // tests/kanban-board.spec.ts holds to this number.
 const KANBAN_NEEDS_OVER = 960;
-// A panel at least this wide draws its task list as a column beside its
-// messages or terminal, and a narrower one folds it under its header.
-const SIDE_NEEDS = 900;
 
 export function App() {
   const [windowFeedback, showWindowFeedback] = useClickFeedback();
@@ -112,10 +109,11 @@ export function App() {
   const [selected, setSelected] = useState<Selection | null>(null);
   // The CFO chosen by name, which the Board shows in the panel too.
   const [cfoOpen, setCfoOpen] = useState(false);
-  // The column beside the panel's stage that its task list is drawn into,
-  // and whether the panel is wide enough for it.
+  // The view the panel chose: its conversation or its task panel, from the
+  // selector at its top, held while he moves between goblins.
+  const [panelView, setPanelView] = useState<PanelView>("terminal");
+  // The column a maximized panel draws its task list into, beside the stage.
   const [side, setSide] = useState<HTMLElement | null>(null);
-  const [isPaneWide, setPaneWide] = useState(false);
   const [selectionEpoch, setSelectionEpoch] = useState(0);
   const [paneOpen, setPaneOpen] = useState(true);
   const [paneSize, setPaneSize] = useState<number | null>(() => Number(stored(PANE_WIDTH_KEY)) || null);
@@ -297,12 +295,6 @@ export function App() {
     observer.observe(canvas.current);
     return () => observer.disconnect();
   }, [firstRun]);
-  useEffect(() => {
-    if (!pane.current) return;
-    const observer = new ResizeObserver(([entry]) => setPaneWide(entry.contentRect.width >= SIDE_NEEDS));
-    observer.observe(pane.current);
-    return () => observer.disconnect();
-  }, [firstRun]);
   const close = () => {
     setPaneOpen(false);
     requestAnimationFrame(() => returnFocus.current?.isConnected && returnFocus.current.focus());
@@ -316,11 +308,19 @@ export function App() {
   const views = panelViews(selected ? task : undefined, selected ? selectedSession : undefined);
   // A queued task has no terminal yet, so its panel is its task list alone,
   // and a baby goblin's panel is its terminal alone.
-  const shownView: PanelView = child || views.includes("terminal") ? "terminal" : "task";
+  const shownView: PanelView = child || views.includes("terminal") ? panelView : "task";
   // The session's own terminal, by the terminal deck's key, whether its
   // harness works, which the box's working line shows, and that terminal's
   // link, which says what it was last told of the harness's screen.
   const isWorking = ["busy", "working", "active"].includes((cfoShown ? snapshot && liveCfoSession(snapshot)?.runtime?.state : task?.runtime?.state) || "");
+  // What the conversation's stats read: the session's harness, the model and
+  // effort the board recorded for it, and the memory its processes hold.
+  const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
+  const panelModel = cfoShown || !task ? ((snapshot && liveCfoSession(snapshot)?.model) || "") : task.model || "";
+  const panelEffort = cfoShown || !task ? "" : task.effort || "";
+  const panelMemory = cfoShown || !task ? 0 : task.tree?.memory || 0;
+  const panelWorkingSince = cfoShown || !task ? ((snapshot && liveCfoSession(snapshot)?.runtime?.at) || "") : task.runtime?.at || "";
+  const panelPending = task && !cfoShown && snapshot ? messagesTo(snapshot, task.id).filter(isPendingMessage) : [];
   // A session the board reads as messages shows them, with its terminal laid
   // out behind them in the same box for its box to type through. The terminal steps into their place, with the keyboard,
   // when what the box sent opens a screen of the harness's own before a turn
@@ -415,6 +415,9 @@ export function App() {
   // drawn, its corner button, and what Open in terminal met.
   const toggleMaximized = () => {
     const choice = String(!maximized);
+    // A maximized panel shows both its conversation and its task list, so it
+    // opens on the conversation with no selector to switch.
+    if (!maximized) setPanelView("terminal");
     setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice }));
     store(MAXIMIZED_KEYS[maximizeView], choice);
   };
@@ -482,7 +485,7 @@ export function App() {
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
-            taskPlace={shownView === "task" ? "alone" : compact || !isPaneWide ? "fold" : "side"} side={side} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
@@ -492,9 +495,11 @@ export function App() {
             Back bar is the way back to the conversation and its box. */}
         <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn || classicInPlace} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
-            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} shown={messagesShown} visible={connected}
+            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} harness={panelHarness} model={panelModel} effort={panelEffort} memory={panelMemory}
+            isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending} onStop={() => live?.escape()}
+            subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
-            box={queuedBox ? undefined : <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
+            box={queuedBox ? undefined : <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey}
               focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus}
@@ -507,11 +512,11 @@ export function App() {
             conversation uses, moved here rather than drawn twice, and it types
             nothing into the terminal. */}
         {snapshot && queuedBox && <div className="classic-queue">
-          <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} isWorking={isWorking}
+          <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey}
             focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />
         </div>}
         </div>
-        {!compact && isPaneWide && <div ref={setSide} className="panel-side" hidden={!!child} />}
+        {panelWide && !child && <div ref={setSide} className="panel-side" />}
         </div>
       </aside>
     </div>}

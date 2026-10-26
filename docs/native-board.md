@@ -1290,12 +1290,15 @@ It reads Claude Code sessions alone: a Codex or pi session is refused with 404 a
 The board's token comes in the query, as a terminal view's does, since a browser's event stream cannot send a header, and a request without it is refused with 403.
 An unknown task is refused with 404, a task that restarted or was replaced since the board named its generation with 409, and the CFO in another terminal than the one named with 409.
 Like a terminal view, and unlike a baby goblin's terminal, it is served over Remote access too, since it shows what the session's terminal already shows.
-Without `stream` it answers a page, the newest 50 messages or with `before=SEQ` the 50 before that message, as `{"messages":[...],"more":true}`, `more` saying older messages come before the page's first; a session whose harness has written nothing yet has none.
-With `stream=1` it answers server-sent events: a `page` event with the newest page, then a `messages` event with each message that began or changed since, read every half second, each in full, which a view puts in place of the one with the same `id` or adds by its `seq`.
+Without `stream` it answers a page, the newest 50 messages or with `before=SEQ` the 50 before that message, as `{"messages":[...],"more":true,"usage":{...}}`, `more` saying older messages come before the page's first; a session whose harness has written nothing yet has none.
+`usage`, present once the conversation records any, is what the session spent as far as its own file says: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cost_usd`, `context_tokens` for the context its last request carried, `context_window` from the harness's own model catalog where that names it, and `model`.
+A stat the conversation does not record is left out, and the board leaves that stat out rather than inventing one.
+With `stream=1` it answers server-sent events: a `page` event with the newest page, then a `messages` event with each message that began or changed since, read every half second, each in full, which a view puts in place of the one with the same `id` or adds by its `seq`, and after a page or a change a `usage` event with what the session has spent, from the read already made.
 A later `page` event replaces everything a view holds: the session moved to another conversation, as `/clear` moves it, or the conversation was replaced.
 The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names.
+`GET /api/commands?task=ID&token=TOKEN` answers `{"commands":[...]}`, the slash commands and skills the task's harness publishes under its worktree's `.claude` and the user's `.claude`; `cfo=1` reads the user's alone, and a harness that publishes none answers none. The composer's command list is drawn from it and never guessed.
 
 Each message has an `id` that stays the same for its life, its `seq`, its place in the session counted from 0, its `kind` and when it began.
 A `prompt` carries its `text` and its `source`.
@@ -1312,6 +1315,13 @@ The reader reads a conversation on from where it last stopped, as the tree's rea
 It keeps each conversation for five minutes after a view last asked for it, which an open view does twice a second, so it keeps every conversation a view shows and lets the rest go at the next ask or the next read of the fleet's trees.
 Each conversation is read under a lock of its own, apart from the trees, so a view's read never waits on a tree's, nor on a first read of another view's long conversation.
 
+### The working indicator
+
+Every session's working state is one indicator, drawn in the board's own CSS in the harness's colour: the dither the Overlord chose on 2026-10-26, sixteen cells lighting in Bayer order, settled after a one-time 1.2 s cross-fade and ease from the helix, so the two shapes morph into each other once rather than cutting.
+The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
+It carries an accessible name, and under reduced motion the morph is gone and the dither keeps a calm opacity pulse.
+It is the same indicator everywhere the board draws a session working: the conversation's bottom line, the message box's working line, a panel header's status dot, a goblin's card, a baby goblin's state chip and its count, a node on the orchestration canvas, and a running tool call's mark. The CFO's own panel shows it while it works, as a goblin's does.
+
 ### The Messages view
 
 A Claude Code or pi session's panel shows its messages, design A of the Overlord's choice on 2026-10-22, in the one view he asked for on 2026-10-23: "Can't we just have one, instead of the messages and terminal being split up?"
@@ -1320,18 +1330,32 @@ A Codex session, a session in Herdr and a stopped or retired goblin show their t
 The messages fill the panel, so they fill the window while it is maximized.
 A switch by Ctrl+Alt with a digit or an arrow, the first open and the end of the tour hand the keyboard to the message box, or to the terminal where the session has no messages or its terminal stepped in.
 The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.
-A prompt sits on the right in a bubble under who it is from: You, CFO for the CFO's brief or line, or Command Center answer for his answer from the Command Center.
+The panel's top selector chooses between this conversation and its task view, for the CFO and a goblin alike: a segmented control of Chat and Task, never a fold or a dropdown (the Overlord, 2026-10-26: "i dont like how you remove the selector at the top between caht and task panel bring that back i dont like the drop down also"). It reads those words at desktop width, between the header and the conversation, and on a phone it shows the two icons alone above the header, each keeping its accessible name. A maximized panel has room for both at once, draws its task list beside the conversation and hides the selector.
+The conversation carries no speaker line: no sender name and no harness icon above a message, for any speaker (the Overlord, 2026-10-26: "you dont need to ahve cfo and You above each of our messages either").
+What says who spoke is the side and the bubble it already has.
+A prompt sits on the right in a bubble, and a notice is a quiet line with no bubble.
+An answer he gave on the Command Center or on a session's Scrawl page reads as his own message with one small line under it, Answered on the board or Answered on the page, so it is told apart from one he typed in the chat.
 Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it.
-A reply sits on the left, under the session's name where a run of replies begins.
-Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its code blocks as written and its headings in bold, its thinking folded under Thinking, and each call as one row.
+A reply sits on the left.
+Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its code blocks as written and its headings in bold, its thinking as readable quieter text with no chevron and no collapsed state, and each call as one row.
 A call's row has the mark of its outcome, its tool and what it was called on, and at its end Running, Failed, Denied or Interrupted while it is not done, or an edit's added and removed lines.
+A running call's mark is the working indicator ([The working indicator](#the-working-indicator)), so a tool doing its work looks like the session doing its own.
+Its tool and what it was called on wrap in place rather than being cut with an ellipsis, so a long command never re-truncates as the panel resizes.
 What came back, an edit's diff and its pictures fold under the row.
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
-Each prompt, reply with text, notice and compaction has Copy, which copies its words as written, and its text can be selected.
+Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
+A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly; a selection he clears copies nothing.
+A reply with text, a notice and a compaction keep Copy too, and every message's text can be selected.
 The list scrolls as a page does, with the wheel, the page keys, and Shift with Page Up and Page Down as in a terminal.
 At its end it follows what arrives, and while he reads further up nothing moves it: a message that grows above, one that arrives below and an older page read in above all leave the message he reads where it was.
 Jump to latest, at the list's foot while he reads up, returns to the end.
+At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
+The indicator has no icon of its own and takes the harness's colour.
+When the session is not working the line keeps the time facts and says why when the session's usage cannot be read at all; the fuller usage stays in the banner.
+Above the message box a banner carries the session's usage: a measured Claude Code or Codex subscription's weekly share and reset, or a pi session's OpenRouter key spend, with one action that opens the full stats in place.
+A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.
+A session whose usage cannot be read draws no banner, and the line above says why.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
@@ -1355,6 +1379,14 @@ While a screen of the harness's own is open in its terminal, as the relay reads 
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Recent messages beside the microphone lists the board's recent dictations, each with Copy and Paste into the message.
+The prompt sits over one row of small pills, as the Overlord asked on 2026-10-26: Add files widens on hover to its label and keeps each file he chooses where the session reads it; Style opens the board's own Modern and Classic choice in place; the microphone widens to its word while it records; and the round Send lights up when there is something to send.
+The model-and-effort controls of the reference he sent are left out: the panel's engine selector already sets a task's harness, model and effort, and a running session's model cannot be changed by typing a message, so drawing them here would duplicate and contradict it.
+A picture pasted into the box, or a file added to it, goes to `POST /api/composer/file?task=ID&name=NAME`, which keeps it at most 10 MiB in the task's `composer-files` folder, or in the state folder's `composer-files` for the CFO, and answers `{"path":"..."}`; the message names that path, and the session reads the file from there.
+It takes that road rather than the terminal views' clipboard-and-image-key road because this box also writes to a goblin with no terminal up yet, and every harness reads a path.
+A picture the board cannot keep says so in the box rather than disappearing, and Alt+V and Ctrl+V both paste what the clipboard holds there and in a terminal, while Ctrl+C stays the harness's interrupt (the Overlord, 2026-10-26, "alt + v or ctrl + c both should work for paste").
+A message the board holds for delivery shows in the conversation as its own pending entry, dotted, with a small clock and three icon actions: Send now (an up arrow, off with its reason in its tip where a gate holds the branch or custody cannot be read), Edit (a pencil, changing what will be sent), and Delete (an X, the withdrawal that exists today, by the row he picked). The reason is the entry's tip, not a line of words, and the box's queue control is a quiet count that reveals the entry rather than a second copy.
+It becomes an ordinary message in its place once the session takes it, and the queue control in the message box offers the same entry and the same three actions.
+A terminal's Alt+V starts no browser paste event, so the board reads the clipboard itself and puts a picture on this PC's clipboard before pressing the harness's own image key.
 His draft is kept per session in this tab (`cfo-draft:` and the task's id, or `cfo`, in its session storage), so a switch of view or session, a reconnect and a reload, as an update makes, all find it.
 Shift+Escape leaves the box for the panel's top row, as it leaves the messages.
 Escape closes Recent messages while it is open, from its button or from inside it, and puts the keyboard back on its button.

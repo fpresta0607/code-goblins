@@ -1644,3 +1644,17 @@ func TestAQueuedWithdrawalNamesTheActionItDeletesAndNothingElse(t *testing.T) {
 		}
 	})
 }
+
+// A line that starts with / or ! is the harness's own command, so the board
+// types it as it was written rather than behind the Overlord's stamp, which
+// would make it plain words.
+func TestACommandKeepsItsLeadingSlashOrBang(t *testing.T) {
+	for _, text := range []string{"/compact", "!git status", "  /model opus  "} {
+		if got := fromOverlord(text); got != strings.TrimSpace(text) {
+			t.Fatalf("a command reached the harness as %q, want %q", got, strings.TrimSpace(text))
+		}
+	}
+	if got := fromOverlord("please look at this"); !strings.HasPrefix(got, overlordWords) {
+		t.Fatalf("a message reached the harness as %q, want the Overlord's stamp", got)
+	}
+}

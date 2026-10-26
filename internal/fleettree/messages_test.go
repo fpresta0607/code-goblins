@@ -102,6 +102,19 @@ func callBlock(id, tool, subject, state, result string) Block {
 // grouped by their id, calls with their outcome and what came back, edits,
 // sub-agents, commands, compactions and interrupts, and nothing of what
 // Claude Code records for its model alone.
+func TestAnAnswerSaysWhetherItCameFromTheBoardOrItsPage(t *testing.T) {
+	for _, test := range []struct{ text, source string }{
+		{"The Overlord answered your question on the board. Answer: yes", FromAnswer},
+		{"The Overlord answered your question on its page. Answer: yes", FromPage},
+		{"CFO: answered on your review page https://example/page: Build it as shown", FromPage},
+	} {
+		source, _ := promptSource(test.text)
+		if source != test.source {
+			t.Errorf("promptSource(%q) = %q, want %q", test.text, source, test.source)
+		}
+	}
+}
+
 func TestMessagesReadEachKindOfEntry(t *testing.T) {
 	session := func(home string) string {
 		return filepath.Join(home, ".claude", "projects", "C--work-repo", "session-1")

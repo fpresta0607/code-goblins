@@ -152,6 +152,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       dictate,
       harness: () => harnessValue.current,
       image: (picture) => addImageValue.current(picture),
+      problem: (why) => showFeedback(why),
       reading: (end) => { if (current.current === view) setHistoryEnd(end); },
       unread: (unread) => { if (current.current === view) setUnread(unread); },
       held: (reason) => { if (current.current === view) setHeldWhy(reason); },
@@ -167,7 +168,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [query, instance, visible, attempt, dictate]);
+  }, [query, instance, visible, attempt, dictate, showFeedback]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
   useEffect(() => {
     if (!link) return;

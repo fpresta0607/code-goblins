@@ -113,8 +113,10 @@ const (
 	FromOverlord = "overlord"
 	// FromCFO is the CFO's brief or a line the CFO sent.
 	FromCFO = "cfo"
-	// FromAnswer is the Overlord's answer from the Command Center.
+	// FromAnswer is the Overlord's answer from the Command Center, and
+	// FromPage is one he gave on a session's Scrawl page.
 	FromAnswer = "answer"
+	FromPage   = "page"
 	// FromNotice is Claude Code's notice that a background task or
 	// sub-agent ended or a monitor reported.
 	FromNotice = "notice"
@@ -140,10 +142,38 @@ const (
 )
 
 // MessagePage is a page of a session's messages, oldest first, and whether
-// older messages come before its first.
+// older messages come before its first, with what the session's usage says
+// as far as the conversation records it.
 type MessagePage struct {
 	Messages []Message `json:"messages"`
 	More     bool      `json:"more"`
+	Usage    *Usage    `json:"usage,omitempty"`
+}
+
+// Usage is what a session has spent, read from its own conversation: its
+// input, output and cached tokens, the dollars it recorded, the context its
+// last request carried against the model's window, and that model. A field a
+// conversation does not record is left zero, and the board leaves that stat
+// out rather than inventing it.
+type Usage struct {
+	InputTokens     int64   `json:"input_tokens,omitempty"`
+	OutputTokens    int64   `json:"output_tokens,omitempty"`
+	CacheReadTokens int64   `json:"cache_read_tokens,omitempty"`
+	CostUSD         float64 `json:"cost_usd,omitempty"`
+	ContextTokens   int64   `json:"context_tokens,omitempty"`
+	ContextWindow   int64   `json:"context_window,omitempty"`
+	Model           string  `json:"model,omitempty"`
+}
+
+// add folds one request's usage into the session's.
+func (u *Usage) add(input, output, cacheRead int64, model string) {
+	u.InputTokens += input
+	u.OutputTokens += output
+	u.CacheReadTokens += cacheRead
+	u.ContextTokens = input + output + cacheRead
+	if model != "" {
+		u.Model = model
+	}
 }
 
 // MessageCursor is where a reader of a session's messages stands: the read
@@ -176,6 +206,10 @@ type messageLog struct {
 	replies  map[string]int
 	calls    map[string]blockAt
 	pictures map[string]pictureAt
+	// usage is what the conversation says the session spent, and window the
+	// context window of the model it last named, when its catalog is readable.
+	usage  Usage
+	window int64
 }
 
 type blockAt struct {
@@ -195,6 +229,7 @@ func (l *messageLog) reset(epoch uint64) {
 	l.read, l.epoch = 0, epoch
 	l.messages, l.changed, l.revision = nil, nil, 0
 	l.replies, l.calls, l.pictures = map[string]int{}, map[string]blockAt{}, map[string]pictureAt{}
+	l.usage, l.window = Usage{}, 0
 }
 
 // messageEntry is the part of a Claude Code transcript entry the message
@@ -224,6 +259,12 @@ type messageEntry struct {
 		ID      string          `json:"id"`
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
+		Usage   struct {
+			InputTokens              int64 `json:"input_tokens"`
+			OutputTokens             int64 `json:"output_tokens"`
+			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+		} `json:"usage"`
 	} `json:"message"`
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
 }
@@ -360,6 +401,10 @@ func (l *messageLog) reply(entry messageEntry, id string) {
 	if !isKnown {
 		index = l.add(Message{ID: id, Kind: MessageReply, At: entry.Timestamp, Model: entry.Message.Model})
 		l.replies[id] = index
+		// Claude Code writes one entry for each block of an answer, and
+		// repeats the answer's usage on them: only the first counts it.
+		usage := entry.Message.Usage
+		l.usage.add(usage.InputTokens+usage.CacheCreationInputTokens, usage.OutputTokens, usage.CacheReadInputTokens, entry.Message.Model)
 	}
 	reply := &l.messages[index]
 	for _, block := range added {
@@ -472,8 +517,18 @@ func promptSource(text string) (string, string) {
 		return FromShell, strings.TrimSpace(match[1])
 	}
 	words, isStamped := strings.CutPrefix(text, routing.SteerPrefix)
+	if isStamped {
+		lower := strings.ToLower(words)
+		if strings.Contains(lower, "answered on your review page") || strings.Contains(lower, "answered on the page") || strings.Contains(lower, "answered on its page") {
+			return FromPage, words
+		}
+	}
 	switch {
 	case boardAnswer.MatchString(words):
+		lower := strings.ToLower(words)
+		if strings.Contains(lower, "on its page") || strings.Contains(lower, "on the page") || strings.Contains(lower, "on your review page") {
+			return FromPage, words
+		}
 		return FromAnswer, words
 	case isStamped, strings.HasPrefix(text, "Read ") && strings.HasSuffix(text, cfoBrief):
 		return FromCFO, words
@@ -700,6 +755,11 @@ func (l *messageLog) page(before int) MessagePage {
 	for _, message := range l.messages[start:end] {
 		page.Messages = append(page.Messages, shared(message))
 	}
+	if l.usage != (Usage{}) {
+		usage := l.usage
+		usage.ContextWindow = l.window
+		page.Usage = &usage
+	}
 	return page
 }
 
@@ -812,6 +872,42 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		}
 	}
 	return messages, now, false, nil
+}
+
+// Usage is what the conversation at path says the session spent, as its last
+// read found it: nil while no read has found any usage. It reads nothing anew,
+// so a stream that already read the messages can tell the board what the
+// session has spent without parsing the file again.
+func (r *Reader) Usage(path string) *Usage {
+	if isPiSession(path) {
+		r.messagesMu.Lock()
+		log := r.piLogs[path]
+		r.messagesMu.Unlock()
+		if log == nil {
+			return nil
+		}
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		return usageOf(log.usage, log.window)
+	}
+	r.messagesMu.Lock()
+	log := r.messageLogs[path]
+	r.messagesMu.Unlock()
+	if log == nil {
+		return nil
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	return usageOf(log.usage, log.window)
+}
+
+// usageOf is what a log holds as a page's usage, nil while it records none.
+func usageOf(held Usage, window int64) *Usage {
+	if held == (Usage{}) {
+		return nil
+	}
+	held.ContextWindow = window
+	return &held
 }
 
 // MessagePicture is the picture id of the conversation at path, as a read of

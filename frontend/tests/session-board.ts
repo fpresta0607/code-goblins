@@ -32,7 +32,7 @@ export interface Relay {
   drop: () => void;
 }
 
-export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main"): Promise<Relay> {
+export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE): Promise<Relay> {
   const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], say: () => {}, drop: () => {} };
   await page.addInitScript(() => {
     if (!localStorage.getItem("cfo-first-open")) localStorage.setItem("cfo-first-open", "shown");
@@ -59,7 +59,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       close() { this.readyState = 2; window.removeEventListener("fixture-snapshot", this.publish); }
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
-  }, { data: first, messages: PAGE });
+  }, { data: first, messages });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", (route) => route.request().method() === "GET" ? route.fulfill({ json: { engine: "test-model", state: "ready" } }) : route.fulfill({ json: { text: heard, engine: "test-model" } }));

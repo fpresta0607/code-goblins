@@ -104,7 +104,7 @@ test("Send sends what he wrote to a paused goblin, as Enter does", async ({ page
   // Assert
   await expect(draft).toHaveValue("");
   expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message", task_id: "bernie", generation: "", text: "rebase first" } }]);
-  await expect(send).toHaveClass(/primary send-decision/);
+  await expect(send).toHaveClass(/composer-send/);
 });
 
 test("holding the microphone dictates into the box for a paused goblin, through the supervisor's speech model", async ({ page }) => {
