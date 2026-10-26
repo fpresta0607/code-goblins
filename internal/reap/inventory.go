@@ -409,6 +409,16 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 
 	seen := make(map[string]bool)
 	found := c.homeWorktrees(ctx, tasks, seen, notes)
+	// The fleet's own worktrees by directory identity, not by spelling: git
+	// spells a path through an 8.3 folder name, as C:\Users\RUNNER~1\... for
+	// C:\Users\runneradmin\..., and compares by spelling would list a live
+	// goblin's worktree a second time as a stray the sweep may return.
+	var fleetInfos []os.FileInfo
+	for _, dir := range found {
+		if info, err := os.Stat(dir.Path); err == nil {
+			fleetInfos = append(fleetInfos, info)
+		}
+	}
 	for _, root := range sortedKeys(roots) {
 		// One answer per root serves both the folders under its .worktrees/
 		// and every worktree the repository itself registers elsewhere.
@@ -461,6 +471,9 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 		rootInfo, rootErr := os.Stat(root)
 		for _, entry := range registered {
 			if seen[normalizePath(entry.Path)] || (rootErr == nil && os.SameFile(entry.Info, rootInfo)) {
+				continue
+			}
+			if slices.ContainsFunc(fleetInfos, func(info os.FileInfo) bool { return os.SameFile(entry.Info, info) }) {
 				continue
 			}
 			if strings.EqualFold(filepath.Base(filepath.Dir(entry.Path)), home.LegacyWorktreesDir) {

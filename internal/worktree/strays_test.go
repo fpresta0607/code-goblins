@@ -36,13 +36,13 @@ func TestStraysListOnlyWorktreesInsideTheTasksOwnFolders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Strays: %v", err)
 	}
-	want := map[string]bool{filepath.Clean(inScratchpad): true, filepath.Clean(inCheckout): true}
+	want := []string{inScratchpad, inCheckout}
 	if len(strays) != len(want) {
 		t.Fatalf("strays = %v, want the two inside the task's folders", strays)
 	}
-	for _, stray := range strays {
-		if !want[filepath.Clean(stray)] {
-			t.Errorf("strays = %v, want only %v", strays, want)
+	for _, path := range want {
+		if !lists(t, strays, path) {
+			t.Errorf("strays = %v, want it among them as %s", strays, path)
 		}
 	}
 }
@@ -55,7 +55,8 @@ func TestReturnStraysKeepsWorkBeforeItReturns(t *testing.T) {
 	project := clonedProject(t)
 	ctx := context.Background()
 	git := RunnerGit{Commands: execx.OSRunner{}}
-	scratch := t.TempDir()
+	scratch := filepath.Join(t.TempDir(), "linked-scratch")
+	makeJunction(t, scratch, t.TempDir())
 	merged := filepath.Join(scratch, "scratchpad", "merged")
 	own := filepath.Join(scratch, "scratchpad", "own-work")
 	dirty := filepath.Join(scratch, "scratchpad", "draft")
@@ -67,6 +68,23 @@ func TestReturnStraysKeepsWorkBeforeItReturns(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dirty, "draft.txt"), []byte("unsaved"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	registered, err := WorktreeList(ctx, execx.OSRunner{}, project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Resolve the spellings while the folders still exist. A returned folder
+	// can no longer be compared by its directory identity.
+	for _, path := range registered {
+		if sameFolderPath(path, merged) {
+			merged = path
+		}
+		if sameFolderPath(path, own) {
+			own = path
+		}
+		if sameFolderPath(path, dirty) {
+			dirty = path
+		}
+	}
 
 	// Act
 	returned, err := ReturnStrays(ctx, execx.OSRunner{}, git, project, []string{scratch})
@@ -75,26 +93,22 @@ func TestReturnStraysKeepsWorkBeforeItReturns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReturnStrays: %v", err)
 	}
-	byPath := map[string]Stray{}
-	for _, stray := range returned {
-		byPath[filepath.Clean(stray.Path)] = stray
-	}
-	if len(byPath) != 3 {
+	if len(returned) != 3 {
 		t.Fatalf("returned = %+v, want all three listed", returned)
 	}
-	if stray := byPath[filepath.Clean(merged)]; stray.Kept != "" || stray.Tag != "" {
+	if stray := noteOf(t, returned, merged); stray.Kept != "" || stray.Tag != "" {
 		t.Errorf("merged stray = %+v, want it returned with nothing kept", stray)
 	}
 	if _, err := os.Stat(merged); !os.IsNotExist(err) {
 		t.Errorf("the merged stray survived: %v", err)
 	}
-	if stray := byPath[filepath.Clean(own)]; stray.Kept != "" || stray.Tag != "archive/own-work" {
+	if stray := noteOf(t, returned, own); stray.Kept != "" || stray.Tag != "archive/own-work" {
 		t.Errorf("unlanded stray = %+v, want it returned with its work kept as archive/own-work", stray)
 	}
 	if got := gitRun(t, project, "rev-parse", "refs/tags/archive/own-work^{commit}"); got != head {
 		t.Errorf("archive/own-work = %s, want the stray's own commit %s", got, head)
 	}
-	if stray := byPath[filepath.Clean(dirty)]; stray.Kept == "" || !strings.Contains(stray.Kept, "uncommitted") {
+	if stray := noteOf(t, returned, dirty); stray.Kept == "" || !strings.Contains(stray.Kept, "uncommitted") {
 		t.Errorf("dirty stray = %+v, want it kept for its uncommitted work", stray)
 	}
 	if _, err := os.Stat(filepath.Join(dirty, "draft.txt")); err != nil {
@@ -123,6 +137,121 @@ func TestStrayNoteNamesWhatBecameOfEach(t *testing.T) {
 	} {
 		if !strings.Contains(note, want) {
 			t.Errorf("note = %q, want it to contain %q", note, want)
+		}
+	}
+}
+
+// sameFolderPath reports whether two paths name one folder. git spells a path
+// through an 8.3 folder name, as C:\Users\RUNNER~1\... for
+// C:\Users\runneradmin\..., so a comparison by spelling fails on a machine
+// whose temporary folder has one.
+func sameFolderPath(left, right string) bool {
+	if strings.EqualFold(filepath.Clean(left), filepath.Clean(right)) {
+		return true
+	}
+	leftInfo, err := os.Stat(left)
+	if err != nil {
+		return false
+	}
+	rightInfo, err := os.Stat(right)
+	if err != nil {
+		return false
+	}
+	return os.SameFile(leftInfo, rightInfo)
+}
+
+// lists reports whether strays names folder.
+func lists(t *testing.T, strays []string, folder string) bool {
+	t.Helper()
+	for _, stray := range strays {
+		if sameFolderPath(stray, folder) {
+			return true
+		}
+	}
+	return false
+}
+
+// noteOf is what became of the stray at folder.
+func noteOf(t *testing.T, returned []Stray, folder string) Stray {
+	t.Helper()
+	for _, stray := range returned {
+		if sameFolderPath(stray.Path, folder) {
+			return stray
+		}
+	}
+	t.Fatalf("returned = %+v, want %s among them", returned, folder)
+	return Stray{}
+}
+
+// One folder has more than one spelling: git answers with an 8.3 short name
+// where the home recorded the path in full, and a junction names its target's
+// directory from elsewhere. The scan compares directory identity, so either
+// spelling finds the same worktree.
+func TestStraysFindAFolderThroughAnotherSpelling(t *testing.T) {
+	// Arrange
+	project := clonedProject(t)
+	ctx := context.Background()
+	real := t.TempDir()
+	stray := filepath.Join(real, "scratchpad", "probe")
+	gitRun(t, project, "worktree", "add", "--detach", stray, "origin/main")
+	link := filepath.Join(t.TempDir(), "linked")
+	result, err := (execx.OSRunner{}).Run(ctx, execx.Request{Name: "cmd", Args: []string{"/c", "mklink", "/J", link, real}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("create junction: %v: %s", err, result.Stderr)
+	}
+
+	// Act
+	throughTheLink, err := Strays(ctx, execx.OSRunner{}, project, []string{link})
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Strays: %v", err)
+	}
+	if len(throughTheLink) != 1 || !sameFolderPath(throughTheLink[0], stray) {
+		t.Fatalf("strays = %v, want the worktree at %s found through the junction %s", throughTheLink, stray, link)
+	}
+}
+
+func TestStraysExcludeRecordedWorktreesInsideAnotherTaskFolder(t *testing.T) {
+	project := clonedProject(t)
+	scratch := t.TempDir()
+	recorded := filepath.Join(scratch, "recorded")
+	gitRun(t, project, "worktree", "add", "--detach", recorded, "origin/main")
+
+	strays, err := Strays(context.Background(), execx.OSRunner{}, project, []string{scratch, recorded})
+
+	if err != nil || len(strays) != 0 {
+		t.Fatalf("Strays = %v, %v; a recorded folder is never a stray", strays, err)
+	}
+}
+
+func TestReturnStraysKeepsNestedUncommittedWorkEvenWhenTheParentIgnoresIt(t *testing.T) {
+	project := clonedProject(t)
+	scratch := t.TempDir()
+	parent := filepath.Join(scratch, "parent")
+	nested := filepath.Join(parent, "nested")
+	for _, path := range []string{parent, nested} {
+		gitRun(t, project, "worktree", "add", "--detach", path, "origin/main")
+	}
+	if err := os.WriteFile(filepath.Join(project, ".git", "info", "exclude"), []byte("nested/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	draft := filepath.Join(nested, "draft.txt")
+	if err := os.WriteFile(draft, []byte("unfinished"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	returned, err := ReturnStrays(context.Background(), execx.OSRunner{}, RunnerGit{Commands: execx.OSRunner{}}, project, []string{scratch})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(draft); err != nil || string(content) != "unfinished" {
+		t.Fatalf("draft = %q, %v; returning a parent discarded its nested worktree: %+v", content, err, returned)
+	}
+	for _, stray := range returned {
+		if stray.Kept == "" {
+			t.Errorf("returned = %+v, want both worktrees kept", returned)
 		}
 	}
 }

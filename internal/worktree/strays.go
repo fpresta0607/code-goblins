@@ -1,11 +1,13 @@
 package worktree
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
@@ -47,7 +49,10 @@ func WorktreeList(ctx context.Context, commands execx.Runner, dir string) ([]str
 		}
 		path = filepath.Clean(path)
 		if _, err := os.Stat(path); err != nil {
-			continue
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("worktree: read registered path %q: %w", path, err)
 		}
 		paths = append(paths, path)
 	}
@@ -65,13 +70,34 @@ func Strays(ctx context.Context, commands execx.Runner, project string, folders 
 	if err != nil {
 		return nil, err
 	}
+	var excluded []os.FileInfo
+	for _, folder := range append([]string{project}, folders...) {
+		if folder == "" {
+			continue
+		}
+		info, err := os.Stat(folder)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		excluded = append(excluded, info)
+	}
 	var strays []string
 	for _, path := range registered {
-		if samePathString(path, project) {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(excluded, func(folder os.FileInfo) bool { return os.SameFile(info, folder) }) {
 			continue
 		}
 		for _, folder := range folders {
-			if folder != "" && isUnder(path, folder) {
+			if folder == "" {
+				continue
+			}
+			if info, err := os.Stat(folder); err == nil && Under(path, info) {
 				strays = append(strays, path)
 				break
 			}
@@ -93,6 +119,11 @@ func ReturnStrays(ctx context.Context, commands execx.Runner, git Git, project s
 	if err != nil {
 		return nil, err
 	}
+	// Return children first, so returning an ignored parent cannot remove
+	// another worktree before that worktree's own preservation checks.
+	slices.SortFunc(paths, func(left, right string) int {
+		return cmp.Compare(strings.Count(right, string(filepath.Separator)), strings.Count(left, string(filepath.Separator)))
+	})
 	returned := make([]Stray, 0, len(paths))
 	for _, path := range paths {
 		stray := Stray{Path: path}
@@ -139,18 +170,22 @@ func StrayNote(returned []Stray, owner string) string {
 	return note
 }
 
-// isUnder reports whether path lies inside folder. filepath.Rel compares the
-// path components case-insensitively on Windows, which is how the file system
-// there compares them.
-func isUnder(path, folder string) bool {
-	rel, err := filepath.Rel(folder, path)
-	if err != nil {
+// Under reports whether path lies inside folder, by walking path's parents and
+// comparing each with folder's own directory identity, whose info the caller
+// reads once. A comparison by spelling is wrong here: git spells a path through
+// an 8.3 folder name, as C:\Users\RUNNER~1\... for C:\Users\runneradmin\...,
+// while the home records the path in full, and git resolves a junction to its
+// target while the scan holds the junction's own name.
+func Under(path string, folderInfo os.FileInfo) bool {
+	if folderInfo == nil {
 		return false
 	}
-	return rel != "." && filepath.IsLocal(rel)
-}
-
-// samePathString compares two paths by their cleaned spelling.
-func samePathString(left, right string) bool {
-	return strings.EqualFold(filepath.Clean(filepath.FromSlash(left)), filepath.Clean(filepath.FromSlash(right)))
+	for current := filepath.Dir(filepath.Clean(path)); ; current = filepath.Dir(current) {
+		if info, err := os.Stat(current); err == nil && os.SameFile(info, folderInfo) {
+			return true
+		}
+		if parent := filepath.Dir(current); parent == current {
+			return false
+		}
+	}
 }

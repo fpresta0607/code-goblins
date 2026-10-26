@@ -20,15 +20,16 @@ import (
 )
 
 type cleanupRunner struct {
-	gitStatus    string
+	gitStatus string
 	// registered is the body git worktree list answers with, appended to the
 	// project's own line. Empty answers with the project's line alone.
-	registered   string
-	snapshotBody string
-	snapshotErr  bool
-	tabCloseErr  bool
-	tabClosed    []string
-	requests     []execx.Request
+	registered                string
+	isWorktreeListUnavailable bool
+	snapshotBody              string
+	snapshotErr               bool
+	tabCloseErr               bool
+	tabClosed                 []string
+	requests                  []execx.Request
 }
 
 func (r *cleanupRunner) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -40,6 +41,9 @@ func (r *cleanupRunner) Run(_ context.Context, req execx.Request) (execx.Result,
 	}
 	if req.Name == "git" {
 		if slices.Equal(req.Args, []string{"worktree", "list", "--porcelain"}) {
+			if r.isWorktreeListUnavailable {
+				return execx.Result{ExitCode: 1, Stderr: []byte("worktree list unavailable")}, nil
+			}
 			return execx.Result{Stdout: []byte("worktree " + req.Dir + "\n" + r.registered)}, nil
 		}
 		if len(req.Args) != 3 || req.Args[0] != "status" || req.Args[1] != "--porcelain=v1" || req.Args[2] != "--untracked-files=all" {
@@ -77,7 +81,7 @@ type cleanupGit struct {
 	// returnErrPath limits returnErr to one worktree, so a harness worktree's
 	// refusal does not also refuse the task's own.
 	returnErrPath string
-	returned  [][2]string
+	returned      [][2]string
 	// unlanded names the worktrees whose HEAD is not on the default branch,
 	// and tagged the archive tags made for them.
 	unlanded   map[string]bool

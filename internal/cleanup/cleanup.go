@@ -182,10 +182,17 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	// return proves its own work safe first, keeping unlanded work as an
 	// archive tag and refusing uncommitted work, which is the same rule the
 	// task's own worktrees get.
-	strays, strayNote := s.returnHarnessStrays(ctx, git, project, meta)
+	strays, err := worktree.ReturnStrays(ctx, s.Commands, git, project, append([]string{meta.Worktree, meta.Scratch}, meta.Extras...))
+	if err != nil {
+		return Result{}, fmt.Errorf("cleanup: read harness worktrees: %w", err)
+	}
+	strayNote := worktree.StrayNote(strays, "cleanup")
 	// Every worktree the task holds is proven clean before anything changes,
 	// so a refusal leaves the task exactly as it was.
 	for _, path := range append(extras, worktreePath) {
+		if kept := keptInside(path, strays); kept != "" {
+			return Result{}, fmt.Errorf("cleanup: %s still holds harness worktree %s%s", path, kept, strayNote)
+		}
 		if err := s.requireClean(ctx, path); err != nil {
 			return Result{}, err
 		}
@@ -249,7 +256,7 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchNote := s.removeScratch(ctx, meta, strays)
+	scratchNote := s.removeScratch(ctx, meta)
 
 	result.Meta = meta
 	result.Output = fmt.Sprintf("cleaned %s worktree=%s", id, worktreePath)
@@ -277,19 +284,6 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 	result.Output += s.releaseServices(ctx, id)
 	result.Output += s.closeRow(outcome)
 	return result, nil
-}
-
-// returnHarnessStrays returns the worktrees the project registers inside the
-// task's own folders, which a harness's own tooling left rather than cfo, and
-// says what became of each. A worktree it cannot prove safe is kept and
-// named, never discarded.
-func (s Service) returnHarnessStrays(ctx context.Context, git worktree.Git, project string, meta state.TaskMeta) ([]worktree.Stray, string) {
-	folders := append([]string{meta.Worktree, meta.Scratch}, meta.Extras...)
-	returned, err := worktree.ReturnStrays(ctx, s.Commands, git, project, folders)
-	if err != nil {
-		return nil, "\nwarning: the worktrees a harness left in the task's folders could not be read (" + err.Error() + "), so the janitor returns them"
-	}
-	return returned, worktree.StrayNote(returned, "cleanup")
 }
 
 // holdTask takes the task for the cleanup: its cleanup lock, and the two
@@ -505,7 +499,7 @@ func (s Service) forceArchive(ctx context.Context, meta state.TaskMeta, id, work
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archived, archiveErr := s.archive(id)
-	scratchNote := s.removeScratch(ctx, meta, nil)
+	scratchNote := s.removeScratch(ctx, meta)
 
 	result := Result{Meta: meta, Output: fmt.Sprintf("force-archived %s; worktree %s left in place, remove it by hand when its handle clears", id, worktreePath)}
 	for _, extra := range meta.Extras {
@@ -586,7 +580,7 @@ func (s Service) retireEmptyFolder(ctx context.Context, meta state.TaskMeta, id,
 		return Result{}, fmt.Errorf("cleanup: retire task metadata: %w", err)
 	}
 	archive, archiveErr := s.archive(id)
-	scratchNote := s.removeScratch(ctx, meta, nil)
+	scratchNote := s.removeScratch(ctx, meta)
 	result := Result{Meta: meta, Output: fmt.Sprintf("cleaned %s: %s", id, removed)}
 	if archive != "" {
 		result.Output += " archive=" + archive
@@ -636,13 +630,15 @@ func (s Service) archive(id string) (string, error) {
 }
 
 // keptInside names the first worktree the scan kept that lies inside dir, or
-// "" when none does.
+// "" when none does. It compares by directory identity, because git spells a
+// path through an 8.3 folder name while the task's record holds it in full.
 func keptInside(dir string, strays []worktree.Stray) string {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return ""
+	}
 	for _, stray := range strays {
-		if stray.Kept == "" {
-			continue
-		}
-		if rel, err := filepath.Rel(dir, stray.Path); err == nil && rel != "." && filepath.IsLocal(rel) {
+		if stray.Kept != "" && worktree.Under(stray.Path, info) {
 			return stray.Path
 		}
 	}
@@ -670,7 +666,7 @@ func keptInside(dir string, strays []worktree.Stray) string {
 //
 // It returns what to say of a folder that stayed, on a line of its own, and
 // nothing of one that went.
-func (s Service) removeScratch(ctx context.Context, meta state.TaskMeta, strays []worktree.Stray) string {
+func (s Service) removeScratch(ctx context.Context, meta state.TaskMeta) string {
 	scratch, err := state.TaskScratch(s.StateDir, meta)
 	if err != nil {
 		return fmt.Sprintf("\nwarning: %v; the janitor removes it once the handle clears", err)
@@ -678,8 +674,12 @@ func (s Service) removeScratch(ctx context.Context, meta state.TaskMeta, strays 
 	// A harness worktree this cleanup could not return still holds work, and
 	// the scratch folder holds it: removing the folder would discard exactly
 	// what the worktree's own refusal just preserved.
-	if kept := keptInside(scratch, strays); kept != "" {
-		return fmt.Sprintf("\nleft the scratch folder %s in place: it still holds the harness worktree %s, and nothing removes work", scratch, kept)
+	remaining, err := worktree.Strays(ctx, s.Commands, meta.Project, []string{scratch})
+	if err != nil {
+		return fmt.Sprintf("\nleft the scratch folder %s in place: its harness worktrees could not be read: %v", scratch, err)
+	}
+	if len(remaining) != 0 {
+		return fmt.Sprintf("\nleft the scratch folder %s in place: it still holds the harness worktree %s, and nothing removes work", scratch, strings.Join(remaining, ", "))
 	}
 	heldBy, err := home.RemoveScratch(ctx, scratch, liveTemps)
 	switch {

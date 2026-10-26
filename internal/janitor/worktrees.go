@@ -91,13 +91,15 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 // home works in: its worktree, one of its extra worktrees, or its scratch
 // folder. A harness's worktree there is that goblin's while it lives, and goes
 // with it at its cleanup or its next relaunch.
+// It compares by directory identity, because git spells a path through an 8.3
+// folder name while the record holds it in full.
 func (cfg Config) inATaskFolder(path string) bool {
 	for _, task := range cfg.Inventory.Tasks {
 		for _, folder := range append([]string{task.Meta.Worktree, task.Meta.Scratch}, task.Meta.Extras...) {
 			if folder == "" {
 				continue
 			}
-			if rel, err := filepath.Rel(folder, path); err == nil && rel != "." && filepath.IsLocal(rel) {
+			if info, err := os.Stat(folder); err == nil && worktree.Under(path, info) {
 				return true
 			}
 		}

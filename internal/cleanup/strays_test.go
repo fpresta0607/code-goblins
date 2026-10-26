@@ -123,3 +123,69 @@ func TestCleanupRefusesBeforeTouchingAHarnessWorktreeOfAnAgentAtWork(t *testing.
 		t.Errorf("worktree returns = %v, want none before the agent is proven gone", fixture.git.returned)
 	}
 }
+
+func TestCleanupRefusesWhenHarnessWorktreesCannotBeRead(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	fixture.runner.isWorktreeListUnavailable = true
+
+	_, err := fixture.service.Cleanup(context.Background(), "g1")
+
+	if err == nil || !strings.Contains(err.Error(), "worktree list unavailable") {
+		t.Fatalf("Cleanup = %v, want it refused when worktrees cannot be read", err)
+	}
+	if len(fixture.git.returned) != 0 {
+		t.Errorf("returned = %v, want no removal after an unreadable scan", fixture.git.returned)
+	}
+	if _, err := state.ReadTaskMeta(fixture.stateDir, "g1"); err != nil {
+		t.Fatalf("task record was retired after an unreadable scan: %v", err)
+	}
+}
+
+func TestCleanupKeepsTheParentOfAnIgnoredHarnessWorktreeItCannotReturn(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	nested := filepath.Join(fixture.worktree, ".claude", "worktrees", "draft")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixture.runner.registered = "worktree " + nested + "\n"
+	fixture.git.returnErr = errors.New("uncommitted work")
+	fixture.git.returnErrPath = nested
+
+	_, err := fixture.service.Cleanup(context.Background(), "g1")
+
+	if err == nil || !strings.Contains(err.Error(), nested) {
+		t.Fatalf("Cleanup = %v, want it to keep and name the nested worktree", err)
+	}
+	for _, returned := range fixture.git.returned {
+		if returned[1] == fixture.worktree {
+			t.Fatal("cleanup returned the parent of a harness worktree it could not return")
+		}
+	}
+}
+
+func TestCleanupForceArchiveKeepsScratchWorktrees(t *testing.T) {
+	fixture := newCleanupFixture(t)
+	fixture.service.ForceArchive = true
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	nested := filepath.Join(scratch, "scratchpad", "draft")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixture.meta.Scratch = scratch
+	if err := state.WriteTaskMeta(fixture.stateDir, fixture.meta); err != nil {
+		t.Fatal(err)
+	}
+	fixture.runner.registered = "worktree " + nested + "\n"
+
+	result, err := fixture.service.Cleanup(context.Background(), "g1")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(nested); err != nil {
+		t.Fatalf("force-archive removed a scratch worktree: %v", err)
+	}
+	if !strings.Contains(result.Output, nested) {
+		t.Errorf("output = %q, want the kept worktree named", result.Output)
+	}
+}

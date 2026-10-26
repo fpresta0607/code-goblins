@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // tempAge is how long nothing in a temporary folder must have been written
@@ -158,6 +159,20 @@ func (cfg Config) isFleetTemp(name string) bool {
 }
 
 func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func() ([]home.LiveTemp, error), record *Record) {
+	folder, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	for _, dir := range cfg.Inventory.Worktrees {
+		info, err := os.Stat(dir.Path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if (err == nil && os.SameFile(info, folder)) || worktree.Under(dir.Path, folder) {
+			record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "it still holds registered worktree " + dir.Path})
+			return
+		}
+	}
 	for _, line := range processes {
 		if names(line, path) {
 			return
