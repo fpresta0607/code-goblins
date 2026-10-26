@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
+import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
-import { string, type Task, type TreeNode } from "./types";
+import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
+import { SessionFooter } from "./session-footer";
+import { sessionStats, usageBanner, type SessionStats, type UsageReading } from "./session-usage";
+import { harnessInk } from "./harness-ink";
+import { QueuedMessage } from "./queued-message";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
@@ -35,8 +40,11 @@ const UNREAD = "The session's messages cannot be read";
 // whose replies they are, task is the goblin whose baby goblins its calls
 // open, absent for the CFO, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, shown, visible, onChild, box }: {
-  query: string; instance: string; name: string; task?: Task; shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: ReactNode;
+export function MessagesView({ query, instance, name, task, harness, model, effort, memory, isWorking, onStop, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, box }: {
+  query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean; onStop?: () => void;
+  workingSince: string; pending: Action[];
+  subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (stats: SessionStats, reading: UsageReading, model: string) => ReactNode;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
@@ -47,6 +55,10 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
   const [closedWhy, setClosedWhy] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [font, setFont] = useState(storedMessageFont);
+  // A selection he settles with a mouse or a key copies itself, with the same
+  // quiet Copied the copy button gives.
+  const [isCopied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const fontValue = useRef(font);
   const shownValue = useRef(shown);
   const [isAtEnd, setAtEnd] = useState(true);
@@ -96,6 +108,9 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
       try { const changed = parseMessages(JSON.parse(event.data)); take((prior) => ({ ...prior, messages: changeMessages(prior.messages, changed) })); } catch { invalid(); }
+    });
+    stream.addEventListener("usage", (event: MessageEvent<string>) => {
+      try { const usage = parseUsage(JSON.parse(event.data)); take((prior) => usage ? { ...prior, usage } : prior); } catch { invalid(); }
     });
     stream.addEventListener("unavailable", (event: MessageEvent<string>) => {
       let why = "";
@@ -186,6 +201,35 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
     return attachZoomGesture(box, window, () => fontValue.current, zoom);
   }, [zoom]);
 
+  const copySelection = useCallback(() => {
+    const box = list.current;
+    const selection = window.getSelection();
+    if (!shownValue.current || !box || !selection || selection.isCollapsed || selection.rangeCount === 0) return;
+    const text = selection.toString();
+    if (!text.trim() || !box.contains(selection.getRangeAt(0).commonAncestorContainer)) return;
+    copyText(text).then(() => {
+      clearTimeout(copiedTimer.current);
+      setCopied(true);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1400);
+    }, () => {});
+  }, []);
+  useEffect(() => {
+    let frame = 0;
+    const settled = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(copySelection);
+    };
+    window.addEventListener("pointerup", settled);
+    window.addEventListener("touchend", settled);
+    window.addEventListener("keyup", settled);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("pointerup", settled);
+      window.removeEventListener("touchend", settled);
+      window.removeEventListener("keyup", settled);
+    };
+  }, [copySelection]);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
   const jump = () => {
     const box = list.current;
     if (!box) return;
@@ -217,21 +261,30 @@ export function MessagesView({ query, instance, name, task, shown, visible, onCh
   const picture = useCallback((id: string) => address({ picture: id }), [address]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
-  return <section className="messages-view" hidden={!shown} aria-label="Messages" onKeyDown={keys}>
+  const stats = sessionStats({ usage: held.usage, model, effort, memory });
+  const reading = usageBanner(harness, subscriptions, spend);
+  const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt" && message.source !== "notice")?.at ?? "";
+  const lastReplyAt = [...held.messages].reverse().find((message) => message.kind === "reply")?.at ?? "";
+  return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     <div className="conversation-frame">
       <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
         <div ref={items} className="conversation-items">
-          {held.messages.map((message, at) => <MessageRow key={message.id} message={message} name={name} isFirstReply={message.kind === "reply" && held.messages[at - 1]?.kind !== "reply"}
+          {held.messages.map((message) => <MessageRow key={message.id} message={message}
             task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
+          {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
       {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the messages</p></div>}
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump}><Icon name="arrow-down" />Jump to latest</button>}
+      {isCopied && <span className="conversation-copied" role="status">Copied</span>}
       {phase !== "closed" && (isReconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
       {phase === "closed" && <div className="terminal-closed" role="status"><Icon name="comment" /><p>{closedWhy}</p>
         <button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     </div>
-    {box}
+    {(box || reading.banner) && <div className="composer-dock">
+      <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} onStop={onStop} />
+      {box?.(stats, reading, held.usage?.model || model)}
+    </div>}
   </section>;
 }

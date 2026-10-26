@@ -50,3 +50,11 @@ func TestNormalizeKeyNamesOnlySupportedKeys(t *testing.T) {
 		t.Errorf("NormalizeKey(F1) error = %v, want an unsupported key refusal", err)
 	}
 }
+
+func TestShellCommandsKeepTheirLeadingBangThroughDelivery(t *testing.T) {
+	for _, command := range []string{"!git status --short", "/model", "$skill"} {
+		if got := Stamp(command); got != command || !IsCommand(got) {
+			t.Fatalf("command %q reached delivery as %q", command, got)
+		}
+	}
+}

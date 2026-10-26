@@ -1,4 +1,4 @@
-import { expect, openItem, openTaskList, test, type Locator, type Page } from "./site";
+import { expect, openChat, openItem, openTaskList, test, type Locator, type Page } from "./site";
 import { caret, nativeMarkers } from "./caret";
 import { at, field, GOBLIN, open, openGoblin, snapshot, typed } from "./session-board";
 
@@ -32,7 +32,7 @@ async function expectModal(page: Page, dialog: Locator) {
 
 async function resizePanel(page: Page, width: number) {
   await page.locator(".context-pane").evaluate((element, next) => { element.style.width = `${next}px`; }, width);
-  await expect(page.locator(width >= 900 ? ".panel-side-task" : ".panel-task-fold")).toBeVisible();
+  await expect(page.locator(".panel-view-switch")).toBeVisible();
 }
 
 async function preparePanel(page: Page, who = "goblin", fields: Record<string, unknown> = {}) {
@@ -118,28 +118,36 @@ test("controlled and persistent Disclosures share the caret while retaining only
 });
 
 for (const who of ["goblin", "CFO"]) {
-  test(`${who}'s Task fold shares the Disclosure caret and retains edits when closed`, async ({ page }) => {
+  test(`${who}'s panel selector switches between its conversation and its task view and keeps an unsaved choice`, async ({ page }) => {
     const { posts } = await preparePanel(page, who);
-    const fold = page.locator(".panel-task-fold > details");
+    const switcher = page.locator(".panel-view-switch");
+    const chat = switcher.getByRole("button", { name: "Chat", exact: true });
+    const task = switcher.getByRole("button", { name: "Task", exact: true });
     const harness = page.locator("details.harness");
-    await expectDisclosure(page, ".panel-task-fold > details", true);
+
+    // preparePanel left the panel on its task view, so the conversation is
+    // one press away, and the task view is reached by the keyboard too.
+    await chat.click();
+    await expect(chat).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".goblin-panel > .panel-task")).toBeHidden();
+    await task.focus();
+    await page.keyboard.press("Enter");
+    await expect(task).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".goblin-panel > .panel-task")).toBeVisible();
     await expectDisclosure(page, "details.harness", false);
     await harness.locator("> summary").click();
     await expectDisclosure(page, "details.harness", true);
-    expect(await caret(fold.locator("> summary"))).toEqual(await caret(harness.locator("> summary")));
     if (who === "goblin") await harness.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
     else {
       await harness.getByRole("button", { name: "Harness: Claude Code" }).click();
       await page.getByRole("menuitemradio", { name: "Codex", exact: true }).click();
     }
 
-    await fold.locator("> summary").press("Enter");
-
-    await expectDisclosure(page, ".panel-task-fold > details", false);
-    await expect(harness).toHaveCount(1);
-    await expect(harness).toBeHidden();
-    await fold.locator("> summary").press("Space");
-    await expectDisclosure(page, ".panel-task-fold > details", true);
+    await chat.click();
+    await expect(chat).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".goblin-panel > .panel-task")).toBeHidden();
+    await task.click();
+    await expect(page.locator(".goblin-panel > .panel-task")).toBeVisible();
     await expectDisclosure(page, "details.harness", true);
     if (who === "goblin") await expect(harness.getByRole("combobox", { name: "Model", exact: true })).toHaveValue("next-model");
     else await expect(harness.getByRole("button", { name: "Harness: Codex" })).toBeVisible();
@@ -152,9 +160,10 @@ for (const kind of ["stop", "forget"] as const) {
     for (const dismissal of ["Cancel", "Escape"] as const) {
       test(`${kind} stays modal across ${width}px to ${1800 - width}px and ${dismissal} preserves its task`, async ({ page }) => {
         const { relay, posts } = await preparePanel(page);
+        await openChat(page);
         await field(page).fill("Keep my message draft");
-        await resizePanel(page, width);
         await openTaskList(page);
+        await resizePanel(page, width);
         const harness = page.locator("details.harness");
         await harness.locator("> summary").click();
         const model = harness.getByRole("combobox", { name: "Model", exact: true });
@@ -173,16 +182,17 @@ for (const kind of ["stop", "forget"] as const) {
         await expectModal(page, dialog);
         expect(await mounted!.evaluate((element) => element.isConnected && element.matches(":modal"))).toBe(true);
         await expect(dialog).toContainText(identity);
-        if (width === 1000) await expect(page.locator(".panel-task-fold > details")).toHaveJSProperty("open", false);
         if (dismissal === "Cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
         else await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);
-        await expect(width === 1000 ? page.locator(".panel-task-fold > details > summary") : trigger).toBeFocused();
+        await expect(trigger).toBeFocused();
         await openTaskList(page);
         await expect(model).toHaveValue("next-model");
+        await openChat(page);
         await expect(field(page)).toHaveValue("Keep my message draft");
         expect(posts).toEqual([]);
         expect(typed(relay)).toBe("");
+        await openTaskList(page);
         await trigger.click();
         const action = kind === "forget" ? "Forget" : dismissal === "Cancel" ? "Stop and delete" : "Pause instead (Recommended)";
         await dialog.getByRole("button", { name: action, exact: true }).click();
@@ -205,7 +215,7 @@ for (const action of ["save", "run"] as const) {
         project: GOBLIN.project, names: ["REVIEW_VALUE"], existing: ["REVIEW_VALUE"], state: "open", created_at: at,
       }] });
       await resizePanel(page, width);
-      if (width === 800) await page.locator(".panel-task-fold > details > summary").click();
+      if (width === 800) await openChat(page);
       await openItem(page, "Paste REVIEW_VALUE for code-goblins");
       const card = page.locator('[data-credential-request="cred-review"]');
       const draft = card.getByLabel("Value for REVIEW_VALUE");
@@ -221,7 +231,6 @@ for (const action of ["save", "run"] as const) {
         await resizePanel(page, 1800 - width);
         await expectModal(page, dialog);
         await expect(dialog).toContainText("REVIEW_VALUE already has a value for code-goblins");
-        if (width === 1000) await expect(page.locator(".panel-task-fold > details")).toHaveJSProperty("open", false);
         if (dismissal === "Cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
         else await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);

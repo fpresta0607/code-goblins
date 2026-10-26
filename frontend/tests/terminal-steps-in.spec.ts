@@ -1,5 +1,5 @@
 import { expect, openTaskList, test, type Page } from "./site";
-import { at, box, field, open, openGoblin, pasted, type Relay, send, snapshot, typed } from "./session-board";
+import { at, box, field, open, openGoblin, pasted, type Relay, snapshot, typed } from "./session-board";
 
 // PR 4 of the message view plan, which the Overlord asked be proved first:
 // what the box sends that opens a screen of the harness's own, a picker, a
@@ -12,6 +12,26 @@ import { at, box, field, open, openGoblin, pasted, type Relay, send, snapshot, t
 const terminal = (page: Page) => page.getByRole("textbox", { name: "Terminal input", exact: true });
 const back = (page: Page) => page.getByRole("button", { name: "Back to messages" });
 const messages = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
+
+for (const harness of ["claude", "pi", "codex"]) {
+  test(`${harness} mode and interrupt keys reach the native terminal while preserving the Modern draft`, async ({ page }) => {
+    const relay = await open(page, snapshot({}, { harness }));
+    await openGoblin(page);
+    await field(page).fill("keep this draft");
+    await field(page).press("Control+End");
+    await field(page).press("Control+c");
+    await expect.poll(() => typed(relay)).toBe("\x03");
+    await expect(field(page)).toHaveValue("keep this draft");
+    await field(page).press("Shift+Tab");
+    await expect.poll(() => typed(relay)).toBe("\x03\x1b[Z");
+    await expect(terminal(page)).toBeFocused();
+    await back(page).click();
+    await expect(field(page)).toHaveValue("keep this draft");
+    relay.say({ type: "held", reason: "pipeline owns this task" });
+    await field(page).press("Shift+Tab");
+    expect(typed(relay)).toBe("\x03\x1b[Z");
+  });
+}
 
 // sendFromBox types text into Zeke's box and sends it with Enter, as he does.
 async function sendFromBox(page: Page, relay: Relay, text: string) {
@@ -27,7 +47,7 @@ test("a picker opens despite background work, takes the keyboard and Escape, and
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "Background shell running", at } }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
-  await expect(box(page).locator(".composer-working")).toBeVisible();
+  await expect(page.locator(".session-working")).toBeVisible();
   await sendFromBox(page, relay, "/model");
 
   // Act
@@ -159,7 +179,7 @@ for (const isSampled of [true, false]) {
   });
 }
 
-test("a phone's tall Task fold scrolls while its messages keep room", async ({ page }) => {
+test("a phone's tall task panel scrolls, and the conversation returns with its draft", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, snapshot({}, { teardown: Array.from({ length: 80 }, (_, index) => `shell-${index} pid ${index + 1}`) }));
   await openGoblin(page);
@@ -168,25 +188,19 @@ test("a phone's tall Task fold scrolls while its messages keep room", async ({ p
   const header = await openTaskList(page);
   await header.locator(".raw-details > summary").click();
 
-  const fold = page.locator(".panel-task-fold");
-  await expect.poll(() => fold.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-  for (const state of ["opened", "scrolled"]) {
-    await test.step(`the conversation and composer remain usable with the fold ${state}`, async () => {
-      if (state === "scrolled") {
-        await fold.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-        await expect.poll(() => fold.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-      }
-      await expect(messages(page).getByRole("log")).toBeInViewport({ ratio: 1 });
-      await expect(messages(page).getByText("On it.", { exact: true })).toBeInViewport({ ratio: 1 });
-      await expect(box(page)).toBeInViewport({ ratio: 1 });
-      await expect(field(page)).toBeInViewport({ ratio: 1 });
-      await expect(send(page)).toBeInViewport({ ratio: 1 });
-      await expect(send(page)).toBeEnabled();
-      await expect(field(page)).toHaveValue("Keep this draft while reading the task");
-      await field(page).click();
-      await expect(field(page)).toBeFocused();
-    });
-  }
+  const task = page.locator(".goblin-panel > .panel-task");
+  await expect.poll(() => task.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await task.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect.poll(() => task.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  await page.locator(".panel-view-switch").getByRole("button", { name: "Chat", exact: true }).click();
+  await expect(messages(page).getByRole("log")).toBeInViewport({ ratio: 1 });
+  await expect(messages(page).getByText("On it.", { exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(box(page)).toBeInViewport({ ratio: 1 });
+  await expect(field(page)).toBeVisible();
+  await expect(field(page)).toHaveValue("Keep this draft while reading the task");
+  await field(page).click();
+  await expect(field(page)).toBeFocused();
 });
 
 test("stepping in and out asks the terminal for no new size, counted at the relay", async ({ page }) => {

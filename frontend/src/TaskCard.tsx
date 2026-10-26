@@ -13,6 +13,8 @@ import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 import { BrandGlyph } from "./brand-glyph";
 import { safeGitHubLink } from "./people";
+import { WorkingIndicator } from "./working-indicator";
+import { harnessInk } from "./harness-ink";
 
 // A task's card on the board is one row, like a conversation in a list (the
 // Overlord, 2026-10-17: "minimal cards are better like an imessage history
@@ -57,7 +59,7 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
+      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}>{["busy", "working", "active"].includes(phase) ? <WorkingIndicator ink={harnessInk(task.harness)} compact /> : <span className="status-dot" />}<span className="card-status-text">{status}</span></span>
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>

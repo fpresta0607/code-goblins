@@ -75,17 +75,16 @@ for (const who of ["goblin", "CFO"] as const) {
       // Act
       if (transition === "breakpoint") {
         await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "1000px"; });
-        await expect(page.locator(".panel-side-task")).toBeVisible();
+        await expect(page.locator(".panel-view-switch")).toBeVisible();
         await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "800px"; });
       } else if (transition === "maximize") {
         await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
-        await expect(page.locator(".panel-side-task")).toBeVisible();
+        await expect(page.locator(".panel-view-switch")).toHaveCount(0);
         await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
       } else {
-        await page.locator(".panel-task-fold > details > summary").click();
+        await page.locator(".panel-view-switch").getByRole("button", { name: "Chat", exact: true }).click();
         await expect(harness(page)).toBeHidden();
       }
-      await expect(page.locator(".panel-task-fold")).toBeVisible();
       await openTaskList(page);
 
       // Assert

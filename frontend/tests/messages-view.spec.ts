@@ -192,7 +192,7 @@ const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => n
   element.scrollTop = top;
 }), top);
 
-test("a Claude Code session's panel is one view with its messages, and a Codex goblin's shows its terminal", async ({ page }) => {
+test("Claude Code and Codex panels show their messages in the same Modern view", async ({ page }) => {
   await open(page);
 
   await openCfo(page);
@@ -203,7 +203,8 @@ test("a Claude Code session's panel is one view with its messages, and a Codex g
   await page.locator(".task-board .task-card-shell").filter({ hasText: "A Codex task" }).locator(".task-card").click();
 
   await expect(pill(page)).toHaveCount(0);
-  await expect(page.locator(".messages-view")).toHaveCount(0);
+  await expect(page.locator(".messages-view")).toBeVisible();
+  await expect(page.locator(".messages-view .composer textarea")).toBeInViewport();
 });
 
 test("the Messages view draws the conversation as the session recorded it, under the terminal's compact header", async ({ page }) => {
@@ -213,21 +214,18 @@ test("the Messages view draws the conversation as the session recorded it, under
   const talk = list(page, "Zeke - Touch Wrangler");
   await expect(talk).toBeVisible();
   await expect(page.locator(".panel-header.compact")).toHaveCount(1);
-  await expect(talk.locator(".message-prompt.cfo .message-from")).toHaveText("CFO");
+  await expect(talk.locator(".message-from")).toHaveCount(0);
   await expect(talk.locator(".message-prompt.cfo .message-bubble")).toHaveText("Read the brief at brief.md and follow it exactly.");
-  await expect(talk.locator(".message-reply .message-from")).toHaveText(["Zeke - Touch Wrangler", "Zeke - Touch Wrangler"]);
   await expect(talk.locator("strong").filter({ hasText: "Found the scroll bug." })).toBeVisible();
   await expect(talk.locator(".message-words li")).toHaveText(["Hand a vertical swipe to the history", "Keep a long press for Paste"]);
   await expect(talk.locator(".message-code")).toHaveText("const swipe = true;");
   await expect(talk.locator(".message-table td")).toHaveText(["S11", "fixed"]);
-  await expect(talk.locator(".message-thinking")).not.toHaveAttribute("open");
-  await expect(talk.locator(".message-thinking > summary")).toHaveText("Thinking");
+  await expect(talk.locator(".message-thinking-read")).toBeVisible();
+  await expect(talk.locator(".thinking-label")).toHaveText("Thinking");
   await expect(talk.locator(".message-call").filter({ hasText: "Edit" }).locator(".call-end")).toHaveText("+1−1");
   await expect(talk.locator(".message-call").filter({ hasText: "npx playwright test" }).locator(".call-end")).toHaveText("Running");
   await expect(talk.locator(".message-call").filter({ hasText: "missing.ts" }).locator(".call-end")).toHaveText("Failed");
-  await expect(talk.locator(".message-prompt.overlord .message-from").first()).toHaveText("You");
   await expect.poll(() => talk.locator(".message-prompt.overlord img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBe(1);
-  await expect(talk.locator(".message-prompt.answer .message-from")).toHaveText("Command Center answer");
   await expect(talk.locator(".message-prompt.slash .message-bubble")).toHaveText("/cost");
   await expect(talk.locator(".message-prompt.slash .message-output")).toHaveText("Total cost: $0.12");
   await expect(talk.locator(".message-prompt.shell .message-bubble")).toHaveText("!git status");
@@ -236,19 +234,19 @@ test("the Messages view draws the conversation as the session recorded it, under
   await expect(talk.locator(".message-notice")).toHaveText("Background command finished");
 });
 
-test("a call's result, an edit's diff and thinking unfold under their rows", async ({ page }) => {
+test("a call's result and an edit's diff unfold under their rows, and thinking reads in place", async ({ page }) => {
   await open(page);
   await openGoblin(page);
   const talk = list(page, "Zeke - Touch Wrangler");
 
   await talk.locator(".message-call").filter({ hasText: "Read" }).filter({ hasText: "terminalView.ts" }).locator("summary").click();
   await talk.locator(".message-call").filter({ hasText: "Edit" }).locator("summary").click();
-  await talk.locator(".message-thinking > summary").click();
 
   await expect(talk.locator(".call-result").first()).toHaveText("1\timport { Terminal } from \"@xterm/xterm\";");
   await expect(talk.locator(".message-diff > .line-added")).toHaveText("+  this.element.addEventListener(\"touchmove\", this.swipe);");
   await expect(talk.locator(".message-diff > .line-removed")).toHaveText("-  // A swipe was left to the page.");
-  await expect(talk.locator(".message-thinking .message-words")).toHaveText("The swipe lands on the text box.");
+  await expect(talk.locator(".message-thinking-read .message-words")).toBeVisible();
+  await expect(talk.locator(".message-thinking-read .message-words")).toHaveText("The swipe lands on the text box.");
 });
 
 test("a baby goblin's row opens that baby goblin's own terminal", async ({ page }) => {
@@ -416,7 +414,7 @@ const shared = (one: Box, other: Box) => Math.max(0, Math.min(one.right, other.r
 test.describe("on a phone's touch screen", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test("Copy, always shown, covers no word or call state of a reply, and lies beside a reply's name", async ({ page }) => {
+  test("Copy, always shown, covers no word or call state of a reply, and lies in its corner", async ({ page }) => {
     await open(page);
     await openGoblin(page);
     const talk = list(page, "Zeke - Touch Wrangler");
@@ -438,10 +436,10 @@ test.describe("on a phone's touch screen", () => {
     await expect(called.locator(".message-from")).toHaveCount(0);
     expect(shared(await box(words.getByRole("button", { name: "Copy" })), await contents(words.locator(".message-words"))), "Copy covers no word of the reply's text").toBe(0);
     expect(shared(await box(called.getByRole("button", { name: "Copy" })), await box(called.locator(".call-end"))), "Copy covers no call state").toBe(0);
-    const header = await box(named.locator(".message-from"));
+    const corner = await box(named);
     const copy = await box(named.getByRole("button", { name: "Copy" }));
-    expect(copy.top >= header.top - 1 && copy.bottom <= header.bottom + 1, "Copy lies on the name's line").toBe(true);
-    expect(shared(copy, await contents(named.locator(".message-from"))), "Copy covers nothing of the name").toBe(0);
+    expect(copy.top >= corner.top - 1 && copy.bottom <= corner.bottom + 1, "Copy lies in the message's corner").toBe(true);
+    expect(shared(copy, await contents(named.locator(".message-words").first())), "Copy covers no word of the reply").toBe(0);
   });
 });
 
@@ -574,26 +572,27 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
 
   // Act and Assert: the queue shows now, and again after a reload.
   await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
-  const queued = messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText });
-  await expect(queued).toContainText("Queued");
+  const queued = page.locator(".queued-message.pane").filter({ hasText: sentText });
+  await expect(queued).toBeVisible();
+  await expect(queued.locator(".queued-state")).toBeVisible();
   await page.reload();
   await openGoblin(page, who);
-  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+  await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toBeVisible();
 
   // Act: the hold clears.
   await board.sayTo("cg-pi", { type: "held", reason: "" });
 
   // Assert: the queue is still there, and still withdrawable.
-  const stillQueued = messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText });
-  await expect(stillQueued).toContainText("Queued");
-  await stillQueued.getByRole("button", { name: "Withdraw: " + sentText }).click();
+  const stillQueued = page.locator(".queued-message.pane").filter({ hasText: sentText });
+  await expect(stillQueued).toBeVisible();
+  await stillQueued.getByRole("button", { name: "Delete" }).click();
 
   // Assert: the withdrawal names the goblin, the words and the queued action
   // its row draws, so two messages with the same words are told apart.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
   expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
-  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
+  await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toHaveCount(0);
 });
 
 // Two queued messages may say the same words, so the withdraw on a row names
@@ -609,7 +608,6 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await openGoblin(page, "Pia - Pi Pilot");
-  const who = "Pia - Pi Pilot";
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
   const queue = [{ id: "a1", kind: "message", task_id: "cg-pi", text: "same words", status: "queued", message: "", awaiting: "" },
     { id: "b1", kind: "message", task_id: "cg-pi", text: "other words", status: "queued", message: "", awaiting: "" },
@@ -617,9 +615,11 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
   await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: queue });
 
   // Act: he withdraws the second of the two equal messages.
-  const rows = messageBox(page, who).locator(".composer-sent > li").filter({ hasText: "same words" });
+  const rows = page.locator(".queued-message.pane").filter({ hasText: "same words" });
   await expect(rows).toHaveCount(2);
-  await rows.nth(1).getByRole("button", { name: "Withdraw: same words" }).click();
+  const withdraw = rows.nth(1).getByRole("button", { name: "Delete" });
+  await withdraw.focus();
+  await page.keyboard.press("Enter");
 
   // Assert: the board is asked for the last A by its own id, and only it.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message_withdraw"]);
@@ -810,20 +810,22 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
   expect(posted[0].task_id).toBe("cg-pi");
   await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
-  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
+  await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toBeVisible();
   await page.reload();
   await openGoblin(page, who);
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
-  const stillQueued = messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText });
-  await expect(stillQueued).toContainText("Queued");
-  await stillQueued.getByRole("button", { name: "Withdraw: " + sentText }).click();
+  const stillQueued = page.locator(".queued-message.pane").filter({ hasText: sentText });
+  await expect(stillQueued).toBeVisible();
+  const withdraw = stillQueued.getByRole("button", { name: "Delete" });
+  await withdraw.focus();
+  await page.keyboard.press("Enter");
 
   // Assert: the withdrawal names the goblin, the words and the queued action
   // its row draws, and the row goes as the board answers.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
   expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
-  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toHaveCount(0);
+  await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toHaveCount(0);
 });
 
 test("Classic: the held box and its queue stay reachable through resize, maximize and a phone", async ({ page }) => {

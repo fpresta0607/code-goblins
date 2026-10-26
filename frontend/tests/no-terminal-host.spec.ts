@@ -38,6 +38,7 @@ const runs = (socket: WebSocketRoute) => {
 // returns the views of its terminal the board opened.
 async function open(page: Page, changes: object, answer: (socket: WebSocketRoute) => void): Promise<string[]> {
   const views: string[] = [];
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   await holdStream(page, snapshot(changes));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {

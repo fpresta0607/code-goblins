@@ -136,6 +136,28 @@ func TestANativeTaskWithNoTerminalTakesNothing(t *testing.T) {
 	}
 }
 
+func TestNativeDeliveryDoesNotTypeIntoAnOpenCodexPicker(t *testing.T) {
+	f := newQuickFixture(t)
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(named(f.events(t), "submitted"))
+	f.service.ReadScreen = func(host.Record) ([]string, error) {
+		return []string{"Select a model", "› 1. Current", "  2. Another model", "Enter to confirm · Esc to exit"}, nil
+	}
+	err = f.service.SendNative(t.Context(), meta, "do not select a model")
+	if !errors.Is(err, fleet.ErrNotTyped) || !strings.Contains(err.Error(), "waiting on its own screen") {
+		t.Fatalf("delivery = %v, want the picker to refuse input", err)
+	}
+	if after := len(named(f.events(t), "submitted")); after != before {
+		t.Fatalf("submitted %d messages after %d before, want no picker input", after, before)
+	}
+}
+
 // Text typed into a harness already in a turn is queued by the harness, so
 // with nothing showing the harness took it the send says it is queued, where
 // it once reported it delivered because the screen already showed the harness

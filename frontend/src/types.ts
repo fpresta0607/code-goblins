@@ -312,6 +312,10 @@ export interface Action {
   // never arrived, in the Overlord's words.
   awaiting: "" | "the CFO" | "the goblin";
   advice: string;
+  // can_send_now is whether he may ask for a queued message to be typed now,
+  // and send_now_why says why not when it is off.
+  can_send_now: boolean;
+  send_now_why: string;
   text: string;
   file: string;
   line: number;
@@ -751,6 +755,8 @@ export function parseAction(value: unknown): Action {
     message: string(v.message),
     awaiting: isRecord(v.awaiting) ? (string(v.awaiting.task) ? "the goblin" : "the CFO") : "",
     advice: string(v.advice),
+    can_send_now: v.can_send_now === true,
+    send_now_why: string(v.send_now_why),
     text: string(v.text),
     file: string(v.file),
     line: number(v.line),

@@ -1,4 +1,5 @@
 import { request } from "./api";
+import { object, string } from "./types";
 
 // The longest side a picture reaches this PC's clipboard at. The harnesses
 // shrink a larger one before their model sees it, and a phone's photo whole
@@ -25,4 +26,21 @@ async function pngOf(picture: Blob): Promise<Blob> {
 // picture there and not on this PC, which a desktop paste needs no help with.
 export async function putImage(picture: Blob, instance: string): Promise<void> {
   await request("/api/terminal/image", undefined, { method: "POST", headers: { "Content-Type": "image/png", "X-CFO-Token": instance }, body: await pngOf(picture) });
+}
+
+// keepFile keeps a picture or file he pasted into, or added to, a message
+// where the session he writes to reads it, and answers with the path the
+// message names. A picture is drawn as a PNG of at most LONGEST_SIDE a side
+// first, as one on this PC's clipboard is, so a phone's photo arrives small;
+// any other file goes as he chose it.
+export async function keepFile(file: Blob, name: string, instance: string, task?: string): Promise<string> {
+  const picture = file.type.startsWith("image/");
+  const body = picture ? await pngOf(file) : file;
+  const query = new URLSearchParams({ name: picture ? name.replace(/\.[^.]*$/, "") + ".png" : name });
+  if (task) query.set("task", task);
+  return string(object(await request("/api/composer/file?" + query.toString(), undefined, {
+    method: "POST",
+    headers: { "Content-Type": picture ? "image/png" : "application/octet-stream", "X-CFO-Token": instance },
+    body,
+  })).path);
 }

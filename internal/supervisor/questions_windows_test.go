@@ -637,12 +637,17 @@ func goblinFixture(t *testing.T, store *Store) (state.TaskMeta, wake.Record, hos
 	return meta, record, goblinTerminal(t, store.Home.State, meta.ID), &CFOConnection{State: store.Home.State}
 }
 
-// goblinTerminal hosts native goblin id's terminal, showing Claude Code's
-// composer, with this test process standing in for its program.
+// goblinTerminal hosts native goblin id's terminal, showing its recorded
+// harness's composer, with this test process standing in for its program.
 func goblinTerminal(t *testing.T, stateDir, id string) hostedTerminal {
 	t.Helper()
+	meta, err := state.ReadTaskMeta(stateDir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
 	goblin := hostTerminal(t, stateDir, id)
 	goblin.typeLine(t, "harness")
+	goblin.drawsComposer(t, meta.Harness)
 	goblin.standIn(t)
 	return goblin
 }

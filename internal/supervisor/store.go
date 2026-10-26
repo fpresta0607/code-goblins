@@ -72,30 +72,34 @@ type Evaluation struct {
 	// Awaiting is set by a delivery that was typed and submitted and now
 	// waits for its harness to report taking it; its action keeps it.
 	Awaiting *Awaiting `json:"-"`
+	// CanSendNow is whether a queued message could be typed into its session
+	// on a retry, and SendNowWhy says why not when it could not.
+	CanSendNow bool   `json:"-"`
+	SendNowWhy string `json:"-"`
 }
 
 type Action struct {
-	ID          string    `json:"id"`
-	Kind        string    `json:"kind"`
-	TaskID      string    `json:"task_id"`
-	Generation  string    `json:"generation,omitempty"`
-	Session     string    `json:"session,omitempty"`
-	EventID     string    `json:"event_id,omitempty"`
-	Text        string    `json:"text,omitempty"`
-	File        string    `json:"file,omitempty"`
-	Line        int       `json:"line,omitempty"`
-	EndLine     int       `json:"end_line,omitempty"`
-	Side        string    `json:"side,omitempty"`
-	Head        string    `json:"head,omitempty"`
-	Revision    string    `json:"revision,omitempty"`
-	DiffID      string    `json:"diff_id,omitempty"`
-	QuestionID  string    `json:"question_id,omitempty"`
-	ReviewID    string    `json:"review_id,omitempty"`
-	RunID       string    `json:"run_id,omitempty"`
-	AnswerKind  string    `json:"answer_kind,omitempty"`
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	TaskID     string `json:"task_id"`
+	Generation string `json:"generation,omitempty"`
+	Session    string `json:"session,omitempty"`
+	EventID    string `json:"event_id,omitempty"`
+	Text       string `json:"text,omitempty"`
+	File       string `json:"file,omitempty"`
+	Line       int    `json:"line,omitempty"`
+	EndLine    int    `json:"end_line,omitempty"`
+	Side       string `json:"side,omitempty"`
+	Head       string `json:"head,omitempty"`
+	Revision   string `json:"revision,omitempty"`
+	DiffID     string `json:"diff_id,omitempty"`
+	QuestionID string `json:"question_id,omitempty"`
+	ReviewID   string `json:"review_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	AnswerKind string `json:"answer_kind,omitempty"`
 	// Target is, on a delete of a queued message, that message's own action id,
 	// so two messages with the same words are told apart.
-	Target string `json:"target,omitempty"`
+	Target      string    `json:"target,omitempty"`
 	CFOIdentity string    `json:"cfo_identity,omitempty"`
 	Status      string    `json:"status"`
 	Message     string    `json:"message,omitempty"`
@@ -104,6 +108,10 @@ type Action struct {
 	// Awaiting is set while the action's delivery, typed and submitted, waits
 	// for its harness to report taking it.
 	Awaiting *Awaiting `json:"awaiting,omitempty"`
+	// CanSendNow is whether he may ask for a queued message to be typed now,
+	// and SendNowWhy says why not, in plain words.
+	CanSendNow bool   `json:"can_send_now,omitempty"`
+	SendNowWhy string `json:"send_now_why,omitempty"`
 	// Advice is what the Overlord should do about a delivery that never
 	// arrived, in his words; the board shows it as written.
 	Advice string `json:"advice,omitempty"`
@@ -488,6 +496,68 @@ func (s *Store) Queue(a Action) (Action, error) {
 		return Action{}, err
 	}
 	return queued, s.save()
+}
+
+// queuedMessage is the queued message action id names for task.
+func (s *Store) queuedMessage(id, task string) (*Action, error) {
+	if id == "" {
+		return nil, errors.New("that message was not named")
+	}
+	for i := range s.db.Actions {
+		a := &s.db.Actions[i]
+		if a.ID == id && a.TaskID == task && a.Kind == "message" {
+			if a.Status != "queued" {
+				return nil, errors.New("that message is no longer waiting")
+			}
+			return a, nil
+		}
+	}
+	return nil, errors.New("that message is no longer waiting")
+}
+
+// EditQueuedMessage changes a queued message's words before it is delivered,
+// so the change is what its session receives.
+func (s *Store) EditQueuedMessage(id, task, text string) (Action, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return Action{}, errors.New("a message cannot be empty")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.queuedMessage(id, task)
+	if err != nil {
+		return Action{}, err
+	}
+	a.Text, a.UpdatedAt = text, time.Now().UTC()
+	if err := s.save(); err != nil {
+		return Action{}, err
+	}
+	return *a, nil
+}
+
+// SendQueuedMessageNow clears a queued message's wait so the worker types it
+// at its next safe moment, and refuses when its own reason says typing now
+// would break a gate or has nowhere to go.
+func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.queuedMessage(id, task)
+	if err != nil {
+		return Action{}, err
+	}
+	if !a.CanSendNow {
+		why := a.SendNowWhy
+		if why == "" {
+			why = "It cannot be typed into its session now."
+		}
+		return Action{}, errors.New(why)
+	}
+	delete(s.deferredUntil, a.ID)
+	a.UpdatedAt = time.Now().UTC()
+	if err := s.save(); err != nil {
+		return Action{}, err
+	}
+	return *a, nil
 }
 
 // queueUnlessEvaluating queues a reconcile's evaluation only while no
@@ -889,6 +959,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			if result.Reason != "" {
 				completed.Message = bounded(result.Reason, 1200)
 			}
+			completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
 			if s.deferredUntil == nil {
 				s.deferredUntil = make(map[string]time.Time)
 			}
@@ -896,6 +967,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			continue
 		}
 		delete(s.deferredUntil, a.ID)
+		completed.CanSendNow, completed.SendNowWhy = false, ""
 		if runErr != nil {
 			completed.Status = "failed"
 			if a.Kind != "evaluate" && !errors.Is(runErr, ErrRejected) {

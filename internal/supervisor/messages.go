@@ -34,9 +34,16 @@ const messageWait = 10 * time.Minute
 // overlordWords open each message where it is delivered.
 const overlordWords = "Message from the Overlord, typed on the board: "
 
-// fromOverlord is how a message reads where it is delivered.
+// fromOverlord is how a message reads where it is delivered. A line that
+// starts with / or ! is a command for the harness itself, so it goes as it
+// was typed rather than behind the Overlord's stamp, which would make it
+// plain words (the Overlord, 2026-10-26).
 func fromOverlord(text string) string {
-	return overlordWords + strings.TrimSpace(text)
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "!") {
+		return trimmed
+	}
+	return overlordWords + trimmed
 }
 
 func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, error) {
@@ -47,7 +54,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if a.TaskID == "" {
 		identity, isLive := s.Store.liveCFO()
 		if !isLive {
-			return Evaluation{Reason: "Waits for the CFO."}, ErrDeferred
+			return Evaluation{Reason: "Waits for the CFO.", SendNowWhy: "No CFO is running."}, ErrDeferred
 		}
 		return s.Options.CFO.Send(ctx, identity, text)
 	}
@@ -65,7 +72,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if isStarting {
 		// A start under way reads the branch too, so a message held by a gate
 		// takes the same path across a restart as it does while it runs.
-		return s.waitForGoblin(a, isGateUnclearNow(ctx, s, meta))
+		result, err := s.waitForGoblin(a, isGateUnclearNow(ctx, s, meta))
+		result.SendNowWhy = "It is starting."
+		return result, err
 	}
 	record, err := state.ReadLifecycle(stateDir, a.TaskID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -92,20 +101,22 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	// transition reads no custody of its own.
 	switch held, _ := gateCustody(ctx, s, meta); held {
 	case gateHeld:
-		return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes."}, ErrDeferred
+		return Evaluation{Reason: "Queued for " + a.TaskID + ". Its gate holds the branch, so it is delivered once the gate lets go, however long that takes.", SendNowWhy: "Its gate holds the branch."}, ErrDeferred
 	case gateUnknown:
 		// Custody nobody could read types nothing, so nothing can break a gate.
 		// The message waits in the queue like one behind a gate and is delivered
 		// the moment custody reads clear, and each attempt reads it again, so
 		// nothing is lost while the check is failing. The words he reads are
 		// plain, and no child output reaches them.
-		return Evaluation{Reason: "Queued for " + a.TaskID + ". Delivery waits until its gate custody can be read."}, ErrDeferred
+		return Evaluation{Reason: "Queued for " + a.TaskID + ". Delivery waits until its gate custody can be read.", SendNowWhy: "Its gate custody cannot be read."}, ErrDeferred
 	}
 	switch {
 	case isRecorded && (record.Phase == "pausing" || record.Phase == "resuming" || record.Phase == "stopping"):
 		// A transition under way has no terminal that takes typing now, and its
 		// custody read clear above, so the ordinary wait applies.
-		return s.waitForGoblin(a, false)
+		result, err := s.waitForGoblin(a, false)
+		result.SendNowWhy = "It is pausing, resuming or stopping."
+		return result, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
@@ -113,12 +124,20 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {
 				return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
 			}
+			if errors.Is(err, fleet.ErrNotTyped) {
+				return Evaluation{Reason: "Queued until its terminal can take a message. Nothing was typed.", SendNowWhy: "Its terminal is not ready to take it yet."}, ErrDeferred
+			}
+			if errors.Is(err, ErrDeferred) {
+				result.CanSendNow, result.SendNowWhy = true, "Its terminal is not ready to take it yet."
+			}
 			return result, err
 		}
 	}
 	// A hold returned above, so nothing here is waiting behind one: a goblin
 	// whose terminal cannot take the message keeps the ordinary handoff.
-	return s.waitForGoblin(a, false)
+	result, err := s.waitForGoblin(a, false)
+	result.SendNowWhy = "Its terminal is not running."
+	return result, err
 }
 
 // gateState is what a check of a goblin's gate said: the branch is its

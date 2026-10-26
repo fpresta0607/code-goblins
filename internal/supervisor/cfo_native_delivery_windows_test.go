@@ -51,6 +51,28 @@ func TestNativeCFOLeavesAnUnreadyComposerUntouched(t *testing.T) {
 	}
 }
 
+func TestBoardCommandsReachTheCFOWithoutAProsePrefix(t *testing.T) {
+	for _, command := range []string{"/status", "!git status --short"} {
+		t.Run(command, func(t *testing.T) {
+			store, home := testStore(t)
+			terminal := nativeCFOComposer(t, home.State, "ready")
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			_, err := service.deliverMessage(ctx, Action{Kind: "message", Text: command})
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := terminal.lines(t)
+			if len(lines) != 2 || lines[1] != "accepted "+command {
+				t.Fatalf("terminal input = %q; want the exact command once", lines)
+			}
+		})
+	}
+}
+
 func TestNativeCFOAnswerPathsPreserveRepliesWhileItIsTyping(t *testing.T) {
 	for _, harness := range []string{"codex", "claude"} {
 		for _, kind := range []string{"cfo_answer", "review_answer", "question_clear", "run_result"} {

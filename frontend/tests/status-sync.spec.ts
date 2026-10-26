@@ -56,7 +56,7 @@ async function read(status: Locator) {
   return status.evaluate((element) => ({
     text: element.textContent?.trim() || "",
     phase: [...element.classList].find((name) => name.startsWith("phase-"))?.slice("phase-".length) || "",
-    dot: getComputedStyle(element.querySelector(".status-dot")!).backgroundColor,
+    dot: element.querySelector(".working-indicator") ? getComputedStyle(element.querySelector(".working-indicator")!).color : getComputedStyle(element.querySelector(".status-dot")!).backgroundColor,
   }));
 }
 

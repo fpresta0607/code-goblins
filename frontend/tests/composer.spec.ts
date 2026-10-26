@@ -1,5 +1,5 @@
-import { expect, test } from "./site";
-import { at, box, card, field, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { expect, test, type Page } from "./site";
+import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 // The Overlord chose design A on 2026-10-22, and two tabs that evening: a
 // Claude Code session's Terminal view shows its messages, and the box under
@@ -10,6 +10,41 @@ import { at, box, card, field, NAME, open, openGoblin, pasted, send, snapshot, t
 // Chromium's fake microphone (periodic beeps) stands in for the Overlord's,
 // which the speech model played here hears as words.
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
+
+for (const width of [1440, 390]) {
+  test(`the slim composer keeps plain controls around the input at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await open(page);
+    await openGoblin(page);
+    const composer = box(page);
+    const input = composer.locator(".composer-input");
+    const add = composer.getByRole("button", { name: "Add files", exact: true });
+    const microphone = composer.locator(".voice-bubble");
+    const style = composer.getByRole("button", { name: "Style: modern", exact: true });
+
+    await expect(input).toBeVisible();
+    const reply = page.locator(".message-reply");
+    const replyText = await reply.locator(".message-words").boundingBox();
+    const replyActions = await reply.locator(".message-reply-actions").boundingBox();
+    expect(replyText && replyActions && replyActions.y >= replyText.y + replyText.height).toBeTruthy();
+    await expect(reply.locator(".message-reply-actions time")).toBeVisible();
+    const bounds = await Promise.all([input, add, field(page), microphone, style].map((part) => part.boundingBox()));
+    const [bar, plus, prompt, mic, footer] = bounds;
+    expect(bar && plus && prompt && mic && footer).toBeTruthy();
+    if (!bar || !plus || !prompt || !mic || !footer) return;
+    expect(plus.x + plus.width).toBeLessThanOrEqual(prompt.x);
+    expect(prompt.x + prompt.width).toBeLessThanOrEqual(mic.x);
+    expect(footer.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+    expect(bar.height).toBeLessThanOrEqual(60);
+    for (const button of [add, microphone, style, composer.getByRole("button", { name: "Speech history", exact: true })]) {
+      expect(await button.evaluate((element) => ({ border: getComputedStyle(element).borderTopWidth, background: getComputedStyle(element).backgroundColor }))).toEqual({ border: "0px", background: "rgba(0, 0, 0, 0)" });
+    }
+    await field(page).fill("Keep this draft while changing the view");
+    await expect(field(page)).toHaveValue("Keep this draft while changing the view");
+    await expect(send(page)).toBeEnabled();
+    await composer.screenshot({ path: testInfo.outputPath(`slim-composer-${width}.png`) });
+  });
+}
 
 test("Send types what he wrote into the session's terminal once, as one paste, then Enter, and empties the box", async ({ page }) => {
   const relay = await open(page);
@@ -40,16 +75,22 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
 
-test("a busy program, a reconnecting terminal and typing a gate holds each say so beside the box and hold Send, and his draft stays, never sent late", async ({ page }) => {
+test("busy and held messages use the durable queue while a reconnect keeps an unsent draft", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
   const note = box(page).locator(".composer-note");
   await field(page).fill("merge it");
+  const actions: object[] = [];
+  await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
 
   relay.say({ type: "unread", unread: true });
   await expect(note).toHaveText("Program busy. Typed keys are waiting.");
-  await expect(send(page)).toBeDisabled();
+  await expect(send(page)).toBeEnabled();
   await field(page).press("Enter");
+  await expect.poll(() => actions.length).toBe(1);
+  expect(actions[0]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "merge it" });
+  await expect(field(page)).toHaveValue("");
+  await field(page).fill("merge it");
   relay.say({ type: "unread", unread: false });
   await expect(note).toHaveText("");
   await expect(send(page)).toBeEnabled();
@@ -100,7 +141,7 @@ test("while the harness asks in its terminal an amber card says so and Send wait
 test("while the harness works the working line's Stop presses Escape in its terminal", async ({ page }) => {
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "", at } }));
   await openGoblin(page);
-  const working = box(page).locator(".composer-working");
+  const working = page.locator(".session-working");
   await expect(working).toContainText("Working");
 
   await working.getByRole("button", { name: "Stop" }).click();
@@ -142,17 +183,32 @@ test("a session's panel is one view with its messages and no pill, and a switch 
   await expect(field(page, "CFO")).toBeFocused();
 });
 
-test("a Codex session's panel shows its terminal, with no messages", async ({ page }) => {
+test("a Codex session's panel shows Modern messages with its reachable composer", async ({ page }) => {
   await open(page, snapshot({}, { title: "Swipes scroll the phone terminal; Codex", harness: "codex", model: "gpt-5.5" }));
 
   await card(page, NAME).click();
 
   await expect(page.locator("#panel-title")).toHaveText(NAME);
-  await expect(page.getByRole("region", { name: "Messages", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+  await expect(field(page)).toBeInViewport();
 });
 
 test.describe("dictation into the box", () => {
+  test("holding the visible microphone adds dictated words without sending", async ({ page }) => {
+    const relay = await open(page);
+    await openGoblin(page);
+    await field(page).fill("please");
+
+    await box(page).getByRole("button", { name: "Hold to dictate", exact: true }).hover();
+    await page.mouse.down();
+    await expect(box(page).getByRole("button", { name: "Listening", exact: true })).toHaveClass(/recording/);
+    await page.waitForTimeout(1200);
+    await page.mouse.up();
+
+    await expect(field(page)).toHaveValue("please rebase onto main");
+    expect(typed(relay)).toBe("");
+  });
+
   test("holding Ctrl+Shift+Space in the box dictates into it, and sends nothing by itself", async ({ page }) => {
     const relay = await open(page);
     await openGoblin(page);
@@ -194,7 +250,7 @@ test.describe("dictation into the box", () => {
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [{ text: "check the phone spec", at: Date.parse("2026-10-22T09:30:00Z") }] } }));
     await openGoblin(page);
 
-    await box(page).getByRole("button", { name: "Recent messages" }).click();
+    await box(page).getByRole("button", { name: "Speech history" }).click();
     await page.getByRole("dialog", { name: "Recent messages" }).getByRole("button", { name: "Paste into the message: check the phone spec" }).click();
 
     await expect(field(page)).toHaveValue("check the phone spec");
@@ -204,7 +260,7 @@ test.describe("dictation into the box", () => {
     await open(page);
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
     await openGoblin(page);
-    const recent = box(page).getByRole("button", { name: "Recent messages" });
+    const recent = box(page).getByRole("button", { name: "Speech history" });
     await recent.click();
     await expect(page.getByRole("dialog", { name: "Recent messages" })).toBeVisible();
 
@@ -259,4 +315,159 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // Assert: the note is clear again and the message has not been typed twice.
   await expect(note).toHaveText("");
   expect(typed(relay), "a queued message is not typed on release by this path").toEqual(before);
+});
+
+// A 1x1 PNG, the smallest picture a paste can carry.
+const PICTURE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+const KEPT = "/home/goblin/composer-files/pasted-1.png";
+
+async function pastePicture(page: Page) {
+  await field(page).evaluate((element, picture) => {
+    const bytes = Uint8Array.from(atob(picture), (letter) => letter.charCodeAt(0));
+    const clipboard = new DataTransfer();
+    clipboard.items.add(new File([bytes], "shot.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: clipboard }));
+  }, PICTURE);
+}
+
+async function readClipboardOf(page: Page, text: string, picture = "") {
+  await page.addInitScript(({ words, image }) => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { read: async () => {
+      if (!image) return [{ types: ["text/plain"], getType: async () => new Blob([words], { type: "text/plain" }) }];
+      const bytes = Uint8Array.from(atob(image), (letter) => letter.charCodeAt(0));
+      return [{ types: ["image/png"], getType: async () => new File([bytes], "shot.png", { type: "image/png" }) }];
+    } } });
+  }, { words: text, image: picture });
+}
+
+test("a picture pasted into the box is kept where the session reads it, and the message names its path", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  const posts: { url: string; body: string }[] = [];
+  await page.route("**/api/composer/file**", async (route) => {
+    posts.push({ url: route.request().url(), body: route.request().postDataBuffer()?.toString("base64") ?? "" });
+    await route.fulfill({ json: { path: KEPT } });
+  });
+  await openGoblin(page);
+
+  // Act
+  await pastePicture(page);
+
+  // Assert
+  await expect(field(page)).toHaveValue(KEPT);
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].url).toContain("task=" + GOBLIN.id);
+  expect(posts[0].url).toContain("name=shot.png");
+  expect(posts[0].body.length, "the picture's own bytes went, not the clipboard's name").toBeGreaterThan(80);
+  await send(page).click();
+  await expect.poll(() => typed(relay)).toContain(pasted(KEPT) + "\r");
+});
+
+test("a picture the board cannot keep says so in the box rather than disappearing", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 500, json: { error: "The file could not be kept: no room" } }));
+  await openGoblin(page);
+
+  // Act
+  await pastePicture(page);
+
+  // Assert
+  await expect(field(page)).toHaveValue("");
+  await expect(box(page).locator(".composer-note")).toHaveText("That picture was not added: The file could not be kept: no room");
+});
+
+test("Alt+V pastes the clipboard's text into the box, as Ctrl+V does", async ({ page }) => {
+  // Arrange
+  await readClipboardOf(page, "from the clipboard");
+  await open(page);
+  await openGoblin(page);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("Alt+v");
+
+  // Assert
+  await expect(field(page)).toHaveValue("from the clipboard");
+});
+
+test("Alt+V pastes a picture into the box by the path the session reads", async ({ page }) => {
+  // Arrange
+  await readClipboardOf(page, "", PICTURE);
+  await open(page);
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ json: { path: KEPT } }));
+  await openGoblin(page);
+
+  // Act
+  await field(page).focus();
+  await page.keyboard.press("Alt+v");
+
+  // Assert
+  await expect(field(page)).toHaveValue(KEPT);
+});
+
+test("a slash command offers the session's own commands, filters, takes the keyboard and keeps its arguments", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ["compact", "context", "cost"] } }));
+  await openGoblin(page);
+  const list = page.getByRole("listbox", { name: "Commands", exact: true });
+
+  // Act: the command word filters the list.
+  await field(page).fill("/co");
+
+  // Assert
+  await expect(list).toBeVisible();
+  await expect(list.getByRole("option")).toHaveText(["/compact", "/context", "/cost"]);
+  await field(page).fill("/cos");
+  await expect(list.getByRole("option")).toHaveText(["/cost"]);
+
+  // Act: the keyboard picks it.
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+
+  // Assert: the command is in the box with room for its arguments.
+  await expect(field(page)).toHaveValue("/cost ");
+  await expect(list).toHaveCount(0);
+
+  // Act: Escape closes the list without clearing the draft.
+  await field(page).fill("/co");
+  await expect(list).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Assert
+  await expect(field(page)).toHaveValue("/co");
+  await expect(list).toHaveCount(0);
+  await field(page).press("Enter");
+  await expect.poll(() => typed(relay)).toContain(pasted("/co") + "\r");
+});
+
+test("a leading ! command is typed into the session as the harness's own shell command", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await openGoblin(page);
+
+  // Act
+  await field(page).fill("!git status --short");
+  await field(page).press("Enter");
+
+  // Assert
+  await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
+});
+
+test("a delivered message appears once in Modern chat and the queue count includes every pending message", async ({ page }) => {
+  const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
+  await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
+    messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" },
+      { id: "long", seq: 1, kind: "reply", blocks: [{ kind: "text", text: "Earlier conversation paragraph.\n\n".repeat(80) }] }], more: false,
+  });
+  await openGoblin(page);
+  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
+  const queue = page.getByRole("button", { name: "8 queued messages", exact: true });
+  await expect(queue).toBeVisible();
+  await page.getByRole("log", { name: "Messages of " + NAME }).evaluate((list) => { list.scrollTop = 0; });
+  const firstQueued = page.locator('.queued-message[data-queued="q0"]');
+  await expect(firstQueued).not.toBeInViewport();
+  await queue.click();
+  await expect(firstQueued).toBeInViewport();
 });

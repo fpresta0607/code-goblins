@@ -166,3 +166,84 @@ func TestMessagesReadAPiCFOAndRefuseAnotherHarness(t *testing.T) {
 		t.Fatalf("the CFO's page reads %+v", page.Messages)
 	}
 }
+
+func TestPiUsageStreamsAgainAfterAnEmptyBranchReset(t *testing.T) {
+	// Arrange
+	store, taskHome := testStore(t)
+	profile := t.TempDir()
+	meta := piGoblin(t, taskHome.State, profile, "pipester", "s1")
+	path := fleettree.SessionTranscript(profile, "pi", "pipester-session")
+	usageMessage := `"message":{"role":"assistant","provider":"acme","model":"thinker-1","usage":{"input":50,"output":10,"totalTokens":60},"content":[{"type":"text","text":"done"}]}}`
+	appendEntries(t, path, `{"type":"message","id":"a3","parentId":"a2",`+usageMessage)
+	handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "", nil)
+	server := httptest.NewUnstartedServer(handler)
+	handler.Host = server.Listener.Addr().String()
+	server.Start()
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?task="+meta.ID+"&generation="+meta.SpawnGen+"&token=board-token&stream=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("not streaming: %d", response.StatusCode)
+	}
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(nil, 1<<20)
+	read := func(want string) string {
+		t.Helper()
+		current := ""
+		for scanner.Scan() {
+			if name, isEvent := strings.CutPrefix(scanner.Text(), "event: "); isEvent {
+				current = name
+			}
+			if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData {
+				if current != want {
+					t.Fatalf("got %s event, want %s", current, want)
+				}
+				return data
+			}
+		}
+		t.Fatalf("no %s event: %v", want, scanner.Err())
+		return ""
+	}
+	read("page")
+	var before fleettree.Usage
+	if err := json.Unmarshal([]byte(read("usage")), &before); err != nil {
+		t.Fatal(err)
+	}
+	if before.InputTokens != 50 || before.ContextTokens != 60 {
+		t.Fatalf("initial usage = %+v", before)
+	}
+
+	// Act: switch to a branch with the same first prompt and no replies.
+	appendEntries(t, path, `{"type":"message","id":"u2","parentId":"u1","message":{"role":"user","content":"Try again"}}`)
+
+	// Assert: its authoritative page clears usage.
+	var reset fleettree.MessagePage
+	if err := json.Unmarshal([]byte(read("page")), &reset); err != nil {
+		t.Fatal(err)
+	}
+	if reset.Usage != nil || len(reset.Messages) != 2 || reset.Messages[0].ID != "u1" {
+		t.Fatalf("reset page = %+v", reset)
+	}
+
+	// Act: the new branch records exactly the same usage as the old one.
+	appendEntries(t, path, `{"type":"message","id":"a4","parentId":"u2",`+usageMessage)
+
+	// Assert: it is sent again after the reset on the same stream.
+	read("messages")
+	var after fleettree.Usage
+	if err := json.Unmarshal([]byte(read("usage")), &after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("usage after reset = %+v, want %+v", after, before)
+	}
+}

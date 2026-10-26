@@ -1,9 +1,12 @@
 package fleettree
 
 import (
+	"encoding/base64"
+	"errors"
+	"os"
 	"path/filepath"
-	"strings"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -173,7 +176,7 @@ func TestACodexEditShowsTheDiffItRecorded(t *testing.T) {
 		codexCall("call-1", "exec", "text(await tools.apply_patch(\"*** Begin Patch\"));"),
 		codexFileChange(object{
 			"C:\\work\\repo\\count.go": object{"type": "update", "unified_diff": "@@ -1,2 +1,2 @@\n-const n = 1\n+const n = 2\n  \n"},
-			"C:\\work\\repo\\notes.md":  object{"type": "add", "content": "It counts.\n"},
+			"C:\\work\\repo\\notes.md": object{"type": "add", "content": "It counts.\n"},
 		}),
 		codexUsage(),
 		codexOutput("call-1", "Script completed\nWall time 1.0 seconds\nOutput:\n{}"),
@@ -279,6 +282,120 @@ func assertMessages(t *testing.T, got, want []Message) {
 			if !reflect.DeepEqual(got[i].Blocks[j], want[i].Blocks[j]) {
 				t.Fatalf("message %d's block %d reads as %+v, want %+v", i, j, got[i].Blocks[j], want[i].Blocks[j])
 			}
+		}
+	}
+}
+
+func TestCodexUsageUsesRecordedTotalsAndLastContext(t *testing.T) {
+	home := t.TempDir()
+	last := object{"input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 20, "total_tokens": 120}
+	total := object{"input_tokens": 300, "cached_input_tokens": 200, "output_tokens": 40, "total_tokens": 340}
+	path := codexRollout(t, home, "usage", codexMeta("usage", workDir), codexTurnContext("recorded-model"),
+		codexLine("token_usage_record", object{"usage": last, "thread_token_usage": total}),
+		codexLine("event_msg", object{"type": "token_count", "info": object{"total_token_usage": total, "last_token_usage": last, "model_context_window": 1000}}),
+	)
+	reader := Reader{Home: home}
+	want := Usage{InputTokens: 300, CacheReadTokens: 200, OutputTokens: 40, ContextTokens: 120, ContextWindow: 1000, Model: "recorded-model"}
+	for range 2 {
+		page := readCodex(t, &reader, path)
+		if page.Usage == nil || *page.Usage != want {
+			t.Fatalf("usage = %+v, want %+v", page.Usage, want)
+		}
+		if got := reader.Usage(path); got == nil || *got != want {
+			t.Fatalf("stream usage = %+v, want %+v", got, want)
+		}
+	}
+	appendLines(t, path, codexLine("event_msg", object{"type": "token_count", "info": nil}))
+	if got := readCodex(t, &reader, path).Usage; got == nil || *got != want {
+		t.Fatalf("null usage replaced totals: %+v", got)
+	}
+	appendLines(t, path, codexLine("token_usage_record", object{"usage": last, "thread_token_usage": object{"input_tokens": 400, "cached_input_tokens": 280, "output_tokens": 60, "total_tokens": 460}}))
+	if got := readCodex(t, &reader, path).Usage; got == nil || got.InputTokens != 400 || got.CacheReadTokens != 280 || got.OutputTokens != 60 {
+		t.Fatalf("new response usage: %+v", got)
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readCodex(t, &reader, path).Usage; got != nil {
+		t.Fatalf("replaced rollout retained usage: %+v", got)
+	}
+}
+
+func TestCodexUsageRejectsInvalidRecordedFields(t *testing.T) {
+	for _, counts := range []object{
+		{"input_tokens": -1, "output_tokens": 1},
+		{"input_tokens": 5, "cached_input_tokens": 6},
+		{"input_tokens": "unknown", "output_tokens": 1},
+	} {
+		home := t.TempDir()
+		path := codexRollout(t, home, "invalid", codexMeta("invalid", workDir), codexLine("token_usage_record", object{"usage": counts, "thread_token_usage": counts}))
+		reader := Reader{Home: home}
+		if got := readCodex(t, &reader, path).Usage; got != nil {
+			t.Fatalf("invalid usage: %+v", got)
+		}
+	}
+}
+
+func TestCodexReadsOnlyPublicReasoningSummary(t *testing.T) {
+	home := t.TempDir()
+	path := codexRollout(t, home, "summary", codexMeta("summary", workDir), codexCompleted("Reasoning", object{"summary_text": []object{{"type": "summary_text", "text": "Public summary"}}, "raw_content": []object{{"type": "text", "text": "private placeholder"}}, "encrypted_content": "opaque-placeholder"}))
+	reader := Reader{Home: home}
+	page := readCodex(t, &reader, path)
+	if len(page.Messages) != 1 || len(page.Messages[0].Blocks) != 1 || page.Messages[0].Blocks[0].Text != "Public summary" {
+		t.Fatalf("summary: %+v", page.Messages)
+	}
+}
+
+func TestCodexUsageSupportsEachRecordedFormat(t *testing.T) {
+	counts := object{"input_tokens": 50, "cached_input_tokens": 30, "output_tokens": 10, "total_tokens": 60}
+	for _, entry := range []object{
+		codexLine("token_usage_record", object{"usage": counts, "thread_token_usage": counts}),
+		codexLine("token_usage_record", object{"usage": counts}),
+		codexLine("event_msg", object{"type": "token_count", "info": object{"total_token_usage": counts, "last_token_usage": counts}}),
+	} {
+		home := t.TempDir()
+		path := codexRollout(t, home, "usage", codexMeta("usage", workDir), entry)
+		reader := Reader{Home: home}
+		want := Usage{InputTokens: 50, CacheReadTokens: 30, OutputTokens: 10, ContextTokens: 60}
+		if got := readCodex(t, &reader, path).Usage; got == nil || *got != want {
+			t.Fatalf("usage = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestCodexPicturesAreReadFromPromptAndToolEntries(t *testing.T) {
+	data := []byte("recorded picture")
+	encoded := "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
+	home := t.TempDir()
+	path := codexRollout(t, home, "pictures", codexMeta("pictures", workDir),
+		codexCompleted("UserMessage", object{"content": []object{{"type": "image", "url": encoded}}}),
+		codexCall("call-1", "view_image", "open picture"),
+		codexLine("response_item", object{"type": "custom_tool_call_output", "call_id": "call-1", "output": []object{{"type": "input_image", "image_url": encoded}}}),
+	)
+	reader := Reader{Home: home}
+	page := readCodex(t, &reader, path)
+	if len(page.Messages) != 2 || len(page.Messages[0].Pictures) != 1 || len(page.Messages[1].Blocks[0].Pictures) != 1 {
+		t.Fatalf("missing pictures: %+v", page.Messages)
+	}
+	for _, picture := range []Picture{page.Messages[0].Pictures[0], page.Messages[1].Blocks[0].Pictures[0]} {
+		media, got, err := reader.MessagePicture(path, picture.ID)
+		if err != nil || media != "image/png" || !reflect.DeepEqual(got, data) || picture.Bytes != len(data) {
+			t.Fatalf("picture = %s %q %v (%+v)", media, got, err, picture)
+		}
+	}
+	if _, _, err := reader.MessagePicture(path, "../../other"); !errors.Is(err, ErrNoRecord) {
+		t.Fatalf("unknown picture: %v", err)
+	}
+}
+
+func TestCodexPicturesNeverFetchExternalOrUnsupportedSources(t *testing.T) {
+	for _, source := range []string{"https://example.invalid/image.png", "file:///C:/private.png", "data:image/svg+xml;base64,PHN2Zz4=", "data:image/png;base64,", "data:image/png;base64,===="} {
+		home := t.TempDir()
+		path := codexRollout(t, home, "pictures", codexMeta("pictures", workDir), codexCompleted("UserMessage", object{"content": []object{{"type": "text", "text": "look"}, {"type": "image", "url": source}}}))
+		reader := Reader{Home: home}
+		page := readCodex(t, &reader, path)
+		if len(page.Messages) != 1 || len(page.Messages[0].Pictures) != 0 {
+			t.Fatalf("unsupported source produced picture: %+v", page.Messages)
 		}
 	}
 }

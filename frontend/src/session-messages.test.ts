@@ -68,20 +68,34 @@ test("an older page goes before the first message held, and what it repeats is d
   assert.equal(next.more, false);
 });
 
+test("a newest page clears abandoned usage while older pagination keeps current usage", () => {
+  const before = parsePage({ messages: [served(0), served(1, { kind: "reply" })], more: false,
+    usage: { input_tokens: 12000, context_tokens: 24000, context_window: 100000, model: "recorded-model" } });
+  const reset = parsePage({ messages: [served(0)], more: false });
+
+  const next = pageMessages(before, reset);
+
+  assert.deepEqual(next.messages, reset.messages);
+  assert.equal(next.usage, undefined, "the surviving prompt does not keep the abandoned reply's statistics");
+  assert.deepEqual(olderMessages(before, reset).usage, before.usage, "older pagination is not an authoritative usage reset");
+});
+
 const task = (fields: Partial<Task>) => ({ id: "cg-one", harness: "claude", backend: "native", generation: "s1", phase: "working", archived: false, ...fields }) as Task;
 
-test("a Claude Code or pi goblin's current generation and a Claude Code or pi CFO, each in a native terminal, have messages, and no other session", () => {
+test("supported native sessions have messages for the current goblin generation and CFO host", () => {
   const cfo = { cfo_terminal: "t-7", cfo_harness: "claude" };
   assert.equal(messagesQuery(cfo, task({})), "task=cg-one&generation=s1");
   assert.equal(messagesQuery(cfo, task({ harness: "pi" })), "task=cg-one&generation=s1", "a pi goblin's conversation reads too");
   assert.equal(messagesQuery(cfo, task({ phase: "paused" })), "task=cg-one&generation=s1", "a paused goblin's conversation still reads");
   assert.equal(messagesQuery(cfo), "cfo=t-7");
+  assert.equal(messagesQuery({ ...cfo, cfo_terminal_since: "restart-2" }), "cfo=t-7&since=restart-2");
   assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "pi" }), "cfo=t-7", "a pi CFO");
-  for (const [why, other] of [["a Codex goblin", task({ harness: "codex" })], ["a goblin in Herdr", task({ backend: "herdr" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
+  assert.equal(messagesQuery(cfo, task({ harness: "codex" })), "task=cg-one&generation=s1", "a Codex goblin reads its rollout without hooks");
+  for (const [why, other] of [["a goblin in Herdr", task({ backend: "herdr" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
     assert.equal(messagesQuery(cfo, other), "", why);
   }
   assert.equal(messagesQuery({ cfo_terminal: "", cfo_harness: "claude" }), "", "the CFO in Herdr");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "codex" }), "", "a Codex CFO");
+  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "codex" }), "cfo=t-7", "a Codex CFO reads its rollout without hooks");
   assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "" }), "", "a CFO that has not registered its harness");
 });
 

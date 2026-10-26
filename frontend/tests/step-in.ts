@@ -1,9 +1,7 @@
 import { expect, type Page } from "./site";
 
-// The board-level terminal specs run twice: on a Codex session, whose
-// Terminal view is its terminal, and stepped in, on a Claude Code session,
-// whose Terminal view shows its messages and whose terminal steps into their
-// place. RUNS names both and the harness each runs.
+// The board-level terminal specs run in Classic on Codex and stepped into
+// Modern on Claude Code. Both harnesses also have a Modern conversation.
 export const RUNS = [{ name: "under Terminal", harness: "codex", isSteppedIn: false }, { name: "stepped in", harness: "claude", isSteppedIn: true }] as const;
 
 // stepIn steps the open session's terminal into its messages' place, as the

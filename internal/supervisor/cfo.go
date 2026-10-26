@@ -548,7 +548,10 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	if !screens.ComposerEmpty(before) || !busy && !screens.IsReady(before) {
 		return Evaluation{Reason: "The CFO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
 	}
-	instruction := oneLine("Overlord: " + text)
+	instruction := oneLine(text)
+	if !strings.HasPrefix(instruction, "/") && !strings.HasPrefix(instruction, "!") {
+		instruction = "Overlord: " + instruction
+	}
 	submitted := time.Now()
 	if err := delivery.Write([]byte(instruction)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)

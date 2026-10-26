@@ -29,7 +29,7 @@ const MAX_RETRIES = 5;
 // reportAs names the terminal in what it reports to the CFO. link, when set,
 // is the terminal deck's key it offers its link by (terminal-link.ts), so the
 // Messages view's box types through this terminal's own view.
-export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, link }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; link?: string }) {
+export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, link, onHistory }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; link?: string; onHistory?: () => void }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -38,6 +38,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const staged = useRef<TerminalView | null>(null);
   const shownValue = useRef(shown);
   const harnessValue = useRef(harness);
+  const onHistoryValue = useRef(onHistory);
   const retries = useRef(0);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   // Why the view closed, while it is closed, and whether its terminal ended,
@@ -88,6 +89,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     }
   }, [shown]);
   useEffect(() => { harnessValue.current = harness; }, [harness]);
+  useEffect(() => { onHistoryValue.current = onHistory; }, [onHistory]);
   const reportAsValue = useRef(reportAs);
   useEffect(() => { reportAsValue.current = reportAs; }, [reportAs]);
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
@@ -99,6 +101,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     const container = surface.current;
     if (!container || !visible) return;
+    let isActive = true;
     let copiedTimer: ReturnType<typeof setTimeout> | undefined, retry: ReturnType<typeof setTimeout> | undefined;
     const url = new URL("/api/terminal/native", location.href);
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -107,7 +110,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     url.search = params.toString();
     const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
+        if (!isActive) return;
         const prior = current.current;
+        const reading = prior?.readingPosition() ?? null;
         // Disposing the view it replaces takes the keyboard from the page, so
         // where the keyboard was is read first.
         const hadKeyboard = !!prior?.element.contains(document.activeElement) || !!container.closest(".context-pane")?.contains(document.activeElement);
@@ -127,10 +132,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setClosedWhy("");
         setEnded(false);
         setPhase("live");
+        view.restoreReading(reading);
         if (shownValue.current && (wantFocus.current || hadKeyboard)) view.focus();
         wantFocus.current = false;
       },
       closed: (code, why) => {
+        if (!isActive) return;
         if (reconnects(code) && retries.current < MAX_RETRIES) {
           retries.current++;
           setReconnecting(true);
@@ -152,29 +159,33 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       dictate,
       harness: () => harnessValue.current,
       image: (picture) => addImageValue.current(picture),
+      problem: (why) => showFeedback(why),
       reading: (end) => { if (current.current === view) setHistoryEnd(end); },
       unread: (unread) => { if (current.current === view) setUnread(unread); },
       held: (reason) => { if (current.current === view) setHeldWhy(reason); },
       unsent: () => { if (current.current === view) setUnsent(true); },
       screen: (state) => { if (current.current === view) setScreen(state); },
+      history: () => { if (current.current === view) onHistoryValue.current?.(); },
     });
     staged.current = view;
     view.show(shownValue.current);
     return () => {
+      isActive = false;
       clearTimeout(copiedTimer);
       clearTimeout(retry);
       if (staged.current === view) staged.current = null;
       // A view that is on screen stays until its replacement is whole.
       if (current.current !== view) view.dispose();
     };
-  }, [query, instance, visible, attempt, dictate]);
+  }, [query, instance, visible, attempt, dictate, showFeedback]);
   useEffect(() => () => { current.current?.dispose(); current.current = null; }, []);
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
       phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, screen,
-      send: (text) => current.current?.submit(text) ?? null,
+      send: (text) => phase === "live" && !reconnecting && visible ? current.current?.submit(text) ?? null : null,
       escape: () => !!current.current?.escape(),
+      control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,
     });
     return () => offerLink(link, null);
   }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen]);

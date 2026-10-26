@@ -26,14 +26,18 @@ export interface Relay {
   resizes: { cols: number; rows: number }[];
   views: number;
   submissions: string[];
+  addresses: string[];
+  inputs: { address: string; text: string }[];
+  write: (text: string) => void;
+  end: () => void;
   // say tells the newest view a relay message; drop closes it as a relay
   // that went away does, which the view reconnects from.
   say: (message: object) => void;
   drop: () => void;
 }
 
-export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main"): Promise<Relay> {
-  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], say: () => {}, drop: () => {} };
+export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n"): Promise<Relay> {
+  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {} };
   await page.addInitScript(() => {
     if (!localStorage.getItem("cfo-first-open")) localStorage.setItem("cfo-first-open", "shown");
     localStorage.setItem("cfo-voice-hint-v1", "dismissed");
@@ -46,31 +50,41 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       onerror: (() => void) | null = null;
       readyState = 1;
       private publish = (event: Event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) })); };
+      private update = (event: Event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent(event.detail.type, { data: JSON.stringify(event.detail.data) })); };
       constructor(address: string | URL) {
         super();
         const url = new URL(address, location.href);
         if (url.pathname === "/api/messages") {
+          window.addEventListener("fixture-messages", this.update);
           setTimeout(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify(messages) })));
           return;
         }
         window.addEventListener("fixture-snapshot", this.publish);
         setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(data) })));
       }
-      close() { this.readyState = 2; window.removeEventListener("fixture-snapshot", this.publish); }
+      close() { this.readyState = 2; window.removeEventListener("fixture-snapshot", this.publish); window.removeEventListener("fixture-messages", this.update); }
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
-  }, { data: first, messages: PAGE });
+  }, { data: first, messages });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", (route) => route.request().method() === "GET" ? route.fulfill({ json: { engine: "test-model", state: "ready" } }) : route.fulfill({ json: { text: heard, engine: "test-model" } }));
+  const holds = new Map<string, object>();
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     relay.views++;
+    relay.addresses.push(socket.url());
     let submission = ""
-    relay.say = (message) => socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message))
+    relay.say = (message) => {
+      if ("type" in message && message.type === "held") holds.set(socket.url(), message);
+      socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message));
+    };
     relay.drop = () => socket.close({ code: 1001 });
+    relay.end = () => socket.close({ code: 1000, reason: "No terminal is running for this task." });
+    relay.write = (text) => socket.send(Buffer.from(text));
     socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+    if (holds.has(socket.url())) socket.send(JSON.stringify(holds.get(socket.url())));
     socket.onMessage((data) => {
-      if (typeof data !== "string") { relay.typed.push(data.toString("utf8")); return; }
+      if (typeof data !== "string") { const text = data.toString("utf8"); relay.typed.push(text); relay.inputs.push({ address: socket.url(), text }); return; }
       const sent: unknown = JSON.parse(data);
       if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "submit" && "submission" in sent && typeof sent.submission === "string") {
         submission = sent.submission
@@ -82,7 +96,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       relay.resizes.push(size);
       socket.send(JSON.stringify({ type: "size", ...size }));
       // A program that turned bracketed paste on, as Claude Code does.
-      socket.send(Buffer.from("\x1b[?2004h> ready\r\n"));
+      socket.send(Buffer.from("\x1b[?2004h" + output));
     });
   });
   await page.goto("/");

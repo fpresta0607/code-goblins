@@ -179,3 +179,19 @@ test("a full-screen program, as the CFO's Claude Code runs, keeps its own scroll
   await expect(pin(page)).toBeHidden();
   await expect(jump(page)).toHaveCount(0);
 });
+
+for (const mouse of [false, true]) {
+  test(`Shift+PageUp scrolls a full-screen program through its wheel path with mouse tracking ${mouse}`, async ({ page }) => {
+    const relay = await openTerminal(page, "\x1b[?1049h" + (mouse ? "\x1b[?1000h\x1b[?1006h" : "") + PRINTED);
+    await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
+    await expect.poll(() => relay.typed.join("")).toContain(mouse ? "\x1b[<64;" : "\x1b[A");
+    expect(relay.typed.join("")).not.toContain("\x1b[5;2~");
+
+    relay.typed.length = 0;
+    relay.send(JSON.stringify({ type: "held", reason: "pipeline owns this task" }));
+    await expect(page.locator(".terminal-held-line")).toBeVisible();
+    await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageDown");
+    await page.waitForTimeout(100);
+    expect(relay.typed).toEqual([]);
+  });
+}

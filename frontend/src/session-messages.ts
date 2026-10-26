@@ -24,11 +24,11 @@ export interface SessionMessage {
   source: PromptSource; queued: boolean; text: string; output: string; errors: string; trigger: string;
   blocks: MessageBlock[]; pictures: MessagePicture[];
 }
-export type PromptSource = "overlord" | "cfo" | "answer" | "notice" | "slash" | "shell" | "";
+export type PromptSource = "overlord" | "cfo" | "answer" | "page" | "notice" | "slash" | "shell" | "";
 
 const KINDS = ["prompt", "reply", "compaction", "interrupt"] as const;
 const BLOCK_KINDS = ["text", "thinking", "call"] as const;
-const SOURCES = ["overlord", "cfo", "answer", "notice", "slash", "shell"] as const;
+const SOURCES = ["overlord", "cfo", "answer", "page", "notice", "slash", "shell"] as const;
 const STATES = ["running", "done", "failed", "denied", "interrupted"] as const;
 
 function choice<T extends string>(value: unknown, choices: readonly T[], what: string): T {
@@ -66,11 +66,28 @@ export function parseMessages(value: unknown): SessionMessage[] {
   });
 }
 
-export interface MessagePage { messages: SessionMessage[]; more: boolean }
+// SessionUsage is what a session's own conversation records it spent: its
+// input, output and cached tokens, the dollars it named, the context its last
+// request carried against the model's window, and that model. A field the
+// conversation does not record is 0 or empty, and the board leaves that stat
+// out rather than inventing it.
+export interface SessionUsage {
+  input_tokens: number; output_tokens: number; cache_read_tokens: number;
+  cost_usd: number; context_tokens: number; context_window: number; model: string;
+}
+
+export interface MessagePage { messages: SessionMessage[]; more: boolean; usage?: SessionUsage }
+
+export function parseUsage(value: unknown): SessionUsage | undefined {
+  if (value == null) return undefined;
+  const each = object(value);
+  return { input_tokens: number(each.input_tokens), output_tokens: number(each.output_tokens), cache_read_tokens: number(each.cache_read_tokens),
+    cost_usd: number(each.cost_usd), context_tokens: number(each.context_tokens), context_window: number(each.context_window), model: string(each.model) };
+}
 
 export function parsePage(value: unknown): MessagePage {
   const page = object(value);
-  return { messages: parseMessages(page.messages), more: boolean(page.more) };
+  return { messages: parseMessages(page.messages), more: boolean(page.more), usage: parseUsage(page.usage) };
 }
 
 // changeMessages puts each changed message in place of the one with its id,
@@ -91,31 +108,31 @@ export function pageMessages(held: MessagePage, page: MessagePage): MessagePage 
   const isSame = !!first && held.messages.some((message) => message.id === first.id && message.seq === first.seq);
   if (!isSame) return page;
   const older = held.messages.filter((message) => message.seq < first.seq);
-  return { messages: [...older, ...page.messages], more: older.length ? held.more : page.more };
+  return { messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage };
 }
 
 // olderMessages puts a page read before the first message a view holds in
 // front of it.
 export function olderMessages(held: MessagePage, page: MessagePage): MessagePage {
   const first = held.messages[0]?.seq ?? Infinity;
-  return { messages: [...page.messages.filter((message) => message.seq < first), ...held.messages], more: page.more };
+  return { messages: [...page.messages.filter((message) => message.seq < first), ...held.messages], more: page.more, usage: held.usage };
 }
 
 // messagesHarness says whether the board reads a harness's session as messages,
-// which the supervisor serves from a Claude Code or a pi session.
+// which the supervisor serves from its session record without requiring hooks.
 function messagesHarness(harness: string): boolean {
-  return harness === "claude" || harness === "pi";
+  return harness === "claude" || harness === "pi" || harness === "codex";
 }
 
 // messagesQuery names the session whose messages a panel shows, as
-// /api/messages takes it: a Claude Code or pi goblin's current generation in a
-// native terminal, or the CFO in its native terminal while it runs Claude Code
-// or pi, since the Messages view's box types through that terminal. A paused
+// /api/messages takes it: a supported goblin's current generation in a
+// native terminal, or the CFO in its native terminal, since the Messages
+// view's box types through that terminal. A paused
 // goblin's conversation still reads. Empty for every other session, which
-// keeps its Terminal and Task views alone: a Codex one, one in Herdr, a task
+// keeps its Terminal and Task views alone: one in Herdr, a task
 // not started yet, and one stopped or retired.
-export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness">, task?: Task): string {
-  if (!task) return snapshot.cfo_terminal && messagesHarness(snapshot.cfo_harness) ? new URLSearchParams({ cfo: snapshot.cfo_terminal }).toString() : "";
+export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness"> & { cfo_terminal_since?: string }, task?: Task): string {
+  if (!task) return snapshot.cfo_terminal && messagesHarness(snapshot.cfo_harness) ? new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() : "";
   const ended = sessionEnd(task);
   return messagesHarness(task.harness) && task.backend === "native" && task.generation && !task.archived && (!ended || ended === "paused") ? new URLSearchParams({ task: task.id, generation: task.generation }).toString() : "";
 }

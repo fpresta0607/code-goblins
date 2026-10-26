@@ -1,28 +1,70 @@
-/* The message box at the foot of a session's messages, or of a terminal slot
-   that cannot take typing now: an amber card while the harness asks in its
-   terminal, a working line with Stop, his latest messages to a goblin with no
-   live terminal, then the box he writes in with its microphone, his recent
-   dictations, what keeps a message from the terminal, and Send. */
-.composer { position: relative; display: grid; gap: 8px; padding: 10px 14px 12px; border-top: 1px solid var(--glass-border); }
+/* One input bar with plain controls beneath it, shared by both chat views. */
+.composer { position: relative; display: grid; align-content: start; gap: 8px; padding: 10px 14px 12px; }
 .deck-slot.with-messages { flex-direction: column; }
 .deck-slot.with-messages > .composer { background: #071015; }
 .composer-asking { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f6dcb6; }
 .composer-asking > .icon { width: 20px; height: 20px; color: var(--amber); }
 .composer-asking > p { flex: 1; min-width: 0; margin: 0; color: var(--amber); font-weight: 800; }
-.composer-working { display: flex; align-items: center; gap: 10px; margin: 0; color: rgb(215, 119, 87); font-weight: 700; }
-.composer-working > .labelled-button { margin-left: auto; }
-.composer-spinner { width: 14px; height: 14px; border: 2px solid rgba(215, 119, 87, .35); border-top-color: rgb(215, 119, 87); border-radius: 50%; animation: terminal-spin .8s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .composer-spinner { animation-duration: 2.4s; } }
 .composer-sent { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .composer-sent > li { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .composer-sent-text { flex: 1; min-width: 0; color: #d8e9e2; overflow-wrap: anywhere; white-space: pre-wrap; }
 .composer-sent-state { flex: none; color: var(--muted); font-size: .875rem; }
 .composer-sent .icon-button { align-self: center; width: 32px; height: 32px; min-height: 32px; margin-block: -6px; color: var(--muted); }
 .composer-sent .icon-button .icon { width: 18px; height: 18px; }
-.composer-box { position: relative; display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--field-bg); }
-.composer-box:focus-within { border-color: var(--mint); }
-.composer textarea { width: 100%; min-height: 2.75em; max-height: 12em; padding: 0; border: 0; background: none; color: #edf4f3; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.composer-box { position: relative; display: grid; gap: 4px; }
+.composer-input { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 7px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
+.composer-input:focus-within { border-color: var(--mint); }
+.composer textarea { display: block; flex: 1; min-width: 0; width: 100%; min-height: 1.5em; max-height: 12em; padding: 0; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.composer textarea::placeholder { color: var(--muted); opacity: .9; }
 .composer textarea:focus-visible { outline: none; }
-.composer-tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.composer-note { flex: 1; min-width: 0; margin: 0; color: #f1c598; font-size: .9375rem; overflow-wrap: anywhere; }
+.composer :is(button, input):focus { outline: none; }
+.composer :is(button, input):focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+.composer-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; min-width: 0; padding: 0 5px; }
+.composer-controls { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.composer-control, .composer-input .voice-bubble { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 5px; height: 36px; min-height: 36px; min-width: 36px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font-size: .875rem; }
+.composer-control::before, .composer-input .voice-bubble::before { content: none; }
+.composer-control:hover, .composer-input .voice-bubble:hover { color: var(--bone); background: transparent; }
+.composer-control .icon, .composer-input .voice-bubble .icon { width: 18px; height: 18px; }
+.composer-controls:last-child { position: static; justify-content: flex-end; max-width: 100%; margin-left: auto; }
+.engine-control { display: block; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-controls .engine-control:first-child { flex: 0 1 auto; min-width: 0; }
+.context-usage { display: flex; }
+.context-ring svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; transform: rotate(-90deg); }
+.context-track { opacity: .25; }
+.context-used { stroke: var(--mint); }
+.context-tooltip { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 4; width: min(22rem, calc(100vw - 48px)); max-height: min(50dvh, 24rem); overflow: auto; padding: 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); color: var(--bone); font-size: .875rem; }
+.context-tooltip strong { font-weight: 500; }
+.context-tooltip p { margin: 8px 0 0; color: var(--muted); }
+.usage-stats { display: grid; gap: 4px; margin: 8px 0 0; }
+.usage-stats > div { display: flex; gap: 12px; }
+.usage-stats dt { flex: 0 0 8em; color: var(--muted); }
+.usage-stats dd { margin: 0; overflow-wrap: anywhere; }
+.composer-input .voice-bubble.recording { color: var(--amber); }
+.composer-file-input { display: none; }
+.composer-style-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 9rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
+.composer-style-popover > button { justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
+.composer-style-popover > button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
+.composer-note { min-width: 0; margin: 0; padding: 0 10px; color: #f1c598; font-size: .875rem; overflow-wrap: anywhere; }
+.composer-note:empty { display: none; }
+.composer-send { display: grid; place-items: center; flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+.composer-send[data-active] { color: var(--accent-green); }
+.composer-send:hover { background: transparent; }
+.composer-send:disabled { cursor: default; }
+.composer-send .icon { width: 18px; height: 18px; }
+.queued-control { color: #f1c598; }
+.queued-control > span { font-variant-numeric: tabular-nums; }
 .composer-box > .voice-recent { right: 0; bottom: calc(100% + 8px); }
+@media (pointer: coarse) {
+  .composer-control, .composer-input .voice-bubble, .composer-send { min-width: 44px; min-height: 44px; height: 44px; }
+}
+@media (max-width: 480px) {
+  .composer-controls:last-child { width: 100%; gap: 4px; }
+  .composer-controls .engine-control:first-child { flex: 1; min-width: 0; max-width: none; text-align: left; }
+}
+
+/* The session's own slash commands, above the prompt: filtered as he types
+   the command word, arrow keys move the pick, Enter takes it, Escape closes
+   the list without clearing the draft, and arguments stay. */
+.composer-commands { display: grid; gap: 2px; max-height: 12rem; margin: 0; padding: 4px; overflow: auto; list-style: none; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--hero-surface); }
+.composer-commands > li { padding: 6px 10px; border-radius: 8px; color: var(--bone); cursor: pointer; font-size: .9375rem; }
+.composer-commands > li[aria-selected="true"] { background: var(--glass-bg-hover); color: var(--mint); }

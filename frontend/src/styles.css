@@ -781,7 +781,7 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .panel-more-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; display: grid; gap: 4px; width: max-content; padding: 8px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--tip-surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
 .panel-more-menu .labelled-button { justify-content: flex-start; min-height: 40px; border-color: transparent; background: transparent; box-shadow: none; }
 .panel-more-menu .labelled-button:hover, .panel-more-menu .labelled-button:focus-visible { background: #ffffff0f; }
-.panel-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; border-bottom: 1px solid var(--border); flex: none; }
+.panel-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; flex: none; }
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
 .panel-identity { display: grid; gap: 4px; min-width: 0; }
 /* A goblin's name and task take the room first: its buttons stay beside them
@@ -1382,14 +1382,27 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */
-/* The panel's own header and its folded task list take what they need, and
-   the stage under them takes the rest of the panel. On a screen too short to
-   hold both, the list stops at half the panel so the conversation and its box
-   keep the room they need to stay whole on screen. */
+/* The panel's own header and its top selector take what they need, and the
+   stage under them takes the rest of the panel. */
 .goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
-@media (max-height: 60rem) {
-  .goblin-panel.showing-terminal { max-height: 50%; }
+/* The selector at the panel's top, between its conversation and its task
+   panel: a segmented control, never a fold or a dropdown. */
+.panel-view-switch { display: flex; flex: none; gap: 8px; order: 2; margin: 8px 14px 10px; padding: 4px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
+.goblin-panel > .panel-top { order: 0; }
+.goblin-panel > .panel-header { order: 1; }
+.goblin-panel > .panel-task { order: 3; }
+.panel-view-switch > button { display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 4px 18px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--font-display); font-size: .9375rem; }
+.panel-view-switch .icon { width: 17px; height: 17px; }
+/* On a phone the selector is its two icons alone, in the same place and the
+   same control, each keeping its accessible name. */
+@media (max-width: 40rem) {
+  .panel-view-switch { order: 1; margin: 8px 14px 0; }
+  .goblin-panel > .panel-header { order: 2; }
+  .panel-view-switch > button { padding: 4px 12px; }
+  .panel-view-switch .view-switch-label { display: none; }
 }
+.panel-view-switch > button:hover { color: #edf4f3; }
+.panel-view-switch > button[aria-pressed="true"] { color: #f4fbff; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
 /* The stage is the box under the panel's header that a session's Messages
    view and its terminal share: the Messages view lies over the terminal
    deck, which stays laid out unseen behind it, so the terminal has its size
@@ -1397,29 +1410,22 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    terminal stepped into the messages' place has a bar floating over its top
    edge that takes none of its height. */
 .panel-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
-/* The panel's one view: the stage beside the column its task list is drawn
-   into, which a small screen folds under the header instead. */
-/* The stage takes what the panel's own header and its task list leave, so a
-   list that needs room never shrinks under its cards. */
+/* The stage takes what the panel's own header leaves, so nothing shrinks
+   under the conversation's own box. */
 .panel-body { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
 /* The stage and, in Classic while custody holds, the box under it. */
 .panel-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .panel-main > .classic-queue { flex: none; min-height: 0; border-top: 1px solid var(--glass-border); }
 .panel-main > .classic-queue .composer-sent { max-height: 30%; overflow: auto; }
-.panel-side { display: flex; flex: none; width: clamp(280px, 30%, 400px); min-height: 0; border-top: 1px solid var(--glass-border); border-left: 1px solid var(--glass-border); }
-.panel-side > .panel-task { flex: 1; }
+.panel-side { display: flex; flex: none; width: clamp(300px, 32%, 460px); min-width: 0; min-height: 0; padding-left: 12px; }
+.panel-side > .panel-task { flex: 1; min-height: 0; }
 .panel-side .panel-content { padding: 0 18px 24px; }
-/* The gutter is always there, so a page that ends the scroll bar does not
-   give the cards ten pixels more width and fit a different number. */
-.panel-task-fold { flex: 0 1 auto; overflow: hidden auto; scrollbar-gutter: stable; border-top: 1px solid var(--glass-border); }
-.panel-task-fold > .disclosure { margin: 0; border: 0; border-radius: 0; }
 .panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
 .panel-header-details:empty { display: none; }
-.panel-side .panel-header-details { padding: 14px 18px 0; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
 .stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
 .stepped-in-bar > button { pointer-events: auto; }
-.terminal-deck { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--glass-border); background: #071015; }
+.terminal-deck { display: flex; flex: 1; min-height: 0; background: #071015; }
 .terminal-deck.behind { visibility: hidden; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .deck-slot { display: flex; flex: 1; min-width: 0; min-height: 0; }

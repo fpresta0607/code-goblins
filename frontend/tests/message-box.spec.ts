@@ -57,8 +57,14 @@ async function open(page: Page, first: object) {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
       };
-      constructor() {
+      constructor(address: string) {
         super();
+        if (new URL(address, location.href).pathname === "/api/messages") {
+          queueMicrotask(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify({ messages: [
+            { id: "typed", seq: 0, kind: "prompt", source: "overlord", text: "merge 512 first" },
+          ], more: false }) })));
+          return;
+        }
         window.addEventListener("fixture-snapshot", this.publish);
         queueMicrotask(() => this.publish(new CustomEvent("fixture-snapshot", { detail: snapshot })));
       }
@@ -104,7 +110,7 @@ test("Send sends what he wrote to a paused goblin, as Enter does", async ({ page
   // Assert
   await expect(draft).toHaveValue("");
   expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message", task_id: "bernie", generation: "", text: "rebase first" } }]);
-  await expect(send).toHaveClass(/primary send-decision/);
+  await expect(send).toHaveClass(/composer-send/);
 });
 
 test("holding the microphone dictates into the box for a paused goblin, through the supervisor's speech model", async ({ page }) => {
@@ -128,26 +134,36 @@ test("holding the microphone dictates into the box for a paused goblin, through 
   expect(posted, "dictating sends nothing by itself").toEqual([]);
 });
 
-test("a message his resume will carry has a delete button, which withdraws it, and one already delivered has none", async ({ page }) => {
-  // Arrange
-  const { box, posted, publish } = await openBernie(page, bernie(["i can message?"]));
-  const kept = box.getByRole("listitem").filter({ hasText: "i can message?" });
-  const typed = box.getByRole("listitem").filter({ hasText: "merge 512 first" });
-  await expect(box.getByRole("listitem")).toHaveCount(2);
-  await expect(kept).toContainText("Kept for resume");
-  await expect(typed).toContainText("Sent");
-  await expect(typed.getByRole("button")).toHaveCount(0);
+for (const style of ["classic", "modern"]) {
+  for (const hasHistory of [false, true]) {
+    test(`${style}, history ${hasHistory}: a message his resume will carry has a delete button, which withdraws it, and one already delivered has none`, async ({ page }) => {
+      // Arrange
+      await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), style);
+      const first = bernie(["i can message?"]);
+      if (!hasHistory) first.tasks[0].generation = "";
+      const { box, posted, publish } = await openBernie(page, first);
+      const kept = box.getByRole("listitem").filter({ hasText: "i can message?" });
+      const typed = hasHistory ? page.locator(".message-prompt").filter({ hasText: "merge 512 first" }) : box.getByRole("listitem").filter({ hasText: "merge 512 first" });
+      await expect(box.getByRole("listitem")).toHaveCount(hasHistory ? 1 : 2);
+      await expect(kept).toContainText("Kept for resume");
+      await expect(typed).toContainText("merge 512 first");
+      await expect(typed.getByRole("button", { name: /Delete|Send now|Edit/ })).toHaveCount(0);
 
-  // Act
-  await kept.getByRole("button", { name: "Delete: i can message?" }).click();
-  await expect.poll(() => posted.length).toBe(1);
-  await publish(bernie([]));
+      // Act
+      await kept.getByRole("button", { name: "Delete: i can message?" }).click();
+      await expect.poll(() => posted.length).toBe(1);
+      const next = bernie([]);
+      if (!hasHistory) next.tasks[0].generation = "";
+      await publish(next);
 
-  // Assert
-  expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message_withdraw", task_id: "bernie", generation: "", text: "i can message?" } }]);
-  await expect(kept).toHaveCount(0);
-  await expect(box.getByRole("listitem")).toHaveText([/merge 512 first/]);
-});
+      // Assert
+      expect(posted).toEqual([{ token: "message-box-proof", body: { id: expect.any(String), kind: "message_withdraw", task_id: "bernie", generation: "", text: "i can message?" } }]);
+      await expect(kept).toHaveCount(0);
+      await expect(box.getByRole("listitem")).toHaveCount(hasHistory ? 0 : 1);
+      await expect(page.locator(".context-pane").getByText("merge 512 first", { exact: true })).toHaveCount(1);
+    });
+  }
+}
 
 // Two goblins whose Start waits its turn, both shown in the deck's one slot
 // for a task with no terminal yet.

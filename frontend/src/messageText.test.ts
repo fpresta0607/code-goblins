@@ -6,6 +6,10 @@ import { leadAndRest, linkedText, messageBlocks, messageElements, pathElements, 
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
+test("thinking prose renders emphasis and ordered steps without changing code", () => {
+  assert.equal(html("Read *carefully* and `*literally*`.\n\n3. First\n4. **Next**"), "<p>Read <em>carefully</em> and <code>*literally*</code>.</p><ol start=\"3\"><li>First</li><li><strong>Next</strong></li></ol>");
+});
+
 test("only text the asker marks with double asterisks is bold", () => {
   assert.equal(html("Ship it? **Blocking:** the gate is red."), "<p>Ship it? <strong>Blocking:</strong> the gate is red.</p>");
   assert.equal(html("A lone ** stays as written, and so does **this"), "<p>A lone ** stays as written, and so does **this</p>");

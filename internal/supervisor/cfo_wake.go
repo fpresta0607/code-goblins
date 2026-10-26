@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -307,7 +308,7 @@ func wakeLine(records []wake.Record) string {
 	if len(records) > 1 {
 		noun = "wakes"
 	}
-	return bounded(fmt.Sprintf("cfo watcher wake: %d queued %s (%s); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints", len(records), noun, strings.Join(named, ", ")), 300)
+	return bounded(fmt.Sprintf(fleettree.WakePrefix+"%d queued %s (%s); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints", len(records), noun, strings.Join(named, ", ")), 300)
 }
 
 // typeWake types text into the registered CFO's native terminal when its

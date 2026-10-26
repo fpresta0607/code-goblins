@@ -3,9 +3,9 @@ import { drawOnGpu } from "./terminal-gpu";
 import { terminalDocument } from "./terminalDocument";
 import { copyText } from "./clipboard.ts";
 import { attachDictatedInput } from "./dictated-input";
-import { clipboardInput, imageKey, terminalKey } from "./terminal-keys";
+import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
-import { stripPasteEscapes } from "./terminalInput";
+import { stripPasteEscapes, wheelLines } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, type ScreenState } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
@@ -39,6 +39,9 @@ export interface ViewEvents {
   // A picture pasted on another device, to put on this PC's clipboard before
   // the harness's image key is pressed.
   image: (picture: File) => void;
+  // What a paste the browser could not start met, such as a clipboard read it
+  // refused, to say beside the terminal.
+  problem: (why: string) => void;
   // While he reads the history, where it ends, the top of the panel's last
   // row in px from the panel's top, which Jump to bottom sits above; null at
   // the live end.
@@ -57,6 +60,9 @@ export interface ViewEvents {
   // The relay read the harness's screen anew: whether it waits on an answer
   // at a screen of its own, and whether something of its own is open.
   screen: (state: ScreenState) => void;
+  // Full-screen programs own their history; while input is held or closed,
+  // the conversation record is the readable history instead.
+  history?: () => void;
 }
 
 // TerminalView is one connection to a native terminal and the xterm that
@@ -155,6 +161,20 @@ export class TerminalView {
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
+    let wheelRest = 0;
+    this.term.attachCustomWheelEventHandler((event) => {
+      if (!this.heldReason && this.socket.readyState === WebSocket.OPEN) return true;
+      if (this.term.buffer.active.type !== "normal") {
+        if (event.deltaY < 0) this.events.history?.();
+        event.preventDefault();
+        return false;
+      }
+      const movement = wheelLines(wheelRest, event.deltaY, event.deltaMode, this.cell().height, this.term.rows);
+      wheelRest = movement.rest;
+      this.term.scrollLines(movement.lines);
+      event.preventDefault();
+      return false;
+    });
     this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); this.repin(); });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
@@ -208,7 +228,7 @@ export class TerminalView {
   }
 
   submit(text: string): string | null {
-    if (!this.isSendable()) return null
+    if (!this.isReady || this.heldReason || this.isUnread || this.screenState?.isOpen || !this.isSendable()) return null
     const submission = crypto.randomUUID()
     this.send(JSON.stringify({ type: "submit", submission }))
     if (!this.paste(text) || !this.enter()) return null
@@ -231,6 +251,35 @@ export class TerminalView {
   // text is what the terminal shows and holds above, as plain text.
   text(): string {
     return terminalText(this.term);
+  }
+
+  control(keys: string): boolean {
+    if (!this.isReady || this.heldReason || !this.isSendable()) return false;
+    this.term.input(keys, true);
+    return true;
+  }
+
+  readingPosition(): { line: number; text: string } | null {
+    const buffer = this.term.buffer.active;
+    return buffer.type === "normal" && buffer.viewportY < buffer.baseY
+      ? { line: buffer.viewportY, text: buffer.getLine(buffer.viewportY)?.translateToString() ?? "" } : null;
+  }
+
+  restoreReading(position: { line: number; text: string } | null): void {
+    const buffer = this.term.buffer.active;
+    if (!position || buffer.type !== "normal") return;
+    let line = Math.min(position.line, buffer.baseY);
+    if (buffer.getLine(line)?.translateToString() !== position.text) {
+      let distance = Infinity;
+      for (let at = 0; at <= buffer.baseY; at++) {
+        if (buffer.getLine(at)?.translateToString() === position.text && Math.abs(at - position.line) < distance) {
+          line = at;
+          distance = Math.abs(at - position.line);
+        }
+      }
+    }
+    this.term.scrollToLine(line);
+    this.repin();
   }
 
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
@@ -406,7 +455,11 @@ export class TerminalView {
   private swipe(lines: number, at: { clientX: number; clientY: number }): void {
     const screen = this.term.element?.querySelector(".xterm-screen");
     if (!screen) return;
-    if (!WHEEL_MOUSE_MODES.has(this.term.modes.mouseTrackingMode) && this.term.buffer.active.type === "normal") { this.term.scrollLines(lines); return; }
+    if (this.term.buffer.active.type !== "normal" && (this.heldReason || this.socket.readyState !== WebSocket.OPEN)) {
+      if (lines < 0) this.events.history?.();
+      return;
+    }
+    if (this.term.buffer.active.type === "normal" && (!WHEEL_MOUSE_MODES.has(this.term.modes.mouseTrackingMode) || this.heldReason || this.socket.readyState !== WebSocket.OPEN)) { this.term.scrollLines(lines); return; }
     for (let turn = 0; turn < Math.abs(lines); turn++) screen.dispatchEvent(new WheelEvent("wheel", { deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: at.clientX, clientY: at.clientY, bubbles: true, cancelable: true }));
   }
 
@@ -416,9 +469,26 @@ export class TerminalView {
     const dictated = this.events.dictate(event);
     if (dictated !== null) return dictated;
     const down = event.type === "keydown";
+    if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && (event.key === "PageUp" || event.key === "PageDown")) {
+      event.preventDefault();
+      if (down) {
+        const direction = event.key === "PageUp" ? -1 : 1;
+        if (this.term.buffer.active.type === "normal") this.term.scrollPages(direction);
+        else {
+          const bounds = this.element.getBoundingClientRect();
+          this.swipe(direction * Math.max(1, this.term.rows - 1), { clientX: bounds.x + bounds.width / 2, clientY: bounds.y + bounds.height / 2 });
+        }
+      }
+      return false;
+    }
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
       if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
+      return false;
+    }
+    if (down && event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      void this.pasteClipboardKey();
       return false;
     }
     const shortcut = terminalKey(event, this.term, this.copy);
@@ -456,6 +526,16 @@ export class TerminalView {
     if (!this.term.hasSelection()) return;
     copyText(this.term.getSelection()).then(() => this.events.copied(), () => {});
   };
+
+  // pasteClipboardKey pastes what the clipboard holds for Alt+V, which the
+  // browser starts no paste event for: its text as a paste, its picture on
+  // this PC's clipboard for the harness's image key, and a refusal said.
+  private async pasteClipboardKey(): Promise<void> {
+    const input = await readClipboard();
+    if ("text" in input) { if (!this.paste(input.text)) this.isSendable(); }
+    else if ("image" in input) this.events.image(input.image);
+    else this.events.problem(input.error);
+  }
 
   private readonly pasteClipboard = (event: ClipboardEvent): void => {
     event.preventDefault();

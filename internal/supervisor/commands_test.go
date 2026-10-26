@@ -1,0 +1,362 @@
+package supervisor
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/harnessmap"
+	"github.com/fpresta0607/code-goblins/internal/state"
+)
+
+// writeCommandFixture writes one file, making its folders.
+func writeCommandFixture(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// commandBoard is a board whose user's home is a fresh folder, with task-1 of
+// the harness harness running in a worktree of its own and no CFO.
+func commandBoard(t *testing.T, harness string) (*HTTP, string, string) {
+	t.Helper()
+	store, _ := testStore(t)
+	profile := t.TempDir()
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeCommandFixture(t, filepath.Join(worktree, ".git"), "")
+	// Pi persists resolved paths, including Windows temporary-folder aliases.
+	worktree, err := filepath.EvalSymlinks(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteTaskMeta(store.Home.State, state.TaskMeta{ID: "task-1", Project: worktree, Worktree: worktree, Harness: harness, SpawnGen: "g1"}); err != nil {
+		t.Fatal(err)
+	}
+	// A harness may keep its configuration elsewhere; these tests read the
+	// defaults under the user's home.
+	for _, variable := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"} {
+		t.Setenv(variable, "")
+	}
+	board := NewHTTP(&Service{Store: store, Instance: "test-instance", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, credentialBoardHost, nil)
+	if harness == "pi" {
+		writeCommandFixture(t, filepath.Join(profile, ".pi", "agent", "settings.json"), `{"defaultProjectTrust":"always"}`)
+	}
+	return board, profile, worktree
+}
+
+// getCommands asks the board for the commands a query names.
+func getCommands(board *HTTP, query string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest("GET", "http://"+board.Host+"/api/commands?"+query, nil)
+	response := httptest.NewRecorder()
+	board.ServeHTTP(response, request)
+	return response
+}
+
+// commandsIn reads a successful answer's commands.
+func commandsIn(t *testing.T, response *httptest.ResponseRecorder) []string {
+	t.Helper()
+	var answer struct{ Commands []string }
+	if response.Code != http.StatusOK {
+		t.Fatalf("answered %d %s", response.Code, response.Body)
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &answer); err != nil {
+		t.Fatalf("answered %s (%v)", response.Body, err)
+	}
+	return answer.Commands
+}
+
+// Each harness publishes the commands its own files define, or none: what one
+// harness keeps is never offered for another, and no harness's built-ins are
+// guessed.
+func TestCommandsComeFromTheSessionsOwnHarness(t *testing.T) {
+	for _, c := range []struct {
+		harness string
+		want    []string
+	}{
+		// Claude Code reads .claude/commands and .claude/skills in the folder
+		// it runs in, and its own folder under the user's home, never pi's.
+		{"claude", []string{"compact", "deploy", "frontend:component", "review"}},
+		// pi reads prompt templates and skills from its project, its agent
+		// folder and the shared skills folder, and offers a skill as a command.
+		{"pi", []string{"plan", "skill:deploy", "skill:pdf", "skill:review"}},
+		// Codex defines no command files, so it publishes none.
+		{"codex", []string{}},
+	} {
+		t.Run(c.harness, func(t *testing.T) {
+			// Arrange
+			board, profile, worktree := commandBoard(t, c.harness)
+			writeCommandFixture(t, filepath.Join(worktree, ".claude", "commands", "compact.md"), "x")
+			writeCommandFixture(t, filepath.Join(worktree, ".claude", "commands", "frontend", "component.md"), "x")
+			writeCommandFixture(t, filepath.Join(worktree, ".claude", "skills", "deploy", "SKILL.md"), "x")
+			writeCommandFixture(t, filepath.Join(worktree, ".pi", "prompts", "plan.md"), "x")
+			writeCommandFixture(t, filepath.Join(worktree, ".pi", "skills", "review", "SKILL.md"), "---\ndescription: Review\n---\nx")
+			writeCommandFixture(t, filepath.Join(worktree, ".agents", "skills", "pdf", "SKILL.md"), "---\ndescription: PDF\n---\nx")
+			writeCommandFixture(t, filepath.Join(profile, ".claude", "commands", "review.md"), "x")
+			writeCommandFixture(t, filepath.Join(profile, ".claude", "skills", "compact", "SKILL.md"), "x")
+			writeCommandFixture(t, filepath.Join(profile, ".pi", "agent", "skills", "deploy", "SKILL.md"), "---\ndescription: Deploy\n---\nx")
+
+			// Act
+			answered := commandsIn(t, getCommands(board, "task=task-1&token=test-instance"))
+
+			// Assert
+			if !reflect.DeepEqual(answered, c.want) {
+				t.Fatalf("commands = %v, want %v", answered, c.want)
+			}
+		})
+	}
+}
+
+// A harness's own configuration folder is read where the environment says it
+// keeps it, and the default is not also read.
+func TestACommandFolderTheEnvironmentNamesIsRead(t *testing.T) {
+	// Arrange
+	board, profile, _ := commandBoard(t, "claude")
+	elsewhere := filepath.Join(profile, "elsewhere")
+	writeCommandFixture(t, filepath.Join(elsewhere, "commands", "compact.md"), "x")
+	writeCommandFixture(t, filepath.Join(profile, ".claude", "commands", "review.md"), "x")
+	t.Setenv("CLAUDE_CONFIG_DIR", elsewhere)
+
+	// Act
+	answered := commandsIn(t, getCommands(board, "task=task-1&token=test-instance"))
+
+	// Assert
+	if want := []string{"compact"}; !reflect.DeepEqual(answered, want) {
+		t.Fatalf("commands = %v, want %v", answered, want)
+	}
+}
+
+// pi's own setting that turns skill commands off leaves the prompt templates,
+// and the project's own settings win over the user's.
+func TestPiSkillCommandsFollowTheSetting(t *testing.T) {
+	for _, c := range []struct {
+		what           string
+		userSetting    string
+		projectSetting string
+		want           []string
+	}{
+		{"unset", "", "", []string{"plan", "skill:tdd"}},
+		{"the user turns them off", `{"enableSkillCommands":false}`, "", []string{"plan"}},
+		{"the project turns them off", "", `{"enableSkillCommands":false}`, []string{"plan"}},
+		{"the project turns them back on", `{"enableSkillCommands":false}`, `{"enableSkillCommands":true}`, []string{"plan", "skill:tdd"}},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			// Arrange
+			board, profile, worktree := commandBoard(t, "pi")
+			writeCommandFixture(t, filepath.Join(worktree, ".pi", "prompts", "plan.md"), "x")
+			writeCommandFixture(t, filepath.Join(worktree, ".pi", "skills", "tdd", "SKILL.md"), "---\ndescription: TDD\n---\nx")
+			agentDir := filepath.Join(profile, ".pi", "agent")
+			trust, err := json.Marshal(map[string]bool{worktree: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeCommandFixture(t, filepath.Join(agentDir, "trust.json"), string(trust))
+			if c.userSetting != "" {
+				writeCommandFixture(t, filepath.Join(agentDir, "settings.json"), c.userSetting)
+			}
+			if c.projectSetting != "" {
+				writeCommandFixture(t, filepath.Join(worktree, ".pi", "settings.json"), c.projectSetting)
+			}
+
+			// Act
+			answered := commandsIn(t, getCommands(board, "task=task-1&token=test-instance"))
+
+			// Assert
+			if !reflect.DeepEqual(answered, c.want) {
+				t.Fatalf("commands = %v, want %v", answered, c.want)
+			}
+		})
+	}
+}
+
+func TestPiCommandsRespectConfiguredResourcesAndTrust(t *testing.T) {
+	for _, isTrusted := range []bool{false, true} {
+		t.Run(fmt.Sprint(isTrusted), func(t *testing.T) {
+			board, profile, worktree := commandBoard(t, "pi")
+			agentDir := filepath.Join(profile, ".pi", "agent")
+			writeCommandFixture(t, filepath.Join(agentDir, "settings.json"), `{"prompts":["-prompts/hidden.md","extra"],"skills":["custom.md"]}`)
+			trust, err := json.Marshal(map[string]bool{worktree: isTrusted})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeCommandFixture(t, filepath.Join(agentDir, "trust.json"), string(trust))
+			writeCommandFixture(t, filepath.Join(agentDir, "prompts", "hidden.md"), "hidden")
+			writeCommandFixture(t, filepath.Join(agentDir, "extra", "global.md"), "extra")
+			writeCommandFixture(t, filepath.Join(agentDir, "custom.md"), "---\nname: custom\ndescription: Custom\n---\nbody")
+			writeCommandFixture(t, filepath.Join(worktree, ".pi", "prompts", "project.md"), "project")
+			answered := commandsIn(t, getCommands(board, "task=task-1&token=test-instance"))
+			want := []string{"global", "skill:custom"}
+			if isTrusted {
+				want = []string{"global", "project", "skill:custom"}
+			}
+			if !reflect.DeepEqual(answered, want) {
+				t.Fatalf("commands = %v, want %v", answered, want)
+			}
+		})
+	}
+}
+
+// A request that names no session the board reads is refused, and one that
+// names a session a later start replaced is refused as stale. A path in the
+// query names no session, so no folder outside one is ever read.
+func TestCommandsRefuseASessionTheBoardCannotName(t *testing.T) {
+	board, _, _ := commandBoard(t, "claude")
+	for _, c := range []struct {
+		what, query string
+		status      int
+	}{
+		{"no token", "task=task-1", http.StatusForbidden},
+		{"a token that is not this board's", "task=task-1&token=other", http.StatusForbidden},
+		{"no session", "token=test-instance", http.StatusBadRequest},
+		{"a task id that is not one", "task=../state&token=test-instance", http.StatusBadRequest},
+		{"a folder instead of a session", "task=" + filepath.ToSlash(t.TempDir()) + "&token=test-instance", http.StatusBadRequest},
+		{"a task this home does not hold", "task=task-9&token=test-instance", http.StatusNotFound},
+		{"a generation a later start replaced", "task=task-1&generation=old&token=test-instance", http.StatusConflict},
+		{"a CFO that is not running", "cfo=1&token=test-instance", http.StatusNotFound},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			// Act
+			response := getCommands(board, c.query)
+
+			// Assert
+			if response.Code != c.status {
+				t.Fatalf("answered %d %s, want %d", response.Code, response.Body, c.status)
+			}
+		})
+	}
+}
+
+// A task's own generation is accepted, and the CFO's panel reads the commands
+// of the harness the CFO runs.
+func TestCommandsReadTheSessionTheBoardNames(t *testing.T) {
+	t.Run("the task's own generation", func(t *testing.T) {
+		// Arrange
+		board, _, worktree := commandBoard(t, "claude")
+		writeCommandFixture(t, filepath.Join(worktree, ".claude", "commands", "review.md"), "x")
+		if err := state.WriteConversation(board.Service.Store.Home.State, state.Conversation{ID: "task-1", Generation: "g1", Harness: "claude", Session: "session-1"}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Act
+		answered := commandsIn(t, getCommands(board, "task=task-1&generation=g1&session=session-1&token=test-instance"))
+
+		// Assert
+		if want := []string{"review"}; !reflect.DeepEqual(answered, want) {
+			t.Fatalf("commands = %v, want %v", answered, want)
+		}
+	})
+	t.Run("the CFO's own harness", func(t *testing.T) {
+		// Arrange
+		board, profile, _ := commandBoard(t, "claude")
+		writeCommandFixture(t, filepath.Join(profile, ".pi", "agent", "prompts", "plan.md"), "x")
+		writeCommandFixture(t, filepath.Join(profile, ".claude", "commands", "review.md"), "x")
+		registerNativeCFO(t, board.Service.Store.Home.State, "pi", "s1")
+
+		// Act
+		answered := commandsIn(t, getCommands(board, "cfo=1&token=test-instance"))
+
+		// Assert
+		if want := []string{"plan"}; !reflect.DeepEqual(answered, want) {
+			t.Fatalf("commands = %v, want %v", answered, want)
+		}
+	})
+}
+
+// Claude Code offers a command in a subfolder of .claude/commands behind its
+// folder's name and a colon, and a skill for each folder holding a SKILL.md.
+func TestClaudeCommandsAreOfferedAsClaudeCodeNamesThem(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+	writeCommandFixture(t, filepath.Join(root, "commands", "compact.md"), "x")
+	writeCommandFixture(t, filepath.Join(root, "commands", "review.md"), "x")
+	writeCommandFixture(t, filepath.Join(root, "commands", "frontend", "component.md"), "x")
+	writeCommandFixture(t, filepath.Join(root, "commands", "frontend", "tokens", "audit.md"), "x")
+	writeCommandFixture(t, filepath.Join(root, "skills", "deploy", "SKILL.md"), "x")
+	writeCommandFixture(t, filepath.Join(root, "skills", "notes.txt"), "x")
+	writeCommandFixture(t, filepath.Join(root, "skills", "not-a-skill", "README.md"), "x")
+
+	// Act
+	names := uniqueSorted(claudeCommands(root))
+
+	// Assert
+	if want := []string{"compact", "deploy", "frontend:component", "frontend:tokens:audit", "review"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("commands = %v, want %v", names, want)
+	}
+}
+
+// A harness folder holding nothing publishes no commands.
+func TestAHarnessWithNoRecordPublishesNoCommands(t *testing.T) {
+	roots := harnessmap.Find(func(string) string { return "" }, t.TempDir())
+	for _, harness := range []string{"claude", "pi", "codex"} {
+		if names := harnessCommands(commandSession{harness: harness, folder: t.TempDir()}, roots); len(names) != 0 {
+			t.Fatalf("%s published %v from an empty folder", harness, names)
+		}
+	}
+}
+
+func TestCommandsHonorSkillMetadataAndPiPromptPaths(t *testing.T) {
+	for _, harness := range []string{"claude", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			board, profile, worktree := commandBoard(t, harness)
+			root := filepath.Join(worktree, ".claude")
+			want := []string{"visible"}
+			if harness == "pi" {
+				root = filepath.Join(worktree, ".pi")
+				want = []string{"custom", "skill:visible"}
+				writeCommandFixture(t, filepath.Join(root, "settings.json"), `{"prompts":["../custom.md"]}`)
+				writeCommandFixture(t, filepath.Join(worktree, "custom.md"), "Custom prompt")
+				writeCommandFixture(t, filepath.Join(profile, ".pi", "agent", "skills", "invalid", "SKILL.md"), "No description")
+			} else {
+				writeCommandFixture(t, filepath.Join(root, "skills", "hidden", "SKILL.md"), "---\nuser-invocable: false\n---\nHidden")
+			}
+			writeCommandFixture(t, filepath.Join(root, "skills", "folder", "SKILL.md"), "---\nname: visible\ndescription: A skill\n---\nBody")
+			answered := commandsIn(t, getCommands(board, "task=task-1&generation=g1&token=test-instance"))
+			if !reflect.DeepEqual(answered, want) {
+				t.Fatalf("commands = %v, want %v", answered, want)
+			}
+		})
+	}
+}
+
+func TestCommandsRejectUnownedSessionAndNodeSelectors(t *testing.T) {
+	board, _, _ := commandBoard(t, "claude")
+	for _, selector := range []string{"session=other", "session=../../other.jsonl", "node=other", "path=C:/other"} {
+		response := getCommands(board, "task=task-1&generation=g1&token=test-instance&"+selector)
+		if response.Code == http.StatusOK {
+			t.Fatalf("%s answered a parent's command list: %s", selector, response.Body)
+		}
+	}
+}
+
+func TestPiCommandExclusionsApplyToSharedAndNestedSkills(t *testing.T) {
+	board, profile, _ := commandBoard(t, "pi")
+	agentDir := filepath.Join(profile, ".pi", "agent")
+	writeCommandFixture(t, filepath.Join(agentDir, "settings.json"), `{"skills":["!**/hidden/**","-skills/local","+skills/local"]}`)
+	for _, path := range []string{filepath.Join(profile, ".agents", "skills", "hidden", "SKILL.md"), filepath.Join(agentDir, "skills", "local", "SKILL.md")} {
+		writeCommandFixture(t, path, "---\ndescription: hidden\n---\nbody")
+	}
+	if commands := commandsIn(t, getCommands(board, "task=task-1&token=test-instance")); len(commands) != 0 {
+		t.Fatalf("excluded skills shown: %v", commands)
+	}
+}
+
+func TestPiCommandsDoNotCoerceInvalidSkillMetadata(t *testing.T) {
+	board, _, worktree := commandBoard(t, "pi")
+	writeCommandFixture(t, filepath.Join(worktree, ".pi", "skills", "valid", "SKILL.md"), "---\nname: 123\ndescription: A skill\n---\nbody")
+	writeCommandFixture(t, filepath.Join(worktree, ".pi", "skills", "invalid", "SKILL.md"), "---\ndescription: 123\n---\nbody")
+	if got := commandsIn(t, getCommands(board, "task=task-1&token=test-instance")); !reflect.DeepEqual(got, []string{"skill:valid"}) {
+		t.Fatalf("commands=%v", got)
+	}
+}

@@ -8,6 +8,13 @@ export function messagesTo(snapshot: Snapshot, task: string): Action[] {
   return snapshot.actions.filter((action) => action.kind === "message" && action.task_id === task && action.message !== "Kept for its resume.");
 }
 
+// isPendingMessage says the board still holds a message for delivery: it
+// waits in its queue, its delivery is under way, or its harness has it and has
+// not taken it into the turn yet.
+export function isPendingMessage(action: Action): boolean {
+  return action.kind === "message" && (action.status === "queued" || action.status === "running" || !!action.awaiting);
+}
+
 // Where a message he typed is: Queued while it waits for its goblin, Sent
 // once it is typed into the terminal, and With the CFO when its goblin could
 // not take it and the supervisor gave it to the CFO.

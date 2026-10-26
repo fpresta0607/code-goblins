@@ -81,20 +81,27 @@ const ROOM = 5 * 2 ** 30;
 
 // What a wait for room reads and how long it waits; a test of the wait itself
 // replaces them.
-export const taskList = (page: Page) => page.locator(".panel-task-fold, .panel-side-task, .goblin-panel > .panel-task")
+export const taskList = (page: Page) => page.locator(".goblin-panel > .panel-task, .panel-side-task")
 
-// openTaskList opens the panel's task list where it folds under the header,
-// as it does on a panel too narrow to hold it beside the messages or the
-// terminal, as he does, and leaves one beside them or open as it is. It
-// returns the header details in that list, or the standalone full header.
+// openTaskList switches the panel to its task view, as he does with the
+// selector at its top, and returns its full header. A queued task has no
+// conversation, so its panel is its task view already.
 export async function openTaskList(page: Page): Promise<Locator> {
   const place = taskList(page)
   await expect(place).toHaveCount(1);
-  const fold = page.locator(".panel-task-fold > details");
-  if (await fold.count() && !await fold.evaluate((element) => (element as HTMLDetailsElement).open)) await fold.locator("> summary").click();
-  const header = page.locator(".panel-header-details, .goblin-panel:not(.showing-terminal) > .panel-header");
+  const task = page.locator(".panel-view-switch").getByRole("button", { name: "Task", exact: true });
+  if (await task.count() && await task.getAttribute("aria-pressed") !== "true") await task.click();
+  await expect(place).toBeVisible();
+  const sideHeader = place.locator(".panel-header-details");
+  const header = await sideHeader.count() ? sideHeader : page.locator(".goblin-panel > .panel-header");
   await expect(header).toHaveCount(1);
   return header;
+}
+
+// openChat switches the panel back to its conversation.
+export async function openChat(page: Page) {
+  await page.locator(".panel-view-switch").getByRole("button", { name: "Chat", exact: true }).click();
+  await expect(taskList(page)).toBeHidden();
 }
 
 // openItem opens the Command Center on the waiting item whose row in its

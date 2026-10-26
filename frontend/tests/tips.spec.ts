@@ -465,7 +465,7 @@ for (const [name, find, shows] of [
     // Act: the pointer comes to the part, which lifts under it, and rests.
     await part.hover();
     await expect.poll(async () => (await part.evaluate(tipFaults)).shown).toBe(shows.shown);
-    await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").length)).toBe(0);
+    await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !(animation as CSSAnimation).animationName?.startsWith("working-")).length)).toBe(0);
     const asked = (await page.evaluate(() => window.framesAsked))!;
     await page.waitForTimeout(500);
 

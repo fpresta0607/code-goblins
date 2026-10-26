@@ -13,7 +13,7 @@ import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
 import { CfoUpdate } from "./cfo-update";
 import { RestartPcButton } from "./restart-pc-button";
-import { finishedEvidence, goblinName, taskName, taskSummary } from "./task-words";
+import { finishedEvidence, goblinName, taskSummary } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { taskStatus } from "./task-status";
 import { PeopleRow } from "./people-row";
@@ -24,6 +24,8 @@ import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TaskAdjustment } from "./task-adjustment";
+import { WorkingIndicator } from "./working-indicator";
+import { harnessInk } from "./harness-ink";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
@@ -41,7 +43,7 @@ import { TaskAdjustment } from "./task-adjustment";
 // while an update of the CFO's harness waits and Restart PC before that while
 // the kernel's pools are past their line, and under them what a press of
 // Update waits for or why it did not restart the CFO.
-export function PanelHeader({ task, node, snapshot, compact, isDetails = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, compact, isDetails = false, hasWorkingFooter = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; hasWorkingFooter?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -54,7 +56,9 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
-  const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? compact ? task.id : taskName(task) : "";
+  const isWorking = ["busy", "working", "active"].includes(phase) && !!(task || node || cfoSession);
+  const ink = harnessInk((task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : ""));
+  const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
   const helped = owner && task.parent ? snapshot.tasks.find((other) => other.id === task.parent) : undefined;
@@ -89,7 +93,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
     finally { setOpening(false); }
   };
   // What the full header shows and the compact one leaves out, which the
-  // panel's task list shows beside the compact header instead (isDetails).
+  // panel's Task view shows when the selector chooses it.
   const projectLine = task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>;
   const helper = helps && <p className="muted">Helper of {helps}</p>;
   const partOf = !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>;
@@ -121,7 +125,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && projectLine}
         {!compact && helper}
-        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}><span className="status-dot" />{status}{!compact && awaitedLink}</p>
+        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}>{isWorking && !hasWorkingFooter ? <WorkingIndicator ink={ink} compact /> : <span className="status-dot" />}{status}{!compact && awaitedLink}</p>
         {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
         {!compact && partOf}
         {!compact && activity}
