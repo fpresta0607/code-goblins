@@ -266,7 +266,7 @@ export function answerMark(question: Question): "" | "you" | "cfo" | "away" {
 // its way or delivered, so he can choose another at any time. An answer that
 // did not arrive is none, and the supervisor checks the same again.
 export function canChange(question: Question): boolean {
-  if (question.status === "succeeded") return !!question.answered_by || !!question.answer_id;
+  if (question.status === "succeeded") return !!question.answered_by || !!question.answer_id || !!question.answer;
   return (question.status === "queued" || question.status === "running" || question.status === "uncertain") && !!question.answer_id;
 }
 
