@@ -309,7 +309,7 @@ export function App() {
   const views = panelViews(selected ? task : undefined, selected ? selectedSession : undefined);
   // A queued task has no terminal yet, so its panel is its task list alone,
   // and a baby goblin's panel is its terminal alone.
-  const shownView: PanelView = child || views.includes("terminal") ? panelView : "task";
+  const shownView: PanelView = child ? "terminal" : views.includes("terminal") ? panelView : "task";
   // The session's own terminal, by the terminal deck's key, whether its
   // harness works, which the box's working line shows, and that terminal's
   // link, which says what it was last told of the harness's screen.

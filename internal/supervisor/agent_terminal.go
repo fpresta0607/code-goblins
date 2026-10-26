@@ -328,6 +328,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 		if !send("page", messages) {
 			return false
 		}
+		lastUsage = nil
 		return usage()
 	}
 	if !page() {

@@ -4,6 +4,27 @@ import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typ
 const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000, model: "recorded-model" };
 
 for (const width of [1440, 390]) {
+  test(`a branch reset drops abandoned context statistics at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await open(page, snapshot({}, { harness: "pi" }), "", { ...PAGE, usage: USAGE });
+    await openGoblin(page);
+    await field(page).fill("keep this draft");
+    const composer = box(page);
+    await expect(composer.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
+
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), more: false });
+
+    const ring = composer.getByRole("button", { name: "Context usage unavailable", exact: true });
+    await expect(ring).toBeVisible();
+    await ring.focus();
+    const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
+    await expect(stats).not.toContainText("24k of 100k");
+    await expect(stats).not.toContainText("recorded-model");
+    await expect(field(page)).toHaveValue("keep this draft");
+  });
+}
+
+for (const width of [1440, 390]) {
   test.describe(`${width}px controls`, () => {
   test.use({ viewport: { width, height: 900 }, hasTouch: width === 390 });
   for (const who of ["CFO", "goblin"]) {

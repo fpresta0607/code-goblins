@@ -106,6 +106,32 @@ test("clicking a helper goblin opens that helper's own panel", async ({ page }) 
   await expect(page.locator(".panel-goblin-task")).toHaveText("helper-one");
 });
 
+for (const width of [1600, 390]) {
+  test(`a child opens its transcript after Task was selected at ${width}px`, async ({ page }, testInfo) => {
+    await open(page, width, 1000);
+    await page.keyboard.press("Control+Alt+1");
+    const views = page.getByRole("group", { name: "Panel view", exact: true });
+    await views.getByRole("button", { name: "Task", exact: true }).click();
+    await expect(page.locator(".goblin-panel > .panel-task")).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    if (width === 390) {
+      await page.getByRole("button", { name: /^Show what runs under Grub - Tree Surgeon/ }).click();
+      await page.getByRole("list", { name: "What runs under Grub - Tree Surgeon" }).getByRole("button", { name: /^Grub Jr\. - Plumbing Mapper/ }).click();
+    } else await baby(page, "Grub Jr. - Plumbing Mapper").click();
+
+    const terminal = page.getByRole("log", { name: "Terminal of Grub Jr. - Plumbing Mapper" });
+    await expect(terminal).toBeVisible();
+    await expect(terminal).toContainText("Reading internal/fleettree/claude.go");
+    await expect(views).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`child-after-task-${width}.png`) });
+    await page.keyboard.press("Control+Alt+1");
+    await expect(views.getByRole("button", { name: "Task", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".goblin-panel > .panel-task")).toBeVisible();
+  });
+}
+
 test("clicking two other baby goblins shows each one's own output under its name and task, never its goblin's terminal", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();

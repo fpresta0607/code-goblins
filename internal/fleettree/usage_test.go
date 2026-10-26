@@ -52,6 +52,44 @@ func TestAPiSessionRecordsWhatItSpent(t *testing.T) {
 	}
 }
 
+func TestAPiSessionUsesItsProvidersFullModelIDForContext(t *testing.T) {
+	for _, test := range []struct {
+		name, provider, model string
+		window                int64
+	}{
+		{"namespaced model", "openrouter", "deepseek/deepseek-v4.1-flash", 1_000_000},
+		{"same id in another provider", "acme", "shared", 200_000},
+		{"missing provider", "missing", "shared", 0},
+		{"model only in another provider", "acme", "other-only", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := piSession(t, home, piHeader(),
+				piMessageEntry("u1", "", "user", object{"content": "work"}),
+				piMessageEntry("a1", "u1", "assistant", object{"provider": test.provider, "model": test.model,
+					"usage": object{"input": 200, "output": 50, "totalTokens": 250}, "content": []object{{"type": "text", "text": "done"}}}),
+			)
+			catalog := `{"openrouter":{"models":[{"id":"deepseek/deepseek-v4.1-flash","contextWindow":1000000}]},"acme":{"models":[{"id":"shared","contextWindow":200000}]},"other":{"models":[{"id":"shared","contextWindow":100000},{"id":"other-only","contextWindow":300000}]}}`
+			if err := os.WriteFile(filepath.Join(home, ".pi", "agent", "models-store.json"), []byte(catalog), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Usage == nil || page.Usage.ContextWindow != test.window || page.Usage.Model != test.provider+"/"+test.model {
+				t.Fatalf("usage = %+v, want context window %d for %s/%s", page.Usage, test.window, test.provider, test.model)
+			}
+		})
+	}
+}
+
 func TestAClaudeConversationCountsItsRequestsOnce(t *testing.T) {
 	// Arrange
 	home := t.TempDir()

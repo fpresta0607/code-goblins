@@ -733,15 +733,13 @@ func piContextWindow(home, model string) int64 {
 	if json.Unmarshal(data, &catalog) != nil {
 		return 0
 	}
-	id := model
-	if at := strings.LastIndex(id, "/"); at >= 0 {
-		id = id[at+1:]
+	provider, id, hasProvider := strings.Cut(model, "/")
+	if !hasProvider {
+		return 0
 	}
-	for _, provider := range catalog {
-		for _, listed := range provider.Models {
-			if listed.ID == id {
-				return listed.ContextWindow
-			}
+	for _, listed := range catalog[provider].Models {
+		if listed.ID == id {
+			return listed.ContextWindow
 		}
 	}
 	return 0

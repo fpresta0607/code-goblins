@@ -108,7 +108,7 @@ export function pageMessages(held: MessagePage, page: MessagePage): MessagePage 
   const isSame = !!first && held.messages.some((message) => message.id === first.id && message.seq === first.seq);
   if (!isSame) return page;
   const older = held.messages.filter((message) => message.seq < first.seq);
-  return { messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage ?? held.usage };
+  return { messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage };
 }
 
 // olderMessages puts a page read before the first message a view holds in

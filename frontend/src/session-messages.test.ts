@@ -68,6 +68,18 @@ test("an older page goes before the first message held, and what it repeats is d
   assert.equal(next.more, false);
 });
 
+test("a newest page clears abandoned usage while older pagination keeps current usage", () => {
+  const before = parsePage({ messages: [served(0), served(1, { kind: "reply" })], more: false,
+    usage: { input_tokens: 12000, context_tokens: 24000, context_window: 100000, model: "recorded-model" } });
+  const reset = parsePage({ messages: [served(0)], more: false });
+
+  const next = pageMessages(before, reset);
+
+  assert.deepEqual(next.messages, reset.messages);
+  assert.equal(next.usage, undefined, "the surviving prompt does not keep the abandoned reply's statistics");
+  assert.deepEqual(olderMessages(before, reset).usage, before.usage, "older pagination is not an authoritative usage reset");
+});
+
 const task = (fields: Partial<Task>) => ({ id: "cg-one", harness: "claude", backend: "native", generation: "s1", phase: "working", archived: false, ...fields }) as Task;
 
 test("supported native sessions have messages for the current goblin generation and CFO host", () => {
