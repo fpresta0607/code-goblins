@@ -102,18 +102,18 @@ export function olderMessages(held: MessagePage, page: MessagePage): MessagePage
 }
 
 // messagesHarness says whether the board reads a harness's session as messages,
-// which the supervisor serves from a Claude Code, Codex or pi session.
+// which the supervisor serves from a Claude Code or a pi session.
 function messagesHarness(harness: string): boolean {
-  return harness === "claude" || harness === "codex" || harness === "pi";
+  return harness === "claude" || harness === "pi";
 }
 
 // messagesQuery names the session whose messages a panel shows, as
-// /api/messages takes it: a Claude Code, Codex or pi goblin's current
-// generation in a native terminal, or the CFO in its native terminal while it
-// runs one of those, since the Messages view's box types through that
-// terminal. A paused goblin's conversation still reads. Empty for every other
-// session, which keeps its Terminal and Task views alone: a goblin in Herdr, a
-// task not started yet, and one stopped or retired.
+// /api/messages takes it: a Claude Code or pi goblin's current generation in a
+// native terminal, or the CFO in its native terminal while it runs Claude Code
+// or pi, since the Messages view's box types through that terminal. A paused
+// goblin's conversation still reads. Empty for every other session, which
+// keeps its Terminal and Task views alone: a Codex one, one in Herdr, a task
+// not started yet, and one stopped or retired.
 export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness">, task?: Task): string {
   if (!task) return snapshot.cfo_terminal && messagesHarness(snapshot.cfo_harness) ? new URLSearchParams({ cfo: snapshot.cfo_terminal }).toString() : "";
   const ended = sessionEnd(task);

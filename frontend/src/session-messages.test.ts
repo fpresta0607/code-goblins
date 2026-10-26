@@ -70,19 +70,18 @@ test("an older page goes before the first message held, and what it repeats is d
 
 const task = (fields: Partial<Task>) => ({ id: "cg-one", harness: "claude", backend: "native", generation: "s1", phase: "working", archived: false, ...fields }) as Task;
 
-test("a Claude Code, Codex or pi goblin's current generation and such a CFO, each in a native terminal, have messages, and no other session", () => {
+test("a Claude Code or pi goblin's current generation and a Claude Code or pi CFO, each in a native terminal, have messages, and no other session", () => {
   const cfo = { cfo_terminal: "t-7", cfo_harness: "claude" };
   assert.equal(messagesQuery(cfo, task({})), "task=cg-one&generation=s1");
   assert.equal(messagesQuery(cfo, task({ harness: "pi" })), "task=cg-one&generation=s1", "a pi goblin's conversation reads too");
-  assert.equal(messagesQuery(cfo, task({ harness: "codex" })), "task=cg-one&generation=s1", "a Codex goblin's conversation reads too");
   assert.equal(messagesQuery(cfo, task({ phase: "paused" })), "task=cg-one&generation=s1", "a paused goblin's conversation still reads");
   assert.equal(messagesQuery(cfo), "cfo=t-7");
   assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "pi" }), "cfo=t-7", "a pi CFO");
-  for (const [why, other] of [["a goblin in Herdr", task({ backend: "herdr" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
+  for (const [why, other] of [["a Codex goblin", task({ harness: "codex" })], ["a goblin in Herdr", task({ backend: "herdr" })], ["a task not started", task({ generation: "" })], ["a stopped goblin", task({ phase: "stopped" })], ["a retired goblin", task({ archived: true })]] as const) {
     assert.equal(messagesQuery(cfo, other), "", why);
   }
   assert.equal(messagesQuery({ cfo_terminal: "", cfo_harness: "claude" }), "", "the CFO in Herdr");
-  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "codex" }), "cfo=t-7", "a Codex CFO");
+  assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "codex" }), "", "a Codex CFO");
   assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "" }), "", "a CFO that has not registered its harness");
 });
 

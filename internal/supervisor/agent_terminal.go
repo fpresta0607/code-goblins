@@ -129,10 +129,11 @@ func messagesHarness(harness string) bool {
 
 // messagesLocator finds the transcript of the session a request for messages
 // names, a task's goblin of the generation it names or the CFO in the
-// terminal it names, while that session runs: empty while Claude Code has
-// written none, and messagesRefused once the session no longer runs. It reads
-// no process and parses no store file, since a view's stream asks again as
-// often as a terminal view's binding is checked.
+// terminal it names, while that session runs in a native terminal: empty
+// while its harness has written none, and messagesRefused once the session no
+// longer runs or is one the board does not read. It reads no process and
+// parses no store file, since a view's stream asks again as often as a
+// terminal view's binding is checked.
 func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error) {
 	stateDir, home := h.Service.Store.Home.State, h.Service.Options.Tree.Home
 	if want := query.Get("cfo"); want != "" {
@@ -166,6 +167,12 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 			return "", messagesRefused{404, "Task metadata unavailable"}
 		case meta.SpawnGen != generation:
 			return "", messagesRefused{409, "This task restarted or was replaced. Select its current session."}
+		case meta.Backend != "native":
+			// The view is a native terminal's: its box types through that
+			// terminal, and its stream reads the record the terminal's
+			// harness writes. A pane of another kind names no such record
+			// to read, so it keeps its own terminal and task views alone.
+			return "", messagesRefused{404, "Messages are read from a session in a native terminal."}
 		case !messagesHarness(meta.Harness):
 			return "", noMessages
 		}
