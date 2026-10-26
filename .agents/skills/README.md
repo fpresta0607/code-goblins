@@ -8,6 +8,7 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
 - `step-card` - what a goblin does when its browser or computer-use work reaches a step only the Supreme Overlord can take: one Command Center card with the exact page and only his inputs, waited on so it goes on the moment the card closes.
 - `project-check` - assesses what the home knows about one project and brings it up to date: its project record, its verification gate, its configs and its connectors.
   The checks live in `cfo project check`, so the skill is the same text for every harness and names no tool of one.
+- `smart-routing` - guides the CFO's worker model and reasoning effort choices through the existing lanes, current capabilities, quota and evidence of verified completion.
 
 ## Which harness reads this directory
 
