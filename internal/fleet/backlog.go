@@ -112,7 +112,8 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 	for index, raw := range lines {
 		line := strings.TrimSuffix(raw, "\r")
 		trimmed := strings.TrimSpace(line)
-		if heading := levelTwoHeading.FindStringSubmatch(trimmed); heading != nil {
+		// Indented headings belong to task bodies, not backlog sections.
+		if heading := levelTwoHeading.FindStringSubmatch(line); heading != nil {
 			switch strings.TrimSpace(heading[1]) {
 			case "Queued":
 				section = "queued"
