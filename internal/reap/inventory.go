@@ -409,39 +409,88 @@ func (c Collector) worktrees(ctx context.Context, tasks []Task, notes *[]string)
 
 	seen := make(map[string]bool)
 	found := c.homeWorktrees(ctx, tasks, seen, notes)
-	for _, root := range sortedKeys(roots) {
-		dir := filepath.Join(root, home.LegacyWorktreesDir)
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				*notes = append(*notes, fmt.Sprintf("%s: UNREADABLE (%s)", dir, err))
-			}
-			continue
+	// The fleet's own worktrees by directory identity, not by spelling: git
+	// spells a path through an 8.3 folder name, as C:\Users\RUNNER~1\... for
+	// C:\Users\runneradmin\..., and compares by spelling would list a live
+	// goblin's worktree a second time as a stray the sweep may return.
+	var fleetInfos []os.FileInfo
+	for _, dir := range found {
+		if info, err := os.Stat(dir.Path); err == nil {
+			fleetInfos = append(fleetInfos, info)
 		}
-		// Read once per root, and only for a root that has something under
-		// .worktrees/ to classify: the answer costs a subprocess, and most
-		// roots have nothing there at all.
-		var registered []os.FileInfo
+	}
+	for _, root := range sortedKeys(roots) {
+		// One answer per root serves both the folders under its .worktrees/
+		// and every worktree the repository itself registers elsewhere.
+		var registered []registrationEntry
 		var answered, asked bool
-		for _, entry := range entries {
-			path := filepath.Join(dir, entry.Name())
-			if !entry.IsDir() || (!roots[root] && !claims(root, path, tasks, held)) {
-				continue
-			}
-			if seen[normalizePath(path)] {
-				continue
-			}
-			seen[normalizePath(path)] = true
+		ask := func() ([]registrationEntry, bool) {
 			if !asked {
 				registered, answered = c.registeredWorktrees(ctx, root, notes)
 				asked = true
 			}
+			return registered, answered
+		}
+		legacy := filepath.Join(root, home.LegacyWorktreesDir)
+		entries, err := os.ReadDir(legacy)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				*notes = append(*notes, fmt.Sprintf("%s: UNREADABLE (%s)", legacy, err))
+			}
+		} else {
+			for _, entry := range entries {
+				path := filepath.Join(legacy, entry.Name())
+				if !entry.IsDir() || (!roots[root] && !claims(root, path, tasks, held)) {
+					continue
+				}
+				if seen[normalizePath(path)] {
+					continue
+				}
+				seen[normalizePath(path)] = true
+				nearby, known := ask()
+				found = append(found, WorktreeDir{
+					Path:         path,
+					Project:      root,
+					TaskID:       strings.TrimPrefix(entry.Name(), home.LegacyWorktreePrefix),
+					Registration: registrationOf(path, nearby, known),
+					Created:      createdAt(path),
+				})
+			}
+		}
+		// Every worktree the repository registers away from its own folders is
+		// one a harness's tooling left there, or a goblin's whose record went.
+		// A root that is no checkout is never asked: git there answers for an
+		// enclosing repository, which says nothing about this root.
+		if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+			continue
+		}
+		registered, answered = ask()
+		if !answered {
+			continue
+		}
+		rootInfo, rootErr := os.Stat(root)
+		for _, entry := range registered {
+			if seen[normalizePath(entry.Path)] || (rootErr == nil && os.SameFile(entry.Info, rootInfo)) {
+				continue
+			}
+			if slices.ContainsFunc(fleetInfos, func(info os.FileInfo) bool { return os.SameFile(entry.Info, info) }) {
+				continue
+			}
+			if strings.EqualFold(filepath.Base(filepath.Dir(entry.Path)), home.LegacyWorktreesDir) {
+				// A goblin worktree where an older build put them, placed above
+				// or left to cfo cleanup and cfo reap when it is another home's.
+				// The check is by folder name because git spells a junctioned
+				// checkout's paths as its target while the scan holds the
+				// junction's own name.
+				continue
+			}
+			seen[normalizePath(entry.Path)] = true
 			found = append(found, WorktreeDir{
-				Path:         path,
+				Path:         entry.Path,
 				Project:      root,
-				TaskID:       strings.TrimPrefix(entry.Name(), home.LegacyWorktreePrefix),
-				Registration: registrationOf(path, registered, answered),
-				Created:      createdAt(path),
+				Source:       SourceCheckout,
+				Registration: RegistrationListed,
+				Created:      createdAt(entry.Path),
 			})
 		}
 	}
@@ -534,7 +583,7 @@ func (c Collector) homeWorktrees(ctx context.Context, tasks []Task, seen map[str
 			}
 		}
 	}
-	registered := map[string][]os.FileInfo{}
+	registered := map[string][]registrationEntry{}
 	answered := map[string]bool{}
 	var found []WorktreeDir
 	for _, root := range c.Home.WorktreeRoots() {
@@ -613,7 +662,7 @@ func checkoutOf(worktree string) (string, bool) {
 // The second return says whether the repository answered at all. Every failure
 // path leaves it false, which is what keeps "could not be asked" from reading
 // as "answered, and does not list this".
-func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) ([]os.FileInfo, bool) {
+func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *[]string) ([]registrationEntry, bool) {
 	if c.Commands == nil {
 		*notes = append(*notes, "no command runner configured; no directory among the worktrees can be confirmed to be a worktree")
 		return nil, false
@@ -643,13 +692,14 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 		*notes = append(*notes, fmt.Sprintf("%s: git worktree list exited with code %d (%s); its directories cannot be confirmed to be worktrees", root, result.ExitCode, strings.TrimSpace(string(result.Stderr))))
 		return nil, false
 	}
-	var registered []os.FileInfo
+	var registered []registrationEntry
 	for _, line := range strings.Split(string(result.Stdout), "\n") {
 		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
 		if !ok {
 			continue
 		}
-		info, err := os.Stat(filepath.Clean(path))
+		path = filepath.Clean(path)
+		info, err := os.Stat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			// A path git still lists but that is gone from disk is a worktree
 			// awaiting a prune. It cannot be any directory this scan found, so
@@ -665,9 +715,16 @@ func (c Collector) registeredWorktrees(ctx context.Context, root string, notes *
 			*notes = append(*notes, fmt.Sprintf("%s: %s is listed as a worktree but could not be read (%s); directories under this root cannot be confirmed", root, path, err))
 			return nil, false
 		}
-		registered = append(registered, info)
+		registered = append(registered, registrationEntry{Path: path, Info: info})
 	}
 	return registered, true
+}
+
+// registrationEntry is one worktree the repository lists: the path it spelled
+// and the on-disk identity that path has now.
+type registrationEntry struct {
+	Path string
+	Info os.FileInfo
 }
 
 // answersForItself reports whether git run in dir answers for dir itself,
@@ -711,7 +768,7 @@ func answersForItself(ctx context.Context, commands execx.Runner, dir string) (b
 // filepath.EvalSymlinks does not see through a Windows junction. os.Stat does,
 // and os.SameFile then answers the only question that matters, which is
 // whether this is the same directory on disk.
-func registrationOf(path string, registered []os.FileInfo, answered bool) Registration {
+func registrationOf(path string, registered []registrationEntry, answered bool) Registration {
 	if !answered {
 		return RegistrationUnknown
 	}
@@ -723,7 +780,7 @@ func registrationOf(path string, registered []os.FileInfo, answered bool) Regist
 		return RegistrationUnknown
 	}
 	for _, entry := range registered {
-		if os.SameFile(info, entry) {
+		if os.SameFile(info, entry.Info) {
 			return RegistrationListed
 		}
 	}

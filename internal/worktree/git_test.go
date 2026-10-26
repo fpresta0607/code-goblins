@@ -160,17 +160,18 @@ func TestRunnerGitReturnRemovesWorktreeAndPrunes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runner := &scriptedRunner{results: []scriptedResult{{}, {}}}
+	runner := &scriptedRunner{results: []scriptedResult{{}, {}, {}}}
 
 	if err := (RunnerGit{Commands: runner}).Return(context.Background(), project, worktreePath); err != nil {
 		t.Fatalf("Return: %v", err)
 	}
 	want := []execx.Request{
 		{Dir: worktreePath, Name: "git", Args: []string{"status", "--porcelain"}},
+		{Dir: project, Name: "git", Args: []string{"worktree", "list", "--porcelain"}},
 		{Dir: project, Name: "git", Args: []string{"worktree", "prune"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
-		t.Errorf("Git calls = %#v, want status, prune %#v", runner.calls, want)
+		t.Errorf("Git calls = %#v, want status, nested worktrees, prune %#v", runner.calls, want)
 	}
 	if _, err := os.Lstat(worktreePath); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the worktree survived Return: %v", err)
@@ -181,6 +182,7 @@ func TestRunnerGitReturnSurfacesAFailedPrune(t *testing.T) {
 	worktreePath := t.TempDir()
 	runner := &scriptedRunner{results: []scriptedResult{
 		{}, // git status --porcelain
+		{}, // git worktree list --porcelain
 		{result: execx.Result{ExitCode: 128, Stderr: []byte("fatal: cannot prune")}},
 	}}
 
@@ -239,7 +241,7 @@ func TestRunnerGitReturnRemovesEveryLinkAsALink(t *testing.T) {
 	makeJunction(t, filepath.Join(worktreePath, "node_modules"), shared)
 	makeJunction(t, filepath.Join(worktreePath, "elsewhere"), outside)
 
-	runner := &scriptedRunner{results: []scriptedResult{{}, {}}}
+	runner := &scriptedRunner{results: []scriptedResult{{}, {}, {}}}
 	if err := (RunnerGit{Commands: runner}).Return(context.Background(), project, worktreePath); err != nil {
 		t.Fatalf("Return: %v", err)
 	}

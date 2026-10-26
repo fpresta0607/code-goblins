@@ -209,6 +209,13 @@ func (g RunnerGit) Return(ctx context.Context, project, worktree string) error {
 	if dirty := strings.TrimSpace(string(status.Stdout)); dirty != "" {
 		return fmt.Errorf("worktree: %q has uncommitted work; refusing to remove it:\n%s", worktree, dirty)
 	}
+	nested, err := Strays(ctx, g.Commands, project, []string{worktree})
+	if err != nil {
+		return err
+	}
+	if len(nested) != 0 {
+		return fmt.Errorf("worktree: %q still holds registered worktree %q; return it first", worktree, nested[0])
+	}
 	return g.Remove(ctx, project, worktree)
 }
 

@@ -25,7 +25,9 @@ const worktreeGrace = time.Hour
 // tidyWorktrees removes every worktree in this home's worktree roots that no
 // task owns, its work kept first: one that is clean and on the default branch
 // goes, one with commits of its own is archived as a local tag and then goes,
-// and one with uncommitted work is never touched and is reported. A folder its
+// and one with uncommitted work is never touched and is reported. It does the
+// same for a worktree a project registers away from the fleet's folders, which
+// a harness's own tooling left in a checkout or a scratchpad. A folder its
 // project does not register goes only when it is empty. A worktree an older
 // build put in a checkout's .worktrees is never removed here: it is found
 // through the projects root every home on the machine shares, so nothing says
@@ -36,10 +38,12 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 	git := worktree.RunnerGit{Commands: cfg.Commands}
 	gone := map[string]bool{}
 	for _, dir := range reap.Unowned(cfg.Inventory) {
-		if !slices.ContainsFunc(cfg.Home.WorktreeRoots(), func(root string) bool {
+		isFleet := slices.ContainsFunc(cfg.Home.WorktreeRoots(), func(root string) bool {
 			rel, err := filepath.Rel(root, dir.Path)
 			return err == nil && filepath.IsLocal(rel)
-		}) {
+		})
+		if !isFleet {
+			cfg.tidyCheckoutWorktree(ctx, git, dir, record)
 			continue
 		}
 		if reason := cfg.notYetOrphaned(dir); reason != "" {
@@ -75,8 +79,59 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 		if _, err := os.Stat(dir.Path); err != nil {
 			continue
 		}
-		record.Strays = append(record.Strays, Item{Kind: "worktree", Path: dir.Path, Bytes: Size(dir.Path), Detail: "a worktree no task records; one a goblin needs beside its own comes from cfo worktree add"})
+		detail := "a worktree no task records; one a goblin needs beside its own comes from cfo worktree add"
+		if dir.Source == reap.SourceCheckout {
+			detail = "a worktree " + dir.Project + " registers at a path no task of this home records, left by a harness or an older session"
+		}
+		record.Strays = append(record.Strays, Item{Kind: "worktree", Path: dir.Path, Bytes: Size(dir.Path), Detail: detail})
 	}
+}
+
+// inATaskFolder reports whether path lies inside the folders a task of this
+// home works in: its worktree, one of its extra worktrees, or its scratch
+// folder. A harness's worktree there is that goblin's while it lives, and goes
+// with it at its cleanup or its next relaunch.
+// It compares by directory identity, because git spells a path through an 8.3
+// folder name while the record holds it in full.
+func (cfg Config) inATaskFolder(path string) bool {
+	for _, task := range cfg.Inventory.Tasks {
+		for _, folder := range append([]string{task.Meta.Worktree, task.Meta.Scratch}, task.Meta.Extras...) {
+			if folder == "" {
+				continue
+			}
+			if info, err := os.Stat(folder); err == nil && worktree.Under(path, info) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// tidyCheckoutWorktree returns a worktree the project registers away from the
+// fleet's folders, which a harness's own tooling left in a checkout or a
+// scratchpad, on the rule every other worktree here gets: its work is kept
+// before it goes, and uncommitted work is never touched. A directory an older
+// build's .worktrees holds is left to cfo cleanup and cfo reap, since it is
+// found through a checkout every home on the machine shares.
+func (cfg Config) tidyCheckoutWorktree(ctx context.Context, git worktree.RunnerGit, dir reap.WorktreeDir, record *Record) {
+	if dir.Source != reap.SourceCheckout || dir.Registration != reap.RegistrationListed {
+		return
+	}
+	if cfg.inATaskFolder(dir.Path) {
+		record.Kept = append(record.Kept, Item{Kind: "worktree", Path: dir.Path, Detail: "it is inside a live task's own folders, so it goes with that task at its cleanup or its next relaunch"})
+		return
+	}
+	if reason := cfg.notYetOrphaned(dir); reason != "" {
+		record.Kept = append(record.Kept, Item{Kind: "worktree", Path: dir.Path, Detail: reason})
+		return
+	}
+	bytes := Size(dir.Path)
+	detail, err := cfg.returnWorktree(ctx, git, dir)
+	if err != nil {
+		record.Kept = append(record.Kept, Item{Kind: "worktree", Path: dir.Path, Bytes: bytes, Detail: err.Error()})
+		return
+	}
+	record.Removed = append(record.Removed, Item{Kind: "worktree", Path: dir.Path, Bytes: bytes, Detail: detail})
 }
 
 // notYetOrphaned says why a worktree the inventory found unowned is not
