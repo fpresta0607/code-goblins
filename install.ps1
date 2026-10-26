@@ -728,7 +728,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = $(if ($Dev) { "tools\build-no-mistakes.ps1, $noMistakesRepository at $noMistakesCommit" } else { "$releaseBase/no-mistakes.exe" }) },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.35" },
         @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi@0.1.39" },
-        @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.17/lavish-axi-0.1.79-codegoblins.17.tgz"; Sha256 = "D6855256D03E281D66E55FDFDDECA589317A25DF1E5B439C750E5CFD8B9C2965" }
+        @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.19/lavish-axi-0.1.79-codegoblins.19.tgz"; Sha256 = "AFEADA08E260F0EF38792D28B65B8A5D79B200C9C89F9BCD916837345679E714" }
     )
 
     $npmPresent = [bool](Get-Command npm -ErrorAction SilentlyContinue)
