@@ -56,18 +56,37 @@ var (
 )
 
 // pullRequestState is what GitHub last answered for a pull request: OPEN,
-// CLOSED or MERGED, or empty when it never did; when it was last asked; and
-// how many asks in a row it has not answered since.
+// CLOSED or MERGED, or empty when it never did; when it was last asked; how
+// many asks in a row it has not answered since; and, for a finished task's
+// pull request GitHub no longer holds, why the evidence is unavailable, which
+// ends the asking.
 type pullRequestState struct {
-	state    string
-	title    string
-	at       time.Time
-	failures int
+	state       string
+	title       string
+	at          time.Time
+	failures    int
+	unavailable string
 }
+
+// ErrPullRequestNotFound is GitHub saying an address names nothing: a number
+// its repository does not have, or a repository GitHub does not have, which a
+// repository recreated under the same owner and name is not. Unlike a failed
+// read it is permanent for that address, so no read makes it an answer.
+var ErrPullRequestNotFound = errors.New("the pull request does not exist")
+
+// A finished task's pull request GitHub no longer holds keeps the outcome the
+// goblin reported, and its link, saying why what became of it cannot be read.
+const (
+	pullRequestGone   = "GitHub no longer holds this pull request, so the outcome stays as the goblin reported it"
+	pullRequestReused = "GitHub's pull request at this address was opened after this task finished, so a repository recreated under the same name holds it and this task's own pull request is gone"
+)
 
 type PullRequestInfo struct {
 	State string `json:"state"`
 	Title string `json:"title"`
+	// CreatedAt is when the pull request was opened, which tells a task's own
+	// pull request from a newer one a recreated repository gave its number.
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // MergedPR is one pull request merged into a fleet repository.
@@ -739,10 +758,15 @@ func withMergedPRs(history []Task, merged []MergedPR) []Task {
 // One GitHub did not answer for keeps what it last answered and is asked
 // again on the next refresh; its failure is returned only once it went
 // unanswered failingPasses refreshes in a row, and from then on it waits
-// pullRequestRecheck between asks. All asks of one refresh share
-// pullRequestBudget, so a slow GitHub never holds the supervisor's loop much
-// longer; a pull request not asked before it runs out is asked on the next
-// refresh.
+// pullRequestRecheck between asks. A finished task's pull request GitHub no
+// longer holds, or one a repository recreated under the same owner and name
+// gave its number to, is no answer at all: the task keeps the outcome and
+// link it reported, its card says the evidence is unavailable, and the
+// address is not asked about again, since neither can change into evidence
+// and reporting it would only ask the CFO to act on what nothing can act on.
+// All asks of one refresh share pullRequestBudget, so a slow GitHub never
+// holds the supervisor's loop much longer; a pull request not asked before it
+// runs out is asked on the next refresh.
 func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now time.Time) error {
 	if s.Options.PullRequestState == nil {
 		return nil
@@ -762,31 +786,65 @@ func (s *Service) withPullRequestStates(ctx context.Context, history []Task, now
 		shown[task.PR] = true
 		known, ok := s.pullRequests[task.PR]
 		isFailing := known.failures > 0 && known.failures < failingPasses
-		if !ok || isFailing || (known.state != "MERGED" && known.state != "CLOSED" || known.title == "") && now.Sub(known.at) >= pullRequestRecheck {
+		if known.unavailable == "" && (!ok || isFailing || (known.state != "MERGED" && known.state != "CLOSED" || known.title == "") && now.Sub(known.at) >= pullRequestRecheck) {
 			if budget.Err() != nil {
 				continue
 			}
 			answer, err := s.Options.PullRequestState(budget, task.PR)
-			if err != nil {
+			switch {
+			case err == nil && isNewerThanTask(*task, answer):
+				known = pullRequestState{unavailable: pullRequestReused, at: now}
+			case err == nil:
+				known = pullRequestState{state: answer.State, title: answer.Title, at: now}
+			case errors.Is(err, ErrPullRequestNotFound) && task.Archived:
+				known = pullRequestState{unavailable: pullRequestGone, at: now}
+			default:
 				known.at = now
 				known.failures++
 				if known.failures >= failingPasses {
 					errs = errors.Join(errs, err)
 				}
-			} else {
-				known = pullRequestState{state: answer.State, title: answer.Title, at: now}
 			}
 			s.pullRequests[task.PR] = known
+		}
+		parts := strings.Split(task.PR, "/")
+		task.Project = parts[4]
+		if known.unavailable != "" {
+			// A merge fleet history already proved stays merged; nothing else
+			// about the unavailable address is taken from GitHub.
+			if !task.Merged {
+				task.HistoryUnavailable = known.unavailable
+			}
+			continue
 		}
 		task.Merged, task.Closed = task.Merged || known.state == "MERGED", known.state == "CLOSED"
 		if known.title != "" {
 			task.Title = known.title
 		}
-		parts := strings.Split(task.PR, "/")
-		task.Project = parts[4]
 	}
 	maps.DeleteFunc(s.pullRequests, func(url string, _ pullRequestState) bool { return !shown[url] })
 	return errs
+}
+
+// isNewerThanTask says the pull request GitHub answered about was opened
+// after the task finished, so it cannot be the one the task reported: a
+// repository recreated under the same owner and name gives the old address to
+// a newer pull request, whose merge or title is never the old task's result.
+func isNewerThanTask(task Task, answer PullRequestInfo) bool {
+	if !task.Archived || answer.CreatedAt.IsZero() {
+		return false
+	}
+	finished := task.At
+	if finished.IsZero() || !task.ReportedAt.IsZero() && task.ReportedAt.Before(finished) {
+		finished = task.ReportedAt
+	}
+	return !finished.IsZero() && answer.CreatedAt.After(finished)
+}
+
+// ghNamesNothing is gh saying GitHub holds no such pull request or repository,
+// which no later read of the same address changes.
+func ghNamesNothing(stderr string) bool {
+	return strings.Contains(stderr, "Could not resolve to a") || strings.Contains(stderr, "HTTP 404") || strings.Contains(stderr, "Not Found")
 }
 
 // GitHubPullRequestState asks GitHub, through gh, whether a pull request is
@@ -803,12 +861,16 @@ func GitHubPullRequestState(commands execx.Runner) func(context.Context, string)
 		if isMerged {
 			return known, nil
 		}
-		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state,title"}})
+		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state,title,createdAt"}})
 		if err != nil {
 			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %w", url, err)
 		}
 		if result.ExitCode != 0 {
-			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %s", url, strings.TrimSpace(string(result.Stderr)))
+			stderr := strings.TrimSpace(string(result.Stderr))
+			if ghNamesNothing(stderr) {
+				return PullRequestInfo{}, fmt.Errorf("%w: gh could not read %s: %s", ErrPullRequestNotFound, url, stderr)
+			}
+			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %s", url, stderr)
 		}
 		var answer PullRequestInfo
 		if err := json.Unmarshal(result.Stdout, &answer); err != nil || strings.TrimSpace(answer.Title) == "" {

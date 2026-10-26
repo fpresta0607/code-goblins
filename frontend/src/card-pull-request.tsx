@@ -10,6 +10,8 @@ export function CardPullRequest({ task, isIconOnly = false }: { task: Task; isIc
   const pr = safePullRequest(task.pr), icon = pullRequestIcon(task);
   if (!pr) return null;
   const branch = taskColumn(task) === "Completed" ? task.branch : "";
-  const tip = isIconOnly ? [pullRequestLabel(pr), branch].filter(Boolean).join(" · ") : branch;
+  // A completed card whose pull request GitHub no longer holds says why in
+  // its tip, with its link left where the goblin reported it.
+  const tip = [...(isIconOnly ? [pullRequestLabel(pr)] : []), branch, taskColumn(task) === "Completed" ? task.history_unavailable : ""].filter(Boolean).join(" · ");
   return <a className={"card-pr pr-" + icon} href={pr} target="_blank" rel="noreferrer" aria-label={"Open pull request " + pullRequestLabel(pr)} {...tip ? { "data-tip": tip } : {}}><Icon name={icon} />{!isIconOnly && pullRequestLabel(pr)}</a>;
 }
