@@ -20,9 +20,8 @@ export interface Stat {
 }
 
 export interface SessionStats {
-  // parts are the compact line's stats, in the order the harness draws them.
-  parts: Stat[];
-  // details are the same stats with their names, for the full usage panel.
+  contextPercent?: number;
+  // The available stats with their names, for the usage tooltip.
   details: Stat[];
   // missing names, in plain words, each stat that could not be read.
   missing: string[];
@@ -90,37 +89,35 @@ export function elapsedText(since: string, now: number): string {
 
 // sessionStats reads every stat the fleet can back, and names each it cannot.
 export function sessionStats({ usage, model, effort, memory }: SessionFacts): SessionStats {
-  model ||= usage?.model ?? "";
-  const parts: Stat[] = [];
+  model = usage?.model || model;
   const details: Stat[] = [];
   const missing: string[] = [];
-  const add = (key: string, compact: string, label: string, value: string) => {
-    parts.push({ key, text: compact, label });
+  const add = (key: string, label: string, value: string) => {
     details.push({ key, text: value, label });
   };
   if (usage) {
-    if (usage.input_tokens > 0) add("input", "↑" + formatCount(usage.input_tokens), "Input tokens", formatCount(usage.input_tokens));
-    if (usage.output_tokens > 0) add("output", "↓" + formatCount(usage.output_tokens), "Output tokens", formatCount(usage.output_tokens));
-    if (usage.cache_read_tokens > 0) add("cache", "R" + formatCount(usage.cache_read_tokens), "Cache read", formatCount(usage.cache_read_tokens));
-    if (usage.cost_usd > 0) add("cost", formatUSD(usage.cost_usd), "Cost", formatUSD(usage.cost_usd));
+    if (usage.input_tokens > 0) add("input", "Input tokens", formatCount(usage.input_tokens));
+    if (usage.output_tokens > 0) add("output", "Output tokens", formatCount(usage.output_tokens));
+    if (usage.cache_read_tokens > 0) add("cache", "Cache read", formatCount(usage.cache_read_tokens));
+    if (usage.cost_usd > 0) add("cost", "Cost", formatUSD(usage.cost_usd));
     else missing.push("its cost");
-    if (usage.context_tokens > 0) {
+    if (usage.context_tokens > 0 || usage.context_window > 0) {
       if (usage.context_window > 0) {
-        const percent = Math.min(100, usage.context_tokens / usage.context_window * 100);
-        add("context", (Math.round(percent * 10) / 10).toFixed(1) + "%/" + formatCount(usage.context_window), "Context", formatCount(usage.context_tokens) + " of " + formatCount(usage.context_window));
+        add("context", "Context", formatCount(usage.context_tokens) + " of " + formatCount(usage.context_window));
       } else {
-        add("context", formatCount(usage.context_tokens), "Context", formatCount(usage.context_tokens));
+        add("context", "Context", formatCount(usage.context_tokens));
         missing.push("its context window");
       }
     } else missing.push("its context");
   } else {
     missing.push("its token usage and spend");
   }
-  if (memory > 0) add("memory", formatMemory(memory), "Memory", formatMemory(memory));
+  if (memory > 0) add("memory", "Memory", formatMemory(memory));
   else missing.push("its memory");
-  if (model || effort) add("engine", [model, effort].filter(Boolean).join(" "), "Model and effort", [model, effort].filter(Boolean).join(" "));
+  if (model || effort) add("engine", effort ? "Model / configured effort" : "Model", [model, effort].filter(Boolean).join(" "));
   else missing.push("its model and effort");
-  return { parts, details, missing, hasUsage: !!usage };
+  const contextPercent = usage && usage.context_window > 0 ? Math.max(0, Math.min(100, usage.context_tokens / usage.context_window * 100)) : undefined;
+  return { details, missing, hasUsage: !!usage, contextPercent };
 }
 
 // What a session's provider says about its allowance, for the banner above

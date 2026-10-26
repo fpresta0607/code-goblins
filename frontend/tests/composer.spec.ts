@@ -36,7 +36,7 @@ for (const width of [1440, 390]) {
     expect(prompt.x + prompt.width).toBeLessThanOrEqual(mic.x);
     expect(footer.y).toBeGreaterThanOrEqual(bar.y + bar.height);
     expect(bar.height).toBeLessThanOrEqual(60);
-    for (const button of [add, microphone, style, composer.getByRole("button", { name: "Recent messages", exact: true })]) {
+    for (const button of [add, microphone, style, composer.getByRole("button", { name: "Speech history", exact: true })]) {
       expect(await button.evaluate((element) => ({ border: getComputedStyle(element).borderTopWidth, background: getComputedStyle(element).backgroundColor }))).toEqual({ border: "0px", background: "rgba(0, 0, 0, 0)" });
     }
     await field(page).fill("Keep this draft while changing the view");
@@ -250,7 +250,7 @@ test.describe("dictation into the box", () => {
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [{ text: "check the phone spec", at: Date.parse("2026-10-22T09:30:00Z") }] } }));
     await openGoblin(page);
 
-    await box(page).getByRole("button", { name: "Recent messages" }).click();
+    await box(page).getByRole("button", { name: "Speech history" }).click();
     await page.getByRole("dialog", { name: "Recent messages" }).getByRole("button", { name: "Paste into the message: check the phone spec" }).click();
 
     await expect(field(page)).toHaveValue("check the phone spec");
@@ -260,7 +260,7 @@ test.describe("dictation into the box", () => {
     await open(page);
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
     await openGoblin(page);
-    const recent = box(page).getByRole("button", { name: "Recent messages" });
+    const recent = box(page).getByRole("button", { name: "Speech history" });
     await recent.click();
     await expect(page.getByRole("dialog", { name: "Recent messages" })).toBeVisible();
 

@@ -1396,11 +1396,17 @@ An unqueued draft stays in the box while its terminal connects, reconnects or is
 While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
-Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Recent messages beside the microphone lists the board's recent dictations, each with Copy and Paste into the message.
+Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
 The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
-Plain style, recent-message, terminal and send controls sit underneath without pills.
+Plain style, model, effort, speech-history, terminal and send controls sit underneath without pills, beside the current session's context ring.
 Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.
-The model-and-effort controls of the reference he sent are left out: the panel's engine selector already sets a task's harness, model and effort, and a running session's model cannot be changed by typing a message, so drawing them here would duplicate and contradict it.
+The ring uses the recorded context tokens and window, and opens available session statistics by hover, keyboard focus or touch; an unknown window is named as unavailable rather than drawn as zero use.
+The model label prefers the session record over startup settings, and the tooltip identifies task effort as configured effort because the record does not publish a live effort value.
+Model opens the actual harness's `/model` picker; Effort opens Codex's `/model`, Claude Code's `/effort` or Pi's `/thinking`, where the harness supplies its supported choices.
+These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command.
+The native picker steps into the conversation's place when the relay reads it; the board does not invent a model catalog or claim that a selected setting changed before the harness records it.
+The terminal icon opens the current session in its own Windows Terminal window through the same action as the former panel-header opener, which is absent while this composer is visible.
+A Classic view that shows only the native terminal keeps its header opener; the existing PC-only restriction remains, and a refused window request says why beside the unchanged draft.
 A picture pasted into the box, or a file added to it, goes to `POST /api/composer/file?task=ID&name=NAME`, which keeps it at most 10 MiB in the task's `composer-files` folder, or in the state folder's `composer-files` for the CFO, and answers `{"path":"..."}`; the message names that path, and the session reads the file from there.
 It takes that road rather than the terminal views' clipboard-and-image-key road because this box also writes to a goblin with no terminal up yet, and every harness reads a path.
 A picture the board cannot keep says so in the box rather than disappearing, and Alt+V and Ctrl+V both paste what the clipboard holds there and in a terminal, while Ctrl+C stays the harness's interrupt (the Overlord, 2026-10-26, "alt + v or ctrl + c both should work for paste").

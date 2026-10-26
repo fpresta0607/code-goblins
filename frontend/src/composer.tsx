@@ -2,12 +2,14 @@ import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, typ
 import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
+import { ContextUsage } from "./context-usage";
 import { DictationButton } from "./dictation-button";
 import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { parseCommands, slashOptions } from "./commands";
 import { QueuedMessage } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
+import type { SessionStats, UsageReading } from "./session-usage";
 import { useTerminalLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
@@ -60,8 +62,9 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, hasConversation = false }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
+  stats?: SessionStats; reading?: UsageReading; model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // terminal is the terminal deck's key of the session's terminal, and
   // onSent is told of each message typed into it, so a screen of the
   // harness's own that it opens can bring the terminal in.
@@ -114,6 +117,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const held = live?.held ? heldNotice(live.held) : "";
   const isAsking = !!live?.screen?.isOpen;
   const isUnread = !!live?.isUnread;
+  const harness = task?.harness || snapshot.cfo_harness;
+  const isEngineSupported = ["claude", "codex", "pi"].includes(harness);
+  const canChangeEngine = isEngineSupported && !!onSent && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
+  const changeEngine = (setting: "model" | "effort") => {
+    if (!canChangeEngine) return;
+    const command = setting === "model" || harness === "codex" ? "/model" : harness === "claude" ? "/effort" : "/thinking";
+    const submission = link.send(command);
+    if (submission) onSent?.(submission);
+  };
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   // What this box saves as a board action types nothing into the terminal, so
   // a harness picker or a busy program does not stop it: those guard direct
@@ -296,14 +308,20 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
           {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
         </div>
         <div className="composer-controls">
-          <button ref={recent} type="button" className="composer-control" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
-          {onAnswer && <button type="button" className="composer-control" aria-label="Terminal controls" data-tip="The session's controls, prompts and mode footer" onClick={onAnswer}><Icon name="terminal" /></button>}
+          {onSent && <>
+            <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose in the session's model picker" : "Model controls need a connected, unheld composer"} onClick={() => changeEngine("model")}>{model || task?.model || "Model"}</button>
+            <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>Effort</button>
+          </>}
+          <button ref={recent} type="button" className="composer-control" aria-label="Speech history" aria-expanded={isRecentOpen} data-tip="Speech history" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
+          {onOpenTerminal && <button type="button" className="composer-control" aria-label="Open in Windows Terminal" data-tip="Open this session in its own terminal window" onClick={onOpenTerminal}><Icon name="terminal" /></button>}
+          {stats && reading && <ContextUsage stats={stats} reading={reading} />}
           <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
             <Icon name={isSending ? "clock" : "send"} />
           </button>
         </div>
       </div>
       <p className="composer-note" role="status">{note}</p>
+      {terminalFeedback && <p className="composer-note" role="status">{terminalFeedback}</p>}
     </div>
   </section>;
 }

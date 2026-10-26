@@ -3,13 +3,15 @@ import { box, field, GOBLIN, NAME, open, openGoblin, pasted, snapshot, typed } f
 
 for (const who of ["CFO", "goblin"] as const) {
   for (const width of [1440, 390]) {
-    test(`Codex ${who} composer controls add a file, open native controls and change style at ${width}px`, async ({ page }) => {
+    test(`Codex ${who} composer controls add a file, open a terminal window and change style at ${width}px`, async ({ page }) => {
       // Arrange
       await page.setViewportSize({ width, height: 900 });
       const relay = await open(page, snapshot({ cfo_harness: "codex" }, { harness: "codex" }));
       const name = who === "CFO" ? "CFO" : NAME;
       const kept = "C:/session-files/example.txt";
       const uploads: { task: string; name: string; text: string }[] = [];
+      const windows: unknown[] = [];
+      await page.route("**/api/terminal/open", (route) => { windows.push(route.request().postDataJSON()); return route.fulfill({ json: {} }); });
       await page.route("**/api/composer/file**", async (route) => {
         const query = new URL(route.request().url()).searchParams;
         uploads.push({ task: query.get("task") ?? "", name: query.get("name") ?? "", text: route.request().postDataBuffer()?.toString() ?? "" });
@@ -29,10 +31,9 @@ for (const who of ["CFO", "goblin"] as const) {
       expect(uploads).toEqual([{ task: who === "CFO" ? "" : GOBLIN.id, name: "example.txt", text: "read this attachment" }]);
       expect(typed(relay)).toBe("");
 
-      // Act: the native control button and Back preserve the draft.
-      await composer.getByRole("button", { name: "Terminal controls", exact: true }).click();
-      await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
-      await page.getByRole("button", { name: "Back to messages", exact: true }).click();
+      // Act: opening a separate terminal preserves the draft and view.
+      await composer.getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
+      await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       await expect(field(page, name)).toHaveValue(kept);
 
       // Act: Classic opens the terminal; returning allows Modern again.

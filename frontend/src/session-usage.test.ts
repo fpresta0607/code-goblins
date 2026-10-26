@@ -7,7 +7,16 @@ const usage = {
   cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "openrouter/deepseek/deepseek-v4.1-flash",
 };
 
-test("the compact line shows every stat the conversation records", () => {
+test("the context ring uses the session measurement and never invents a missing limit", () => {
+  for (const [contextTokens, contextWindow, percent] of [[24000, 100000, 24], [0, 100000, 0], [120000, 100000, 100], [24000, 0, undefined]] as const) {
+    const stats = sessionStats({ usage: { ...usage, context_tokens: contextTokens, context_window: contextWindow }, model: "", effort: "", memory: 0 });
+    assert.equal(stats.contextPercent, percent);
+    if (contextWindow > 0) assert.ok(stats.details.some((stat) => stat.key === "context"));
+  }
+  assert.equal(sessionStats({ model: "", effort: "", memory: 0 }).contextPercent, undefined);
+});
+
+test("the tooltip shows every stat the conversation records", () => {
   // Arrange
   const facts = { usage, model: "deepseek-v4.1-flash", effort: "high", memory: 208 * 2 ** 20 };
 
@@ -15,10 +24,11 @@ test("the compact line shows every stat the conversation records", () => {
   const stats = sessionStats(facts);
 
   // Assert
-  const parts = stats.parts.map((part) => part.text);
-  assert.deepEqual(parts.slice(0, 5), ["↑1.4M", "↓289k", "R208M", "$3.209", "59.3%/1.0M"]);
+  const parts = stats.details.map((part) => part.text);
+  assert.deepEqual(parts.slice(0, 5), ["1.4M", "289k", "208M", "$3.209", "593k of 1.0M"]);
   assert.equal(parts[5], "208M", "the memory its processes hold");
-  assert.equal(parts[6], "deepseek-v4.1-flash high", "the model and effort the board recorded");
+  assert.equal(parts[6], usage.model + " high", "the session record's model takes precedence over startup settings");
+  assert.equal(stats.details.find((part) => part.key === "engine")?.label, "Model / configured effort");
   assert.equal(stats.hasUsage, true);
   assert.deepEqual(stats.missing, []);
 });
@@ -31,7 +41,7 @@ test("a stat the conversation does not record is left out and named", () => {
   const stats = sessionStats({ usage: incomplete, model: "", effort: "", memory: 0 });
 
   // Assert
-  assert.ok(!stats.parts.some((part) => part.key === "cost"), "no invented cost");
+  assert.ok(!stats.details.some((part) => part.key === "cost"), "no invented cost");
   assert.ok(stats.missing.includes("its cost"));
   assert.ok(stats.missing.includes("its context window"));
   assert.ok(stats.missing.includes("its memory"));
@@ -47,7 +57,7 @@ test("a session whose usage cannot be read says so and still shows what it can",
   // Assert
   assert.equal(stats.hasUsage, false);
   assert.ok(stats.missing.includes("its token usage and spend"));
-  assert.deepEqual(stats.parts.map((part) => part.text), ["4.0k", "claude-opus-5-5 xhigh"]);
+  assert.deepEqual(stats.details.map((part) => part.text), ["4.0k", "claude-opus-5-5 xhigh"]);
 });
 
 test("a session that is not working carries the time of the last thing it wrote", () => {

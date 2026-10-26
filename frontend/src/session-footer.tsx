@@ -5,8 +5,7 @@ import { WorkingIndicator } from "./working-indicator";
 // The line at the very bottom of the conversation: the session's working
 // state in its harness's colour and no icon, then the time facts and not a
 // wall of numbers (the Overlord, 2026-10-26): how long it has been working,
-// when he last sent a message, and when the last reply arrived. The fuller
-// usage keeps its own banner above the composer.
+// when he last sent a message, and when the last reply arrived.
 export function SessionFooter({ ink, isWorking, workingSince, lastSentAt, lastReplyAt, now, hasUsage, why, onStop }: {
   ink: string; isWorking: boolean; workingSince: string; lastSentAt: string; lastReplyAt: string; now: number; hasUsage: boolean; why: string; onStop?: () => void;
 }) {

@@ -20,6 +20,7 @@ interface Posted { path: string }
 // terminal view beside the board, as his was, not over it.
 async function open(page: Page, width: number, posted: Posted[] = [], tasks = BOARD) {
   await page.addInitScript((pane) => {
+    localStorage.setItem("cfo-chat-style", "classic");
     if (localStorage.getItem("cfo-pane-width")) return;
     localStorage.setItem("cfo-pane-width", String(pane));
     localStorage.setItem("cfo-terminal-maximized", "false");

@@ -26,9 +26,8 @@ test("the conversation's bottom line carries the time facts, not a wall of numbe
   // The fuller numbers live on in the banner, not on this line.
   await expect(line).not.toContainText("$3.209");
   await expect(line).not.toContainText("59.3%");
-  const banner = page.getByRole("region", { name: "Session usage", exact: true });
-  await banner.getByRole("button", { name: "Usage", exact: true }).click();
-  await expect(banner).toContainText("1.4M");
+  await page.getByRole("button", { name: "Context: 59.3% used", exact: true }).click();
+  await expect(page.getByRole("tooltip", { name: "Session statistics", exact: true })).toContainText("1.4M");
 });
 
 test("the line shows the harness's working animation while the session works", async ({ page }, testInfo) => {
@@ -46,7 +45,7 @@ test("the line shows the harness's working animation while the session works", a
   await testInfo.attach("footer-working.png", { body: await page.screenshot(), contentType: "image/png" });
 });
 
-test("a session whose usage cannot be read draws no banner and says why in the line", async ({ page }) => {
+test("a session whose usage cannot be read leaves its ring unmeasured and says why", async ({ page }) => {
   // Arrange
   await open(page);
   await openGoblin(page);
@@ -55,23 +54,21 @@ test("a session whose usage cannot be read draws no banner and says why in the l
   await expect(footer(page)).toContainText("usage unreadable");
   await expect(footer(page)).toContainText("its Claude usage could not be read");
   await expect(page.getByRole("region", { name: "Session usage", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Context usage unavailable", exact: true }).click();
+  await expect(page.getByRole("tooltip", { name: "Session statistics", exact: true })).toContainText("its token usage and spend");
 });
 
-test("the usage banner opens the session's full stats in the panel, and leaves the composer in reach", async ({ page }) => {
+test("the context ring opens available session stats and allowance without covering the composer", async ({ page }) => {
   // Arrange
   const subscriptions = [{ provider: "claude", status: "available", percent_remaining: 12, read_at: "", resets_at: "2026-10-28T09:00:00Z", source: "oauth", floor_percent: 5 }];
   await open(page, snapshot({ subscriptions }, MEMORY), "rebase onto main", PAGE_WITH_USAGE);
   await openGoblin(page);
-  const banner = page.getByRole("region", { name: "Session usage", exact: true });
-
-  // Assert the one line above the composer.
-  await expect(banner).toBeVisible();
+  const ring = page.getByRole("button", { name: "Context: 59.3% used", exact: true });
+  await expect(ring).toBeVisible();
+  await ring.click();
+  const banner = page.getByRole("tooltip", { name: "Session statistics", exact: true });
   await expect(banner).toContainText("Approaching weekly usage limit");
   await expect(banner).toContainText("Resets ");
-  await expect(banner.getByRole("button", { name: "Usage", exact: true })).toBeVisible();
-
-  // Act
-  await banner.getByRole("button", { name: "Usage", exact: true }).click();
 
   // Assert: the full stats open in place, and the box he writes in stays visible.
   const details = banner.locator(".usage-stats");

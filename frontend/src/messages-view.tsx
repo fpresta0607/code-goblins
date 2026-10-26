@@ -7,8 +7,7 @@ import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessa
 import { attachZoomGesture } from "./terminal-zoom";
 import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { SessionFooter } from "./session-footer";
-import { UsageBanner } from "./usage-banner";
-import { sessionStats, usageBanner } from "./session-usage";
+import { sessionStats, usageBanner, type SessionStats, type UsageReading } from "./session-usage";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import "./messages-view.css";
@@ -45,7 +44,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean; onStop?: () => void;
   workingSince: string; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (stats: SessionStats, reading: UsageReading, model: string) => ReactNode;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
@@ -285,8 +284,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     </div>
     {(box || reading.banner) && <div className="composer-dock">
       <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} onStop={onStop} />
-      <UsageBanner reading={reading} stats={stats} />
-      {box}
+      {box?.(stats, reading, held.usage?.model || model)}
     </div>}
   </section>;
 }

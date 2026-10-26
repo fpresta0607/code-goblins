@@ -401,9 +401,7 @@ export function App() {
   const divided = paneOpen && !panelWide && !compact;
   const layout: CSSProperties | undefined = panelWide ? { gridTemplateColumns: "minmax(0, 1fr)" } : paneOpen && paneSize && !compact ? { gridTemplateColumns: `minmax(0, 1fr) 10px ${paneTrack(paneSize)}` } : undefined;
   // Open in terminal shows the terminal in a Windows Terminal window of its
-  // own, beside the board; a refusal says so under the button for a moment.
-  // A window on the PC is nothing to a phone, so a small screen has no such
-  // button.
+  // own, beside the board; a refusal says so beside the control for a moment.
   const shownWindow = snapshot && (terminalShown || messagesShown) && !child ? windowTarget(snapshot, cfoShown, selected ? task : undefined) : null;
   const shownKey = JSON.stringify(shownWindow);
   const openWindow = async () => {
@@ -425,7 +423,7 @@ export function App() {
     store(MAXIMIZED_KEYS.terminal, choice);
   };
   const controls: PanelControl[] = [];
-  if (shownWindow && !compact) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
+  if (shownWindow && !compact && !boxOnScreen) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
   if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
   const row = {
     controls,
@@ -434,7 +432,7 @@ export function App() {
       : backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
       : <button className="icon-button" aria-label="Close panel" data-tip="Close" onClick={close}><Icon name="close" /></button>,
-    notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
+    notice: !boxOnScreen && windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
   return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className={"app-shell" + (fillsPhone ? " fills-phone" : "")} onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown && !fillsPhone) back(); else close(); }
@@ -502,8 +500,8 @@ export function App() {
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending} onStop={() => live?.escape()}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
-            box={queuedBox ? undefined : <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation
-              focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />} />}
+            box={queuedBox ? undefined : (stats, reading, model) => <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation stats={stats} reading={reading} model={model}
+              focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus} onHistory={messagesSource ? stepOut : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
@@ -516,7 +514,7 @@ export function App() {
             nothing into the terminal. */}
         {snapshot && queuedBox && <div className="classic-queue">
           <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey}
-            focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} />
+            focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />
         </div>}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}
