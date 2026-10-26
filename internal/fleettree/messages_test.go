@@ -683,6 +683,7 @@ func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
 		{WakePrefix + "1 queued wake (notify task-1); run cfo drain", FromNotice},
 		{"== SESSION LOCK ==\nSESSION LOCK: held by pid 123 on test\n== WAKE QUEUE ==\nWAKE QUEUE: empty", FromNotice},
 		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: cfo drain --ack-through 1", FromNotice},
+		{"AFK MODE IS ON: the Supreme Overlord turned it on 2026-10-02 02:10 UTC from the board, and he is away until he turns it off.\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\nWAKE QUEUE: empty", FromNotice},
 		{routing.SteerPrefix + "Your run npm test ended with exit 0 after 1m35s; read its output and carry on from it.", FromNotice},
 		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: cfo helper merge parent", FromNotice},
 		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: cfo send task-1 \"<answer>\"", FromNotice},
@@ -693,12 +694,14 @@ func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
 		{"WAKE QUEUE: please show it", FromOverlord},
 		{routing.SteerPrefix + "Your run needs a regression test", FromCFO},
 	} {
-		for _, harness := range []string{"claude", "pi"} {
+		for _, harness := range []string{"claude", "pi", "codex"} {
 			t.Run(harness+"/"+test.text, func(t *testing.T) {
 				home := t.TempDir()
 				var path string
 				if harness == "pi" {
 					path = piSession(t, home, piHeader(), piMessageEntry("u1", "", "user", object{"content": test.text}))
+				} else if harness == "codex" {
+					path = codexRollout(t, home, "notices", codexMeta("notices", workDir), codexUserSaid(test.text))
 				} else {
 					path = conversation(t, home, prompted("u1", test.text))
 				}

@@ -1,9 +1,13 @@
 package fleettree
 
 import (
+	"bufio"
 	"cmp"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"maps"
+	"math"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -36,18 +40,25 @@ type codexEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 	Type      string    `json:"type"`
 	Payload   struct {
-		Type      string          `json:"type"`
-		Item      codexItem       `json:"item"`
-		ID        string          `json:"id"`
-		Model     string          `json:"model"`
-		Reason    string          `json:"reason"`
-		Message   string          `json:"message"`
-		CallID    string          `json:"call_id"`
-		Name      string          `json:"name"`
-		Input     string          `json:"input"`
-		Content   []codexPart     `json:"content"`
-		Arguments json.RawMessage `json:"arguments"`
-		Output    json.RawMessage `json:"output"`
+		Type             string           `json:"type"`
+		Item             codexItem        `json:"item"`
+		ID               string           `json:"id"`
+		Model            string           `json:"model"`
+		Reason           string           `json:"reason"`
+		Message          string           `json:"message"`
+		CallID           string           `json:"call_id"`
+		Name             string           `json:"name"`
+		Input            string           `json:"input"`
+		Content          []codexPart      `json:"content"`
+		Arguments        json.RawMessage  `json:"arguments"`
+		Output           json.RawMessage  `json:"output"`
+		Usage            *codexTokenUsage `json:"usage"`
+		ThreadTokenUsage *codexTokenUsage `json:"thread_token_usage"`
+		Info             *struct {
+			Total         *codexTokenUsage `json:"total_token_usage"`
+			Last          *codexTokenUsage `json:"last_token_usage"`
+			ContextWindow int64            `json:"model_context_window"`
+		} `json:"info"`
 	} `json:"payload"`
 }
 
@@ -62,8 +73,27 @@ type codexItem struct {
 
 // codexPart is one part of a message's or a summary's content.
 type codexPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	URL      string `json:"url"`
+	ImageURL string `json:"image_url"`
+}
+
+type codexTokenUsage struct {
+	Input  int64 `json:"input_tokens"`
+	Cached int64 `json:"cached_input_tokens"`
+	Output int64 `json:"output_tokens"`
+	Total  int64 `json:"total_tokens"`
+}
+
+func (usage *codexTokenUsage) valid() bool {
+	return usage != nil && usage.Input >= 0 && usage.Cached >= 0 && usage.Cached <= usage.Input && usage.Output >= 0 && usage.Total >= 0 && usage.Input <= math.MaxInt64-usage.Output
+}
+
+type codexPictureAt struct {
+	offset   int64
+	index    int
+	isOutput bool
 }
 
 // codexChange is one file a FileChange item changed: its unified diff for an
@@ -90,9 +120,11 @@ type codexMessageLog struct {
 	revision uint64
 	// reply is the message the assistant's next block belongs to, -1 when
 	// the next block begins one, and model the model of the turn being read.
-	reply int
-	model string
-	calls map[string]blockAt
+	reply    int
+	model    string
+	calls    map[string]blockAt
+	usage    Usage
+	pictures map[string]codexPictureAt
 }
 
 // reset starts the log over, reading the rollout anew from its first byte.
@@ -101,6 +133,8 @@ func (l *codexMessageLog) reset(epoch uint64) {
 	l.messages, l.changed, l.revision = nil, nil, 0
 	l.reply, l.model = -1, ""
 	l.calls = map[string]blockAt{}
+	l.usage = Usage{}
+	l.pictures = map[string]codexPictureAt{}
 }
 
 // update parses the entries written since the last read. A rollout that shrank
@@ -142,18 +176,26 @@ func (l *codexMessageLog) entry(line []byte, offset int64) {
 		// Codex writes one usage record as each model response ends, so the
 		// next block of the assistant's begins another reply.
 		l.reply = -1
+		l.recordUsage(entry.Payload.ThreadTokenUsage, entry.Payload.Usage, true)
 	case "compacted":
 		l.compaction(entry, id)
 	case "event_msg":
 		switch entry.Payload.Type {
 		case "item_completed":
-			l.completed(entry, id)
+			l.completed(entry, id, offset)
+		case "token_count":
+			if info := entry.Payload.Info; info != nil {
+				l.recordUsage(info.Total, info.Last, false)
+				if info.ContextWindow > 0 {
+					l.usage.ContextWindow = info.ContextWindow
+				}
+			}
 		case "turn_aborted":
 			l.reply = -1
 			l.add(Message{ID: id, Kind: MessageInterrupt, At: entry.Timestamp, Text: bounded(strings.TrimSpace(entry.Payload.Reason), messageTextLimit)})
 		}
 	case "response_item":
-		l.response(entry, id)
+		l.response(entry, id, offset)
 	}
 }
 
@@ -162,12 +204,12 @@ func (l *codexMessageLog) entry(line []byte, offset int64) {
 // output already came with the call, shows nothing; and ContextCompaction is
 // passed over, since the compacted record that wrote it already showed the
 // compaction.
-func (l *codexMessageLog) completed(entry codexEntry, id string) {
+func (l *codexMessageLog) completed(entry codexEntry, id string, offset int64) {
 	item := entry.Payload.Item
 	switch item.Type {
 	case "UserMessage":
 		l.reply = -1
-		l.prompt(entry.Timestamp, cmp.Or(item.ID, id), codexText(item.Content))
+		l.prompt(entry.Timestamp, cmp.Or(item.ID, id), codexText(item.Content), l.keepPictures(item.Content, offset, false))
 	case "AgentMessage":
 		if text := strings.TrimSpace(codexText(item.Content)); text != "" {
 			l.block(entry.Timestamp, id, Block{Kind: BlockText, Text: bounded(text, messageTextLimit)})
@@ -186,13 +228,13 @@ func (l *codexMessageLog) completed(entry codexEntry, id string) {
 // response folds one response_item into the log: a call Codex has started, the
 // output that answers one, or a message a child agent sent its parent, which a
 // Claude Code goblin reads as a task notification and this shows the same way.
-func (l *codexMessageLog) response(entry codexEntry, id string) {
+func (l *codexMessageLog) response(entry codexEntry, id string, offset int64) {
 	payload := entry.Payload
 	switch payload.Type {
 	case "function_call", "custom_tool_call":
 		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: codexSubject(payload.Input, payload.Arguments), State: CallRunning})
 	case "function_call_output", "custom_tool_call_output":
-		l.outcome(payload.CallID, payload.Output)
+		l.outcome(payload.CallID, payload.Output, offset)
 	case "agent_message":
 		l.reply = -1
 		l.add(Message{ID: cmp.Or(payload.ID, id), Kind: MessagePrompt, At: entry.Timestamp, Source: FromNotice, Text: bounded(codexText(payload.Content), messageTextLimit)})
@@ -207,10 +249,10 @@ func (l *codexMessageLog) compaction(entry codexEntry, id string) {
 }
 
 // prompt adds a prompt to the log, with where it came from.
-func (l *codexMessageLog) prompt(at time.Time, id, text string) {
+func (l *codexMessageLog) prompt(at time.Time, id, text string, pictures []Picture) {
 	source, words := promptSource(strings.TrimSpace(systemReminder.ReplaceAllString(text, "")))
-	message := Message{ID: id, Kind: MessagePrompt, At: at, Source: source, Text: bounded(words, messageTextLimit)}
-	if message.Text != "" {
+	message := Message{ID: id, Kind: MessagePrompt, At: at, Source: source, Text: bounded(words, messageTextLimit), Pictures: pictures}
+	if message.Text != "" || len(pictures) > 0 {
 		l.add(message)
 	}
 }
@@ -232,7 +274,7 @@ func (l *codexMessageLog) block(at time.Time, id string, block Block) {
 // outcome fills in the call a rollout's output answers. An output that no call
 // opened is left out, as Claude Code's reader leaves out a result that answers
 // nothing.
-func (l *codexMessageLog) outcome(callID string, output json.RawMessage) {
+func (l *codexMessageLog) outcome(callID string, output json.RawMessage, offset int64) {
 	where, ok := l.calls[callID]
 	if !ok || where.message >= len(l.messages) || where.block >= len(l.messages[where.message].Blocks) {
 		return
@@ -241,12 +283,114 @@ func (l *codexMessageLog) outcome(callID string, output json.RawMessage) {
 	block := &l.messages[where.message].Blocks[where.block]
 	block.Result = bounded(text, resultLimit)
 	block.State = "done"
+	var parts []codexPart
+	if json.Unmarshal(output, &parts) == nil {
+		block.Pictures = l.keepPictures(parts, offset, true)
+	}
 	// Codex opens its command's own report with these words either way, the
 	// exit code of each command it ran staying in the report's text.
 	if strings.HasPrefix(strings.TrimSpace(text), "Script failed") {
 		block.State = "failed"
 	}
 	l.touch(where.message)
+}
+
+func (l *codexMessageLog) recordUsage(total, last *codexTokenUsage, shouldAdd bool) {
+	if total.valid() {
+		l.usage.InputTokens, l.usage.OutputTokens, l.usage.CacheReadTokens = total.Input, total.Output, total.Cached
+	} else if shouldAdd && last.valid() && l.usage.InputTokens <= math.MaxInt64-last.Input && l.usage.OutputTokens <= math.MaxInt64-last.Output && l.usage.CacheReadTokens <= math.MaxInt64-last.Cached {
+		l.usage.InputTokens += last.Input
+		l.usage.OutputTokens += last.Output
+		l.usage.CacheReadTokens += last.Cached
+	}
+	if last.valid() {
+		// Codex's input count already includes cache hits.
+		l.usage.ContextTokens = last.Total
+		if last.Total == 0 {
+			l.usage.ContextTokens = last.Input + last.Output
+		}
+	}
+	if (total.valid() || last.valid()) && l.model != "" {
+		l.usage.Model = l.model
+	}
+}
+
+func codexPictureData(part codexPart) (string, string, bool) {
+	var url string
+	switch part.Type {
+	case "image":
+		url = part.URL
+	case "input_image":
+		url = part.ImageURL
+	default:
+		return "", "", false
+	}
+	header, data, hasData := strings.Cut(url, ",")
+	media := strings.TrimSuffix(strings.TrimPrefix(header, "data:"), ";base64")
+	padding := len(data) - len(strings.TrimRight(data, "="))
+	if !hasData || header != "data:"+media+";base64" || !slices.Contains(pictureTypes, media) || len(data) == 0 || len(data) > pictureEntryReach || len(data)%4 != 0 || padding > 2 {
+		return "", "", false
+	}
+	return media, data, true
+}
+
+func (l *codexMessageLog) keepPictures(parts []codexPart, offset int64, isOutput bool) []Picture {
+	var pictures []Picture
+	for index, part := range parts {
+		media, data, isPicture := codexPictureData(part)
+		if !isPicture {
+			continue
+		}
+		id := strconv.FormatInt(offset, 10) + ":" + strconv.Itoa(index)
+		l.pictures[id] = codexPictureAt{offset, index, isOutput}
+		size := len(data)/4*3 - (len(data) - len(strings.TrimRight(data, "=")))
+		pictures = append(pictures, Picture{ID: id, MediaType: media, Bytes: size})
+	}
+	return pictures
+}
+
+func (r *Reader) codexMessagePicture(path, id string) (string, []byte, error) {
+	r.messagesMu.Lock()
+	log := r.codexLogs[path]
+	r.messagesMu.Unlock()
+	if log == nil {
+		return "", nil, ErrNoRecord
+	}
+	log.mu.Lock()
+	at, isKept := log.pictures[id]
+	log.mu.Unlock()
+	if !isKept {
+		return "", nil, ErrNoRecord
+	}
+	file, err := fsx.Open(path)
+	if err != nil {
+		return "", nil, err
+	}
+	defer file.Close()
+	line, err := bufio.NewReader(io.NewSectionReader(file, at.offset, pictureEntryReach)).ReadBytes('\n')
+	if err != nil {
+		return "", nil, err
+	}
+	var entry codexEntry
+	if json.Unmarshal(line, &entry) != nil {
+		return "", nil, ErrNoRecord
+	}
+	parts := entry.Payload.Item.Content
+	if at.isOutput && json.Unmarshal(entry.Payload.Output, &parts) != nil {
+		return "", nil, ErrNoRecord
+	}
+	if at.index >= len(parts) {
+		return "", nil, ErrNoRecord
+	}
+	media, encoded, isPicture := codexPictureData(parts[at.index])
+	if !isPicture {
+		return "", nil, ErrNoRecord
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(data) == 0 {
+		return "", nil, ErrNoRecord
+	}
+	return media, data, nil
 }
 
 // edit folds a FileChange item into the call that made it: the call before it
@@ -362,6 +506,7 @@ func (l *codexMessageLog) page(before int) MessagePage {
 	for _, message := range l.messages[start:end] {
 		page.Messages = append(page.Messages, shared(message))
 	}
+	page.Usage = usageOf(l.usage, l.usage.ContextWindow)
 	return page
 }
 

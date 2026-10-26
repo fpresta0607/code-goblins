@@ -239,9 +239,12 @@ func TestCommandsReadTheSessionTheBoardNames(t *testing.T) {
 		// Arrange
 		board, _, worktree := commandBoard(t, "claude")
 		writeCommandFixture(t, filepath.Join(worktree, ".claude", "commands", "review.md"), "x")
+		if err := state.WriteConversation(board.Service.Store.Home.State, state.Conversation{ID: "task-1", Generation: "g1", Harness: "claude", Session: "session-1"}); err != nil {
+			t.Fatal(err)
+		}
 
 		// Act
-		answered := commandsIn(t, getCommands(board, "task=task-1&generation=g1&token=test-instance"))
+		answered := commandsIn(t, getCommands(board, "task=task-1&generation=g1&session=session-1&token=test-instance"))
 
 		// Assert
 		if want := []string{"review"}; !reflect.DeepEqual(answered, want) {
@@ -328,5 +331,26 @@ func TestCommandsRejectUnownedSessionAndNodeSelectors(t *testing.T) {
 		if response.Code == http.StatusOK {
 			t.Fatalf("%s answered a parent's command list: %s", selector, response.Body)
 		}
+	}
+}
+
+func TestPiCommandExclusionsApplyToSharedAndNestedSkills(t *testing.T) {
+	board, profile, _ := commandBoard(t, "pi")
+	agentDir := filepath.Join(profile, ".pi", "agent")
+	writeCommandFixture(t, filepath.Join(agentDir, "settings.json"), `{"skills":["!**/hidden/**","-skills/local","+skills/local"]}`)
+	for _, path := range []string{filepath.Join(profile, ".agents", "skills", "hidden", "SKILL.md"), filepath.Join(agentDir, "skills", "local", "SKILL.md")} {
+		writeCommandFixture(t, path, "---\ndescription: hidden\n---\nbody")
+	}
+	if commands := commandsIn(t, getCommands(board, "task=task-1&token=test-instance")); len(commands) != 0 {
+		t.Fatalf("excluded skills shown: %v", commands)
+	}
+}
+
+func TestPiCommandsDoNotCoerceInvalidSkillMetadata(t *testing.T) {
+	board, _, worktree := commandBoard(t, "pi")
+	writeCommandFixture(t, filepath.Join(worktree, ".pi", "skills", "valid", "SKILL.md"), "---\nname: 123\ndescription: A skill\n---\nbody")
+	writeCommandFixture(t, filepath.Join(worktree, ".pi", "skills", "invalid", "SKILL.md"), "---\ndescription: 123\n---\nbody")
+	if got := commandsIn(t, getCommands(board, "task=task-1&token=test-instance")); !reflect.DeepEqual(got, []string{"skill:valid"}) {
+		t.Fatalf("commands=%v", got)
 	}
 }

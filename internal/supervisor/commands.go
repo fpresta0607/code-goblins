@@ -170,10 +170,10 @@ func commandFiles(dir, namespace string) []string {
 // for each folder holding a SKILL.md, at any depth when recursive and among
 // the folder's own children otherwise, as Claude Code and pi read them.
 func skillNames(dir string, recursive bool) []string {
-	return readSkillNames(dir, recursive, true, map[string]bool{})
+	return readSkillNames(dir, recursive, true, map[string]bool{}, nil)
 }
 
-func readSkillNames(dir string, recursive, isRoot bool, visited map[string]bool) []string {
+func readSkillNames(dir string, recursive, isRoot bool, visited map[string]bool, isEnabled func(string) bool) []string {
 	canonical, err := filepath.EvalSymlinks(dir)
 	if err != nil || visited[canonical] {
 		return nil
@@ -181,7 +181,7 @@ func readSkillNames(dir string, recursive, isRoot bool, visited map[string]bool)
 	visited[canonical] = true
 	if recursive {
 		if fields, err := commandFrontmatter(filepath.Join(dir, "SKILL.md")); err == nil {
-			if strings.TrimSpace(fields.Description) != "" {
+			if strings.TrimSpace(fields.Description) != "" && (isEnabled == nil || isEnabled(filepath.Join(dir, "SKILL.md"))) {
 				return []string{cmp.Or(fields.Name, filepath.Base(dir))}
 			}
 			return nil
@@ -203,11 +203,11 @@ func readSkillNames(dir string, recursive, isRoot bool, visited map[string]bool)
 		}
 		if info.IsDir() {
 			if recursive {
-				names = append(names, readSkillNames(folder, true, false, visited)...)
+				names = append(names, readSkillNames(folder, true, false, visited, isEnabled)...)
 			} else if fields, err := commandFrontmatter(filepath.Join(folder, "SKILL.md")); err == nil && (fields.UserInvocable == nil || *fields.UserInvocable) {
 				names = append(names, cmp.Or(fields.Name, entry.Name()))
 			}
-		} else if recursive && isRoot && strings.HasSuffix(entry.Name(), ".md") {
+		} else if recursive && isRoot && strings.HasSuffix(entry.Name(), ".md") && (isEnabled == nil || isEnabled(folder)) {
 			if fields, err := commandFrontmatter(folder); err == nil && strings.TrimSpace(fields.Description) != "" {
 				names = append(names, cmp.Or(fields.Name, filepath.Base(dir)))
 			}
@@ -234,7 +234,19 @@ func commandFrontmatter(path string) (commandFields, error) {
 		if !hasEnd {
 			return fields, errors.New("unterminated command frontmatter")
 		}
-		err = yaml.Unmarshal([]byte(header), &fields)
+		var metadata struct {
+			Name          yaml.Node `yaml:"name"`
+			Description   yaml.Node `yaml:"description"`
+			UserInvocable *bool     `yaml:"user-invocable"`
+		}
+		err = yaml.Unmarshal([]byte(header), &metadata)
+		if metadata.Name.Tag == "!!str" {
+			fields.Name = metadata.Name.Value
+		}
+		if metadata.Description.Tag == "!!str" {
+			fields.Description = metadata.Description.Value
+		}
+		fields.UserInvocable = metadata.UserInvocable
 	}
 	return fields, err
 }
@@ -300,9 +312,10 @@ func piCommands(folder string, root harnessmap.Root, sharedSkills string) []stri
 			names = append(names, promptNames(path)...)
 		}
 		if isSkillEnabled {
+			isEnabled := func(path string) bool { return piResourceEnabled(path, scope.base, scope.settings.Skills, profile) }
 			for _, path := range piResourcePaths(scope.base, "skills", scope.settings.Skills, profile) {
 				if info, err := os.Stat(path); err == nil && info.IsDir() {
-					for _, name := range skillNames(path, true) {
+					for _, name := range readSkillNames(path, true, true, map[string]bool{}, isEnabled) {
 						names = append(names, "skill:"+name)
 					}
 				} else if fields, err := commandFrontmatter(path); err == nil && strings.TrimSpace(fields.Description) != "" {
@@ -312,12 +325,17 @@ func piCommands(folder string, root harnessmap.Root, sharedSkills string) []stri
 		}
 	}
 	if isSkillEnabled {
-		for _, name := range skillNames(sharedSkills, true) {
+		isUserEnabled := func(path string) bool {
+			return piResourceEnabled(path, filepath.Dir(sharedSkills), user.Skills, profile)
+		}
+		for _, name := range readSkillNames(sharedSkills, true, false, map[string]bool{}, isUserEnabled) {
 			names = append(names, "skill:"+name)
 		}
 		if isTrusted {
 			for current := folder; ; current = filepath.Dir(current) {
-				for _, name := range skillNames(filepath.Join(current, ".agents", "skills"), true) {
+				base := filepath.Join(current, ".agents")
+				isProjectEnabled := func(path string) bool { return piResourceEnabled(path, base, project.Skills, profile) }
+				for _, name := range readSkillNames(filepath.Join(base, "skills"), true, false, map[string]bool{}, isProjectEnabled) {
 					names = append(names, "skill:"+name)
 				}
 				if _, err := os.Stat(filepath.Join(current, ".git")); err == nil || filepath.Dir(current) == current {
@@ -383,42 +401,78 @@ func piResourcePaths(base, kind string, configured []string, profile string) []s
 	for _, entry := range entries {
 		paths = append(paths, filepath.Join(base, kind, entry.Name()))
 	}
-	resolve := func(path string) string {
-		if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
-			return filepath.Join(profile, path[2:])
-		}
-		if !filepath.IsAbs(path) {
-			return filepath.Join(base, path)
-		}
-		return filepath.Clean(path)
-	}
 	for _, path := range configured {
 		if path == "" || strings.HasPrefix(path, "!") || strings.HasPrefix(path, "-") {
 			continue
 		}
-		paths = append(paths, resolve(strings.TrimPrefix(path, "+")))
+		paths = append(paths, piResourcePath(base, strings.TrimPrefix(path, "+"), profile))
 	}
-	return slices.DeleteFunc(paths, func(path string) bool {
-		isEnabled := true
-		for _, rule := range configured {
-			if len(rule) < 2 {
-				continue
-			}
+	return slices.DeleteFunc(paths, func(path string) bool { return !piResourceEnabled(path, base, configured, profile) })
+}
+
+func piResourcePath(base, path, profile string) string {
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
+		return filepath.Join(profile, path[2:])
+	}
+	if !filepath.IsAbs(path) {
+		return filepath.Join(base, path)
+	}
+	return filepath.Clean(path)
+}
+
+func piResourceEnabled(path, base string, configured []string, profile string) bool {
+	candidates := []string{path}
+	if filepath.Base(path) == "SKILL.md" {
+		candidates = append(candidates, filepath.Dir(path))
+	}
+	isExcluded, isIncluded, isForcedOut := false, false, false
+	for _, rule := range configured {
+		if len(rule) < 2 {
+			continue
+		}
+		for _, candidate := range candidates {
 			switch rule[0] {
-			case '-', '+':
-				if strings.EqualFold(resolve(rule[1:]), path) {
-					isEnabled = rule[0] == '+'
+			case '+', '-':
+				if strings.EqualFold(piResourcePath(base, rule[1:], profile), candidate) {
+					if rule[0] == '+' {
+						isIncluded = true
+					} else {
+						isForcedOut = true
+					}
 				}
 			case '!':
-				pattern := filepath.ToSlash(resolve(rule[1:]))
-				matched, _ := filepath.Match(pattern, filepath.ToSlash(path))
-				if matched {
-					isEnabled = false
+				relative, err := filepath.Rel(base, candidate)
+				if err != nil {
+					continue
+				}
+				for _, name := range []string{relative, filepath.Base(candidate), candidate} {
+					if piResourceGlob(strings.Split(filepath.ToSlash(rule[1:]), "/"), strings.Split(filepath.ToSlash(name), "/")) {
+						isExcluded = true
+					}
 				}
 			}
 		}
-		return !isEnabled
-	})
+	}
+	return !isForcedOut && (!isExcluded || isIncluded)
+}
+
+func piResourceGlob(pattern, parts []string) bool {
+	if len(pattern) == 0 {
+		return len(parts) == 0
+	}
+	if pattern[0] == "**" {
+		for consumed := 0; consumed <= len(parts); consumed++ {
+			if piResourceGlob(pattern[1:], parts[consumed:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(parts) == 0 {
+		return false
+	}
+	matched, err := filepath.Match(pattern[0], parts[0])
+	return err == nil && matched && piResourceGlob(pattern[1:], parts[1:])
 }
 
 // uniqueSorted sorts commands and keeps the first of each name.

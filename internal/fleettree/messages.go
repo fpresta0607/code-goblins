@@ -521,7 +521,8 @@ func promptSource(text string) (string, string) {
 	// never typed it, and it is never copied as his words. Only this exact
 	// opening is the fleet's, so anything else he types, "cfo" included,
 	// stays his own message.
-	if strings.HasPrefix(text, WakePrefix) || strings.HasPrefix(text, "== SESSION LOCK ==\n") || wakeDigest.MatchString(text) {
+	isAFKDrain := strings.HasPrefix(text, "AFK MODE IS ON: ") && strings.Contains(text, "\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\n") && strings.Contains(text, "\nWAKE QUEUE: ")
+	if strings.HasPrefix(text, WakePrefix) || strings.HasPrefix(text, "== SESSION LOCK ==\n") || wakeDigest.MatchString(text) || isAFKDrain {
 		return FromNotice, text
 	}
 	// A slash command is its tags, the name first, or its message first for
@@ -920,6 +921,17 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 // so a stream that already read the messages can tell the board what the
 // session has spent without parsing the file again.
 func (r *Reader) Usage(path string) *Usage {
+	if isCodexRollout(path) {
+		r.messagesMu.Lock()
+		log := r.codexLogs[path]
+		r.messagesMu.Unlock()
+		if log == nil {
+			return nil
+		}
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		return usageOf(log.usage, log.usage.ContextWindow)
+	}
 	if isPiSession(path) {
 		r.messagesMu.Lock()
 		log := r.piLogs[path]
@@ -955,6 +967,9 @@ func usageOf(held Usage, window int64) *Usage {
 // its messages found it: its media type and its bytes, read back from its
 // entry. It is ErrNoRecord for a picture no read found.
 func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
+	if isCodexRollout(path) {
+		return r.codexMessagePicture(path, id)
+	}
 	if isPiSession(path) {
 		return r.piMessagePicture(path, id)
 	}
