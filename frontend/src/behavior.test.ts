@@ -200,6 +200,18 @@ test("a completed card says and shows what its pull request really did", () => {
   ]);
 });
 
+test("a completed card whose pull request GitHub no longer holds says so, keeping its outcome and link", () => {
+  const [gone] = parseSnapshot({healthy:true, tasks:[
+    {id:"finished:old", phase:"done", verified:false, archived:true, pr:"https://github.com/o/r/pull/1400",
+     history_unavailable:"GitHub no longer holds this pull request, so the outcome stays as the goblin reported it"},
+  ]}).tasks;
+  assert.equal(gone.pr, "https://github.com/o/r/pull/1400");
+  assert.equal(gone.merged, false);
+  assert.equal(gone.closed, false);
+  assert.equal(nodeStatus({id:gone.id, title:gone.id, task:gone, relation:""}), "Finished, evidence unavailable");
+  assert.equal(pullRequestIcon(gone), "pull-request");
+});
+
 test("a live card whose gate saw its pull request merge wears the merge icon", () => {
   const cards = parseSnapshot({healthy:true, tasks:[
     {id:"landing", phase:"merged", verified:false, pr:"https://github.com/o/code-goblins/pull/33"},

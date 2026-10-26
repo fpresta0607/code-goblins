@@ -1361,10 +1361,14 @@ type Task struct {
 	RetiredAt  time.Time `json:"retired_at"`
 	// Archived marks completed history rather than a live task, Merged that
 	// its pull request merged into its base, and Closed that GitHub closed it
-	// without merging.
-	Archived bool `json:"archived"`
-	Merged   bool `json:"merged"`
-	Closed   bool `json:"closed"`
+	// without merging. HistoryUnavailable says GitHub no longer holds a
+	// finished task's pull request, as when a repository was recreated under
+	// the same owner and name: the outcome and its link stay as the goblin
+	// reported them, and this says why what became of it cannot be read.
+	Archived           bool   `json:"archived"`
+	Merged             bool   `json:"merged"`
+	Closed             bool   `json:"closed"`
+	HistoryUnavailable string `json:"history_unavailable,omitempty"`
 	// Since is when a live task's session started, or when queued work's
 	// brief was written; zero when neither is known.
 	Since time.Time `json:"since"`
