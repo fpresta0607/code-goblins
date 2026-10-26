@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/routing"
 )
 
 // The entries below are made up in the shape Claude Code 2.1.308 writes a
@@ -616,5 +618,96 @@ func TestAConversationNoViewAsksForIsLetGo(t *testing.T) {
 				t.Errorf("after %s: picture %v, MessagesSince anew %t, %v; want let go %t", tc.elapsed, pictureErr, isAnew, err, tc.isAnew)
 			}
 		})
+	}
+}
+
+// The wake line the supervisor types into a Codex or pi CFO's terminal is the
+// fleet speaking, never the Overlord: it reads as the session's own notice,
+// with its words kept, and everything else he types stays his own message,
+// a line that begins with "cfo" included (the Overlord, 2026-10-26).
+func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
+	// Arrange
+	wake := WakePrefix + "2 queued wakes (ci cg-a, notify cg-b); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	home := t.TempDir()
+	path := conversation(t, home,
+		prompted("u1", wake),
+		prompted("u2", "cfo, take a look at the failing test"),
+		prompted("u3", "cfo watcher wake-ups are noisy, quiet them down"),
+	)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	want := []Message{
+		prompt(0, "u1", FromNotice, wake),
+		prompt(1, "u2", FromOverlord, "cfo, take a look at the failing test"),
+		prompt(2, "u3", FromOverlord, "cfo watcher wake-ups are noisy, quiet them down"),
+	}
+	if err != nil || !reflect.DeepEqual(page.Messages, want) {
+		t.Fatalf("MessagePage = %+v, %v\nwant %+v", page.Messages, err, want)
+	}
+}
+
+// A pi session reads the same fleet wake line as the session's notice, since
+// the supervisor types it into a pi CFO's terminal too.
+func TestAPiSessionReadsTheFleetsWakeAsANotice(t *testing.T) {
+	// Arrange
+	wake := WakePrefix + "1 queued wake (notify cg-a); run cfo drain, handle what it shows and ack it with the WAKE_ACK_REQUIRED command it prints"
+	home := t.TempDir()
+	path := piSession(t, home,
+		piHeader(),
+		piMessageEntry("u1", "", "user", object{"content": wake}),
+		piMessageEntry("u2", "u1", "user", object{"content": "cfo, what changed?"}),
+	)
+	reader := Reader{Home: home}
+
+	// Act
+	page := readPi(t, &reader, path)
+
+	// Assert
+	want := []Message{
+		prompt(0, "u1", FromNotice, wake),
+		prompt(1, "u2", FromOverlord, "cfo, what changed?"),
+	}
+	if !reflect.DeepEqual(page.Messages, want) {
+		t.Fatalf("messages = %+v, want %+v", page.Messages, want)
+	}
+}
+
+func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
+	for _, test := range []struct {
+		text, source string
+	}{
+		{WakePrefix + "1 queued wake (notify task-1); run cfo drain", FromNotice},
+		{"== SESSION LOCK ==\nSESSION LOCK: held by pid 123 on test\n== WAKE QUEUE ==\nWAKE QUEUE: empty", FromNotice},
+		{"WAKE QUEUE: 1 pending\n  1 notify task-1 done\nWAKE_ACK_REQUIRED: cfo drain --ack-through 1", FromNotice},
+		{routing.SteerPrefix + "Your run npm test ended with exit 0 after 1m35s; read its output and carry on from it.", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 is done: its work is committed on its branch, ready. Merge it into your branch with: cfo helper merge parent", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 asks: Which path? Answer it with: cfo send task-1 \"<answer>\"", FromNotice},
+		{routing.SteerPrefix + "Your helper task-1 failed: test failure. Tell it what to do with: cfo send task-1 \"<what>\", or stop it with: cfo kill task-1 --reason \"<why>\"", FromNotice},
+		{"cfo drain please", FromOverlord},
+		{"cfo watcher wake-ups need fixing", FromOverlord},
+		{"Your run was slow, please check it", FromOverlord},
+		{"WAKE QUEUE: please show it", FromOverlord},
+		{routing.SteerPrefix + "Your run needs a regression test", FromCFO},
+	} {
+		for _, harness := range []string{"claude", "pi"} {
+			t.Run(harness+"/"+test.text, func(t *testing.T) {
+				home := t.TempDir()
+				var path string
+				if harness == "pi" {
+					path = piSession(t, home, piHeader(), piMessageEntry("u1", "", "user", object{"content": test.text}))
+				} else {
+					path = conversation(t, home, prompted("u1", test.text))
+				}
+				reader := Reader{Home: home}
+				page, _, err := reader.MessagePage(path, -1)
+				if err != nil || len(page.Messages) != 1 || page.Messages[0].Source != test.source {
+					t.Fatalf("messages = %+v, %v; want source %s", page.Messages, err, test.source)
+				}
+			})
+		}
 	}
 }
