@@ -1,8 +1,11 @@
 package supervisor
 
 import (
+	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -156,5 +159,81 @@ func TestCodexCFOConversationNeedsNoHookRecordsOrTrust(t *testing.T) {
 	}
 	if len(page.Messages) != 2 || len(page.Messages[1].Blocks) != 2 || page.Messages[1].Blocks[1].Text != "Its gate failed." {
 		t.Fatalf("CFO conversation: %+v", page.Messages)
+	}
+}
+
+func TestCodexUsageStreamsAfterTheLastMessage(t *testing.T) {
+	for _, subject := range []string{"goblin", "CFO"} {
+		t.Run(subject, func(t *testing.T) {
+			// Arrange
+			store, taskHome := testStore(t)
+			profile := t.TempDir()
+			meta := codexGoblin(t, taskHome.State, profile, "codgester", "s1")
+			query := "task=" + meta.ID + "&generation=" + meta.SpawnGen
+			if subject == "CFO" {
+				registerNativeCFO(t, taskHome.State, "codex", "codgester-session")
+				query = "cfo=" + NativeCFOTerminal
+			}
+			handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "", nil)
+			server := httptest.NewUnstartedServer(handler)
+			handler.Host = server.Listener.Addr().String()
+			server.Start()
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?"+query+"&token=board-token&stream=1", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := server.Client().Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "text/event-stream" {
+				t.Fatalf("not streaming: %d %s", response.StatusCode, response.Header.Get("Content-Type"))
+			}
+			scanner := bufio.NewScanner(response.Body)
+			scanner.Buffer(nil, 1<<20)
+			read := func(want string) string {
+				t.Helper()
+				current := ""
+				for scanner.Scan() {
+					if name, isEvent := strings.CutPrefix(scanner.Text(), "event: "); isEvent {
+						current = name
+					}
+					if data, isData := strings.CutPrefix(scanner.Text(), "data: "); isData {
+						if current != want {
+							t.Fatalf("got %s event, want %s", current, want)
+						}
+						return data
+					}
+				}
+				t.Fatalf("no %s event: %v", want, scanner.Err())
+				return ""
+			}
+			read("page")
+			read("usage")
+			path := fleettree.SessionTranscript(profile, "codex", "codgester-session")
+			for _, update := range []struct {
+				records []string
+				want    fleettree.Usage
+			}{
+				{[]string{`{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":20,"output_tokens":10},"last_token_usage":{"input_tokens":30,"cached_input_tokens":20,"output_tokens":5},"model_context_window":1000}}}`}, fleettree.Usage{InputTokens: 50, CacheReadTokens: 20, OutputTokens: 10, ContextTokens: 35, ContextWindow: 1000, Model: "gpt-6-astra"}},
+				{[]string{`{"type":"turn_context","payload":{"model":"gpt-6-luna"}}`, `{"type":"token_usage_record","payload":{"thread_token_usage":{"input_tokens":65,"cached_input_tokens":20,"output_tokens":11},"usage":{"input_tokens":40,"output_tokens":6,"total_tokens":46}}}`}, fleettree.Usage{InputTokens: 65, CacheReadTokens: 20, OutputTokens: 11, ContextTokens: 46, ContextWindow: 1000, Model: "gpt-6-luna"}},
+			} {
+				// Act: only usage records follow the last message.
+				appendEntries(t, path, update.records...)
+
+				// Assert: the same connection emits usage without another page or message.
+				var usage fleettree.Usage
+				if err := json.Unmarshal([]byte(read("usage")), &usage); err != nil {
+					t.Fatal(err)
+				}
+				if usage != update.want {
+					t.Fatalf("usage = %+v, want %+v", usage, update.want)
+				}
+			}
+		})
 	}
 }

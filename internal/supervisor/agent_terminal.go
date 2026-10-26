@@ -306,11 +306,15 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 		return true
 	}
 	var cursor fleettree.MessageCursor
+	var lastUsage *fleettree.Usage
 	// usage tells the board what the session has spent, from what the last read
 	// already found, so the footer's stats keep up with its turns.
 	usage := func() bool {
-		if held := h.Service.Options.Tree.Usage(path); held != nil {
-			return send("usage", held)
+		if held := h.Service.Options.Tree.Usage(path); held != nil && (lastUsage == nil || *held != *lastUsage) {
+			if !send("usage", held) {
+				return false
+			}
+			lastUsage = held
 		}
 		return true
 	}
@@ -371,9 +375,12 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				if !page() {
 					return
 				}
-			case len(messages) > 0:
+			default:
 				cursor = now
-				if !send("messages", messages) || !usage() {
+				if len(messages) > 0 && !send("messages", messages) {
+					return
+				}
+				if !usage() {
 					return
 				}
 			}
