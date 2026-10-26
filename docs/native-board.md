@@ -1406,7 +1406,9 @@ Model opens the actual harness's `/model` picker; Effort opens Codex's `/model`,
 These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command.
 The native picker steps into the conversation's place when the relay reads it; the board does not invent a model catalog or claim that a selected setting changed before the harness records it.
 The terminal icon opens the current session in its own Windows Terminal window through the same action as the former panel-header opener, which is absent while this composer is visible.
-A Classic view that shows only the native terminal keeps its header opener; the existing PC-only restriction remains, and a refused window request says why beside the unchanged draft.
+A Classic view that shows only the native terminal keeps its header opener.
+An authenticated phone can request that window on the board's Windows PC; it does not open a terminal on the phone.
+The existing session and custody guards remain, and a refused window request says why beside the unchanged draft.
 A picture pasted into the box, or a file added to it, goes to `POST /api/composer/file?task=ID&name=NAME`, which keeps it at most 10 MiB in the task's `composer-files` folder, or in the state folder's `composer-files` for the CFO, and answers `{"path":"..."}`; the message names that path, and the session reads the file from there.
 It takes that road rather than the terminal views' clipboard-and-image-key road because this box also writes to a goblin with no terminal up yet, and every harness reads a path.
 A picture the board cannot keep says so in the box rather than disappearing, and Alt+V and Ctrl+V both paste what the clipboard holds there and in a terminal, while Ctrl+C stays the harness's interrupt (the Overlord, 2026-10-26, "alt + v or ctrl + c both should work for paste").

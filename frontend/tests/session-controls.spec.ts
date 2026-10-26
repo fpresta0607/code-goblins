@@ -129,11 +129,11 @@ for (const harness of ["codex", "claude", "pi"]) {
 
 test("a refused terminal window leaves the draft and reports the actual refusal", async ({ page }) => {
   const relay = await open(page);
-  await page.route("**/api/terminal/open", (route) => route.fulfill({ status: 403, json: { error: "Open the terminal on this PC" } }));
+  await page.route("**/api/terminal/open", (route) => route.fulfill({ status: 403, json: { error: "Refresh the board before submitting an action" } }));
   await openGoblin(page);
   await field(page).fill("keep this");
   await box(page).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
-  await expect(box(page)).toContainText("Open the terminal on this PC");
+  await expect(box(page)).toContainText("Refresh the board before submitting an action");
   await expect(field(page)).toHaveValue("keep this");
   expect(typed(relay)).toBe("");
 });
