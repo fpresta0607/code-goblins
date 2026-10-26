@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -40,6 +41,9 @@ type piSessionEntry struct {
 	Timestamp string          `json:"timestamp"`
 	Message   json.RawMessage `json:"message"`
 	Summary   string          `json:"summary"`
+	// Content and Display are an extension's message and whether pi shows it.
+	Content json.RawMessage `json:"content"`
+	Display *bool           `json:"display"`
 }
 
 // piMessage is what a pi "message" entry holds, of whichever role.
@@ -56,6 +60,9 @@ type piMessage struct {
 	Output       string          `json:"output"`
 	ExitCode     *int            `json:"exitCode"`
 	Summary      string          `json:"summary"`
+	// Details is what a tool records of its own work. pi's edit tool puts
+	// the diff it applied there.
+	Details json.RawMessage `json:"details"`
 }
 
 // piBlock is one block of a user's or an assistant's content.
@@ -91,11 +98,14 @@ type piRetained struct {
 	blocks       []Block
 	pictures     []Picture
 
-	// A tool result answers the call answers, with result or a failure.
+	// A tool result answers the call answers, with result or a failure, and
+	// an edit says what it changed.
 	answers        string
 	result         string
 	resultPictures []Picture
+	edit           Edit
 	failed         bool
+	display        bool
 }
 
 // piPictureAt is where a picture is: the offset of its entry's line, and the
@@ -310,6 +320,11 @@ func (l *piMessageLog) show(entry piRetained) {
 	case "branch_summary":
 		l.add(Message{ID: entry.id, Kind: MessageCompaction, At: entry.at, Trigger: "branch", Text: entry.text})
 		return
+	case "custom_message":
+		if entry.display {
+			l.add(Message{ID: entry.id, Kind: MessagePrompt, At: entry.at, Source: FromNotice, Text: entry.text, Pictures: entry.pictures})
+		}
+		return
 	case "message":
 	default:
 		return
@@ -360,6 +375,8 @@ func (l *piMessageLog) applyResult(entry piRetained) {
 	block.State = "done"
 	if entry.failed {
 		block.State = "failed"
+	} else if entry.edit.Diff != nil {
+		block.Edit = entry.edit
 	}
 	l.touch(where.message)
 }
@@ -375,6 +392,14 @@ func (l *piMessageLog) retain(entry piSessionEntry, offset int64) piRetained {
 	switch entry.Type {
 	case "compaction", "branch_summary":
 		kept.text = piTruncate(entry.Summary, messageTextLimit)
+		return kept
+	case "custom_message":
+		// An extension's own message is a prompt in pi's view only when pi
+		// shows it; one a person would not see has no place on the board.
+		kept.display = entry.Display != nil && *entry.Display
+		if kept.display {
+			kept.text, kept.pictures = l.content(entry.ID, offset, entry.Content)
+		}
 		return kept
 	case "message":
 	default:
@@ -405,6 +430,9 @@ func (l *piMessageLog) retain(entry piSessionEntry, offset int64) piRetained {
 	case "toolResult":
 		kept.answers, kept.failed = said.ToolCallID, said.IsError
 		kept.result, kept.resultPictures = l.content(entry.ID, offset, said.Content)
+		if !said.IsError {
+			kept.edit = piEdit(said.Details)
+		}
 	case "bashExecution":
 		kept.text = piTruncate(said.Command, messageTextLimit)
 		kept.output = piTruncate(said.Output, resultLimit)
@@ -470,6 +498,42 @@ func piBlocks(content json.RawMessage) []piBlock {
 		return nil
 	}
 	return blocks
+}
+
+// piDiffLine is one line of the diff pi's edit tool records, drawn as pi draws
+// it: a marker, the line's number in the file, and the line itself.
+var piDiffLine = regexp.MustCompile(`^([+\- ])\s*\d*\s?(.*)$`)
+
+// piEdit is what a pi edit result says it changed, read from the diff pi keeps
+// in its details, which carries file line numbers the board's diff shows by
+// its own rules. A result with no such detail changes nothing this can tell.
+func piEdit(details json.RawMessage) Edit {
+	if len(details) == 0 {
+		return Edit{}
+	}
+	var said struct {
+		Diff string `json:"diff"`
+	}
+	if json.Unmarshal(details, &said) != nil || said.Diff == "" {
+		return Edit{}
+	}
+	var edit Edit
+	for _, line := range strings.Split(strings.TrimSuffix(said.Diff, "\n"), "\n") {
+		match := piDiffLine.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		switch match[1] {
+		case "+":
+			edit.Added++
+		case "-":
+			edit.Removed++
+		}
+		if len(edit.Diff) < diffLinesKept {
+			edit.Diff = append(edit.Diff, bounded(match[1]+match[2], agentLineLimit))
+		}
+	}
+	return edit
 }
 
 // piSubject is what a call was made on, read from the argument the tools of pi
