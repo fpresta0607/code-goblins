@@ -92,13 +92,13 @@ func TestMessagesServeAPiSessionsConversation(t *testing.T) {
 	}
 
 	// Act and Assert: a task of a harness the board does not read is refused.
-	codex := state.TaskMeta{ID: "codgester", Project: t.TempDir(), Worktree: t.TempDir(), Harness: "codex", Mode: "direct-PR", Kind: "ship", Backend: "native", SpawnGen: "s2"}
-	if err := state.WriteTaskMeta(h.State, codex); err != nil {
+	unread := state.TaskMeta{ID: "grokkester", Project: t.TempDir(), Worktree: t.TempDir(), Harness: "opencode", Mode: "direct-PR", Kind: "ship", Backend: "native", SpawnGen: "s2"}
+	if err := state.WriteTaskMeta(h.State, unread); err != nil {
 		t.Fatal(err)
 	}
-	refused := get("task=" + codex.ID + "&generation=" + codex.SpawnGen + "&token=board-token")
-	if refused.Code != 404 || !strings.Contains(refused.Body.String(), "Claude Code and pi") {
-		t.Fatalf("a Codex task answered %d: %s", refused.Code, refused.Body)
+	refused := get("task=" + unread.ID + "&generation=" + unread.SpawnGen + "&token=board-token")
+	if refused.Code != 404 || !strings.Contains(refused.Body.String(), "Claude Code, Codex and pi") {
+		t.Fatalf("an opencode task answered %d: %s", refused.Code, refused.Body)
 	}
 
 	// Act: the stream, as a view that stays open reads it.

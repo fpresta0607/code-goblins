@@ -84,6 +84,7 @@ type Reader struct {
 	messagesMu   sync.Mutex
 	messageLogs  map[string]*messageLog
 	piLogs       map[string]*piMessageLog
+	codexLogs    map[string]*codexMessageLog
 	messageEpoch atomic.Uint64
 }
 
