@@ -12,7 +12,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
-	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 // tempAge is how long nothing in a temporary folder must have been written
@@ -159,20 +158,6 @@ func (cfg Config) isFleetTemp(name string) bool {
 }
 
 func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func() ([]home.LiveTemp, error), record *Record) {
-	folder, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	for _, dir := range cfg.Inventory.Worktrees {
-		info, err := os.Stat(dir.Path)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if (err == nil && os.SameFile(info, folder)) || worktree.Under(dir.Path, folder) {
-			record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "it still holds registered worktree " + dir.Path})
-			return
-		}
-	}
 	for _, line := range processes {
 		if names(line, path) {
 			return
@@ -184,6 +169,15 @@ func (cfg Config) removeTempLeak(path string, processes []string, liveTmp func()
 		return
 	}
 	if cfg.Now.Sub(newest) < tempAge {
+		return
+	}
+	repository, err := findRepository(path)
+	if err != nil {
+		record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "its repositories could not all be read: " + err.Error()})
+		return
+	}
+	if repository != "" {
+		record.Kept = append(record.Kept, Item{Kind: "temp", Path: path, Detail: "it still holds a git worktree or repository at " + repository})
 		return
 	}
 	// A folder that is a running Git Bash's /tmp, or holds it, stays however

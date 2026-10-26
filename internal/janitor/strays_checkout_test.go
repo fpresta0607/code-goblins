@@ -2,6 +2,7 @@ package janitor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,30 +128,37 @@ func TestSweepLeavesACheckoutWorktreeInsideALiveTasksFolders(t *testing.T) {
 }
 
 func TestSweepKeepsAnOldScratchFolderHoldingUncommittedWork(t *testing.T) {
-	f := newSweepFixture(t)
-	scratch := filepath.Join(f.home.Scratch(), "retired")
-	stray := reap.WorktreeDir{Path: filepath.Join(scratch, "scratchpad", "draft"), Project: f.project, Source: reap.SourceCheckout, Registration: reap.RegistrationListed, Created: f.now.Add(-48 * time.Hour)}
-	gitIn(t, f.project, "worktree", "add", "-q", "--detach", stray.Path, "origin/main")
-	draft := filepath.Join(stray.Path, "draft.txt")
-	if err := os.WriteFile(draft, []byte("unfinished"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	makeOld(t, scratch)
-	program, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	config := f.config(reap.Inventory{
-		Worktrees: []reap.WorktreeDir{stray},
-		Processes: []reap.Process{{PID: os.Getpid(), CommandLine: program}},
-	})
+	for _, hasInventory := range []bool{true, false} {
+		t.Run(fmt.Sprintf("inventory=%t", hasInventory), func(t *testing.T) {
+			f := newSweepFixture(t)
+			scratch := filepath.Join(f.home.Scratch(), "retired")
+			stray := reap.WorktreeDir{Path: filepath.Join(scratch, "scratchpad", "draft"), Project: f.project, Source: reap.SourceCheckout, Registration: reap.RegistrationListed, Created: f.now.Add(-48 * time.Hour)}
+			gitIn(t, f.project, "worktree", "add", "-q", "--detach", stray.Path, "origin/main")
+			draft := filepath.Join(stray.Path, "draft.txt")
+			if err := os.WriteFile(draft, []byte("unfinished"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			makeOld(t, scratch)
+			program, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := f.config(reap.Inventory{
+				Worktrees: []reap.WorktreeDir{stray},
+				Processes: []reap.Process{{PID: os.Getpid(), CommandLine: program}},
+			})
+			if !hasInventory {
+				config.Inventory.Worktrees = nil
+			}
 
-	record := Sweep(context.Background(), config)
+			record := Sweep(context.Background(), config)
 
-	if content, err := os.ReadFile(draft); err != nil || string(content) != "unfinished" {
-		t.Fatalf("draft = %q, %v; retained worktree was removed through its scratch folder", content, err)
-	}
-	if item, ok := has(record.Kept, scratch); !ok || !strings.Contains(item.Detail, "worktree") {
-		t.Errorf("kept = %+v, want the scratch folder held for its worktree", record.Kept)
+			if content, err := os.ReadFile(draft); err != nil || string(content) != "unfinished" {
+				t.Fatalf("draft = %q, %v; retained worktree was removed through its scratch folder", content, err)
+			}
+			if item, ok := has(record.Kept, scratch); !ok || !strings.Contains(item.Detail, "worktree") {
+				t.Errorf("kept = %+v, want the scratch folder held for its worktree", record.Kept)
+			}
+		})
 	}
 }
