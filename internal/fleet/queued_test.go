@@ -1,11 +1,15 @@
 package fleet
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -360,5 +364,142 @@ func TestAppendQueuedTaskAddsItsRowAtTheBottomOfTheQueue(t *testing.T) {
 				t.Fatalf("backlog =\n%q\nwant\n%q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAppendQueuedTaskKeepsABodyWholeAcrossAnIndentedHeading(t *testing.T) {
+	for _, test := range []struct {
+		name, heading, indent, newline string
+	}{
+		{"body heading", "Background", "  ", "\n"},
+		{"queued heading", "Queued", "  ", "\n"},
+		{"parked heading", "Parked", "  ", "\n"},
+		{"done heading", "Done", "  ", "\n"},
+		{"tab indentation", "Background", "\t", "\n"},
+		{"windows line endings", "Background", "  ", "\r\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+			longRow := "- [ ] long-task - Long task (repo: widgets) (hold: budget review) (hold-kind: captain) blocked-by: prep - wait for API"
+			detail := "Introduction text.\n\n## " + test.heading + "\nBody text after the heading.\nStill the same body."
+			longBlock := longRow + "\n" + test.indent + strings.ReplaceAll(detail, "\n", "\n"+test.indent) + "\n"
+			prefix := "# Backlog\n\n## Queued\n\n" + longBlock + "\n- [ ] second-task - Second task blocked-by: long-task\n  Second detail.\n"
+			suffix := "\n## Parked\n\n- [ ] parked-task - Parked\n\n## Done\n- [x] old-task - Finished\n"
+			before := strings.ReplaceAll(prefix+suffix, "\n", test.newline)
+			path := filepath.Join(h.Data, "backlog.md")
+			if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			rootRow := "- [ ] root-widgets-7 - Fix it (repo: widgets) (priority: ops-root)"
+			err := AppendQueuedTask(h, "root-widgets-7", rootRow)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := strings.ReplaceAll(prefix+rootRow+"\n"+suffix, "\n", test.newline)
+			if string(got) != want {
+				t.Fatalf("backlog =\n%q\nwant\n%q", got, want)
+			}
+			backlog, err := ReadBacklog(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var queuedIDs []string
+			for _, row := range backlog.Queued {
+				if row.Structured {
+					queuedIDs = append(queuedIDs, row.ID)
+				}
+			}
+			if strings.Join(queuedIDs, ",") != "long-task,second-task,root-widgets-7" {
+				t.Fatalf("queued rows = %v, want the three tasks in file order", queuedIDs)
+			}
+			if len(backlog.Parked) != 1 || backlog.Parked[0].ID != "parked-task" {
+				t.Fatalf("parked rows = %+v, want the parked task only", backlog.Parked)
+			}
+			if len(backlog.Done) != 1 || backlog.Done[0].ID != "old-task" {
+				t.Fatalf("done rows = %+v, want the finished task only", backlog.Done)
+			}
+			long, err := backlog.ReadQueuedTask(h, "long-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if long.Detail != detail || long.Row.Raw != longRow {
+				t.Fatalf("long-task detail = %q, want its whole body", long.Detail)
+			}
+			if long.Row.BlockedBy != "prep" || long.Row.BlockedReason != "wait for API" {
+				t.Fatalf("long-task blockers = %q %q, want them unchanged", long.Row.BlockedBy, long.Row.BlockedReason)
+			}
+			second, err := backlog.ReadQueuedTask(h, "second-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if second.Detail != "Second detail." || second.Row.BlockedBy != "long-task" {
+				t.Fatalf("second-task detail = %q, want its own body", second.Detail)
+			}
+			added, err := backlog.ReadQueuedTask(h, "root-widgets-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if added.Detail != "" || added.Row.Priority != "ops-root" {
+				t.Fatalf("root-widgets-7 = %+v, want its own bare row", added)
+			}
+		})
+	}
+}
+
+func TestAppendQueuedTaskPreservesTasksAXIBodiesAndHolds(t *testing.T) {
+	// Arrange
+	if _, err := exec.LookPath("tasks-axi"); err != nil {
+		t.Skip("tasks-axi is required for the CLI round-trip regression")
+	}
+	h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+	path := filepath.Join(h.Data, "backlog.md")
+	runTasks := func(args ...string) string {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		args = append(args, "--backend", "markdown", "--file", path)
+		result, err := (execx.OSRunner{}).Run(ctx, execx.Request{Name: "tasks-axi", Args: args, Dir: h.Data, KillTree: true})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("tasks-axi %v: %v (exit %d)\n%s\n%s", args, err, result.ExitCode, result.Stdout, result.Stderr)
+		}
+		return string(result.Stdout)
+	}
+	bodyPath := filepath.Join(h.Data, "body.txt")
+	body := "Introduction text.\n\n## Background\nKeep the spending limit.\n\n## Done\nThis is still the same task body."
+	if err := os.WriteFile(bodyPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTasks("add", "prep", "Prepare API", "--body-file", bodyPath)
+	runTasks("add", "long-task", "Long task", "--body-file", bodyPath, "--blocked-by", "prep")
+	runTasks("hold", "long-task", "--reason", "budget review", "--kind", "captain", "--until", "2099-01-01")
+	before := map[string]string{}
+	for _, id := range []string{"prep", "long-task"} {
+		before[id] = runTasks("show", id, "--full")
+	}
+
+	// Act
+	err := AppendQueuedTask(h, "root-widgets-7", "- [ ] root-widgets-7 - Fix it (repo: widgets) (priority: ops-root)")
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"prep", "long-task"} {
+		if got := runTasks("show", id, "--full"); got != before[id] {
+			t.Errorf("%s changed through tasks-axi:\n%s\nwant:\n%s", id, got, before[id])
+		}
+	}
+	added := runTasks("show", "root-widgets-7", "--full")
+	if !strings.Contains(added, "body: \"\"") || strings.Contains(added, "budget review") || strings.Contains(added, "Keep the spending limit.") {
+		t.Fatalf("root task inherited another task's body or hold:\n%s", added)
 	}
 }
