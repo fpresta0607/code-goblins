@@ -516,8 +516,8 @@ test.describe("AFK report layout", () => {
     });
   });
 
-  test("the report opens the current decision in History's change card", async ({ page }) => {
-    const decided = { ...question("afk-left-20261015T050000.000000000Z", "Delete the idle cache database?"), status: "succeeded", options: ["Delete in a week", "Delete now", "Keep it longer"], answer: "Keep it longer", answered_option: "Keep it longer", answer_kind: "option", answered_by: "overlord" };
+  test("the report and History open the current decision in its own change card", async ({ page }) => {
+    const decided = { ...question("afk-left-20261015T050000.000000000Z", "Delete the idle cache database?"), status: "succeeded", options: ["Delete in a week", "Delete now", "Keep it longer"], answer: "Keep it longer", answered_option: "Keep it longer", answer_kind: "option" };
     await open(page, snapshot({ afk: KEPT, questions: [decided] }));
     await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
     const report = page.getByRole("dialog", { name: "Your AFK report" });
@@ -531,7 +531,18 @@ test.describe("AFK report layout", () => {
     await expect(change.getByRole("radio", { name: "Keep it longer" })).toBeChecked();
     await expect(change.getByRole("button", { name: "Change answer" })).toBeDisabled();
     await change.getByRole("radio", { name: "Delete now", exact: true }).check();
-    await expect(change.getByRole("button", { name: "Change answer" })).toBeEnabled();
+    const sent = page.waitForRequest((request) => request.url().endsWith("/api/actions") && request.method() === "POST");
+    await change.getByRole("button", { name: "Change answer" }).click();
+    expect(JSON.parse((await sent).postData() || "{}").kind).toBe("answer_change");
+
+    await page.keyboard.press("Escape");
+    await page.locator("details.command-center-menu > summary").click();
+    await page.locator("details.command-center-menu details").filter({ hasText: "History" }).locator("summary").click();
+    await page.getByRole("button", { name: /Change the answer to/ }).first().click();
+    const fromHistory = page.locator("dialog.question-modal .change-card");
+    await expect(fromHistory).toContainText(decided.text);
+    await expect(fromHistory.getByRole("radio", { name: "Keep it longer" })).toBeChecked();
+    await expect(fromHistory.getByRole("radio", { name: "Delete now", exact: true })).toBeVisible();
   });
 
   test("a report that cannot load can be retried and Escape inside it returns focus", async ({ page }) => {
