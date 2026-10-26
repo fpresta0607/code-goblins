@@ -194,6 +194,21 @@ test("a Codex session's panel shows Modern messages with its reachable composer"
 });
 
 test.describe("dictation into the box", () => {
+  test("holding the visible microphone adds dictated words without sending", async ({ page }) => {
+    const relay = await open(page);
+    await openGoblin(page);
+    await field(page).fill("please");
+
+    await box(page).getByRole("button", { name: "Hold to dictate", exact: true }).hover();
+    await page.mouse.down();
+    await expect(box(page).getByRole("button", { name: "Listening", exact: true })).toHaveClass(/recording/);
+    await page.waitForTimeout(1200);
+    await page.mouse.up();
+
+    await expect(field(page)).toHaveValue("please rebase onto main");
+    expect(typed(relay)).toBe("");
+  });
+
   test("holding Ctrl+Shift+Space in the box dictates into it, and sends nothing by itself", async ({ page }) => {
     const relay = await open(page);
     await openGoblin(page);
@@ -443,9 +458,16 @@ test("a leading ! command is typed into the session as the harness's own shell c
 test("a delivered message appears once in Modern chat and the queue count includes every pending message", async ({ page }) => {
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
   await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
-    messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" }], more: false,
+    messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" },
+      { id: "long", seq: 1, kind: "reply", blocks: [{ kind: "text", text: "Earlier conversation paragraph.\n\n".repeat(80) }] }], more: false,
   });
   await openGoblin(page);
   await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "8 queued messages", exact: true })).toBeVisible();
+  const queue = page.getByRole("button", { name: "8 queued messages", exact: true });
+  await expect(queue).toBeVisible();
+  await page.getByRole("log", { name: "Messages of " + NAME }).evaluate((list) => { list.scrollTop = 0; });
+  const firstQueued = page.locator('.queued-message[data-queued="q0"]');
+  await expect(firstQueued).not.toBeInViewport();
+  await queue.click();
+  await expect(firstQueued).toBeInViewport();
 });

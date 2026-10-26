@@ -246,10 +246,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   // A message the board still holds is in the conversation as its own entry;
   // the box keeps a quiet count of them and no second copy of their words.
   const queued = sent.filter(isPendingMessage);
-  // Modern shows a pending message in the conversation and keeps only a
-  // count here. Classic has no conversation on screen, so its queue list
-  // keeps the message and its actions, as it always has.
-  const queueRows = (style === "classic" && !hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
+  // Without a conversation, even a Modern panel needs the queue here.
+  const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
   const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
   const canSend = !isSending && !adding && !!draft.trim() && (!isAsking || !!held) && (savesThroughBoard || !isUnread);
@@ -295,7 +293,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
             <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}>Modern</button>
             <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}>Classic</button>
           </div>}
-          {(style !== "classic" || hasConversation) && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
+          {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
         </div>
         <div className="composer-controls">
           <button ref={recent} type="button" className="composer-control" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>

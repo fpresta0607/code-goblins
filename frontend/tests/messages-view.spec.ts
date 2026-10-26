@@ -192,7 +192,7 @@ const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => n
   element.scrollTop = top;
 }), top);
 
-test("a Claude Code session's panel is one view with its messages, and a Codex goblin's shows its terminal", async ({ page }) => {
+test("Claude Code and Codex panels show their messages in the same Modern view", async ({ page }) => {
   await open(page);
 
   await openCfo(page);
@@ -203,7 +203,8 @@ test("a Claude Code session's panel is one view with its messages, and a Codex g
   await page.locator(".task-board .task-card-shell").filter({ hasText: "A Codex task" }).locator(".task-card").click();
 
   await expect(pill(page)).toHaveCount(0);
-  await expect(page.locator(".messages-view")).toHaveCount(0);
+  await expect(page.locator(".messages-view")).toBeVisible();
+  await expect(page.locator(".messages-view .composer textarea")).toBeInViewport();
 });
 
 test("the Messages view draws the conversation as the session recorded it, under the terminal's compact header", async ({ page }) => {

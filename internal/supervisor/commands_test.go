@@ -36,6 +36,12 @@ func commandBoard(t *testing.T, harness string) (*HTTP, string, string) {
 	if err := os.MkdirAll(worktree, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	writeCommandFixture(t, filepath.Join(worktree, ".git"), "")
+	// Pi persists resolved paths, including Windows temporary-folder aliases.
+	worktree, err := filepath.EvalSymlinks(worktree)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := state.WriteTaskMeta(store.Home.State, state.TaskMeta{ID: "task-1", Project: worktree, Worktree: worktree, Harness: harness, SpawnGen: "g1"}); err != nil {
 		t.Fatal(err)
 	}

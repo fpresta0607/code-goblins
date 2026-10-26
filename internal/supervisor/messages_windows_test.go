@@ -53,29 +53,37 @@ func atPhase(t *testing.T, stateDir string, meta state.TaskMeta, action, phase s
 }
 
 func TestAMessageToAWorkingGoblinIsTypedIntoItsTerminalOnce(t *testing.T) {
-	// Arrange
-	store, h := testStore(t)
-	meta := makeNative(t, h.State, "task-1")
-	// A task of a gated mode reads its branch before typing, so its worktree
-	// has to be a repository, and a gate with no run of the branch holds none.
-	gitWorktree(t, meta.Worktree)
-	goblin := goblinTerminal(t, h.State, meta.ID)
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
-	messageTo(t, store, meta, "message-1", "use the staging database")
+	for _, harness := range []string{"claude", "codex", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			meta.Harness = harness
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			// A task of a gated mode reads its branch before typing, so its worktree
+			// has to be a repository, and a gate with no run of the branch holds none.
+			gitWorktree(t, meta.Worktree)
+			goblin := goblinTerminal(t, h.State, meta.ID)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			messageTo(t, store, meta, "message-1", "use the staging database")
 
-	// Act
-	err := store.ProcessOne(context.Background(), service.execute)
-	typed := goblin.waitForLines(t, 1)
+			// Act
+			err := store.ProcessOne(context.Background(), service.execute)
+			typed := goblin.waitForLines(t, 1)
 
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(typed) != 1 || !strings.Contains(typed[0], "use the staging database") {
-		t.Fatalf("the goblin received %q, want the message once", typed)
-	}
-	if action := actionOf(store, "message-1"); action.Status != "succeeded" && action.Awaiting == nil {
-		t.Fatalf("message = %+v, want it delivered", action)
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(typed) != 1 || !strings.Contains(typed[0], "use the staging database") {
+				t.Fatalf("the goblin received %q, want the message once", typed)
+			}
+			if action := actionOf(store, "message-1"); action.Status != "succeeded" && action.Awaiting == nil {
+				t.Fatalf("message = %+v, want it delivered", action)
+			}
+		})
 	}
 }
 

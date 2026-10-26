@@ -33,6 +33,7 @@ async function open(page: Page, available: number, answer: (route: Route) => Pro
     } else if (path === "/api/events") await route.fulfill({ contentType: "text/event-stream", body: events(available) });
     // A started goblin's panel reads where its work lives.
     else if (path === "/api/workspace") await route.fulfill({ json: { repository: "code-goblins", root: "C:/work/code-goblins", harness: "codex", notes: [] } });
+    else if (path === "/api/commands") await route.fulfill({ json: { commands: [] } });
     else await route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");

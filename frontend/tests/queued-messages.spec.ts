@@ -59,6 +59,11 @@ test("Edit changes the words that will be sent, in place", async ({ page }) => {
   // Act
   await entry(page).getByRole("button", { name: "Edit" }).click();
   const editor = entry(page).getByRole("textbox", { name: /^Edit message: / });
+  await editor.fill("discard this edit");
+  await entry(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(entry(page)).toContainText("hold the merge until the gate lets go");
+  expect(posts).toEqual([]);
+  await entry(page).getByRole("button", { name: "Edit", exact: true }).click();
   await editor.fill("hold the merge for one more check");
   await entry(page).getByRole("button", { name: "Save" }).click();
 
