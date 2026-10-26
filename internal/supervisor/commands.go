@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -224,7 +225,7 @@ type commandFields struct {
 
 func commandFrontmatter(path string) (commandFields, error) {
 	var fields commandFields
-	data, err := os.ReadFile(path)
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return fields, err
 	}
@@ -356,7 +357,7 @@ type piCommandSettings struct {
 
 func readPiCommandSettings(dir string) (piCommandSettings, error) {
 	var settings piCommandSettings
-	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	data, err := fsx.ReadFile(filepath.Join(dir, "settings.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return settings, nil
 	}
@@ -369,7 +370,7 @@ func readPiCommandSettings(dir string) (piCommandSettings, error) {
 // Only persisted trust is knowable outside pi. A session-only choice is not
 // inferred and no project trust file is changed by discovery.
 func piCommandProjectTrusted(folder, agentDir, policy string) bool {
-	data, err := os.ReadFile(filepath.Join(agentDir, "trust.json"))
+	data, err := fsx.ReadFile(filepath.Join(agentDir, "trust.json"))
 	trust := map[string]*bool{}
 	if err == nil {
 		if json.Unmarshal(data, &trust) != nil {
