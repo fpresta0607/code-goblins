@@ -1286,10 +1286,11 @@ Environment values, full process environments, dotenv, auth scripts, MCP command
 
 ### A session read as messages
 
-The supervisor reads a Claude Code session as one list of messages, the first part of the message view the Overlord chose for the panel on 2026-10-22, which the board's [Messages view](#the-messages-view) shows.
+The supervisor reads a Claude Code, Codex or pi session as one list of messages, which the board's [Messages view](#the-messages-view) shows.
 `GET /api/messages?task=ID&generation=GEN&token=TOKEN` reads a task's goblin of that generation, from the conversation the board recorded for the generation, or else the one the board's read of the goblin's tree proved its running harness in and kept, as `fleettree.OwnedSession` reads them, and `?cfo=TERMINAL&token=TOKEN` reads the CFO registered in that native terminal, from the conversation it registered with.
 Finding it reads no process and parses no store file, so a goblin's conversation shows once a read of its tree, every fifteen seconds, has kept it.
-It reads Claude Code sessions alone: a Codex or pi session is refused with 404 and keeps its terminal in its panel.
+It reads the harness's conversation records without requiring hook events or changing hook trust.
+Codex contributes recorded replies, public reasoning summaries, tool output, diffs, embedded pictures and usage; encrypted reasoning and arbitrary image paths are not read.
 The board's token comes in the query, as a terminal view's does, since a browser's event stream cannot send a header, and a request without it is refused with 403.
 An unknown task is refused with 404, a task that restarted or was replaced since the board named its generation with 409, and the CFO in another terminal than the one named with 409.
 Like a terminal view, and unlike a baby goblin's terminal, it is served over Remote access too, since it shows what the session's terminal already shows.
@@ -1301,7 +1302,10 @@ A later `page` event replaces everything a view holds: the session moved to anot
 The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names.
-`GET /api/commands?task=ID&token=TOKEN` answers `{"commands":[...]}`, the slash commands and skills the task's harness publishes under its worktree's `.claude` and the user's `.claude`; `cfo=1` reads the user's alone, and a harness that publishes none answers none. The composer's command list is drawn from it and never guessed.
+`GET /api/commands?task=ID&generation=GEN&token=TOKEN` answers `{"commands":[...]}` for the task's current harness and worktree; `cfo=TERMINAL` reads the CFO's harness and home.
+Claude Code contributes command files and user-invocable skills; pi contributes the prompt templates and skills its settings and persisted project trust permit.
+Codex publishes no built-in slash list through these records, so its list is empty and its terminal supplies native completion.
+The composer renews command discovery when a task's generation or the CFO's terminal start time changes.
 
 Each message has an `id` that stays the same for its life, its `seq`, its place in the session counted from 0, its `kind` and when it began.
 A `prompt` carries its `text` and its `source`.
@@ -1320,16 +1324,20 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Every session's working state is one indicator, drawn in the board's own CSS in the harness's colour: the dither the Overlord chose on 2026-10-26, sixteen cells lighting in Bayer order, settled after a one-time 1.2 s cross-fade and ease from the helix, so the two shapes morph into each other once rather than cutting.
+Every session's working state uses the same indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
 The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
-It carries an accessible name, and under reduced motion the morph is gone and the dither keeps a calm opacity pulse.
-It is the same indicator everywhere the board draws a session working: the conversation's bottom line, the message box's working line, a panel header's status dot, a goblin's card, a baby goblin's state chip and its count, a node on the orchestration canvas, and a running tool call's mark. The CFO's own panel shows it while it works, as a goblin's does.
+It carries an accessible name, and reduced motion keeps a static helix.
+The indicator appears on working cards, tree nodes and headers, but a Modern conversation draws it once in the footer and omits the header animation.
+Running tool calls keep a static state mark.
+The CFO's own panel shows the footer indicator while it works, as a goblin's does.
 
 ### The Messages view
 
-A Claude Code or pi session's panel shows its messages, design A of the Overlord's choice on 2026-10-22, in the one view he asked for on 2026-10-23: "Can't we just have one, instead of the messages and terminal being split up?"
-The CFO has it while it runs Claude Code or pi in a native terminal, and a goblin while it runs Claude Code or pi in a native terminal, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
-A Codex session, a session in Herdr and a stopped or retired goblin show their terminal in that view, and a baby goblin its terminal alone, and a CFO starting in its terminal, before it registers, shows that terminal, which may ask for a sign-in.
+A Claude Code, Codex or pi session's panel offers Modern messages and the Classic native terminal in the same conversation area.
+The CFO and goblins have Modern while their harness runs in a native terminal, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
+A session in Herdr and a stopped or retired goblin keep their existing terminal or ended-session view, and a baby goblin its terminal alone.
+A CFO starting before its harness registers shows its terminal, which may ask for a sign-in.
+An open panel follows the task's current root generation or the CFO's terminal start time without a reload, preserving the draft and durable queue.
 The messages fill the panel, so they fill the window while it is maximized.
 A switch by Ctrl+Alt with a digit or an arrow, the first open and the end of the tour hand the keyboard to the message box, or to the terminal where the session has no messages or its terminal stepped in.
 The view shows the session's conversation as `GET /api/messages` serves it ([A session read as messages](#a-session-read-as-messages)), read only.
@@ -1342,21 +1350,27 @@ Beside one Claude Code took while it worked is Queued, under it are its pictures
 A reply sits on the left.
 Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its code blocks as written and its headings in bold, its thinking as readable quieter text with no chevron and no collapsed state, and each call as one row.
 A call's row has the mark of its outcome, its tool and what it was called on, and at its end Running, Failed, Denied or Interrupted while it is not done, or an edit's added and removed lines.
-A running call's mark is the working indicator ([The working indicator](#the-working-indicator)), so a tool doing its work looks like the session doing its own.
+A running call has a quiet static mark so the conversation's footer remains its one animation.
 Its tool and what it was called on wrap in place rather than being cut with an ellipsis, so a long command never re-truncates as the panel resizes.
 What came back, an edit's diff and its pictures fold under the row.
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
 A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly; a selection he clears copies nothing.
-A reply with text, a notice and a compaction keep Copy too, and every message's text can be selected.
+A reply with text keeps Copy and its timestamp below the reply; a notice and a compaction keep Copy too, and every message's text can be selected.
+Exact fleet wake markers, session-lock and wake-queue digests, and stamped background-run and helper notices draw as service lines.
+A genuine message that merely begins with `cfo`, such as `cfo drain please`, remains the user's message.
 The list scrolls as a page does, with the wheel, the page keys, and Shift with Page Up and Page Down as in a terminal.
 At its end it follows what arrives, and while he reads further up nothing moves it: a message that grows above, one that arrives below and an older page read in above all leave the message he reads where it was.
 Jump to latest, at the list's foot while he reads up, returns to the end.
+Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.
+A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
+While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference.
 At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
 The indicator has no icon of its own and takes the harness's colour.
 When the session is not working the line keeps the time facts and says why when the session's usage cannot be read at all; the fuller usage stays in the banner.
-Above the message box a banner carries the session's usage: a measured Claude Code or Codex subscription's weekly share and reset, or a pi session's OpenRouter key spend, with one action that opens the full stats in place.
+Above the message box an unboxed usage line opens the full stats in place: recorded session usage, available account quota and shared API-key spend, each labeled for its actual scope.
+Shared key spend is never presented as session cost, and available session usage stays readable when quota is unavailable.
 A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.
 A session whose usage cannot be read draws no banner, and the line above says why.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
@@ -1376,13 +1390,16 @@ What the board could not parse goes to the CFO.
 Under the conversation is the session's message box, in place of its terminal's input, which shows only stepped in.
 The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
-While the harness works a working line says so with Stop, which presses Escape in its terminal.
-What keeps a message from the terminal is said beside the box, and his draft stays: Program busy while typed keys wait unread, Not sent while the terminal connects, reconnects or is closed, which is never sent late, and the reason a gate holds typing.
+While the harness works the footer says so with Stop, which presses Escape in its terminal.
+Busy or gate-held sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
+An unqueued draft stays in the box while its terminal connects, reconnects or is closed.
 While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Recent messages beside the microphone lists the board's recent dictations, each with Copy and Paste into the message.
-The prompt sits over one row of small pills, as the Overlord asked on 2026-10-26: Add files widens on hover to its label and keeps each file he chooses where the session reads it; Style opens the board's own Modern and Classic choice in place; the microphone widens to its word while it records; and the round Send lights up when there is something to send.
+The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
+Plain style, recent-message, terminal and send controls sit underneath without pills.
+Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.
 The model-and-effort controls of the reference he sent are left out: the panel's engine selector already sets a task's harness, model and effort, and a running session's model cannot be changed by typing a message, so drawing them here would duplicate and contradict it.
 A picture pasted into the box, or a file added to it, goes to `POST /api/composer/file?task=ID&name=NAME`, which keeps it at most 10 MiB in the task's `composer-files` folder, or in the state folder's `composer-files` for the CFO, and answers `{"path":"..."}`; the message names that path, and the session reads the file from there.
 It takes that road rather than the terminal views' clipboard-and-image-key road because this box also writes to a goblin with no terminal up yet, and every harness reads a path.
