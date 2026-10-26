@@ -45,7 +45,7 @@ type Check struct {
 // command started the server, so a goblin's worktree could not be removed
 // while the server ran (#950).
 // install.ps1 installs the same file, once it matches the SHA256 pinned there.
-const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.17/lavish-axi-0.1.79-codegoblins.17.tgz"
+const LavishRelease = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.19/lavish-axi-0.1.79-codegoblins.19.tgz"
 
 var tools = []struct {
 	name  string
@@ -67,7 +67,7 @@ var tools = []struct {
 	{name: "no-mistakes", hint: "rerun the Code Goblins install: irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install.ps1 | iex"},
 	{name: "gh-axi", hint: "npm install -g gh-axi"},
 	{name: "chrome-devtools-axi", hint: "npm install -g chrome-devtools-axi"},
-	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.17", build: "codegoblins", presentation: true},
+	{name: "lavish-axi", hint: "npm install -g " + LavishRelease, floor: "0.1.79-codegoblins.19", build: "codegoblins", presentation: true},
 	{name: "winget", hint: "App Installer from the Microsoft Store, https://apps.microsoft.com/detail/9NBLGGH4NNS1", installer: true},
 }
 
