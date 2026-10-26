@@ -178,6 +178,13 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// rg includes downloading them (InteractiveMode.init); until then
 			// it answers Enter with this status (handleStartupSubmit).
 			Starting: regexp.MustCompile(`Startup is still in progress`),
+			// pi's editor collapses a burst of more than ten lines or a
+			// thousand characters into one marker in its composer, as
+			// "[paste #1 +12 lines]" or "[paste #1 1200 chars]", and holds the
+			// text itself. A steer or a wake line long enough to collapse
+			// therefore shows, in the composer, no text the fleet could
+			// otherwise find there.
+			Pasted: []string{"[paste #"},
 			// The editor draws a full-width rule above and below its rows
 			// and nothing at their sides (pi-tui's Editor.render).
 			RuledComposer: true,
