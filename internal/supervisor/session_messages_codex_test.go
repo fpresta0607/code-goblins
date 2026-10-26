@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -79,5 +80,60 @@ func TestMessagesServeACodexSessionsConversation(t *testing.T) {
 	blocks := page.Messages[1].Blocks
 	if page.Messages[1].Model != "gpt-6-astra" || len(blocks) != 2 || blocks[0].State != "done" || blocks[0].Result != "Script completed" || blocks[1].Text != "Its gate failed." {
 		t.Fatalf("the reply reads as %+v", page.Messages[1])
+	}
+}
+
+func TestCodexMessageEndpointServesRecordedPicturesAndUsage(t *testing.T) {
+	store, taskHome := testStore(t)
+	profile := t.TempDir()
+	meta := codexGoblin(t, taskHome.State, profile, "codgester", "s1")
+	path := fleettree.SessionTranscript(profile, "codex", "codgester-session")
+	data := []byte("recorded image bytes")
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.WriteString(`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"picture","content":[{"type":"image","url":"data:image/png;base64,` + base64.StdEncoding.EncodeToString(data) + `"}]}}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":20,"output_tokens":10},"last_token_usage":{"input_tokens":30,"cached_input_tokens":20,"output_tokens":5},"model_context_window":1000}}}` + "\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("append: %v %v", writeErr, closeErr)
+	}
+	handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "127.0.0.1:50000", nil)
+	get := func(query string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest("GET", "http://"+handler.Host+"/api/messages?"+query, nil)
+		request.RemoteAddr = "127.0.0.1:50001"
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	query := "task=" + meta.ID + "&generation=s1&token=board-token"
+	response := get(query)
+	var page fleettree.MessagePage
+	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &page) != nil {
+		t.Fatalf("page: %d %s", response.Code, response.Body)
+	}
+	if page.Usage == nil || page.Usage.InputTokens != 50 || page.Usage.ContextTokens != 35 || page.Usage.ContextWindow != 1000 {
+		t.Fatalf("usage: %+v", page.Usage)
+	}
+	if len(page.Messages) != 3 || len(page.Messages[2].Pictures) != 1 {
+		t.Fatalf("pictures: %+v", page.Messages)
+	}
+	picture := page.Messages[2].Pictures[0]
+	response = get(query + "&picture=" + picture.ID)
+	if response.Code != 200 || response.Header().Get("Content-Type") != "image/png" || response.Body.String() != string(data) {
+		t.Fatalf("picture: %d %s", response.Code, response.Body)
+	}
+	for _, test := range []struct {
+		query  string
+		status int
+	}{
+		{query + "&picture=unknown", 404},
+		{strings.Replace(query, "generation=s1", "generation=old", 1) + "&picture=" + picture.ID, 409},
+		{strings.Replace(query, "board-token", "other", 1) + "&picture=" + picture.ID, 403},
+	} {
+		if response := get(test.query); response.Code != test.status {
+			t.Fatalf("refusal: %d %s, want %d", response.Code, response.Body, test.status)
+		}
 	}
 }

@@ -117,8 +117,10 @@ const (
 	// FromPage is one he gave on a session's Scrawl page.
 	FromAnswer = "answer"
 	FromPage   = "page"
-	// FromNotice is Claude Code's notice that a background task or
-	// sub-agent ended or a monitor reported.
+	// FromNotice is the fleet's own word to a session rather than the
+	// Overlord's: Claude Code's notice that a background task or sub-agent
+	// ended or a monitor reported, and the wake line the supervisor types
+	// into a Codex or pi CFO's terminal.
 	FromNotice = "notice"
 	FromSlash  = "slash"
 	FromShell  = "shell"
@@ -481,6 +483,11 @@ var (
 	// from the Command Center (internal/supervisor/questions.go and the
 	// items beside it), to a goblin after the CFO's stamp.
 	boardAnswer = regexp.MustCompile(`^(?:The Overlord answered |The Overlord changed the answer |User answer to CFO question |\d+ user answers to CFO questions)`)
+	// These are the complete shapes emitted by gate_run_end.go and notify.go,
+	// after fleet.Stamp, rather than arbitrary sentences beginning with CFO.
+	runEndedNotice = regexp.MustCompile(`^Your run .+ ended with exit -?\d+ after [^;]+; read its output and carry on from it\.$`)
+	helperNotice   = regexp.MustCompile(`(?s)^Your helper [A-Za-z0-9_-]+ (?:is done: its work is committed on its branch, .+\. Merge it into your branch with: cfo helper merge [A-Za-z0-9_-]+|asks: .+ Answer it with: cfo send [A-Za-z0-9_-]+ "<answer>"|failed: .+\. Tell it what to do with: cfo send [A-Za-z0-9_-]+ "<what>", or stop it with: cfo kill [A-Za-z0-9_-]+ --reason "<why>")$`)
+	wakeDigest     = regexp.MustCompile(`^WAKE QUEUE: (?:\d+ pending\n|empty$)`)
 )
 
 // cfoBrief ends the line a goblin starts on, which names its brief
@@ -497,12 +504,26 @@ func (l *messageLog) prompt(message Message, text string) {
 	}
 }
 
+// WakePrefix begins the wake line the supervisor types into a Codex or pi
+// CFO's native terminal (internal/supervisor/cfo_wake.go's wakeLine builds its
+// line from here), so the board reads that line as the fleet's own and the two
+// can never drift apart.
+const WakePrefix = "cfo watcher wake: "
+
 // promptSource is where a prompt of text came from and the words it shows:
-// a task notice's summary, a command as it was typed, and the CFO's words
-// without the stamp the CFO's lines carry.
+// a task notice's summary, the fleet's own typed wake line, a command as it
+// was typed, and the CFO's words without the stamp the CFO's lines carry.
 func promptSource(text string) (string, string) {
 	if strings.HasPrefix(text, "<task-notification>") {
 		return FromNotice, notice(text)
+	}
+	// The supervisor's wake line is the fleet speaking, not the Overlord: he
+	// never typed it, and it is never copied as his words. Only this exact
+	// opening is the fleet's, so anything else he types, "cfo" included,
+	// stays his own message.
+	isAFKDrain := strings.HasPrefix(text, "AFK MODE IS ON: ") && strings.Contains(text, "\nIt is complete autopilot: no Command Center prompt opens for him while it is on, and nothing is asked of him or held for him.\n") && strings.Contains(text, "\nWAKE QUEUE: ")
+	if strings.HasPrefix(text, WakePrefix) || strings.HasPrefix(text, "== SESSION LOCK ==\n") || wakeDigest.MatchString(text) || isAFKDrain {
+		return FromNotice, text
 	}
 	// A slash command is its tags, the name first, or its message first for
 	// a command that hands its model a prompt.
@@ -518,6 +539,9 @@ func promptSource(text string) (string, string) {
 	}
 	words, isStamped := strings.CutPrefix(text, routing.SteerPrefix)
 	if isStamped {
+		if runEndedNotice.MatchString(words) || helperNotice.MatchString(words) {
+			return FromNotice, words
+		}
 		lower := strings.ToLower(words)
 		if strings.Contains(lower, "answered on your review page") || strings.Contains(lower, "answered on the page") || strings.Contains(lower, "answered on its page") {
 			return FromPage, words
@@ -897,6 +921,17 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 // so a stream that already read the messages can tell the board what the
 // session has spent without parsing the file again.
 func (r *Reader) Usage(path string) *Usage {
+	if isCodexRollout(path) {
+		r.messagesMu.Lock()
+		log := r.codexLogs[path]
+		r.messagesMu.Unlock()
+		if log == nil {
+			return nil
+		}
+		log.mu.Lock()
+		defer log.mu.Unlock()
+		return usageOf(log.usage, log.usage.ContextWindow)
+	}
 	if isPiSession(path) {
 		r.messagesMu.Lock()
 		log := r.piLogs[path]
@@ -932,6 +967,9 @@ func usageOf(held Usage, window int64) *Usage {
 // its messages found it: its media type and its bytes, read back from its
 // entry. It is ErrNoRecord for a picture no read found.
 func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
+	if isCodexRollout(path) {
+		return r.codexMessagePicture(path, id)
+	}
 	if isPiSession(path) {
 		return r.piMessagePicture(path, id)
 	}
