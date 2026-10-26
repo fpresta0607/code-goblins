@@ -16,7 +16,7 @@ import (
 )
 
 // lavishFile is the release file of the lavish-axi fork the install installs.
-const lavishFile = "lavish-axi-0.1.79-codegoblins.17.tgz"
+const lavishFile = "lavish-axi-0.1.79-codegoblins.19.tgz"
 
 // lavishPin finds the SHA256 the install script pins for that file.
 var lavishPin = regexp.MustCompile(`Sha256 = "([0-9A-Fa-f]{64})"`)
@@ -113,6 +113,9 @@ func TestOneLineInstallHandsNpmTheLavishDownloadThatMatchesItsPin(t *testing.T) 
 	}
 	if pins := len(lavishPin.FindAll(source, -1)); pins != 1 {
 		t.Fatalf("install.ps1 pins %d SHA256 values for a release file, want the one for lavish-axi", pins)
+	}
+	if pin := string(lavishPin.FindSubmatch(source)[1]); !strings.EqualFold(pin, "afeada08e260f0ef38792d28b65b8a5d79b200c9c89f9bcd916837345679e714") {
+		t.Fatalf("install.ps1 SHA256 = %s, want the reviewed mobile recording release's digest", pin)
 	}
 	content := []byte("a stand-in for the pinned release file")
 	script := filepath.Join(t.TempDir(), "install.ps1")
