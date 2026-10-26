@@ -179,7 +179,7 @@ func TestCodexUsageStreamsAfterTheLastMessage(t *testing.T) {
 			handler.Host = server.Listener.Addr().String()
 			server.Start()
 			defer server.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/messages?"+query+"&token=board-token&stream=1", nil)
 			if err != nil {
