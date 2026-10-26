@@ -34,6 +34,8 @@ type switchGit struct {
 func (g *switchGit) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
 	if req.Name == "git" {
 		switch {
+		case slices.Equal(req.Args, []string{"worktree", "list", "--porcelain"}):
+			return execx.Result{Stdout: []byte("worktree " + req.Dir + "\n")}, nil
 		case len(req.Args) > 0 && req.Args[0] == "status":
 			return execx.Result{Stdout: []byte(g.status)}, nil
 		case len(req.Args) > 1 && req.Args[0] == "rev-parse" && req.Args[1] == "--abbrev-ref":
