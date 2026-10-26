@@ -223,3 +223,89 @@ func TestAPiGoblinsLastReplyIsReadFromItsSession(t *testing.T) {
 		})
 	}
 }
+
+// A pi session records the boundaries of its own turn as it runs, as a Codex
+// rollout does: the prompt, the assistant message that stopped on a call and
+// the tool result after it leave the turn open, and an assistant message that
+// stopped, failed, was cut off at the output cap or was aborted ends it. A
+// record that says nothing of a turn, such as a model change, proves nothing
+// either way.
+func TestPiTurnStateReadsTheSessionsOwnTurnBoundaries(t *testing.T) {
+	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CFO: carry on"}}
+	toolCall := map[string]any{"type": "message", "message": map[string]any{"role": "assistant", "stopReason": "toolUse", "content": []map[string]any{{"type": "toolCall", "id": "call-1", "name": "bash"}}}}
+	toolResult := map[string]any{"type": "message", "message": map[string]any{"role": "toolResult", "toolCallId": "call-1", "content": []map[string]any{{"type": "text", "text": "ok"}}}}
+	shell := map[string]any{"type": "message", "message": map[string]any{"role": "bashExecution", "command": "git status", "output": "clean"}}
+	modelChange := map[string]any{"type": "model_change", "provider": "acme", "modelId": "thinker-1"}
+	for _, test := range []struct {
+		name    string
+		entries []map[string]any
+		open    bool
+		known   bool
+	}{
+		{name: "no turn boundary at all", entries: []map[string]any{modelChange}},
+		{name: "a prompt handed to the model", entries: []map[string]any{modelChange, prompt}, open: true, known: true},
+		{name: "a turn stopped on a tool call", entries: []map[string]any{prompt, toolCall}, open: true, known: true},
+		{name: "a tool result waiting for the reply", entries: []map[string]any{prompt, toolCall, toolResult}, open: true, known: true},
+		{name: "a turn that completed", entries: []map[string]any{prompt, piTurnMessage("assistant", "stop", map[string]any{"type": "text", "text": "Done."})}, known: true},
+		{name: "a turn that was aborted", entries: []map[string]any{prompt, piTurnMessage("assistant", "aborted")}, known: true},
+		{name: "a turn the provider refused", entries: []map[string]any{prompt, piTurnMessage("assistant", "error")}, known: true},
+		{name: "a turn cut off at the output cap", entries: []map[string]any{prompt, piTurnMessage("assistant", "length")}, known: true},
+		{name: "a shell command at the prompt", entries: []map[string]any{prompt, piTurnMessage("assistant", "stop", map[string]any{"type": "text", "text": "Done."}), shell}, known: true},
+		{name: "a model change after a finished turn", entries: []map[string]any{prompt, piTurnMessage("assistant", "stop"), modelChange}, known: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			entries := make([][]byte, 0, len(test.entries))
+			for _, entry := range test.entries {
+				line, err := json.Marshal(entry)
+				if err != nil {
+					t.Fatal(err)
+				}
+				entries = append(entries, line)
+			}
+
+			// Act
+			open, known := piTurnState(entries)
+
+			// Assert
+			if open != test.open || known != test.known {
+				t.Fatalf("piTurnState = open %t known %t, want open %t known %t", open, known, test.open, test.known)
+			}
+		})
+	}
+}
+
+// The monitor reads whether a native pi goblin's turn is open through the same
+// reader the board's tree uses, so a frame caught mid-redraw is not taken for
+// the end of a turn. The session is the goblin's own, named by its worktree.
+func TestANativePiTurnsOpenIsReadFromItsOwnSession(t *testing.T) {
+	prompt := map[string]any{"type": "message", "message": map[string]any{"role": "user", "content": "CFO: carry on"}}
+	toolCall := map[string]any{"type": "message", "message": map[string]any{"role": "assistant", "stopReason": "toolUse", "content": []map[string]any{{"type": "toolCall", "id": "call-1", "name": "bash"}}}}
+	reply := piTurnMessage("assistant", "stop", map[string]any{"type": "text", "text": "Done."})
+	for _, test := range []struct {
+		name    string
+		entries []map[string]any
+		open    bool
+		known   bool
+	}{
+		{name: "a turn still running", entries: []map[string]any{prompt, toolCall}, open: true, known: true},
+		{name: "a turn that ended", entries: []map[string]any{prompt, reply}, known: true},
+		{name: "a session that says nothing of a turn", entries: []map[string]any{{"type": "model_change", "provider": "acme", "modelId": "thinker-1"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home, worktree := t.TempDir(), t.TempDir()
+			transcriptLines(t, filepath.Join(piFolder(home, worktree), "2026-10-26T20-04-14-465Z_01a14650-ac01-7127-9115-4f3a806b967f.jsonl"), time.Now(), test.entries...)
+			meta := nativeMeta("g1", "pi")
+			meta.Worktree = worktree
+
+			// Act
+			open, known := (&HostProgress{Home: home}).TurnOpen(context.Background(), meta, EndpointSample{Harness: "pi"})
+
+			// Assert
+			if open != test.open || known != test.known {
+				t.Fatalf("TurnOpen = open %t known %t, want open %t known %t", open, known, test.open, test.known)
+			}
+		})
+	}
+}

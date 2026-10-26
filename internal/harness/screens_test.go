@@ -852,3 +852,30 @@ func TestCodexHookMenusKeepTheirSafeAnswerAndFocus(t *testing.T) {
 		}
 	}
 }
+
+// pi collapses a long burst typed into its editor into a paste marker and
+// holds the text itself, as Claude Code and Codex do, so a steer or a wake
+// line long enough to collapse still reads as shown in the composer. The
+// marker was read off pi's own editor: "[paste #1 +12 lines]" or
+// "[paste #1 1200 chars]".
+func TestAPiComposerShowsACollapsedPaste(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	footer := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	screens, _ := NativeScreens(Pi)
+	typed := "CFO: fix the monitor's turn reading. " + strings.Repeat("and check the family tree too. ", 40)
+	for name, test := range map[string]struct {
+		screen []string
+		shows  bool
+	}{
+		"lines pasted":  {[]string{rule, "[paste #1 +12 lines]", rule, footer}, true},
+		"chars pasted":  {[]string{rule, "[paste #1 1200 chars]", rule, footer}, true},
+		"nothing typed": {[]string{rule, "", rule, footer}, false},
+		"another draft": {[]string{rule, "[paste #2 +3 lines]", rule, footer}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if shows := screens.Shows(test.screen, typed); shows != test.shows {
+				t.Fatalf("Shows = %v, want %v", shows, test.shows)
+			}
+		})
+	}
+}
