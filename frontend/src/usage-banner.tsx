@@ -10,11 +10,12 @@ import type { UsageReading } from "./session-usage";
 // usage cannot be read draws no banner; the footer above says why.
 export function UsageBanner({ reading, stats }: { reading: UsageReading; stats: SessionStats }) {
   const [isOpen, setOpen] = useState(false);
-  if (!reading.banner) return null;
+  const banner = reading.banner ?? (stats.hasUsage ? { text: "Session usage", detail: stats.details.filter((stat) => stat.key === "cost" || stat.key === "context").map((stat) => stat.text).join(" · ") } : null);
+  if (!banner) return null;
   return <section className="usage-banner" aria-label="Session usage">
     <div className="usage-banner-line">
       <Icon name="warning" />
-      <p className="usage-banner-words"><strong>{reading.banner.text}</strong><span>{reading.banner.detail}</span></p>
+      <p className="usage-banner-words"><strong>{banner.text}</strong><span>{banner.detail}</span></p>
       <button type="button" className="labelled-button" aria-expanded={isOpen} onClick={() => setOpen((prior) => !prior)}>{isOpen ? "Hide usage" : "Usage"}</button>
     </div>
     {isOpen && <dl className="usage-stats">

@@ -30,8 +30,8 @@ const KEYS: [key: string, sent: string][] = [
   // board's paste, which tests/terminal-input.spec.ts covers.
   ...LETTERS.filter((letter) => letter !== "v").map((letter): [string, string] => ["Control+" + letter, String.fromCharCode(letter.charCodeAt(0) - 96)]),
   ["Control+Space", "\x00"], ["Control+Shift+Digit2", "\x00"], ["Control+BracketLeft", ESC], ["Control+Backslash", "\x1c"], ["Control+BracketRight", "\x1d"], ["Control+Shift+Minus", "\x1f"],
-  // Alt with a letter is Escape and the letter, as a harness reads Meta.
-  ...LETTERS.map((letter): [string, string] => ["Alt+" + letter, ESC + letter]),
+  // Alt+V pastes; the other Alt letters reach the harness as Meta.
+  ...LETTERS.filter((letter) => letter !== "v").map((letter): [string, string] => ["Alt+" + letter, ESC + letter]),
 ];
 
 // The line break of a harness's composer is the one key sent per harness.

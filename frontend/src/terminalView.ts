@@ -5,7 +5,7 @@ import { copyText } from "./clipboard.ts";
 import { attachDictatedInput } from "./dictated-input";
 import { clipboardInput, imageKey, readClipboard, terminalKey } from "./terminal-keys";
 import { FrameWriter } from "./terminalFrames";
-import { stripPasteEscapes } from "./terminalInput";
+import { stripPasteEscapes, wheelLines } from "./terminalInput";
 import { ackDue, DEFAULT_FONT_SIZE, type FitEvent, type FitState, followFontSize, fontSizeFor, inputMessages, nextFit, panelFit, parseHeld, parseHistory, parseScreen, parseSize, parseUnread, type ScreenState } from "./terminalStream";
 import { PinnedLine } from "./pinned-line";
 import { attachZoomGesture } from "./terminal-zoom";
@@ -158,6 +158,15 @@ export class TerminalView {
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
+    let wheelRest = 0;
+    this.term.attachCustomWheelEventHandler((event) => {
+      if (this.term.buffer.active.type !== "normal" || !this.heldReason && this.socket.readyState === WebSocket.OPEN) return true;
+      const movement = wheelLines(wheelRest, event.deltaY, event.deltaMode, this.cell().height, this.term.rows);
+      wheelRest = movement.rest;
+      this.term.scrollLines(movement.lines);
+      event.preventDefault();
+      return false;
+    });
     this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); this.repin(); });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
@@ -211,7 +220,7 @@ export class TerminalView {
   }
 
   submit(text: string): string | null {
-    if (!this.isSendable()) return null
+    if (!this.isReady || this.heldReason || this.isUnread || this.screenState?.isOpen || !this.isSendable()) return null
     const submission = crypto.randomUUID()
     this.send(JSON.stringify({ type: "submit", submission }))
     if (!this.paste(text) || !this.enter()) return null
@@ -234,6 +243,35 @@ export class TerminalView {
   // text is what the terminal shows and holds above, as plain text.
   text(): string {
     return terminalText(this.term);
+  }
+
+  control(keys: string): boolean {
+    if (!this.isReady || this.heldReason || !this.isSendable()) return false;
+    this.term.input(keys, true);
+    return true;
+  }
+
+  readingPosition(): { line: number; text: string } | null {
+    const buffer = this.term.buffer.active;
+    return buffer.type === "normal" && buffer.viewportY < buffer.baseY
+      ? { line: buffer.viewportY, text: buffer.getLine(buffer.viewportY)?.translateToString() ?? "" } : null;
+  }
+
+  restoreReading(position: { line: number; text: string } | null): void {
+    const buffer = this.term.buffer.active;
+    if (!position || buffer.type !== "normal") return;
+    let line = Math.min(position.line, buffer.baseY);
+    if (buffer.getLine(line)?.translateToString() !== position.text) {
+      let distance = Infinity;
+      for (let at = 0; at <= buffer.baseY; at++) {
+        if (buffer.getLine(at)?.translateToString() === position.text && Math.abs(at - position.line) < distance) {
+          line = at;
+          distance = Math.abs(at - position.line);
+        }
+      }
+    }
+    this.term.scrollToLine(line);
+    this.repin();
   }
 
   // jumpToBottom returns to the live end and hands the terminal the keyboard.
@@ -409,7 +447,7 @@ export class TerminalView {
   private swipe(lines: number, at: { clientX: number; clientY: number }): void {
     const screen = this.term.element?.querySelector(".xterm-screen");
     if (!screen) return;
-    if (!WHEEL_MOUSE_MODES.has(this.term.modes.mouseTrackingMode) && this.term.buffer.active.type === "normal") { this.term.scrollLines(lines); return; }
+    if (this.term.buffer.active.type === "normal" && (!WHEEL_MOUSE_MODES.has(this.term.modes.mouseTrackingMode) || this.heldReason || this.socket.readyState !== WebSocket.OPEN)) { this.term.scrollLines(lines); return; }
     for (let turn = 0; turn < Math.abs(lines); turn++) screen.dispatchEvent(new WheelEvent("wheel", { deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: at.clientX, clientY: at.clientY, bubbles: true, cancelable: true }));
   }
 
@@ -419,6 +457,11 @@ export class TerminalView {
     const dictated = this.events.dictate(event);
     if (dictated !== null) return dictated;
     const down = event.type === "keydown";
+    if (event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && (event.key === "PageUp" || event.key === "PageDown") && this.term.buffer.active.type === "normal") {
+      event.preventDefault();
+      if (down) this.term.scrollPages(event.key === "PageUp" ? -1 : 1);
+      return false;
+    }
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
       if (down) this.element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();

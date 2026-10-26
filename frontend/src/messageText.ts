@@ -10,15 +10,16 @@ import { scrawlLink } from "./scrawl-link.ts";
 // Overlord, 2026-10-17: "I should be able to click it as a hyperlink to
 // navigate to it"). Everything else is text, so markup in a message is shown,
 // never run.
-export interface Span { text: string; bold: boolean; code?: true; link?: true }
-export type Block = { kind: "paragraph"; spans: Span[] } | { kind: "list"; items: Span[][] } | { kind: "table"; header: Span[][]; rows: Span[][][] };
+export interface Span { text: string; bold: boolean; code?: true; link?: true; italic?: true }
+export type Block = { kind: "paragraph"; spans: Span[] } | { kind: "list"; items: Span[][]; start?: number } | { kind: "table"; header: Span[][]; rows: Span[][][] };
 
 // A mark opens only before text and closes only after it, so "5 ** 2" and a
 // lone mark stay as written. A code value is taken as written, marks and all,
 // and bold may hold one.
 const BOLD = /\*\*(?=\S)([\s\S]*?\S)\*\*/g;
+const ITALIC = /(?<!\*)\*(?!\*)(?=\S)([^*]*?\S)\*(?!\*)/g;
 const CODE = /`([^`\n]+)`/g;
-const BULLET = /^- /;
+const BULLET = /^(?:[-+*]|(\d+)[.)])\s+/;
 const TABLE_ROW = /^\|.*\|$/;
 const TABLE_SEPARATOR = /^\|(\s*:?-{3,}:?\s*\|)+$/;
 // An address ends at a space or a quote, and the punctuation that ends its
@@ -68,7 +69,18 @@ function spans(text: string): Span[] {
     at = match.index + match[0].length;
   }
   add(at, text.length, false);
-  return out;
+  return out.flatMap((span) => {
+    if (span.code || span.link) return [span];
+    const parts: Span[] = [];
+    let from = 0;
+    for (const match of span.text.matchAll(ITALIC)) {
+      if (match.index > from) parts.push({ ...span, text: span.text.slice(from, match.index) });
+      parts.push({ ...span, text: match[1], italic: true });
+      from = match.index + match[0].length;
+    }
+    if (from < span.text.length) parts.push({ ...span, text: span.text.slice(from) });
+    return parts;
+  });
 }
 
 const cells = (row: string) => row.slice(1, -1).split("|").map((cell) => spans(cell.trim()));
@@ -78,26 +90,30 @@ export function messageBlocks(text: string): Block[] {
   for (const part of text.replace(/\r\n?/g, "\n").split(/\n\s*\n/)) {
     let prose: string[] = [];
     let items: Span[][] = [];
+    let start: number | undefined;
     const flush = () => {
       if (prose.length) blocks.push({ kind: "paragraph", spans: spans(prose.join("\n")) });
-      if (items.length) blocks.push({ kind: "list", items });
+      if (items.length) blocks.push({ kind: "list", items, ...(start !== undefined ? { start } : {}) });
       prose = [];
       items = [];
     };
     const lines = part.split("\n").map((raw) => raw.trim()).filter(Boolean);
     for (let n = 0; n < lines.length; n++) {
       const line = lines[n];
+      const bullet = BULLET.exec(line);
       if (TABLE_ROW.test(line) && TABLE_SEPARATOR.test(lines[n + 1] || "")) {
         flush();
         const rows: Span[][][] = [];
         for (n += 2; n < lines.length && TABLE_ROW.test(lines[n]); n++) rows.push(cells(lines[n]));
         n--;
         blocks.push({ kind: "table", header: cells(line), rows });
-      } else if (BULLET.test(line)) {
-        if (prose.length) { blocks.push({ kind: "paragraph", spans: spans(prose.join("\n")) }); prose = []; }
-        items.push(spans(line.slice(2).trim()));
+      } else if (bullet) {
+        const isOrdered = bullet[1] !== undefined;
+        if (prose.length || items.length && isOrdered !== (start !== undefined)) flush();
+        if (!items.length) start = isOrdered ? Number(bullet[1]) : undefined;
+        items.push(spans(line.slice(bullet[0].length).trim()));
       } else {
-        if (items.length) { blocks.push({ kind: "list", items }); items = []; }
+        if (items.length) flush();
         prose.push(line);
       }
     }
@@ -155,10 +171,11 @@ export function pathElements(text: string, path: PathRenderer): ReactNode[] {
 // it, since a command can start the way a path does.
 function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer): ReactNode[] {
   const out: ReactNode[] = [];
-  const piece = (at: number) => parts[at].code
+  const content = (at: number) => parts[at].code
     ? path && CODE_PATH.test(parts[at].text) ? createElement(Fragment, { key: at }, code(parts[at].text, 0), path(parts[at].text, 1, true)) : code(parts[at].text, at)
     : parts[at].link ? webLink(parts[at].text, at)
     : path ? createElement(Fragment, { key: at }, ...pathElements(parts[at].text, path)) : parts[at].text;
+  const piece = (at: number) => parts[at].italic ? createElement("em", { key: at }, content(at)) : content(at);
   for (let n = 0; n < parts.length; n++) {
     if (!parts[n].bold) { out.push(piece(n)); continue; }
     const start = n;
@@ -174,7 +191,7 @@ export function messageElements(text: string, code: CodeRenderer = plainCode, pa
   return createElement(Fragment, null, ...messageBlocks(text).map((block, n) => block.kind === "paragraph"
     ? createElement("p", { key: n }, ...inline(block.spans, code, path))
     : block.kind === "list"
-      ? createElement("ul", { key: n }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path))))
+      ? createElement(block.start === undefined ? "ul" : "ol", { key: n, start: block.start }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path))))
       : createElement("div", { key: n, className: "message-table" }, createElement("table", null,
         createElement("thead", null, createElement("tr", null, ...block.header.map((cell, i) => createElement("th", { key: i }, ...inline(cell, code, path))))),
         createElement("tbody", null, ...block.rows.map((row, r) => createElement("tr", { key: r }, ...row.map((cell, i) => createElement("td", { key: i }, ...inline(cell, code, path))))))))));

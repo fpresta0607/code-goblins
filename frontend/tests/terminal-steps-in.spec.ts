@@ -13,6 +13,26 @@ const terminal = (page: Page) => page.getByRole("textbox", { name: "Terminal inp
 const back = (page: Page) => page.getByRole("button", { name: "Back to messages" });
 const messages = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 
+for (const harness of ["claude", "pi", "codex"]) {
+  test(`${harness} mode and interrupt keys reach the native terminal while preserving the Modern draft`, async ({ page }) => {
+    const relay = await open(page, snapshot({}, { harness }));
+    await openGoblin(page);
+    await field(page).fill("keep this draft");
+    await field(page).press("Control+End");
+    await field(page).press("Control+c");
+    await expect.poll(() => typed(relay)).toBe("\x03");
+    await expect(field(page)).toHaveValue("keep this draft");
+    await field(page).press("Shift+Tab");
+    await expect.poll(() => typed(relay)).toBe("\x03\x1b[Z");
+    await expect(terminal(page)).toBeFocused();
+    await back(page).click();
+    await expect(field(page)).toHaveValue("keep this draft");
+    relay.say({ type: "held", reason: "pipeline owns this task" });
+    await field(page).press("Shift+Tab");
+    expect(typed(relay)).toBe("\x03\x1b[Z");
+  });
+}
+
 // sendFromBox types text into Zeke's box and sends it with Enter, as he does.
 async function sendFromBox(page: Page, relay: Relay, text: string) {
   const sent = relay.submissions.length
@@ -27,7 +47,7 @@ test("a picker opens despite background work, takes the keyboard and Escape, and
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "Background shell running", at } }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
-  await expect(box(page).locator(".composer-working")).toBeVisible();
+  await expect(page.locator(".session-working")).toBeVisible();
   await sendFromBox(page, relay, "/model");
 
   // Act

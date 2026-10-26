@@ -79,7 +79,7 @@ for (const who of ["goblin", "CFO"] as const) {
         await page.locator(".context-pane").evaluate((pane) => { pane.style.width = "800px"; });
       } else if (transition === "maximize") {
         await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
-        await expect(page.locator(".panel-view-switch")).toBeVisible();
+        await expect(page.locator(".panel-view-switch")).toHaveCount(0);
         await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
       } else {
         await page.locator(".panel-view-switch").getByRole("button", { name: "Chat", exact: true }).click();

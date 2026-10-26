@@ -85,7 +85,7 @@ export function watchEffects(root: Element): EffectWatch {
   observer.observe(root, { childList: true, subtree: true });
   sample();
   return {
-    report: () => ({ ...report, running: document.getAnimations().filter((animation) => animation.playState === "running").length, elements: root.querySelectorAll("*").length }),
+    report: () => ({ ...report, running: document.getAnimations().filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && animation.effect.target && root.contains(animation.effect.target)).length, elements: root.querySelectorAll("*").length }),
     stop: () => { observer.disconnect(); cancelAnimationFrame(frame); },
   };
 }

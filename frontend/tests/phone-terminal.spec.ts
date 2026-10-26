@@ -52,6 +52,7 @@ interface Relay { resizes: { cols: number; rows: number }[]; say: (message: obje
 // and a terminal relay that takes each size the view asks for and redraws
 // the harness's screen at it, as the real one does.
 async function open(page: Page, run: typeof RUNS[number]): Promise<Relay> {
+  await page.addInitScript((steppedIn) => localStorage.setItem("cfo-chat-style", steppedIn ? "modern" : "classic"), run.isSteppedIn);
   await page.addInitScript(() => {
     const real = window.visualViewport!;
     let keyboard = 0, top = 0;

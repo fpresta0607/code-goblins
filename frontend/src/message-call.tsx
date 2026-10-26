@@ -3,8 +3,6 @@ import { Disclosure } from "./Disclosure";
 import { babyName } from "./fleet-tree";
 import { Icon, type IconName } from "./Icon";
 import { MessagePictures } from "./message-pictures";
-import { WorkingIndicator } from "./working-indicator";
-import { harnessInk } from "./harness-ink";
 import type { CallState, MessageBlock } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
@@ -17,8 +15,8 @@ const STATE_MARKS: Record<CallState, IconName> = { running: "clock", done: "chec
 // and its pictures fold under the row, in the board's one Disclosure. A call
 // that started a sub-agent is its baby goblin's row instead, whose Open shows
 // that baby goblin's terminal while its goblin's tree holds it.
-export function MessageCall({ call, task, harness, picture, onChild }: {
-  call: MessageBlock; task?: Task; harness: string; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+export function MessageCall({ call, task, picture, onChild }: {
+  call: MessageBlock; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
 }) {
   if (call.agent) {
     const node = call.agent.node;
@@ -31,7 +29,7 @@ export function MessageCall({ call, task, harness, picture, onChild }: {
     </div>;
   }
   const head = <>
-    <span className={"call-mark " + call.state}>{call.state === "running" ? <WorkingIndicator ink={harnessInk(harness)} compact /> : <Icon name={STATE_MARKS[call.state]} />}</span>
+    <span className={"call-mark " + call.state}><Icon name={STATE_MARKS[call.state]} /></span>
     <span className="call-what"><strong>{call.tool}</strong> {call.subject && <span className="call-subject">{call.subject}</span>}</span>
     <span className="call-end">{call.edit ? <><span className="call-added">+{call.edit.added}</span><span className="call-removed">−{call.edit.removed}</span></> : STATE_WORDS[call.state]}</span>
   </>;

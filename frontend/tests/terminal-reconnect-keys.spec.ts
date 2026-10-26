@@ -35,6 +35,7 @@ interface Connection {
 // run does, and clicks into it, as he does, once its first connection is
 // whole. A connection after the first is whole only once the test says so.
 async function open(page: Page, run: typeof RUNS[number]): Promise<Connection[]> {
+  await page.addInitScript((steppedIn) => localStorage.setItem("cfo-chat-style", steppedIn ? "modern" : "classic"), run.isSteppedIn);
   const connections: Connection[] = [];
   await holdStream(page, snapshot(run.harness));
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));

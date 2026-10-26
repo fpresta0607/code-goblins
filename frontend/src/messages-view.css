@@ -2,7 +2,7 @@
    terminal fills, the same flex and the same rule above it as the terminal
    deck, so the two take the one size. Every size in the list is in em of the
    text size he chooses, so his size scales the whole conversation. */
-.messages-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; border-top: 1px solid var(--glass-border); }
+.messages-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* The conversation over the message box, with what floats over it. */
 .conversation-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* The page scrolls itself and holds its place by its own anchor
@@ -27,8 +27,8 @@
 /* What Claude Code wrote, as the question cards draw a message, with its
    code in Claude Code's blue. */
 .message-words { display: grid; gap: .5em; min-width: 0; overflow-wrap: anywhere; }
-.message-words p, .message-words ul { margin: 0; white-space: pre-line; }
-.message-words ul { display: grid; gap: .25em; padding-left: 1.4em; }
+.message-words p, .message-words ul, .message-words ol { margin: 0; white-space: pre-line; }
+.message-words ul, .message-words ol { display: grid; gap: .25em; padding-left: 1.4em; }
 .message-words strong, .message-heading { color: #fff; font-weight: 800; }
 .message-words code { padding: .05em .35em; border-radius: 6px; background: #0b171c; color: rgb(177, 185, 249); font: .9em/1.4 var(--font-mono); }
 .message-words .message-table { margin: 0; }
@@ -73,7 +73,7 @@ div.message-call, .message-baby, .disclosure.message-call > summary { align-item
 .message-compaction > .disclosure > .disclosure-content { margin-top: .375em; padding: 0 0 0 1em; border-left: 2px solid var(--border); font-size: .9375em; }
 /* Thinking is text he can read: quieter than the reply, with no chevron and
    no state to open (the Overlord, 2026-10-26). */
-.message-thinking-read { display: grid; gap: .3em; padding: .1em 0 .1em .85em; border-left: 2px solid var(--border); color: #9fb0ba; font-size: .9375em; }
+.message-thinking-read { display: grid; gap: .3em; padding: .1em 0; color: #9fb0ba; font-size: .9375em; }
 .thinking-label { color: #7f95a2; font: 700 .75em/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 .message-compaction { position: relative; align-self: stretch; padding: 0 40px; }
 .message-compaction > .disclosure > summary { margin: 0 auto; }
@@ -141,7 +141,7 @@ div.message-call, .message-baby, .disclosure.message-call > summary { align-item
 .usage-banner-words { flex: 1; min-width: 0; display: grid; gap: 2px; margin: 0; }
 .usage-banner-words strong { font-weight: 800; }
 .usage-banner-words span { color: #e0c7a4; font-size: .875em; }
-.usage-stats { display: grid; gap: 4px; max-height: 30dvh; margin: 0; padding-top: 8px; overflow: auto; border-top: 1px solid #73533855; }
+.usage-stats { display: grid; gap: 4px; max-height: 30dvh; margin: 0; padding-top: 8px; overflow: auto; }
 .usage-stats > div { display: flex; gap: 12px; font-size: .875em; }
 .usage-stats dt { flex: none; width: 10em; color: #e0c7a4; }
 .usage-stats dd { margin: 0; color: #f6dcb6; overflow-wrap: anywhere; }

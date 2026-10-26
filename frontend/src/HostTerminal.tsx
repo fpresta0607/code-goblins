@@ -99,6 +99,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     const container = surface.current;
     if (!container || !visible) return;
+    let isActive = true;
     let copiedTimer: ReturnType<typeof setTimeout> | undefined, retry: ReturnType<typeof setTimeout> | undefined;
     const url = new URL("/api/terminal/native", location.href);
     url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -107,7 +108,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     url.search = params.toString();
     const view: TerminalView = new TerminalView(container, url, storedFontSize(), {
       ready: () => {
+        if (!isActive) return;
         const prior = current.current;
+        const reading = prior?.readingPosition() ?? null;
         // Disposing the view it replaces takes the keyboard from the page, so
         // where the keyboard was is read first.
         const hadKeyboard = !!prior?.element.contains(document.activeElement) || !!container.closest(".context-pane")?.contains(document.activeElement);
@@ -127,10 +130,12 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         setClosedWhy("");
         setEnded(false);
         setPhase("live");
+        view.restoreReading(reading);
         if (shownValue.current && (wantFocus.current || hadKeyboard)) view.focus();
         wantFocus.current = false;
       },
       closed: (code, why) => {
+        if (!isActive) return;
         if (reconnects(code) && retries.current < MAX_RETRIES) {
           retries.current++;
           setReconnecting(true);
@@ -162,6 +167,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     staged.current = view;
     view.show(shownValue.current);
     return () => {
+      isActive = false;
       clearTimeout(copiedTimer);
       clearTimeout(retry);
       if (staged.current === view) staged.current = null;
@@ -174,8 +180,9 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     if (!link) return;
     offerLink(link, {
       phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, screen,
-      send: (text) => current.current?.submit(text) ?? null,
+      send: (text) => phase === "live" && !reconnecting && visible ? current.current?.submit(text) ?? null : null,
       escape: () => !!current.current?.escape(),
+      control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,
     });
     return () => offerLink(link, null);
   }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen]);

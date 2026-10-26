@@ -26,6 +26,9 @@ test("the conversation's bottom line carries the time facts, not a wall of numbe
   // The fuller numbers live on in the banner, not on this line.
   await expect(line).not.toContainText("$3.209");
   await expect(line).not.toContainText("59.3%");
+  const banner = page.getByRole("region", { name: "Session usage", exact: true });
+  await banner.getByRole("button", { name: "Usage", exact: true }).click();
+  await expect(banner).toContainText("1.4M");
 });
 
 test("the line shows the harness's working animation while the session works", async ({ page }, testInfo) => {
@@ -39,6 +42,7 @@ test("the line shows the harness's working animation while the session works", a
   await expect(working).toContainText("Working");
   // The indicator takes Claude Code's own ink from the board's mark.
   await expect(working).toHaveCSS("color", "rgb(217, 119, 87)");
+  await expect(page.locator(".context-pane .working-indicator:visible")).toHaveCount(1);
   await testInfo.attach("footer-working.png", { body: await page.screenshot(), contentType: "image/png" });
 });
 
@@ -114,7 +118,7 @@ test("a selection he settles copies itself, with the quiet Copied, and a cleared
     const selection = window.getSelection()!;
     selection.removeAllRanges();
     selection.addRange(range);
-    conversation.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
   });
 
   // Assert
@@ -129,4 +133,17 @@ test("a selection he settles copies itself, with the quiet Copied, and a cleared
 
   // Assert: nothing new copied.
   await expect.poll(() => page.evaluate(() => (window as unknown as { __copied?: string[] }).__copied?.length ?? 0)).toBe(1);
+});
+
+test("thinking keeps its paragraphs, lists and code readable without a drawer", async ({ page }) => {
+  const thought = "First **read** the change.\n\n1. Check `input`.\n2. Keep the draft.\n\n```sh\ngit status --short\n```\n\n" + "https://example.test/" + "long".repeat(80);
+  await open(page, snapshot(), "", { messages: [{ id: "thought", seq: 0, at: "2026-10-26T10:00:00Z", kind: "reply", blocks: [{ kind: "thinking", text: thought }] }], more: false });
+  await openGoblin(page);
+  const thinking = page.locator(".message-thinking-read");
+  await expect(thinking).toBeVisible();
+  await expect(thinking.locator("strong")).toHaveText("read");
+  await expect(thinking.locator("li")).toHaveCount(2);
+  await expect(thinking.locator("pre code")).toHaveText("git status --short");
+  await expect(thinking.locator("details, summary")).toHaveCount(0);
+  await expect.poll(() => thinking.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 });

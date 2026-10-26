@@ -100,7 +100,7 @@ test("while the harness asks in its terminal an amber card says so and Send wait
 test("while the harness works the working line's Stop presses Escape in its terminal", async ({ page }) => {
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "", at } }));
   await openGoblin(page);
-  const working = box(page).locator(".composer-working");
+  const working = page.locator(".session-working");
   await expect(working).toContainText("Working");
 
   await working.getByRole("button", { name: "Stop" }).click();
@@ -142,14 +142,14 @@ test("a session's panel is one view with its messages and no pill, and a switch 
   await expect(field(page, "CFO")).toBeFocused();
 });
 
-test("a Codex session's panel shows its terminal, with no messages", async ({ page }) => {
+test("a Codex session's panel shows Modern messages with its reachable composer", async ({ page }) => {
   await open(page, snapshot({}, { title: "Swipes scroll the phone terminal; Codex", harness: "codex", model: "gpt-5.5" }));
 
   await card(page, NAME).click();
 
   await expect(page.locator("#panel-title")).toHaveText(NAME);
-  await expect(page.getByRole("region", { name: "Messages", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
+  await expect(field(page)).toBeInViewport();
 });
 
 test.describe("dictation into the box", () => {
@@ -397,4 +397,14 @@ test("a leading ! command is typed into the session as the harness's own shell c
 
   // Assert
   await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
+});
+
+test("a delivered message appears once in Modern chat and the queue count includes every pending message", async ({ page }) => {
+  const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
+  await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
+    messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" }], more: false,
+  });
+  await openGoblin(page);
+  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "8 queued messages", exact: true })).toBeVisible();
 });

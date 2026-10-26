@@ -32,9 +32,10 @@ export type PanelView = "terminal" | "task";
 // and says which conversation it could not resume when it came back; its
 // Restart is in its header. A goblin's baby goblin (child) has the same
 // panel, with its name and its task above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, now, presentations, cardStart, onAnswer, onOpenTask, row }: {
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, now, presentations, cardStart, onAnswer, onOpenTask, row, hasWorkingFooter = false }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; maximized: boolean; side: HTMLElement | null;
+  hasWorkingFooter?: boolean;
   now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
   // row is the top row's controls, corner button and notice (see PanelRow).
   cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode };
@@ -57,7 +58,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     requestAnimationFrame(() => document.getElementById("task-activity")?.scrollIntoView({ block: "start", behavior: "smooth" }));
   };
   const taskList = <>
-    {!child && <PanelHeader task={task} node={node} snapshot={snapshot} compact={false} isDetails onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
+    {!child && maximized && <PanelHeader task={task} node={node} snapshot={snapshot} compact={false} isDetails onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     {task && <div className="panel-content lifecycle-panel">
       <TaskControls task={task} snapshot={snapshot} start={cardStart(task)} />
       <LifecycleDetails task={task} />
@@ -79,7 +80,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
   </>;
   return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow {...row} />
-    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
+    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={maximized || view === "terminal"} hasWorkingFooter={hasWorkingFooter} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     {!child && !maximized && <PanelViewSwitch view={view} views={views} onView={onView} />}
     {list}
   </section>;

@@ -65,7 +65,7 @@ for (const backend of ["native", "herdr"] as const) {
       ["Home", "\x1b[H"], ["End", "\x1b[F"], ["PageUp", "\x1b[5~"], ["PageDown", "\x1b[6~"],
       ["Control+a", "\x01"], ["Control+e", "\x05"], ["Control+u", "\x15"], ["Control+k", "\x0b"],
       ["Control+w", "\x17"], ["Control+l", "\x0c"], ["Control+r", "\x12"], ["Control+d", "\x04"], ["Control+z", "\x1a"],
-      ["Alt+b", "\x1bb"], ["Alt+v", "\x1bv"], ["Alt+ArrowLeft", "\x1b[1;3D"],
+      ["Alt+b", "\x1bb"], ["Alt+ArrowLeft", "\x1b[1;3D"],
       ]) {
         inputs.length = 0;
         await page.keyboard.press(key);
@@ -92,7 +92,7 @@ for (const backend of ["native", "herdr"] as const) {
       });
     }
 
-    for (const key of ["Control+v", "Control+Shift+v"]) {
+    for (const key of ["Control+v", "Control+Shift+v", "Alt+v"]) {
       for (const [size, text] of [["small", "one\ntwo"], ["large", "first\n" + "🙂界".repeat(14000) + "\nlast"]]) {
         test(key + " pastes " + size + " Unicode text once and in order", async ({ page }) => {
           await page.evaluate((value) => navigator.clipboard.writeText(value), text);

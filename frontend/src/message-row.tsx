@@ -29,8 +29,8 @@ function sentAt(at: string): { exact: string; text: string } {
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
 // he taps away. Its words stay selectable.
-export const MessageRow = memo(function MessageRow({ message, task, harness, picture, onChild }: {
-  message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+export const MessageRow = memo(function MessageRow({ message, task, picture, onChild }: {
+  message: SessionMessage; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [isActionsOpen, setActionsOpen] = useState(false);
@@ -55,7 +55,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     {copy}
     {message.blocks.map((block, at) => block.kind === "text" ? <MessageText key={at} text={block.text} />
       : block.kind === "thinking" ? block.text && <div key={at} className="message-thinking-read"><span className="thinking-label">Thinking</span><MessageText text={block.text} /></div>
-        : <MessageCall key={at} call={block} task={task} harness={harness} picture={picture} onChild={onChild} />)}
+        : <MessageCall key={at} call={block} task={task} picture={picture} onChild={onChild} />)}
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";

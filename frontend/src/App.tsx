@@ -174,7 +174,7 @@ export function App() {
   const task = snapshot?.tasks.find((task) => task.id === selectedTaskID)
     || snapshot?.tasks.find((task) => task.id === "finished:" + selectedTaskID);
   const selectedSession = task?.archived && (!node || node.role === "goblin") ? undefined
-    : node || (task && snapshot?.sessions.find((session) => ownsTaskSession(session, task)));
+    : task && (!node || node.role === "goblin") ? snapshot?.sessions.find((session) => ownsTaskSession(session, task)) : node;
   // A baby goblin opened from its goblin's family tree.
   const child = selected?.child ? task?.tree?.children.find((each) => each.id === selected.child) : undefined;
   // A merge train opened from its card.
@@ -312,7 +312,8 @@ export function App() {
   // The session's own terminal, by the terminal deck's key, whether its
   // harness works, which the box's working line shows, and that terminal's
   // link, which says what it was last told of the harness's screen.
-  const isWorking = ["busy", "working", "active"].includes((cfoShown ? snapshot && liveCfoSession(snapshot)?.runtime?.state : task?.runtime?.state) || "");
+  const cfoSession = snapshot && liveCfoSession(snapshot);
+  const isWorking = !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task?.runtime?.state) || "");
   // What the conversation's stats read: the session's harness, the model and
   // effort the board recorded for it, and the memory its processes hold.
   const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
@@ -418,8 +419,9 @@ export function App() {
     // A maximized panel shows both its conversation and its task list, so it
     // opens on the conversation with no selector to switch.
     if (!maximized) setPanelView("terminal");
-    setMaximizedChoice((prior) => ({ ...prior, [maximizeView]: choice }));
-    store(MAXIMIZED_KEYS[maximizeView], choice);
+    setMaximizedChoice({ task: choice, terminal: choice });
+    store(MAXIMIZED_KEYS.task, choice);
+    store(MAXIMIZED_KEYS.terminal, choice);
   };
   const controls: PanelControl[] = [];
   if (shownWindow && !compact) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
@@ -484,7 +486,7 @@ export function App() {
             <section className="review-placeholder"><Avatar persona="reviewer" /><h2>Review the work</h2><p>Select a task to see what it is doing and what changed.</p></section></>
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
-            task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
+            task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews} hasWorkingFooter={messagesShown && isWorking}
             view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
         {/* The stage, the Messages view and the terminal deck in one box,

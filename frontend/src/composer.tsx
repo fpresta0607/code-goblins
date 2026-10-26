@@ -119,7 +119,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const savesThroughBoard = !!task && (queues || !!held);
   const send = async () => {
     const text = draft.trim();
-    if (!text || isSending) return;
+    if (!text || isSending || adding) return;
     if (!savesThroughBoard) {
       // Direct typing waits for a readable program with no screen of its own
       // open, since an Enter typed then would act on that screen.
@@ -223,23 +223,34 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
         return;
       }
     }
+    if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      if (live?.control("\x1b[Z")) onAnswer?.();
+      else setUnsent(held || unsentWhy);
+      return;
+    }
+    if (event.key.toLowerCase() === "c" && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
+      event.preventDefault();
+      if (!live?.control("\x03")) setUnsent(held || unsentWhy);
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
   const note = adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : held || unsent || (isUnread ? "Program busy. Typed keys are waiting." : "") || dictation.note;
   // What the board has kept for this goblin is what the board's own record of
   // it says, so it survives a reload and a remount, and it stays on screen
   // after a gate lets go so the action can be read and withdrawn.
-  const sent = task ? messagesTo(snapshot, task.id).slice(-SHOWN) : [];
+  const sent = task ? messagesTo(snapshot, task.id) : [];
   // A message the board still holds is in the conversation as its own entry;
   // the box keeps a quiet count of them and no second copy of their words.
   const queued = sent.filter(isPendingMessage);
   // Modern shows a pending message in the conversation and keeps only a
   // count here. Classic has no conversation on screen, so its queue list
   // keeps the message and its actions, as it always has.
-  const queueRows = style === "classic" ? sent : sent.filter((action) => !isPendingMessage(action));
+  const queueRows = (style === "classic" ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
   const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  const canSend = !isSending && !!draft.trim() && (savesThroughBoard || (!isAsking && !isUnread));
+  const canSend = !isSending && !adding && !!draft.trim() && (savesThroughBoard || (!isAsking && !isUnread));
   return <section className="composer" aria-label={"Messages to " + name}>
     {isAsking && <div className="composer-asking" role="status">
       <Icon name="warning" /><p>Waiting on you in the terminal</p>
@@ -284,6 +295,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
           </div>}
           <DictationButton dictation={dictation} label />
           <button ref={recent} type="button" className="composer-pill" aria-label="Recent messages" aria-expanded={isRecentOpen} data-tip="Recent messages" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /><span>Recent</span></button>
+          {onAnswer && <button type="button" className="composer-pill" aria-label="Terminal controls" data-tip="The session's controls, prompts and mode footer" onClick={onAnswer}><Icon name="terminal" /></button>}
         </div>
         <p className="composer-note" role="status">{note}</p>
         <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>

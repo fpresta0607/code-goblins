@@ -202,10 +202,10 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     return attachZoomGesture(box, window, () => fontValue.current, zoom);
   }, [zoom]);
 
-  const copySelection = () => {
+  const copySelection = useCallback(() => {
     const box = list.current;
     const selection = window.getSelection();
-    if (!box || !selection || selection.isCollapsed || selection.rangeCount === 0) return;
+    if (!shownValue.current || !box || !selection || selection.isCollapsed || selection.rangeCount === 0) return;
     const text = selection.toString();
     if (!text.trim() || !box.contains(selection.getRangeAt(0).commonAncestorContainer)) return;
     copyText(text).then(() => {
@@ -213,7 +213,23 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
       setCopied(true);
       copiedTimer.current = setTimeout(() => setCopied(false), 1400);
     }, () => {});
-  };
+  }, []);
+  useEffect(() => {
+    let frame = 0;
+    const settled = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(copySelection);
+    };
+    window.addEventListener("pointerup", settled);
+    window.addEventListener("touchend", settled);
+    window.addEventListener("keyup", settled);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("pointerup", settled);
+      window.removeEventListener("touchend", settled);
+      window.removeEventListener("keyup", settled);
+    };
+  }, [copySelection]);
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
   const jump = () => {
     const box = list.current;
@@ -248,13 +264,13 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
   const stats = sessionStats({ usage: held.usage, model, effort, memory });
   const reading = usageBanner(harness, subscriptions, spend);
-  const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt")?.at ?? "";
+  const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt" && message.source !== "notice")?.at ?? "";
   const lastReplyAt = [...held.messages].reverse().find((message) => message.kind === "reply")?.at ?? "";
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     <div className="conversation-frame">
-      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember} onPointerUp={copySelection} onKeyUp={copySelection}>
+      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
         <div ref={items} className="conversation-items">
-          {held.messages.map((message) => <MessageRow key={message.id} message={message} harness={harness}
+          {held.messages.map((message) => <MessageRow key={message.id} message={message}
             task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>

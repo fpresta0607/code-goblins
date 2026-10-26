@@ -119,20 +119,20 @@ export function olderMessages(held: MessagePage, page: MessagePage): MessagePage
 }
 
 // messagesHarness says whether the board reads a harness's session as messages,
-// which the supervisor serves from a Claude Code or a pi session.
+// which the supervisor serves from its session record without requiring hooks.
 function messagesHarness(harness: string): boolean {
-  return harness === "claude" || harness === "pi";
+  return harness === "claude" || harness === "pi" || harness === "codex";
 }
 
 // messagesQuery names the session whose messages a panel shows, as
-// /api/messages takes it: a Claude Code or pi goblin's current generation in a
-// native terminal, or the CFO in its native terminal while it runs Claude Code
-// or pi, since the Messages view's box types through that terminal. A paused
+// /api/messages takes it: a supported goblin's current generation in a
+// native terminal, or the CFO in its native terminal, since the Messages
+// view's box types through that terminal. A paused
 // goblin's conversation still reads. Empty for every other session, which
-// keeps its Terminal and Task views alone: a Codex one, one in Herdr, a task
+// keeps its Terminal and Task views alone: one in Herdr, a task
 // not started yet, and one stopped or retired.
-export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness">, task?: Task): string {
-  if (!task) return snapshot.cfo_terminal && messagesHarness(snapshot.cfo_harness) ? new URLSearchParams({ cfo: snapshot.cfo_terminal }).toString() : "";
+export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_harness"> & { cfo_terminal_since?: string }, task?: Task): string {
+  if (!task) return snapshot.cfo_terminal && messagesHarness(snapshot.cfo_harness) ? new URLSearchParams({ cfo: snapshot.cfo_terminal, ...(snapshot.cfo_terminal_since ? { since: snapshot.cfo_terminal_since } : {}) }).toString() : "";
   const ended = sessionEnd(task);
   return messagesHarness(task.harness) && task.backend === "native" && task.generation && !task.archived && (!ended || ended === "paused") ? new URLSearchParams({ task: task.id, generation: task.generation }).toString() : "";
 }

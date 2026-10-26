@@ -1425,7 +1425,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
 .stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
 .stepped-in-bar > button { pointer-events: auto; }
-.terminal-deck { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--glass-border); background: #071015; }
+.terminal-deck { display: flex; flex: 1; min-height: 0; background: #071015; }
 .terminal-deck.behind { visibility: hidden; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .deck-slot { display: flex; flex: 1; min-width: 0; min-height: 0; }

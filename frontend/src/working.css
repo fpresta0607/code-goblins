@@ -1,29 +1,21 @@
-/* The working indicator: the dither the Overlord chose, settled after a
-   one-time cross-fade and ease from the helix, in the harness's own colour.
-   Every place the board draws a session working uses it, so one session's
-   working state looks the same wherever it is drawn. */
-.working-indicator { position: relative; display: inline-block; width: 24px; height: 24px; flex: none; color: currentColor; }
-.working-indicator.compact { width: 9px; height: 9px; vertical-align: middle; }
+/* Both shapes use the indicator's font size, including its compact form. */
+.working-indicator { position: relative; display: inline-block; width: 1em; height: 1em; font-size: 24px; flex: none; color: currentColor; }
+.working-indicator.compact { font-size: 9px; vertical-align: middle; }
 .working-helix, .working-dither { position: absolute; inset: 0; display: block; }
-.working-helix { animation: working-helix-out 1.2s ease-out both; }
-.working-dither { display: grid; grid-template-columns: repeat(4, 5px); gap: 1px; width: 23px; height: 23px; animation: working-dither-in 1.2s ease-out both; }
-.working-row { position: absolute; left: 50%; width: 4px; height: 4px; }
-.working-row > i { position: absolute; left: 0; width: 4px; height: 4px; border-radius: 50%; background: currentColor; transform: translateX(-50%); animation: working-helix-a 1.4s infinite ease-in-out; }
+.working-helix { animation: working-helix-morph 8s infinite ease-in-out; }
+.working-dither { display: grid; grid-template-columns: repeat(4, 1fr); gap: .0417em; animation: working-dither-morph 8s infinite ease-in-out; }
+.working-row { position: absolute; left: 50%; width: .1667em; height: .1667em; }
+.working-row > i { position: absolute; left: 0; width: .1667em; height: .1667em; border-radius: 50%; background: currentColor; transform: translateX(-50%); animation: working-helix-a 1.4s infinite ease-in-out; animation-delay: inherit; }
 .working-row > i.b { animation-name: working-helix-b; }
-@keyframes working-helix-a { 0%, 100% { transform: translateX(calc(-50% + 9px)) scale(1); opacity: 1; } 50% { transform: translateX(calc(-50% - 9px)) scale(.5); opacity: .45; } }
-@keyframes working-helix-b { 0%, 100% { transform: translateX(calc(-50% - 9px)) scale(.5); opacity: .45; } 50% { transform: translateX(calc(-50% + 9px)) scale(1); opacity: 1; } }
-.working-dither > i { width: 5px; height: 5px; background: currentColor; opacity: .1; animation: working-dither 1.1s infinite linear; }
+@keyframes working-helix-a { 0%, 100% { transform: translateX(calc(-50% + .375em)) scale(1); opacity: 1; } 50% { transform: translateX(calc(-50% - .375em)) scale(.5); opacity: .45; } }
+@keyframes working-helix-b { 0%, 100% { transform: translateX(calc(-50% - .375em)) scale(.5); opacity: .45; } 50% { transform: translateX(calc(-50% + .375em)) scale(1); opacity: 1; } }
+.working-dither > i { background: currentColor; opacity: .1; animation: working-dither 1.1s infinite linear; }
 @keyframes working-dither { 0%, 100% { opacity: .1; } 50% { opacity: 1; } }
-/* The one-time morph into the settled dither: the helix eases out while the
-   dither eases in, over 1.2 s, and only the dither remains. */
-@keyframes working-helix-out { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.78); } }
-@keyframes working-dither-in { 0% { opacity: 0; transform: scale(.78); } 100% { opacity: 1; transform: scale(1); } }
-/* A compact one keeps the same 4x4 shape in 15 px. */
-.working-indicator.compact .working-dither { grid-template-columns: repeat(4, 2px); gap: .33px; width: 9px; height: 9px; }
-.working-indicator.compact .working-dither > i { width: 2px; height: 2px; }
+@keyframes working-helix-morph { 0%, 30%, 100% { opacity: 1; transform: scale(1); } 45%, 85% { opacity: 0; transform: scale(.78); } }
+@keyframes working-dither-morph { 0%, 30%, 100% { opacity: 0; transform: scale(.78); } 45%, 85% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
-  .working-helix { display: none; }
-  .working-dither { animation: none; }
-  .working-dither > i { animation: working-dither-calm 1.4s infinite ease-in-out; }
-  @keyframes working-dither-calm { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+  .working-helix, .working-row > i { animation: none; }
+  .working-dither { display: none; }
+  .working-row > i { transform: translateX(calc(-50% + .25em)); }
+  .working-row > i.b { transform: translateX(calc(-50% - .25em)); }
 }

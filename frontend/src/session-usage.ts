@@ -90,6 +90,7 @@ export function elapsedText(since: string, now: number): string {
 
 // sessionStats reads every stat the fleet can back, and names each it cannot.
 export function sessionStats({ usage, model, effort, memory }: SessionFacts): SessionStats {
+  model ||= usage?.model ?? "";
   const parts: Stat[] = [];
   const details: Stat[] = [];
   const missing: string[] = [];
@@ -153,7 +154,7 @@ export function usageBanner(harness: string, subscriptions: SubscriptionUsage[] 
   if (!key || key.status !== "available" || key.spent_usd == null) return { banner: null, why: "its key spend could not be read" };
   const spent = formatUSD(key.spent_usd);
   const detail = key.limit_usd != null ? spent + " of " + formatUSD(key.limit_usd) + (key.resets_at ? " · Resets " + resetText(key.resets_at) : "") : spent + " spent";
-  return { banner: { text: key.limit_usd != null ? "Session spend" : "Spent so far", detail }, why: "" };
+  return { banner: { text: "Shared key spend", detail }, why: "" };
 }
 
 // resetText draws when an allowance resets, in the words the board uses for

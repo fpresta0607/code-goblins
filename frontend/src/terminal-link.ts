@@ -20,6 +20,7 @@ export interface TerminalLink {
   // sent, by its submission ID, or null; escape presses Escape.
   send: (text: string) => string | null;
   escape: () => boolean;
+  control: (keys: string) => boolean;
 }
 
 const links = new Map<string, TerminalLink>();

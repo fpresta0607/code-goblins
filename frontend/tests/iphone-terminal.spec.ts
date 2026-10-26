@@ -26,6 +26,7 @@ test.use({ ...devices["iPhone 15"], browserName: "webkit" });
 
 for (const run of RUNS) {
   test(`on an iPhone over the private board a goblin's terminal draws and takes typing, ${run.name}`, async ({ page }) => {
+    await page.addInitScript((steppedIn) => localStorage.setItem("cfo-chat-style", steppedIn ? "modern" : "classic"), run.isSteppedIn);
     // Arrange: Safari's gaps, and a stand-in Web Audio whose recorder never
     // starts, so dictation's preparation runs and fails quietly as it would
     // anywhere. The terminal's host, played by its socket, repaints after each

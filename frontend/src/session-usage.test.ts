@@ -35,7 +35,7 @@ test("a stat the conversation does not record is left out and named", () => {
   assert.ok(stats.missing.includes("its cost"));
   assert.ok(stats.missing.includes("its context window"));
   assert.ok(stats.missing.includes("its memory"));
-  assert.ok(stats.missing.includes("its model and effort"));
+  assert.equal(stats.details.find((part) => part.key === "engine")?.text, usage.model);
 });
 
 test("a session whose usage cannot be read says so and still shows what it can", () => {
@@ -95,4 +95,10 @@ test("a provider the board cannot read draws no banner and says why", () => {
 test("the numbers are drawn as the harness draws them", () => {
   assert.deepEqual([formatCount(0), formatCount(999), formatCount(1400), formatCount(1_400_000), formatCount(208_000_000)], ["0", "999", "1.4k", "1.4M", "208M"]);
   assert.equal(formatUSD(3.209), "$3.209");
+});
+
+test("a shared API key budget is labelled as shared key spend", () => {
+  const reading = usageBanner("pi", [], [{ provider: "openrouter", status: "available", spent_usd: 4, limit_usd: 20, remaining_usd: 16, period: "monthly", resets_at: "", read_at: "", byok_usd: null, includes_byok: false, blocking: null, profile: "default", detail: "" }]);
+  assert.equal(reading.banner?.text, "Shared key spend");
+  assert.equal(reading.banner?.detail, "$4.000 of $20.000");
 });
