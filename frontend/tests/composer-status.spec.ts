@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, card, field, GOBLIN, NAME, open, pasted, send, snapshot, typed } from "./session-board";
+import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
@@ -418,6 +418,89 @@ test("a live Classic terminal keeps its own dictation after the hold that showed
   await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
   expect(typed(relay)).toBe(before + pasted("rebase onto main"));
   await expect(field(page)).toHaveValue("");
+});
+
+test("a recording started in the terminal never pulls its box into the stepped-in Modern terminal", async ({ page }) => {
+  // Arrange: a message opening a harness screen steps Zeke's terminal into the
+  // Modern conversation's place, where no composer shows.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  const relay = await open(page);
+  await openGoblin(page);
+  await field(page).fill("/model");
+  await field(page).press("Enter");
+  await expect.poll(() => relay.submissions.length).toBe(1);
+  relay.say({ type: "screen", asking: true, open: true, working: false });
+  await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toBeVisible();
+  await expect(box(page)).toBeHidden();
+  const typedBefore = typed(relay);
+  // Arrange: a hold shows the box beside that terminal, and letting go takes it away.
+  relay.say({ type: "held", reason: "pipeline owns this task" });
+  await expect(field(page)).toBeVisible();
+  relay.say({ type: "held", reason: "" });
+  await expect(box(page)).toBeHidden();
+
+  // Act: he dictates in the terminal itself.
+  await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.keyboard.down("Space");
+
+  // Assert: the terminal keeps its own recording control, and no box comes in.
+  const terminalMic = page.locator(".host-terminal .voice-dock .voice-bubble");
+  await expect(terminalMic).toHaveClass(/recording/);
+  await expect(terminalMic).toBeVisible();
+  await expect(box(page)).toBeHidden();
+  await expect(page.getByRole("button", { name: "Stop terminal dictation", exact: true })).toHaveCount(0);
+  await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
+  await page.waitForTimeout(1200);
+  await page.keyboard.up("Space");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+
+  // Assert: the words reached the terminal, and the box stayed away.
+  await expect.poll(() => typed(relay)).toBe(typedBefore + pasted("rebase onto main"));
+  await expect(terminalMic).not.toHaveClass(/recording/);
+  await expect(box(page)).toBeHidden();
+});
+
+test("a Classic box already shown keeps one control when the terminal starts its own recording", async ({ page }) => {
+  // Arrange: a hold shows Zeke's Classic box; letting go leaves it there while
+  // the terminal takes typing again.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page);
+  await card(page, NAME).click();
+  await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+  relay.say({ type: "held", reason: "pipeline owns this task" });
+  await expect(field(page)).toBeVisible();
+  relay.say({ type: "held", reason: "" });
+  await expect(box(page).locator(".composer-note")).toHaveText("");
+  await expect(box(page).getByRole("button", { name: "Hold to dictate", exact: true })).toBeVisible();
+  const before = typed(relay);
+
+  // Act: with the box already shown, he focuses the terminal and records.
+  await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.keyboard.down("Space");
+
+  // Assert: one control is on screen for the recording, the terminal's own
+  // layer stays hidden beneath the shown box, and the box does not change.
+  await expect(box(page).getByRole("button", { name: "Stop terminal dictation", exact: true })).toBeVisible();
+  await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
+  await expect(page.locator(".host-terminal .voice-dock .voice-bubble:visible")).toHaveCount(0);
+  await expect(field(page)).toBeVisible();
+  await page.waitForTimeout(1200);
+  await page.keyboard.up("Space");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+
+  // Assert: the words reached the terminal, and the box kept its one control.
+  await expect.poll(() => typed(relay)).toBe(before + pasted("rebase onto main"));
+  await expect(field(page)).toHaveValue("");
+  await expect(box(page).locator(".composer-note")).toHaveText("");
+  await expect(box(page).getByRole("button", { name: "Hold to dictate", exact: true })).toBeVisible();
 });
 
 for (const style of ["classic", "modern"]) {

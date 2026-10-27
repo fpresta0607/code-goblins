@@ -128,7 +128,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
     sendID.current = "";
   };
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
-  const isActive = !!(adding || isSending || unsent || dictation.listening || live?.isDictating);
+  const isActive = !!(adding || isSending || unsent || dictation.listening);
   useEffect(() => {
     onActive?.(terminal, isActive);
     return () => onActive?.(terminal, false);
