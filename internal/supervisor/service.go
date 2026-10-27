@@ -1214,11 +1214,18 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 	}
 	prior := s.Store.Snapshot().Tasks[a.TaskID]
 	base := prior.Base
-	if prior.Generation != meta.SpawnGen || s.Git.validateRevision(ctx, meta.Worktree, base) != nil {
+	if prior.Generation != meta.SpawnGen {
 		base = ""
+	} else if err := s.Git.validateRevision(ctx, meta.Worktree, base); errors.Is(err, errRevisionNotInHistory) {
+		base = ""
+	} else if err != nil {
+		return Evaluation{}, err
 	}
 	if base == "" {
-		base, _ = s.Git.base(ctx, meta.Worktree)
+		base, err = s.Git.base(ctx, meta.Worktree)
+		if err != nil && !errors.Is(err, errBaseUnavailable) && !errors.Is(err, errRevisionNotInHistory) {
+			return Evaluation{}, err
+		}
 	}
 	result := Evaluation{Phase: "review", Reason: "Task awaits independent review and delivery evidence", Head: head, Base: base}
 	if !clean {
@@ -1231,6 +1238,10 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return result, nil
 	}
 	branch, err := s.Git.Branch(ctx, meta.Worktree)
+	if errors.Is(err, errDetachedHead) {
+		result.Reason = "HEAD is detached; gate evidence requires a branch"
+		return result, nil
+	}
 	if err != nil {
 		return result, err
 	}

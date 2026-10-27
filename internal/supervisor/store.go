@@ -976,7 +976,11 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			completed.Message = bounded(runErr.Error(), 1200)
 			if a.Kind == "evaluate" && (a.EventID == "" || s.db.Sessions[a.Session].LastEventID == a.EventID) {
 				prior := s.db.Tasks[a.TaskID]
-				s.db.Tasks[a.TaskID] = Evaluation{Phase: "unavailable", Reason: completed.Message, Base: prior.Base, Generation: a.Generation, At: completed.UpdatedAt}
+				base := ""
+				if prior.Generation == a.Generation {
+					base = prior.Base
+				}
+				s.db.Tasks[a.TaskID] = Evaluation{Phase: "unavailable", Reason: completed.Message, Base: base, Generation: a.Generation, At: completed.UpdatedAt}
 			}
 		} else if result.Awaiting != nil {
 			// Typed and submitted, and its harness has yet to report taking it:

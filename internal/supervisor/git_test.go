@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,8 +13,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+func TestGitFailureDiagnosticsAreBoundedAndNeverExposeStderr(t *testing.T) {
+	const secret = "https://user:password@example.invalid/repo?token=ghp_12345678901234567890"
+	for _, test := range []struct {
+		name, stderr, want string
+	}{
+		{"permission", "fatal: Permission denied\n" + secret, "permission denied"},
+		{"ownership", "fatal: detected dubious ownership in repository at '" + secret + "'", "unsafe repository ownership"},
+		{"repository", "fatal: not a git repository (or any of the parent directories): .git\n" + secret, "not a repository"},
+		{"unknown", "fatal: " + secret, "check the worktree and Git access"},
+		{"path containing permission denied", "fatal: '/tmp/permission denied/repo' does not appear to be a git repository", "check the worktree and Git access"},
+		{"truncated recognized line", "fatal: Permission denied\n" + strings.Repeat("x", maxGitDiagnostic), "check the worktree and Git access"},
+		{"conflicting categories", "fatal: Permission denied\nfatal: not a git repository (or any of the parent directories): .git", "check the worktree and Git access"},
+		{"unprefixed", "Permission denied", "check the worktree and Git access"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			git := Git{stream: func(_ context.Context, _ execx.Request, _, stderr io.Writer) (int, error) {
+				_, _ = io.WriteString(stderr, test.stderr)
+				return 128, nil
+			}}
+			_, err := git.Branch(context.Background(), t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), test.want) || strings.Contains(err.Error(), "password") || strings.Contains(err.Error(), "ghp_") || strings.Contains(err.Error(), "example.invalid") {
+				t.Fatalf("diagnostic = %v; want %q without stderr contents", err, test.want)
+			}
+		})
+	}
+}
 
 func gitFixture(t *testing.T, destination ...string) string {
 	t.Helper()
@@ -61,6 +91,48 @@ func TestFullTaskDiffDoesNotGuessBase(t *testing.T) {
 	}
 	if _, err := (Git{}).Files(context.Background(), dir, ""); err == nil {
 		t.Fatal("missing base silently omitted earlier commits")
+	}
+}
+
+func TestDirectOriginHeadProvidesTaskDiffBase(t *testing.T) {
+	dir := gitFixture(t)
+	want := gitOutput(t, dir, "rev-parse", "HEAD~1")
+	cmd := exec.Command("git", "update-ref", "--no-deref", "refs/remotes/origin/HEAD", want)
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set direct origin/HEAD: %s: %v", output, err)
+	}
+	git := Git{Reads: readcache.New()}
+	base, err := git.base(context.Background(), dir)
+	if err != nil || base != want {
+		t.Fatalf("direct origin/HEAD base = %q, %v; want %q", base, err, want)
+	}
+	files, err := git.Files(context.Background(), dir, "")
+	if err != nil || len(files) != 1 || files[0].Path != "main.go" {
+		t.Fatalf("direct origin/HEAD files = %+v, %v; want the task change", files, err)
+	}
+	diff, err := git.Diff(context.Background(), dir, "", "main.go")
+	if err != nil || !strings.Contains(diff.Patch, "+func main() { println(1) }") {
+		t.Fatalf("direct origin/HEAD diff = %+v, %v; want the task change", diff, err)
+	}
+}
+
+func TestDirectOriginHeadVerificationFailureIsReported(t *testing.T) {
+	dir := gitFixture(t)
+	cmd := exec.Command("git", "update-ref", "--no-deref", "refs/remotes/origin/HEAD", "HEAD~1")
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set direct origin/HEAD: %s: %v", output, err)
+	}
+	git := Git{stream: func(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
+		if slices.Equal(request.Args[3:], []string{"rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD"}) {
+			return 128, nil
+		}
+		return (execx.OSRunner{}).Stream(ctx, request, stdout, stderr)
+	}}
+	_, err := git.base(context.Background(), dir)
+	if err == nil || !strings.Contains(err.Error(), "Git rev-parse failed: exit status 128") {
+		t.Fatalf("direct origin/HEAD verification = %v; want Git failure", err)
 	}
 }
 
