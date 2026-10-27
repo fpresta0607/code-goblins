@@ -17,6 +17,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// cfoEngineNextStart says why a saved selection waits: the CFO's next start
+// uses it.
+const cfoEngineNextStart = "The CFO's next start uses the saved engine"
+
 type CFOEngine struct {
 	Harness string    `json:"harness"`
 	Model   string    `json:"model"`
@@ -76,9 +80,24 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 		return
 	}
 	cfo := readCFOState(stateDir)
+	if choice.Since.IsZero() {
+		if !cfo.registered || cfo.since.IsZero() {
+			s.noteCFOEngineWaiting(choice, cfoEngineNextStart)
+			return
+		}
+		s.starts.Lock()
+		if current, err := ReadCFOEngine(stateDir); err == nil && current == choice {
+			choice.Since, choice.Waiting = cfo.since, cfoEngineNextStart
+			if err := writeCFOEngine(stateDir, choice); err != nil {
+				s.publish(err)
+			}
+			s.notify()
+		}
+		s.starts.Unlock()
+	}
 	if !cfo.registered || !cfo.since.Equal(choice.Since) {
 		problem := "The CFO session changed; the selection is saved for its next start"
-		if cfo.registered && cfo.harness == choice.Harness && cfo.since.After(choice.Since) {
+		if !choice.Since.IsZero() && cfo.registered && cfo.harness == choice.Harness && cfo.since.After(choice.Since) {
 			problem = ""
 		}
 		s.starts.Lock()
@@ -218,6 +237,8 @@ func (h *HTTP) selectCFOEngine(w http.ResponseWriter, r *http.Request) {
 	cfo := readCFOState(h.Service.Store.Home.State)
 	if cfo.registered && cfo.terminal == NativeCFOTerminal {
 		choice.Pending, choice.Since = true, cfo.since
+	} else if cfo.starting {
+		choice.Pending = true
 	}
 	err = writeCFOEngine(h.Service.Store.Home.State, choice)
 	if err != nil {
