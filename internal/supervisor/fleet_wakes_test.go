@@ -1600,6 +1600,27 @@ func TestCIMonitorReportsMissingCheckoutAndRecovers(t *testing.T) {
 	if err != nil || lifecycle.Phase != "paused" || lifecycle.Pause == nil || lifecycle.Pause.Reason != "overlord" {
 		t.Fatalf("pause changed: %+v, %v", lifecycle, err)
 	}
+	if err := os.Rename(project, moved); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		now = now.Add(ciPollEvery)
+		_ = s.checkFleet(t.Context(), now)
+	}
+	if wakes := fleetWakeRecords(t, h, "ci"); len(wakes) != 2 {
+		t.Fatalf("a returning outage should raise one new wake: %+v", wakes)
+	}
+	if err := os.Rename(moved, project); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(ciPollEvery)
+	if err := s.checkFleet(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	remembered, err = readFleetWakes(h.State)
+	if err != nil || len(remembered.Unreadable) != 0 {
+		t.Fatalf("second restoration: unreadable=%+v error=%v", remembered.Unreadable, err)
+	}
 }
 
 func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
