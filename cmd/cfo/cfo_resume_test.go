@@ -168,10 +168,10 @@ func TestReopenBringsAClosedCFOBackAsGoblinsDoes(t *testing.T) {
 		holds                          bool
 		want                           []start
 	}{
-		{"on its conversation", "claude", "a1b2c3d4-session", true, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}, cfoBackPrompt("claude", why, "")}}},
-		{"on a new one when the resumed terminal does not hold", "claude", "a1b2c3d4-session", false, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}, cfoBackPrompt("claude", why, "")}, {"", "claude", nil, cfoBackPrompt("claude", why, unresumed)}}},
+		{"on its conversation", "claude", "a1b2c3d4-session", true, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}, cfoBackPrompt("claude", why, "", true)}}},
+		{"on a new one when the resumed terminal does not hold", "claude", "a1b2c3d4-session", false, []start{{"", "claude", []string{"--resume", "a1b2c3d4-session"}, cfoBackPrompt("claude", why, "", true)}, {"", "claude", nil, cfoBackPrompt("claude", why, unresumed, false)}}},
 		{"on a new one when it registered no conversation", "claude", "", true, []start{{"", "claude", nil, ""}}},
-		{"as the remembered agent, which a conversation of another harness does not resume", "codex", "a1b2c3d4-session", true, []start{{"", "codex", nil, cfoBackPrompt("codex", why, "")}}},
+		{"as the remembered agent, which a conversation of another harness does not resume", "codex", "a1b2c3d4-session", true, []start{{"", "codex", nil, cfoBackPrompt("codex", why, "", false)}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
@@ -281,7 +281,7 @@ func TestAClosedCFOComesBackOnItsConversation(t *testing.T) {
 	if !slices.Equal(f.nativeAttached, []string{supervisor.NativeCFOTerminal}) {
 		t.Errorf("native terminals shown = %q, want the CFO's", f.nativeAttached)
 	}
-	if want := cfoBackPrompt("claude", "goblins started it again after it closed", ""); !slices.Equal(f.nativePrompts, []string{want}) {
+	if want := cfoBackPrompt("claude", "goblins started it again after it closed", "", true); !slices.Equal(f.nativePrompts, []string{want}) {
 		t.Errorf("the CFO was told %q, want %q", f.nativePrompts, want)
 	}
 }

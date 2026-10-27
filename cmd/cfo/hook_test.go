@@ -1514,6 +1514,39 @@ func TestRunHookSessionStartResumeNoMarkerFallsThrough(t *testing.T) {
 	}
 }
 
+// A CFO brought back on the conversation the home last registered is told
+// its conversation read the long digest already; one on another conversation
+// is told to read it.
+func TestRunHookSessionStartTellsAResumedConversationNotToReadTheLongDigestAgain(t *testing.T) {
+	for _, testCase := range []struct {
+		name, source, session, want string
+	}{
+		{name: "its own conversation resumed", source: "resume", session: "conversation-1", want: "do not read it again"},
+		{name: "another conversation resumed", source: "resume", session: "conversation-2", want: "Read all of it"},
+		{name: "a new conversation", source: "startup", session: "conversation-1", want: "Read all of it"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			dir := newCFOHome(t)
+			if err := os.WriteFile(filepath.Join(dir, "state", "cfo-conversation.json"), []byte(`{"harness":"claude","session":"conversation-1","host":"cfo","pid":1,"updated":"2026-10-27T12:00:00Z"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runHook("session-start", strings.NewReader(fmt.Sprintf(`{"session_id":%q,"source":%q}`, testCase.session, testCase.source)), &stdout, &stderr)
+
+			// Assert
+			if exit != 0 {
+				t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), testCase.want) {
+				t.Errorf("stdout does not say %q:\n%s", testCase.want, stdout.String())
+			}
+		})
+	}
+}
+
 const sessionStartNudge = "CFO: operational input may be waiting; run cfo drain if supervision was active. For an explicit user decision, publish cfo question --id <stable-id> --text <question> [--option <choice>] [--recommend <exact-choice>] from the registered primary shell. Answers return as normal messages to the same CFO, not native prompt-tool responses.\n"
 
 // TestRunHookSessionStartRouting pre-writes the session lock and completion

@@ -255,7 +255,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 	if len(resume) > 0 {
 		conversation := resume[len(resume)-1]
 		list.Working("CFO", "coming back as "+onboarding.Name(agent)+" on its conversation")
-		held, err := comeBack(h, agent, resume, backPrompt(h, agent, back, ""), runtime.startNativeCFO, runtime.nativeTerminalRuns)
+		held, err := comeBack(h, agent, resume, backPrompt(h, agent, back, "", true), runtime.startNativeCFO, runtime.nativeTerminalRuns)
 		if err != nil {
 			return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 		}
@@ -277,7 +277,7 @@ func ensureCFOSession(ctx context.Context, runtime commandRuntime, h home.Home, 
 		left = &supervisor.CFOConversationLeft{Harness: agent, Session: conversation, Resume: resume}
 	}
 	list.Working("CFO", "starting as "+onboarding.Name(agent))
-	if err := runtime.startNativeCFO(h, h.Root, agent, nil, backPrompt(h, agent, back, strings.Join(said, " "))); err != nil {
+	if err := runtime.startNativeCFO(h, h.Root, agent, nil, backPrompt(h, agent, back, strings.Join(said, " "), false)); err != nil {
 		return cfoSession{}, false, fmt.Errorf("the CFO could not be started in a native terminal: %w", err)
 	}
 	if left != nil {
