@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 func cfoJobActivity(record host.Record) (string, error) {
-	members, err := proc.JobProcesses(record.HostPID)
+	members, err := proc.CustodyJobProcesses(record.HostPID)
 	if err != nil {
 		return "", err
 	}
@@ -24,32 +23,25 @@ func cfoJobActivity(record host.Record) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return cfoJobBlocking(members, services, record.ChildPID, proc.Arguments)
+	return cfoJobBlocking(members, services, record.ChildPID, record.HostPID, proc.Arguments)
 }
 
-func cfoJobBlocking(members []proc.Entry, services map[int]proc.Service, cfoPID int, arguments func(int) ([]string, error)) (string, error) {
+func cfoJobBlocking(members []proc.Entry, services map[int]proc.Service, cfoPID, hostPID int, arguments func(int) ([]string, error)) (string, error) {
 	for _, member := range members {
 		if member.PID == cfoPID || services[member.PID] != proc.NoService {
 			continue
 		}
-		switch strings.ToLower(filepath.Base(member.ExeBase)) {
-		case "no-mistakes.exe":
-			return "Waiting for the CFO's gate command to finish", nil
-		case "cfo.exe", "goblins.exe":
+		if member.ParentPID == hostPID {
 			args, err := arguments(member.PID)
-			if err != nil {
-				return "", fmt.Errorf("cannot inspect a process in the CFO's terminal job")
-			}
-			if len(args) < 2 {
-				return "", fmt.Errorf("cannot identify a process in the CFO's terminal job")
-			}
-			switch strings.ToLower(args[1]) {
-			case "pipeline", "gate", "verify":
-				return "Waiting for the CFO's gate command to finish", nil
-			case "host":
-				return "Waiting for a worker contained in the CFO's terminal to finish", nil
+			if err == nil && len(args) == 1 && args[0] == "cfo-conpty-waker" {
+				continue
 			}
 		}
+		name := filepath.Base(member.ExeBase)
+		if name == "." || name == "" {
+			name = "process"
+		}
+		return fmt.Sprintf("Waiting for %s (pid %d) in the CFO's terminal to finish", name, member.PID), nil
 	}
 	return "", nil
 }
