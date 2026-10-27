@@ -9,12 +9,11 @@ for (const width of [1440, 390]) {
     await open(page, snapshot({}, { harness: "pi" }), "", { ...PAGE, usage: USAGE });
     await openGoblin(page);
     await field(page).fill("keep this draft");
-    const composer = box(page);
     await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
 
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), more: false });
 
-    const ring = composer.getByRole("button", { name: "Context usage unavailable", exact: true });
+    const ring = page.getByRole("button", { name: "Context usage unavailable", exact: true });
     await expect(ring).toBeVisible();
     await ring.focus();
     const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });

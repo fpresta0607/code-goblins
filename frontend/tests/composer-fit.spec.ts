@@ -81,7 +81,7 @@ test("the Style menu opens without its button's tip over it", async ({ page }) =
   await openGoblin(page);
   const style = box(page).getByRole("button", { name: /^Style: / });
   await style.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("How this conversation is drawn");
+  await expect(page.getByRole("tooltip")).toHaveText("Chat style and speech history");
 
   // Act
   await style.click();
