@@ -63,14 +63,14 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, isShown = true, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   stats?: SessionStats; reading?: UsageReading; model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // terminal is the terminal deck's key of the session's terminal, and
   // onSent is told of each message typed into it, so a screen of the
   // harness's own that it opens can bring the terminal in.
   terminal: string; focus?: number; onAnswer?: () => void; onSent?: (submission: string) => void;
-  isTerminalShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
+  isTerminalShown?: boolean; isShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -91,7 +91,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   // the list has picked while he types its word.
   const commandQuery = new URLSearchParams(task ? { task: task.id, generation: task.generation } : { cfo: snapshot.cfo_terminal || "1", since: snapshot.cfo_terminal_since || "" });
   commandQuery.set("token", snapshot.instance);
-  const commands = useResource("/api/commands?" + commandQuery.toString(), parseCommands);
+  // A box that is not on screen reads nothing: its own commands are read when
+  // he can see and use it, so a hidden box never reports a refusal.
+  const commands = useResource(isShown ? "/api/commands?" + commandQuery.toString() : null, parseCommands);
   const [pick, setPick] = useState(0);
   const [isCommandsClosed, setCommandsClosed] = useState(false);
   const [adding, setAdding] = useState(0);

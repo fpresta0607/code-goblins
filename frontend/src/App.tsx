@@ -544,7 +544,7 @@ export function App() {
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending} onStop={() => live?.escape()}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={!messagesShown ? undefined : (stats, reading, model) => createPortal(<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} stats={stats} reading={reading} model={model} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            box={(stats, reading, model) => createPortal(<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} stats={stats} reading={reading} model={model} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? stepOut : undefined}
@@ -552,7 +552,7 @@ export function App() {
           </Suspense>}
         </PanelStage>
         <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
-        {snapshot && queuedBox && !deckOwnsBox && createPortal(<Composer key={terminalKey} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
           focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}

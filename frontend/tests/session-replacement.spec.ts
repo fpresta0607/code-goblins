@@ -30,7 +30,9 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
         await expect(page.locator(".terminal-closed")).toBeVisible();
       } else relay.drop();
       if (input === "keyboard") await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
-      else if (input === "wheel") { await terminal.hover(); await page.mouse.wheel(0, -45); }
+      // The wheel goes over the terminal's top rows: its box also holds the
+      // queue's box under it, and the history is what the wheel asks for.
+      else if (input === "wheel") { const bounds = (await terminal.boundingBox())!; await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + Math.min(60, bounds.height / 4)); await page.mouse.wheel(0, -45); }
       else {
         const touch = await page.context().newCDPSession(page);
         await touch.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
@@ -151,7 +153,12 @@ for (const phone of [false, true]) {
         await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
         if (style === "modern") await field(page).fill("draft survives reconnect");
         const scroll = async (distance: number) => {
-          if (!phone) { await surface.hover(); await page.mouse.wheel(0, -distance); return; }
+          if (!phone) {
+            const bounds = (await surface.boundingBox())!;
+            await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + Math.min(60, bounds.height / 4));
+            await page.mouse.wheel(0, -distance);
+            return;
+          }
           const bounds = (await surface.boundingBox())!;
           const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height * .3;
           const touch = await page.context().newCDPSession(page);
