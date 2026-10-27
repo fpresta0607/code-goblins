@@ -16,6 +16,10 @@
 /* A short conversation sits at the bottom, by the latest, as a chat does,
    in one centred column of a readable width however wide the panel is. */
 .conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: 1.125em; width: 100%; max-width: 48em; min-height: 100%; margin-inline: auto; }
+/* The room of the messages after those drawn, above any queued message so
+   it stays at the very bottom; each message's room holds the gap after it,
+   so the gap before the room is taken back. */
+.conversation-room { margin-top: -1.125em; }
 .message { position: relative; display: grid; gap: .5em; min-width: 0; }
 /* His message in a quiet bubble on the right, with its Copy in the corner
    the speaker line used to hold. */

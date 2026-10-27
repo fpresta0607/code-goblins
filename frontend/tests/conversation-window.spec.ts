@@ -31,7 +31,7 @@ const watch = (page: Page) => page.evaluate(() => {
       else if (record.target === list && record.type === "childList") {
         for (const row of record.removedNodes) changes.push("left:" + (row instanceof Element ? row.getAttribute("data-message") : row.nodeName));
         for (const row of record.addedNodes) changes.push("joined:" + (row instanceof Element ? row.getAttribute("data-message") : row.nodeName));
-      } else if (record.target === list && record.attributeName === "style") changes.push("room");
+      } else if (record.attributeName === "style" && (record.target === list || record.target === list.querySelector(":scope > .conversation-room"))) changes.push("room");
       else changes.push("outside a message:" + record.type + ":" + (record.attributeName || ""));
     }
   }).observe(list, { subtree: true, childList: true, characterData: true, attributes: true });
@@ -230,4 +230,22 @@ test("the keyboard on a row that leaves the window goes to the list, whose keys 
   const before = await log(page).evaluate((element) => element.scrollTop);
   await page.keyboard.press("Shift+PageDown");
   await expect.poll(() => log(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(before);
+});
+
+test("the queue control brings a queued message into view while he reads far up a long conversation", async ({ page }) => {
+  // Arrange: a message waits in the queue, and he reads about 3,000 px up
+  // from the end of a long conversation.
+  await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: "queued while busy", status: "queued", at }] }), "", LONG);
+  await openGoblin(page);
+  await expect(log(page)).toContainText("Answer 999");
+  await log(page).evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight - 3000; });
+  await page.waitForTimeout(500);
+  const queued = log(page).locator('.queued-message[data-queued="q1"]');
+  await expect(queued).not.toBeInViewport();
+
+  // Act
+  await page.getByRole("button", { name: "1 queued message", exact: true }).click();
+
+  // Assert
+  await expect(queued).toBeInViewport();
 });

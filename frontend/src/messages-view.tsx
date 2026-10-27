@@ -363,9 +363,10 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
       <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
         onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
-        <div ref={items} className="conversation-items" style={{ paddingTop: drawn.before, paddingBottom: drawn.after }}>
+        <div ref={items} className="conversation-items" style={{ paddingTop: drawn.before }}>
           {held.messages.slice(drawn.start, drawn.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
             task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
+          <div className="conversation-room" style={{ height: drawn.after }} />
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
