@@ -56,6 +56,7 @@ export function useRuntimeStream() {
         try {
           const items = parseItems(JSON.parse(event.data));
           setSnapshot((current) => withItems(current, items));
+          setReceivedAt(Date.now());
         } catch (error: unknown) {
           reportToCfo("the board's snapshot stream", message(error));
           setConnection("Invalid stream");

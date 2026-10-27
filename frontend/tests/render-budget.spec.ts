@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, openTaskList, test, type Page } from "./site";
 
 // The board's render budget (#1599, #1580). The Overlord, 2026-10-27: "every
 // UI change must load intelligently ... An update re-renders only what it
@@ -116,6 +116,27 @@ test("a snapshot that changes nothing draws no card and almost nothing else", as
   const counts = await counted(page);
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
   expect(total(counts), JSON.stringify(counts.rendered)).toBeLessThanOrEqual(40);
+});
+
+test("a snapshot that changes nothing draws no queued card in the CFO's panel", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute, and the CFO's panel
+  // shows its queue.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const snapshot = fleet([...WORKING, ...RESTING]);
+  await open(page, snapshot);
+  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).first().click();
+  await openTaskList(page);
+  await expect(page.locator(".cfo-queue .task-card-shell").first()).toBeVisible();
+  await page.waitForTimeout(1000);
+  await reset(page);
+
+  // Act
+  await push(page, { ...snapshot, revision: 2, at: "2026-10-27T09:00:15Z" });
+  await page.waitForTimeout(500);
+
+  // Assert
+  const counts = await counted(page);
+  expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
 });
 
 test("a snapshot that changes the meters alone draws no card", async ({ page }) => {

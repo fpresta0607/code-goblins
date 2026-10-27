@@ -222,6 +222,7 @@ export function App() {
   // it is given stays the same between renders and calls the latest select.
   const latestSelect = useRef<(next: Selection, source: HTMLElement) => void>(() => undefined);
   const selectTask = useCallback((task: Task, source: HTMLElement) => latestSelect.current({ task: task.id }, source), []);
+  const openTask = useCallback((next: Task) => latestSelect.current({ task: next.id }, pane.current || document.body), []);
   const select = (next: Selection, source: HTMLElement) => {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
@@ -541,7 +542,7 @@ export function App() {
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews} hasWorkingFooter={messagesShown && isWorking}
             view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
-            onOpenTask={(next) => select({ task: next.id }, pane.current || document.body)} />)}
+            onOpenTask={openTask} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
