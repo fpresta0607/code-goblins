@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -162,6 +163,127 @@ func TestPipelineRunRefusesAnIntentGivenTwiceOrNotAtAll(t *testing.T) {
 			}
 			if len(runner.started) != 0 {
 				t.Errorf("no-mistakes started %d runs, want none", len(runner.started))
+			}
+		})
+	}
+}
+
+// liveRunHead is the commit a task branch and its live run both hold.
+const liveRunHead = "0123456789abcdef0123456789abcdef01234567"
+
+// movedRunHead is a commit the branch holds after the live run started.
+const movedRunHead = "89abcdef0123456789abcdef0123456789abcdef"
+
+// liveRunStart is a version 6 gated task whose branch holds one live run at
+// liveRunHead with the intent, and the runner that answers its start.
+func liveRunStart(t *testing.T, status, submittedHead, intent string) (home.Home, string, *gateStartRunner) {
+	t.Helper()
+	policy := versionSixPolicy(t, pipeline.Reviewer{})
+	h, nm := gateHome(t, policy, operatorMachineConfig)
+	wt, _ := gatedTask(t, h, "task", policy, claudeGoblin)
+	runner := &gateStartRunner{pipelineStartRunner: pipelineStartRunner{
+		worktree: wt,
+		head:     liveRunHead,
+		previous: []byte(`[{"id":"live","status":"` + status + `","head":"` + liveRunHead + `","submitted_head":"` + submittedHead + `","intent":"` + intent + `"}]`),
+	}}
+	return h, nm, runner
+}
+
+// A managed start whose native bounded hold ended with no decision reattaches
+// to the live run of the same branch, head and intent, which keeps working and
+// its own review budget, so the command the wait-expiry output names is not one
+// the driver refuses (issue 1421). A start of other work is still refused.
+func TestPipelineRunReattachesToTheLiveRunOfTheSameWork(t *testing.T) {
+	const liveIntent = "ship the connection fix safely"
+	for _, test := range []struct {
+		name         string
+		intent       string
+		submitted    string
+		wantReattach bool
+	}{
+		{name: "the same branch, head and intent", intent: liveIntent, submitted: liveRunHead, wantReattach: true},
+		{name: "a run that recorded no submitted head at the same head", intent: liveIntent, submitted: "", wantReattach: true},
+		{name: "the intent names other work", intent: "rework the billing export", submitted: liveRunHead},
+		{name: "the branch moved since the run started", intent: liveIntent, submitted: movedRunHead},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := liveRunStart(t, "running", test.submitted, liveIntent)
+			var out bytes.Buffer
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", test.intent}, &out)
+
+			// Assert
+			if !test.wantReattach {
+				if !errors.Is(err, pipeline.ErrUnresolved) {
+					t.Fatalf("pipeline run returned %v, want the unresolved earlier-run refusal", err)
+				}
+				if len(runner.native) != 0 {
+					t.Fatalf("no-mistakes started %v, want nothing", runner.native[0].Args)
+				}
+				if !strings.Contains(err.Error(), "live") {
+					t.Errorf("refusal %q does not name the live run", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("pipeline run: %v", err)
+			}
+			if len(runner.native) != 1 {
+				t.Fatalf("native launches=%+v, want one", runner.native)
+			}
+			// Reattachment takes no intent and no launch selection: the run
+			// already carries its own, and a different selection cannot change
+			// an active run.
+			if args := strings.Join(runner.native[0].Args, " "); args != "axi run" {
+				t.Fatalf("native launch argv %q, want the bare reattachment", args)
+			}
+			if want := "pipeline: reattached to run live on feat/policy"; !strings.Contains(out.String(), want) {
+				t.Errorf("output %q does not say %q", out.String(), want)
+			}
+		})
+	}
+}
+
+// When the native hold ends with no decision, the driver says the run keeps
+// working and names the start that reattaches, never only the exit code. Any
+// other native refusal is still reported as itself.
+func TestPipelineRunReportsABoundedWaitAsNotAFailure(t *testing.T) {
+	const liveIntent = "ship the connection fix safely"
+	for _, test := range []struct {
+		name    string
+		result  execx.Result
+		want    string
+		wantNot string
+	}{
+		{
+			name:    "the bounded hold ended",
+			result:  execx.Result{ExitCode: 1, Stdout: []byte("error: wait of 8m0s elapsed while driving the run\nhelp: Re-run `no-mistakes axi run` to reattach for another 8m0s\n")},
+			want:    "Repeat this command to reattach",
+			wantNot: "native command exited 1",
+		},
+		{
+			name:   "a refusal of its own",
+			result: execx.Result{ExitCode: 1, Stdout: []byte("error: protected-path refusal requires an explicit response\n")},
+			want:   "native command exited 1",
+			wantNot: "Repeat this command to reattach",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := liveRunStart(t, "running", liveRunHead, liveIntent)
+			runner.nativeResult = test.result
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"run", "task", "--intent", liveIntent}, &bytes.Buffer{})
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("pipeline run returned %v, want a refusal saying %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), test.wantNot) {
+				t.Errorf("refusal %q says %q", err, test.wantNot)
 			}
 		})
 	}
