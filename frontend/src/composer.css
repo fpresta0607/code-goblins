@@ -63,3 +63,7 @@
   .composer-controls .engine-control:first-child { flex: 1; min-width: 0; max-width: none; text-align: left; }
 }
 
+/* The permission mode the session's terminal shows, which a press or
+   Shift+Tab cycles as in the terminal. */
+.composer-control.mode-chip { gap: 6px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--mint); font-size: .8125rem; white-space: nowrap; }
+.composer-control.mode-chip .icon { width: 14px; height: 14px; }

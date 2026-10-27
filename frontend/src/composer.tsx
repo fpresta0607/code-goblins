@@ -9,7 +9,7 @@ import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionFile, parseFiles } from "./mentions";
 import { parseCommands, slashOptions } from "./commands";
-import { panelKey } from "./panel-keys";
+import { PANEL_KEYS, panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
 import { QueuedMessage } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
@@ -154,6 +154,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const isAsking = !!live?.screen?.isOpen;
   // A screen the relay could not read as a list still offers its keys.
   const panel = isAsking ? live?.screen?.panel ?? { rows: [], choices: [], hints: [] } : null;
+  // The permission mode the session's terminal shows, which Shift+Tab cycles.
+  const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;
   const harness = task?.harness || snapshot.cfo_harness;
   const isEngineSupported = ["claude", "codex", "pi"].includes(harness);
@@ -390,6 +392,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
             <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}>Modern</button>
             <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}>Classic</button>
           </div>}
+          {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip="Shift+Tab changes the mode" disabled={isHeld}
+            onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); }}><Icon name="shield" />{mode[0].toUpperCase() + mode.slice(1)}</button>}
           {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
         </div>
         <div className="composer-controls">

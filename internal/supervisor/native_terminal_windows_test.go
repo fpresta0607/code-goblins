@@ -1000,13 +1000,13 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "harness\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "permission\r")
 	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}]}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
-	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -1037,13 +1037,13 @@ func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "harness\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "panel\r")
 	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":"","panel":{"rows":["Permissions:  Allow   Ask   Deny"],"choices":[{"text":"Add a new rule…","focused":true},{"text":"Bash(go test:*)"}],"hints":["Press ↑↓ to navigate · Esc to cancel"]}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
-	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
+	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -1072,7 +1072,7 @@ func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "background\r")
 	v.waitFor(t, "1 shell")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "/model\r")
 	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`)
@@ -1090,7 +1090,7 @@ func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
 	}
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions"}`)
 	if slices.Contains(terminal.lines(t), "turn ended") {
 		t.Error("the view learned of the turn only after its spinner stopped")
 	}
@@ -1243,7 +1243,7 @@ func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraw
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
 
-	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions"}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()

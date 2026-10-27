@@ -83,3 +83,29 @@ func TestAPanelReadsOnlyTheScreensLastRows(t *testing.T) {
 		t.Errorf("an empty screen read %#v", empty)
 	}
 }
+
+// The permission mode a composer's footer names reads as the mode, from
+// Claude Code's footer rows only, never from a reply above that quotes one,
+// and a harness without modes or a screen with no footer reads as none. The
+// footer rows are Claude Code 2.1.302's.
+func TestAComposerFooterNamesItsPermissionMode(t *testing.T) {
+	rule := strings.Repeat("─", 56)
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		want   string
+	}{
+		"auto mode":                   {Claude, []string{"● Done.", rule, "❯ ", rule, "  ⏵⏵ auto mode on (shift+tab to cycle)"}, "auto mode"},
+		"accept edits with an update": {Claude, []string{"● Done.", rule, "❯ ", rule, "  ⏵⏵ accept edits on (shift+tab to cycle)", "  ✓ Update installed · Restart to update"}, "accept edits"},
+		"a reply that quotes a mode":  {Claude, []string{"● It runs with plan mode on.", "", "", "", " Select model", " ❯ 1. Default", "   2. Sonnet", " Enter to confirm · Esc to exit"}, ""},
+		"Codex":                       {Codex, []string{"› Ask Codex to do anything", "  100% context left"}, ""},
+		"nothing":                     {Claude, nil, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			screens, _ := NativeScreens(test.kind)
+			if got := screens.Mode(test.screen); got != test.want {
+				t.Errorf("Mode(%q) = %q, want %q", test.screen, got, test.want)
+			}
+		})
+	}
+}

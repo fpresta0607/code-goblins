@@ -76,7 +76,9 @@ type nativeRelay struct {
 // screenState is what a view is told of its harness's screen: whether the
 // harness waits on an answer at a screen of its own, and whether something of
 // its own is open in its input line's place or a turn is running. Panel is
-// what is open, read so the board can offer it as a list he picks from.
+// what is open, read so the board can offer it as a list he picks from, and
+// Mode the permission mode its composer's footer names, which Shift+Tab
+// cycles.
 type screenState struct {
 	Asking     bool           `json:"asking"`
 	Open       bool           `json:"open"`
@@ -84,6 +86,7 @@ type screenState struct {
 	Submission string         `json:"submission"`
 	HasStarted bool           `json:"started,omitempty"`
 	Panel      *harness.Panel `json:"panel,omitempty"`
+	Mode       string         `json:"mode,omitempty"`
 }
 
 // relaySize is a size to tell the view once the output before it is sent.
@@ -289,6 +292,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			panel := harness.ReadPanel(rows)
 			state.Panel = &panel
 		}
+		state.Mode = screens.Mode(rows)
 		message, _ := json.Marshal(struct {
 			Type string `json:"type"`
 			screenState
