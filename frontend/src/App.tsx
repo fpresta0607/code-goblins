@@ -377,14 +377,16 @@ export function App() {
   }
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
   const stepIn = () => { if (chatStyle === "classic") setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
-  // Stepping out is Modern's Back to the conversation and Classic's way back
-  // into it, and either way it chooses Modern: a board he steps out of the
-  // harness's terminal on is a board he wants drawn as the conversation from
-  // then on (the Overlord, 2026-10-27: "Back to messages doesn't flip task
-  // setting to modern either"). The conversation stays mounted under the
-  // terminal, so the session, its history, an unsent draft and the place he
-  // read are kept.
-  const stepOut = () => { if (chatStyle === "classic") setClassicOut(terminalKey); chooseStyle("modern"); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
+  // Reading back in a terminal that cannot take input opens its recorded
+  // conversation in the terminal's place and leaves the saved style alone. The
+  // conversation stays mounted under the terminal, so the session, its
+  // history, an unsent draft and the place he read are kept.
+  const readHistory = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
+  // Back to messages is the one step out that also chooses Modern: a board he
+  // steps out of the harness's terminal on is a board he wants drawn as the
+  // conversation from then on (the Overlord, 2026-10-27: "Back to messages
+  // doesn't flip task setting to modern either"), and only it does (#1584).
+  const stepOut = () => { readHistory(); chooseStyle("modern"); };
   // Once offered, the composer stays reachable as input becomes ready so an
   // upload, a Send still landing, a failed Send to retry or its own recording
   // keeps its controls and result.
@@ -548,7 +550,7 @@ export function App() {
             box={(stats, reading, model) => createPortal(<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} stats={stats} reading={reading} model={model} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
-            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? stepOut : undefined}
+            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
         </PanelStage>

@@ -1384,7 +1384,7 @@ At its end it follows what arrives, and while he reads further up nothing moves 
 Jump to latest, at the list's foot while he reads up, returns to the end.
 Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
-While such a terminal cannot accept input, scrolling back opens its recorded conversation, which saves Modern as Back to messages does, without typing.
+While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference; only Back to messages saves Modern (#1584).
 The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
 At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
 The indicator has no icon of its own and takes the harness's colour.
