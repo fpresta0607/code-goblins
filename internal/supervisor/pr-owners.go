@@ -59,12 +59,7 @@ func (o *fleetOwners) isAccount(ctx context.Context, runner execx.Runner, dir, l
 // pullRequestRepository is the owner and name of the repository a pull
 // request's address, as GitHub gives it, puts it in.
 func pullRequestRepository(url string) (owner, name string) {
-	rest := url
-	if _, after, found := strings.Cut(rest, "://"); found {
-		rest = after
-	}
-	_, rest, _ = strings.Cut(rest, "/")
-	owner, rest, _ = strings.Cut(rest, "/")
+	owner, rest, _ := strings.Cut(strings.TrimPrefix(url, "https://github.com/"), "/")
 	name, _, _ = strings.Cut(rest, "/")
 	return owner, name
 }

@@ -17,8 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -26,7 +24,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
-	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
@@ -651,7 +648,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		// repository above a directory as well as from the one in it, so a
 		// checkout that moved leaving its old path inside another checkout
 		// would otherwise be read, and polled, as that other project.
-		root, rootErr := checkoutRoot(ctx, runner, repo)
+		root, refusal, rootErr := checkoutRoot(ctx, runner, repo)
 		if ctx.Err() != nil {
 			return errs
 		}
@@ -664,6 +661,11 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 				failure := fmt.Errorf("ci wakes: read the checkout of %s: %s", repo, redact(rootErr.Error()))
 				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "check the checkout's Git repository, its ownership and its access", now))
 			}
+			continue
+		}
+		if refusal != nil {
+			failure := fmt.Errorf("ci wakes: read the checkout of %s: %s", repo, refusal.Error())
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "check the checkout's Git repository, its ownership and its access", now))
 			continue
 		}
 		if root == "" {
@@ -778,27 +780,29 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	return errs
 }
 
-// checkoutRoot reads the root of the Git repository git finds for dir, which
-// is empty when it finds none. Git answers from the nearest repository above a
-// directory as well as from the one in it, which is why the caller compares
-// this root with the checkout it recorded rather than trusting the answer. A
-// refusal other than git's own no-repository answer is returned as an error so
-// the poll reports what git said instead of calling the checkout invalid.
-func checkoutRoot(ctx context.Context, runner execx.Runner, dir string) (string, error) {
+// checkoutRoot reads the root of the Git repository a recorded checkout is in,
+// which is empty when git finds none. Git answers from the nearest repository
+// above a directory as well as from the one in it, which is why the caller
+// compares this root with the checkout it recorded rather than trusting the
+// answer. A folder holding its own .git is a checkout, so git refusing to read
+// that one is returned as the refusal it is rather than read as no checkout:
+// which of the two happened is decided by what is on disk, never by the words
+// of a message git may print in another language.
+func checkoutRoot(ctx context.Context, runner execx.Runner, dir string) (root string, refusal error, err error) {
 	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
 	result, err := runner.Run(probe, execx.Request{Dir: dir, Name: "git", Args: []string{"rev-parse", "--show-toplevel"}})
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	if result.ExitCode != 0 {
-		detail := strings.TrimSpace(string(result.Stderr))
-		if strings.Contains(strings.ToLower(detail), "not a git repository") {
-			return "", nil
-		}
-		return "", fmt.Errorf("git rev-parse --show-toplevel exited %d: %s", result.ExitCode, bounded(redact(detail), 300))
+	if result.ExitCode == 0 {
+		return strings.TrimSpace(string(result.Stdout)), nil, nil
 	}
-	return strings.TrimSpace(string(result.Stdout)), nil
+	if _, statErr := os.Stat(filepath.Join(dir, ".git")); statErr == nil {
+		detail := bounded(redact(strings.TrimSpace(string(result.Stderr))), 300)
+		return "", fmt.Errorf("git rev-parse --show-toplevel exited %d: %s", result.ExitCode, detail), nil
+	}
+	return "", nil, nil
 }
 
 // forgetUnreadable clears what a repository's earlier failing reads
@@ -842,33 +846,12 @@ func splitRemote(remote string) (host, repository string, ok bool) {
 	return host, repository, host != ""
 }
 
-// isGitHubHost recognizes gh's configured hosts. An unreadable configuration
-// is uncertain, so the caller lets gh report the failure rather than skipping it.
+// isGitHubHost reports whether host is one GitHub serves. The fleet reads a
+// repository's pull requests, tickets, trains and task evidence on github.com
+// only, so a checkout kept elsewhere is hosted somewhere this monitor does not
+// read and is asked of GitHub nothing.
 func isGitHubHost(host string) bool {
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "github.com") || strings.EqualFold(host, "ssh.github.com") || strings.EqualFold(host, os.Getenv("GH_HOST")) {
-		return true
-	}
-	folder := readcache.GHConfigFolder()
-	data, err := fsx.ReadFile(filepath.Join(folder, "hosts.yml"))
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	if err != nil {
-		return true
-	}
-	var hosts map[string]yaml.Node
-	if err := yaml.Unmarshal(data, &hosts); err != nil {
-		return true
-	}
-	for configured := range hosts {
-		if strings.EqualFold(host, configured) {
-			return true
-		}
-	}
-	return false
+	return strings.EqualFold(host, "github.com") || strings.EqualFold(host, "ssh.github.com")
 }
 
 // reportUnreadable remembers why repo's CI could not be read and raises
@@ -1033,14 +1016,6 @@ func prBaseBranch(ctx context.Context, runner execx.Runner, repo, url string) (b
 	return read.BaseRefName, read.HeadRefName, nil
 }
 
-// isPullRequestAddress reports whether url is an open pull request's address
-// on a host this monitor reads, so a repository kept on such a host has its
-// pull requests read like any other.
-func isPullRequestAddress(url string) bool {
-	_, _, ok := pullRequestBaseRepository(url)
-	return ok
-}
-
 // pullRequestBaseRepository names the repository a pull request URL lives in,
 // which is the repository its base branch is in, and the host it was opened on.
 func pullRequestBaseRepository(url string) (host, repository string, ok bool) {
@@ -1049,9 +1024,9 @@ func pullRequestBaseRepository(url string) (host, repository string, ok bool) {
 		return "", "", false
 	}
 	parts := strings.Split(trimmed, "/")
-	// Only a host this monitor reads is a base a local remote can hold, so a
-	// pull request opened anywhere else names no base here.
-	if len(parts) != 5 || !isGitHubHost(parts[0]) || parts[3] != "pull" || parts[1] == "" || parts[2] == "" || parts[4] == "" {
+	// Only the host the remotes are parsed for is a base a local remote can
+	// hold, so a pull request opened anywhere else names no base here.
+	if len(parts) != 5 || parts[0] != "github.com" || parts[3] != "pull" || parts[1] == "" || parts[2] == "" || parts[4] == "" {
 		return "", "", false
 	}
 	for _, digit := range parts[4] {
@@ -1333,7 +1308,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		return nil, fmt.Errorf("ci wakes: the open pull requests of %s were not read", repo), nil
 	}
 	for _, pr := range open {
-		if pr.Number <= 0 || pr.HeadRefOid == "" || !isPullRequestAddress(pr.URL) {
+		if pr.Number <= 0 || pr.HeadRefOid == "" || !githubPullRequest.MatchString(pr.URL) {
 			return nil, fmt.Errorf("ci wakes: an invalid pull request was listed for %s", repo), nil
 		}
 	}

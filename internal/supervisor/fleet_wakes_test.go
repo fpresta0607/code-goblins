@@ -258,7 +258,6 @@ type fakeForge struct {
 	branch          string
 	noOrigin        bool
 	noOriginHead    bool
-	origin          string // the repository's origin, github.com/o/r.git unless set
 	originBranches  []string
 	ghFailure       string
 	ghCalls         int
@@ -299,7 +298,7 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 		if inRepo && f.noOrigin {
 			return execx.Result{ExitCode: 1}, nil
 		}
-		return execx.Result{Stdout: []byte(cmp.Or(f.origin, "https://github.com/o/r.git") + "\n")}, nil
+		return execx.Result{Stdout: []byte("https://github.com/o/r.git\n")}, nil
 	case strings.HasPrefix(command, "git rev-parse --show-toplevel"):
 		return execx.Result{Stdout: []byte(req.Dir + "\n")}, nil
 	case strings.HasPrefix(command, "git branch --show-current"):
@@ -1672,6 +1671,11 @@ func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
 func TestCIMonitorReportsGitRefusalInsteadOfCallingTheCheckoutInvalid(t *testing.T) {
 	s, h := fleetService(t)
 	project := t.TempDir()
+	// The folder holds its own .git, as a checkout does: git refusing to read
+	// that checkout is a fault to report, never a folder that is no checkout.
+	if err := os.Mkdir(filepath.Join(project, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
 	liveGoblin(t, h, "cg-wakes", project)
 	forge := forgeFor(project, "cg-wakes")
 	forge.pulls, forge.runs = "[]", "[]"
@@ -1792,14 +1796,40 @@ func TestCIMonitorReadsOriginFromIncludedConfiguration(t *testing.T) {
 	}
 }
 
-func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
+// A checkout hosted where GitHub does not serve is none of this monitor's
+// business, even when gh itself is signed in to that host, so it is asked of
+// GitHub nothing and never answered with gh's sign-in advice.
+func TestCIMonitorSkipsAHostGitHubDoesNotServe(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", config)
 	t.Setenv("GH_HOST", "")
 	if err := os.WriteFile(filepath.Join(config, "hosts.yml"), []byte("enterprise.example:\n  user: example\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, remote := range []string{"https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "https://enterprise.example/o/r.git", "https://github.com/%zz"} {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	git := execx.OSRunner{}
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://enterprise.example/o/r.git"}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	if forge.ghCalls != 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+		t.Fatalf("an enterprise host made %d GitHub calls and raised %+v, want neither", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+	}
+}
+
+func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
+	for _, remote := range []string{"https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "https://github.com/%zz"} {
 		t.Run(remote, func(t *testing.T) {
 			s, h := fleetService(t)
 			project := t.TempDir()
@@ -1823,55 +1853,6 @@ func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
 				t.Fatalf("calls=%d wakes=%+v, want GitHub failure visible", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
 			}
 		})
-	}
-}
-
-func TestPullRequestAddressesOnAMonitoredHost(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("GH_CONFIG_DIR", config)
-	t.Setenv("GH_HOST", "")
-	if err := os.WriteFile(filepath.Join(config, "hosts.yml"), []byte("enterprise.example:\n  user: example\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range []struct {
-		url, host, repository, owner, name string
-		isBase                             bool
-	}{
-		{"https://github.com/o/r/pull/1", "github.com", "o/r", "o", "r", true},
-		{"https://enterprise.example/o/r/pull/1", "enterprise.example", "o/r", "o", "r", true},
-		{"https://gitlab.com/o/r/merge_requests/1", "", "", "o", "r", false},
-		{"https://github.com/o/r/issues/1", "", "", "o", "r", false},
-	} {
-		host, repository, isBase := pullRequestBaseRepository(c.url)
-		owner, name := pullRequestRepository(c.url)
-		if host != c.host || repository != c.repository || isBase != c.isBase || owner != c.owner || name != c.name {
-			t.Fatalf("%s: base=(%q,%q,%t) repository=(%q,%q), want base=(%q,%q,%t) repository=(%q,%q)", c.url, host, repository, isBase, owner, name, c.host, c.repository, c.isBase, c.owner, c.name)
-		}
-	}
-}
-
-// A pull request opened on a host gh is configured for is read like any other:
-// its repository comes from its own address, so PR health is not silently off
-// for a checkout that lives on an enterprise host.
-func TestPRHealthReadsAPullRequestOnAConfiguredHost(t *testing.T) {
-	config := t.TempDir()
-	t.Setenv("GH_CONFIG_DIR", config)
-	t.Setenv("GH_HOST", "")
-	if err := os.WriteFile(filepath.Join(config, "hosts.yml"), []byte("enterprise.example:\n  user: example\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	service, h, forge, now := healthService(t, false)
-	forge.origin = "https://enterprise.example/o/r.git"
-	forge.pulls = `[{"number":209,"url":"https://enterprise.example/o/r/pull/209","headRefName":"feat/wakes","headRefOid":"head-one","baseRefName":"main","mergeable":"CONFLICTING","isCrossRepository":false,"author":{"login":"teammate"},"statusCheckRollup":[]}]`
-	forge.comparisons = healthComparison("head-one", 0)
-
-	if err := service.checkFleet(context.Background(), now); err != nil {
-		t.Fatal(err)
-	}
-
-	wakes := fleetWakeRecords(t, h, "pr")
-	if len(wakes) != 1 || wakes[0].Key != "health:o/r" || !strings.Contains(wakes[0].Detail, "conflicts") {
-		t.Fatalf("health wakes = %+v, want one for o/r naming its conflict", wakes)
 	}
 }
 
