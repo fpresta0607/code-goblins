@@ -73,7 +73,7 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, isShown = true, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   stats?: SessionStats; reading?: UsageReading; model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // terminal is the terminal deck's key of the session's terminal, and
@@ -81,6 +81,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // its list does not cover.
   terminal: string; focus?: number; onShowTerminal?: () => void;
   isTerminalShown?: boolean; isShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
+  // isWorking says the session's harness is running a turn, which Stop in
+  // the send button's place interrupts while the box is empty, and history
+  // is what he sent the session before, oldest first, which Up recalls.
+  isWorking?: boolean; history?: string[];
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -97,6 +101,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const [unsent, setUnsent] = useState("");
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [isStyleOpen, setStyleOpen] = useState(false);
+  // Which of his earlier messages Up has brought back into the box, if any.
+  const [recalled, setRecalled] = useState<number | null>(null);
   // The session's slash commands, read from its harness, the files its @
   // names, and the option the open list has picked while he types its word.
   // Escape closes the list until the draft changes. A box that is not on
@@ -146,6 +152,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   }, [draft]);
   const write = (next: (prior: string) => string) => {
     setDraft(next);
+    setRecalled(null);
     setUnsent("");
     setListClosed(false);
     setPick(0);
@@ -312,6 +319,26 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setCaret(chosen.caret);
     requestAnimationFrame(() => { box?.focus(); box?.setSelectionRange(chosen.caret, chosen.caret); });
   };
+  // Up in an empty box, or on the first line of a message it recalled,
+  // brings back what he sent before, newest first, as the terminal does, and
+  // Down walks forward again to the empty box; any edit ends the recall.
+  const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const box = event.currentTarget;
+    const shown = recalled !== null && draft === history[recalled] ? recalled : null;
+    if (event.key === "ArrowUp" && (!draft || shown !== null && !box.value.slice(0, box.selectionStart).includes("\n")) && history.length) {
+      const at = Math.max(0, (shown ?? history.length) - 1);
+      setRecalled(at);
+      setDraft(history[at]);
+      return true;
+    }
+    if (event.key === "ArrowDown" && shown !== null && !box.value.slice(box.selectionEnd).includes("\n")) {
+      const at = shown + 1;
+      setRecalled(at < history.length ? at : null);
+      setDraft(at < history.length ? history[at] : "");
+      return true;
+    }
+    return false;
+  };
   const keys = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (dictation.key(event.nativeEvent) !== null) return;
     if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "v") {
@@ -337,6 +364,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       if (!live?.control(keysForPanel)) setUnsent(unsentWhy);
       return;
     }
+    if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && recall(event)) { event.preventDefault(); return; }
+    if (event.key === "Escape" && canStop && !event.shiftKey) { event.preventDefault(); live?.escape(); return; }
     if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault();
       if (!live?.control("\x1b[Z")) setUnsent(isHeld ? "Typing is paused." : unsentWhy);
@@ -365,6 +394,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const kept = task?.lifecycle?.kept_messages ?? [];
   const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
   const canSend = !isSending && !adding && !!draft.trim();
+  // While the harness works and the box is empty, the send button is Stop,
+  // which presses Escape in its terminal as the terminal's own Esc does.
+  const canStop = isWorking && !draft.trim() && !isSending && !!live && !isHeld;
   return <section className="composer" aria-label={"Messages to " + name}>
     {panel && !isHeld && !isTerminalShown && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
@@ -398,7 +430,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       <div className="composer-tools">
         <div className="composer-controls">
           <button type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip={isStyleOpen ? undefined : "How this conversation is drawn"}
-            onClick={() => setStyleOpen((prior) => !prior)}>{style === "classic" ? "Classic" : "Modern"}</button>
+            onClick={() => setStyleOpen((prior) => !prior)}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
           {isStyleOpen && <div className="composer-style-popover" role="group" aria-label="Chat style">
             <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}>Modern</button>
             <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}>Classic</button>
@@ -409,13 +441,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         </div>
         <div className="composer-controls">
           <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose in the session's model picker" : "Model controls need a connected, unheld composer"} onClick={() => changeEngine("model")}>{model || task?.model || "Model"}</button>
-          <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>Effort</button>
+          <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>{task?.effort || <Icon name="sparkle" />}</button>
           <button ref={recent} type="button" className="composer-control" aria-label="Speech history" aria-expanded={isRecentOpen} data-tip="Speech history" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
           {onOpenTerminal && <button type="button" className="composer-control" aria-label="Open in Windows Terminal" data-tip="Open this session in its own terminal window" onClick={onOpenTerminal}><Icon name="terminal" /></button>}
           {stats && reading && <ContextUsage stats={stats} reading={reading} />}
-          <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
-            <Icon name={isSending ? "clock" : "send"} />
-          </button>
+          {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
+            : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
+              <Icon name={isSending ? "clock" : "send"} />
+            </button>}
         </div>
       </div>
       <p className="composer-note" role={unsent ? "alert" : "status"}>{note}</p>

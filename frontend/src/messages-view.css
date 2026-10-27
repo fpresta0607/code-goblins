@@ -112,8 +112,6 @@ div.message-call, .message-baby, .disclosure.message-call > summary { align-item
 .session-working { display: inline-flex; align-items: center; gap: .5em; font-weight: 800; }
 .session-worked { white-space: nowrap; }
 .session-fact { white-space: nowrap; }
-.session-stop { min-height: 26px; margin-left: .4em; padding: 2px 6px; border: 0; background: transparent; font-size: .8125em; }
-.session-stop .icon { width: 14px; height: 14px; }
 .session-fact.muted { opacity: .8; }
 /* The input floats above the conversation with its controls outside the bar. */
 .composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; gap: 8px; padding: 0 16px 16px; }

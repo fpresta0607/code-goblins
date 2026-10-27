@@ -40,11 +40,11 @@ const UNREAD = "The session's messages cannot be read";
 // whose replies they are, task is the goblin whose baby goblins its calls
 // open, absent for the CFO, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, harness, model, effort, memory, isWorking, onStop, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean; onStop?: () => void;
+export function MessagesView({ query, instance, name, task, harness, model, effort, memory, isWorking, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
+  query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
   workingSince: string; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (stats: SessionStats, reading: UsageReading, model: string) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (stats: SessionStats, reading: UsageReading, model: string, history: string[]) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
@@ -265,6 +265,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   const stats = sessionStats({ usage: held.usage, model, effort, memory });
   const reading = usageBanner(harness, subscriptions, spend);
   const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt" && message.source !== "notice")?.at ?? "";
+  // What he sent the session himself, oldest first, which Up in the box
+  // brings back as the terminal's history does.
+  const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
   const lastReplyAt = [...held.messages].reverse().find((message) => message.kind === "reply")?.at ?? "";
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
@@ -286,9 +289,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
         <button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     </div>
     {(box || reading.banner) && <div className="composer-dock">
-      <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} onStop={onStop} />
+      <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
-      {box?.(stats, reading, held.usage?.model || model)}
+      {box?.(stats, reading, held.usage?.model || model, history)}
     </div>}
   </section>;
 }

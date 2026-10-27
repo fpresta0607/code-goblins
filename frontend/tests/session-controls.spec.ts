@@ -44,7 +44,7 @@ for (const width of [1440, 390]) {
       const composer = box(page, name);
       await field(page, name).fill("preserve this draft");
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText(USAGE.model);
-      await expect(composer.getByRole("button", { name: "Change effort", exact: true })).toHaveText("Effort");
+      await expect(composer.getByRole("button", { name: "Change effort", exact: true }), "the effort control shows the session's effort, or its icon where none is known").toHaveText(who === "CFO" ? "" : "xhigh");
 
       const ring = composer.getByRole("button", { name: "Context: 24% used", exact: true });
       await ring.focus();

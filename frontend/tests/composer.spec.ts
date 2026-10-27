@@ -181,15 +181,59 @@ test("while the harness asks in its terminal the box shows what it asks as a lis
   await expect(send(page)).toBeEnabled();
 });
 
-test("while the harness works the working line's Stop presses Escape in its terminal", async ({ page }) => {
+test("while the harness works an empty box's send button is Stop, which presses Escape as Esc in the box does, and a draft turns it back to Send", async ({ page }) => {
+  // Arrange
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "", at } }));
   await openGoblin(page);
-  const working = page.locator(".session-working");
-  await expect(working).toContainText("Working");
+  await expect(page.locator(".session-working")).toContainText("Working");
+  const stop = box(page).getByRole("button", { name: "Stop", exact: true });
 
-  await working.getByRole("button", { name: "Stop" }).click();
-
+  // Act and Assert: the button, then the key.
+  await stop.click();
   await expect.poll(() => typed(relay)).toBe("\x1b");
+  await field(page).press("Escape");
+  await expect.poll(() => typed(relay)).toBe("\x1b\x1b");
+
+  // A draft makes it Send again, and the footer has no second Stop.
+  await field(page).fill("one more thing");
+  await expect(stop).toHaveCount(0);
+  await expect(send(page)).toBeEnabled();
+  await expect(page.locator(".session-working").getByRole("button")).toHaveCount(0);
+});
+
+test("Up in an empty box recalls what he sent before, newest first, and Down walks back to the empty box", async ({ page }) => {
+  // Arrange: he sent two messages and a command earlier in the session.
+  const at2 = "2026-10-22T09:05:00Z";
+  await open(page, snapshot(), "", { messages: [
+    { id: "p0", seq: 0, at, kind: "prompt", source: "overlord", text: "Read the brief" },
+    { id: "r1", seq: 1, at, kind: "reply", blocks: [{ kind: "text", text: "On it." }] },
+    { id: "p2", seq: 2, at: at2, kind: "prompt", source: "cfo", text: "A note from the CFO" },
+    { id: "p3", seq: 3, at: at2, kind: "prompt", source: "slash", text: "/cost", output: "Total cost: $0.12" },
+    { id: "p4", seq: 4, at: at2, kind: "prompt", source: "overlord", text: "Now fix the swipe" },
+  ], more: false });
+  await openGoblin(page);
+
+  // Act and Assert
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("Now fix the swipe");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("/cost");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("Read the brief");
+  await field(page).press("ArrowUp");
+  await expect(field(page), "the oldest stays").toHaveValue("Read the brief");
+  await field(page).press("ArrowDown");
+  await expect(field(page)).toHaveValue("/cost");
+  await field(page).press("ArrowDown");
+  await field(page).press("ArrowDown");
+  await expect(field(page)).toHaveValue("");
+
+  // An edit ends the recall: Up in a box he wrote in moves the caret.
+  await field(page).press("ArrowUp");
+  await field(page).press("End");
+  await field(page).type(" now");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("Now fix the swipe now");
 });
 
 test("his draft stays through a switch of sessions, a reconnect and a reload of the board, as an update reloads it", async ({ page }) => {
