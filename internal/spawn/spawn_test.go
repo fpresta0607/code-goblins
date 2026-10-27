@@ -864,6 +864,36 @@ func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 	}
 }
 
+// A spawn that fails with its terminal still running keeps the task it
+// published, so the capsule's brief stays in the task's temporary directory
+// for the kept session and for a resume of it.
+func TestSpawnKeepsTheCapsuleOfALaunchItKeeps(t *testing.T) {
+	f := newQuickFixture(t)
+	taskTmp := filepath.Join(f.stateDir, "tasktmp", f.request.ID)
+	request := f.request
+	request.Capsule = func(dir string) (string, error) {
+		brief := filepath.Join(dir, "brief.md")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", err
+		}
+		return brief, os.WriteFile(brief, []byte("Delivery contract: mode=no-mistakes\nDo the work.\n\n## CFO durable task capsule\n"), 0o600)
+	}
+	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-inline", fakeCodexDraft+"=An unfinished user draft")
+
+	_, err := f.service.Spawn(context.Background(), request)
+
+	if err == nil || !strings.Contains(err.Error(), "holds a draft") {
+		t.Fatalf("Spawn = %v, want a refusal that keeps the running terminal", err)
+	}
+	if saved, err := os.ReadFile(filepath.Join(taskTmp, "brief.md")); err != nil || !strings.Contains(string(saved), "CFO durable task capsule") {
+		t.Fatalf("capsule brief = %q, %v; want it kept with the session", saved, err)
+	}
+	terminal, err := host.ReadRecord(f.stateDir, f.request.ID)
+	if err != nil || !host.Running(terminal) {
+		t.Fatalf("terminal = %+v, %v; want the kept launch's terminal running", terminal, err)
+	}
+}
+
 // taskTmpProbe refuses to build the launch, after noting whether the task's
 // temporary directory existed by then.
 type taskTmpProbe struct {
