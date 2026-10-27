@@ -476,10 +476,8 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .icon-button.raised:hover:not(:disabled) { transform: var(--lift); border-color: var(--glass-border-hover); box-shadow: var(--glass-shadow-hover); background: var(--glass-bg-hover), var(--hero-surface); }
 .empty-state { display: grid; align-content: center; gap: 14px; min-height: 350px; padding: 24px; text-align: center; color: var(--muted); max-width: 36rem; margin: 0 auto; }
 .empty-state h2 { color: #edf4f3; }
-/* A newer board is served: one quiet line with its reload. */
-.update-banner { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 8px 6px 16px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--glass-bg-hover); color: #c9f2e2; font-weight: 700; }
-.update-banner .primary { min-height: 36px; padding: 6px 16px; }
-/* A notice above the board, as the line after a restart, keeps its height. */
+/* A notice above the board, as a newer board served or the line after a
+   restart, keeps its height. */
 .app-shell > .notice { flex: none; }
 /* What Open in terminal met, under the panel row's end, over what is below. */
 .window-feedback { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); }
@@ -902,10 +900,8 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
   .terminal-surface .xterm .xterm-helper-textarea { left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; z-index: 1 !important; opacity: 0.02; background: transparent; color: transparent; caret-color: transparent; outline: none; resize: none; }
 }
 .terminal-overlay { position: absolute; top: 10px; right: 12px; display: flex; align-items: center; gap: 8px; z-index: 2; }
-.terminal-state { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border: 1px solid var(--glass-border); border-radius: 999px; background: rgba(3, 5, 10, 0.9); box-shadow: var(--glass-shadow); color: var(--muted); font-weight: 700; }
-.terminal-state .status-dot { background: #a6beda; }
 /* What his click or his dictation met, over the terminal's lower lines. */
-.terminal-float { position: absolute; left: 12px; right: 12px; bottom: 70px; z-index: 2; }
+.terminal-float { position: absolute; left: 12px; bottom: 70px; z-index: 2; max-width: calc(100% - 24px); }
 .terminal-empty { display: grid; place-items: center; align-content: center; gap: 16px; flex: 1; padding: 32px; color: var(--muted); text-align: center; }
 .terminal-empty > .icon { width: 36px; height: 36px; }
 /* A native terminal owns its scrollback and is sized to the panel, so the
@@ -922,7 +918,6 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .terminal-view .xterm { height: 100%; box-sizing: border-box; }
 .terminal-view, .terminal-view .xterm-viewport { background: #071015 !important; }
 .terminal-view.staged { visibility: hidden; }
-.terminal-reconnecting { position: absolute; top: 10px; right: 12px; z-index: 2; }
 .terminal-cover { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; align-content: center; gap: 14px; padding: 24px; background: #071015; color: var(--muted); text-align: center; }
 .terminal-cover > .notice { max-width: min(46ch, 100%); }
 /* Connecting is a plain line laid outside the terminal's box, under it on a
@@ -934,16 +929,13 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 /* A Herdr view's screen takes the grid's first row and the line below it the
    second, with the voice strip that follows taking the row under them. */
 .native-terminal:not(.host-terminal) > .terminal-connecting { grid-row: 2; grid-column: 1 / -1; }
-.terminal-closed { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid #1d3a32; background: #0b1a20; color: var(--muted); }
-.terminal-closed p { flex: 1; margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.terminal-closed > .icon { flex: none; width: 20px; height: 20px; }
 .terminal-spinner { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 3px solid #1d3a32; border-top-color: var(--mint); animation: terminal-spin .8s linear infinite; }
 @keyframes terminal-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .terminal-spinner { animation-duration: 2.4s; } }
 /* A host terminal's states: Reconnecting and Copied in the top right
    corner, unsent or unread keys in the top left one no other mark uses, and
    what a held or closed terminal says under it, never over the screen it
-   would cover. */
+   would cover. A conversation's Reconnecting and closed bar sit the same. */
 .terminal-corner, .terminal-corner-left { position: absolute; top: 10px; z-index: 2; max-width: calc(100% - 24px); }
 .terminal-corner { right: 12px; }
 .terminal-corner-left { left: 12px; }

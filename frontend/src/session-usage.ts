@@ -148,7 +148,7 @@ export function usageBanner(harness: string, subscriptions: SubscriptionUsage[] 
     };
   }
   const key = spend.find((each) => each.provider === "openrouter");
-  if (!key || key.status !== "available" || key.spent_usd == null) return { banner: null, why: "Shared key spend could not be read" };
+  if (!key || key.status !== "available" || key.spent_usd == null) return { banner: null, why: "OpenRouter key spend could not be read" };
   const spent = formatUSD(key.spent_usd);
   const detail = key.limit_usd != null ? spent + " of " + formatUSD(key.limit_usd) + (key.resets_at ? " · Resets " + resetText(key.resets_at) : "") : spent + " spent";
   return { banner: { text: "Shared key spend", detail }, why: "" };

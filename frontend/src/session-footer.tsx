@@ -22,6 +22,6 @@ export function SessionFooter({ ink, isWorking, workingSince, lastSentAt, lastRe
     {isWorking && <span className="session-working" style={{ color: ink }}><WorkingIndicator ink={ink} /><span className="session-worked" style={{ color: ink }}>Working{worked ? " " + worked : ""}</span>{onStop && <button type="button" className="labelled-button session-stop" onClick={onStop}><Icon name="pause" />Stop</button>}</span>}
     {lastSentAt && <span className="session-fact">Sent {formatAge(lastSentAt, now)}</span>}
     {lastReplyAt && <span className="session-fact">Replied {formatAge(lastReplyAt, now)}</span>}
-    {(!hasUsage || why) && <Notice>{why ? why + "." : "This session's usage could not be read."}</Notice>}
+    {(!hasUsage || why) && <Notice>{why ? why + "." : "Usage unavailable"}</Notice>}
   </div>;
 }

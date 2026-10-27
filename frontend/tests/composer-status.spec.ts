@@ -135,7 +135,7 @@ for (const style of ["classic", "modern"]) {
         relay.say({ type: "unread", unread: false });
         relay.refuse();
         relay.drop();
-        await expect(page.locator(".terminal-reconnecting, .host-terminal > .terminal-corner.warning")).toHaveCount(1);
+        await expect(page.locator(".terminal-corner.warning")).toHaveCount(1);
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
         await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
@@ -147,10 +147,10 @@ for (const style of ["classic", "modern"]) {
         // Act: the relay comes back, and after reconnecting an ended session
         // keeps an unsent draft.
         relay.accept();
-        const reconnect = page.locator(".terminal-closed, .host-terminal > .terminal-foot.box").getByRole("button", { name: "Reconnect", exact: true });
+        const reconnect = page.locator(".terminal-foot.box").getByRole("button", { name: "Reconnect", exact: true });
         if (await reconnect.count()) await reconnect.click();
         await field(page).focus();
-        await expect(page.locator(".terminal-reconnecting, .host-terminal > .terminal-corner.warning")).toHaveCount(0);
+        await expect(page.locator(".terminal-corner.warning")).toHaveCount(0);
         await expect(field(page)).toBeFocused();
         await page.keyboard.type("still in the draft");
         await expect(field(page)).toHaveValue("still in the draft");
@@ -158,7 +158,7 @@ for (const style of ["classic", "modern"]) {
         if (style === "classic") await page.getByRole("button", { name: "Back to messages", exact: true }).click();
         await field(page).fill("Keep this when the terminal ends");
         relay.end();
-        await expect(page.locator(".terminal-closed, .host-terminal > .terminal-foot.box")).toHaveCount(1);
+        await expect(page.locator(".terminal-foot.box")).toHaveCount(1);
         await send(page).click();
 
         // Assert

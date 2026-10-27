@@ -46,8 +46,8 @@
 .composer-style-popover > button { justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
 .composer-style-popover > button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
 .composer-note { min-width: 0; margin: 0; padding: 0 10px; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
-.composer-note[role="alert"] { color: #f1c598; }
 .composer-note:empty { display: none; }
+.composer-refusal { justify-self: start; }
 .composer-send { display: grid; place-items: center; flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
 .composer-send[data-active] { color: var(--accent-green); }
 .composer-send:hover { background: transparent; }

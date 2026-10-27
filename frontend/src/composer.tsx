@@ -6,6 +6,7 @@ import { ContextUsage } from "./context-usage";
 import { DictationButton } from "./dictation-button";
 import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
+import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
 import { QueuedMessage } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
@@ -286,7 +287,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready."
     : live?.held && GATE_CUSTODY.test(live.held) ? "Review in progress. Send to queue until it finishes."
       : savesThroughBoard ? "Messages will be queued." : "";
-  const note = unsent || terminalFeedback || (adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : live?.feedback || dictation.note || queueNote);
+  const note = terminalFeedback || (adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : live?.feedback || dictation.note || queueNote);
   // What the board has kept for this goblin is what the board's own record of
   // it says, so it survives a reload and a remount, and it stays on screen
   // after a gate lets go so the action can be read and withdrawn.
@@ -356,7 +357,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
           </button>
         </div>
       </div>
-      <p className="composer-note" role={unsent ? "alert" : "status"}>{note}</p>
+      {unsent ? <Notice tone="warning" role="alert" className="composer-refusal">{unsent}</Notice> : <p className="composer-note" role="status">{note}</p>}
     </div>
   </section>;
 }

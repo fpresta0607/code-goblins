@@ -34,7 +34,7 @@ test.describe("phone speech history", () => {
         await expect(field(page)).toBeFocused();
         await expect.poll(() => field(page).evaluate((element) => (element as HTMLTextAreaElement).selectionStart)).toBe(22);
         await expect(history).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).not.toContainText("Nothing to paste");
+        await expect(box(page)).not.toContainText("Nothing to paste");
         expect(await page.evaluate(() => { const reads: unknown = Reflect.get(window, "clipboardReads"); return typeof reads === "function" ? reads() : -1; })).toBe(0);
         expect(typed(relay)).toBe("");
       });
@@ -148,7 +148,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   // while the view reconnects, before the relay answers its new connection.
   await page.routeWebSocket("**/api/terminal/native?*", () => {});
   relay.drop();
-  await expect(page.locator(".terminal-reconnecting, .host-terminal > .terminal-corner.warning")).toHaveCount(1);
+  await expect(page.locator(".terminal-corner.warning")).toHaveCount(1);
   const before = typed(relay);
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
@@ -417,7 +417,7 @@ test("a picture the board cannot keep says so in the box rather than disappearin
 
   // Assert
   await expect(field(page)).toHaveValue("");
-  await expect(box(page).locator(".composer-note")).toHaveText("That picture was not added: The file could not be kept: no room");
+  await expect(box(page).getByRole("alert")).toHaveText("That picture was not added: The file could not be kept: no room");
 });
 
 test("Alt+V pastes the clipboard's text into the box, as Ctrl+V does", async ({ page }) => {
