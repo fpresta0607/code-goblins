@@ -3,7 +3,7 @@ import { DiskMeter } from "./DiskMeter";
 import { MemoryMeter } from "./MemoryMeter";
 import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
-import { TaskCard } from "./TaskCard";
+import { cardFacts, TaskCard } from "./TaskCard";
 import { nextInOrder, startOrder } from "./start";
 
 // The queue in the order the supervisor starts it, top first, as the Tasks
@@ -24,7 +24,7 @@ export function QueuedTasks({ snapshot, selected, now, presentations, onSelect }
       {!memory && snapshot.disk && <div className="memory"><DiskMeter disk={snapshot.disk} /></div>}
     </div>}
     <RenderBoundary scope="list"><RankedCards list="queued" tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={null}
-      renderCard={(task, rank) => <TaskCard task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank}
-        next={task.id === next?.id ? next : undefined} onSelect={onSelect} />} /></RenderBoundary>
+      renderCard={(task, rank) => <TaskCard task={task} {...cardFacts(task, snapshot, presentations)} selected={selected === task.id} now={now} rank={rank}
+        {...(task.id === next?.id ? { nextText: next.text, nextTone: next.tone } : {})} onSelect={onSelect} />} /></RenderBoundary>
   </>;
 }

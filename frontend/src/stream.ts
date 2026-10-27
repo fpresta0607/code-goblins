@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { parseItems, parseSnapshot, type Snapshot } from "./types";
 import { knowInstance, message, reportToCfo } from "./api";
 import { withItems } from "./item-state";
+import { shared } from "./shared";
 
 const STREAM_RECONNECT_BASE_DELAY_MS = 500;
 const STREAM_RECONNECT_MAX_DELAY_MS = 5_000;
@@ -22,6 +23,7 @@ export function newerSnapshot(
 }
 export function useRuntimeStream() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [receivedAt, setReceivedAt] = useState(0);
   const [connection, setConnection] = useState("Connecting");
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +39,11 @@ export function useRuntimeStream() {
           const value: unknown = JSON.parse(event.data);
           const next = parseSnapshot(value);
           knowInstance(next.instance);
-          setSnapshot((current) => newerSnapshot(current, next));
+          setSnapshot((current) => {
+            const newer = newerSnapshot(current, next);
+            return newer === next ? shared(current, next) : newer;
+          });
+          setReceivedAt(Date.now());
           setConnection("Live");
           retry = STREAM_RECONNECT_BASE_DELAY_MS;
         } catch (error: unknown) {
@@ -50,6 +56,7 @@ export function useRuntimeStream() {
         try {
           const items = parseItems(JSON.parse(event.data));
           setSnapshot((current) => withItems(current, items));
+          setReceivedAt(Date.now());
         } catch (error: unknown) {
           reportToCfo("the board's snapshot stream", message(error));
           setConnection("Invalid stream");
@@ -70,5 +77,5 @@ export function useRuntimeStream() {
       clearTimeout(timer);
     };
   }, []);
-  return { snapshot, connection };
+  return { snapshot, connection, receivedAt };
 }

@@ -1,4 +1,4 @@
-import { useRef, useState, type SyntheticEvent } from "react";
+import { memo, useRef, useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
 import { ConnectorMark } from "./ConnectorMark";
@@ -32,13 +32,17 @@ import { harnessInk } from "./harness-ink";
 // rather than ending in an ellipsis, and shows its task in the name's tip
 // (the CFO's decision 1008011). Its checks and deploy, the goblin it helps,
 // what runs under it and a waiting update are in its panel. rank, when the
-// card sits in an ordered list, is read out with it; next marks the one card
-// the order for a free slot takes first. The goblin it waits on is named in
+// card sits in an ordered list, is read out with it; nextText and nextTone
+// mark the one card the order for a free slot takes first. The goblin it waits on is named in
 // its status line only. A goblin gone quiet, and windows still closing, are
 // the CFO's to hear, never warnings on the card.
-export function TaskCard({ task, snapshot, selected, presentations, now, rank, next, onSelect }: {
-  task: Task; snapshot: Snapshot; selected: boolean; presentations: BoardActivity[]; now: number; rank?: string;
-  next?: NextUp;
+//
+// A card is given what it shows as plain values (cardFacts) and is drawn
+// again only when one of them changed, so a snapshot that changed another
+// goblin, or only the meters, leaves it as it is (#1599).
+export const TaskCard = memo(function TaskCard({ task, status, phase, repository, isPresenting, selected, now, rank, nextText, nextTone, onSelect }: CardFacts & {
+  task: Task; selected: boolean; now: number; rank?: string;
+  nextText?: string; nextTone?: NextUp["tone"];
   onSelect: (task: Task, source: HTMLElement) => void;
 }) {
   // A task with no goblin yet goes by its title, which shows in full in its
@@ -52,12 +56,11 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
   const isNamed = task.goblin_name !== "";
   const name = isNamed ? goblinName(task) : taskName(task);
   const tip = isNamed ? { "data-tip": taskName(task) } : clipped ? { "data-tip": name } : {};
-  const icon = pullRequestIcon(task), { text: status, phase } = taskStatus(task, snapshot);
-  const repository = snapshot.projects.find((project) => project.name === task.project)?.repository || "";
+  const icon = pullRequestIcon(task);
   const repositoryLink = repository ? safeGitHubLink("https://github.com/" + repository) : "";
   const content = <>
     <Avatar persona={personaFor(task)} />
-    <span className="card-copy"><span className="card-head">{presentations.some((event) => event.task_id === task.id) && <span className="browser-indicator">Browser active</span>}{next && <span className={"next-chip" + (next.tone ? " " + next.tone : "")}>{next.text}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
+    <span className="card-copy"><span className="card-head">{isPresenting && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
       <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}>{["busy", "working", "active"].includes(phase) ? <WorkingIndicator ink={harnessInk(task.harness)} compact /> : <span className="status-dot" />}<span className="card-status-text">{status}</span></span>
     </span>
@@ -74,4 +77,14 @@ export function TaskCard({ task, snapshot, selected, presentations, now, rank, n
       {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
     </div>
   </div>;
+});
+
+// CardFacts are what a card shows that it reads beyond its own task.
+export interface CardFacts { status: string; phase: string; repository: string; isPresenting: boolean }
+
+// cardFacts reads them from the snapshot for task, once a render of the list
+// that holds its card.
+export function cardFacts(task: Task, snapshot: Snapshot, presentations: BoardActivity[]): CardFacts {
+  const { text: status, phase } = taskStatus(task, snapshot);
+  return { status, phase, repository: snapshot.projects.find((project) => project.name === task.project)?.repository || "", isPresenting: presentations.some((event) => event.task_id === task.id) };
 }

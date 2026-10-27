@@ -1,4 +1,5 @@
 import { Icon } from "./Icon";
+import { useNow } from "./clock";
 import { elapsedText, formatAge } from "./session-usage";
 import { WorkingIndicator } from "./working-indicator";
 
@@ -9,7 +10,11 @@ import { WorkingIndicator } from "./working-indicator";
 export function SessionFooter({ ink, isWorking, workingSince, lastSentAt, lastReplyAt, now, hasUsage, why, onStop }: {
   ink: string; isWorking: boolean; workingSince: string; lastSentAt: string; lastReplyAt: string; now: number; hasUsage: boolean; why: string; onStop?: () => void;
 }) {
-  const worked = isWorking ? elapsedText(workingSince, now) : "";
+  // The board's clock reads whole minutes; how long the session has worked
+  // shows seconds, so the footer reads its own clock each second, and only
+  // while the session works.
+  const clock = Math.max(now, useNow(isWorking ? 1_000 : 60_000));
+  const worked = isWorking ? elapsedText(workingSince, clock) : "";
   return <div className="session-footer" role="status" aria-label="Session timing">
     {isWorking && <span className="session-working" style={{ color: ink }}><WorkingIndicator ink={ink} /><span className="session-worked" style={{ color: ink }}>Working{worked ? " " + worked : ""}</span>{onStop && <button type="button" className="labelled-button session-stop" onClick={onStop}><Icon name="pause" />Stop</button>}</span>}
     {lastSentAt && <span className="session-fact">Sent {formatAge(lastSentAt, now)}</span>}

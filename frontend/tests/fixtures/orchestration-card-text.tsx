@@ -61,10 +61,10 @@ const now = Date.parse(at);
 const opened = window as Window & { cfoOpened?: number };
 
 function Fixture() {
-  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} onSelect={() => {}} /></main>;
-  if (view === "board") return <Board snapshot={snapshot} layout="stacked" now={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
+  if (view === "lineage") return <main className="canvas-region" style={{ width: "100%" }}><Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} /></main>;
+  if (view === "board") return <Board snapshot={snapshot} layout="stacked" now={now} freshNow={now} presentations={presentations} onSelect={() => {}} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   return <main style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-    <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => { opened.cfoOpened = (opened.cfoOpened || 0) + 1; }} />
+    <Orchestration snapshot={snapshot} selected="" connected effects={[]} presentations={presentations} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} onOpenCfo={() => { opened.cfoOpened = (opened.cfoOpened || 0) + 1; }} />
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

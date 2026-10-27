@@ -68,7 +68,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
       <WorkspaceDetails task={task} node={node} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onAnswer} />
       {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
         <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
-        <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} onSelect={(next) => onOpenTask(next)} />
+        <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} onSelect={onOpenTask} />
       </section>}
     </div>}
   </>;
