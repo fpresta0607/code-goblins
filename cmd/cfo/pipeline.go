@@ -134,6 +134,13 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if wantBranch != "" && wantRun != "" {
 		return errors.New("pipeline: name a branch or a run, not both")
 	}
+	isReasonGiven := false
+	flags.Visit(func(given *flag.Flag) { isReasonGiven = isReasonGiven || given.Name == "reason" })
+	if isReasonGiven && response.Reason == "" {
+		// An empty --reason, as an unset variable gives, read as no reason would
+		// approve a Test exception with none and no audit of it (issue 1585).
+		return errors.New("pipeline: --reason is empty; it must say why the exception is approved")
+	}
 	if response.Accept != "" || response.Reason != "" {
 		// Taking open findings as they stand, and the reason an approved Test
 		// exception keeps, are the CFO's decisions, never a goblin's about its
@@ -166,7 +173,20 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err != nil {
 		return err
 	}
-	if meta.Mode != "no-mistakes" || meta.PipelineHash == "" {
+	if meta.Mode != "no-mistakes" {
+		// A task of another mode, as the supervisor starts every root issue in
+		// direct-PR, was never given a gate or a frozen policy, so no migration
+		// can make one and its mode's own route verifies it (issue 1438).
+		refusal := fmt.Sprintf("pipeline: task %s runs in mode %q, and only a no-mistakes task has a gate to drive or a frozen policy for cfo pipeline migrate to move", meta.ID, meta.Mode)
+		switch meta.Mode {
+		case "direct-PR":
+			refusal += ". A direct-PR task is verified by its pull request's CI: its goblin opens it as a draft, records it with cfo pr check and marks it ready with gh pr ready once, on the head it means to merge"
+		case "local-only":
+			refusal += fmt.Sprintf(". A local-only task opens no pull request: its goblin stops with a clean branch, which cfo merge-local %s lands", meta.ID)
+		}
+		return errors.New(refusal)
+	}
+	if meta.PipelineHash == "" {
 		return errors.New("pipeline: task lacks a spawn-time policy; existing tasks require an explicit migration decision")
 	}
 	expectedTmp := filepath.Join(h.State, "tasktmp", id)

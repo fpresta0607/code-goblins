@@ -417,8 +417,10 @@ INSERT INTO runs VALUES('previous','repo','feature',1,'running','` + primaryRout
 				}
 				return
 			}
-			if err != nil || check.ReattachRun != c.wantReattach || check.TrustedHead != primaryRoutingSHA {
-				t.Fatalf("check=%+v err=%v, want reattachment to %s", check, err, c.wantReattach)
+			// A reattachment carries no launch selection, so it names no
+			// trusted commit.
+			if err != nil || check.ReattachRun != c.wantReattach || check.TrustedHead != "" {
+				t.Fatalf("check=%+v err=%v, want reattachment to %s with no trusted head", check, err, c.wantReattach)
 			}
 		})
 	}

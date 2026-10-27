@@ -196,19 +196,28 @@ func liveRunStart(t *testing.T, status, submittedHead, intent string) (home.Home
 func TestPipelineRunReattachesToTheLiveRunOfTheSameWork(t *testing.T) {
 	const liveIntent = "ship the connection fix safely"
 	for _, test := range []struct {
-		name         string
-		intent       string
-		submitted    string
-		wantReattach bool
+		name          string
+		intent        string
+		submitted     string
+		isOriginMoved bool
+		wantReattach  bool
 	}{
 		{name: "the same branch, head and intent", intent: liveIntent, submitted: liveRunHead, wantReattach: true},
 		{name: "a run that recorded no submitted head at the same head", intent: liveIntent, submitted: "", wantReattach: true},
+		// A merge can land on main while the hold lasts, and a reattachment
+		// starts nothing from origin, so tracking origin never fetched since
+		// does not stop it (issue 1586).
+		{name: "origin's default branch moved during the hold", intent: liveIntent, submitted: liveRunHead, isOriginMoved: true, wantReattach: true},
 		{name: "the intent names other work", intent: "rework the billing export", submitted: liveRunHead},
 		{name: "the branch moved since the run started", intent: liveIntent, submitted: movedRunHead},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			h, nm, runner := liveRunStart(t, "running", test.submitted, liveIntent)
+			if test.isOriginMoved {
+				// origin answers with a head past the one its tracking ref holds.
+				runner.advance, runner.remoteRead = true, 2
+			}
 			var out bytes.Buffer
 
 			// Act
