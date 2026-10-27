@@ -1497,3 +1497,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 dialog > .preservation-notice { margin-top: 18px; }
 .danger { color: #ff9292; }
 .stop-task-choices .danger { border-color: #fa7272; background: var(--field-bg); }
+/* The panel's status line shows the mark of the session's harness, and a
+   harness without a mark of its own its name (harness-mark.tsx). */
+.panel-status .mark { width: 22px; height: 22px; margin-right: .2em; }
+.panel-status .mark svg, .panel-status .mark .icon { width: 13px; height: 13px; }
+.harness-name { color: var(--muted); font-size: .8125rem; white-space: nowrap; }

@@ -1,8 +1,7 @@
 import { memo, useRef, useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
-import { ConnectorMark } from "./ConnectorMark";
-import { harnessMark } from "./connectors";
+import { HarnessMark } from "./harness-mark";
 import type { NextUp } from "./start";
 import { harnessTip, personaFor, pullRequestIcon } from "./workflow";
 import { goblinName, taskName } from "./task-words";
@@ -74,7 +73,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
       <SameAreaAvatars overlaps={task.overlaps} />
-      {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
+      {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><HarnessMark harness={task.harness} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
     </div>
   </div>;
 });

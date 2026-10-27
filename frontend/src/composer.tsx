@@ -3,6 +3,7 @@ import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
 import { DictationButton } from "./dictation-button";
+import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
@@ -445,7 +446,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
           <div className="composer-row-end">
             {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}
               onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" /><span className="mode-chip-name">{MODE_NAMES[mode] ?? mode}</span></button>}
-            <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={(model || task?.model || "Model") + (canChangeEngine ? " · Choose in the session's model picker" : " · Model controls need a connected, unheld composer")} onClick={() => changeEngine("model")}>{shortModel(model || task?.model || "") || "Model"}</button>
+            <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={(model || task?.model || "Model") + (canChangeEngine ? " · Choose in the session's model picker" : " · Model controls need a connected, unheld composer")} onClick={() => changeEngine("model")}><HarnessMark harness={harness} />{shortModel(model || task?.model || "") || "Model"}</button>
             <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Effort · Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>{task?.effort || <Icon name="sparkle" />}</button>
             {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
             {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>

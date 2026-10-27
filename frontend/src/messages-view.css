@@ -151,3 +151,6 @@ div.message-call, .message-baby, .disclosure.message-call > summary { align-item
 
 /* A settled selection copies itself, and says so quietly in the corner. */
 .conversation-copied { position: absolute; top: 10px; right: 14px; z-index: 2; padding: 3px 10px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--hero-surface); color: var(--mint); font-size: .8125em; }
+/* The session line starts with the mark of the session's harness. */
+.session-footer .mark { width: 22px; height: 22px; }
+.session-footer .mark svg, .session-footer .mark .icon { width: 13px; height: 13px; }

@@ -81,3 +81,8 @@
   .composer-control.mode-chip { min-width: 28px; padding: 0 6px; }
   .mode-chip-name { display: none; }
 }
+
+/* The model's button leads with the mark of the session's harness, drawn
+   small and without its tile (harness-mark.tsx). */
+.engine-control .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.engine-control .mark svg, .engine-control .mark .icon { width: 15px; height: 15px; }

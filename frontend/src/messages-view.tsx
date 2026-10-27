@@ -290,7 +290,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
         <button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     </div>
     {(box || reading.banner) && <div className="composer-dock">
-      <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
+      <SessionFooter harness={harness} ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
       {box?.(held.usage?.model || model, history)}
     </div>}

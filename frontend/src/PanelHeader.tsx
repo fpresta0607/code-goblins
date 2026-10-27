@@ -2,10 +2,11 @@ import { useId, useState, type PointerEvent } from "react";
 import { message, request } from "./api";
 import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
+import { HarnessMark } from "./harness-mark";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { ALREADY_FINISHED, harnessName, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { ALREADY_FINISHED, harnessName, harnessTip, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
@@ -57,7 +58,8 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
   const isWorking = ["busy", "working", "active"].includes(phase) && !!(task || node || cfoSession);
-  const ink = harnessInk((task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : ""));
+  const harness = (task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : "");
+  const ink = harnessInk(harness);
   const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
@@ -125,7 +127,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && projectLine}
         {!compact && helper}
-        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}>{isWorking && !hasWorkingFooter ? <WorkingIndicator ink={ink} compact /> : <span className="status-dot" />}{status}{!compact && awaitedLink}</p>
+        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}>{harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}{isWorking && !hasWorkingFooter ? <WorkingIndicator ink={ink} compact /> : <span className="status-dot" />}{status}{!compact && awaitedLink}</p>
         {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
         {!compact && partOf}
         {!compact && activity}
