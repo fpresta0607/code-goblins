@@ -714,3 +714,29 @@ func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
 		}
 	}
 }
+
+// A todo list a Claude Code call wrote reads as the call's plan: each
+// step's words on one line and its state, and a state the board does not
+// draw read as pending.
+func TestATodoListACallWroteIsItsPlan(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home,
+		prompted("u1", "Fix the swipe"),
+		answer("a1", "msg_1", useBlock("toolu_1", "TodoWrite", object{"todos": []object{
+			{"content": "Read the touch handlers", "status": "completed", "activeForm": "Reading the touch handlers"},
+			{"content": "Hand the swipe to the history\nand keep Paste", "status": "in_progress", "activeForm": "Handing the swipe over"},
+			{"content": "Run the phone spec", "status": "blocked", "activeForm": "Running the phone spec"},
+		}})),
+	)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	want := []PlanStep{{"Read the touch handlers", PlanCompleted}, {"Hand the swipe to the history", PlanInProgress}, {"Run the phone spec", PlanPending}}
+	if err != nil || len(page.Messages) != 2 || !reflect.DeepEqual(page.Messages[1].Blocks[0].Plan, want) {
+		t.Fatalf("MessagePage = %+v, %v; want the call's plan %+v", page.Messages, err, want)
+	}
+}

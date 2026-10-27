@@ -229,7 +229,7 @@ func (l *codexMessageLog) response(entry codexEntry, id string, offset int64) {
 	payload := entry.Payload
 	switch payload.Type {
 	case "function_call", "custom_tool_call":
-		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: codexSubject(payload.Input, payload.Arguments), State: CallRunning})
+		l.block(entry.Timestamp, id, Block{Kind: BlockCall, CallID: payload.CallID, Tool: payload.Name, Subject: codexSubject(payload.Input, payload.Arguments), State: CallRunning, Plan: callPlan(payload.Name, payload.Arguments)})
 	case "function_call_output", "custom_tool_call_output":
 		l.outcome(payload.CallID, payload.Output, offset)
 	case "agent_message":

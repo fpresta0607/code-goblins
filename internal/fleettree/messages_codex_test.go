@@ -399,3 +399,26 @@ func TestCodexPicturesNeverFetchExternalOrUnsupportedSources(t *testing.T) {
 		}
 	}
 }
+
+// A Codex update_plan call reads as its checklist, from the arguments Codex
+// records as a JSON string.
+func TestACodexPlanIsReadAsItsChecklist(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := codexRollout(t, home, "01a16c37-1768-7270-8f61-76f09c77c962",
+		codexMeta("01a16c37-1768-7270-8f61-76f09c77c962", workDir),
+		codexTurnContext("gpt-6-astra"),
+		codexUserSaid("Fix the swipe."),
+		codexLine("response_item", object{"type": "function_call", "call_id": "call-1", "name": "update_plan", "arguments": `{"explanation":"Start with the handlers.","plan":[{"step":"Read the touch handlers","status":"completed"},{"step":"Fix the swipe","status":"in_progress"},{"step":"Run the phone spec","status":"pending"}]}`}),
+	)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	want := []PlanStep{{"Read the touch handlers", PlanCompleted}, {"Fix the swipe", PlanInProgress}, {"Run the phone spec", PlanPending}}
+	if err != nil || len(page.Messages) != 2 || !reflect.DeepEqual(page.Messages[1].Blocks[0].Plan, want) {
+		t.Fatalf("MessagePage = %+v, %v; want the call's plan %+v", page.Messages, err, want)
+	}
+}

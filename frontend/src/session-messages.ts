@@ -11,12 +11,16 @@ export interface MessagePicture { id: string; media_type: string; bytes: number 
 
 // A block of a reply: its text, thinking Claude Code recorded the words of,
 // or a tool call with its outcome, what came back, an edit's counts and diff,
-// and the sub-agent it started.
+// the sub-agent it started and the plan it wrote.
 export interface MessageBlock {
   kind: "text" | "thinking" | "call";
   text: string; tool: string; subject: string; state: CallState; result: string; spilled: number;
   pictures: MessagePicture[]; edit: { added: number; removed: number; diff: string[] } | null; agent: { node: string; type: string } | null;
+  plan: PlanStep[];
 }
+// A step of a plan a call wrote, Claude Code's todo list or Codex's plan.
+export type PlanStatus = "pending" | "in_progress" | "completed";
+export interface PlanStep { text: string; status: PlanStatus }
 export type CallState = "running" | "done" | "failed" | "denied" | "interrupted" | "";
 
 export interface SessionMessage {
@@ -30,6 +34,7 @@ const KINDS = ["prompt", "reply", "compaction", "interrupt"] as const;
 const BLOCK_KINDS = ["text", "thinking", "call"] as const;
 const SOURCES = ["overlord", "cfo", "answer", "page", "notice", "slash", "shell"] as const;
 const STATES = ["running", "done", "failed", "denied", "interrupted"] as const;
+const PLAN_STATES = ["pending", "in_progress", "completed"] as const;
 
 function choice<T extends string>(value: unknown, choices: readonly T[], what: string): T {
   const found = choices.find((each) => each === value);
@@ -51,6 +56,10 @@ function block(value: unknown): MessageBlock {
     state: each.state == null ? "" : choice(each.state, STATES, "call state"), result: string(each.result), spilled: number(each.spilled), pictures: pictures(each.pictures),
     edit: edit && { added: number(edit.added), removed: number(edit.removed), diff: array(edit.diff).map(string) },
     agent: agent && { node: string(agent.node), type: string(agent.type) },
+    plan: array(each.plan).map((item) => {
+      const step = object(item);
+      return { text: string(step.text), status: choice(step.status, PLAN_STATES, "plan step") };
+    }),
   };
 }
 
