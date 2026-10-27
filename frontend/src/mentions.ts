@@ -19,6 +19,15 @@ export function mentionFile(text: string, mention: Mention, caret: number, path:
   return { text: text.slice(0, mention.start) + chosen + after, caret: mention.start + chosen.length };
 }
 
+// mentionedFiles are the files a list read for an earlier query of the same
+// @ that still match the query he has typed since, so a pick before the new
+// list arrives is one he asked for.
+export function mentionedFiles(files: string[], read: string, query: string): string[] {
+  if (read === query) return files;
+  const wanted = query.toLowerCase();
+  return files.filter((file) => file.toLowerCase().includes(wanted));
+}
+
 // parseFiles reads the supervisor's answer to GET /api/files.
 export function parseFiles(value: unknown): string[] {
   return strings(object(value).files).filter(Boolean);

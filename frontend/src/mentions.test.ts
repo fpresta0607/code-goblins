@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mentionAt, mentionFile, parseFiles } from "./mentions.ts";
+import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions.ts";
 
 test("an @ the caret stands in opens the file list, and one inside a word or after a space does not", () => {
   const cases: [string, number, ReturnType<typeof mentionAt>][] = [
@@ -34,4 +34,15 @@ test("the session's file list parses, and a malformed one is refused", () => {
   assert.deepEqual(parseFiles({ files: ["a.ts", "", "docs/b.md"] }), ["a.ts", "docs/b.md"]);
   assert.deepEqual(parseFiles({}), []);
   for (const value of [{ files: [1] }, { files: "a.ts" }, null]) assert.throws(() => parseFiles(value), JSON.stringify(value));
+});
+
+test("a list read for an earlier query of the same @ keeps only the files the new query still matches", () => {
+  // Arrange
+  const files = ["src/App.tsx", "src/app-shell.ts", "README.md"];
+
+  // Act and Assert
+  assert.deepEqual(mentionedFiles(files, "app", "app"), files);
+  assert.deepEqual(mentionedFiles(files, "", "app"), ["src/App.tsx", "src/app-shell.ts"]);
+  assert.deepEqual(mentionedFiles(files, "app", "readme"), ["README.md"]);
+  assert.deepEqual(mentionedFiles(files, "a", "zz"), []);
 });

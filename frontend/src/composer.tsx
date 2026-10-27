@@ -7,7 +7,7 @@ import { DictationButton } from "./dictation-button";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
-import { mentionAt, mentionFile, parseFiles } from "./mentions";
+import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { parseCommands, slashOptions } from "./commands";
 import { PANEL_KEYS, panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
@@ -108,7 +108,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const [pick, setPick] = useState(0);
   const [isListClosed, setListClosed] = useState(false);
   const [caret, setCaret] = useState(0);
-  const [found, setFound] = useState<{ start: number | null; files: string[] }>({ start: null, files: [] });
+  const [found, setFound] = useState<{ start: number | null; query: string; files: string[] }>({ start: null, query: "", files: [] });
   const [adding, setAdding] = useState(0);
   const [, setEngine] = useState(0);
   // The kept message whose delete is on its way.
@@ -269,22 +269,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const mention = isListClosed || commandOptions.length ? null : mentionAt(draft, caret);
   const mentionStart = mention?.start ?? null;
   const mentionQuery = mention?.query ?? null;
-  if (found.start !== mentionStart) setFound({ start: mentionStart, files: [] });
+  if (found.start !== mentionStart) setFound({ start: mentionStart, query: "", files: [] });
   const filesAddress = "/api/files?" + sessionQuery.toString();
   useEffect(() => {
     if (mentionStart === null || mentionQuery === null) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       request(filesAddress + "&q=" + encodeURIComponent(mentionQuery), controller.signal).then(parseFiles)
-        .then((files) => setFound({ start: mentionStart, files }), (error: unknown) => {
+        .then((files) => setFound({ start: mentionStart, query: mentionQuery, files }), (error: unknown) => {
           if (controller.signal.aborted) return;
-          setFound({ start: mentionStart, files: [] });
+          setFound({ start: mentionStart, query: mentionQuery, files: [] });
           reportToCfo("the files of " + name, message(error));
         });
     }, MENTION_WAIT_MS);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [mentionStart, mentionQuery, filesAddress, name]);
-  const mentionFiles = mention ? found.files : [];
+  const mentionFiles = mention ? mentionedFiles(found.files, found.query, mention.query) : [];
   const listOptions = commandOptions.length
     ? commandOptions.map((command) => ({ key: command.name, label: "/" + command.name, detail: command.description }))
     : mentionFiles.map((file) => ({ key: file, label: file.slice(file.lastIndexOf("/") + 1), detail: file }));
@@ -400,10 +400,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
           {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
         </div>
         <div className="composer-controls">
-          {!queues && <>
-            <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose in the session's model picker" : "Model controls need a connected, unheld composer"} onClick={() => changeEngine("model")}>{model || task?.model || "Model"}</button>
-            <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>Effort</button>
-          </>}
+          <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose in the session's model picker" : "Model controls need a connected, unheld composer"} onClick={() => changeEngine("model")}>{model || task?.model || "Model"}</button>
+          <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>Effort</button>
           <button ref={recent} type="button" className="composer-control" aria-label="Speech history" aria-expanded={isRecentOpen} data-tip="Speech history" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
           {onOpenTerminal && <button type="button" className="composer-control" aria-label="Open in Windows Terminal" data-tip="Open this session in its own terminal window" onClick={onOpenTerminal}><Icon name="terminal" /></button>}
           {stats && reading && <ContextUsage stats={stats} reading={reading} />}
