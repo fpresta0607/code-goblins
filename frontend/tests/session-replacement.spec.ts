@@ -54,9 +54,9 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await page.keyboard.press("Shift+PageUp");
       await expect.poll(() => conversation.evaluate((element) => element.scrollTop)).toBeLessThan(before);
       expect(typed(relay)).toBe("");
-      // Opening the conversation from the Classic terminal chose Modern, which
-      // is what a step out saves (the Overlord, 2026-10-27).
-      expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("modern");
+      // Reading back opens the conversation and leaves the saved Classic alone:
+      // only Back to messages saves Modern (#1584).
+      expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
       await page.screenshot({ path: testInfo.outputPath(`codex-${state}-${input}-history.png`) });
     });
   }
@@ -81,9 +81,10 @@ test("Classic full-screen Codex opens readable history with wheel while ended th
   await terminal.hover();
   await page.mouse.wheel(0, -45);
 
-  // Assert
+  // Assert: the history opens and the saved Classic stays, since only Back
+  // to messages saves Modern (#1584).
   await expect(page.locator(".messages-view:not([hidden]) .conversation")).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("modern");
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
 });
 
 // The right button held while the wheel turns zooms the text, even over a
