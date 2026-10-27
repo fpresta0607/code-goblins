@@ -12,7 +12,22 @@
 .composer-box { position: relative; display: grid; gap: 4px; }
 .composer-input { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 7px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
 .composer-input:focus-within { border-color: var(--mint); }
-.composer textarea { display: block; flex: 1; min-width: 0; width: 100%; min-height: 1.5em; max-height: 12em; padding: 0; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+.composer textarea { display: block; flex: 1; min-width: 0; width: 100%; min-height: 1.5em; max-height: max(4.5em, min(12em, 30cqh)); padding: 0; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+/* The box grows with what he writes up to a cap that also shrinks with the
+   chat it sits in, never more than about a third of it, so Send and the
+   controls under it stay on screen however short the panel; past the cap it
+   scrolls inside itself with a slim pill tucked into its edge (the Overlord,
+   2026-10-27: "jsut small little pill embeded into the panel"), and the
+   caret's line stays in view (composer.tsx). The page's thin scrollbar is
+   set aside here so the pill's own shape applies. The conversation is one
+   such chat (harness-panel.css), and Classic's panel is the other. */
+.panel-main { container-type: size; }
+.composer textarea { scrollbar-width: auto; scrollbar-color: auto; }
+.composer textarea::-webkit-scrollbar { width: 10px; }
+.composer textarea::-webkit-scrollbar-track, .composer textarea::-webkit-scrollbar-corner { background: transparent; }
+.composer textarea::-webkit-scrollbar-button { display: none; }
+.composer textarea::-webkit-scrollbar-thumb { min-height: 28px; border: 3px solid transparent; border-radius: 999px; background: #a3b3c252 padding-box; }
+.composer textarea::-webkit-scrollbar-thumb:hover { background-color: #a3b3c280; }
 .composer textarea::placeholder { color: var(--muted); opacity: .9; }
 .composer textarea:focus-visible { outline: none; }
 .composer :is(button, input):focus { outline: none; }
@@ -51,7 +66,6 @@
 .composer-send:disabled { cursor: default; }
 .composer-send .icon { width: 18px; height: 18px; }
 .queued-control > span { font-variant-numeric: tabular-nums; }
-.composer-box > .voice-recent { right: 0; bottom: calc(100% + 8px); }
 @media (pointer: coarse) {
   .composer-control, .composer-input .voice-bubble, .composer-send { min-width: 44px; min-height: 44px; height: 44px; }
   .composer-sent .icon-button { width: 44px; min-height: 44px; height: 44px; margin-block: 0; }

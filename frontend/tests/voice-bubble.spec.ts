@@ -473,11 +473,13 @@ test("a hint dismissed in one pane stays dismissed in a pane already open", asyn
   await expect(page.getByRole("note")).toHaveCount(0);
 });
 
-test("the first visit explains the shortcut once", async ({ page }) => {
-  const { bubble } = await openPane(page, { hint: true });
+test("the first visit explains the shortcut once, in the voice row beside the bubble and never over the terminal", async ({ page }) => {
+  const { bubble, pane } = await openPane(page, { hint: true });
   const hint = page.getByRole("note");
   await expect(hint).toContainText("Speak into this terminal");
   await expect(hint).toContainText("Hold Ctrl+Shift+Space and speak.");
+  const said = (await hint.boundingBox())!, screen = (await pane.locator(".terminal-surface").boundingBox())!;
+  expect(said.y, "the hint lies below the terminal's screen, not over its last rows").toBeGreaterThanOrEqual(screen.y + screen.height - 0.5);
   await page.getByRole("button", { name: "Dismiss hint" }).click();
   await expect(hint).toHaveCount(0);
   await page.reload();

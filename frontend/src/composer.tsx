@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
 import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
@@ -118,6 +118,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const sendID = useRef("");
   const field = useRef<HTMLTextAreaElement>(null);
   const recent = useRef<HTMLButtonElement>(null);
+  const composerBox = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const [style, chooseStyle] = useChatStyle();
   const closeRecent = () => { setRecentOpen(false); recent.current?.focus(); };
@@ -136,6 +137,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     ask();
     return () => cancelAnimationFrame(next);
   }, [focus]);
+  // While he writes at the end of a draft taller than the box's cap, the
+  // box keeps its last lines and the caret in view, as dictated words or a
+  // paste land there too.
+  useLayoutEffect(() => {
+    const box = field.current;
+    if (box && document.activeElement === box && box.selectionEnd === box.value.length) box.scrollTop = box.scrollHeight;
+  }, [draft]);
   const write = (next: (prior: string) => string) => {
     setDraft(next);
     setUnsent("");
@@ -372,13 +380,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         </li>;
       })}
     </ol>}
-    <div className="composer-box" onKeyDown={(event) => {
+    <div ref={composerBox} className="composer-box" onKeyDown={(event) => {
       if (event.key !== "Escape") return;
       if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
       else if (isStyleOpen) { event.stopPropagation(); setStyleOpen(false); }
     }}>
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
-      {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { insert(text); setRecentOpen(false); }}
+      {isRecentOpen && <RecentDictations where="the message" anchor={composerBox} model={dictation.model} onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
       <div className="composer-input">
         <button type="button" className="composer-control add-files" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
@@ -389,7 +397,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       </div>
       <div className="composer-tools">
         <div className="composer-controls">
-          <button type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip="How this conversation is drawn"
+          <button type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip={isStyleOpen ? undefined : "How this conversation is drawn"}
             onClick={() => setStyleOpen((prior) => !prior)}>{style === "classic" ? "Classic" : "Modern"}</button>
           {isStyleOpen && <div className="composer-style-popover" role="group" aria-label="Chat style">
             <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}>Modern</button>
