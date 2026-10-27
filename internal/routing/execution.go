@@ -94,14 +94,27 @@ func Choose(a Assessment, t Table, usable Usable) (Choice, error) {
 	if usable == nil && a.CheckedModel == "" {
 		return c, nil
 	}
-	for _, name := range fallbackOrder(wanted.Name, t) {
+	order := fallbackOrder(wanted.Name, t)
+	if a.CheckedModel != "" {
+		var different, same []string
+		for _, name := range order {
+			lane := t.Lanes[name]
+			if a.CheckedHarness == lane.Harness && SameModel(lane.Harness, a.CheckedModel, lane.Model) {
+				same = append(same, name)
+			} else {
+				different = append(different, name)
+			}
+		}
+		order = append(different, same...)
+	}
+	for _, name := range order {
 		lane := t.Lanes[name]
 		if a.ExplicitModel != "" && lane.Harness != wanted.Harness {
 			c.Notes = append(c.Notes, name+": an explicit model stays on "+wanted.Harness)
 			continue
 		}
-		if a.CheckedModel != "" && a.CheckedHarness == lane.Harness && SameModel(lane.Harness, a.CheckedModel, lane.Model) {
-			c.Notes = append(c.Notes, name+": verification needs a different model")
+		if a.ExplicitModel != "" && lane.Model != a.ExplicitModel {
+			c.Notes = append(c.Notes, name+": an explicit model cannot be replaced")
 			continue
 		}
 		ok, note := true, ""

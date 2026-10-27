@@ -29,7 +29,7 @@ async function open(page: Page, tasks: object[]) {
   await page.route("**/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/engines") return route.fulfill({ json: catalog });
-    if (path === "/api/tasks/engine" || path === "/api/cfo/restart") {
+    if (path === "/api/tasks/engine" || path === "/api/cfo/restart" || path === "/api/cfo/engine") {
       posts.push({ path, body: route.request().postDataJSON() });
       return route.fulfill({ status: 202, json: { accepted: true } });
     }
@@ -55,6 +55,18 @@ async function openCfo(page: Page) {
 
 const harness = (page: Page) => page.locator("details.harness");
 const connections = (page: Page) => page.locator("details.connections");
+
+test("the CFO engine is saved for a safe turn without restarting on selection", async ({ page }) => {
+  const posts = await open(page, []);
+  await openCfo(page);
+  await harness(page).locator("> summary").click();
+  const engine = harness(page).getByRole("group", { name: "CFO engine" });
+  await engine.getByRole("combobox", { name: "Model" }).selectOption("current-model");
+  await engine.getByRole("combobox", { name: "Effort" }).selectOption("xhigh");
+  expect(posts).toHaveLength(0);
+  await engine.getByRole("button", { name: "Save for the next safe turn" }).click();
+  await expect.poll(() => posts).toEqual([{ path: "/api/cfo/engine", body: { harness: "codex", model: "current-model", effort: "xhigh" } }]);
+});
 
 for (const who of ["goblin", "CFO"] as const) {
   for (const transition of ["breakpoint", "maximize", "disclosure"] as const) {

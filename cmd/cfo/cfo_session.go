@@ -29,6 +29,13 @@ func cfoHarnessPath(stateDir string) string {
 // cfoHarness is the harness goblins starts the CFO as: the one last chosen
 // with --harness, or claude.
 func cfoHarness(stateDir string) (string, error) {
+	choice, err := supervisor.ReadCFOEngine(stateDir)
+	if err == nil {
+		return choice.Harness, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read the CFO's selected engine: %w", err)
+	}
 	data, err := fsx.ReadFile(cfoHarnessPath(stateDir))
 	if errors.Is(err, os.ErrNotExist) {
 		return "claude", nil

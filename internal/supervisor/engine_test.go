@@ -21,6 +21,37 @@ type engineGate struct {
 	err       error
 }
 
+func TestCFOEngineSelectionSavesWithoutRestartAndRejectsInvalidChoices(t *testing.T) {
+	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+	machine := newFirstRunMachine(t)
+	machine.runs = true
+	handler.Service.Options.FirstRun = machine.run
+	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	if response.Code != http.StatusOK || machine.restarted != 0 {
+		t.Fatalf("save = %d %s, restarted %d", response.Code, response.Body, machine.restarted)
+	}
+	path := filepath.Join(h.State, "cfo-engine.json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []map[string]string{
+		{"harness": "codex", "model": "missing-model", "effort": "high"},
+		{"harness": "codex", "model": "selected-model", "effort": "max"},
+		{"harness": "unknown", "model": "selected-model", "effort": "high"},
+		{"harness": "codex", "model": "default", "effort": "high"},
+	} {
+		response = taskControlRequest(handler, "/api/cfo/engine", invalid)
+		after, err := os.ReadFile(path)
+		if response.Code != http.StatusConflict || err != nil || string(after) != string(before) || machine.restarted != 0 {
+			t.Fatalf("invalid save %v = %d %s, file %s, err %v, restarted %d", invalid, response.Code, response.Body, after, err, machine.restarted)
+		}
+	}
+}
+
 func (gate *engineGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
 	if gate.err != nil {
 		return pipeline.Progress{}, gate.err

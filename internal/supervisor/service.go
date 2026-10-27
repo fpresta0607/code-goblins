@@ -1504,7 +1504,8 @@ type Snapshot struct {
 	// CFOHarness names the harness the registered CFO runs, such as claude or
 	// codex, for the mark beside the CFO on the board; it is empty while no
 	// CFO is registered.
-	CFOHarness string `json:"cfo_harness"`
+	CFOHarness string     `json:"cfo_harness"`
+	CFOEngine  *CFOEngine `json:"cfo_engine,omitempty"`
 	// CFOSession is the session of the registered CFO, as Sessions keys it,
 	// which every surface reads the CFO's status from, and empty while no
 	// CFO is registered or its registration names no session: an older CFO's
@@ -1605,6 +1606,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness, out.CFOSession = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness, cfo.session
+	if engine, err := ReadCFOEngine(directory); err == nil {
+		out.CFOEngine = &engine
+	} else if !errors.Is(err, os.ErrNotExist) {
+		out.Issues = append(out.Issues, "CFO engine selection: "+err.Error())
+	}
 	if firstRun := s.Options.FirstRun; firstRun != nil && firstRun.SavedAgent != nil {
 		out.CFOConfigured = firstRun.SavedAgent() != ""
 	}

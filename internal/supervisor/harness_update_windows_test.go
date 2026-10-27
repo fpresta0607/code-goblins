@@ -95,6 +95,45 @@ func cfoUpdateOf(t *testing.T, s *Service) *CFOUpdate {
 	return snapshot.CFOUpdate
 }
 
+func TestCFOEngineSelectionWaitsForIdleAndAnEmptyComposer(t *testing.T) {
+	handler, machine, screen := updateBoard(t)
+	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	screen.show(append([]string{"✻ Working… (12s · esc to interrupt)"}, claudeAtPrompt("")...))
+	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("selection = %d %s", response.Code, response.Body)
+	}
+	handler.Service.applyCFOEngine(t.Context())
+	if machine.restarted != 0 {
+		t.Fatal("selection interrupted the active turn")
+	}
+	screen.show(claudeAtPrompt("unsent draft"))
+	handler.Service.applyCFOEngine(t.Context())
+	if machine.restarted != 0 {
+		t.Fatal("selection discarded a draft")
+	}
+	gate := &engineGate{isRunning: true}
+	handler.Service.Options.Gate = gate
+	meta := state.TaskMeta{ID: "gate-task", SpawnGen: "s1", Mode: "no-mistakes", Worktree: handler.Service.Store.Home.Root, Project: handler.Service.Store.Home.Root}
+	if err := state.WriteTaskMeta(handler.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	screen.show(claudeAtPrompt(""))
+	handler.Service.applyCFOEngine(t.Context())
+	if machine.restarted != 0 {
+		t.Fatal("selection interrupted an active gate")
+	}
+	gate.isRunning = false
+	handler.Service.applyCFOEngine(t.Context())
+	handler.Service.applyCFOEngine(t.Context())
+	if machine.restarted != 1 {
+		t.Fatalf("restarted %d times, want once at the safe boundary", machine.restarted)
+	}
+}
+
 // Claude Code's "Update installed · Restart to update" in the CFO's footer
 // puts Update on the CFO's header and restarts nothing by itself. His press
 // waits while the CFO is in a turn, then restarts the CFO once, on its

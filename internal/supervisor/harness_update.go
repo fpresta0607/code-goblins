@@ -95,6 +95,7 @@ func (s *Service) keepHarnessUpdates(ctx context.Context, every time.Duration) {
 	for {
 		s.lookForHarnessUpdates()
 		s.applyCFOUpdate(ctx)
+		s.applyCFOEngine(ctx)
 		select {
 		case <-ctx.Done():
 			return

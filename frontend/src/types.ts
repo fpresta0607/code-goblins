@@ -394,6 +394,7 @@ export interface Snapshot {
   cfo_terminal_since: string;
   // The harness the registered CFO runs, such as claude; empty while none is registered.
   cfo_harness: string;
+  cfo_engine?: { harness: string; model: string; effort: string; pending: boolean; problem: string };
   // The registered CFO's session, as sessions key it; empty while no CFO is
   // registered or its registration names no session.
   cfo_session: string;
@@ -929,6 +930,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_terminal: v.cfo_terminal === undefined ? "" : string(v.cfo_terminal),
     cfo_terminal_since: v.cfo_terminal_since === undefined ? "" : string(v.cfo_terminal_since),
     cfo_harness: v.cfo_harness === undefined ? "" : string(v.cfo_harness),
+    ...(v.cfo_engine == null ? {} : { cfo_engine: ((engine) => ({ harness: string(engine.harness), model: string(engine.model), effort: string(engine.effort), pending: engine.pending === undefined ? false : boolean(engine.pending), problem: engine.problem === undefined ? "" : string(engine.problem) }))(object(v.cfo_engine)) }),
     cfo_session: v.cfo_session === undefined ? "" : string(v.cfo_session),
     cfo_conversation_left: v.cfo_conversation_left === undefined ? "" : string(v.cfo_conversation_left),
     cfo_update: v.cfo_update == null ? null : ((update) => ({ ...parseHarnessUpdate(update), pending: update.pending === undefined ? false : boolean(update.pending), updating: update.updating === undefined ? false : boolean(update.updating), problem: update.problem === undefined ? "" : string(update.problem) }))(object(v.cfo_update)),

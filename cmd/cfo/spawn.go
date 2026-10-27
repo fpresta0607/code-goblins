@@ -219,8 +219,8 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			route += " overrides=" + strings.Join(overrides, " ")
 		}
 	} else {
-		if assessment.CheckedModel != "" && (*model == "" || *model == "default" || assessment.CheckedHarness == *harnessName && routing.SameModel(*harnessName, assessment.CheckedModel, *model)) {
-			fmt.Fprintln(stderr, "cfo spawn: verification requires a known different model from its parent")
+		if assessment.CheckedModel != "" && (*model == "" || *model == "default") {
+			fmt.Fprintln(stderr, "cfo spawn: verification requires an explicit model")
 			return 1
 		}
 		route = fmt.Sprintf("routed lane=explicit class=%s risk=%s source=--harness flag", assessment.Class, assessment.Risk)

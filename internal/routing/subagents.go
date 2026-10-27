@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// SubagentRoutes resolves native roles on the parent's harness. Verification
-// must name a known different model, even when the parent used an alias.
+// SubagentRoutes resolves native roles on the parent's harness. A different
+// verification model is preferred when the policy names one.
 func (p Policy) SubagentRoutes(harness, parentModel string) (map[string]ExecutionLane, error) {
 	roles, ok := p.Subagents[harness]
 	if !ok {
@@ -21,19 +21,26 @@ func (p Policy) SubagentRoutes(harness, parentModel string) (map[string]Executio
 	}
 	routes := make(map[string]ExecutionLane, 3)
 	for _, role := range []string{"search", "review", "verify"} {
+		var sameModel ExecutionLane
 		for _, name := range roles[role] {
 			lane, ok := table.Lanes[name]
 			if !ok || lane.Harness != harness || lane.Model == "" || lane.Model == "default" {
 				return nil, fmt.Errorf("routing: subagent %s/%s lane %q must name an explicit model on %s", harness, role, name, harness)
 			}
 			if role == "verify" && SameModel(harness, parentModel, lane.Model) {
+				if sameModel.Name == "" {
+					sameModel = lane
+				}
 				continue
 			}
 			routes[role] = lane
 			break
 		}
+		if _, ok := routes[role]; !ok && sameModel.Name != "" {
+			routes[role] = sameModel
+		}
 		if _, ok := routes[role]; !ok {
-			return nil, fmt.Errorf("routing: no %s subagent model on %s independent of %s", role, harness, parentModel)
+			return nil, fmt.Errorf("routing: no %s subagent model on %s", role, harness)
 		}
 	}
 	return routes, nil
