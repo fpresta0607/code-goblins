@@ -316,41 +316,47 @@ func TestReadAsksNothingOfATreeOlderThanTheGoblinsHarness(t *testing.T) {
 
 // A run waiting in the heavy line uses no processor while the runs ahead of
 // it take their turns, so the line moving is its activity: a goblin waiting
-// on it past the busy budget is at work while the turn passes (#965).
+// on it past the busy budget is at work while the turn passes (#965). So it
+// is for a run of a script, no test or build, which counts in the goblin
+// (#1443).
 func TestAHeavyLineRunWaitingInLineShowsTheLineMovingAsItsActivity(t *testing.T) {
-	// Arrange
-	launched := at.Add(-3 * time.Hour)
-	joined := at.Add(-90 * time.Minute)
-	passed := at.Add(-4 * time.Minute)
-	processes := append(goblinProcesses(launched, 0),
-		Process{PID: 300, ParentPID: 904, Exe: "goblins.exe", Created: 30, Started: joined, Memory: 20 * megabyte},
-	)
-	commands := maps.Clone(goblinCommands)
-	commands[300] = `C:\dev\code-goblins\bin\goblins.exe gate turn --detached -- go test ./internal/...`
-	reader := Reader{
-		Home:        t.TempDir(),
-		Processes:   func() ([]Process, error) { return processes, nil },
-		Listeners:   func() (map[int][]int, error) { return map[int][]int{}, nil },
-		CommandLine: func(pid int) (string, error) { return commands[pid], nil },
-		Owner:       func(pid int) string { return map[int]string{300: "tree"}[pid] },
-		HeavyLine: func() ([]verify.Standing, []verify.Standing, error) {
-			return []verify.Standing{{Who: "another goblin's suite", PID: 777, Since: passed}}, []verify.Standing{{Who: "go test", PID: 300, Since: joined}}, nil
-		},
-		Now: func() time.Time { return at },
-	}
+	for _, command := range []string{"go test ./internal/...", "node run-palette.mjs final-validated"} {
+		t.Run(command, func(t *testing.T) {
+			// Arrange
+			launched := at.Add(-3 * time.Hour)
+			joined := at.Add(-90 * time.Minute)
+			passed := at.Add(-4 * time.Minute)
+			processes := append(goblinProcesses(launched, 0),
+				Process{PID: 300, ParentPID: 904, Exe: "goblins.exe", Created: 30, Started: joined, Memory: 20 * megabyte},
+			)
+			commands := maps.Clone(goblinCommands)
+			commands[300] = `C:\dev\code-goblins\bin\goblins.exe gate turn --detached -- ` + command
+			reader := Reader{
+				Home:        t.TempDir(),
+				Processes:   func() ([]Process, error) { return processes, nil },
+				Listeners:   func() (map[int][]int, error) { return map[int][]int{}, nil },
+				CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+				Owner:       func(pid int) string { return map[int]string{300: "tree"}[pid] },
+				HeavyLine: func() ([]verify.Standing, []verify.Standing, error) {
+					return []verify.Standing{{Who: "another goblin's suite", PID: 777, Since: passed}}, []verify.Standing{{Who: command, PID: 300, Since: joined}}, nil
+				},
+				Now: func() time.Time { return at },
+			}
 
-	// Act
-	tree, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
-	if err != nil {
-		t.Fatal(err)
-	}
+			// Act
+			tree, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// Assert
-	if len(tree.Waits()) == 0 {
-		t.Fatalf("Waits() = none, want the run waiting in the heavy line")
-	}
-	if got := tree.ActivityAt(); !got.Equal(passed) {
-		t.Errorf("ActivityAt() = %v, want %v, when the turn last passed", got, passed)
+			// Assert
+			if len(tree.Waits()) == 0 {
+				t.Fatalf("Waits() = none, want the run waiting in the heavy line")
+			}
+			if got := tree.ActivityAt(); !got.Equal(passed) {
+				t.Errorf("ActivityAt() = %v, want %v, when the turn last passed", got, passed)
+			}
+		})
 	}
 }
 
