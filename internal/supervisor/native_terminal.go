@@ -63,8 +63,12 @@ type nativeRelay struct {
 	held []byte
 	// screen tells the view what its harness's screen shows, while the view
 	// has not been told that yet, told is what the view was last told,
-	// and looking says a read of the screen is due.
+	// and looking says a read of the screen is due. screenAt is how much
+	// output had been received when the screen was read: the report goes out
+	// only once that output has, since a panel's rows are the screen's own
+	// text and must never reach the view ahead of output its window holds.
 	screen     []byte
+	screenAt   int64
 	told       []byte
 	looking    bool
 	submission string
@@ -301,6 +305,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		if submission == relay.submission && !bytes.Equal(relay.told, message) {
 			relay.told = message
 			relay.screen = message
+			relay.screenAt = relay.received
 		}
 		relay.mu.Unlock()
 		relay.signal()
@@ -358,8 +363,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			history, unread, held, screen := relay.history, relay.unread, relay.held, relay.screen
-			relay.history, relay.unread, relay.held, relay.screen = nil, nil, nil, nil
+			history, unread, held := relay.history, relay.unread, relay.held
+			relay.history, relay.unread, relay.held = nil, nil, nil
 			var size, output []byte
 			if len(relay.sizes) > 0 && relay.sizes[0].at == relay.sent {
 				size = relay.sizes[0].message
@@ -377,6 +382,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					relay.pending = nil
 				}
 				relay.sent += int64(n)
+			}
+			var screen []byte
+			if relay.screen != nil && relay.sent >= relay.screenAt {
+				screen, relay.screen = relay.screen, nil
 			}
 			closing := relay.closing
 			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil || held != nil || screen != nil {
