@@ -187,9 +187,12 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   // The rows drawn: those within reach of where he reads, or of the end while
   // he follows it, each row not measured yet taken at an estimate.
   const heights = held.messages.map((message) => rowHeights.get(message.id) ?? ESTIMATED_ROW_PX);
-  const anchorAt = held.messages.findIndex((message) => message.id === view.anchor);
-  const readTop = anchorAt < 0 ? view.top : heights.slice(0, anchorAt).reduce((sum, each) => sum + each, 0) - view.offset;
-  const drawn = messageWindow(heights, isAtEnd ? Infinity : readTop, view.height);
+  const windowAt = (place: typeof view, isEnd: boolean) => {
+    const anchorAt = held.messages.findIndex((message) => message.id === place.anchor);
+    const readTop = anchorAt < 0 ? place.top : heights.slice(0, anchorAt).reduce((sum, each) => sum + each, 0) - place.offset;
+    return messageWindow(heights, isEnd ? Infinity : readTop, place.height);
+  };
+  const drawn = windowAt(view, isAtEnd);
 
   // remember notes where he reads after he scrolls, draws the rows that come
   // within reach, and reads the older page once he nears the top.
@@ -212,8 +215,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
       const message = held.messages[index];
       anchor.current = message ? { id: message.id, offset: at } : null;
     }
-    const next = messageWindow(heights, isEnd ? Infinity : box.scrollTop, box.clientHeight);
-    if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView({ top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 });
+    const place = { top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 };
+    const next = windowAt(place, isEnd);
+    if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView(place);
     if (box.scrollTop < OLDER_WITHIN_PX) readOlder();
   };
 

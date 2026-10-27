@@ -1388,7 +1388,7 @@ A reply with text keeps Copy and its timestamp below the reply; a notice and a c
 Exact fleet wake markers, session-lock and wake-queue digests, and stamped background-run and helper notices draw as service lines.
 A genuine message that merely begins with `cfo`, such as `cfo drain please`, remains the user's message.
 The list scrolls as a page does, with the wheel, the page keys, and Shift with Page Up and Page Down as in a terminal.
-The page holds only the messages within 1,200 px of what he reads, each measured as it lays out and the rest kept as room above and below (`frontend/src/message-window.ts`), so a session of thousands of messages costs what a screenful does, and a reply that grows as it streams changes only its own message (`frontend/tests/conversation-window.spec.ts`).
+The page holds only the messages within 1,200 px of what he reads, each measured as it lays out and the rest kept as room above and below (`frontend/src/message-window.ts`), so a session of thousands of messages costs what a screenful does, a scroll draws again only when it changes which messages the page holds, and a reply that grows as it streams changes its own message and at most the rows its growth pushes off the window's far edge, with the room kept above them, never every line (`frontend/tests/conversation-window.spec.ts`).
 What a call folds under its row, and a thought under its line, is in the page only while it is open.
 At its end it follows what arrives, and while he reads further up nothing moves it: a message that grows above, one that arrives below and an older page read in above all leave the message he reads where it was.
 Jump to latest, at the list's foot while he reads up, returns to the end.

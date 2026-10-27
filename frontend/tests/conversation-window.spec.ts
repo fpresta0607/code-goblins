@@ -4,24 +4,35 @@ import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
 // A conversation loads only what it shows (the Overlord, 2026-10-27, 12:40Z:
 // "every UI change must load intelligently ... An update re-renders only what
 // it changed, never every line"): the page holds the rows within reach of
-// where he reads however long the session is, an idle conversation changes
+// where he reads however long the session is, a scroll draws the view again
+// only when it changes which rows are drawn, an idle conversation changes
 // nothing in the page while the board's snapshot keeps arriving, and a reply
-// that grows as it streams changes only its own message. The supervisor is
-// played by tests/session-board.ts; every conversation is made up.
+// that grows as it streams changes its own message and at most the rows its
+// growth pushes off the window's far edge, never every line. The supervisor
+// is played by tests/session-board.ts; every conversation is made up.
 
 const reply = (seq: number, text: string) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text }] });
 const prompt = (seq: number) => ({ id: "m" + seq, seq, at, kind: "prompt", source: "overlord", text: "Question " + seq });
 const LONG = { messages: Array.from({ length: 1000 }, (_, seq) => seq % 2 ? reply(seq, `Answer ${seq}\n\nIt runs over a few lines so the page has height.`) : prompt(seq)), more: false };
 const log = (page: Page) => page.getByRole("log", { name: "Messages of " + NAME });
 
-// watch records every change made in the conversation's list from now on.
+// watch records every change made in the conversation's list from now on: the
+// message a change was inside, each row that left or joined the list, a
+// change to the room the list keeps above and below its rows, and anything
+// else outside a message.
 const watch = (page: Page) => page.evaluate(() => {
   const changes: string[] = [];
   const list = document.querySelector(".messages-view:not([hidden]) .conversation-items")!;
   new MutationObserver((records) => {
     for (const record of records) {
       const target = record.target instanceof Element ? record.target : record.target.parentElement;
-      changes.push(target?.closest("[data-message]")?.getAttribute("data-message") || "outside a message:" + record.type + ":" + (record.attributeName || ""));
+      const message = target?.closest("[data-message]")?.getAttribute("data-message");
+      if (message) changes.push(message);
+      else if (record.target === list && record.type === "childList") {
+        for (const row of record.removedNodes) changes.push("left:" + (row instanceof Element ? row.getAttribute("data-message") : row.nodeName));
+        for (const row of record.addedNodes) changes.push("joined:" + (row instanceof Element ? row.getAttribute("data-message") : row.nodeName));
+      } else if (record.target === list && record.attributeName === "style") changes.push("room");
+      else changes.push("outside a message:" + record.type + ":" + (record.attributeName || ""));
     }
   }).observe(list, { subtree: true, childList: true, characterData: true, attributes: true });
   (window as unknown as { changes: string[] }).changes = changes;
@@ -66,24 +77,96 @@ test("an idle conversation changes nothing in the page while the board's snapsho
   expect(await changes(page)).toEqual([]);
 });
 
-test("a reply that grows as it streams changes only its own message", async ({ page }) => {
+test("a reply that grows as it streams changes its own message and at most the rows leaving the window's far edge", async ({ page }) => {
   // Arrange
   const page50 = { messages: Array.from({ length: 50 }, (_, seq) => seq % 2 ? reply(seq, "Answer " + seq) : prompt(seq)), more: false };
   await open(page, snapshot(), "", page50);
   await openGoblin(page);
   await expect(log(page)).toContainText("Answer 49");
+  const newest = log(page).locator('[data-message="m49"]');
+  const height = await newest.evaluate((row) => row.getBoundingClientRect().height);
+  const drawn = await log(page).evaluate((element) => [...element.querySelectorAll<HTMLElement>(":scope > .conversation-items > [data-message]")].map((row) => row.dataset.message || ""));
   await watch(page);
 
-  // Act: the newest reply streams on in three updates.
-  for (const text of ["Answer 49, and more", "Answer 49, and more words", "Answer 49, and more words still"]) {
+  // Act: the newest reply streams on in three updates, each three lines longer.
+  for (const count of [3, 6, 9]) {
+    const text = ["Answer 49", ...Array.from({ length: count }, (_, line) => "Streamed line " + (line + 1))].join("\n\n");
     await page.evaluate((changed) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [changed] } })), reply(49, text));
-    await expect(log(page)).toContainText(text);
+    await expect(newest).toContainText("Streamed line " + count);
+  }
+  await page.waitForTimeout(300);
+
+  // Assert: the reply grew by several lines, and every change in the list was
+  // inside it, in the room kept above the rows drawn, or a row its growth
+  // pushed off the window's far edge, which are the oldest rows drawn.
+  expect(await newest.evaluate((row) => row.getBoundingClientRect().height)).toBeGreaterThan(height + 100);
+  const seen = await changes(page);
+  expect(seen).toContain("m49");
+  expect(seen.filter((each) => each !== "m49" && each !== "room" && !each.startsWith("left:"))).toEqual([]);
+  const left = seen.filter((each) => each.startsWith("left:")).map((each) => each.slice("left:".length));
+  expect([...left].sort()).toEqual(drawn.slice(0, left.length).sort());
+});
+
+// countDraws counts each commit in which the conversation's view drew, by
+// React's own devtools hook, as tests/render-budget.spec.ts counts what a
+// commit drew: the build shortens component names, so the view is the
+// component whose first element is .messages-view.
+const countDraws = (page: Page) => page.addInitScript(() => {
+  interface Fiber { tag: number; flags: number; child?: Fiber; sibling?: Fiber; stateNode?: unknown; alternate?: Fiber | null }
+  const counted = { draws: 0 };
+  Object.assign(window, {
+    counted,
+    __REACT_DEVTOOLS_GLOBAL_HOOK__: {
+      supportsFiber: true, renderers: new Map(), inject() { return 1; }, checkDCE() {}, onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, onScheduleFiberRoot() {},
+      onCommitFiberRoot(_: number, root: { current: Fiber }) {
+        const stack = [root.current];
+        while (stack.length) {
+          const fiber = stack.pop()!;
+          if (fiber.sibling) stack.push(fiber.sibling);
+          // Children a bailout reused are the ones the commit before drew,
+          // with their flags from then, so the walk stops there.
+          if (fiber.child && fiber.child !== fiber.alternate?.child) stack.push(fiber.child);
+          // A function, forwardRef or memo component that did work.
+          if (!(fiber.flags & 1) || ![0, 11, 14, 15].includes(fiber.tag)) continue;
+          let host = fiber.child;
+          while (host && host.tag !== 5) host = host.child;
+          if (host?.stateNode instanceof Element && host.stateNode.classList.contains("messages-view")) { counted.draws++; return; }
+        }
+      },
+    },
+  });
+});
+
+test("scrolling a few pixels at a time draws the view again only when it changes which rows are drawn", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute, so the board's
+  // minute clock draws nothing while he scrolls, and he reads a thousand
+  // pixels up from the end of a long conversation, every row below him drawn.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  await countDraws(page);
+  await open(page, snapshot(), "", LONG);
+  await openGoblin(page);
+  await expect(log(page)).toContainText("Answer 999");
+  await log(page).evaluate((element) => { element.scrollTop -= 1000; });
+  await page.waitForTimeout(1000);
+  const sample = () => page.evaluate(() => ({
+    rows: [...document.querySelectorAll<HTMLElement>(".messages-view:not([hidden]) .conversation-items > [data-message]")].map((row) => row.dataset.message).join(),
+    draws: (window as unknown as { counted: { draws: number } }).counted.draws,
+  }));
+
+  // Act: sixty steps of five pixels down, each smaller than the list's top
+  // padding, across the edges of the rows leaving the window above.
+  const steps = [await sample()];
+  for (let step = 0; step < 60; step++) {
+    await log(page).evaluate((element) => { element.scrollTop += 5; });
+    await page.waitForTimeout(50);
+    steps.push(await sample());
   }
 
-  // Assert: every change in the list was inside that reply.
-  const seen = await changes(page);
-  expect(seen.length).toBeGreaterThan(0);
-  expect([...new Set(seen)]).toEqual(["m49"]);
+  // Assert: the rows drawn changed along the way, and each step that left
+  // them as they were drew nothing.
+  const moved = steps.slice(1).map((each, step) => each.rows !== steps[step].rows);
+  expect(moved).toContain(true);
+  expect(steps.slice(1).map((each, step) => moved[step] ? 0 : each.draws - steps[step].draws)).toEqual(moved.map(() => 0));
 });
 
 // A conversation whose last reply ran a command, whose output folds under
