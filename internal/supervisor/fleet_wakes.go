@@ -620,9 +620,10 @@ type ciGoblin struct {
 // a path or a host GitHub does not serve is hosted elsewhere: neither has CI
 // here to read, so neither is asked of GitHub and neither is answered with
 // gh's sign-in advice. One whose directory is gone, one that is no Git
-// checkout, one that is only a folder inside another repository, and one whose
-// origin names a GitHub host but no repository are reported with what repairs
-// them, since GitHub is what would otherwise be read. One whose origin git did
+// checkout, one that is only a folder inside another repository, one git
+// refuses to read, and one whose origin names a GitHub host but no repository
+// are reported with what repairs them, since GitHub is what would otherwise be
+// read. One whose origin git did
 // not answer for is asked again on the next poll, and is an error once that
 // failed failingPasses polls in a row.
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
@@ -660,7 +661,8 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
 				delete(w.Failing, "origin:"+repo)
 			} else {
-				errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read the checkout of %s: %s", repo, redact(rootErr.Error()))))
+				failure := fmt.Errorf("ci wakes: read the checkout of %s: %s", repo, redact(rootErr.Error()))
+				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "check the checkout's Git repository, its ownership and its access", now))
 			}
 			continue
 		}
@@ -779,7 +781,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 // checkoutRoot reads the root of the Git repository git finds for dir, which
 // is empty when it finds none. Git answers from the nearest repository above a
 // directory as well as from the one in it, which is why the caller compares
-// this root with the checkout it recorded rather than trusting the answer.
+// this root with the checkout it recorded rather than trusting the answer. A
+// refusal other than git's own no-repository answer is returned as an error so
+// the poll reports what git said instead of calling the checkout invalid.
 func checkoutRoot(ctx context.Context, runner execx.Runner, dir string) (string, error) {
 	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
@@ -788,7 +792,11 @@ func checkoutRoot(ctx context.Context, runner execx.Runner, dir string) (string,
 		return "", err
 	}
 	if result.ExitCode != 0 {
-		return "", nil
+		detail := strings.TrimSpace(string(result.Stderr))
+		if strings.Contains(strings.ToLower(detail), "not a git repository") {
+			return "", nil
+		}
+		return "", fmt.Errorf("git rev-parse --show-toplevel exited %d: %s", result.ExitCode, bounded(redact(detail), 300))
 	}
 	return strings.TrimSpace(string(result.Stdout)), nil
 }
@@ -837,6 +845,9 @@ func splitRemote(remote string) (host, repository string, ok bool) {
 // isGitHubHost recognizes gh's configured hosts. An unreadable configuration
 // is uncertain, so the caller lets gh report the failure rather than skipping it.
 func isGitHubHost(host string) bool {
+	if host == "" {
+		return false
+	}
 	if strings.EqualFold(host, "github.com") || strings.EqualFold(host, "ssh.github.com") || strings.EqualFold(host, os.Getenv("GH_HOST")) {
 		return true
 	}

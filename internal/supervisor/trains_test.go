@@ -687,6 +687,8 @@ func runningTrain(t *testing.T, h home.Home, checkout string) train.Train {
 // the CFO only once the step failed on three polls in a row.
 func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
 	// Arrange
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_HOST", "")
 	service, h := fleetService(t)
 	runner := &trainCIRunner{timeouts: 3}
 	service.Options.CI = runner
@@ -710,6 +712,8 @@ func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *t
 
 func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 	// Arrange
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_HOST", "")
 	service, h := fleetService(t)
 	runner := &trainCIRunner{}
 	service.Options.CI = runner

@@ -1521,6 +1521,21 @@ func (f realOriginForge) Run(ctx context.Context, req execx.Request) (execx.Resu
 	return f.fakeForge.Run(ctx, req)
 }
 
+// refusingCheckoutForge makes git refuse the checkout's root probe with its
+// own stderr, as it does for a repository it will not read, and answers every
+// other question as the fake forge does.
+type refusingCheckoutForge struct {
+	*fakeForge
+	stderr string
+}
+
+func (f refusingCheckoutForge) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	if req.Name == "git" && slices.Equal(req.Args, []string{"rev-parse", "--show-toplevel"}) && strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.repo)) {
+		return execx.Result{ExitCode: 128, Stderr: []byte(f.stderr)}, nil
+	}
+	return f.fakeForge.Run(ctx, req)
+}
+
 func TestCIMonitorSkipsNonGitHubOrigin(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", config)
@@ -1646,6 +1661,29 @@ func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
 	wakes := fleetWakeRecords(t, h, "ci")
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, project) || strings.Contains(wakes[0].Detail, "gh auth login") {
 		t.Fatalf("non-checkout wakes = %+v, want one naming the invalid checkout", wakes)
+	}
+}
+
+// Git refusing to read a checkout is not the same as there being no checkout:
+// the refusal git gave is reported with the repair step, not a wrong diagnosis.
+func TestCIMonitorReportsGitRefusalInsteadOfCallingTheCheckoutInvalid(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.pulls, forge.runs = "[]", "[]"
+	s.Options.CI = refusingCheckoutForge{fakeForge: forge, stderr: "fatal: detected dubious ownership in repository at 'https://user:fixture-password@example.invalid/repo'"}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if forge.ghCalls != 0 {
+		t.Fatalf("a checkout git refused made %d GitHub calls, want none", forge.ghCalls)
+	}
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "dubious ownership") || !strings.Contains(wakes[0].Detail, "next:") || strings.Contains(wakes[0].Detail, "is not a Git checkout") || strings.Contains(wakes[0].Detail, "fixture-password") {
+		t.Fatalf("wakes = %+v, want one reporting git's refusal, its next step and no credential", wakes)
 	}
 }
 
