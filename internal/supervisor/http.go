@@ -671,7 +671,7 @@ var tokenPattern = regexp.MustCompile(`(?i)(bearer\s+|(?:api[_-]?key|token|passw
 // address, and only that pair: an ssh username such as ssh://git@github.com/o/r
 // and an address such as Contact:alice@example.com are ordinary text that a
 // handoff or a status tail shows as it is.
-var urlCredential = regexp.MustCompile(`(?i)((?:https?|ssh|git)://)[^\s/@]+:[^\s/@]+@`)
+var urlCredential = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)([^\s/@]*:[^\s/@]+)@`)
 var scpCredential = regexp.MustCompile(`[^\s/:]+:[^\s/@]+@([^\s/:]+:[^\s/]+)`)
 
 func redact(text string) string {

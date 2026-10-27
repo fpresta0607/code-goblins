@@ -45,7 +45,7 @@ func accountRead(req execx.Request) (read, bool) {
 	if !slices.Equal(req.Args, []string{"api", "user", "--jq", ".login"}) || req.Env != nil {
 		return read{}, false
 	}
-	hosts := filepath.Join(GHConfigFolder(), "hosts.yml")
+	hosts := filepath.Join(ghConfigFolder(), "hosts.yml")
 	return read{
 		key:     "gh\x00" + strings.Join(req.Args, "\x00"),
 		answers: []int{0},
@@ -53,8 +53,8 @@ func accountRead(req execx.Request) (read, bool) {
 	}, true
 }
 
-// GHConfigFolder is where gh keeps its configuration and its hosts file.
-func GHConfigFolder() string {
+// ghConfigFolder is where gh keeps its configuration and its hosts file.
+func ghConfigFolder() string {
 	if folder := os.Getenv("GH_CONFIG_DIR"); folder != "" {
 		return folder
 	}

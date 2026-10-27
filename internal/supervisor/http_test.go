@@ -324,6 +324,10 @@ func TestRedactKeepsOrdinaryAddressesAndTakesCredentials(t *testing.T) {
 		{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/1"},
 		{"clone https://user:fixture-password@github.com/o/r", "clone https://[redacted]@github.com/o/r"},
 		{"clone ssh://user:fixture-password@github.com/o/r", "clone ssh://[redacted]@github.com/o/r"},
+		{"clone ftp://user:fixture-password@example.invalid/r", "clone ftp://[redacted]@example.invalid/r"},
+		{"clone rsync://user:fixture-password@example.invalid/r", "clone rsync://[redacted]@example.invalid/r"},
+		{"clone git+ssh://user:fixture-password@example.invalid/r", "clone git+ssh://[redacted]@example.invalid/r"},
+		{"clone https://:fixture-password@example.invalid/r", "clone https://[redacted]@example.invalid/r"},
 		{"remote user:fixture-password@github.com:o/r.git", "remote [redacted]@github.com:o/r.git"},
 		{"token=fixture-token", "token=[redacted]"},
 	} {

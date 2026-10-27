@@ -705,15 +705,18 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		host, repository, hasRemote := splitRemote(remote)
 		// A repository with no origin, one kept on this machine and one hosted
 		// outside GitHub have no CI here to read, so GitHub is asked nothing
-		// about them and gh's sign-in advice is never given for one of them.
-		if !hasRemote || !isGitHubHost(host) {
+		// about them and gh's sign-in advice is never given for one of them. An
+		// origin git reads as none of its forms but whose host is GitHub's is a
+		// broken origin of this monitor's own, reported below rather than
+		// forgotten as a repository kept elsewhere.
+		if !isGitHubHost(host) && (hasRemote || !namesGitHubHost(remote)) {
 			forgetUnreadable(w, repo)
 			continue
 		}
 		// A remote that names a GitHub host but no repository is a checkout
 		// whose origin is broken, which is reported rather than read as a
 		// repository that is merely somewhere else.
-		if repository == "" {
+		if !hasRemote || repository == "" {
 			failure := fmt.Errorf("ci wakes: the origin of %s names no repository", repo)
 			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "set origin to the repository's own URL", now))
 			continue
@@ -844,6 +847,23 @@ func splitRemote(remote string) (host, repository string, ok bool) {
 		return "", "", false
 	}
 	return host, repository, host != ""
+}
+
+// namesGitHubHost reports whether remote names a GitHub host where its host
+// belongs, even when git reads the address as none of its forms: GitHub
+// spelled wrongly is a broken origin of a repository this monitor reads, not a
+// repository kept somewhere else.
+func namesGitHubHost(remote string) bool {
+	hostAndPath := remote
+	if _, after, found := strings.Cut(hostAndPath, "@"); found {
+		hostAndPath = after
+	}
+	host, _, _ := strings.Cut(hostAndPath, "/")
+	if strings.ContainsAny(host, `\`) {
+		return false
+	}
+	host, _, _ = strings.Cut(host, ":")
+	return isGitHubHost(host)
 }
 
 // isGitHubHost reports whether host is one GitHub serves. The fleet reads a

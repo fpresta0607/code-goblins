@@ -1539,7 +1539,7 @@ func TestCIMonitorSkipsNonGitHubOrigin(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", config)
 	t.Setenv("GH_HOST", "")
-	for _, remote := range []string{"https://gitlab.com/example/project.git", "git@gitlab.com:example/project.git", "gitlab.com:example/project.git", "https://gitlab.com", "../local-repository", "file:///C:/repos/project.git"} {
+	for _, remote := range []string{"https://gitlab.com/example/project.git", "git@gitlab.com:example/project.git", "gitlab.com:example/project.git", "https://gitlab.com", "../local-repository", "file:///C:/repos/project.git", "repos/github.com/o/r.git", "file:///C:/repos/github.com/o/r.git"} {
 		t.Run(remote, func(t *testing.T) {
 			s, h := fleetService(t)
 			project := t.TempDir()
@@ -1647,8 +1647,9 @@ func TestCIMonitorReportsMissingCheckoutAndRecovers(t *testing.T) {
 }
 
 func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
-	s, h := fleetService(t)
 	project := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(project))
+	s, h := fleetService(t)
 	liveGoblin(t, h, "cg-wakes", project)
 	forge := forgeFor(project, "cg-wakes")
 	s.Options.CI = realOriginForge{forge}
@@ -1759,6 +1760,43 @@ func TestCIMonitorReportsGitHubOriginWithoutRepository(t *testing.T) {
 	}
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "names no repository") || strings.Contains(wakes[0].Detail, "gh auth login") {
 		t.Fatalf("wakes = %+v, want one saying the origin names no repository", wakes)
+	}
+}
+
+// An origin that names GitHub but is spelled in none of the forms git reads is
+// a broken origin of a repository this monitor reads, not a repository kept
+// somewhere else, so it is reported and keeps its CI wake.
+func TestCIMonitorReportsGitHubOriginSpelledInNoFormGitReads(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	for _, remote := range []string{"git@github.com/o/r.git", "github.com/o/r.git"} {
+		t.Run(remote, func(t *testing.T) {
+			s, h := fleetService(t)
+			project := t.TempDir()
+			git := execx.OSRunner{}
+			for _, args := range [][]string{{"init"}, {"remote", "add", "origin", remote}} {
+				result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+				}
+			}
+			liveGoblin(t, h, "cg-wakes", project)
+			forge := forgeFor(project, "cg-wakes")
+			s.Options.CI = realOriginForge{forge}
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			for range 4 {
+				_ = s.checkFleet(t.Context(), now)
+				now = now.Add(ciPollEvery)
+			}
+			wakes := fleetWakeRecords(t, h, "ci")
+			if forge.ghCalls != 0 {
+				t.Fatalf("an origin git cannot read made %d GitHub calls, want none", forge.ghCalls)
+			}
+			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "names no repository") || !strings.Contains(wakes[0].Detail, "set origin") || strings.Contains(wakes[0].Detail, "gh auth login") {
+				t.Fatalf("wakes = %+v, want one naming the broken origin and its repair", wakes)
+			}
+		})
 	}
 }
 
