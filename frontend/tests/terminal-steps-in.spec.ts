@@ -64,6 +64,10 @@ for (const harness of ["claude", "pi", "codex"] as const) {
     await expect(choice(page, panel.choices[0].text)).toHaveAttribute("aria-current", "true");
     await expect(messages(page)).toBeVisible();
     await expect(back(page)).toHaveCount(0);
+    // No row of key chips: the keys are the box's own, and a harness that
+    // names a way out gets one plain Cancel.
+    await expect(list(page).getByRole("button", { name: /^Press / })).toHaveCount(0);
+    await expect(list(page).getByRole("button", { name: "Cancel", exact: true })).toHaveCount(panel.hints.some((hint) => /esc/i.test(hint)) ? 1 : 0);
     await page.screenshot({ path: testInfo.outputPath(`${harness}-panel.png`) });
 
     // A choice is the arrows from the harness's focus to it, then Enter.
@@ -139,14 +143,14 @@ test("a picker the box opens despite background work stays in the chat, and goes
   await expect(back(page)).toHaveCount(0);
   await expect(field(page)).toBeFocused();
   await field(page).press("ArrowDown");
-  await list(page).getByRole("button", { name: "Press Enter" }).click();
+  await field(page).press("Enter");
   await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r" + DOWN + "\r");
   relay.say(closed);
   await expect(list(page)).toHaveCount(0);
   await expect(messages(page)).toBeVisible();
 });
 
-test("a screen the relay could not read still offers its keys and the terminal", async ({ page }) => {
+test("a screen the relay could not read still offers Cancel, its keys from the box, and the terminal", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
@@ -155,7 +159,7 @@ test("a screen the relay could not read still offers its keys and the terminal",
   relay.say({ type: "screen", asking: false, open: true, working: false, submission: "" });
 
   // Assert
-  await list(page).getByRole("button", { name: "Press Esc" }).click();
+  await list(page).getByRole("button", { name: "Cancel", exact: true }).click();
   await expect.poll(() => typed(relay)).toBe("\x1b");
   await list(page).getByRole("button", { name: "Show the terminal" }).click();
   await expect(back(page)).toBeVisible();
@@ -247,3 +251,29 @@ test("stepping in and out asks the terminal for no new size, counted at the rela
   // Assert
   expect(relay.resizes.length).toBe(seen);
 });
+
+for (const [label, width, height] of [["desktop", 1440, 960], ["phone", 390, 844]] as const) {
+  test(`an open list leaves the conversation and the box's controls whole, with nothing overlapping, on ${label}`, async ({ page }) => {
+    // Arrange: a permission prompt with a long preview.
+    await page.setViewportSize({ width, height });
+    const relay = await open(page);
+    await openGoblin(page);
+    const preview = Array.from({ length: 30 }, (_, at) => "  " + (at + 1) + " a line of the file it wants to write");
+
+    // Act
+    relay.say(asking({ ...PANELS.claude, rows: ["Create file", "nine.txt", ...preview, "Do you want to create nine.txt?"] }));
+    await expect(list(page)).toBeVisible();
+
+    // Assert: the list scrolls inside itself, the conversation keeps its own
+    // room above the box's dock, and the box with its controls is on screen.
+    const frame = (await page.locator(".messages-view:not([hidden]) .conversation-frame").boundingBox())!;
+    const dock = (await page.locator(".messages-view:not([hidden]) .composer-dock").boundingBox())!;
+    expect(frame.y + frame.height, "the conversation ends where the dock begins").toBeLessThanOrEqual(dock.y + 0.5);
+    expect(frame.height, "the conversation keeps a few lines").toBeGreaterThanOrEqual(80);
+    expect(await list(page).evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    for (const control of [box(page).getByRole("button", { name: "Send", exact: true }), box(page).getByRole("button", { name: "Change model", exact: true })]) {
+      const bounds = (await control.boundingBox())!;
+      expect(bounds.y + bounds.height, "the box's controls are inside the window").toBeLessThanOrEqual(height + 0.5);
+    }
+  });
+}

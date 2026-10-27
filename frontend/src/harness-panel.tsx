@@ -3,12 +3,8 @@ import { chooseKeys, PANEL_KEYS } from "./panel-keys";
 import type { HarnessPanel as Panel } from "./terminalStream";
 import "./harness-panel.css";
 
-// The keys every open screen offers as buttons, for what its list cannot
-// name: moving, confirming, leaving, the next field and a toggle.
-const KEYS = [
-  { label: "Up", keys: PANEL_KEYS.up }, { label: "Down", keys: PANEL_KEYS.down }, { label: "Left", keys: PANEL_KEYS.left }, { label: "Right", keys: PANEL_KEYS.right },
-  { label: "Enter", keys: PANEL_KEYS.enter }, { label: "Esc", keys: PANEL_KEYS.escape }, { label: "Tab", keys: PANEL_KEYS.tab }, { label: "Space", keys: PANEL_KEYS.space },
-] as const;
+// A footer that names Escape or cancelling offers a way out.
+const CANCELS = /\besc(ape)?\b|\bcancel\b/i;
 
 const DIVIDER = /^[─╌━═]+$/;
 
@@ -17,9 +13,12 @@ const DIVIDER = /^[─╌━═]+$/;
 // drawn in the chat as a list he picks from (the Overlord, 2026-10-27: "all
 // functionality should be available in the modern chat"): what it asks or
 // shows, each choice as a button that sends the terminal's own keys for it,
-// the harness's focus marked, and the keys it takes. onKeys sends keys to the
-// terminal, and onShowTerminal, when given, steps the terminal in for a
-// screen the list does not cover.
+// with the harness's focus marked, and one plain Cancel where the harness
+// offers a way out, or where it lists nothing to pick. Every other key the
+// terminal takes is the box's own (panel-keys.ts), never a row of chips (the
+// CFO's review, 2026-10-27). onKeys sends keys to the terminal, and
+// onShowTerminal, when given, steps the terminal in for a screen the list does
+// not cover.
 export function HarnessPanel({ panel, name, onKeys, onShowTerminal }: {
   panel: Panel; name: string; onKeys: (keys: string) => void; onShowTerminal?: () => void;
 }) {
@@ -37,11 +36,9 @@ export function HarnessPanel({ panel, name, onKeys, onShowTerminal }: {
       })}
     </div>}
     <div className="harness-panel-foot">
-      <div className="harness-panel-keys" role="group" aria-label="Keys">
-        {KEYS.map((key) => <button key={key.label} type="button" className="harness-key" aria-label={"Press " + key.label} onClick={() => onKeys(key.keys)}>{key.label}</button>)}
-      </div>
+      <p className="harness-panel-hints">{panel.hints.join(" · ")}</p>
+      {(!panel.choices.length || panel.hints.some((hint) => CANCELS.test(hint))) && <button type="button" className="labelled-button harness-cancel" onClick={() => onKeys(PANEL_KEYS.escape)}>Cancel</button>}
       {onShowTerminal && <button type="button" className="icon-button harness-show-terminal" aria-label="Show the terminal" data-tip="Show the terminal" onClick={onShowTerminal}><Icon name="terminal" /></button>}
     </div>
-    {panel.hints.length > 0 && <p className="harness-panel-hints">{panel.hints.join(" · ")}</p>}
   </section>;
 }

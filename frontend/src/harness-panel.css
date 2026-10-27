@@ -1,7 +1,10 @@
-/* A screen of the harness's own, drawn above the box as a list: what it asks,
-   its choices as rows with the harness's focus marked, and the keys it
-   takes. It scrolls inside itself, so the box under it stays in reach. */
-.harness-panel { display: grid; gap: 8px; max-height: min(38dvh, 24rem); overflow: auto; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: 14px; background: #0b171cf2; overscroll-behavior: contain; }
+/* A screen of the harness's own, drawn above the box as a list: what it asks
+   and its choices as rows with the harness's focus marked. It is never
+   taller than the chat leaves room for once the conversation keeps a few
+   lines and the box keeps its controls, and scrolls inside itself beyond
+   that, so nothing overlaps at any width (the CFO's review, 2026-10-27). */
+.messages-view { container-type: size; }
+.harness-panel { display: grid; gap: 8px; max-height: min(24rem, max(6rem, 100cqh - 18rem)); overflow: auto; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: 14px; background: #0b171cf2; overscroll-behavior: contain; }
 .harness-panel-rows { display: grid; gap: 2px; min-width: 0; color: #d8e9e2; }
 .harness-panel-rows > p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .harness-panel-rows > p:first-child { color: #f4fbff; font-weight: 800; }
@@ -14,14 +17,12 @@
 .harness-choice-key:empty { border-color: transparent; }
 .harness-choice-key .icon { width: 14px; height: 14px; color: var(--mint); }
 .harness-choice-text { min-width: 0; overflow-wrap: anywhere; }
-.harness-panel-foot { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.harness-panel-keys { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.harness-key { min-height: 26px; padding: 2px 7px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted); font: 600 .6875rem/1 var(--font-mono); }
-.harness-key:hover:not(:disabled) { color: var(--bone); border-color: var(--glass-border-hover); background: transparent; }
+.harness-panel-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.harness-panel-hints { flex: 1; min-width: 0; margin: 0; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+.harness-cancel { flex: none; min-height: 32px; padding: 4px 12px; }
 .harness-show-terminal { flex: none; width: 32px; height: 32px; min-height: 32px; border: 0; background: transparent; color: var(--muted); }
 .harness-show-terminal .icon { width: 18px; height: 18px; }
-.harness-panel-hints { margin: 0; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
 @media (pointer: coarse) {
   .harness-choice { min-height: 44px; }
-  .harness-key, .harness-show-terminal { min-height: 44px; min-width: 44px; }
+  .harness-cancel, .harness-show-terminal { min-height: 44px; min-width: 44px; }
 }
