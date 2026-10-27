@@ -441,12 +441,14 @@ test("a note under the open list never covers it", async ({ page }) => {
   await pane.evaluate((section) => {
     const note = document.createElement("div");
     note.className = "terminal-float";
-    note.textContent = "The microphone is blocked.";
+    note.textContent = "The microphone is blocked. ".repeat(40).trim();
     section.append(note);
   });
-  const note = await pane.locator(".terminal-float").boundingBox(), card = await recent.boundingBox();
-  expect(note && card && note.y < card.y + card.height).toBe(true);
-  const covered = await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest(".voice-recent"), { x: card!.x + card!.width / 2, y: note!.y + note!.height / 2 });
+  const note = (await pane.locator(".terminal-float").boundingBox())!, card = (await recent.boundingBox())!;
+  const left = Math.max(note.x, card.x), right = Math.min(note.x + note.width, card.x + card.width);
+  const top = Math.max(note.y, card.y), bottom = Math.min(note.y + note.height, card.y + card.height);
+  expect(left < right && top < bottom, "the note reaches under the open list").toBe(true);
+  const covered = await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest(".voice-recent"), { x: (left + right) / 2, y: (top + bottom) / 2 });
   expect(covered).toBe(false);
 
   await page.keyboard.press("Escape");

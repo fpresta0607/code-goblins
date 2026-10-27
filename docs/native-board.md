@@ -531,7 +531,7 @@ The task list opens with one action row, the task's own controls as labelled but
 A queued task is edited in its header, where its task line under the goblin's name carries a small pencil with the tip Edit task (the Overlord, 2026-10-10: "I get editing pencil a little icon"): the pencil, or a click on the task's text, turns that line into a box in the same type holding the task's title and detail, which grows with its text.
 The pencil is the one button on that line, for the keyboard and a screen reader, and closing the box hands the keyboard back to it.
 Enter or the check saves it through `POST /api/tasks/adjust` on the revision the box opened on, Shift+Enter adds a line, and Escape or the cross puts the line back unchanged.
-While it saves the box shows that it is busy, and a refused save keeps the box and its text and says why under it in a few muted words for a moment.
+While it saves the box shows that it is busy, and a refused save keeps the box and its text and says why under it for a moment, on the board's shared notice.
 Nothing follows the action row for it, and the card's Adjust pencil opens the panel.
 A pause or stop lists what it kept under What’s preserved, each as a short label without its path or hash, and what it ended under Stopped resources; it repeats neither the status nor its reason.
 Whatever opens and closes on the board is the one disclosure (`frontend/src/Disclosure.tsx`), which starts closed and turns the panel's thin chevron, never the browser's own triangle: Stopped resources, Details in a header, a goblin's finished children and the Update card's Output, the same as Workspace (the Overlord, 2026-10-09: "when output > should match task panel arrows in ui meaning the caret").

@@ -60,6 +60,16 @@ test("a session whose usage cannot be read leaves its ring unmeasured and says w
   await expect(stats).toContainText("its token usage and spend");
 });
 
+test("a session with a readable provider and no recorded usage says Usage unavailable", async ({ page }) => {
+  // Arrange
+  const subscriptions = [{ provider: "claude", status: "available", percent_remaining: 12, read_at: "", resets_at: "2026-10-28T09:00:00Z", source: "oauth", floor_percent: 5 }];
+  await open(page, snapshot({ subscriptions }, MEMORY));
+  await openGoblin(page);
+
+  // Assert
+  await expect(footer(page).locator(".notice")).toHaveText("Usage unavailable");
+});
+
 test("the context ring opens available session stats and allowance without covering the composer", async ({ page }) => {
   // Arrange
   const subscriptions = [{ provider: "claude", status: "available", percent_remaining: 12, read_at: "", resets_at: "2026-10-28T09:00:00Z", source: "oauth", floor_percent: 5 }];
