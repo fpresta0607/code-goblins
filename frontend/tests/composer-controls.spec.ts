@@ -36,19 +36,19 @@ for (const who of ["CFO", "goblin"] as const) {
       await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       await expect(field(page, name)).toHaveValue(kept);
 
-      // Act: Classic opens the terminal; returning allows Modern again.
+      // Act: Classic opens the terminal; Back to messages itself chooses Modern
+      // again, as it saves Modern while it steps out.
       await composer.getByRole("button", { name: "Style: modern", exact: true }).click();
       await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).click();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
       expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
       await page.getByRole("button", { name: "Back to messages", exact: true }).click();
-      await composer.getByRole("button", { name: "Style: classic", exact: true }).click();
-      await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Modern", exact: true }).click();
+      await expect(composer.getByRole("button", { name: "Style: modern", exact: true })).toBeVisible();
+      expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Back to messages chose Modern").toBe("modern");
 
       // Assert: changing views types nothing; Send submits the file once.
       await expect(field(page, name)).toHaveValue(kept);
       await expect(field(page, name)).toBeInViewport();
-      expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("modern");
       expect(typed(relay)).toBe("");
       await composer.getByRole("button", { name: "Send", exact: true }).click();
       await expect.poll(() => typed(relay)).toBe(pasted(kept) + "\r");
