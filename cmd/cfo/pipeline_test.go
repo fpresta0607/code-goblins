@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -374,6 +375,110 @@ func TestPipelineMigrateReplacesOnlyFrozenPolicyAndAudits(t *testing.T) {
 			}
 			if len(runner.native) != 0 {
 				t.Fatalf("migration launched provider command: %+v", runner.native)
+			}
+		})
+	}
+}
+
+// On 2026-10-23 cfo pipeline run and the cfo pipeline migrate it pointed to
+// both refused a direct-PR task, as the supervisor starts every root issue,
+// with a migration decision that migrate could not make (issue 1438). A task
+// with no gate is refused by its mode and its own route, and changes nothing.
+func TestPipelineRefusesATaskWithNoGateByItsModeAndRoute(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		mode    string
+		command string
+		want    []string
+	}{
+		{name: "run on a direct-PR task", mode: "direct-PR", command: "run", want: []string{`task task runs in mode "direct-PR"`, "cfo pr check", "gh pr ready"}},
+		{name: "migrate a direct-PR task", mode: "direct-PR", command: "migrate", want: []string{`task task runs in mode "direct-PR"`, "cfo pr check", "gh pr ready"}},
+		{name: "run on a local-only task", mode: "local-only", command: "run", want: []string{`task task runs in mode "local-only"`, "cfo merge-local task"}},
+		{name: "migrate a local-only task", mode: "local-only", command: "migrate", want: []string{`task task runs in mode "local-only"`, "cfo merge-local task"}},
+		{name: "run on a gated task with no snapshot", mode: "no-mistakes", command: "run", want: []string{"task lacks a spawn-time policy; existing tasks require an explicit migration decision"}},
+		{name: "migrate a gated task with no snapshot", mode: "no-mistakes", command: "migrate", want: []string{"task lacks a spawn-time policy; existing tasks require an explicit migration decision"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			h := home.Home{Root: root, State: filepath.Join(root, "state")}
+			nm := filepath.Join(root, "nm")
+			tmp := filepath.Join(h.State, "tasktmp", "task")
+			project := filepath.Join(root, "project")
+			wt := filepath.Join(project, ".worktrees", "gb-task")
+			for _, path := range []string{filepath.Join(root, "config"), nm, tmp, wt} {
+				if err := os.MkdirAll(path, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			current, err := os.ReadFile(filepath.Join("..", "..", "config", "pipeline.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "config", "pipeline.json"), current, 0600); err != nil {
+				t.Fatal(err)
+			}
+			policy, err := pipeline.Load(filepath.Join(root, "config", "pipeline.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			config, _, err := pipeline.Render([]byte("{}"), policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task", Mode: test.mode, Worktree: wt, Project: project, TaskTmp: tmp}); err != nil {
+				t.Fatal(err)
+			}
+			record, err := state.ReadMeta(filepath.Join(h.State, "task.meta"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"migrate", "task"}
+			if test.command == "run" {
+				intent := filepath.Join(root, "intent.md")
+				if err := os.WriteFile(intent, []byte("Fix the root.\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				args = []string{"run", "task", "--intent-file", intent}
+			}
+			runner := &pipelineRunner{worktree: wt}
+			var out bytes.Buffer
+
+			// Act
+			err = pipelineCommand(context.Background(), h, nm, runner, args, &out)
+
+			// Assert
+			if err == nil {
+				t.Fatalf("pipeline %s on a %s task succeeded with %q", test.command, test.mode, out.String())
+			}
+			for _, want := range test.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %q, want it to contain %q", err, want)
+				}
+			}
+			if test.mode != "no-mistakes" && strings.Contains(err.Error(), "migration decision") {
+				t.Fatalf("error = %q, which asks for a migration decision cfo pipeline migrate cannot make for a %s task", err, test.mode)
+			}
+			if len(runner.native) != 0 || out.Len() != 0 {
+				t.Fatalf("refused command ran native %+v and printed %q", runner.native, out.String())
+			}
+			after, err := state.ReadMeta(filepath.Join(h.State, "task.meta"))
+			if err != nil || !maps.Equal(after, record) {
+				t.Fatalf("task record = %v, %v, want it unchanged as %v", after, err, record)
+			}
+			for _, name := range []string{"pipeline.json", policyMigrationJournalName} {
+				if _, err := os.Stat(filepath.Join(tmp, name)); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("refused command left %s: %v", name, err)
+				}
+			}
+			if status, err := state.TailStatus(h.State, "task", 1); err != nil || len(status) != 0 {
+				t.Fatalf("refused command wrote status %v: %v", status, err)
+			}
+			if shared, err := os.ReadFile(filepath.Join(nm, "config.yaml")); err != nil || !bytes.Equal(shared, config) {
+				t.Fatalf("refused command changed the shared config: %v", err)
 			}
 		})
 	}
@@ -1570,6 +1675,21 @@ func TestPipelineTestExceptionReasonIsHonouredOnlyFromTheRegisteredCFO(t *testin
 		// Assert
 		if err == nil || !strings.Contains(err.Error(), "applies only to an approve of the test step") || len(runner.native) != 0 || len(lines) != 0 {
 			t.Fatalf("a reason on a review gate: %v, %d native calls, status %q; want it refused with nothing recorded or sent", err, len(runner.native), lines)
+		}
+	})
+	// A --reason "$WHY" with WHY unset gives an empty reason, which approved
+	// the Test exception with no reason and no audit of one (issue 1585).
+	t.Run("an empty reason", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCFOStage(t, "cfo", testException)
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "test-2", "--reason", ""}, &bytes.Buffer{})
+		lines, _ := state.TailStatus(h.State, "task", 10)
+
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "--reason is empty") || len(runner.native) != 0 || len(lines) != 0 {
+			t.Fatalf("an empty reason: %v, %d native calls, status %q; want it refused with nothing recorded or sent", err, len(runner.native), lines)
 		}
 	})
 }
