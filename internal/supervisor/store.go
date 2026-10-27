@@ -173,10 +173,12 @@ type Store struct {
 	deferredUntil map[string]time.Time
 	// inboxRead is each inbox event as the last intake read it, by file
 	// name, so an unchanged event deferred again is not read and parsed
-	// again; isInboxFilling says the CFO was woken for an inbox near its
-	// bound, until it drains to half.
-	inboxRead      map[string]inboxEvent
-	isInboxFilling bool
+	// again; inboxFillingWake is the identity of the wake for an inbox near
+	// its bound, fixed as it passes inboxFilling, and isInboxFilling says
+	// the CFO was woken with it; both hold until the inbox drains to half.
+	inboxRead        map[string]inboxEvent
+	inboxFillingWake string
+	isInboxFilling   bool
 	// failingSince is when saves started failing, in Unix nanoseconds; zero
 	// while they succeed.
 	failingSince atomic.Int64
@@ -1113,7 +1115,7 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 		err   error
 	}
 	records := []record{}
-	read, byTask := map[string]inboxEvent{}, map[string]int{}
+	read := map[string]inboxEvent{}
 	// Concurrent hook writers can briefly exceed the admission bound. Rotate
 	// a bounded read window rather than wedging or discarding deferred events.
 	start := sort.Search(len(entries), func(i int) bool { return entries[i].Name() > s.inboxCursor })
@@ -1144,14 +1146,10 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 		}
 		read[entry.Name()] = inboxEvent{size: info.Size(), written: info.ModTime(), event: r.event, err: r.err}
 		records = append(records, r)
-		byTask[cmp.Or(r.event.TaskID, "the CFO's sessions")]++
 	}
 	// Only events still in the inbox are kept, so the record of what was
 	// read never outgrows the inbox.
 	s.inboxRead = read
-	if err := s.wakeForAFillingInbox(len(records), byTask); err != nil {
-		return nil, err
-	}
 	sort.SliceStable(records, func(i, j int) bool {
 		if records[i].event.OccurredAt.Equal(records[j].event.OccurredAt) {
 			return records[i].event.Kind == "started" && records[j].event.Kind != "started"
@@ -1160,6 +1158,7 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 	})
 	consumed, dropped, dropReason := 0, 0, ""
 	var accepted []nativehook.Event
+	var stopErr error
 	for _, r := range records {
 		if consumed >= 256 {
 			break
@@ -1173,17 +1172,19 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 			err = s.Accept(r.event)
 		}
 		if errors.Is(err, ErrStorage) {
-			return accepted, err
+			stopErr = err
+			break
 		}
 		if errors.Is(err, ErrDeferred) {
 			if !errors.Is(err, errUnknownTask) && time.Since(r.event.OccurredAt) < deferralLimit {
 				continue
 			}
+			if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				stopErr = err
+				break
+			}
 			if dropped++; dropReason == "" {
 				dropReason = err.Error()
-			}
-			if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return accepted, err
 			}
 			consumed++
 			continue
@@ -1202,51 +1203,61 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 			saveErr := s.save()
 			s.mu.Unlock()
 			if saveErr != nil {
-				return accepted, saveErr
+				stopErr = saveErr
+				break
 			}
 		}
 		if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return accepted, err
+			stopErr = err
+			break
 		}
 		consumed++
 	}
-	if dropped > 0 {
+	if dropped > 0 && !errors.Is(stopErr, ErrStorage) {
 		s.mu.Lock()
 		s.db.Issues = append(s.db.Issues, fmt.Sprintf("%s set aside %d native events that waited for evidence that does not come, the first because %s", time.Now().UTC().Format(time.RFC3339), dropped, bounded(dropReason, 200)))
 		if len(s.db.Issues) > 20 {
 			s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
 		}
-		err := s.save()
+		stopErr = errors.Join(stopErr, s.save())
 		s.mu.Unlock()
-		if err != nil {
-			return accepted, err
-		}
 	}
-	return accepted, nil
+	return accepted, stopErr
 }
 
-// wakeForAFillingInbox wakes the CFO once as the native inbox passes
-// inboxFilling, naming the tasks whose events fill it most, before every
-// goblin's hook finds it full; it wakes again only after the inbox has
-// drained to half.
-func (s *Store) wakeForAFillingInbox(count int, byTask map[string]int) error {
+// wakeForAFillingInbox wakes the CFO once as the native inbox the last
+// intake read passes inboxFilling, naming the tasks whose events fill it
+// most, before every goblin's hook finds it full; it wakes again only after
+// the inbox has drained to half.
+func (s *Store) wakeForAFillingInbox() error {
+	count := len(s.inboxRead)
 	if count < inboxFilling {
 		if count <= nativehook.MaxQueuedEvents/2 {
-			s.isInboxFilling = false
+			s.inboxFillingWake, s.isInboxFilling = "", false
 		}
 		return nil
 	}
 	if s.isInboxFilling {
 		return nil
 	}
+	if s.inboxFillingWake == "" {
+		s.inboxFillingWake = "native-inbox/filling/" + time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	byTask := map[string]int{}
+	for _, read := range s.inboxRead {
+		if read.err != nil {
+			byTask["unreadable events"]++
+		} else {
+			byTask[cmp.Or(read.event.TaskID, "the CFO's sessions")]++
+		}
+	}
 	tasks := slices.SortedFunc(maps.Keys(byTask), func(a, b string) int { return cmp.Or(byTask[b]-byTask[a], strings.Compare(a, b)) })
 	var most []string
 	for _, task := range tasks[:min(3, len(tasks))] {
 		most = append(most, fmt.Sprintf("%s (%d)", bounded(task, 80), byTask[task]))
 	}
-	now := time.Now().UTC()
 	detail := fmt.Sprintf("native_inbox_filling: the native event inbox holds %d events, and at %d every goblin's hook fails and its events are lost. Most come from %s. Find what spools them and stop it; they wait in %s.", count, nativehook.MaxQueuedEvents, strings.Join(most, ", "), nativehook.SpoolDir(s.Home.State))
-	if err := wake.AppendFirstAndPublish(s.Home.State, "native-inbox/filling/"+now.Format(time.RFC3339Nano), "check", "native-inbox", detail); err != nil {
+	if err := wake.AppendFirstAndPublish(s.Home.State, s.inboxFillingWake, "check", "native-inbox", detail); err != nil {
 		return err
 	}
 	s.isInboxFilling = true

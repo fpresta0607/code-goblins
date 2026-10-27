@@ -637,36 +637,125 @@ func TestAnEventThatWaitsForEvidenceThatDoesNotComeLeavesTheInbox(t *testing.T) 
 	}
 }
 
-// An inbox filling toward its bound wakes the CFO once, naming the task
-// whose events fill it, before any goblin's hook finds it full.
-func TestAFillingInboxWakesTheCFOOnce(t *testing.T) {
-	// Arrange
-	s, h := testStore(t)
-	waiting := event(t, h, "UserPromptSubmit", "unstarted", "turn", time.Now())
+// waitingForARetiredTask is an event of a task the store tracked and whose
+// record is gone, which waits in the inbox to be tried again.
+func waitingForARetiredTask(t *testing.T, s *Store, h home.Home) []byte {
+	t.Helper()
+	s.mu.Lock()
+	s.db.Tasks["retired-task"] = Evaluation{Phase: "review", Generation: "g1", At: time.Now().Add(-3 * time.Hour)}
+	err := s.save()
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := event(t, h, "UserPromptSubmit", "s1", "turn", time.Now())
+	waiting.TaskID = "retired-task"
 	data, err := json.Marshal(waiting)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := range inboxFilling {
-		if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), fmt.Sprintf("%04d.event.json", i)), data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	return data
+}
 
-	// Act
-	for range 2 {
-		if _, err := s.Ingest(); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// Assert
+// inboxFillingWakes is every queued wake for a filling native inbox.
+func inboxFillingWakes(t *testing.T, h home.Home) []wake.Record {
+	t.Helper()
 	pending, err := wake.Pending(h.State)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pending) != 1 || !strings.Contains(pending[0].Detail, fmt.Sprintf("native_inbox_filling: the native event inbox holds %d events", inboxFilling)) || !strings.Contains(pending[0].Detail, fmt.Sprintf("task-1 (%d)", inboxFilling)) {
-		t.Fatalf("wakes %+v, want one naming the inbox and task-1", pending)
+	return slices.DeleteFunc(pending, func(record wake.Record) bool {
+		return !strings.HasPrefix(record.Detail, "native_inbox_filling:")
+	})
+}
+
+// An inbox filling toward its bound wakes the CFO once, naming what fills
+// it, the task of each event it can read and the rest as unreadable, before
+// any goblin's hook finds it full.
+func TestAFillingInboxWakesTheCFOOnce(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		isReadable bool
+		source     string
+	}{
+		{name: "events of a task", isReadable: true, source: "retired-task"},
+		{name: "unreadable events", source: "unreadable events"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			s, h := testStore(t)
+			service := &Service{Store: s, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}}
+			data := []byte("{")
+			if testCase.isReadable {
+				data = waitingForARetiredTask(t, s, h)
+			}
+			for i := range inboxFilling {
+				if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), fmt.Sprintf("%04d.event.json", i)), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			for range 2 {
+				service.cycle(context.Background(), false)
+			}
+
+			// Assert
+			wakes := inboxFillingWakes(t, h)
+			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, fmt.Sprintf("the native event inbox holds %d events", inboxFilling)) || !strings.Contains(wakes[0].Detail, fmt.Sprintf("Most come from %s (%d).", testCase.source, inboxFilling)) {
+				t.Fatalf("wakes %+v, want one naming the inbox and %s", wakes, testCase.source)
+			}
+		})
+	}
+}
+
+// A filling inbox whose wake cannot be raised is still drained, and the
+// failure is told; the next cycle repairs that wake rather than raising a
+// second one.
+func TestAFillingInboxWhoseWakeFailsIsStillDrained(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	service := &Service{Store: s, Instance: "same-serve", subscribers: map[chan struct{}]struct{}{}}
+	waiting := waitingForARetiredTask(t, s, h)
+	stale := event(t, h, "UserPromptSubmit", "s1", "turn", time.Now().Add(-5*time.Minute))
+	stale.TaskID = "nm-daemon-temp"
+	if err := nativehook.Spool(h.State, stale); err != nil {
+		t.Fatal(err)
+	}
+	for i := range inboxFilling {
+		if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), fmt.Sprintf("%04d.event.json", i)), waiting, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An episode marker that cannot be read fails the wake after it is
+	// queued, before it is published.
+	episode := filepath.Join(h.State, ".watcher-down")
+	if err := os.Mkdir(episode, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	service.cycle(context.Background(), false)
+	files, err := os.ReadDir(nativehook.SpoolDir(h.State))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := service.lastError
+	if err := os.Remove(episode); err != nil {
+		t.Fatal(err)
+	}
+	service.cycle(context.Background(), false)
+
+	// Assert
+	if len(files) != inboxFilling || !strings.Contains(reported, ".watcher-down") {
+		t.Fatalf("inbox %d events and board error %q after the wake failed, want the stale event gone and the failure told", len(files), reported)
+	}
+	marker, err := wake.ReadEpisode(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wakes := inboxFillingWakes(t, h); len(wakes) != 1 || !marker.Pending {
+		t.Fatalf("wakes %+v and episode %+v, want the one wake published", wakes, marker)
 	}
 }
 
