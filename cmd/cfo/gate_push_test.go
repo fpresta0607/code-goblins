@@ -587,14 +587,14 @@ func TestGatePrepushPlanPrintsThePickAndRunsNothing(t *testing.T) {
 	for _, want := range []string{
 		"cfo gate prepush: 1 file changed since ",
 		"1. the board's type check (a file under frontend changed)\n   would run in frontend: npm run typecheck\n",
-		"4. 1 browser spec (the change touched or names them)\n   - tests/run-finishes.spec.ts (named like the changed src/RunCard.tsx)\n   would run in frontend: npx playwright test --reporter=line tests/run-finishes.spec.ts\n",
+		"4. 1 browser spec (the change touched or names them)\n   - tests/run-finishes.spec.ts (named like the changed src/RunCard.tsx)\n   would run in frontend: npx playwright test --reporter=list tests/run-finishes.spec.ts\n",
 		"left to CI:\n- the 1 other browser spec (the change touched no file of theirs and names none of them)\n",
 	} {
 		if !strings.Contains(plan.String(), want) {
 			t.Errorf("--plan printed %q, which lacks %q", plan.String(), want)
 		}
 	}
-	wantRan := []string{"frontend: npm run typecheck", "frontend: npm run lint", "frontend: npm test", "frontend: npx playwright test --reporter=line tests/run-finishes.spec.ts"}
+	wantRan := []string{"frontend: npm run typecheck", "frontend: npm run lint", "frontend: npm test", "frontend: npx playwright test --reporter=list tests/run-finishes.spec.ts"}
 	if exit != 0 || !slices.Equal(ran, wantRan) {
 		t.Errorf("exit = %d and the run ran %q, want 0 and %q\nstdout=%s stderr=%s", exit, ran, wantRan, stdout.String(), stderr.String())
 	}

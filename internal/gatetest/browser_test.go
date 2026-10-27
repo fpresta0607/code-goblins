@@ -45,6 +45,61 @@ func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
 	}
 }
 
+// A transcript captured from `npx playwright test --reporter=list` on the
+// board's @playwright/test 1.63.0 names the case that failed. The same run
+// under the line reporter writes a row per case with no mark, so it cannot say
+// which case failed: the list reporter is the one the pick must run.
+func TestBrowserReportReadsTheListReportersTranscriptNotTheLineReporters(t *testing.T) {
+	// Arrange
+	list := `Running 2 tests using 1 worker
+
+  ok 1 [board] › tests\failing.spec.ts:3:1 › a case that passed (11ms)
+  x  2 [board] › tests\failing.spec.ts:7:1 › a case that failed (6ms)
+
+
+  1) [board] › tests\failing.spec.ts:7:1 › a case that failed ──────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+  1 failed
+    [board] › tests\failing.spec.ts:7:1 › a case that failed ───────────────────────────────────────
+  1 passed (649ms)
+`
+	line := `Running 2 tests using 1 worker
+
+[1/2] [board] › tests\failing.spec.ts:3:1 › a case that passed
+[2/2] [board] › tests\failing.spec.ts:7:1 › a case that failed
+  1) [board] › tests\failing.spec.ts:7:1 › a case that failed ──────────────────────────────────────
+  1 failed
+  1 passed (1.1s)
+`
+	tests := []struct {
+		name       string
+		transcript string
+		want       []string
+	}{
+		{"list", list, []string{"[board] tests/failing.spec.ts:7:1 › a case that failed"}},
+		{"line", line, nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var out bytes.Buffer
+			report := NewBrowserReport(&out)
+
+			// Act
+			if _, err := report.Write([]byte(test.transcript)); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			// Assert
+			if got := report.Failed(); !slices.Equal(got, test.want) {
+				t.Errorf("failed cases are %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 // A row a run writes in pieces is read whole, and the last row is read even
 // when the run wrote no newline after it, as a run the time limit ends leaves
 // it.

@@ -11,19 +11,21 @@ import (
 // the cases it reported as failed, so a check the time limit ends still names
 // a case that failed before it.
 //
-// The pick runs the browser specs with Playwright's line reporter, which
-// writes one row per case as the case ends, as it read on this machine on
-// 2026-10-27:
+// The pick runs the browser specs with Playwright's list reporter, which
+// writes one row per case as the case ends, marked with its pass or fail, as
+// it read on this machine on 2026-10-27:
 //
-//	ok  87 [board] › tests\composer-status.spec.ts:10:7 › a title (3.8s)
-//	x   88 [board] › tests\composer-status.spec.ts:85:7 › a title (23ms)
+//	  ok  87 [board] › tests\composer-status.spec.ts:10:7 › a title (3.8s)
+//	  x   88 [board] › tests\composer-status.spec.ts:85:7 › a title (23ms)
 //
 // The marks are "ok" and "x" where the run's output is drawn with no color, in
 // a log or a pipe, and the same marks as the reporter's symbols (✓ and ✘)
-// where it is drawn with color. That day a prepush run of 141 specs reported
-// three assertion failures, 465 of 1603 cases ran, the time limit ended it,
-// and the run said it passed what it ran (issue 1542). A row is read only in
-// that shape, so no other line of a check's output can be taken for a case.
+// where it is drawn with color. The line reporter writes the same rows without
+// a mark, so it cannot say which case failed. That day a prepush run of 141
+// specs reported three assertion failures, 465 of 1603 cases ran, the time
+// limit ended it, and the run said it passed what it ran (issue 1542). A row
+// is read only in that shape, so no other line of a check's output can be
+// taken for a case.
 type BrowserReport struct {
 	out io.Writer
 
