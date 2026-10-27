@@ -1095,7 +1095,7 @@ func TestControlViewRefusesCustodyAfterGitCancellation(t *testing.T) {
 				for {
 					data, err := readEntry(entry)
 					if err == nil {
-						if got := strings.TrimSpace(string(data)); got != "--no-pager -c core.quotepath=false symbolic-ref --short HEAD" {
+						if got := strings.TrimSpace(string(data)); got != "--no-pager -c core.quotepath=false symbolic-ref --quiet --short HEAD" {
 							t.Fatalf("Git entry = %q, want the production custody branch read", got)
 						}
 						cancel()

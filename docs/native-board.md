@@ -138,6 +138,9 @@ The board shows runtime unavailability separately and continues evaluating indep
 Silence, a vanished process, a Stop, and a prior `notify --done` are never substitutes for delivery evidence.
 
 Review, tests, lint, documentation, push, PR, and CI must agree with the task's exact HEAD under its frozen policy.
+A clean no-mistakes task with a detached HEAD reports review, unverified, because gate evidence requires a branch.
+Failures in the evaluation's worktree and base Git reads make the evaluation unavailable and can be retried by later reconciliation; exit 128 reports fixed guidance for recognized permission, unsafe ownership, or missing repository diagnostics, and generic worktree and access guidance for unknown, conflicting, or truncated diagnostics.
+Git's raw diagnostic output is not shown.
 Unrecovered pipeline custody blocks native worker terminal input even if a run is failed or cancelled.
 The browser can request evaluation or send contextual review comments to the verified CFO; it cannot approve gates, drag a task to done, or merge.
 An explicitly connected terminal sends ordinary terminal input to that existing session, subject to the identity and custody boundaries below.
@@ -149,7 +152,7 @@ Missing local objects produce an explicit verification-pending reason; the super
 The pipeline's `terminal_head_verified_at` proves its terminal worktree head, not that the task's content was read on main.
 Manual task modes retain their existing review/delivery authority and are not automatically marked done by native hooks.
 
-Full-task diffs use a retained, validated project merge base when available, otherwise an established `origin/HEAD` merge base.
+Full-task diffs use a retained, validated project merge base from the same task generation when available, otherwise an established `origin/HEAD` merge base, whether the ref is symbolic or direct.
 If neither is available, preview reports that limitation instead of substituting `HEAD^` and omitting earlier task commits.
 Individual commit previews are separate, explicit views.
 
