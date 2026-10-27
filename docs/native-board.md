@@ -536,7 +536,7 @@ A caret only ever opens or closes what it stands before: the same test names eve
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust`, but nothing on the board files or shows one.
 The CFO's task list holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
 Board and Orchestration both open a goblin, and the CFO, on its one view, a Claude Code session's showing its messages ([The Messages view](#the-messages-view)); Orchestration's view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
-A Claude Code session's messages stay mounted too, from their first showing while its panel shows the session.
+A Claude Code session's messages stay mounted too, from the first showing of its conversation or of the box it holds while its panel shows the session; a Classic terminal that shows neither loads no messages.
 Typing happens in the terminal itself, or in a Claude Code session's message box, which types into it.
 Where a goblin's terminal cannot take typing, for a goblin paused, resuming or starting, a session the board does not read as messages has a message box under its terminal's place instead, the same box the messages have: Send or Enter sends a `message` action through `POST /api/actions` with the task's id, and the supervisor delivers it once whatever the goblin is doing.
 The CFO's terminal has no message box under it: while no CFO runs, closed or between the two terminals of a restart, it shows only why it has no terminal (the Overlord, 2026-10-09: "when cfo is off no message box should exist").
@@ -1381,6 +1381,7 @@ Jump to latest, at the list's foot while he reads up, returns to the end.
 Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
 While such a terminal cannot accept input, scrolling back opens its recorded conversation, which saves Modern as Back to messages does, without typing.
+The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
 At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
 The indicator has no icon of its own and takes the harness's colour.
 When the session is not working the line keeps the time facts, and the fuller usage stays in the banner.

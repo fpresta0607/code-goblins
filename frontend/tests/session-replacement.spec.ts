@@ -62,6 +62,56 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
   }
 }
 
+// xterm's scrollbar takes a wheel first whenever it has room to scroll, as
+// for a moment after an ended terminal's box shrinks under its closed line,
+// and xterm then never asks the board's wheel handler. The board decides
+// first, so the wheel still opens the history.
+test("Classic full-screen Codex opens readable history with wheel while ended though xterm's scrollbar would take the wheel", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "\x1b[?1049h" + HISTORY);
+  await card(page, NAME).click();
+  const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
+  await expect(terminal).toBeVisible();
+  relay.end();
+  await expect(page.locator(".terminal-closed")).toBeVisible();
+  await page.locator(".terminal-view:not(.staged) .xterm-scrollable-element").evaluate((scrollbar) => scrollbar.addEventListener("wheel", (event) => { event.preventDefault(); event.stopPropagation(); }));
+
+  // Act
+  await terminal.hover();
+  await page.mouse.wheel(0, -45);
+
+  // Assert
+  await expect(page.locator(".messages-view:not([hidden]) .conversation")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("modern");
+});
+
+// The right button held while the wheel turns zooms the text, even over a
+// full-screen program that a wheel up alone would leave for its history.
+test("Classic full-screen Codex zooms on a right-button wheel up while ended and keeps its terminal", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "\x1b[?1049h" + HISTORY);
+  await card(page, NAME).click();
+  const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
+  await expect(terminal).toBeVisible();
+  relay.end();
+  await expect(page.locator(".terminal-closed")).toBeVisible();
+  const keptSize = () => page.evaluate(() => localStorage.getItem("cfo-terminal-font-size"));
+  const before = await keptSize();
+
+  // Act
+  await terminal.hover();
+  await page.mouse.down({ button: "right" });
+  await page.mouse.wheel(0, -100);
+  await page.mouse.up({ button: "right" });
+
+  // Assert
+  await expect.poll(keptSize).not.toBe(before);
+  await expect(page.locator(".messages-view:not([hidden])")).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+});
+
 for (const style of ["classic", "modern"] as const) {
   test(`${style} follows an ended CFO host into Codex without reload or losing its draft`, async ({ page }) => {
     await page.addInitScript((style) => {

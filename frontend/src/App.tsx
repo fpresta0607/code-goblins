@@ -122,7 +122,8 @@ export function App() {
   const [resizing, setResizing] = useState(false);
   const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
   const [terminalOpened, setTerminalOpened] = useState(false);
-  // The session whose Messages view was last shown, which stays mounted.
+  // The session whose Messages view, or the box it holds, was last shown,
+  // which stays mounted. A Classic terminal that shows neither loads none.
   const [messagesOpened, setMessagesOpened] = useState("");
   const [switchFocus, setSwitchFocus] = useState(0);
   // A count each hand of the keyboard to a Messages view's box adds to.
@@ -410,7 +411,7 @@ export function App() {
     }
   }, [composerDock, composerTarget]);
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
-  if ((terminalShown || messagesShown) && messagesSource && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
+  if (boxOnScreen && messagesSource && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
   const maximized = maximizedFor(maximizedChoice[maximizeView]);
