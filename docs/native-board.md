@@ -1321,10 +1321,14 @@ A later `page` event replaces everything a view holds: the session moved to anot
 The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names.
-`GET /api/commands?task=ID&generation=GEN&token=TOKEN` answers `{"commands":[...]}` for the task's current harness and worktree; `cfo=TERMINAL` reads the CFO's harness and home.
-Claude Code contributes command files and user-invocable skills; pi contributes the prompt templates and skills its settings and persisted project trust permit.
-Codex publishes no built-in slash list through these records, so its list is empty and its terminal supplies native completion.
+`GET /api/commands?task=ID&generation=GEN&token=TOKEN` answers `{"commands":[{"name":"model","description":"...","source":"builtin"},...]}` for the task's current harness and worktree; `cfo=TERMINAL` reads the CFO's harness and home.
+Each entry's `source` is `command`, `skill` or `builtin`, and its `description` is the frontmatter description of a command or skill, empty when it gives none.
+Claude Code contributes command files and user-invocable skills; pi contributes the prompt templates and skills its settings and persisted project trust permit; Codex reads no command files.
+After them come the harness's built-in commands, from a table kept in Go of the commands Claude Code's command reference, Codex 0.160.0's slash command source and pi 1.4.0's slash command source list, leaving out each one the harness hides from its own list.
+Each group is sorted by name, and a session's own command hides a built-in of the same name.
 The composer renews command discovery when a task's generation or the CFO's terminal start time changes.
+`GET /api/files?task=ID&generation=GEN&token=TOKEN&q=QUERY` answers `{"files":["relative/path",...]}` for the composer's `@` list: the files `git ls-files --cached --others --exclude-standard` names in the session's own folder, as `/api/commands` selects it, with forward slashes, kept for 10 seconds so a burst of keystrokes runs git once.
+It answers at most 50, ignoring case: a path whose base name starts with the query first, then one whose base name holds it, then one whose path holds it, and the first 50 by path for an empty query; a folder outside any git repository answers an empty list, and it is refused as `/api/commands` is.
 
 Each message has an `id` that stays the same for its life, its `seq`, its place in the session counted from 0, its `kind` and when it began.
 A `prompt` carries its `text` and its `source`.

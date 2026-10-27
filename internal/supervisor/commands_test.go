@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
@@ -65,10 +66,10 @@ func getCommands(board *HTTP, query string) *httptest.ResponseRecorder {
 	return response
 }
 
-// commandsIn reads a successful answer's commands.
-func commandsIn(t *testing.T, response *httptest.ResponseRecorder) []string {
+// entriesIn reads a successful answer's commands.
+func entriesIn(t *testing.T, response *httptest.ResponseRecorder) []command {
 	t.Helper()
-	var answer struct{ Commands []string }
+	var answer struct{ Commands []command }
 	if response.Code != http.StatusOK {
 		t.Fatalf("answered %d %s", response.Code, response.Body)
 	}
@@ -78,9 +79,26 @@ func commandsIn(t *testing.T, response *httptest.ResponseRecorder) []string {
 	return answer.Commands
 }
 
-// Each harness publishes the commands its own files define, or none: what one
-// harness keeps is never offered for another, and no harness's built-ins are
-// guessed.
+// commandsIn reads the names of a successful answer's own commands and
+// skills, leaving out the harness's built-ins.
+func commandsIn(t *testing.T, response *httptest.ResponseRecorder) []string {
+	t.Helper()
+	return ownNames(entriesIn(t, response))
+}
+
+// ownNames names the entries that are not built-ins, in their order.
+func ownNames(entries []command) []string {
+	names := []string{}
+	for _, entry := range entries {
+		if entry.Source != "builtin" {
+			names = append(names, entry.Name)
+		}
+	}
+	return names
+}
+
+// Each harness offers the commands its own files define: what one harness
+// keeps is never offered for another.
 func TestCommandsComeFromTheSessionsOwnHarness(t *testing.T) {
 	for _, c := range []struct {
 		harness string
@@ -92,7 +110,7 @@ func TestCommandsComeFromTheSessionsOwnHarness(t *testing.T) {
 		// pi reads prompt templates and skills from its project, its agent
 		// folder and the shared skills folder, and offers a skill as a command.
 		{"pi", []string{"plan", "skill:deploy", "skill:pdf", "skill:review"}},
-		// Codex defines no command files, so it publishes none.
+		// Codex defines no command files, so it offers only its built-ins.
 		{"codex", []string{}},
 	} {
 		t.Run(c.harness, func(t *testing.T) {
@@ -288,7 +306,7 @@ func TestClaudeCommandsAreOfferedAsClaudeCodeNamesThem(t *testing.T) {
 	writeCommandFixture(t, filepath.Join(root, "skills", "not-a-skill", "README.md"), "x")
 
 	// Act
-	names := uniqueSorted(claudeCommands(root))
+	names := ownNames(uniqueSorted(claudeCommands(root)))
 
 	// Assert
 	if want := []string{"compact", "deploy", "frontend:component", "frontend:tokens:audit", "review"}; !reflect.DeepEqual(names, want) {
@@ -296,13 +314,129 @@ func TestClaudeCommandsAreOfferedAsClaudeCodeNamesThem(t *testing.T) {
 	}
 }
 
-// A harness folder holding nothing publishes no commands.
-func TestAHarnessWithNoRecordPublishesNoCommands(t *testing.T) {
+// A harness folder holding nothing offers the harness's built-ins alone, and
+// a harness without a table of built-ins offers nothing.
+func TestAHarnessWithNoRecordOffersOnlyItsBuiltins(t *testing.T) {
 	roots := harnessmap.Find(func(string) string { return "" }, t.TempDir())
-	for _, harness := range []string{"claude", "pi", "codex"} {
-		if names := harnessCommands(commandSession{harness: harness, folder: t.TempDir()}, roots); len(names) != 0 {
-			t.Fatalf("%s published %v from an empty folder", harness, names)
-		}
+	for _, harness := range []string{"claude", "pi", "codex", "other"} {
+		t.Run(harness, func(t *testing.T) {
+			// Act
+			entries := harnessCommands(commandSession{harness: harness, folder: t.TempDir()}, roots)
+
+			// Assert
+			if own := ownNames(entries); len(own) != 0 {
+				t.Fatalf("offered %v from an empty folder", own)
+			}
+			if len(entries) != len(builtinCommands[harness]) {
+				t.Fatalf("offered %d built-ins, want %d", len(entries), len(builtinCommands[harness]))
+			}
+		})
+	}
+}
+
+// Every harness with a table answers its built-ins after its own commands,
+// each group by name, each built-in with the description its harness shows,
+// and none its harness leaves out of its own list.
+func TestEachHarnessAnswersItsBuiltinsAfterItsOwnCommands(t *testing.T) {
+	for _, c := range []struct {
+		harness    string
+		builtin    command
+		hidden     []string
+		ownFixture string
+	}{
+		{"claude", command{"model", "Switch the AI model and save it as your default for new sessions.", "builtin"}, []string{"heapdump", "setup-bedrock", "setup-vertex", "vim", "pr-comments", "ultraplan", "batch", "deep-research", "plugin-authoring"}, filepath.Join(".claude", "commands", "ship.md")},
+		{"codex", command{"setup-default-sandbox", "set up elevated agent sandbox", "builtin"}, []string{"rollout", "test-approval", "debug-m-drop", "debug-m-update", "elevate-sandbox"}, ""},
+		{"pi", command{"quit", "Quit pi", "builtin"}, nil, filepath.Join(".pi", "prompts", "ship.md")},
+	} {
+		t.Run(c.harness, func(t *testing.T) {
+			// Arrange
+			board, _, worktree := commandBoard(t, c.harness)
+			wantOwn := []string{}
+			if c.ownFixture != "" {
+				writeCommandFixture(t, filepath.Join(worktree, c.ownFixture), "x")
+				wantOwn = []string{"ship"}
+			}
+
+			// Act
+			entries := entriesIn(t, getCommands(board, "task=task-1&token=test-instance"))
+
+			// Assert
+			own := ownNames(entries)
+			if !reflect.DeepEqual(own, wantOwn) {
+				t.Fatalf("own commands = %v, want %v", own, wantOwn)
+			}
+			builtins := entries[len(own):]
+			if len(builtins) != len(builtinCommands[c.harness]) {
+				t.Fatalf("answered %d built-ins, want %d", len(builtins), len(builtinCommands[c.harness]))
+			}
+			for i, entry := range builtins {
+				if entry.Source != "builtin" || entry.Description == "" {
+					t.Fatalf("built-in %+v lacks its source or description", entry)
+				}
+				if i > 0 && builtins[i-1].Name >= entry.Name {
+					t.Fatalf("built-ins out of order at %q after %q", entry.Name, builtins[i-1].Name)
+				}
+				if slices.Contains(c.hidden, entry.Name) {
+					t.Fatalf("answered %q, which the harness leaves out of its list", entry.Name)
+				}
+			}
+			if !slices.Contains(builtins, c.builtin) {
+				t.Fatalf("built-ins lack %+v", c.builtin)
+			}
+		})
+	}
+}
+
+// A session's own command of a built-in's name replaces the built-in.
+func TestAnOwnCommandHidesTheBuiltinOfTheSameName(t *testing.T) {
+	// Arrange
+	board, _, worktree := commandBoard(t, "claude")
+	writeCommandFixture(t, filepath.Join(worktree, ".claude", "commands", "model.md"), "---\ndescription: Pick our model\n---\nx")
+
+	// Act
+	entries := entriesIn(t, getCommands(board, "task=task-1&token=test-instance"))
+
+	// Assert
+	named := slices.DeleteFunc(entries, func(entry command) bool { return entry.Name != "model" })
+	if want := []command{{"model", "Pick our model", "command"}}; !reflect.DeepEqual(named, want) {
+		t.Fatalf("model entries = %+v, want %+v", named, want)
+	}
+}
+
+// Each own command and skill carries the description its frontmatter gives,
+// and an empty one when it gives none.
+func TestOwnCommandsCarryTheirFrontmatterDescriptions(t *testing.T) {
+	for _, c := range []struct {
+		harness string
+		files   map[string]string
+		want    []command
+	}{
+		{"claude", map[string]string{
+			filepath.Join(".claude", "commands", "ship.md"):          "---\ndescription: Ship the branch\n---\nx",
+			filepath.Join(".claude", "commands", "plain.md"):         "x",
+			filepath.Join(".claude", "skills", "deploy", "SKILL.md"): "---\ndescription: Deploy the app\n---\nx",
+		}, []command{{"deploy", "Deploy the app", "skill"}, {"plain", "", "command"}, {"ship", "Ship the branch", "command"}}},
+		{"pi", map[string]string{
+			filepath.Join(".pi", "prompts", "ship.md"):           "---\ndescription: Ship the branch\n---\nx",
+			filepath.Join(".pi", "prompts", "plain.md"):          "x",
+			filepath.Join(".pi", "skills", "deploy", "SKILL.md"): "---\ndescription: Deploy the app\n---\nx",
+		}, []command{{"plain", "", "command"}, {"ship", "Ship the branch", "command"}, {"skill:deploy", "Deploy the app", "skill"}}},
+	} {
+		t.Run(c.harness, func(t *testing.T) {
+			// Arrange
+			board, _, worktree := commandBoard(t, c.harness)
+			for name, body := range c.files {
+				writeCommandFixture(t, filepath.Join(worktree, name), body)
+			}
+
+			// Act
+			entries := entriesIn(t, getCommands(board, "task=task-1&token=test-instance"))
+
+			// Assert
+			if own := entries[:len(ownNames(entries))]; !reflect.DeepEqual(own, c.want) {
+				t.Fatalf("own commands = %+v, want %+v", own, c.want)
+			}
+		})
 	}
 }
 
