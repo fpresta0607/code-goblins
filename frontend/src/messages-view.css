@@ -105,7 +105,16 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-interrupt { display: flex; align-items: center; gap: .375em; font-style: italic; }
 .message-interrupt > .icon { width: 1.1em; height: 1.1em; }
 .message-pictures { display: flex; flex-wrap: wrap; gap: .5em; }
-.message-pictures img { max-width: min(100%, 24em); max-height: 18em; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; object-fit: contain; }
+/* In his bubble the pictures sit above his words; a picture alone fills the
+   bubble's width up to its cap. */
+.message-bubble > .message-pictures:not(:last-child) { margin-bottom: .5em; }
+.message-picture { display: block; max-width: 100%; min-height: 0; padding: 0; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; box-shadow: none; overflow: hidden; cursor: zoom-in; }
+.message-picture:hover { border-color: var(--mint); }
+.message-picture img { display: block; max-width: min(100%, 24em); max-height: 18em; object-fit: contain; }
+/* A picture opened larger, over the board. */
+.picture-viewer { width: min(1100px, calc(100vw - 28px)); max-height: 92dvh; padding: 20px; overflow: auto; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); font-size: 1rem; }
+.picture-viewer::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
+@media (max-width: 640px) { .picture-viewer { padding: 14px; } }
 /* Copy shows on a message he points at or moves into, and always on a touch
    screen. */
 .message-copy { width: 32px; height: 32px; min-height: 32px; color: var(--muted); opacity: 0; transition: opacity .15s ease; }

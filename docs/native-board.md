@@ -1371,7 +1371,9 @@ What says who spoke is the side and the bubble it already has.
 The conversation is one centred column of a readable width, about 48 times its text size, however wide the panel is, with the message box centred under it.
 A prompt sits on the right in a quiet bubble, and a notice is a quiet line with no bubble.
 An answer he gave on the Command Center or on a session's Scrawl page reads as his own message with one small line under it, Answered on the board or Answered on the page, so it is told apart from one he typed in the chat.
-Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it.
+Beside one Claude Code took while it worked is Queued, and a slash or `!` command shows as typed with what it printed under it.
+The pictures he sent show inside his bubble above his words, as the Claude desktop app shows them (the Overlord, 2026-10-27: "also i shoudl see the iamges previsesws in chat lkike caldue woudl for mdoern"): those the transcript holds, read back by id, and those the message box kept, whose path on a line of its own in his words shows as its picture instead, read back through `GET /api/composer/file` ([The message box](#the-message-box)).
+Each picture loads only as its row nears the screen and decodes off the main thread, and once loaded changes nothing but itself; a click opens the message's pictures larger over the board in the board's picture gallery, where the arrow keys step between them, a click zooms, and Escape, Close or a click beside it puts it away.
 A reply sits on the left as plain prose with no bubble.
 Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written under a quiet header with the language the fence names and Copy (`frontend/src/code-block.tsx`).
 Its thinking folds to one quiet line, Thinking and its first words, that opens to the whole of it (the Overlord's review of 27 October 2026, which took the agentic chat's look over the 26 October reading in place).
@@ -1379,7 +1381,7 @@ Each run of calls made one after another is one quiet stack of rows.
 A call's row has its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
 A running call has a quiet static mark so the conversation's footer remains its one animation.
 Its tool and what it was called on wrap in place rather than being cut with an ellipsis, so a long command never re-truncates as the panel resizes.
-What came back, an edit's diff and its pictures fold under the row.
+What came back, an edit's diff and its pictures fold under the row, and a picture a harness showed or made opens larger on a click as his own do.
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
@@ -1455,7 +1457,11 @@ The terminal icon opens the current session in its own Windows Terminal window t
 A Classic view that shows only the native terminal keeps its header opener.
 An authenticated phone can request that window on the board's Windows PC; it does not open a terminal on the phone.
 The existing session and custody guards remain, and a refused window request says why beside the unchanged draft.
-A picture pasted into the box, or a file added to it, goes to `POST /api/composer/file?task=ID&name=NAME`, which keeps it at most 10 MiB in the task's `composer-files` folder, or in the state folder's `composer-files` for the CFO, and answers `{"path":"..."}`; the message names that path, and the session reads the file from there.
+A picture pasted into the box, a file dropped on it or one added with Add files goes to `POST /api/composer/file?task=ID&name=NAME`, which keeps it at most 10 MiB in the task's `composer-files` folder, or in the state folder's `composer-files` for the CFO, and answers `{"path":"..."}`.
+A paste takes its picture from the clipboard's files, or from its items when the files list is empty, as some Chromium builds hand an image copied from a browser.
+Each kept file shows inside the box's border above his words, a picture as a thumbnail and any other file by its name, each with a Remove button that takes it out of what Send sends; the thumbnails are kept with the draft (`cfo-draft-files:`) and read back through `GET /api/composer/file?token=TOKEN&task=ID&path=PATH`, which serves only a picture inside that task's, or the CFO's, `composer-files` folder and refuses any other path.
+Send types his words, then each kept file's path on a line of its own, and the session reads the file from there.
+Each harness reads a picture by its path as an image: Claude Code with its Read tool, or as an attached image when the message is pictures alone; Codex with its view_image tool; and pi with its read tool, which is how pi's own paste of a picture names it too.
 It takes that road rather than the terminal views' clipboard-and-image-key road because this box also writes to a goblin with no terminal up yet, and every harness reads a path.
 A picture the board cannot keep says so in the box rather than disappearing, and Alt+V and Ctrl+V both paste what the clipboard holds there and in a terminal, while Ctrl+C stays the harness's interrupt (the Overlord, 2026-10-26, "alt + v or ctrl + c both should work for paste").
 A message the board holds for delivery shows in the conversation as its own pending entry, dotted, with a small clock and three icon actions: Send now (an up arrow, off with its reason in its tip where a gate holds the branch or custody cannot be read), Edit (a pencil, changing what will be sent), and Delete (an X, the withdrawal that exists today, by the row he picked). The reason is the entry's tip, not a line of words, and the box's queue control is a quiet count that reveals the entry rather than a second copy.

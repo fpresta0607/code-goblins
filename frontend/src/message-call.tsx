@@ -50,6 +50,6 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
     {call.edit?.diff.length
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
       : call.result && <pre className="call-result">{call.result}</pre>}
-    <MessagePictures pictures={call.pictures} picture={picture} />
+    <MessagePictures sources={call.pictures.map((each) => picture(each.id))} />
   </Disclosure>;
 }

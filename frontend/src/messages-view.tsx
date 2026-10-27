@@ -3,6 +3,7 @@ import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { ContextUsage } from "./context-usage";
 import { Icon } from "./Icon";
+import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
 import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
 import { Notice } from "./notice";
@@ -363,6 +364,8 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     }
   };
   const picture = useCallback((id: string) => address({ picture: id }), [address]);
+  const taskID = task?.id;
+  const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
   useLayoutEffect(() => {
@@ -397,7 +400,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
             ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
+              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}

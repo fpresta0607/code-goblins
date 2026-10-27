@@ -18,11 +18,13 @@ for (const style of ["classic", "modern"]) {
         await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
         relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
         await expect(field(page)).toBeVisible();
-        let draft = "Keep this draft\n" + "A long message that stays readable while waiting. ".repeat(40);
+        const draft = "Keep this draft\n" + "A long message that stays readable while waiting. ".repeat(40);
         await field(page).fill(draft);
         await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 201, json: { path: "C:/session-files/design.txt" } }));
         await box(page).locator('input[type="file"]').setInputFiles({ name: "design.txt", mimeType: "text/plain", buffer: Buffer.from("Keep this attachment") });
-        draft = draft.trimEnd() + "\nC:/session-files/design.txt";
+        // What Send sends: his words, then the kept file's path on its own line.
+        const sentText = draft.trimEnd() + "\nC:/session-files/design.txt";
+        await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("design.txt");
         await expect(field(page)).toHaveValue(draft);
         const before = typed(relay);
         const requests: unknown[] = [];
@@ -63,12 +65,13 @@ for (const style of ["classic", "modern"]) {
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(2);
         expect(requests[1]).toEqual(requests[0]);
+        expect(requests[0]).toMatchObject({ text: sentText });
         await expect(box(page).getByRole("alert")).toHaveCount(0);
         await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
         expect(typed(relay)).toBe(before);
 
         // Act: the durable entry remains after the hold changes.
-        await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })), snapshot({ revision: 2, actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: draft, status: "queued", message: "Waiting until the session takes input", can_send_now: false }] }));
+        await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })), snapshot({ revision: 2, actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: sentText, status: "queued", message: "Waiting until the session takes input", can_send_now: false }] }));
         await expect(page.locator(".queued-message:visible")).toHaveCount(1);
         const queueSurface = testInfo.outputPath("queue-with-long-message.png");
         await page.screenshot({ path: queueSurface });
@@ -234,7 +237,8 @@ for (const style of ["classic", "modern"]) {
         await upload();
 
         // Assert
-        await expect(field(page)).toHaveValue("Keep the attachment\nC:/session-files/pending.txt");
+        await expect(field(page)).toHaveValue("Keep the attachment");
+        await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("pending.txt");
         expect(typed(relay)).toBe(before);
       });
       test(`${style} keeps recording controls and terminal output usable through release at ${width}px`, async ({ page }) => {

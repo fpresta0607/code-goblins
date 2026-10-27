@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { copyText as copyToClipboard } from "./clipboard";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
+import { keptPictures } from "./kept-files";
 import { MessageCall } from "./message-call";
 import { MessagePictures } from "./message-pictures";
 import { MessageText } from "./message-text";
@@ -29,12 +30,15 @@ function sentAt(at: string): { exact: string; text: string } {
 // speaker line (the Overlord, 2026-10-26).
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
-// he taps away. Its words stay selectable.
+// he taps away. Its words stay selectable. The pictures he sent show in his
+// bubble above his words: those the transcript holds, read back by id
+// (picture), and those the message box kept and named by path, which show in
+// place of the path (keptPicture).
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
-export const MessageRow = memo(function MessageRow({ message, task, picture, onChild, openFolds, onFold }: {
-  message: SessionMessage; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+export const MessageRow = memo(function MessageRow({ message, task, picture, keptPicture, onChild, openFolds, onFold }: {
+  message: SessionMessage; task?: Task; picture: (id: string) => string; keptPicture: (path: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
   openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void;
 }) {
   const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
@@ -69,11 +73,15 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";
+  const kept = command ? { text: message.text, paths: [] } : keptPictures(message.text);
+  const pictures = [...message.pictures.map((each) => picture(each.id)), ...kept.paths.map(keptPicture)];
   return <article ref={row} className={"message message-prompt " + message.source + (isActionsOpen ? " actions-open" : "")} data-message={message.id}
     onClick={() => { if (!window.getSelection()?.toString()) setActionsOpen((prior) => !prior); }}>
     {message.queued && <span className="message-queued">Queued</span>}
-    <MessagePictures pictures={message.pictures} picture={picture} />
-    {message.text && <div className="message-bubble">{command ? <code>{(message.source === "shell" ? "!" : "") + message.text}</code> : <MessageText text={message.text} />}</div>}
+    {(kept.text || pictures.length > 0) && <div className="message-bubble">
+      <MessagePictures sources={pictures} />
+      {kept.text && (command ? <code>{(message.source === "shell" ? "!" : "") + kept.text}</code> : <MessageText text={kept.text} />)}
+    </div>}
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
     {(message.output || message.errors) && <pre className="message-output">{[message.output, message.errors].filter(Boolean).join("\n")}</pre>}

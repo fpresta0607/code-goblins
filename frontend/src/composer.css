@@ -14,6 +14,20 @@
 .composer-box { position: relative; display: grid; gap: 4px; }
 .composer-input { display: grid; gap: 4px; min-width: 0; padding: 10px 6px 4px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
 .composer-input:focus-within { border-color: var(--mint); }
+/* The files he added, above his words inside the box's border: a picture as a
+   thumbnail, any other file by its name, each with its remove button on its
+   corner. A long row scrolls sideways rather than pushing the box taller. */
+.composer-attachments { display: flex; gap: 8px; margin: 0; padding: 2px 6px 6px; list-style: none; overflow-x: auto; scrollbar-width: thin; }
+.composer-attachment { position: relative; flex: none; display: grid; place-items: center; height: 64px; border: 1px solid var(--glass-border); border-radius: 10px; background: #071015; }
+.composer-attachment.picture { width: 64px; overflow: hidden; }
+.composer-attachment img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.composer-attachment-name { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; padding: 0 30px 0 10px; overflow: hidden; color: #d8e9e2; font-size: .8125rem; text-overflow: ellipsis; white-space: nowrap; }
+.composer-attachment-name .icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
+.composer-attachment-remove { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 22px; height: 22px; min-height: 22px; padding: 0; border: 0; border-radius: 999px; background: #03050acc; color: var(--bone); box-shadow: none; }
+.composer-attachment-remove .icon { width: 12px; height: 12px; }
+.composer-attachment-remove:hover { background: #03050a; color: #fff; }
+/* A finger's reach around the small button, inside the thumbnail. */
+.composer-attachment-remove::after { content: ""; position: absolute; inset: -3px -3px -14px -14px; }
 /* The caret is as tall as the line, so the line is the text's own height
    (line-height normal) and the room around it is padding: the caret is the
    height of the letters he types (the Overlord, 2026-10-27: "the cursor
