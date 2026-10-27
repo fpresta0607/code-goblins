@@ -765,7 +765,7 @@ func isGitHubHost(host string) bool {
 			folder = filepath.Join(home, ".config", "gh")
 		}
 	}
-	data, err := os.ReadFile(filepath.Join(folder, "hosts.yml"))
+	data, err := fsx.ReadFile(filepath.Join(folder, "hosts.yml"))
 	if errors.Is(err, os.ErrNotExist) {
 		return false
 	}
