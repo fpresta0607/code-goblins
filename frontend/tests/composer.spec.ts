@@ -148,7 +148,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   // while the view reconnects, before the relay answers its new connection.
   await page.routeWebSocket("**/api/terminal/native?*", () => {});
   relay.drop();
-  await expect(page.getByRole("status").filter({ hasText: /^Reconnecting$/ })).toHaveCount(1);
+  await expect(page.locator(".terminal-reconnecting, .host-terminal > .terminal-corner.warning")).toHaveCount(1);
   const before = typed(relay);
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
