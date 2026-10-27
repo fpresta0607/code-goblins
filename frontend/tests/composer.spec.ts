@@ -557,3 +557,24 @@ test("a delivered message appears once in Modern chat and the queue count includ
   await queue.click();
   await expect(firstQueued).toBeInViewport();
 });
+
+test("the queue control shows a queued message at the bottom of a long conversation read far up", async ({ page }) => {
+  // Arrange: a long conversation, read about 3,000 px up from its end.
+  const reply = (seq: number) => ({ id: "m" + seq, seq, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\n" + "A reply that runs over a few lines. ".repeat(12) }] });
+  const messages = Array.from({ length: 200 }, (_, seq) => seq % 2 ? reply(seq) : { id: "m" + seq, seq, kind: "prompt", source: "overlord", text: "Question " + seq });
+  await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: "cg-touch", text: "queued while it works", status: "queued" }] }), "", { messages, more: false });
+  await openGoblin(page);
+  const conversation = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(conversation).toContainText("Answer 199");
+  await conversation.evaluate((list) => { list.scrollTop = list.scrollHeight - list.clientHeight - 3000; });
+  const queued = page.locator('.queued-message[data-queued="q1"]');
+  await expect(queued).not.toBeInViewport();
+
+  // Act
+  await page.getByRole("button", { name: "1 queued message", exact: true }).click();
+
+  // Assert
+  await expect(queued).toBeInViewport();
+  await expect(queued).toContainText("queued while it works");
+});
+
