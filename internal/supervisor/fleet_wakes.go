@@ -824,19 +824,11 @@ func splitRemote(remote string) (host, repository string, ok bool) {
 	if remote == "" || filepath.IsAbs(remote) || path.IsAbs(remote) || strings.HasPrefix(remote, ".") {
 		return "", "", false
 	}
-	scheme, rest, hasScheme := strings.Cut(remote, "://")
-	if hasScheme {
-		switch strings.ToLower(scheme) {
-		case "http", "https", "ssh", "git":
-		default:
-			return "", "", false
-		}
-		authority, after, _ := strings.Cut(rest, "/")
-		if _, userinfo, found := strings.Cut(authority, "@"); found {
-			authority = userinfo
-		}
-		host, _, _ = strings.Cut(authority, ":")
-		return host, after, host != ""
+	if _, rest, hasScheme := strings.Cut(remote, "://"); hasScheme {
+		return splitAuthority(rest)
+	}
+	if scheme, rest, found := strings.Cut(remote, ":/"); found && isSchemeName(scheme) {
+		return splitAuthority(rest)
 	}
 	hostAndPath := remote
 	if _, after, found := strings.Cut(hostAndPath, "@"); found {
@@ -847,6 +839,31 @@ func splitRemote(remote string) (host, repository string, ok bool) {
 		return "", "", false
 	}
 	return host, repository, host != ""
+}
+
+// splitAuthority reads the host and the repository path of a remote from its
+// authority and path, whichever scheme carried them.
+func splitAuthority(rest string) (host, repository string, ok bool) {
+	authority, after, _ := strings.Cut(rest, "/")
+	if _, userinfo, found := strings.Cut(authority, "@"); found {
+		authority = userinfo
+	}
+	host, _, _ = strings.Cut(authority, ":")
+	return host, after, host != ""
+}
+
+// isSchemeName reports whether name is a URL scheme: a letter followed by
+// letters, digits, '+', '-' or '.'.
+func isSchemeName(name string) bool {
+	for i, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		case i > 0 && (r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.'):
+		default:
+			return false
+		}
+	}
+	return name != ""
 }
 
 // namesGitHubHost reports whether remote names a GitHub host where its host

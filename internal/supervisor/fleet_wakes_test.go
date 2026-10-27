@@ -1725,7 +1725,7 @@ func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T)
 		now = now.Add(ciPollEvery)
 	}
 	wakes := fleetWakeRecords(t, h, "ci")
-	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, outer) {
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, "repository at "+filepath.ToSlash(outer)) {
 		t.Fatalf("wakes = %+v, want one naming the repository that encloses it", wakes)
 	}
 	if forge.ghCalls != 0 {
@@ -1867,7 +1867,7 @@ func TestCIMonitorSkipsAHostGitHubDoesNotServe(t *testing.T) {
 }
 
 func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
-	for _, remote := range []string{"https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "https://github.com/%zz"} {
+	for _, remote := range []string{"https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "git+ssh://git@github.com/o/r.git", "ssh+git://git@github.com/o/r.git", "https:/github.com/o/r.git", "https://github.com/%zz"} {
 		t.Run(remote, func(t *testing.T) {
 			s, h := fleetService(t)
 			project := t.TempDir()
