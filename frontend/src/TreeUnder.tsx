@@ -10,9 +10,9 @@ import { TreeChild } from "./TreeChild";
 export function TreeUnder({ goblin, tree, title, now, selected, onOpen }: { goblin: Task; tree: FleetTree; title: string; now: number; selected?: string; onOpen: (child: TreeNode, source: HTMLElement) => void }) {
   const [isOpen, setOpen] = useState(false);
   return <div className="tree-lineage">
-    <TreeCount tree={tree} title={title} harness={goblin.harness} expanded={isOpen} onToggle={() => setOpen((prior) => !prior)} />
+    <TreeCount tree={tree} title={title} expanded={isOpen} onToggle={() => setOpen((prior) => !prior)} />
     {isOpen && <ul className="tree-rail" aria-label={"What runs under " + title}>
-      {babies(tree).map((child) => <li key={child.id}><TreeChild node={child} name={babyName(goblin, child)} now={now} harness={goblin.harness} isSelected={selected === child.id} onOpen={(source) => onOpen(child, source)} /></li>)}
+      {babies(tree).map((child) => <li key={child.id}><TreeChild node={child} name={babyName(goblin, child)} now={now} isSelected={selected === child.id} onOpen={(source) => onOpen(child, source)} /></li>)}
     </ul>}
   </div>;
 }

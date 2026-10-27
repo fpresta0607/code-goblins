@@ -16,8 +16,6 @@ import { CfoCardFacts } from "./cfo-card-facts";
 import { ConnectorEffect } from "./connector-effect";
 import { withDepartures } from "./tree-traffic";
 import { travel, useGlide, useTreeMotion, type Point as Place } from "./use-tree-motion";
-import { WorkingIndicator } from "./working-indicator";
-import { harnessInk } from "./harness-ink";
 
 // The phases a goblin is at work in, whose card glows.
 const WORKING = new Set(["working", "busy", "active", "started"]);
@@ -355,7 +353,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
           if (!children || !task) return [];
           const p = point(node.id);
           if (collapsed.has(node.id)) return tree ? [<div key={"tree:" + node.id} className="tree-branch" style={{ left: p.x, top: p.y + NODE_HEIGHT + TREE_GAP, width: NODE_WIDTH }}>
-            <TreeCount tree={tree} title={node.title} harness={node.task?.harness || node.session?.harness || ""} expanded={false} onToggle={() => toggle(node.id)} />
+            <TreeCount tree={tree} title={node.title} expanded={false} onToggle={() => toggle(node.id)} />
           </div>] : [];
           const block = branches[node.id];
           // A baby goblin being born grows in on its branch, one leaving fades
@@ -373,7 +371,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               return route && <span key={pulse.key} className="branch-pulse" ref={travel(pulse.isUp ? [...route].reverse() : route)} aria-hidden="true" />;
             })}
             {children.map((child, i) => <li key={child.id} ref={glide(child.id)} className={motionOf(child.id).trim() || undefined} style={{ left: block.places[i].x, top: block.places[i].y, width: BABY_WIDTH, height: BABY_HEIGHT }} {...lights("child:" + child.id)}>
-              <TreeChild node={child} name={babyName(task, child)} now={now} harness={task.harness} isSelected={selected === "child:" + child.id} onOpen={(source) => onChild(task, child, source)} />
+              <TreeChild node={child} name={babyName(task, child)} now={now} isSelected={selected === "child:" + child.id} onOpen={(source) => onChild(task, child, source)} />
             </li>)}
           </ul>];
         })}
@@ -398,7 +396,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help"
               data-tip={owner && node.task?.goblin_name ? taskName(node.task) : undefined}>
               <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
-              <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}>{["busy", "working", "active"].includes(phase || "") ? <WorkingIndicator ink={harnessInk(node.task?.harness || node.session?.harness || (node.cfo ? snapshot.cfo_harness : ""))} compact /> : <span className="status-dot" />}<span className="card-status-text">{status}</span></span>
+              <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
                 {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
               </span>
             </button>

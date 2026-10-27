@@ -1,6 +1,5 @@
 /* Both shapes use the indicator's font size, including its compact form. */
 .working-indicator { position: relative; display: inline-block; width: 1em; height: 1em; font-size: 24px; flex: none; color: currentColor; }
-.working-indicator.compact { font-size: 9px; vertical-align: middle; }
 .working-helix, .working-dither { position: absolute; inset: 0; display: block; }
 .working-helix { animation: working-helix-morph 8s infinite ease-in-out; }
 .working-dither { display: grid; grid-template-columns: repeat(4, 1fr); gap: .0417em; animation: working-dither-morph 8s infinite ease-in-out; }

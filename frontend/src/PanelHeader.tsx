@@ -25,8 +25,6 @@ import { DeploymentLink } from "./deployment-link";
 import { LocalChecksLink } from "./local-checks-link";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TaskAdjustment } from "./task-adjustment";
-import { WorkingIndicator } from "./working-indicator";
-import { harnessInk } from "./harness-ink";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. Its status is the one place the panel says the task's state, with one
@@ -44,7 +42,7 @@ import { harnessInk } from "./harness-ink";
 // while an update of the CFO's harness waits and Restart PC before that while
 // the kernel's pools are past their line, and under them what a press of
 // Update waits for or why it did not restart the CFO.
-export function PanelHeader({ task, node, snapshot, compact, isDetails = false, hasWorkingFooter = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; hasWorkingFooter?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, compact, isDetails = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -57,9 +55,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
-  const isWorking = ["busy", "working", "active"].includes(phase) && !!(task || node || cfoSession);
   const harness = (task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : "");
-  const ink = harnessInk(harness);
   const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
@@ -127,7 +123,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && projectLine}
         {!compact && helper}
-        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}>{harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}{isWorking && !hasWorkingFooter ? <WorkingIndicator ink={ink} compact /> : <span className="status-dot" />}{status}{!compact && awaitedLink}</p>
+        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}>{harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}<span className="status-dot" />{status}{!compact && awaitedLink}</p>
         {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
         {!compact && partOf}
         {!compact && activity}
