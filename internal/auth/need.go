@@ -36,6 +36,11 @@ type Need struct {
 	// reaches the task only when it is named, so a brief with no `mcp:` line
 	// is given none of those.
 	MCPServers []string
+	// IsMCPUnstated marks a brief with no `mcp:` line. A task is given none
+	// of the servers whose entry holds a value either way, so only a helper
+	// tells the two apart: it inherits its parent's servers for a line its
+	// own brief leaves out and carries what it names for one it states.
+	IsMCPUnstated bool
 }
 
 // NeedFromBrief reads what a brief's Authentication section asks for: the
@@ -74,6 +79,7 @@ func NeedFromBrief(brief string) (Need, error) {
 		}
 	}
 	need.IsUnstated = !isStated[needKey]
+	need.IsMCPUnstated = !isStated[mcpKey]
 	return need, nil
 }
 
