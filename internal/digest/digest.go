@@ -204,7 +204,16 @@ func composeLong(h home.Home, ew *werr) {
 // call holds, as every other mutation is: a session that does not hold the
 // home is told to print the long form with `cfo session-start` instead. The
 // completion marker is written as Compose writes it.
-func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool, w io.Writer) error {
+//
+// A session that resumed the conversation which read the long digest before
+// is told, under READ THIS NEXT and in the read-once contract, that it holds
+// it already, where this call wrote it: the long digest is mostly
+// data\overlord.md, which changes rarely, and the brief shows what changes
+// between comebacks.
+// On 2026-10-27 a CFO brought back five times in 32 minutes on its own
+// conversation read 126 thousand characters of it again after one of them,
+// about 31 thousand tokens that rode in every request after.
+func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isResumed bool, w io.Writer) error {
 	var lockSection bytes.Buffer
 	heldLock := writeSessionLock(h.State, ownerPID, session, &werr{w: &lockSection})
 
@@ -212,6 +221,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 	// names the two files a session must not go without beside the command.
 	fallback := fmt.Sprintf("read %s and %s themselves; \"cfo session-start\" prints the long digest, which is too long for a tool to hand back whole.", filepath.Join(h.Data, "overlord.md"), filepath.Join(h.Data, filepath.FromSlash(layout.MemoryIndex)))
 	next := "this session does not hold the home, so no long digest was written: " + fallback
+	isReadBefore := false
 	if heldLock {
 		var long bytes.Buffer
 		composeLong(h, &werr{w: &long})
@@ -219,7 +229,13 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 		if err := fsx.AtomicWriteFile(path, long.Bytes()); err != nil {
 			next = fmt.Sprintf("the long digest could not be written (%s): %s", err, fallback)
 		} else {
-			next = path + " holds what this digest leaves out: the backlog's queued rows, every state\\*.meta in full with its status tail, the orphan sweep, and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. Read all of it, in parts if your tool caps a read, before acting on anything not shown here."
+			isReadBefore = isResumed
+			next = path + " holds what this digest leaves out: the backlog's queued rows, every state\\*.meta in full with its status tail, the orphan sweep, and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. "
+			if isReadBefore {
+				next += "This session resumed the conversation that read it before, so do not read it again: read one of its parts only when you need it and your conversation no longer holds it."
+			} else {
+				next += "Read all of it, in parts if your tool caps a read, before acting on anything not shown here."
+			}
 		}
 	}
 
@@ -241,7 +257,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 		ew.println("== READ THIS NEXT ==")
 		ew.printf("%s", checkpoint)
 		ew.println("READ THIS NEXT: " + next)
-		writeBriefContract(isWholeQueue, isWholeFleet, ew)
+		writeBriefContract(isWholeQueue, isWholeFleet, isReadBefore, ew)
 		writeNextStep(ew)
 		return text.Bytes()
 	}
@@ -341,8 +357,10 @@ func fleetLine(stateDir, id string) string {
 
 // writeBriefContract is the brief's read-once contract. The brief prints no
 // file in full, so it names none, and it says which of its own sections are
-// whole: what it tells the CFO it has read is only what it handed over.
-func writeBriefContract(isWholeQueue, isWholeFleet bool, ew *werr) {
+// whole: what it tells the CFO it has read is only what it handed over. A
+// conversation that read the long digest named under READ THIS NEXT before
+// (isReadBefore) is told those files are in it.
+func writeBriefContract(isWholeQueue, isWholeFleet, isReadBefore bool, ew *werr) {
 	ew.println("== READ-ONCE CONTRACT ==")
 	writePrintedInFull(nil, ew)
 	queue, fleet := "the whole wake queue", "one line for every goblin"
@@ -351,6 +369,10 @@ func writeBriefContract(isWholeQueue, isWholeFleet bool, ew *werr) {
 	}
 	if !isWholeFleet {
 		fleet = "one line for only the first goblins"
+	}
+	if isReadBefore {
+		ew.printf("This digest printed %s and %s. It printed no file in full: data\\projects.md, data\\overlord.md, data\\memory\\MEMORY.md, the state\\*.meta files, their status logs, the backlog and the orphan sweep are in the file named under READ THIS NEXT, which this conversation read before.\n", queue, fleet)
+		return
 	}
 	ew.printf("This digest printed %s and %s. It printed no file in full: you have not read data\\projects.md, data\\overlord.md, data\\memory\\MEMORY.md, any state\\*.meta, any status log, the backlog or the orphan sweep until you read the file named under READ THIS NEXT.\n", queue, fleet)
 }

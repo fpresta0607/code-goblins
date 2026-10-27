@@ -237,10 +237,11 @@ const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the
 // whose CFO ran before, which nobody types into: that it is that home's CFO,
 // why it started again, why it is on a new conversation when fresh says so,
 // and to take up the fleet's work at once. Claude Code's SessionStart hook
-// registers it and prints the digest; a Codex or pi CFO registers itself. It
-// passes through cmd /c for Codex and pi, so it holds none of the characters
-// cmd reads (spawn's cmdProgram).
-func cfoBackPrompt(harness, why, fresh string) string {
+// registers it and prints the digest, whose long form a CFO that resumes its
+// conversation (isResumed) read in it already; a Codex or pi CFO registers
+// itself. It passes through cmd /c for Codex and pi, so it holds none of the
+// characters cmd reads (spawn's cmdProgram).
+func cfoBackPrompt(harness, why, fresh string, isResumed bool) string {
 	prompt := "You are the CFO of this Code Goblins home, started again because " + why + "."
 	if fresh != "" {
 		prompt += " " + fresh
@@ -248,6 +249,8 @@ func cfoBackPrompt(harness, why, fresh string) string {
 	prompt += " This instruction came with the start, not from the Overlord."
 	if supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
 		prompt += " First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session."
+	} else if isResumed {
+		prompt += " Your SessionStart hook registered you and printed what changed while you were away; your conversation holds the rest, so act on that."
 	} else {
 		prompt += " Your SessionStart hook registered you and printed the session digest: read the file it names and act on it."
 	}
@@ -294,7 +297,7 @@ func cfoScreenArguments(agent string) ([]string, error) {
 }
 
 // cfoCompactArguments are the arguments that have a CFO's harness compact
-// within the CFO's window (install.CFOAutoCompactWindow), long before its
+// within the CFO's window (install.AutoCompactWindow), long before its
 // model's own fills: Codex's -c override of its auto-compact limit, at 90
 // percent of that window, as Codex limits a model's own window, which keeps
 // the lower of the two. A Claude Code CFO takes the window from its settings
@@ -305,7 +308,7 @@ func cfoCompactArguments(agent string) []string {
 	if agent != "codex" {
 		return nil
 	}
-	return []string{"-c", fmt.Sprintf("model_auto_compact_token_limit=%d", install.CFOAutoCompactWindow*9/10)}
+	return []string{"-c", fmt.Sprintf("model_auto_compact_token_limit=%d", install.AutoCompactWindow*9/10)}
 }
 
 // startNativeCFO starts harness as the CFO of home h in native terminal cfo,

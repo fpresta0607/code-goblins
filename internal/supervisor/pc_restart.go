@@ -240,14 +240,16 @@ func (s *Service) awaitQuiet(ctx context.Context) string {
 
 // workingGoblins are the goblins the restart pauses: each native goblin
 // whose terminal host runs and that is not paused, pausing or stopped, its
-// helpers among them. A goblin whose records cannot be read may be working,
-// so it is named rather than passed over.
+// helpers among them, except one whose latest report delivered a pull
+// request and that took no prompt since, which waits on its merge. A goblin
+// whose records cannot be read may be working, so it is named rather than
+// passed over.
 func (s *Service) workingGoblins() ([]state.TaskMeta, error) {
 	stateDir := s.Store.Home.State
 	var working []state.TaskMeta
 	var problems error
 	for _, meta := range liveTasks(stateDir) {
-		if meta.Backend != "native" || meta.SpawnGen == "" {
+		if meta.Backend != "native" || meta.SpawnGen == "" || s.hasDelivered(meta) {
 			continue
 		}
 		record, err := host.ReadRecord(stateDir, meta.ID)

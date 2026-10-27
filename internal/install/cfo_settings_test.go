@@ -9,17 +9,18 @@ import (
 
 // The CFO compacted only at 882K tokens of its 1M window, under the
 // Overlord's CLAUDE_AUTOCOMPACT_PCT_OVERRIDE of 90, and a restart came first
-// in its conversation of 2026-10-18. Its terminal's settings give Claude Code
-// a 400K auto-compact window, so it compacts at about 342K; a goblin's keep
-// Claude Code's own window.
-func TestTheCFOsTerminalCompactsWithinA400KWindowAndAGoblinsWithinClaudeCodes(t *testing.T) {
+// in its conversation of 2026-10-18, and goblins carried a median 302K tokens
+// into every request of the week to 2026-10-27, up to 882K. Both terminals'
+// settings give Claude Code a 400K auto-compact window, so each compacts at
+// about 342K.
+func TestTheCFOsAndAGoblinsTerminalsCompactWithinA400KWindow(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		settings func(root, stateDir string) ([]byte, error)
 		want     any
 	}{
 		{name: "the CFO's", settings: CFOSettings, want: json.Number("400000")},
-		{name: "a goblin's", settings: GoblinSettings, want: nil},
+		{name: "a goblin's", settings: GoblinSettings, want: json.Number("400000")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange

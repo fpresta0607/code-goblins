@@ -354,10 +354,16 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if s.isStoppedOnRequest(meta) {
 			return lifecycleObservation(meta, HealthParked, now), sample
 		}
-		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && verb == "paused" && line > observation.ConsumedVerbLine {
-			return s.pausedMissingObservation(observation, sample.Detail, now), sample
+		detail := sample.Detail
+		if verb, reported, line, ok := s.latestStatusVerb(meta.ID); ok && line > observation.ConsumedVerbLine {
+			switch {
+			case verb == "paused":
+				return s.pausedMissingObservation(observation, sample.Detail, now), sample
+			case verb == "done" && meta.Backend == "native" && strings.HasPrefix(reported, "PR https://"):
+				detail = fmt.Sprintf("native terminal %s is gone after it reported its pull request done; a restart leaves it down to wait on the merge unless a prompt reached it since, and cfo switch %s --harness %s brings it back if it has more work", meta.ID, meta.ID, meta.Harness)
+			}
 		}
-		return unknownObservation(observation, EndpointMissing, sample.Detail, now), sample
+		return unknownObservation(observation, EndpointMissing, detail, now), sample
 	}
 	if sample.Verdict != ProbePresent || !validSample(meta, sample) {
 		detail := sample.Detail
@@ -842,7 +848,7 @@ func workingObservation(observation Observation, sample EndpointSample, now time
 // These verbs win over liveness because cfo notify (or the watcher's decision
 // signal) already woke the CFO, so the monitor must hold the pane quiet.
 func (s Service) statusVerbObservation(observation Observation, id string, now time.Time, sample EndpointSample) (Observation, bool) {
-	verb, line, ok := s.latestStatusVerb(id)
+	verb, _, line, ok := s.latestStatusVerb(id)
 	if !ok || line <= observation.ConsumedVerbLine {
 		return observation, false
 	}
@@ -1209,24 +1215,24 @@ func validSample(meta state.TaskMeta, sample EndpointSample) bool {
 	return len(sample.Capture) > 0
 }
 
-// latestStatusVerb returns the most recent status verb recorded for the task
-// and its 1-based line index in the append-only status log, or ("", 0, false)
-// when the log is absent, empty, or unparsable. The line index lets the
-// classifier ignore a parked/terminal verb from an earlier episode once the
-// agent has been observed working again.
-func (s Service) latestStatusVerb(id string) (string, int64, bool) {
+// latestStatusVerb returns the most recent status verb recorded for the task,
+// its detail, and its 1-based line index in the append-only status log, or
+// ("", "", 0, false) when the log is absent, empty, or unparsable. The line
+// index lets the classifier ignore a parked/terminal verb from an earlier
+// episode once the agent has been observed working again.
+func (s Service) latestStatusVerb(id string) (string, string, int64, bool) {
 	lines, err := fsx.ReadLines(filepath.Join(s.StateDir, id+".status"))
 	if err != nil {
-		return "", 0, false
+		return "", "", 0, false
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
-		verb, _, ok := crewstate.ParseStatusLine(lines[i])
+		verb, detail, ok := crewstate.ParseStatusLine(lines[i])
 		if !ok || crewstate.IsCFOAudit(lines[i]) {
 			continue
 		}
-		return verb, int64(i + 1), true
+		return verb, detail, int64(i + 1), true
 	}
-	return "", 0, false
+	return "", "", 0, false
 }
 
 // IsParkedDecisionVerb reports whether a status verb parks the goblin on
@@ -1464,7 +1470,7 @@ func (s Service) resurfaceDecision(observation Observation, now time.Time, unans
 	// goblin is genuinely executing, typically because the CFO answered it.
 	// The schedule is held, not cleared, so it resumes where it left off if
 	// the goblin goes quiet again with the record still unacked.
-	if observation.Health == HealthBusy || observation.PendingEvent != nil {
+	if observation.Health == HealthBusy || observation.PendingEvent != nil || observation.Reason == LifecycleOperation {
 		return observation
 	}
 	if observation.NextDecisionAsk == nil {

@@ -34,15 +34,17 @@ const restartNote = "The machine restarted, which ended your terminal; this is y
 
 // bringGoblinsBack brings back, in place, every goblin a reboot or sign-out
 // ended: each task with a record whose native terminal no longer runs,
-// except one paused or stopped on purpose. One whose resume the reboot cut
-// short comes back through a resume that finishes it, and each other through
-// the switch cfo switch makes to what the task already runs, keeping its
-// worktree, its uncommitted work, its harness, model and effort, on its own
-// conversation where the board's record proves it is the task's and from a
-// handoff where it does not. Each launch is admitted on what the one before
-// it left, so a goblin there is no room for yet waits, with the reason, and
-// one that cannot come back does not keep the rest from coming back. A
-// queued or retired task has no record, so it is never started here.
+// except one paused or stopped on purpose or one whose latest report
+// delivered a pull request and that took no prompt since, which waits on its
+// merge. One whose resume the reboot cut short comes back through a resume
+// that finishes it, and each other through the switch cfo switch makes to
+// what the task already runs, keeping its worktree, its uncommitted work, its
+// harness, model and effort, on its own conversation where the board's record
+// proves it is the task's and from a handoff where it does not. Each launch is
+// admitted on what the one before it left, so a goblin there is no room for
+// yet waits, with the reason, and one that cannot come back does not keep the
+// rest from coming back. A queued or retired task has no record, so it is
+// never started here.
 func bringGoblinsBack(ctx context.Context, h home.Home, runtime commandRuntime) ([]goblinComeback, error) {
 	scan, err := state.ScanIDs(h.State)
 	if err != nil {
@@ -59,13 +61,21 @@ func bringGoblinsBack(ctx context.Context, h home.Home, runtime commandRuntime) 
 
 // bringGoblinBack brings one goblin back as bringGoblinsBack says, with note
 // added to what it is told when it starts, and reports false for one that
-// still runs or was paused or stopped on purpose, which it leaves as it is.
+// still runs, was paused or stopped on purpose, or delivered, which it leaves
+// as it is.
 func bringGoblinBack(ctx context.Context, h home.Home, runtime commandRuntime, id, note string) (goblinComeback, bool) {
 	meta, err := state.ReadTaskMeta(h.State, id)
 	if err != nil {
 		return goblinComeback{id: id, said: "its task record cannot be read: " + err.Error()}, true
 	}
 	if meta.SpawnGen == "" {
+		return goblinComeback{}, false
+	}
+	isDelivered, err := supervisor.HasDelivered(h.State, meta)
+	if err != nil {
+		return goblinComeback{id: id, said: err.Error()}, true
+	}
+	if isDelivered {
 		return goblinComeback{}, false
 	}
 	if meta.Backend != "native" {

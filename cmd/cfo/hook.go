@@ -958,6 +958,7 @@ func withAFKBanner(stateDir, text string) string {
 func hookSessionStart(h home.Home, program proc.Entry, payload claudehook.Payload, stdout io.Writer) int {
 	ownerPID := program.PID
 
+	isResumed := false
 	switch payload.Source {
 	case "resume", "reload", "fork":
 		if markerPID, ok := digest.ReadCompleteMarker(h.State); ok && markerPID == ownerPID && lock.HeldBy(h.State, ownerPID) {
@@ -965,9 +966,13 @@ func hookSessionStart(h home.Home, program proc.Entry, payload claudehook.Payloa
 			registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)
 			return 0
 		}
+		// A CFO brought back on the conversation the home last registered has
+		// read the long digest in it already.
+		conversation, err := supervisor.ReadCFOConversation(h.State)
+		isResumed = err == nil && conversation.Session == payload.SessionID
 	}
 
-	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, payload.Source == "compact", stdout); err != nil {
+	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, payload.Source == "compact", isResumed, stdout); err != nil {
 		fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 	}
 	registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)

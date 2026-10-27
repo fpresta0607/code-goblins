@@ -94,7 +94,7 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 	// The restarted CFO is told so, as every CFO brought back is, so it takes
 	// up its work without anybody typing into it.
 	if len(args) == 0 {
-		held, err := comeBack(h, conversation.Harness, nil, cfoBackPrompt(conversation.Harness, restartedWhy, fresh), startNativeCFO, supervisor.NativeTerminalRuns)
+		held, err := comeBack(h, conversation.Harness, nil, cfoBackPrompt(conversation.Harness, restartedWhy, fresh, false), startNativeCFO, supervisor.NativeTerminalRuns)
 		if err != nil {
 			return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO stopped but did not start again on a new conversation; run goblins to bring it back: %w", err)
 		}
@@ -104,7 +104,7 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 		supervisor.ClearCFOConversationLeft(h.State)
 		return conversation, fresh, nil
 	}
-	if err := startNativeCFO(h, h.Root, conversation.Harness, args, cfoBackPrompt(conversation.Harness, restartedWhy, "")); err != nil {
+	if err := startNativeCFO(h, h.Root, conversation.Harness, args, cfoBackPrompt(conversation.Harness, restartedWhy, "", true)); err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO stopped but did not start again on its conversation; run goblins to bring it back: %w", err)
 	}
 	cfoResumeWait(cfoResumeSettle)
@@ -113,7 +113,7 @@ func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string
 		return conversation, "", nil
 	}
 	unresumed := fmt.Sprintf("Its conversation %s could not be resumed, so the CFO starts a new one.", conversation.Session)
-	held, err := comeBack(h, conversation.Harness, nil, cfoBackPrompt(conversation.Harness, restartedWhy, unresumed), startNativeCFO, supervisor.NativeTerminalRuns)
+	held, err := comeBack(h, conversation.Harness, nil, cfoBackPrompt(conversation.Harness, restartedWhy, unresumed, false), startNativeCFO, supervisor.NativeTerminalRuns)
 	if err != nil {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("the CFO stopped, its conversation %s could not be resumed, and it did not start on a new one; run goblins to bring it back: %w", conversation.Session, err)
 	}

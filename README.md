@@ -288,7 +288,7 @@ A restart that started the CFO on a new conversation says so in one line beside 
 When Claude Code, Codex or pi was updated while the CFO or a goblin runs, as Claude Code's "Update installed · Restart to update" says, the board shows **Update** beside the AFK switch on the CFO's header, and on that goblin's card: your press restarts it onto the update on its own conversation once its turn ends, and nothing restarts until you press it ([Harness updates](docs/native-board.md#harness-updates)).
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
 Then it brings back every goblin whose terminal ended, as a reboot or sign-out ends them all: each in place, with its worktree, uncommitted work, harness, model and effort, on its own conversation where the board's record proves it is the task's and from a handoff where it does not, and it lists which came back and which need a hand.
-A goblin paused or stopped on purpose, or still running, is left as it is, and one the machine has no room for yet waits, with the reason, rather than starting.
+A goblin paused or stopped on purpose, one whose latest report is `done` with a pull request and that took no prompt since, which waits on its merge, or one still running, is left as it is, and one the machine has no room for yet waits, with the reason, rather than starting.
 After a restart or sign-out the supervisor does all of this by itself as soon as it starts, as [Opening, closing and restarting](#opening-closing-and-restarting) says, so `goblins resume` is for the times in between.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
 Every run ends on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.
@@ -486,7 +486,7 @@ Its fill turns red past the line, and its tip names each pool and the pool tags 
 Past the line the CFO's header shows **Restart PC**, on the board on this PC only, never on your private board.
 It asks once, then tells the CFO, has every working goblin write its handoff and pause until the PC has restarted, ends the machine's heavy runs, waits for the CFO's turn to end and restarts Windows.
 An app with unsaved work asks you before it closes.
-After you sign in, the CFO and the goblins come back by themselves.
+After you sign in, the CFO and the goblins come back by themselves, except a goblin whose latest report is `done` with a pull request and that took no prompt since, which waits on its merge and is not paused.
 A goblin that does not pause stops the restart: a few words beside the button say so, and the CFO tells you why.
 In the same box, under the pools, **Disk free** shows the free space on the home's drive, on a bar marked at the 15 GB disk floor and the 10 GB mark at which the CFO is woken: amber under the floor, where no goblin and no gate test run starts, and red under the mark.
 Under disk, **CPU free** shows how much of this PC's performance cores sat idle since the last reading, on a bar marked at the quarter the fleet waits for before it starts a goblin by itself: amber under the mark.

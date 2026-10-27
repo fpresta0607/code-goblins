@@ -332,7 +332,7 @@ func briefAfterCompact(t *testing.T, h home.Home) string {
 	t.Helper()
 	t.Cleanup(func() { _ = lock.Release(h.State) })
 	var out strings.Builder
-	if err := ComposeBrief(h, os.Getpid(), "s1", true, &out); err != nil {
+	if err := ComposeBrief(h, os.Getpid(), "s1", true, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	return out.String()
