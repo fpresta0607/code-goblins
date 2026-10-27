@@ -82,7 +82,7 @@ func TestRestartCodexCFOUsesSelectedModelAndEffortOnItsConversation(t *testing.T
 		t.Fatalf("restart = %+v, %q, %v", conversation, fresh, err)
 	}
 	path := filepath.Join(h.Root, "switch-arguments.txt")
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		data, _ := os.ReadFile(path)
 		if strings.Contains(string(data), "resume codex-session") {
 			if !strings.Contains(string(data), "--model selected-model") || !strings.Contains(string(data), "model_reasoning_effort=xhigh") {

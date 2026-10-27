@@ -3,17 +3,16 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
-	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -156,19 +155,33 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 	s.notify()
 }
 
+// ReadCFOEngine reads the engine the CFO was selected to run. It checks what
+// it hands a harness's command line: a known harness, and a model and effort
+// that are text rather than switches. Which models and efforts a harness
+// offers is the installed catalog's to say, and is checked when the selection
+// is saved, since a harness's own catalog can offer one the fleet's shared
+// list does not.
 func ReadCFOEngine(stateDir string) (CFOEngine, error) {
-	data, err := fsx.ReadFile(filepath.Join(stateDir, "cfo-engine.json"))
+	path := filepath.Join(stateDir, "cfo-engine.json")
+	data, err := fsx.ReadFile(path)
 	if err != nil {
 		return CFOEngine{}, err
 	}
 	var choice CFOEngine
 	if err := json.Unmarshal(data, &choice); err != nil {
-		return CFOEngine{}, err
+		return CFOEngine{}, fmt.Errorf("the CFO's selected engine in %s is unreadable: %w", path, err)
 	}
-	if !slices.Contains([]string{"claude", "codex", "pi"}, choice.Harness) || choice.Model == "" || choice.Model == "default" || !spawnValue.MatchString(choice.Model) || !slices.Contains(harness.Efforts(harness.Kind(choice.Harness)), choice.Effort) {
-		return CFOEngine{}, errors.New("invalid saved CFO engine selection")
+	if !slices.Contains([]string{"claude", "codex", "pi"}, choice.Harness) || !engineValue(choice.Model) || !engineValue(choice.Effort) {
+		return CFOEngine{}, fmt.Errorf("the CFO's selected engine in %s names no harness, model and effort the fleet can start: choose the CFO's engine again on the board, or delete it", path)
 	}
 	return choice, nil
+}
+
+// engineValue reports whether value can be handed to a harness's command line
+// as a model or an effort: some text that is not a switch, and not the
+// catalog's word for whichever one the harness picks.
+func engineValue(value string) bool {
+	return value != "" && value != "default" && !strings.HasPrefix(value, "-") && spawnValue.MatchString(value)
 }
 
 func (h *HTTP) selectCFOEngine(w http.ResponseWriter, r *http.Request) {
