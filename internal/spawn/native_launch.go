@@ -167,18 +167,27 @@ func isInlineOffer(dialog harness.Dialog) bool {
 	return dialog.OverlayOption != nil
 }
 
-// inlineOffer reports the optional offer screen shows, if any. A spawn reads a
-// dialog it must answer first, so it never mistakes one for an offer.
+// inlineOffer reports the optional offer screen shows, if any. A screen that
+// shows a dialog the spawn must answer is never read as an offer, even when
+// its rows are stale history the offer no longer draws: Escape is that
+// dialog's own key, where the folder trust prompt quits Codex, so nothing
+// sends it there.
 func inlineOffer(screens harness.Screens, screen []string) (harness.Dialog, bool) {
 	if screens.IsWorking(screen) {
 		return harness.Dialog{}, false
 	}
+	var offer harness.Dialog
+	var found bool
 	for _, dialog := range screens.Dialogs {
-		if isInlineOffer(dialog) && dialog.Shows(screen) {
-			return dialog, true
+		if !dialog.Shows(screen) {
+			continue
 		}
+		if !isInlineOffer(dialog) {
+			return harness.Dialog{}, false
+		}
+		offer, found = dialog, true
 	}
-	return harness.Dialog{}, false
+	return offer, found
 }
 
 // dismissOffer presses the one key a live inline offer takes over a composer

@@ -1051,6 +1051,43 @@ func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
 	}
 }
 
+// A screen that still holds an offer's rows while a startup dialog the spawn
+// must answer is drawn is read as that dialog and never as an offer: Escape is
+// the folder trust prompt's own key and quits Codex, so no dismissal goes there
+// (#1432).
+func TestAStartupDialogIsNeverReadAsAnInlineOffer(t *testing.T) {
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	offer := []string{
+		"Set up security for Daybreak mode",
+		"Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.",
+		"",
+		"› 1. Set up security",
+		"",
+		"Press a number to choose · esc to dismiss · type to continue",
+		"",
+	}
+	trust := []string{
+		"  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt",
+		"  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.",
+		"",
+		"› 1. Yes, continue",
+		"  2. No, quit",
+		"",
+		"  Press enter to continue",
+	}
+
+	if _, shown := inlineOffer(screens, append(slices.Clone(offer), "› Ask Codex to do anything", "100% context left")); !shown {
+		t.Fatal("an offer over a ready composer was not read as an offer")
+	}
+
+	if _, shown := inlineOffer(screens, append(slices.Clone(offer), trust...)); shown {
+		t.Error("an offer's rows were read as an offer over a startup dialog")
+	}
+}
+
 // Codex draws its optional Daybreak offer above the composer rather than in
 // its place, and a screen keeps the rows of an offer an earlier redraw
 // dismissed. The composer below them is ready, the rows are history no key
