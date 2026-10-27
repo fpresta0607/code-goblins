@@ -23,8 +23,10 @@ export interface TerminalLink {
   held: string;
   screen: ScreenState | null;
   // send types text as one paste and presses Enter, and says whether it was
-  // sent, by its submission ID, or null; escape presses Escape.
+  // sent, by its submission ID, or null; paste types text as one paste with
+  // no Enter, and says whether it was sent; escape presses Escape.
   send: (text: string) => string | null;
+  paste: (text: string) => boolean;
   escape: () => boolean;
   control: (keys: string) => boolean;
 }

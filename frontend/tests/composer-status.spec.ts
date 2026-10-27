@@ -421,8 +421,9 @@ test("a live Classic terminal keeps its own dictation after the hold that showed
 });
 
 test("a recording started in the terminal never pulls its box into the stepped-in Modern terminal", async ({ page }) => {
-  // Arrange: a message opening a harness screen steps Zeke's terminal into the
-  // Modern conversation's place, where no composer shows.
+  // Arrange: a message opens a harness screen, whose list's Show the terminal
+  // steps Zeke's terminal into the Modern conversation's place, where no
+  // composer shows.
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
   const relay = await open(page);
@@ -430,7 +431,8 @@ test("a recording started in the terminal never pulls its box into the stepped-i
   await field(page).fill("/model");
   await field(page).press("Enter");
   await expect.poll(() => relay.submissions.length).toBe(1);
-  relay.say({ type: "screen", asking: true, open: true, working: false });
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }] } });
+  await box(page).getByRole("button", { name: "Show the terminal", exact: true }).click();
   await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toBeVisible();
   await expect(box(page)).toBeHidden();
   const typedBefore = typed(relay);

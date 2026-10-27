@@ -3,8 +3,12 @@
    deck, so the two take the one size. Every size in the list is in em of the
    text size he chooses, so his size scales the whole conversation. */
 .messages-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
-/* The conversation over the message box, with what floats over it. */
-.conversation-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+/* The conversation over the message box, with what floats over it, never
+   shorter than a few lines, so a list open above the box cannot fold it
+   under its own padding, unless the chat has no room for them beside the
+   box's dock, about 12rem, when the box keeps the room (messages-view's
+   size container, harness-panel.css). */
+.conversation-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: min(5.5rem, max(0px, 100cqh - 12rem)); }
 /* The page scrolls itself and holds its place by its own anchor
    (MessagesView), so the browser's anchoring stays out of it. */
 .conversation { flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 40px; color: #e3ecef; line-height: 1.55; }

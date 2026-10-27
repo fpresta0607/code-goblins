@@ -1322,10 +1322,14 @@ A later `page` event replaces everything a view holds: the session moved to anot
 The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names.
-`GET /api/commands?task=ID&generation=GEN&token=TOKEN` answers `{"commands":[...]}` for the task's current harness and worktree; `cfo=TERMINAL` reads the CFO's harness and home.
-Claude Code contributes command files and user-invocable skills; pi contributes the prompt templates and skills its settings and persisted project trust permit.
-Codex publishes no built-in slash list through these records, so its list is empty and its terminal supplies native completion.
+`GET /api/commands?task=ID&generation=GEN&token=TOKEN` answers `{"commands":[{"name":"model","description":"...","source":"builtin"},...]}` for the task's current harness and worktree; `cfo=TERMINAL` reads the CFO's harness and home.
+Each entry's `source` is `command`, `skill` or `builtin`, and its `description` is the frontmatter description of a command or skill, empty when it gives none.
+Claude Code contributes command files and user-invocable skills; pi contributes the prompt templates and skills its settings and persisted project trust permit; Codex reads no command files.
+After them come the harness's built-in commands, from a table kept in Go of the commands Claude Code's command reference, Codex 0.160.0's slash command source and pi 1.4.0's slash command source list, leaving out each one the harness hides from its own list.
+Each group is sorted by name, and a session's own command hides a built-in of the same name.
 The composer renews command discovery when a task's generation or the CFO's terminal start time changes.
+`GET /api/files?task=ID&generation=GEN&token=TOKEN&q=QUERY` answers `{"files":["relative/path",...]}` for the composer's `@` list: the files `git ls-files --cached --others --exclude-standard` names in the session's own folder, as `/api/commands` selects it, with forward slashes, kept for 10 seconds so a burst of keystrokes runs git once.
+It answers at most 50, ignoring case: a path whose base name starts with the query first, then one whose base name holds it, then one whose path holds it, and the first 50 by path for an empty query; a folder outside any git repository answers an empty list, and it is refused as `/api/commands` is.
 
 Each message has an `id` that stays the same for its life, its `seq`, its place in the session counted from 0, its `kind` and when it began.
 A `prompt` carries its `text` and its `source`.
@@ -1417,8 +1421,11 @@ Routine queueing has one neutral note beside the input, naming a review hold or 
 The same composer stays mounted across Classic and Modern surfaces, keeping pending sends, attachment uploads and recordings through release or reconnect.
 The box a terminal's hold, busy program or reconnect shows beside it stays in Classic once the terminal takes typing again, and Modern keeps it then only for the box's own work, a file adding, a Send landing, a failed Send to retry or its own recording; a recording started in the terminal brings it in for neither, and a box that stays sends directly again.
 An unqueued draft stays in the box while its terminal first connects or is closed.
-While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
-That card is not drawn while that terminal is stepped in, which shows the screen itself, or while typing is held, where the note says what Send does and it queues instead.
+While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a permission prompt, a picker or a panel, the box draws it above itself as a list he picks from (`frontend/src/harness-panel.tsx`): what it asks or shows, each choice as a button with the harness's focus marked, one plain Cancel, which presses Escape, where the footer names Esc or cancel or where nothing is listed, and Show the terminal, with no row of key chips (the CFO's review, 2026-10-27).
+A choice with a number sends its digit alone, which Claude Code's and Codex's numbered lists take as that choice at once wherever their focus is, and one without a number, as in pi's lists, sends the arrows from the harness's focus to it and then Enter (`frontend/src/panel-keys.ts`); a press on a choice or on Cancel leaves the keyboard in the box.
+An empty box hands the screen the arrows, Enter, Escape, Tab, Space and a choice's number, and Send pastes what he wrote into the screen as one paste on one line with no Enter, so no key the screen binds acts on it, and the list's Enter confirms.
+There is no amber card and nothing steps the terminal in by itself (the Overlord, 2026-10-27: "why am I getting an answer in terminal? Waiting on you in the terminal? Again, all functionality should be available in the modern chat"); Show the terminal, on the list, steps it in for a screen the list does not cover.
+The list is not drawn while that terminal is stepped in, which shows the screen itself, or while typing is held, when Send queues what he wrote as it does under any hold.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
@@ -1426,12 +1433,14 @@ The active composer owns the microphone and queue note, while a phone terminal k
 An already-running terminal recording keeps one Stop control, on the active composer when a box is shown and on the terminal's own bubble when none is, and a live terminal takes the words its own microphone heard, which Speech history still lists, and holds for pasting back, only where held input refused them.
 The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
 Plain style, model, effort, speech-history, terminal and send controls sit underneath without pills, beside the current session's context ring.
+While the session's terminal names a permission mode, as Claude Code's composer footer does, the mode shows as a chip beside Style, and a press of it, like Shift+Tab in the box, sends the terminal Shift+Tab, which cycles the mode, and leaves the keyboard in the box; it is disabled while typing is held.
+A `/` at the start of the box lists the session's commands from `/api/commands` as he types the command word, the one named exactly that first, then by name and then by description, and an `@` lists the session's files from `/api/files`, read 120 ms after he stops typing, with the last list for that same `@` kept meanwhile; the arrows move through the one list, Enter or Tab takes the picked entry, and Escape closes it until the draft changes.
 Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.
 The ring uses the recorded context tokens and window, and opens available session statistics by hover, keyboard focus or touch; an unknown window is named as unavailable rather than drawn as zero use.
 The model label prefers the session record over startup settings, and the tooltip identifies task effort as configured effort because the record does not publish a live effort value.
 Model opens the actual harness's `/model` picker; Effort opens Codex's `/model`, Claude Code's `/effort` or Pi's `/thinking`, where the harness supplies its supported choices.
 These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command.
-The native picker steps into the conversation's place when the relay reads it; the board does not invent a model catalog or claim that a selected setting changed before the harness records it.
+The native picker opens above the box as a list when the relay reads it; the board does not invent a model catalog or claim that a selected setting changed before the harness records it.
 The terminal icon opens the current session in its own Windows Terminal window through the same action as the former panel-header opener, which is absent while this composer is visible.
 A Classic view that shows only the native terminal keeps its header opener.
 An authenticated phone can request that window on the board's Windows PC; it does not open a terminal on the phone.
@@ -1448,18 +1457,14 @@ Escape closes Recent messages while it is open, from its button or from inside i
 
 #### The terminal stepping in
 
-What the box sends that opens a screen of the harness's own, a picker, a panel, a question, an editor, a sign-in or a script that asks for input, brings the session's live terminal into the messages' place: PR 4 of the message view plan, which the Overlord asked be proved first.
-The relay reads the screen as it does for the amber card and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`).
-The terminal steps in when the screen opens after a Send from the box and before the harness starts a turn, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
-The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`, so background work that makes the fleet busy does not cancel a Send waiting for its screen.
-Each Send marks its submitted input with an ID before typing it into the host, so a cached or in-flight reading from before the Send cannot cancel it.
-The host observes changed rows as it processes terminal output, before another cursor move or clear can replace them, and keeps turn-start evidence for that viewer's current submission.
-The relay reads that evidence with the host's output screen under the same lock, so a turn that reaches a permission question or ends between relay reads still clears the Send before an unrelated screen can open.
-History, resize repaints and another viewer's submission provide no turn-start evidence.
+Show the terminal, on an open screen's list, brings the session's live terminal into the messages' place, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
+The relay reads the screen and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`) and, while it is, the panel it reads there (`harness.ReadPanel` in `internal/harness/panel.go`): its rows, each choice with its number and whether the harness's focus is on it, and the keys its footer names, taken from the screen's last 30 rows below the conversation's last message or rule, as in `{"type":"screen",...,"panel":{"rows":[...],"choices":[{"text":"Yes","number":1,"focused":true}],"hints":[...]}}`.
+The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`, and `mode`, the permission mode Claude Code's composer footer names, as `"mode":"auto mode"` for "auto mode on (shift+tab to cycle)", read by `Screens.Mode` from the screen's last 3 rows that are not blank, its footer, only, so a reply that quotes a mode is never read as one; other harnesses, and a screen whose footer names none, carry no `mode`.
+The relay tells the view again whenever the report's bytes change, so a changed panel or mode is reported.
+Each Send marks its submitted input with an ID before typing it into the host, which keeps turn-start evidence for it as it processes output, and the relay reports them as `submission` and `started`; the board stepped the terminal in by them until 27 October 2026 and reads neither since a screen opens as a list.
 An older terminal host needs a restart to provide this output-screen protocol, and the board refuses the connection before it can accept input so the draft stays intact.
 Every key is the terminal's while it is in, Escape included, and Shift+Escape leaves it for the panel's top row.
 It steps out by itself once the harness's input line is back, and Back to messages steps out at once and chooses Modern for the board, each handing the keyboard back to the box with his draft as he left it.
-A question that comes during a turn keeps the amber card, whose Answer in the terminal steps the terminal in.
 A step in or out asks the terminal for no new size, which `frontend/tests/terminal-steps-in.spec.ts` counts at the relay.
 Every terminal spec whose terminal a fixture page draws, including `terminal-held`, runs a second time stepped in, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
 A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box saying Not sent, and its terminal's own notice is behind them, while its task list names what brings it back.

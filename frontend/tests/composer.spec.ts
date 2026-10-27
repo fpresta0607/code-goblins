@@ -161,23 +161,23 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   expect(typed(relay)).toBe(before);
 });
 
-test("while the harness asks in its terminal an amber card says so and Send waits, and Answer in the terminal shows the terminal with the keyboard in it", async ({ page }) => {
+test("while the harness asks in its terminal the box shows what it asks as a list, with no amber card, and a draft waits until he sends it", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
   await field(page).fill("yes");
 
-  relay.say({ type: "screen", asking: true, open: true, working: false });
+  relay.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
 
-  const asking = box(page).locator(".composer-asking");
-  await expect(asking).toContainText("Waiting on you in the terminal");
-  await expect(send(page)).toBeDisabled();
-  await asking.getByRole("button", { name: "Answer in the terminal" }).click();
-  await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
-  expect(typed(relay), "nothing was typed into the harness's own screen").not.toContain("yes");
-  relay.say({ type: "screen", asking: false, open: false, working: false });
-  await expect(field(page)).toBeFocused();
-  await expect(box(page).locator(".composer-asking")).toHaveCount(0);
+  const asking = box(page).getByRole("group", { name: NAME + " asks" });
+  await expect(asking).toContainText("Do you want to proceed?");
+  await expect(page.getByText("Waiting on you in the terminal")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
+  await expect(send(page)).toBeEnabled();
+  await page.waitForTimeout(300);
+  expect(typed(relay), "nothing was typed into the harness's own screen before he chose").toBe("");
+  relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+  await expect(asking).toHaveCount(0);
+  await expect(field(page)).toHaveValue("yes");
   await expect(send(page)).toBeEnabled();
 });
 
@@ -449,41 +449,84 @@ test("Alt+V pastes a picture into the box by the path the session reads", async 
   await expect(field(page)).toHaveValue(KEPT);
 });
 
-test("a slash command offers the session's own commands, filters, takes the keyboard and keeps its arguments", async ({ page }) => {
-  // Arrange
-  const relay = await open(page);
-  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: ["compact", "context", "cost"] } }));
-  await openGoblin(page);
-  const list = page.getByRole("listbox", { name: "Commands", exact: true });
+for (const harness of ["claude", "codex", "pi"] as const) {
+  test(`${harness}: a slash offers the session's commands and skills with what each does, filters by name and by what it does, takes the keyboard and keeps its arguments`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({}, { harness }));
+    await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [
+      { name: "compact", description: "Free up context by summarizing the conversation", source: "builtin" },
+      { name: "context", description: "Visualize current context usage", source: "builtin" },
+      { name: "cost", description: "", source: "builtin" },
+      { name: "deploy-check", description: "Check what a deploy costs", source: "skill" },
+    ] } }));
+    await openGoblin(page);
+    const list = page.getByRole("listbox", { name: "Commands", exact: true });
+    const names = list.locator(".popup-option-label");
 
-  // Act: the command word filters the list.
-  await field(page).fill("/co");
+    // Act: the command word filters the list, by name first and then by what
+    // a command does.
+    await field(page).fill("/co");
 
-  // Assert
-  await expect(list).toBeVisible();
-  await expect(list.getByRole("option")).toHaveText(["/compact", "/context", "/cost"]);
-  await field(page).fill("/cos");
-  await expect(list.getByRole("option")).toHaveText(["/cost"]);
+    // Assert
+    await expect(names).toHaveText(["/compact", "/context", "/cost", "/deploy-check"]);
+    await expect(list.getByRole("option").first()).toContainText("Free up context by summarizing the conversation");
+    await field(page).fill("/cos");
+    await expect(names).toHaveText(["/cost", "/deploy-check"]);
 
-  // Act: the keyboard picks it.
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Enter");
+    // Act: the keyboard picks it.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
 
-  // Assert: the command is in the box with room for its arguments.
-  await expect(field(page)).toHaveValue("/cost ");
-  await expect(list).toHaveCount(0);
+    // Assert: the command is in the box with room for its arguments.
+    await expect(field(page)).toHaveValue("/deploy-check ");
+    await expect(list).toHaveCount(0);
 
-  // Act: Escape closes the list without clearing the draft.
-  await field(page).fill("/co");
-  await expect(list).toBeVisible();
-  await page.keyboard.press("Escape");
+    // Act: Escape closes the list without clearing the draft.
+    await field(page).fill("/co");
+    await expect(list).toBeVisible();
+    await page.keyboard.press("Escape");
 
-  // Assert
-  await expect(field(page)).toHaveValue("/co");
-  await expect(list).toHaveCount(0);
-  await field(page).press("Enter");
-  await expect.poll(() => typed(relay)).toContain(pasted("/co") + "\r");
-});
+    // Assert
+    await expect(field(page)).toHaveValue("/co");
+    await expect(list).toHaveCount(0);
+    await field(page).press("Enter");
+    await expect.poll(() => typed(relay)).toContain(pasted("/co") + "\r");
+  });
+
+  test(`${harness}: an @ offers the session's files as he types, and the pick takes the mention's place`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({}, { harness }));
+    const asked: string[] = [];
+    await page.route("**/api/files**", (route) => {
+      const query = new URL(route.request().url()).searchParams.get("q") ?? "";
+      asked.push(query);
+      return route.fulfill({ json: { files: query ? ["frontend/src/terminalView.ts", "frontend/src/terminal-link.ts"] : ["README.md"] } });
+    });
+    await openGoblin(page);
+    const list = page.getByRole("listbox", { name: "Files", exact: true });
+
+    // Act
+    await field(page).fill("read @term and fix it");
+    await field(page).press("Home");
+    for (let at = 0; at < "read @term".length; at++) await field(page).press("ArrowRight");
+
+    // Assert: the list holds the files the session's folder names for it.
+    await expect(list.locator(".popup-option-label")).toHaveText(["terminalView.ts", "terminal-link.ts"]);
+    await expect(list.locator(".popup-option-detail")).toHaveText(["frontend/src/terminalView.ts", "frontend/src/terminal-link.ts"]);
+    expect(asked.at(-1)).toBe("term");
+
+    // Act: Tab takes the second.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Tab");
+
+    // Assert: the mention is the path, the rest of the draft kept, the caret
+    // after it, and the list closed.
+    await expect(field(page)).toHaveValue("read @frontend/src/terminal-link.ts and fix it");
+    await expect(list).toHaveCount(0);
+    expect(await field(page).evaluate((box: HTMLTextAreaElement) => box.selectionStart)).toBe("read @frontend/src/terminal-link.ts ".length);
+    await expect(field(page)).toBeFocused();
+  });
+}
 
 test("a leading ! command is typed into the session as the harness's own shell command", async ({ page }) => {
   // Arrange
