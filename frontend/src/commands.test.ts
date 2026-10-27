@@ -19,6 +19,17 @@ test("slash options filter as he types the command word: name first, then within
   assert.deepEqual(names("/zzz"), []);
 });
 
+test("a command named exactly what he typed comes first, ahead of the session's own longer names", () => {
+  // Arrange: the supervisor lists the session's own commands before the built-ins.
+  const commands = [command("clear-cache", "", "command"), command("model-routing", "", "skill"), command("clear"), command("model")];
+  const names = (draft: string) => slashOptions(commands, draft).map((each) => each.name);
+
+  // Act and Assert
+  assert.deepEqual(names("/clear"), ["clear", "clear-cache"]);
+  assert.deepEqual(names("/MODEL"), ["model", "model-routing"]);
+  assert.deepEqual(names("/cle"), ["clear-cache", "clear"], "a word no command is named keeps the harness's order");
+});
+
 test("a harness's command list parses with what each does and where it comes from, and a malformed one is refused", () => {
   assert.deepEqual(parseCommands({ commands: [{ name: "compact", description: "Free up context", source: "builtin" }, { name: "review", source: "skill" }, { name: "", source: "command" }] }),
     [command("compact", "Free up context"), command("review", "", "skill")]);

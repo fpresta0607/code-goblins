@@ -78,8 +78,9 @@ for (const harness of ["claude", "pi", "codex"] as const) {
     await choice(page, third.text).click();
     await expect.poll(() => typed(relay)).toBe(picked);
 
-    // The empty box hands the screen the terminal's keys, and a number picks.
-    await field(page).focus();
+    // The click leaves the keyboard in the box, whose empty field hands the
+    // screen the terminal's keys, and a number picks.
+    await expect(field(page)).toBeFocused();
     for (const key of ["ArrowDown", "ArrowUp", "Escape", "Tab"]) await field(page).press(key);
     const expected = picked + DOWN + UP + "\x1b" + "\t";
     await expect.poll(() => typed(relay)).toBe(expected);
@@ -161,11 +162,12 @@ test("a screen the relay could not read still offers Cancel, its keys from the b
   await openGoblin(page);
 
   // Act
-  relay.say({ type: "screen", asking: false, open: true, working: false, submission: "" });
+  relay.say({ type: "screen", asking: false, open: true, working: false, submission: "", panel: {} });
 
   // Assert
   await list(page).getByRole("button", { name: "Cancel", exact: true }).click();
   await expect.poll(() => typed(relay)).toBe("\x1b");
+  await expect(field(page)).toBeFocused();
   await list(page).getByRole("button", { name: "Show the terminal" }).click();
   await expect(back(page)).toBeVisible();
   await expect(terminal(page)).toBeFocused();
@@ -294,6 +296,7 @@ test("the session's permission mode shows under the box, and a press or Shift+Ta
   await expect(chip).toHaveText("Auto mode");
   await chip.click();
   await expect.poll(() => typed(relay)).toBe("\x1b[Z");
+  await expect(field(page)).toBeFocused();
   relay.say({ ...closed, mode: "plan mode" });
   await expect(chip).toHaveText("Plan mode");
   await field(page).press("Shift+Tab");

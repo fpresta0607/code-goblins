@@ -152,8 +152,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
   const isAsking = !!live?.screen?.isOpen;
-  // A screen the relay could not read as a list still offers its keys.
-  const panel = isAsking ? live?.screen?.panel ?? { rows: [], choices: [], hints: [] } : null;
+  const panel = live?.screen?.panel ?? null;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;
@@ -174,13 +173,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     if (!savesThroughBoard && !sendID.current) {
       // A screen of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
-      // he chose: the list's Enter confirms. Otherwise direct typing waits
-      // for a readable program.
+      // he chose: the list's Enter confirms.
       if (isAsking) {
         if (live?.paste(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
         return;
       }
-      if (isUnread) return;
       if (live?.send(text)) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
       return;
     }
@@ -359,10 +356,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
   const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  const canSend = !isSending && !adding && !!draft.trim() && (savesThroughBoard || isAsking || !isUnread);
+  const canSend = !isSending && !adding && !!draft.trim();
   return <section className="composer" aria-label={"Messages to " + name}>
     {panel && !isHeld && !isTerminalShown && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
-      onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); }} />}
+      onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
       {queueRows.map((action) => <li key={action.id}><QueuedMessage action={action} instance={snapshot.instance} name={name} variant="queue" /></li>)}
       {kept.map((text, index) => {
@@ -399,7 +396,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
             <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}>Classic</button>
           </div>}
           {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip="Shift+Tab changes the mode" disabled={isHeld}
-            onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); }}><Icon name="shield" />{mode[0].toUpperCase() + mode.slice(1)}</button>}
+            onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" />{mode[0].toUpperCase() + mode.slice(1)}</button>}
           {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
         </div>
         <div className="composer-controls">

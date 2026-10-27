@@ -20,14 +20,15 @@ export function parseCommands(value: unknown): HarnessCommand[] {
 
 // slashOptions are the commands to offer while he types the command word at
 // the start of the box, none once he has typed a space and gone on to its
-// arguments: those whose name starts with what he typed, then those whose
-// name holds it, then those whose description does, each group in the
-// harness's order.
+// arguments: the one named what he typed, then those whose name starts with
+// it, then those whose name holds it, then those whose description does,
+// each group in the harness's order.
 export function slashOptions(commands: HarnessCommand[], draft: string): HarnessCommand[] {
   if (!draft.startsWith("/")) return [];
   const word = draft.slice(1).toLowerCase();
   if (/\s/.test(word)) return [];
-  const starts = commands.filter((command) => command.name.toLowerCase().startsWith(word));
+  const named = commands.filter((command) => command.name.toLowerCase().startsWith(word));
+  const starts = [...named.filter((command) => command.name.toLowerCase() === word), ...named.filter((command) => command.name.toLowerCase() !== word)];
   const holds = commands.filter((command) => !starts.includes(command) && command.name.toLowerCase().includes(word));
   const describes = commands.filter((command) => !starts.includes(command) && !holds.includes(command) && command.description.toLowerCase().includes(word));
   return [...starts, ...holds, ...describes];
