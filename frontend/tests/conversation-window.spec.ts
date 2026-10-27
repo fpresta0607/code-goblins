@@ -85,3 +85,66 @@ test("a reply that grows as it streams changes only its own message", async ({ p
   expect(seen.length).toBeGreaterThan(0);
   expect([...new Set(seen)]).toEqual(["m49"]);
 });
+
+// A conversation whose last reply ran a command, whose output folds under
+// its row.
+const WITH_CALL = { messages: [...LONG.messages.slice(0, 999), { id: "m999", seq: 999, at, kind: "reply", blocks: [
+  { kind: "text", text: "Answer 999" },
+  { kind: "call", tool: "Bash", subject: "go test ./...", state: "done", result: "ok  github.com/example/repo  1.2s" },
+] }], more: false };
+// jumpTo scrolls the list to top, repeating while the rows it reaches are drawn.
+const jumpTo = async (page: Page, top: number) => {
+  for (let tries = 0; tries < 20; tries++) {
+    await log(page).evaluate((element, top) => { element.scrollTop = top < 0 ? element.scrollHeight : top; }, top);
+    await page.waitForTimeout(60);
+  }
+};
+
+test("a small scroll up from the end keeps the newest messages drawn", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot(), "", LONG);
+  await openGoblin(page);
+  await expect(log(page)).toContainText("Answer 999");
+
+  // Act: one small step up, just past where the list counts as at its end.
+  await log(page).evaluate((element) => { element.scrollTop -= 30; });
+  await page.waitForTimeout(300);
+
+  // Assert
+  await expect(log(page).getByText("Answer 999", { exact: true })).toBeVisible();
+  await expect(log(page).getByText("Question 998", { exact: true })).toBeVisible();
+});
+
+test("a fold he opened stays open after its row leaves the window and comes back", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot(), "", WITH_CALL);
+  await openGoblin(page);
+  const call = log(page).locator('[data-message="m999"] .disclosure.message-call');
+  await call.locator("summary").click();
+  await expect(call.locator(".call-result")).toHaveText("ok  github.com/example/repo  1.2s");
+
+  // Act: read far up, so the row leaves the page, then come back.
+  await jumpTo(page, 0);
+  await expect(log(page).locator('[data-message="m999"]')).toHaveCount(0);
+  await jumpTo(page, -1);
+
+  // Assert
+  await expect(call.locator(".call-result")).toHaveText("ok  github.com/example/repo  1.2s");
+});
+
+test("the keyboard on a row that leaves the window goes to the list, whose keys keep working", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot(), "", WITH_CALL);
+  await openGoblin(page);
+  await log(page).locator('[data-message="m999"] summary').focus();
+
+  // Act
+  await jumpTo(page, 0);
+  await expect(log(page).locator('[data-message="m999"]')).toHaveCount(0);
+
+  // Assert: the list holds the keyboard, and Shift+PageDown scrolls it.
+  await expect(log(page)).toBeFocused();
+  const before = await log(page).evaluate((element) => element.scrollTop);
+  await page.keyboard.press("Shift+PageDown");
+  await expect.poll(() => log(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(before);
+});

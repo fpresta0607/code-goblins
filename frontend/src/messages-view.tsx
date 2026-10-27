@@ -26,6 +26,8 @@ const OLDER_RETRY_MS = 5000;
 // Once this many older pages in a row fail to arrive, none is asked for
 // until the stream reconnects.
 const OLDER_TRIES = 3;
+// A row with no folds open, shared so its props stay the same.
+const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
 
 // A Claude Code session's messages, read only: the supervisor's stream of
@@ -78,6 +80,21 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   // no message is at the top.
   const [rowHeights, setRowHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [view, setView] = useState({ top: 0, height: 0, anchor: "", offset: 0 });
+  // The folds he opened, by message and by fold within it, kept here so a
+  // row that leaves the window and comes back opens as he left it, and a row
+  // is drawn again only when its own folds change.
+  const [openFolds, setOpenFolds] = useState<ReadonlyMap<string, ReadonlySet<string>>>(() => new Map());
+  const foldRow = useCallback((message: string, fold: string, isOpen: boolean) => setOpenFolds((prior) => {
+    const folds = new Set(prior.get(message));
+    if (isOpen === folds.has(fold)) return prior;
+    if (isOpen) folds.add(fold); else folds.delete(fold);
+    const next = new Map(prior);
+    if (folds.size) next.set(message, folds); else next.delete(message);
+    return next;
+  }), []);
+  // The message whose row holds the keyboard, so the keyboard goes to the
+  // list when that row leaves the window and the list's keys keep working.
+  const focusedRow = useRef("");
   // Whether an older page is on its way, and how many failed to arrive in a
   // row and when the last did: his next approach to the top asks again once
   // OLDER_RETRY_MS have passed, until OLDER_TRIES have failed, which leaves
@@ -196,7 +213,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
       anchor.current = message ? { id: message.id, offset: at } : null;
     }
     const next = messageWindow(heights, isEnd ? Infinity : box.scrollTop, box.clientHeight);
-    if (next.start !== drawn.start || next.end !== drawn.end) setView({ top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 });
+    if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView({ top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 });
     if (box.scrollTop < OLDER_WITHIN_PX) readOlder();
   };
 
@@ -319,6 +336,17 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   const picture = useCallback((id: string) => address({ picture: id }), [address]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
+  useLayoutEffect(() => {
+    const box = list.current;
+    if (!box || !focusedRow.current || document.activeElement !== document.body) return;
+    focusedRow.current = "";
+    box.focus({ preventScroll: true });
+  }, [drawn.start, drawn.end]);
+  useEffect(() => {
+    const away = (event: PointerEvent) => { if (!list.current?.contains(event.target as Node)) focusedRow.current = ""; };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, []);
   const stats = sessionStats({ usage: held.usage, model, effort, memory });
   const reading = usageBanner(harness, subscriptions, spend);
   const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt" && message.source !== "notice")?.at ?? "";
@@ -328,9 +356,11 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
         the box he types into. */}
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
-      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
+      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
+        onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
+        onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
         <div ref={items} className="conversation-items" style={{ paddingTop: drawn.before, paddingBottom: drawn.after }}>
-          {held.messages.slice(drawn.start, drawn.end).map((message) => <MessageRow key={message.id} message={message}
+          {held.messages.slice(drawn.start, drawn.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
             task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>

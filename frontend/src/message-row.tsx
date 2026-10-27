@@ -29,9 +29,14 @@ function sentAt(at: string): { exact: string; text: string } {
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
 // he taps away. Its words stay selectable.
-export const MessageRow = memo(function MessageRow({ message, task, picture, onChild }: {
+// openFolds are the folds of this message he opened, kept by the view so
+// they stay open when the row leaves the window and comes back, and onFold is
+// told of each one he opens or closes.
+export const MessageRow = memo(function MessageRow({ message, task, picture, onChild, openFolds, onFold }: {
   message: SessionMessage; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+  openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void;
 }) {
+  const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
   const [copied, setCopied] = useState(false);
   const [isActionsOpen, setActionsOpen] = useState(false);
   const row = useRef<HTMLElement>(null);
@@ -50,13 +55,13 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
   if (message.kind === "interrupt") return <p className="message-interrupt" data-message={message.id}><Icon name="pause" />Interrupted</p>;
   if (message.kind === "compaction") return <div className="message-compaction" data-message={message.id}>
     {copy}
-    <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"}><MessageText text={message.text} /></Disclosure>
+    <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"} {...fold("compaction")}><MessageText text={message.text} /></Disclosure>
   </div>;
   if (message.kind === "reply") return <article className="message message-reply" data-message={message.id}>
     {replyParts(message.blocks).map((part) => part.kind === "calls"
-      ? <div key={part.at} className="message-steps">{part.calls.map((call, at) => <MessageCall key={at} call={call} task={task} picture={picture} onChild={onChild} />)}</div>
+      ? <div key={part.at} className="message-steps">{part.calls.map((call, at) => <MessageCall key={at} call={call} task={task} picture={picture} onChild={onChild} {...fold("call:" + part.at + ":" + at)} />)}</div>
       : part.kind === "text" ? <MessageText key={part.at} text={part.text} />
-        : <Disclosure key={part.at} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{part.text.trim().split("\n")[0]}</span></>}>
+        : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{part.text.trim().split("\n")[0]}</span></>}>
           <MessageText text={part.text} />
         </Disclosure>)}
     <div className="message-reply-actions">{copy}{when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}</div>

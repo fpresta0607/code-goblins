@@ -18,9 +18,11 @@ const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", do
 // edit's diff and its pictures fold under the row in the board's one
 // Disclosure, which mounts them only while it is open. A call that started a
 // sub-agent is its baby goblin's row instead, whose Open shows that baby
-// goblin's terminal while its goblin's tree holds it.
-export function MessageCall({ call, task, picture, onChild }: {
+// goblin's terminal while its goblin's tree holds it. Whether its fold is
+// open is the view's to keep (open, onOpenChange).
+export function MessageCall({ call, task, picture, onChild, open, onOpenChange }: {
   call: MessageBlock; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+  open: boolean; onOpenChange: (isOpen: boolean) => void;
 }) {
   if (call.agent) {
     const node = call.agent.node;
@@ -44,7 +46,7 @@ export function MessageCall({ call, task, picture, onChild }: {
     </span>
   </>;
   if (!call.result && !call.edit?.diff.length && !call.pictures.length) return <div className="message-call">{head}</div>;
-  return <Disclosure kind="disclosure-line message-call" title={head}>
+  return <Disclosure kind="disclosure-line message-call" title={head} open={open} onOpenChange={onOpenChange}>
     {call.edit?.diff.length
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
       : call.result && <pre className="call-result">{call.result}</pre>}
