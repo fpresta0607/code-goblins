@@ -311,3 +311,24 @@ func TestTheEventStreamNamesTheBoardBuild(t *testing.T) {
 		t.Fatalf("the first snapshot on the stream does not name the build %q", handler.build)
 	}
 }
+
+// The redactor takes a credential out of a remote's address, and only that
+// pair: an ssh username and a plain address a handoff or a status tail shows
+// are ordinary text, and turning one into [redacted] makes the clone URL or
+// the address unusable for whoever reads it.
+func TestRedactKeepsOrdinaryAddressesAndTakesCredentials(t *testing.T) {
+	for _, c := range []struct{ text, want string }{
+		{"clone ssh://git@github.com/o/r.git", "clone ssh://git@github.com/o/r.git"},
+		{"Contact:alice@example.com about it", "Contact:alice@example.com about it"},
+		{"git@github.com:o/r.git", "git@github.com:o/r.git"},
+		{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/1"},
+		{"clone https://user:fixture-password@github.com/o/r", "clone https://[redacted]@github.com/o/r"},
+		{"clone ssh://user:fixture-password@github.com/o/r", "clone ssh://[redacted]@github.com/o/r"},
+		{"remote user:fixture-password@github.com:o/r.git", "remote [redacted]@github.com:o/r.git"},
+		{"token=fixture-token", "token=[redacted]"},
+	} {
+		if got := redact(c.text); got != c.want {
+			t.Errorf("redact(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+}
