@@ -386,7 +386,8 @@ func TestRunSpawnProjectManifestOverridesTheFleetTable(t *testing.T) {
 // directory it left behind refused every retry too. The command now hands the
 // service a capsule to write once the id is proven free, which the spawn
 // package's capsule tests prove it does; here the capsule is written where
-// the service would, and holds the brief, the frozen class, lane and budget.
+// the service would, and holds the brief, the frozen class, lane and budget,
+// and the rule for writing evidence that keeps file text plain and bounded.
 func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 	fixture := newFleetE2EFixture(t)
 	manifestPath := filepath.Join(fixture.home.Data, "projects", filepath.Base(fixture.project), "project.json")
@@ -436,6 +437,15 @@ func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 	}
 	if frozen.TaskClass != "implementation" || frozen.RouteLane != "open" || frozen.Budget.MaxRepairRounds != 4 {
 		t.Errorf("capsule = %+v, want the frozen class, lane, and repair budget", frozen)
+	}
+	augmented, err := os.ReadFile(capsuleBrief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rule := range []string{"explicit string, number and boolean fields", "under 256 KB", "ends within a minute", evidenceFileText + "(<path>), never with Get-Content", "never put a provider, process or other PowerShell object in it"} {
+		if !strings.Contains(string(augmented), rule) {
+			t.Errorf("brief = %q, want the evidence rule %q", augmented, rule)
+		}
 	}
 }
 

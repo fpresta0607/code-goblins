@@ -35,6 +35,13 @@ const quotaTimeout = 20 * time.Second
 // the brief's area: a read that does not finish in time is a failed read.
 const overlapTimeout = 30 * time.Second
 
+// evidenceFileText is how the capsule tells a goblin to read a file's content
+// into its evidence: as plain text. Windows PowerShell 5.1's Get-Content
+// returns a string carrying PSDrive and PSProvider objects, which
+// ConvertTo-Json walks as deep as it is told; one evidence writer grew to
+// 7.9 GB that way and never wrote its file.
+const evidenceFileText = "[IO.File]::ReadAllText"
+
 func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo spawn: task ID is required")
@@ -276,7 +283,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 				return "", err
 			}
 			augmented := filepath.Join(taskTmp, "brief.md")
-			extra := fmt.Sprintf("\n\n## CFO durable task capsule\nRead %s and %s before work. Write machine-readable production evidence to %s. Rejected unshipped implementation work is disposable: delete superseded files, tests, routes and flags unless explicitly required.\n", taskCapsule, runtimePath, filepath.Join(taskTmp, "evidence.json"))
+			extra := fmt.Sprintf("\n\n## CFO durable task capsule\nRead %s and %s before work. Write machine-readable production evidence to %s as JSON of explicit string, number and boolean fields, under 256 KB, from a writer that ends within a minute. Put a file's content in it as plain text read with %s(<path>), never with Get-Content, whose Windows PowerShell 5.1 string carries provider objects that ConvertTo-Json walks, and never put a provider, process or other PowerShell object in it. Rejected unshipped implementation work is disposable: delete superseded files, tests, routes and flags unless explicitly required.\n", taskCapsule, runtimePath, filepath.Join(taskTmp, "evidence.json"), evidenceFileText)
 			if err := os.WriteFile(augmented, append(briefText, []byte(extra)...), 0o600); err != nil {
 				return "", err
 			}

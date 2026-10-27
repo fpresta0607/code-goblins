@@ -55,6 +55,8 @@ A missing, stale, or unparseable quota-axi is no evidence of exhaustion.
 Explicit `--harness`, `--model`, and `--effort` remain authoritative overrides, and `--auto` is an alias for the default.
 A project without a manifest routes from the fleet table and gets no capsule.
 Spawn writes `runtime-capsule.md` and `task-capsule.json` under the task temporary directory, containing names and policy, never secret values.
+The brief it hands the goblin asks for `evidence.json` as JSON of explicit string, number and boolean fields, under 256 KB, from a writer that ends within a minute.
+It names `[IO.File]::ReadAllText` for a file's content, never `Get-Content`, whose Windows PowerShell 5.1 string carries provider objects that `ConvertTo-Json` walks: one evidence writer grew to 7.9 GB that way and never wrote its file.
 
 ### Root issue repository
 
