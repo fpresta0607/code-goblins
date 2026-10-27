@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
+import { ComposerAttachments } from "./composer-attachments";
 import { DictationButton } from "./dictation-button";
 import { parseEngineCatalog, type EngineModel } from "./engine-catalog";
 import { CODEX_NOT_SENT, driveCodexPicker } from "./codex-picker";
@@ -10,6 +11,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
+import { filesOf } from "./kept-files";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { shortModel } from "./model-name";
@@ -44,6 +46,8 @@ const CODEX_PICKER_WAIT_MS = 8000;
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
 const DRAFT_KEY = "cfo-draft:";
+// The paths of the files he added to that draft, kept the same way.
+const ATTACHED_KEY = "cfo-draft-files:";
 
 function storedDraft(key: string): string {
   try { return sessionStorage.getItem(DRAFT_KEY + key) ?? ""; } catch { return ""; }
@@ -54,6 +58,20 @@ function storeDraft(key: string, text: string): void {
     if (text) sessionStorage.setItem(DRAFT_KEY + key, text);
     else sessionStorage.removeItem(DRAFT_KEY + key);
   } catch { /* the draft stays while the box does */ }
+}
+
+function storedAttached(key: string): string[] {
+  try {
+    const paths: unknown = JSON.parse(sessionStorage.getItem(ATTACHED_KEY + key) ?? "[]");
+    return Array.isArray(paths) ? paths.filter((path): path is string => typeof path === "string") : [];
+  } catch { return []; }
+}
+
+function storeAttached(key: string, paths: string[]): void {
+  try {
+    if (paths.length) sessionStorage.setItem(ATTACHED_KEY + key, JSON.stringify(paths));
+    else sessionStorage.removeItem(ATTACHED_KEY + key);
+  } catch { /* the files stay while the box does */ }
 }
 
 // The message box under a session's messages, in place of its terminal's
@@ -79,14 +97,19 @@ function storeDraft(key: string, text: string): void {
 // tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it,
 // and the board's recent dictations are a tap away.
 //
-// A picture pasted into this box, or a file added to it, is kept where the
-// session he writes to reads it, and the message names its path, as the
-// answer card's picture is kept for its asker (internal/supervisor/
-// answer_images.go). It takes that road rather than the terminal views' own
-// paste of a picture onto this PC's clipboard and the harness's image key,
-// because this box also writes to a goblin that has no terminal up yet, and
-// every harness reads a path; the clipboard road would need a live terminal
-// and would leave a queued message without its picture. Alt+V and Ctrl+V both
+// A picture pasted into this box, a file dropped on it or added to it, is kept
+// where the session he writes to reads it and shows in the box as a thumbnail
+// he can remove, and Send names its path on a line of its own after his words,
+// as the answer card's picture is kept for its asker (internal/supervisor/
+// answer_images.go). Each harness reads a picture by its path as an image:
+// Claude Code with its Read tool, or as an attachment when the message is
+// pictures alone, Codex with view_image and pi with its read tool, which is
+// how pi's own paste of a picture names it too. It takes that road rather
+// than the terminal views' own paste of a picture onto this PC's clipboard and
+// the harness's image key, because this box also writes to a goblin that has
+// no terminal up yet, and every harness reads a path; the clipboard road
+// would need a live terminal and would leave a queued message without its
+// picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
 export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
@@ -113,6 +136,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const draftKey = task?.id || terminal;
   const [draft, setDraft] = useState(() => storedDraft(draftKey));
   useEffect(() => storeDraft(draftKey, draft), [draftKey, draft]);
+  const [attached, setAttached] = useState(() => storedAttached(draftKey));
+  useEffect(() => storeAttached(draftKey, attached), [draftKey, attached]);
+  // What Send sends: his words, then the path of each file he added.
+  const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
   // Why the last Send found no terminal to type into, or why a paste could
   // not be kept, until the draft changes.
@@ -190,6 +217,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setUnsent("");
     setListClosed(false);
     setPick(0);
+    sendID.current = "";
+  };
+  const attach = (next: (prior: string[]) => string[]) => {
+    setAttached(next);
+    setUnsent("");
     sendID.current = "";
   };
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
@@ -284,8 +316,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   useEffect(() => {
     for (const send of sending) if (snapshot.actions.some((action) => action.id === send.id)) removePendingSend(send.id);
   }, [sending, snapshot.actions]);
+  const afterSend = () => {
+    setDraft("");
+    setAttached([]);
+    setUnsent("");
+  };
   const send = async () => {
-    const text = draft.trim();
+    const text = outgoing;
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu;
@@ -309,32 +346,34 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       // he chose: the list's Enter confirms. It answers that question even
       // while the session works, and is never held as a message.
       if (isAsking) {
-        if (live?.paste(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
+        if (live?.paste(text.replace(/\s*\n\s*/g, " "))) afterSend(); else setUnsent(unsentWhy);
         return;
       }
-      if (live?.send(text)) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
+      if (live?.send(text)) afterSend(); else setUnsent(unsentWhy);
       return;
     }
     sendID.current ||= crypto.randomUUID();
     const id = sendID.current;
     // The conversation shows it at once as his queued bubble, and the box
     // empties, before the board has answered; a refusal takes the bubble
-    // back and returns his words to the box as he wrote them.
-    const written = draft;
+    // back and returns his words and pictures to the box as he left them.
+    const written = draft, kept = attached;
     if (hasConversation) {
       addPendingSend({ id, task: task?.id || "", text });
       setDraft("");
+      setAttached([]);
     }
     setSending(true);
     try {
       await post({ id, kind: "message", task_id: task?.id || "", generation: "", text });
       sendID.current = "";
       storeDraft(draftKey, "");
-      setDraft("");
-      setUnsent("");
+      storeAttached(draftKey, []);
+      afterSend();
     } catch (error: unknown) {
       removePendingSend(id);
       setDraft((prior) => prior || written);
+      setAttached((prior) => prior.length ? prior : kept);
       setUnsent("Not sent. " + message(error));
       reportToCfo("a message to " + name, message(error));
     } finally {
@@ -357,16 +396,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       setDeleting("");
     }
   };
-  // add keeps each file he pasted or added where the session reads it, and
-  // names its path in the message. A file the board cannot keep says why in
-  // the box rather than disappearing.
+  // add keeps each file he pasted, dropped or added where the session reads
+  // it, and shows it in the box. A file the board cannot keep says why in the
+  // box rather than disappearing.
   const add = async (chosen: File[]) => {
     if (!chosen.length) return;
     setAdding((count) => count + chosen.length);
     for (const file of chosen) {
       try {
         const path = await keepFile(file, file.name || "pasted.png", snapshot.instance, task?.id);
-        write((prior) => prior.trim() ? prior.replace(/\s+$/, "") + "\n" + path : path);
+        attach((prior) => [...prior, path]);
       } catch (error: unknown) {
         setUnsent("That " + (file.type.startsWith("image/") ? "picture" : "file") + " was not added: " + message(error));
       } finally {
@@ -377,10 +416,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // A picture pasted into the box arrives as a file the session can read. Text
   // keeps the browser's own paste, which the textarea takes as it always has.
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pictures = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+    const pictures = filesOf(event.clipboardData).filter((file) => file.type.startsWith("image/"));
     if (!pictures.length) return;
     event.preventDefault();
     void add(pictures);
+  };
+  // A file dragged onto the box is added as one chosen with Add files.
+  const dragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  const drop = (event: DragEvent<HTMLDivElement>) => {
+    const dropped = filesOf(event.dataTransfer);
+    if (!dropped.length) return;
+    event.preventDefault();
+    void add(dropped);
   };
   // insert puts words where the caret or the selection is, keeping the rest of
   // the draft, and separates them from a word they would otherwise run into.
@@ -538,10 +589,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     if (conversation) conversation.scrollTop = conversation.scrollHeight;
     queued?.scrollIntoView({ block: "nearest" });
   };
-  const canSend = !isSending && !adding && !!draft.trim();
+  const canSend = !isSending && !adding && !!outgoing;
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
-  const canStop = isWorking && !draft.trim() && !isSending && !!live && !isHeld;
+  const canStop = isWorking && !outgoing && !isSending && !!live && !isHeld;
   return <section className="composer" aria-label={"Messages to " + name}>
     {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
@@ -566,7 +617,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
       {isRecentOpen && <RecentDictations where="the message" anchor={composerBox} model={dictation.model} look="pane" onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
-      <div className="composer-input">
+      <div className="composer-input" onDragOver={dragOver} onDrop={drop}>
+        {attached.length > 0 && <ComposerAttachments paths={attached} instance={snapshot.instance} task={task?.id}
+          onRemove={(path) => { attach((prior) => prior.filter((each) => each !== path)); field.current?.focus(); }} />}
         <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
           onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />

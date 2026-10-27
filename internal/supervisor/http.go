@@ -207,6 +207,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.keepAnswerImage(w, r)
 	case r.URL.Path == "/api/composer/file" && r.Method == "POST":
 		h.keepComposerFile(w, r)
+	case r.URL.Path == "/api/composer/file" && r.Method == "GET":
+		h.composerPicture(w, r)
 	case r.URL.Path == "/api/commands" && r.Method == "GET":
 		h.commands(w, r)
 	case r.URL.Path == "/api/files" && r.Method == "GET":

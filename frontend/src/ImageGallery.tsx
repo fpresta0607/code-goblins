@@ -6,8 +6,9 @@ export interface GalleryImage { src: string; value: string; text: string }
 
 // A question's or review item's images one at a time at full size: swipe, arrow keys or the
 // side buttons move between them, and a click or tap zooms in and out.
-export function ImageGallery({ images, index, lavish, onIndex, onClose, onChoose }: {
-  images: GalleryImage[]; index: number; lavish?: string; onIndex: (index: number) => void; onClose: () => void; onChoose?: (value: string) => void;
+// closeLabel names where its close button returns to.
+export function ImageGallery({ images, index, lavish, closeLabel = "Back to the question", onIndex, onClose, onChoose }: {
+  images: GalleryImage[]; index: number; lavish?: string; closeLabel?: string; onIndex: (index: number) => void; onClose: () => void; onChoose?: (value: string) => void;
 }) {
   const [zoomed, setZoomed] = useState(false);
   const [missing, setMissing] = useState<Set<string>>(new Set());
@@ -27,7 +28,7 @@ export function ImageGallery({ images, index, lavish, onIndex, onClose, onChoose
       <strong>{image.text}</strong>
       {lavish && <a className="icon-button raised pill-link" href={scrawlLink(lavish)} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
       <button type="button" className="icon-button raised" aria-label={zoomed ? "Zoom out" : "Zoom in"} data-tip={zoomed ? "Zoom out" : "Zoom in"} onClick={() => setZoomed(!zoomed)}><Icon name={zoomed ? "minus" : "plus"} /></button>
-      <button type="button" className="icon-button raised" aria-label="Back to the question" data-tip="Back to the question" onClick={onClose}><Icon name="close" /></button>
+      <button type="button" className="icon-button raised" aria-label={closeLabel} data-tip={closeLabel} onClick={onClose}><Icon name="close" /></button>
     </div>
     <div className={"gallery-stage" + (zoomed ? " zoomed" : "")}
       onPointerDown={(event) => { swipe.current = { x: event.clientX, y: event.clientY }; }}

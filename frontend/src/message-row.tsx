@@ -3,6 +3,7 @@ import { copyText as copyToClipboard } from "./clipboard";
 import { Disclosure } from "./Disclosure";
 import { HarnessMark } from "./harness-mark";
 import { Icon } from "./Icon";
+import { keptPictures } from "./kept-files";
 import { LongText } from "./long-text";
 import { MessageCall } from "./message-call";
 import { MessagePictures } from "./message-pictures";
@@ -33,7 +34,12 @@ function sentAt(at: string): { exact: string; text: string } {
 // lines with Show more (LongText), so a paste never fills a phone's screen.
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
-// he taps away. Its words stay selectable. A reply shows when it arrived only
+// he taps away. Its words stay selectable. The pictures he sent show above
+// his bubble, on his side, at a size he can read, as Claude's app draws them
+// (the Overlord, 2026-10-28: "see how claude includes pictures when pasted"):
+// those the transcript holds, read back by id (picture), and those the
+// message box kept and named by path, which show in place of the path
+// (keptPicture), never the path itself. A reply shows when it arrived only
 // where it ends its turn (isTurnEnd), its time, then Copy, then the mark of
 // the session's harness (the Overlord, 2026-10-28: "Copy should come after
 // the timestamp. The icon should come after the timestamp"), and the last
@@ -41,8 +47,8 @@ function sentAt(at: string): { exact: string; text: string } {
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
-export const MessageRow = memo(function MessageRow({ message, task, harness, picture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
-  message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+export const MessageRow = memo(function MessageRow({ message, task, harness, picture, keptPicture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
+  message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; keptPicture: (path: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
   openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean; receipt: string;
 }) {
   const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
@@ -82,12 +88,14 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";
   const printed = [message.output, message.errors].filter(Boolean).join("\n");
+  const kept = command ? { text: message.text, paths: [] } : keptPictures(message.text);
+  const pictures = [...message.pictures.map((each) => picture(each.id)), ...kept.paths.map(keptPicture)];
   return <article ref={row} className={"message message-prompt " + message.source + (isActionsOpen ? " actions-open" : "")} data-message={message.id}
     onClick={() => { if (!window.getSelection()?.toString()) setActionsOpen((prior) => !prior); }}>
     {message.queued && <span className="message-queued">Queued</span>}
-    <MessagePictures pictures={message.pictures} picture={picture} />
-    {message.text && <div className="message-bubble"><LongText isLong={isLongText(message.text)} {...fold("more")}>
-      {command ? <code>{(message.source === "shell" ? "!" : "") + message.text}</code> : <MessageText text={message.text} />}
+    <MessagePictures sources={pictures} />
+    {kept.text && <div className="message-bubble"><LongText isLong={isLongText(kept.text)} {...fold("more")}>
+      {command ? <code>{(message.source === "shell" ? "!" : "") + kept.text}</code> : <MessageText text={kept.text} />}
     </LongText></div>}
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}

@@ -27,14 +27,16 @@ for (const who of ["CFO", "goblin"] as const) {
       await (await choosing).setFiles({ name: "example.txt", mimeType: "text/plain", buffer: Buffer.from("read this attachment") });
 
       // Assert
-      await expect(field(page, name)).toHaveValue(kept);
+      const attached = composer.getByRole("list", { name: "Attached files" });
+      await expect(attached).toContainText("example.txt");
+      await expect(field(page, name)).toHaveValue("");
       expect(uploads).toEqual([{ task: who === "CFO" ? "" : GOBLIN.id, name: "example.txt", text: "read this attachment" }]);
       expect(typed(relay)).toBe("");
 
       // Act: opening a separate terminal preserves the draft and view.
       await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
       await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
-      await expect(field(page, name)).toHaveValue(kept);
+      await expect(attached).toContainText("example.txt");
 
       // Act: Classic opens the terminal; Back to messages itself chooses Modern
       // again, as it saves Modern while it steps out.
@@ -47,12 +49,13 @@ for (const who of ["CFO", "goblin"] as const) {
       expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Back to messages chose Modern").toBe("modern");
 
       // Assert: changing views types nothing; Send submits the file once.
-      await expect(field(page, name)).toHaveValue(kept);
+      await expect(attached).toContainText("example.txt");
       await expect(field(page, name)).toBeInViewport();
       expect(typed(relay)).toBe("");
       await composer.getByRole("button", { name: "Send", exact: true }).click();
       await expect.poll(() => typed(relay)).toBe(pasted(kept) + "\r");
       await expect(field(page, name)).toHaveValue("");
+      await expect(attached).toHaveCount(0);
     });
   }
 }

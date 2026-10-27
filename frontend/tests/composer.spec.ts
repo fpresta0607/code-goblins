@@ -450,11 +450,12 @@ async function readClipboardOf(page: Page, text: string, picture = "") {
   }, { words: text, image: picture });
 }
 
-test("a picture pasted into the box is kept where the session reads it, and the message names its path", async ({ page }) => {
+test("a picture pasted into the box is kept where the session reads it, shows in the box, and the message names its path", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   const posts: { url: string; body: string }[] = [];
   await page.route("**/api/composer/file**", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
     posts.push({ url: route.request().url(), body: route.request().postDataBuffer()?.toString("base64") ?? "" });
     await route.fulfill({ json: { path: KEPT } });
   });
@@ -464,7 +465,8 @@ test("a picture pasted into the box is kept where the session reads it, and the 
   await pastePicture(page);
 
   // Assert
-  await expect(field(page)).toHaveValue(KEPT);
+  await expect(box(page).getByRole("list", { name: "Attached files" }).getByRole("img", { name: "Picture 1" })).toBeVisible();
+  await expect(field(page)).toHaveValue("");
   await expect.poll(() => posts.length).toBe(1);
   expect(posts[0].url).toContain("task=" + GOBLIN.id);
   expect(posts[0].url).toContain("name=shot.png");
@@ -484,6 +486,7 @@ test("a picture the board cannot keep says so in the box rather than disappearin
 
   // Assert
   await expect(field(page)).toHaveValue("");
+  await expect(box(page).getByRole("list", { name: "Attached files" })).toHaveCount(0);
   await expect(box(page).getByRole("alert")).toHaveText("That picture was not added: The file could not be kept: no room");
 });
 
@@ -501,7 +504,7 @@ test("Alt+V pastes the clipboard's text into the box, as Ctrl+V does", async ({ 
   await expect(field(page)).toHaveValue("from the clipboard");
 });
 
-test("Alt+V pastes a picture into the box by the path the session reads", async ({ page }) => {
+test("Alt+V pastes a picture into the box as one it shows and sends by the path the session reads", async ({ page }) => {
   // Arrange
   await readClipboardOf(page, "", PICTURE);
   await open(page);
@@ -513,7 +516,8 @@ test("Alt+V pastes a picture into the box by the path the session reads", async 
   await page.keyboard.press("Alt+v");
 
   // Assert
-  await expect(field(page)).toHaveValue(KEPT);
+  await expect(box(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
+  await expect(field(page)).toHaveValue("");
 });
 
 for (const harness of ["claude", "codex", "pi"] as const) {
