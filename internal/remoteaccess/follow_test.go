@@ -12,9 +12,12 @@ import (
 )
 
 // routedTailscale is a Tailscale whose Serve keeps a route per port, which
-// serve --bg sets and serve off removes, and which can be stopped.
+// serve --bg sets and serve off removes, and which can be stopped, have
+// Funnel on for port 4311, or refuse serve --bg on one port.
 type routedTailscale struct {
 	isStopped bool
+	isFunnel  bool
+	failing   string
 	routes    map[string]string
 	calls     []string
 }
@@ -29,7 +32,7 @@ func (f *routedTailscale) Run(_ context.Context, r execx.Request) (execx.Result,
 	case call == "status --json":
 		return execx.Result{Stdout: []byte(`{"BackendState":"Running","CertDomains":["home.example.ts.net"],"Self":{"DNSName":"home.example.ts.net.","UserID":123},"User":{"123":{"LoginName":"owner@example.com"}}}`)}, nil
 	case call == "serve status --json":
-		config := map[string]map[string]any{"TCP": {}, "Web": {}}
+		config := map[string]map[string]any{"TCP": {}, "Web": {}, "AllowFunnel": {"home.example.ts.net:4311": f.isFunnel}}
 		for port, target := range f.routes {
 			config["TCP"][port] = map[string]bool{"HTTPS": true}
 			config["Web"]["home.example.ts.net:"+port] = map[string]any{"Handlers": map[string]any{"/": map[string]string{"Proxy": target}}}
@@ -38,6 +41,9 @@ func (f *routedTailscale) Run(_ context.Context, r execx.Request) (execx.Result,
 		return execx.Result{Stdout: data}, err
 	case strings.HasPrefix(call, "serve --bg --https="):
 		port, target, _ := strings.Cut(strings.TrimPrefix(call, "serve --bg --https="), " ")
+		if port == f.failing {
+			return execx.Result{ExitCode: 1}, nil
+		}
 		f.routes[port] = target
 	case strings.HasPrefix(call, "serve --https=") && strings.HasSuffix(call, " off"):
 		delete(f.routes, strings.TrimSuffix(strings.TrimPrefix(call, "serve --https="), " off"))
@@ -108,30 +114,37 @@ func TestARestartedBoardOnAnotherAddressTakesRemoteAccessWithIt(t *testing.T) {
 	}
 }
 
-// Follow moves only what is this home's: remote access that is off, already
-// at this board, signed in to another account, routed by someone else, or
-// waiting on a stopped Tailscale is left as it is, for Status to name.
+// Follow moves only what is this home's, and nothing unless it can move all
+// of it: remote access that is off, already at this board, signed in to
+// another account, routed by someone else, Scrawl's route routed by someone
+// else, public through Funnel, or waiting on a stopped Tailscale is left as
+// it is, for Status to name.
 func TestFollowMovesNoRouteThatIsNotThisHomesToMove(t *testing.T) {
 	const before, after = "http://127.0.0.1:4310", "http://127.0.0.1:64610"
 	on := Config{Enabled: true, Origin: "https://home.example.ts.net:4311", Login: "owner@example.com", Target: before}
+	withScrawl := on
+	withScrawl.Scrawl, withScrawl.ScrawlTarget, withScrawl.ScrawlState = true, "http://127.0.0.1:4387", t.TempDir()
 	for _, test := range []struct {
 		name      string
 		settings  Config
 		routes    map[string]string
 		isStopped bool
+		isFunnel  bool
 		isError   bool
 	}{
 		{name: "remote access off", settings: Config{Origin: on.Origin, Login: on.Login, Target: before}, routes: map[string]string{"4311": before}},
 		{name: "already at this board", settings: Config{Enabled: true, Origin: on.Origin, Login: on.Login, Target: after}, routes: map[string]string{"4311": after}},
 		{name: "another account", settings: Config{Enabled: true, Origin: on.Origin, Login: "someone@example.com", Target: before}, routes: map[string]string{"4311": before}},
 		{name: "a route someone else changed", settings: on, routes: map[string]string{"4311": "http://127.0.0.1:9999"}},
+		{name: "Scrawl's route someone else changed", settings: withScrawl, routes: map[string]string{"4311": before, "4312": "http://127.0.0.1:4387"}},
+		{name: "Funnel on", settings: on, routes: map[string]string{"4311": before}, isFunnel: true},
 		{name: "a stopped Tailscale", settings: on, routes: map[string]string{"4311": before}, isStopped: true, isError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			state := t.TempDir()
 			writeSettings(t, state, test.settings)
-			tailscale := &routedTailscale{routes: test.routes, isStopped: test.isStopped}
+			tailscale := &routedTailscale{routes: test.routes, isStopped: test.isStopped, isFunnel: test.isFunnel}
 			routes := map[string]string{}
 			for port, target := range test.routes {
 				routes[port] = target
@@ -153,5 +166,33 @@ func TestFollowMovesNoRouteThatIsNotThisHomesToMove(t *testing.T) {
 				t.Errorf("settings = %+v, %v; want unchanged %+v", saved, err, test.settings)
 			}
 		})
+	}
+}
+
+// A move Follow could not finish, because Tailscale refused Scrawl's route
+// after the board's had moved, leaves the settings at the old address. The
+// board's off switch still removes both routes and clears the settings, so
+// turning remote access on again works.
+func TestRemoteAccessOffRemovesRoutesAMoveLeftHalfway(t *testing.T) {
+	// Arrange
+	const before, after = "http://127.0.0.1:4310", "http://127.0.0.1:64610"
+	state := t.TempDir()
+	settings := Config{Enabled: true, Origin: "https://home.example.ts.net:4311", Login: "owner@example.com", Target: before, Scrawl: true, ScrawlTarget: "http://127.0.0.1:4387", ScrawlState: t.TempDir()}
+	writeSettings(t, state, settings)
+	tailscale := &routedTailscale{routes: map[string]string{"4311": before, "4312": before}, failing: "4312"}
+	m := &Manager{State: state, Target: after, Commands: tailscale}
+	if moved, err := m.Follow(context.Background()); moved || err == nil || tailscale.routes["4311"] != after {
+		t.Fatalf("Follow = %v, %v with routes %v; want the board's route moved and Scrawl's refused", moved, err, tailscale.routes)
+	}
+
+	// Act
+	err := m.Disable(context.Background())
+
+	// Assert
+	if err != nil || len(tailscale.routes) != 0 {
+		t.Errorf("Disable = %v with routes %v; want both routes removed", err, tailscale.routes)
+	}
+	if saved, err := Read(state); err != nil || saved != (Config{}) {
+		t.Errorf("settings = %+v, %v; want cleared", saved, err)
 	}
 }

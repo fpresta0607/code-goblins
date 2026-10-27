@@ -576,18 +576,24 @@ func (m *Manager) Follow(ctx context.Context) (bool, error) {
 	if c.ScrawlTarget != "" {
 		routes = append(routes, [2]Config{c.scrawlRoute(), moved.scrawlRoute()})
 	}
+	var serves []Config
 	for i, route := range routes {
+		if config.AllowFunnel[strings.TrimPrefix(route[1].Origin, "https://")] {
+			return false, nil
+		}
 		from, to := portOwner(config, route[0]), portOwner(config, route[1])
 		switch {
 		case to == "own":
-			continue
 		case from == "" && i > 0:
 			// Scrawl's route reserved by a turn-on that never finished.
-			continue
 		case from != "own":
 			return false, nil
+		default:
+			serves = append(serves, route[1])
 		}
-		u, _ := url.Parse(route[1].Origin)
+	}
+	for _, route := range serves {
+		u, _ := url.Parse(route.Origin)
 		if _, err := m.command(ctx, "serve", "--bg", "--https="+u.Port(), m.Target); err != nil {
 			return false, err
 		}
@@ -676,7 +682,14 @@ func (m *Manager) Disable(ctx context.Context) error {
 	var cleanup []error
 	for _, route := range routes {
 		u, _ := url.Parse(route.Origin)
-		switch portOwner(config, route) {
+		owner := portOwner(config, route)
+		if current := route; owner == "other" {
+			current.Target = m.Target
+			if portOwner(config, current) == "own" {
+				route, owner = current, "own"
+			}
+		}
+		switch owner {
 		case "":
 			continue
 		case "other":
