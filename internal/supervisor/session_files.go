@@ -51,14 +51,16 @@ func (h *HTTP) sessionFiles(w http.ResponseWriter, r *http.Request) {
 // folderFiles answers the files git lists in folder, sorted by path, from the
 // listing the board keeps when it is fresh. One listing runs at a time, so
 // requests that arrive while it runs read its answer rather than run git
-// again. A folder outside any git repository holds no files to list.
+// again, and a listing finishes though the request that started it went, as
+// the composer drops one at each keystroke. A folder outside any git
+// repository holds no files to list.
 func (h *HTTP) folderFiles(ctx context.Context, folder string) ([]string, error) {
 	h.fileListingsMu.Lock()
 	defer h.fileListingsMu.Unlock()
 	if listing, ok := h.fileListings[folder]; ok && time.Since(listing.at) < fileListingLife {
 		return listing.paths, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	cmd := execx.CommandContext(ctx, "git", "-C", folder, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never", "GIT_OPTIONAL_LOCKS=0")

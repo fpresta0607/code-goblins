@@ -53,15 +53,15 @@ function storeDraft(key: string, text: string): void {
 // terminal, a question, a permission prompt, a picker or a panel, is drawn
 // above the box as a list he picks from (harness-panel.tsx), and while it is
 // open the box answers it with the terminal's own keys: an empty box hands it
-// the arrows, Enter, Escape, Tab, Space and a choice's number, and Send types
-// what he wrote into it without pressing Enter, which the list's Enter does;
-// while typing is held the message queues instead. A goblin with no terminal
-// that takes typing now, one paused, resuming or starting, gets what he sends
-// as a message action, delivered once whatever it is doing, and the box lists
-// his latest with where each is, and those a paused goblin's resume will
-// carry, each of which can be deleted. Its microphone, held or tapped on a
-// touch screen, and Ctrl+Shift+Space in the box dictate into it, and the
-// board's recent dictations are a tap away.
+// the arrows, Enter, Escape, Tab, Space and a choice's number, and Send pastes
+// what he wrote into it on one line without pressing Enter, which the list's
+// Enter does; while typing is held the message queues instead. A goblin with
+// no terminal that takes typing now, one paused, resuming or starting, gets
+// what he sends as a message action, delivered once whatever it is doing, and
+// the box lists his latest with where each is, and those a paused goblin's
+// resume will carry, each of which can be deleted. Its microphone, held or
+// tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it,
+// and the board's recent dictations are a tap away.
 //
 // A picture pasted into this box, or a file added to it, is kept where the
 // session he writes to reads it, and the message names its path, as the
@@ -108,7 +108,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const [pick, setPick] = useState(0);
   const [isListClosed, setListClosed] = useState(false);
   const [caret, setCaret] = useState(0);
-  const [found, setFound] = useState<string[]>([]);
+  const [found, setFound] = useState<{ start: number | null; files: string[] }>({ start: null, files: [] });
   const [adding, setAdding] = useState(0);
   const [, setEngine] = useState(0);
   // The kept message whose delete is on its way.
@@ -172,12 +172,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     const text = draft.trim();
     if (!text || isSending || adding) return;
     if (!savesThroughBoard && !sendID.current) {
-      // A screen of the harness's own takes what he wrote as typing, on one
-      // line and with no Enter, which would act on the screen before he
-      // chose: the list's Enter confirms. Otherwise direct typing waits for a
-      // readable program.
+      // A screen of the harness's own takes what he wrote as one paste, on
+      // one line and with no Enter, so no key a list binds acts on it before
+      // he chose: the list's Enter confirms. Otherwise direct typing waits
+      // for a readable program.
       if (isAsking) {
-        if (live?.control(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
+        if (live?.paste(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
         return;
       }
       if (isUnread) return;
@@ -267,21 +267,27 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   };
   // The open list: the slash commands while he types the command word, or
   // the session's files while the caret stands in an @, read a moment after
-  // he stops typing, the last list kept on screen meanwhile.
+  // he stops typing, the last list for that same @ kept on screen meanwhile.
   const commandOptions = isListClosed ? [] : slashOptions(commands.data ?? [], draft);
   const mention = isListClosed || commandOptions.length ? null : mentionAt(draft, caret);
+  const mentionStart = mention?.start ?? null;
   const mentionQuery = mention?.query ?? null;
+  if (found.start !== mentionStart) setFound({ start: mentionStart, files: [] });
   const filesAddress = "/api/files?" + sessionQuery.toString();
   useEffect(() => {
-    if (mentionQuery === null) return;
+    if (mentionStart === null || mentionQuery === null) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       request(filesAddress + "&q=" + encodeURIComponent(mentionQuery), controller.signal).then(parseFiles)
-        .then(setFound, (error: unknown) => { if (!controller.signal.aborted) reportToCfo("the files of " + name, message(error)); });
+        .then((files) => setFound({ start: mentionStart, files }), (error: unknown) => {
+          if (controller.signal.aborted) return;
+          setFound({ start: mentionStart, files: [] });
+          reportToCfo("the files of " + name, message(error));
+        });
     }, MENTION_WAIT_MS);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [mentionQuery, filesAddress, name]);
-  const mentionFiles = mention ? found : [];
+  }, [mentionStart, mentionQuery, filesAddress, name]);
+  const mentionFiles = mention ? found.files : [];
   const listOptions = commandOptions.length
     ? commandOptions.map((command) => ({ key: command.name, label: "/" + command.name, detail: command.description }))
     : mentionFiles.map((file) => ({ key: file, label: file.slice(file.lastIndexOf("/") + 1), detail: file }));

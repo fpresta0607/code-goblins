@@ -7,15 +7,16 @@ export const PANEL_KEYS = {
 } as const;
 
 // chooseKeys is what picks a panel's choice at index at, as the terminal
-// would: the arrows that move the harness's focus there from the choice it is
-// on, then Enter, or the choice's number where no focus can be read. Null
-// when neither can reach it.
+// would: its number's digit alone, which Claude Code's and Codex's numbered
+// lists take as that choice at once wherever their focus is, or, for a list
+// without numbers, as pi's, the arrows that move the harness's focus there
+// from the choice it is on, then Enter. Null when neither can reach it.
 export function chooseKeys(panel: HarnessPanel, at: number): string | null {
   const choice = panel.choices[at];
   if (!choice) return null;
+  if (choice.number > 0 && choice.number < 10) return String(choice.number);
   const focused = panel.choices.findIndex((each) => each.isFocused);
-  if (focused >= 0) return (at > focused ? PANEL_KEYS.down : PANEL_KEYS.up).repeat(Math.abs(at - focused)) + PANEL_KEYS.enter;
-  return choice.number ? String(choice.number) : null;
+  return focused >= 0 ? (at > focused ? PANEL_KEYS.down : PANEL_KEYS.up).repeat(Math.abs(at - focused)) + PANEL_KEYS.enter : null;
 }
 
 interface PressedKey { key: string; shiftKey: boolean; ctrlKey: boolean; altKey: boolean; metaKey: boolean }
@@ -38,6 +39,5 @@ export function panelKey(pressed: PressedKey, panel: HarnessPanel): string | nul
     case "Tab": return PANEL_KEYS.tab;
     case " ": return PANEL_KEYS.space;
   }
-  const at = /^[1-9]$/.test(pressed.key) ? panel.choices.findIndex((choice) => choice.number === Number(pressed.key)) : -1;
-  return at >= 0 ? chooseKeys(panel, at) : null;
+  return /^[1-9]$/.test(pressed.key) && panel.choices.some((choice) => choice.number === Number(pressed.key)) ? pressed.key : null;
 }

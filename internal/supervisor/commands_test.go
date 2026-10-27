@@ -314,21 +314,39 @@ func TestClaudeCommandsAreOfferedAsClaudeCodeNamesThem(t *testing.T) {
 	}
 }
 
-// A harness folder holding nothing offers the harness's built-ins alone, and
-// a harness without a table of built-ins offers nothing.
+// A harness folder holding nothing offers the harness's built-ins alone, each
+// as its harness describes it (Claude Code's command reference, Codex
+// 0.160.0's slash_command.rs and pi 1.4.0's BUILTIN_SLASH_COMMANDS), and a
+// harness without a table of built-ins offers nothing.
 func TestAHarnessWithNoRecordOffersOnlyItsBuiltins(t *testing.T) {
 	roots := harnessmap.Find(func(string) string { return "" }, t.TempDir())
-	for _, harness := range []string{"claude", "pi", "codex", "other"} {
-		t.Run(harness, func(t *testing.T) {
+	for _, c := range []struct {
+		harness string
+		builtin command
+	}{
+		{"claude", command{"compact", "Free up context by summarizing the conversation so far.", "builtin"}},
+		{"codex", command{"model", "choose what model and reasoning effort to use", "builtin"}},
+		{"pi", command{"quit", "Quit pi", "builtin"}},
+		{"other", command{}},
+	} {
+		t.Run(c.harness, func(t *testing.T) {
 			// Act
-			entries := harnessCommands(commandSession{harness: harness, folder: t.TempDir()}, roots)
+			entries := harnessCommands(commandSession{harness: c.harness, folder: t.TempDir()}, roots)
 
 			// Assert
-			if own := ownNames(entries); len(own) != 0 {
-				t.Fatalf("offered %v from an empty folder", own)
+			if c.builtin == (command{}) {
+				if len(entries) != 0 {
+					t.Fatalf("offered %v, want none", entries)
+				}
+				return
 			}
-			if len(entries) != len(builtinCommands[harness]) {
-				t.Fatalf("offered %d built-ins, want %d", len(entries), len(builtinCommands[harness]))
+			for _, entry := range entries {
+				if entry.Source != "builtin" {
+					t.Fatalf("offered %+v from an empty folder", entry)
+				}
+			}
+			if !slices.Contains(entries, c.builtin) {
+				t.Fatalf("built-ins lack %+v", c.builtin)
 			}
 		})
 	}
@@ -366,9 +384,6 @@ func TestEachHarnessAnswersItsBuiltinsAfterItsOwnCommands(t *testing.T) {
 				t.Fatalf("own commands = %v, want %v", own, wantOwn)
 			}
 			builtins := entries[len(own):]
-			if len(builtins) != len(builtinCommands[c.harness]) {
-				t.Fatalf("answered %d built-ins, want %d", len(builtins), len(builtinCommands[c.harness]))
-			}
 			for i, entry := range builtins {
 				if entry.Source != "builtin" || entry.Description == "" {
 					t.Fatalf("built-in %+v lacks its source or description", entry)

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -105,6 +106,27 @@ func TestFilesReadTheKeptListingWithinItsLife(t *testing.T) {
 	// Assert
 	if want := []string{"first.go"}; !reflect.DeepEqual(files, want) {
 		t.Fatalf("files = %v, want the kept listing's %v", files, want)
+	}
+}
+
+// A listing whose request went, as the composer drops one at each keystroke,
+// still finishes and is kept, so the keystroke after it reads that listing
+// rather than run git again.
+func TestFilesKeepAListingWhoseRequestWent(t *testing.T) {
+	// Arrange
+	board, worktree := filesBoard(t)
+	writeCommandFixture(t, filepath.Join(worktree, "first.go"), "x")
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	board.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(gone, "GET", "http://"+board.Host+"/api/files?task=task-1&token=test-instance&q=f", nil))
+	writeCommandFixture(t, filepath.Join(worktree, "second.go"), "x")
+
+	// Act
+	files := filesIn(t, getFiles(board, "task=task-1&token=test-instance&q=s"))
+
+	// Assert
+	if want := []string{"first.go"}; !reflect.DeepEqual(files, want) {
+		t.Fatalf("files = %v, want the dropped request's kept listing %v", files, want)
 	}
 }
 

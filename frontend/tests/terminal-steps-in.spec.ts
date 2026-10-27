@@ -70,26 +70,31 @@ for (const harness of ["claude", "pi", "codex"] as const) {
     await expect(list(page).getByRole("button", { name: "Cancel", exact: true })).toHaveCount(panel.hints.some((hint) => /esc/i.test(hint)) ? 1 : 0);
     await page.screenshot({ path: testInfo.outputPath(`${harness}-panel.png`) });
 
-    // A choice is the arrows from the harness's focus to it, then Enter.
-    await choice(page, panel.choices[2].text).click();
-    await expect.poll(() => typed(relay)).toBe(DOWN + DOWN + "\r");
+    // A numbered choice is its digit alone, which the harness takes at once
+    // wherever its focus is; one without a number is the arrows from the
+    // harness's focus to it, then Enter.
+    const third = panel.choices[2];
+    const picked = "number" in third ? String(third.number) : DOWN + DOWN + "\r";
+    await choice(page, third.text).click();
+    await expect.poll(() => typed(relay)).toBe(picked);
 
     // The empty box hands the screen the terminal's keys, and a number picks.
     await field(page).focus();
     for (const key of ["ArrowDown", "ArrowUp", "Escape", "Tab"]) await field(page).press(key);
-    const expected = DOWN + DOWN + "\r" + DOWN + UP + "\x1b" + "\t";
+    const expected = picked + DOWN + UP + "\x1b" + "\t";
     await expect.poll(() => typed(relay)).toBe(expected);
     if ("number" in panel.choices[1]) {
       await field(page).press("2");
-      await expect.poll(() => typed(relay)).toBe(expected + DOWN + "\r");
+      await expect.poll(() => typed(relay)).toBe(expected + "2");
       await expect(field(page)).toHaveValue("");
     }
 
-    // What he writes is typed into the screen on one line, with no Enter.
+    // What he writes is pasted into the screen on one line, with no Enter,
+    // so no key the list binds acts on it.
     const before = typed(relay);
-    await field(page).fill("use the\nother file");
+    await field(page).fill("2 things: use the\nother file");
     await field(page).press("Enter");
-    await expect.poll(() => typed(relay)).toBe(before + "use the other file");
+    await expect.poll(() => typed(relay)).toBe(before + pasted("2 things: use the other file"));
     await expect(field(page)).toHaveValue("");
 
     // Once the harness is back at its input line the list goes.
