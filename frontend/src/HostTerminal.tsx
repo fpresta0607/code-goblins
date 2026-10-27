@@ -202,7 +202,11 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, dictation.listening, dictation.stop, dictation.note, feedback]);
   return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} aria-label={label}>
     <div className="terminal-surface" ref={surface} />
-    {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
+    {/* Connecting is a plain line under the terminal's box, never a cover over
+        it: he types into that box while it connects, and the loader must sit
+        outside it (the Overlord, 2026-10-27: "the connecting loader overlays
+        and looks improper on box"). */}
+    {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the terminal</p>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
     {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{closedWhy && <p>{closedWhy}</p>}{!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}

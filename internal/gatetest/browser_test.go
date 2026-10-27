@@ -1,0 +1,194 @@
+package gatetest
+
+import (
+	"bytes"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// The rows a browser check writes are read as its cases, in the order they
+// failed, with the reporter's own mark for a case drawn without color and with
+// its symbols as it draws one with color, and the output still reaches the run
+// unchanged.
+func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
+	// Arrange
+	var out bytes.Buffer
+	report := NewBrowserReport(&out)
+	rows := strings.Join([]string{
+		`  ok  87 [board] › tests\composer-status.spec.ts:10:7 › classic keeps held queue status compact (3.8s)`,
+		`  x   88 [board] › tests\composer-status.spec.ts:85:7 › classic gives a held send failure priority (23ms)`,
+		`  ✓  89 [stepped-in] › tests\afk.spec.ts:12:3 › the bar says since when (1.2m)`,
+		`  ✘  90 [stepped-in] › tests\afk.spec.ts:19:3 › a waiting goblin says so once (4s)`,
+		`  -  91 [iphone] › tests\iphone-terminal.spec.ts:5:1 › a case the run skipped (0ms)`,
+		`x 12 of 1603 cases did not pass`,
+		`  x   92 [board] › tests\run-terminal.spec.ts:31:1 › a title with no time`,
+		"",
+	}, "\n")
+	want := []string{
+		"[board] tests/composer-status.spec.ts:85:7 › classic gives a held send failure priority",
+		"[stepped-in] tests/afk.spec.ts:19:3 › a waiting goblin says so once",
+		"[board] tests/run-terminal.spec.ts:31:1 › a title with no time",
+	}
+
+	// Act
+	if _, err := report.Write([]byte(rows)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Assert
+	if got := report.Failed(); !slices.Equal(got, want) {
+		t.Errorf("failed cases are\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if out.String() != rows {
+		t.Errorf("the run's output was changed: %q", out.String())
+	}
+}
+
+// A transcript captured from `npx playwright test --reporter=list` on the
+// board's @playwright/test 1.63.0 names the case that failed. The same run
+// under the line reporter writes a row per case with no mark, so it cannot say
+// which case failed: the list reporter is the one the pick must run.
+func TestBrowserReportReadsTheListReportersTranscriptNotTheLineReporters(t *testing.T) {
+	// Arrange
+	list := `Running 2 tests using 1 worker
+
+  ok 1 [board] › tests\failing.spec.ts:3:1 › a case that passed (11ms)
+  x  2 [board] › tests\failing.spec.ts:7:1 › a case that failed (6ms)
+
+
+  1) [board] › tests\failing.spec.ts:7:1 › a case that failed ──────────────────────────────────────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+  1 failed
+    [board] › tests\failing.spec.ts:7:1 › a case that failed ───────────────────────────────────────
+  1 passed (649ms)
+`
+	line := `Running 2 tests using 1 worker
+
+[1/2] [board] › tests\failing.spec.ts:3:1 › a case that passed
+[2/2] [board] › tests\failing.spec.ts:7:1 › a case that failed
+  1) [board] › tests\failing.spec.ts:7:1 › a case that failed ──────────────────────────────────────
+  1 failed
+  1 passed (1.1s)
+`
+	tests := []struct {
+		name       string
+		transcript string
+		want       []string
+	}{
+		{"list", list, []string{"[board] tests/failing.spec.ts:7:1 › a case that failed"}},
+		{"line", line, nil},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var out bytes.Buffer
+			report := NewBrowserReport(&out)
+
+			// Act
+			if _, err := report.Write([]byte(test.transcript)); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			// Assert
+			if got := report.Failed(); !slices.Equal(got, test.want) {
+				t.Errorf("failed cases are %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// A row a run writes in pieces is read whole, and the last row is read even
+// when the run wrote no newline after it, as a run the time limit ends leaves
+// it.
+func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T) {
+	// Arrange
+	var out bytes.Buffer
+	report := NewBrowserReport(&out)
+	row := `  x   88 [board] › tests\afk.spec.ts:85:7 › a case that failed (23ms)`
+	want := []string{"[board] tests/afk.spec.ts:85:7 › a case that failed"}
+
+	// Act
+	for _, piece := range []string{row[:9], row[9:40], row[40:]} {
+		if _, err := report.Write([]byte(piece)); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	// Assert
+	if got := report.Failed(); !slices.Equal(got, want) {
+		t.Errorf("failed cases are %q, want %q", got, want)
+	}
+	if out.String() != row {
+		t.Errorf("the run's output is %q, want %q", out.String(), row)
+	}
+}
+
+// A case that failed and passed when the run tried it again is no failure:
+// the reporter writes one row per try and puts the retry's number in the name
+// of the row a retry wrote, so a case is what its last row said. The rows are a
+// transcript of `npx playwright test --reporter=list` on the board's
+// @playwright/test 1.63.0, with `retries: 1`, of a case that passes on its
+// retry and one that fails both tries.
+func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
+	// Arrange
+	var out bytes.Buffer
+	report := NewBrowserReport(&out)
+	rows := strings.Join([]string{
+		`Running 2 tests using 1 worker`,
+		``,
+		`  x  1 [board] › tests\flaky.spec.ts:2:1 › a flaky case (5ms)`,
+		`  ok 2 [board] › tests\flaky.spec.ts:2:1 › a flaky case (retry #1) (5ms)`,
+		`  x  3 [board] › tests\flaky.spec.ts:5:1 › a case that always fails (2ms)`,
+		`  x  4 [board] › tests\flaky.spec.ts:5:1 › a case that always fails (retry #1) (6ms)`,
+		``,
+		``,
+		`  1 failed`,
+		`    [board] › tests\flaky.spec.ts:5:1 › a case that always fails ─────────────────────────────────`,
+		`  1 flaky`,
+		`    [board] › tests\flaky.spec.ts:2:1 › a flaky case ───────────────────────────────────────────────`,
+		"",
+	}, "\n")
+
+	// Act
+	if _, err := report.Write([]byte(rows)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Assert
+	want := []string{"[board] tests/flaky.spec.ts:5:1 › a case that always fails"}
+	if got := report.Failed(); !slices.Equal(got, want) {
+		t.Errorf("failed cases are %q, want %q", got, want)
+	}
+}
+
+// A line that is not one of the reporter's rows is no case, whatever it holds:
+// a check's own output can say "x" without a case having failed.
+func TestBrowserReportReadsOnlyTheReportersRows(t *testing.T) {
+	// Arrange
+	var out bytes.Buffer
+	report := NewBrowserReport(&out)
+	for _, line := range []string{
+		"x 12 of 1603 cases did not pass",
+		"x  3 cases failed",
+		"  ok",
+		"  x   ",
+		"  x   88 [board] ",
+		"  3 failed",
+		"",
+	} {
+		if _, err := report.Write([]byte(line + "\n")); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+
+	// Act
+	failed := report.Failed()
+
+	// Assert
+	if len(failed) != 0 {
+		t.Errorf("these lines are read as failed cases: %q", failed)
+	}
+}

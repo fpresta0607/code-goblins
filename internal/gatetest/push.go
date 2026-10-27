@@ -47,6 +47,10 @@ type Step struct {
 	// root when Dir is empty.
 	Dir     string
 	Command []string
+	// Browser says the check runs browser cases, each of which its own
+	// report names as it ends, so a check the time limit ends still names a
+	// case that failed before it.
+	Browser bool
 }
 
 func (s Step) String() string {

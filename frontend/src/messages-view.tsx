@@ -267,6 +267,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt" && message.source !== "notice")?.at ?? "";
   const lastReplyAt = [...held.messages].reverse().find((message) => message.kind === "reply")?.at ?? "";
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
+    {/* Connecting is a plain line above the conversation, never a cover over
+        the box he types into. */}
+    {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
       <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
         <div ref={items} className="conversation-items">
@@ -275,7 +278,6 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
-      {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the messages</p></div>}
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump}><Icon name="arrow-down" />Jump to latest</button>}
       {isCopied && <span className="conversation-copied" role="status">Copied</span>}

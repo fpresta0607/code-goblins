@@ -257,7 +257,7 @@ export function App() {
   // there; a recording that starts in the terminal itself never brings it in.
   const [composerTerminal, setComposerTerminal] = useState("");
   if (needsQueue && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
-  const [chatStyle] = useChatStyle();
+  const [chatStyle, chooseStyle] = useChatStyle();
   const [classicOut, setClassicOut] = useState("");
   const shouldKeepComposer = needsQueue || chatStyle === "classic" && composerTerminal === terminalKey || composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
   const keyboardTo = (key: string) => {
@@ -377,9 +377,13 @@ export function App() {
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
   const stepIn = () => { if (chatStyle === "classic") setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
   // Stepping out is Modern's Back to the conversation and Classic's way back
-  // into it, so only Classic records it: Modern's press must not change what
-  // Classic shows for the session.
-  const stepOut = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
+  // into it, and either way it chooses Modern: a board he steps out of the
+  // harness's terminal on is a board he wants drawn as the conversation from
+  // then on (the Overlord, 2026-10-27: "Back to messages doesn't flip task
+  // setting to modern either"). The conversation stays mounted under the
+  // terminal, so the session, its history, an unsent draft and the place he
+  // read are kept.
+  const stepOut = () => { if (chatStyle === "classic") setClassicOut(terminalKey); chooseStyle("modern"); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
   // Once offered, the composer stays reachable as input becomes ready so an
   // upload, a Send still landing, a failed Send to retry or its own recording
   // keeps its controls and result.
@@ -415,10 +419,13 @@ export function App() {
   // terminal maximized before a reload never hides the board behind it.
   const panelWide = showsPanel && maximized && !compact;
   // On a small screen a panel opened on anything, a task, a train or the CFO,
-  // is the whole view below the top bar, and its corner's Back returns to the
-  // board or the graph it was opened from (the Overlord, 2026-10-20: "It
-  // should become the full screen below the header banner"). The tour, which
-  // lights the board and the panel in turn, keeps them stacked.
+  // is the whole view, and its corner's Back returns to the board or the graph
+  // it was opened from (the Overlord, 2026-10-20: "It should become the full
+  // screen below the header banner"). There the header banner is put away
+  // while a panel fills the screen, since it eats the room a terminal or a
+  // conversation keeps (the Overlord, 2026-10-27: "header banner not needed on
+  // movible as it eats space"). The tour, which lights the board and the panel
+  // in turn, keeps them stacked.
   const fillsPhone = compact && showsPanel && !touring && (!!selected || cfoOpen);
   useVisualViewport(fillsPhone);
   // Back, on the panel of anything but the CFO, returns the panel to the
@@ -474,7 +481,7 @@ export function App() {
   return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className={"app-shell" + (fillsPhone ? " fills-phone" : "")} onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown && !fillsPhone) back(); else close(); }
   }}>
-    <header className="topbar">
+    <header className="topbar" hidden={fillsPhone}>
       <a className="brand" href="/" aria-label="Code Goblins home">
         <img src="/assets/goblin-app.png" width="48" height="48" alt="" /><h1>Code Goblins</h1>
         {snapshot?.example && <span className="example-label">Example workspace</span>}
