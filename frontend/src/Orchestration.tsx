@@ -55,9 +55,9 @@ function readLayout(): { positions: Record<string, Point> } {
   } catch { return { positions: {} }; }
 }
 
-export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCfo, presentations, now }: {
+export function Orchestration({ snapshot, selected, connected, effects, onSelect, onChild, onOpenCfo, presentations, now, freshNow }: {
   presentations:BoardActivity[];
-  snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number;
+  snapshot: Snapshot; selected: string; connected: boolean; effects: ActivityEffect[]; now: number; freshNow: number;
   onSelect: (node: WorkflowNode, source: HTMLElement) => void;
   // onChild opens a goblin's baby goblin.
   onChild: (task: Task, child: TreeNode, source: HTMLElement) => void;
@@ -403,7 +403,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               </span>
             </button>
             {owner && node.task && <div className="flow-node-foot"><CardFacts task={node.task} now={now} /></div>}
-            {hasCfoFacts && <div className="flow-node-foot"><CfoCardFacts snapshot={snapshot} now={now} onOpenCfo={onOpenCfo} /></div>}
+            {hasCfoFacts && <div className="flow-node-foot"><CfoCardFacts snapshot={snapshot} now={freshNow} onOpenCfo={onOpenCfo} /></div>}
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;
         })}

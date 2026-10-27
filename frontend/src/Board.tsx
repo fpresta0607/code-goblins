@@ -28,9 +28,9 @@ export type BoardLayout = "kanban" | "stacked";
 // order to the supervisor, which resumes paused goblins by it, so a drop in
 // either saves both. A merge train's card opens its panel, and selectedTrain
 // is the train whose panel shows.
-export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect, onSelectTrain, onOpenCfo, onOpenCommand, onStartCfo, presentations }: {
+export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow, onSelect, onSelectTrain, onOpenCfo, onOpenCommand, onStartCfo, presentations }: {
   presentations:BoardActivity[]; layout: BoardLayout;
-  snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number;
+  snapshot: Snapshot; selected?: string; selectedTrain?: string; now: number; freshNow: number;
   onSelect: (task: Task, source: HTMLElement) => void;
   onSelectTrain: (train: MergeTrain, source: HTMLElement) => void;
   onOpenCfo: (source: HTMLElement) => void;
@@ -47,7 +47,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
   const trainsIn = (name: string) => (snapshot.merge_trains ?? []).filter((train) => trainSection(train) === name);
   const history = trainsIn("Train history");
   return <section className={"task-board" + (layout === "stacked" ? " stacked" : "")} aria-label="Task board">
-    <CfoPin snapshot={snapshot} now={now} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
+    <CfoPin snapshot={snapshot} now={freshNow} onOpen={onOpenCfo} onCommand={onOpenCommand} onStart={onStartCfo} />
     {COLUMNS.map((column) => {
       const listed = snapshot.tasks.filter((task) => taskColumn(task) === column.name);
       const tasks = column.name === "In progress" ? working : column.name === "Completed" ? completedCards(listed) : listed;

@@ -98,7 +98,7 @@ const KANBAN_NEEDS_OVER = 960;
 
 export function App() {
   const [windowFeedback, showWindowFeedback] = useClickFeedback();
-  const { snapshot: received, connection } = useRuntimeStream();
+  const { snapshot: received, connection, receivedAt } = useRuntimeStream();
   // What the board draws holds closed every item it knows to be closed, so
   // nothing he acted on waits for the next snapshot to leave, and shows his
   // click on a task, Starting, Pausing, Resuming or Stopping, in the frame he
@@ -186,13 +186,14 @@ export function App() {
   const train = selected?.train ? snapshot?.merge_trains?.find((each) => each.id === selected.train) : undefined;
   const reviews = useReview(task, snapshot);
   const now = useNow(60_000);
+  const freshNow = Math.max(now, receivedAt);
   const served = snapshot?.build || "";
   const connected = connection === "Live";
   const [hasUnsentAnswers, setHasUnsentAnswers] = useState(false);
   const hasUnsent = hasUnsentAnswers || Object.values(reviews.drafts).some((draft) => unsentComment(draft, reviews.outcome(draft)));
   const isPageMissing = usePageMissing();
   const updated = isPageMissing || updateAction({ loaded: LOADED_BUILD, served, hidden: false, answering: true, connected }) !== "none";
-  const hasRecentUpdate = updateSucceededRecently(snapshot, now);
+  const hasRecentUpdate = updateSucceededRecently(snapshot, freshNow);
   useEffect(() => {
     const check = () => {
       if (updateAction({ loaded: LOADED_BUILD, served, hidden: document.hidden, answering: answering(hasUnsent), connected, unsent: hasUnsent, updated: hasRecentUpdate }) === "reload") location.reload();
@@ -214,7 +215,7 @@ export function App() {
   useWindowMove(snapshot?.instance || "", connected, useCallback(() => answering(hasUnsent), [hasUnsent]));
   useAppBadgeRenewal(snapshot?.instance || "");
   const effects = useActivity(snapshot, connected);
-  const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
+  const presentations=snapshot&&connected?livePresentations(snapshot,freshNow):[];
   // A selection opens its panel, its messages or its terminal beside its task
   // list.
   // A card is drawn again only when what it shows changed, so the handler
@@ -524,9 +525,9 @@ export function App() {
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
-            : compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
-              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected}
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
+            : compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+              : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
                 selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)}
                 onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCfo={openCfo} />}

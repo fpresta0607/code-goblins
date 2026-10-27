@@ -23,6 +23,7 @@ export function newerSnapshot(
 }
 export function useRuntimeStream() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [receivedAt, setReceivedAt] = useState(0);
   const [connection, setConnection] = useState("Connecting");
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +43,7 @@ export function useRuntimeStream() {
             const newer = newerSnapshot(current, next);
             return newer === next ? shared(current, next) : newer;
           });
+          setReceivedAt(Date.now());
           setConnection("Live");
           retry = STREAM_RECONNECT_BASE_DELAY_MS;
         } catch (error: unknown) {
@@ -74,5 +76,5 @@ export function useRuntimeStream() {
       clearTimeout(timer);
     };
   }, []);
-  return { snapshot, connection };
+  return { snapshot, connection, receivedAt };
 }

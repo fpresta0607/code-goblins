@@ -102,7 +102,8 @@ test("an idle board draws nothing between its minutes", async ({ page }) => {
 });
 
 test("a snapshot that changes nothing draws no card and almost nothing else", async ({ page }) => {
-  // Arrange
+  // Arrange: the clock stands five seconds into a minute.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   const snapshot = fleet([...WORKING, ...RESTING]);
   await open(page, snapshot);
   await reset(page);
@@ -118,7 +119,8 @@ test("a snapshot that changes nothing draws no card and almost nothing else", as
 });
 
 test("a snapshot that changes the meters alone draws no card", async ({ page }) => {
-  // Arrange
+  // Arrange: the clock stands five seconds into a minute.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   const snapshot = fleet([...WORKING, ...RESTING]);
   await open(page, snapshot);
   await reset(page);
@@ -133,7 +135,8 @@ test("a snapshot that changes the meters alone draws no card", async ({ page }) 
 });
 
 test("a snapshot that changes one goblin draws its card alone", async ({ page }) => {
-  // Arrange
+  // Arrange: the clock stands five seconds into a minute.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   const snapshot = fleet([...WORKING, ...RESTING]);
   await open(page, snapshot);
   await reset(page);
@@ -145,6 +148,24 @@ test("a snapshot that changes one goblin draws its card alone", async ({ page })
   // Assert
   const counts = await counted(page);
   expect(counts.rendered["task-card-shell"], JSON.stringify(counts.rendered)).toBe(1);
+});
+
+test("a presentation reported since the clock's last minute shows at once", async ({ page }) => {
+  // Arrange: the board's clock read the time five seconds into a minute, and
+  // a goblin presents a page twenty seconds later.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const snapshot = fleet([...WORKING, ...RESTING]);
+  await open(page, snapshot);
+  await page.clock.runFor(20_000);
+  const reported = "2026-10-27T12:00:20Z";
+  const presenting = { ...WORKING[0], runtime: { state: "working", reason: "", at: reported } };
+  const presentation = { id: "p1", kind: "browser", task_id: "working-1", generation: "working-1-1", source: "", target: "", state: "active", url: "https://example.com/walkthrough", at: reported, until: "2026-10-27T12:10:00Z" };
+
+  // Act
+  await push(page, { ...snapshot, revision: 2, tasks: [presenting, ...WORKING.slice(1), ...RESTING], activity: [presentation] });
+
+  // Assert
+  await expect(page.locator(".task-card", { hasText: "working-1" }).getByText("Browser active")).toBeVisible();
 });
 
 test("a board with no goblin at work asks for no animation frame and runs no animation", async ({ page }) => {

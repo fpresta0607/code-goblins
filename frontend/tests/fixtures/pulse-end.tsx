@@ -43,8 +43,8 @@ function PulseEnd() {
     <button onClick={watch}>Watch</button>
     <div id="effects" style={{ height: 900, display: "flex", flexDirection: "column" }}>
       {mode.startsWith("compact-")
-        ? <Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} onSelect={() => {}} />
-        : <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
+        ? <Lineage onOpenCfo={() => {}} snapshot={snapshot} project="" selected={null} effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} />
+        : <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={effects} presentations={[]} now={FIXED_NOW} freshNow={FIXED_NOW} onSelect={() => {}} onChild={() => {}} />}
     </div>
   </main>;
 }
