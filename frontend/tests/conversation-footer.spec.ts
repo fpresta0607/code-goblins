@@ -149,7 +149,10 @@ test("thinking folds to its first line and opens to its paragraphs, lists and co
   await open(page, snapshot(), "", { messages: [{ id: "thought", seq: 0, at: "2026-10-26T10:00:00Z", kind: "reply", blocks: [{ kind: "thinking", text: thought }] }], more: false });
   await openGoblin(page);
   const thinking = page.locator(".message-thinking");
-  await expect(thinking.locator(".thinking-preview")).toHaveText("First **read** the change.");
+  // Its first line reads as words, its markdown drawn, as Codex's reasoning
+  // summaries open with a bold header.
+  await expect(thinking.locator(".thinking-preview")).toHaveText("First read the change.");
+  await expect(thinking.locator(".thinking-preview strong")).toHaveText("read");
   await expect(thinking.locator("li"), "folded thinking mounts nothing under its line").toHaveCount(0);
   await thinking.locator("summary").click();
   await expect(thinking.locator("strong")).toHaveText("read");
