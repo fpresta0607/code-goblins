@@ -45,7 +45,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
   workingSince: string; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[]) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
@@ -292,7 +292,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     {(box || reading.banner) && <div className="composer-dock">
       <SessionFooter harness={harness} ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
-      {box?.(held.usage?.model || model, history)}
+      {box?.(held.usage?.model || model, history, held.usage?.effort ?? "")}
     </div>}
   </section>;
 }

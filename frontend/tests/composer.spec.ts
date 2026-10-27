@@ -26,7 +26,7 @@ test.describe("phone speech history", () => {
         await field(page).evaluate((element) => { const box = element as HTMLTextAreaElement; box.focus(); box.setSelectionRange(7, 14); });
 
         await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
-        const history = page.getByRole("dialog", { name: "Recent messages" });
+        const history = page.getByRole("dialog", { name: "Speech history" });
         await expect(history).toBeVisible();
         await history.getByRole("button", { name: "Paste into the message: older dictation", exact: true }).tap();
 
@@ -346,22 +346,22 @@ test.describe("dictation into the box", () => {
     await openGoblin(page);
 
     await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
-    await page.getByRole("dialog", { name: "Recent messages" }).getByRole("button", { name: "Paste into the message: check the phone spec" }).click();
+    await page.getByRole("dialog", { name: "Speech history" }).getByRole("button", { name: "Paste into the message: check the phone spec" }).click();
 
     await expect(field(page)).toHaveValue("check the phone spec");
   });
 
-  test("Escape closes the recent dictations, leaving the panel open and the keyboard on Recent messages", async ({ page }) => {
+  test("Escape closes speech history, leaving the panel open and the keyboard on the style menu", async ({ page }) => {
     await open(page);
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
     await openGoblin(page);
     await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
     const recent = box(page).getByRole("button", { name: /^Style: / });
-    await expect(page.getByRole("dialog", { name: "Recent messages" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Speech history" })).toBeVisible();
 
     await page.keyboard.press("Escape");
 
-    await expect(page.getByRole("dialog", { name: "Recent messages" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Speech history" })).toHaveCount(0);
     await expect(page.locator("#panel-title")).toHaveText(NAME);
     await expect(recent).toBeFocused();
   });

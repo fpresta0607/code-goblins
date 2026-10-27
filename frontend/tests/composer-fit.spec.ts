@@ -60,12 +60,12 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
 
     // Assert: the card is whole in the window, its title the topmost thing
     // where it is drawn, and a list longer than the room scrolls inside it.
-    const history = page.getByRole("dialog", { name: "Recent messages" });
+    const history = page.getByRole("dialog", { name: "Speech history" });
     await expect(history.getByText("check the phone spec", { exact: false })).toBeVisible();
     expect(await inWindow(page, history)).toBe(true);
-    const title = history.getByText("Recent messages", { exact: true });
+    const title = history.getByText("Speech history", { exact: true });
     const point = (await title.boundingBox())!;
-    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.textContent, { x: point.x + 4, y: point.y + point.height / 2 })).toBe("Recent messages");
+    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.textContent, { x: point.x + 4, y: point.y + point.height / 2 })).toBe("Speech history");
     const list = history.locator("ul");
     expect(await list.evaluate((element) => element.scrollHeight <= element.clientHeight || getComputedStyle(element).overflowY === "auto")).toBe(true);
 
@@ -154,3 +154,36 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
     });
   });
 }
+
+// The Overlord, 2026-10-27: "make sure that the cursor blinking, when you're
+// selecting the chat box, is the same size to fit that font in text". The
+// browser draws the caret as tall as the box's line, so the line must be the
+// height of the letters themselves, empty and while he types.
+test("the box's caret is the height of its letters, empty and while he types", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+
+  for (const text of ["", "check the phone spec"]) {
+    // Act
+    await field(page).fill(text);
+    await field(page).focus();
+    const { line, letters } = await field(page).evaluate((box) => {
+      const style = getComputedStyle(box);
+      const block = document.createElement("div");
+      const word = document.createElement("span");
+      block.style.cssText = "position: absolute; visibility: hidden; white-space: pre";
+      block.style.font = style.font;
+      block.style.lineHeight = style.lineHeight;
+      word.textContent = text || (box instanceof HTMLTextAreaElement ? box.placeholder : "");
+      block.append(word);
+      document.body.append(block);
+      const sizes = { line: block.getBoundingClientRect().height, letters: word.getBoundingClientRect().height };
+      block.remove();
+      return sizes;
+    });
+
+    // Assert
+    expect(Math.abs(line - letters), `the line is ${line}px and the letters ${letters}px`).toBeLessThanOrEqual(1);
+  }
+});

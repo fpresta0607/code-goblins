@@ -62,7 +62,7 @@ for (const width of [1440, 390]) {
       // end of the draft first, as a tap on its last word does.
       await page.keyboard.press("End");
       await (await boxMenu(page, name)).getByRole("button", { name: "Speech history", exact: true }).click();
-      await page.getByRole("dialog", { name: "Recent messages", exact: true }).getByRole("button", { name: "Paste into the message: from speech", exact: true }).click();
+      await page.getByRole("dialog", { name: "Speech history", exact: true }).getByRole("button", { name: "Paste into the message: from speech", exact: true }).click();
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
 
       await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
@@ -97,14 +97,45 @@ for (const width of [1440, 390]) {
   });
 }
 
+// What each harness offers, as GET /api/engines reads it from the harness's
+// own catalog, and what the session runs and picks in this test. A pick goes
+// in as the harness's own command with the value after it, for Claude Code
+// and pi, and as the digits of Codex's own /model picker, which takes none.
+const CATALOG = { harnesses: [
+  { id: "claude", name: "Claude Code", models: [
+    { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "xhigh" },
+    { id: "claude-sonnet-5-5", name: "Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "high" },
+  ] },
+  { id: "codex", name: "Codex", models: [
+    { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: ["low", "medium", "high", "xhigh"], default_effort: "medium" },
+    { id: "gpt-6.1-sol", name: "GPT-6.1-Sol", efforts: ["low", "medium", "high", "xhigh"], default_effort: "low" },
+  ] },
+  { id: "pi", name: "Pi", models: [
+    { id: "openrouter/z-ai/glm-5.3-flash", name: "GLM 5.3 Flash", efforts: ["off", "minimal", "low", "medium", "high", "xhigh"], default_effort: "medium" },
+    { id: "openrouter/deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", efforts: ["off", "minimal", "low", "medium", "high", "xhigh"], default_effort: "high" },
+  ] },
+] };
+const SESSIONS = {
+  claude: { model: "claude-opus-5-5", effort: "xhigh", picks: { model: ["claude-sonnet-5-5", /^Sonnet 5\.5/, "Sonnet 5.5"], effort: ["max", "max", "max"] } },
+  codex: { model: "gpt-6-astra", effort: "medium", picks: { model: ["gpt-6.1-sol", /^GPT-6\.1 Sol/, "GPT-6.1 Sol"], effort: ["high", "high", "high"] } },
+  pi: { model: "openrouter/z-ai/glm-5.3-flash", effort: "medium", picks: { model: ["openrouter/deepseek/deepseek-v4.1-flash", /^DeepSeek V4\.1 Flash/, "deepseek-v4.1-flash"], effort: ["high", "high", "high"] } },
+} as const;
+const CODEX_MODELS = { rows: ["Select Model and Effort"], choices: [{ text: "gpt-6-astra (current)", number: 1, focused: true }, { text: "gpt-6.1-sol", number: 2 }], hints: ["Press enter to confirm or esc to go back"] };
+const CODEX_EFFORTS = { rows: ["Select Reasoning Level"], choices: [{ text: "Low", number: 1 }, { text: "Medium (default)", number: 2, focused: true }, { text: "High", number: 3 }, { text: "Extra high", number: 4 }], hints: ["Press enter to confirm or esc to go back"] };
+const recorded = (model: string, effort: string) => ({ ...USAGE, model, effort });
+
 for (const width of [1440, 390]) {
 test.describe(`${width}px native settings`, () => {
 test.use({ viewport: { width, height: 900 }, hasTouch: width === 390 });
-for (const harness of ["codex", "claude", "pi"]) {
+for (const harness of ["codex", "claude", "pi"] as const) {
   for (const who of harness === "codex" ? ["CFO", "goblin"] : ["goblin"]) {
   for (const setting of ["model", "effort"] as const) {
-    test(`${harness} ${who} ${setting} opens its own guarded picker and keeps the draft`, async ({ page }) => {
-      const relay = await open(page, snapshot({ cfo_harness: harness }, { harness }));
+    test(`${harness} ${who} ${setting} opens the board's own pane, sets the same session and reads it back`, async ({ page }) => {
+      // Arrange
+      const session = SESSIONS[harness];
+      const [value, option, shown] = session.picks[setting];
+      const relay = await open(page, snapshot({ cfo_harness: harness }, { harness, model: session.model, effort: session.effort }), "", { ...PAGE, usage: recorded(session.model, session.effort) });
+      await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
       if (who === "CFO") await page.keyboard.press("Control+Alt+1");
       else await openGoblin(page);
       const name = who === "CFO" ? "CFO" : NAME;
@@ -113,41 +144,120 @@ for (const harness of ["codex", "claude", "pi"]) {
       relay.say({ type: "screen", asking: false, open: false, working: false });
       const control = box(page, name).getByRole("button", { name: setting === "model" ? "Change model" : "Change effort", exact: true });
       await expect(control).toBeEnabled();
+
+      // Act: the control opens the board's own pane, never the terminal.
       if (width === 390) await control.tap();
       else await control.click();
-      const command = setting === "model" || harness === "codex" ? "/model" : harness === "claude" ? "/effort" : "/thinking";
-      await expect.poll(() => typed(relay)).toBe(pasted(command) + "\r");
-      // The picker opens in the chat as a list, and a numbered choice there
-      // presses its digit, which the harness takes as that choice at once.
-      relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Other", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
-      const picker = box(page, name).getByRole("group", { name: name + " asks", exact: true });
-      const other = picker.getByRole("button", { name: "Other", exact: true });
-      if (width === 390) await other.tap();
-      else await other.click();
-      await expect.poll(() => typed(relay)).toBe(pasted(command) + "\r2");
+      const pane = box(page, name).getByRole("menu", { name: setting === "model" ? "Model" : "Effort", exact: true });
+      await expect(pane).toBeVisible();
+      await expect(pane.getByRole("menuitemradio", { checked: true })).toHaveCount(1);
+      expect(typed(relay), "opening the pane types nothing").toBe("");
+      await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
+      const choice = pane.getByRole("menuitemradio", { name: option });
+      if (width === 390) await choice.tap();
+      else await choice.click();
+
+      // Assert: the pick reaches the session's harness, the terminal stays out
+      // of sight, and the box keeps the draft.
+      await expect(pane).toHaveCount(0);
+      if (harness === "codex") {
+        await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r");
+        relay.say({ type: "screen", asking: true, open: true, working: false, panel: CODEX_MODELS });
+        await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r" + (setting === "model" ? "2" : "1"));
+        relay.say({ type: "screen", asking: true, open: true, working: false, panel: CODEX_EFFORTS });
+        await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r" + (setting === "model" ? "22" : "13"));
+        await expect(box(page, name).getByRole("group", { name: name + " asks", exact: true }), "Codex's own picker is never drawn").toHaveCount(0);
+        relay.say({ type: "screen", asking: false, open: false, working: false });
+      } else {
+        const command = setting === "model" ? "/model " : harness === "claude" ? "/effort " : "/thinking ";
+        await expect.poll(() => typed(relay)).toBe(pasted(command + value) + "\r");
+      }
+      await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("my unsent words");
-      await expect(control).toBeDisabled();
-      relay.say({ type: "screen", asking: false, open: false, working: true });
-      await expect(control).toBeEnabled();
-      relay.say({ type: "screen", asking: false, open: false, working: false });
+      await expect(control).toContainText(shown);
+      // The session's own record then says what it runs, which both views read.
+      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded(setting === "model" ? value : session.model, setting === "effort" ? value : session.effort));
+      await expect(control).toContainText(shown);
+      // The controls stay guarded as before: held typing and an ended
+      // terminal disable them, and the draft stays.
       relay.say({ type: "held", reason: "pipeline owns this task" });
       await expect(control).toBeDisabled();
       relay.say({ type: "held", reason: "" });
       await expect(control).toBeEnabled();
-      const views = relay.views;
-      relay.drop();
-      await expect(control).toBeDisabled();
-      await expect.poll(() => relay.views).toBeGreaterThan(views);
-      relay.say({ type: "screen", asking: false, open: false, working: false });
-      await expect(control).toBeEnabled();
       relay.end();
       await expect(control).toBeDisabled();
       await expect(field(page, name)).toHaveValue("my unsent words");
-      expect(typed(relay)).toBe(pasted(command) + "\r2");
     });
   }
   }
 }
+
+test("a setting changed in Classic shows in Modern's controls, from the session's own record", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await openGoblin(page);
+  const model = box(page).getByRole("button", { name: "Change model", exact: true });
+  const effort = box(page).getByRole("button", { name: "Change effort", exact: true });
+  await expect(model).toHaveText("Opus 5.5");
+  await expect(effort).toHaveText("xhigh");
+
+  // Act: the harness's own menu, in Classic, set them; its record says so.
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded("claude-sonnet-5-5", "low"));
+
+  // Assert
+  await expect(model).toHaveText("Sonnet 5.5");
+  await expect(effort).toHaveText("low");
+});
+
+test("typing /effort or /model in the box opens the board's pane and types nothing into the terminal", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
+
+  for (const [command, title] of [["/effort", "Effort"], ["/model", "Model"]]) {
+    // Act
+    await field(page).fill(command);
+    await field(page).press("Enter");
+
+    // Assert
+    await expect(box(page).getByRole("menu", { name: title, exact: true })).toBeVisible();
+    await expect(field(page)).toHaveValue("");
+    await page.keyboard.press("Escape");
+    await expect(box(page).getByRole("menu", { name: title, exact: true })).toHaveCount(0);
+    await expect(field(page)).toBeFocused();
+  }
+  // A value typed after the command sets it at once, as the pane would.
+  await field(page).fill("/effort high");
+  await field(page).press("Enter");
+  await expect.poll(() => typed(relay)).toBe(pasted("/effort high") + "\r");
+  await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
+});
+
+test("each effort level wears its own colour, dull at the least, a gradient at max", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  await box(page).getByRole("button", { name: "Change effort", exact: true }).click();
+  const pane = box(page).getByRole("menu", { name: "Effort", exact: true });
+  await expect(pane.getByRole("menuitemradio")).toHaveCount(5);
+
+  // Act
+  const looks = await pane.locator(".effort-level").evaluateAll((labels) => labels.map((label) => ({ text: label.textContent, color: getComputedStyle(label).color, image: getComputedStyle(label).backgroundImage })));
+
+  // Assert: from the least to the most, every level its own colour, and max
+  // the brand gradient through its letters; the row shows the same colour.
+  expect(looks.map((look) => look.text)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  expect(new Set(looks.slice(0, 4).map((look) => look.color)).size).toBe(4);
+  expect(looks[4].image).toContain("linear-gradient");
+  expect(looks[4].color).toBe("rgba(0, 0, 0, 0)");
+  const row = await box(page).locator(".engine-control .effort-level").evaluate((label) => getComputedStyle(label).color);
+  expect(row).toBe(looks[3].color);
+});
 });
 }
 

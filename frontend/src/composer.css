@@ -14,7 +14,11 @@
 .composer-box { position: relative; display: grid; gap: 4px; }
 .composer-input { display: grid; gap: 4px; min-width: 0; padding: 10px 6px 4px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
 .composer-input:focus-within { border-color: var(--mint); }
-.composer textarea { display: block; box-sizing: border-box; min-width: 0; width: 100%; min-height: 1.5em; max-height: max(4.5em, min(12em, 30cqh)); padding: 0 8px; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+/* The caret is as tall as the line, so the line is the text's own height
+   (line-height normal) and the room around it is padding: the caret is the
+   height of the letters he types (the Overlord, 2026-10-27: "the cursor
+   blinking ... is the same size to fit that font"). */
+.composer textarea { display: block; box-sizing: border-box; min-width: 0; width: 100%; min-height: 1.5em; max-height: max(4.5em, min(12em, 30cqh)); padding: .15em 8px; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: normal; resize: none; field-sizing: content; overflow-wrap: anywhere; }
 /* The box grows with what he writes up to a cap that also shrinks with the
    chat it sits in, never more than about a third of it, so Send and the
    controls under it stay on screen however short the panel; past the cap it

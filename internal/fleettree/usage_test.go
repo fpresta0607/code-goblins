@@ -131,3 +131,87 @@ func TestASessionThatRecordsNoUsageHasNone(t *testing.T) {
 		t.Fatalf("usage = %+v, want none", page.Usage)
 	}
 }
+
+// A session's effort is what its harness says it last set: Claude Code's
+// /effort, from its own result, Codex's turn context and pi's thinking level
+// change, so Modern Chat shows a change made in either view (the Overlord,
+// 2026-10-27: "they should control the same interfaces. Same session").
+func TestASessionReadsTheEffortItsHarnessLastSet(t *testing.T) {
+	command := func(uuid, args string) object {
+		return prompted(uuid, "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>"+args+"</command-args>")
+	}
+	used := answer("a1", "reply-1", textBlock("done"))
+	used["message"].(object)["usage"] = object{"input_tokens": 10, "output_tokens": 5}
+	for _, test := range []struct {
+		name string
+		path func(t *testing.T, home string) string
+		want string
+	}{
+		{"Claude Code's /effort with a level", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), used, command("c1", "max"), prompted("o1", "<local-command-stdout>Set effort level to max</local-command-stdout>"))
+		}, "max"},
+		{"Claude Code's /effort picker", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), used, command("c1", ""), prompted("o1", "<local-command-stdout>Set effort level to xhigh (this session only)</local-command-stdout>"))
+		}, "xhigh"},
+		{"Claude Code's cancelled /effort", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), used, command("c1", ""), prompted("o1", "<local-command-stdout>Cancelled</local-command-stdout>"))
+		}, ""},
+		{"Codex's turn context", func(t *testing.T, home string) string {
+			turn := codexTurnContext("gpt-6-astra")
+			turn["payload"].(object)["effort"] = "xhigh"
+			return codexRollout(t, home, "effort", codexMeta("effort", workDir), turn,
+				codexLine("token_usage_record", object{"usage": object{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}, "thread_token_usage": object{"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}}))
+		}, "xhigh"},
+		{"pi's thinking level change", func(t *testing.T, home string) string {
+			return piSession(t, home, piHeader(),
+				piEntry("model_change", "m1", "", object{"provider": "openrouter", "modelId": "z-ai/glm-5.3-flash"}),
+				piEntry("thinking_level_change", "e1", "m1", object{"thinkingLevel": "high"}),
+				piMessageEntry("u1", "e1", "user", object{"content": "work"}))
+		}, "high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := test.path(t, home)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := ""
+			if page.Usage != nil {
+				got = page.Usage.Effort
+			}
+			if got != test.want {
+				t.Fatalf("effort = %q, want %q (usage %+v)", got, test.want, page.Usage)
+			}
+		})
+	}
+}
+
+// A pi session's model is the one its last model change set, before any
+// reply of the new model's has said so.
+func TestAPiSessionReadsTheModelItLastChangedTo(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := piSession(t, home, piHeader(),
+		piMessageEntry("u1", "", "user", object{"content": "work"}),
+		piMessageEntry("a1", "u1", "assistant", object{"provider": "acme", "model": "thinker-1", "usage": object{"input": 200, "output": 50, "totalTokens": 250}, "content": []object{{"type": "text", "text": "done"}}}),
+		piEntry("model_change", "m1", "a1", object{"provider": "openrouter", "modelId": "deepseek/deepseek-v4.1-flash"}))
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Usage == nil || page.Usage.Model != "openrouter/deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("usage = %+v, want the model it changed to", page.Usage)
+	}
+}

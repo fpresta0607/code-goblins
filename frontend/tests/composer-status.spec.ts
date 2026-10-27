@@ -414,7 +414,7 @@ test("a live Classic terminal keeps its own dictation after the hold that showed
 
   // Assert: Speech history holds the one dictation, and it types nothing more.
   await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Recent messages", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
+  await expect(page.getByRole("dialog", { name: "Speech history", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
   await page.getByRole("button", { name: "Close recent messages", exact: true }).click();
   expect(typed(relay)).toBe(before + pasted("rebase onto main"));
   await expect(field(page)).toHaveValue("");
@@ -428,10 +428,10 @@ test("a recording started in the terminal never pulls its box into the stepped-i
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
   const relay = await open(page);
   await openGoblin(page);
-  await field(page).fill("/model");
+  await field(page).fill("/resume");
   await field(page).press("Enter");
   await expect.poll(() => relay.submissions.length).toBe(1);
-  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }] } });
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
   await box(page).getByRole("button", { name: "Show the terminal", exact: true }).click();
   await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toBeVisible();
   await expect(box(page)).toBeHidden();

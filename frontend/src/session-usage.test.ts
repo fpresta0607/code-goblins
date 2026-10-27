@@ -4,7 +4,7 @@ import { elapsedText, formatAge, formatCount, formatUSD, sessionStats, usageBann
 
 const usage = {
   input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000,
-  cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "openrouter/deepseek/deepseek-v4.1-flash",
+  cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "openrouter/deepseek/deepseek-v4.1-flash", effort: "",
 };
 
 test("the context ring uses the session measurement and never invents a missing limit", () => {

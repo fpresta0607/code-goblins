@@ -1,0 +1,13 @@
+/* Speech history as Modern Chat's box opens it: the surface, title, rows and
+   quiet buttons of the chat's own panes (popup.css, engine-pane.css) in place
+   of the voice card's pixel frame. Its placement in the top layer stays the
+   card's (styles.css, .voice-recent[popover]). */
+.speech-pane.voice-recent[popover] { gap: 2px; padding: 6px; border: 1px solid var(--glass-border-hover); background: #0b171cf7; filter: none; }
+.speech-pane .voice-card-title { margin: 2px 6px 6px; padding-right: 40px; color: var(--muted); font: 600 .75rem/1.6 var(--font-body); letter-spacing: .04em; text-transform: uppercase; }
+.speech-pane .voice-close { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; border-color: transparent; background: transparent; }
+.speech-pane li { padding: 8px 10px; border-top: 0; border-radius: 8px; }
+.speech-pane li:hover, .speech-pane li:focus-within { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
+.speech-pane .voice-text { color: #edf4f3; font-size: .875rem; line-height: 1.45; }
+.speech-pane .voice-meta { color: var(--muted); font-size: .75rem; }
+.speech-pane .voice-actions .icon-button { width: 30px; height: 30px; border-color: transparent; background: transparent; }
+.speech-pane .voice-footer, .speech-pane .voice-empty { margin: 6px 10px 4px; color: var(--muted); font-size: .8125rem; line-height: 1.45; }

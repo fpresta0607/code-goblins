@@ -138,19 +138,19 @@ test("a picker the box opens despite background work stays in the chat, and goes
   await openGoblin(page);
   relay.say(closed);
   await expect(page.locator(".session-working")).toBeVisible();
-  await sendFromBox(page, relay, "/model");
+  await sendFromBox(page, relay, "/resume");
 
   // Act
-  relay.say(asking({ rows: ["Select model", "Switch between Claude models."], choices: [{ text: "Default (recommended)", number: 1, focused: true }, { text: "Sonnet", number: 2 }], hints: ["Enter to confirm · Esc to exit"] }));
+  relay.say(asking({ rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }, { text: "Earlier session", number: 2 }], hints: ["Enter to confirm · Esc to exit"] }));
 
   // Assert
-  await expect(choice(page, "Sonnet")).toBeVisible();
+  await expect(choice(page, "Earlier session")).toBeVisible();
   await expect(messages(page)).toBeVisible();
   await expect(back(page)).toHaveCount(0);
   await expect(field(page)).toBeFocused();
   await field(page).press("ArrowDown");
   await field(page).press("Enter");
-  await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r" + DOWN + "\r");
+  await expect.poll(() => typed(relay)).toBe(pasted("/resume") + "\r" + DOWN + "\r");
   relay.say(closed);
   await expect(list(page)).toHaveCount(0);
   await expect(messages(page)).toBeVisible();
