@@ -133,7 +133,7 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	// read, proves no draft: the delivery answers the one and types into the
 	// other as it always has.
 	if withoutInlineOffer(screens).ComposerHoldsText(screen) {
-		return fmt.Errorf("spawn: native terminal %s holds a draft, so nothing was typed into it; the terminal, its task record and its worktree are kept", record.ID)
+		return fmt.Errorf("spawn: native terminal %s holds a draft, so nothing was typed into it", record.ID)
 	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
