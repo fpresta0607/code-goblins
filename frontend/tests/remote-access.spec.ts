@@ -345,6 +345,43 @@ for (const comeBack of ["focus", "visibilitychange"] as const) {
   });
 }
 
+// The Overlord, 2026-10-27: "Make sure that whatever on-and-off detections
+// are detected, that the setting is reflected, and that there's no errors in
+// the board." A change made anywhere else reaches the open setting within
+// seconds, with no coming back to the board.
+const STOPPED = { ...ON, ready: false, attention: "stopped", issue: "Tailscale is not running on this PC; start Tailscale and sign in" };
+for (const [change, before, after, isOn, note] of [
+  ["Tailscale stops on this PC", ON, STOPPED, "true", "Not running"],
+  ["Tailscale starts again", STOPPED, ON, "true", ""],
+  ["cfo remote off", ON, OFF, "false", ""],
+  ["cfo remote on", OFF, ON, "true", ""],
+  ["a restart brings the board back at another address", { ...ON, ready: false, attention: "board_moved", issue: "The board moved to another address and its private route could not follow. Turn remote access off and on again on this PC." }, ON, "true", ""],
+] as const) {
+  test(`${change} shows in the open setting within seconds`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.clock.install();
+    const { panel, setStatus } = await open(page, before);
+    const tailscale = panel.getByRole("switch", { name: "Tailscale", exact: true });
+    await expect(tailscale).toHaveAttribute("aria-checked", before.enabled ? "true" : "false");
+
+    // Act
+    setStatus(after);
+    await page.clock.runFor(5000);
+
+    // Assert
+    await expect(tailscale).toHaveAttribute("aria-checked", isOn);
+    if (note) {
+      await expect(tailscale).toHaveAccessibleDescription(note);
+      await expect(panel.getByRole("img", { name: STOPPED.issue, exact: true })).toBeVisible();
+    } else {
+      await expect(tailscale).not.toHaveAccessibleDescription(/./);
+      await expect(panel.getByRole("img", { name: /^The board moved/ })).toHaveCount(0);
+    }
+    if (isOn === "true" && !note) await expect(panel.getByRole("img", { name: "Tailscale works", exact: true })).toBeVisible();
+    await panel.screenshot({ path: testInfo.outputPath("remote-access-after.png") });
+  });
+}
+
 test("coming back to the board while a switch turns never undoes the turn", async ({ page }) => {
   // Arrange
   const { panel } = await open(page, OFF, { slow: true });

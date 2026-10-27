@@ -17,7 +17,9 @@ const TAILSCALE_NOTES: Record<string, string> = {
   missing: "Not installed", stopped: "Not running", signed_out: "Signed out", disconnected: "Disconnected", unsuitable: "Tagged or no MagicDNS", unavailable: "Not answering", no_https: "HTTPS not approved",
   settings: "Settings unreadable", board_moved: "Board moved", account_changed: "Account changed", funnel: "Funnel on", route_missing: "Route missing", start_at_login: "Start at login off",
 };
-const SCRAWL_NOTES: Record<string, string> = { bypassed: "Direct route", exposed: "Not private", foreign: "Other server", outdated: "Update Scrawl", unrouted: "Needs setup" };
+// How often the setting reads remote access again while the board shows.
+const READ_EVERY_MS = 5000;
+const SCRAWL_NOTES: Record<string, string> ={ bypassed: "Direct route", exposed: "Not private", foreign: "Other server", outdated: "Update Scrawl", unrouted: "Needs setup" };
 
 type Status = ReturnType<typeof parse>;
 type Machine = ReturnType<typeof parseMachines>[number];
@@ -73,8 +75,10 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
     void request("/api/remote/machines").then((value) => setMachines(parseMachines(value))).catch((error: unknown) => reportToCfo("the machines Remote access lists", message(error)));
   }, [local]);
   // Tailscale and the machines on it are read again whenever he comes back to
-  // the board, as from installing it or signing in, since nothing else tells
-  // the board.
+  // the board, as from installing it or signing in, and remote access every
+  // few seconds while the board shows, since nothing tells the board when
+  // Tailscale stops or starts, cfo remote turns it on or off, or a restart
+  // moves it.
   useEffect(() => {
     read();
     readMachines();
@@ -83,9 +87,10 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
       read();
       readMachines();
     };
+    const every = setInterval(() => { if (!document.hidden && !pressing.current) read(); }, READ_EVERY_MS);
     window.addEventListener("focus", again);
     document.addEventListener("visibilitychange", again);
-    return () => { window.removeEventListener("focus", again); document.removeEventListener("visibilitychange", again); };
+    return () => { clearInterval(every); window.removeEventListener("focus", again); document.removeEventListener("visibilitychange", again); };
   }, [read, readMachines]);
   // A fix names the command the setting showed, which runs only while it is
   // still the row's, and the answer names its run.
