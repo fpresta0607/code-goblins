@@ -425,10 +425,9 @@ func (m *Manager) Status(ctx context.Context) Status {
 	if !c.Enabled {
 		return s
 	}
-	if c.Target != m.Target {
-		s.Issue, s.Attention = "The board address changed. Turn remote access off and on again on this PC.", "board_moved"
-		return s
-	}
+	// The board's own supervisor moves remote access to a board that came
+	// back at another address (Follow) once Tailscale answers, so until then
+	// what Tailscale lacks is what needs him.
 	me, err := m.identity(ctx)
 	if err != nil {
 		s.Issue, s.Attention = err.Error(), tailscaleStateOf(err)
@@ -436,6 +435,10 @@ func (m *Manager) Status(ctx context.Context) Status {
 	}
 	if me.origin != c.Origin || me.login != c.Login {
 		s.Issue, s.Attention = "The Tailscale account or device name changed. Turn remote access off and on again on this PC.", "account_changed"
+		return s
+	}
+	if c.Target != m.Target {
+		s.Issue, s.Attention = "The board moved to another address and its private route could not follow. Turn remote access off and on again on this PC.", "board_moved"
 		return s
 	}
 	config, err := m.serving(ctx)
@@ -531,6 +534,113 @@ func (m *Manager) Enable(ctx context.Context) (Status, error) {
 	return s, nil
 }
 
+// Follow points remote access at this board when it is on for this PC's
+// board at another address, as a restart that finds the usual address taken
+// leaves it: the same Tailscale name and account keep their private link,
+// and only the routes this home owns move, Scrawl's with the board's. A
+// changed name or account, or a route that is no longer this home's, is
+// left for Status to name. It reports whether it moved remote access.
+func (m *Manager) Follow(ctx context.Context) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Unreadable settings are Status's to name.
+	if c, err := Read(m.State); err != nil || !c.Enabled || c.Target == m.Target {
+		return false, nil
+	}
+	if err := validateTarget(m.Target); err != nil {
+		return false, err
+	}
+	release, err := m.acquire()
+	if err != nil {
+		return false, fmt.Errorf("remote access is already being changed: %w", err)
+	}
+	defer release()
+	c, err := Read(m.State)
+	if err != nil || !c.Enabled || c.Target == m.Target {
+		return false, err
+	}
+	me, err := m.identity(ctx)
+	if err != nil {
+		return false, err
+	}
+	if me.origin != c.Origin || me.login != c.Login {
+		return false, nil
+	}
+	config, err := m.serving(ctx)
+	if err != nil {
+		return false, err
+	}
+	moved := c
+	moved.Target = m.Target
+	routes := [][2]Config{{c, moved}}
+	if c.ScrawlTarget != "" {
+		routes = append(routes, [2]Config{c.scrawlRoute(), moved.scrawlRoute()})
+	}
+	var serves []Config
+	for i, route := range routes {
+		if config.AllowFunnel[strings.TrimPrefix(route[1].Origin, "https://")] {
+			return false, nil
+		}
+		from, to := portOwner(config, route[0]), portOwner(config, route[1])
+		switch {
+		case to == "own":
+		case from == "" && i > 0:
+			// Scrawl's route reserved by a turn-on that never finished.
+		case from != "own":
+			return false, nil
+		default:
+			serves = append(serves, route[1])
+		}
+	}
+	for _, route := range serves {
+		u, _ := url.Parse(route.Origin)
+		if _, err := m.command(ctx, "serve", "--bg", "--https="+u.Port(), m.Target); err != nil {
+			return false, err
+		}
+	}
+	config, err = m.serving(ctx)
+	if err != nil {
+		return false, err
+	}
+	for i, route := range routes {
+		if owner := portOwner(config, route[1]); owner == "own" && !config.AllowFunnel[strings.TrimPrefix(route[1].Origin, "https://")] || owner == "" && i > 0 {
+			continue
+		}
+		return false, errors.New("the private Tailscale proxy did not verify at the board's new address")
+	}
+	return true, write(m.State, moved)
+}
+
+// followEvery is how often FollowBoard looks again, which reads only the
+// settings file unless remote access is on at another board address.
+const followEvery = 15 * time.Second
+
+// FollowBoard runs Follow now and every followEvery until ctx ends, so a
+// board that came back at another address is reachable again as soon as
+// Tailscale answers, a Tailscale that starts after the board included. It
+// says each new failure once, and each move.
+func (m *Manager) FollowBoard(ctx context.Context, say func(string)) {
+	tick := time.NewTicker(followEvery)
+	defer tick.Stop()
+	last := ""
+	for {
+		moved, err := m.Follow(ctx)
+		switch {
+		case moved:
+			say("remote access: the board moved to " + m.Target + ", so its private routes now point there")
+			last = ""
+		case err != nil && err.Error() != last:
+			last = err.Error()
+			say("remote access: the board moved to " + m.Target + ", and its private routes could not follow yet: " + last)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
 func (m *Manager) Disable(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -572,7 +682,14 @@ func (m *Manager) Disable(ctx context.Context) error {
 	var cleanup []error
 	for _, route := range routes {
 		u, _ := url.Parse(route.Origin)
-		switch portOwner(config, route) {
+		owner := portOwner(config, route)
+		if current := route; owner == "other" {
+			current.Target = m.Target
+			if portOwner(config, current) == "own" {
+				route, owner = current, "own"
+			}
+		}
+		switch owner {
 		case "":
 			continue
 		case "other":
