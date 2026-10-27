@@ -984,7 +984,8 @@ func TestANativeViewIsToldOfAKeyABusyProgramLeavesUnreadUntilItIsRead(t *testing
 // A view is told when the harness waits on an answer at a screen of its own,
 // as Claude Code's permission prompt, which only its terminal takes, and told
 // again once it is back at its composer: read from the terminal's screen once
-// its output pauses.
+// its output pauses, with what it asks and its choices, so the board can
+// offer them as a list.
 func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
@@ -999,13 +1000,13 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "harness\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}]}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
-	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -1020,8 +1021,8 @@ func TestANativeViewIsToldWhileItsHarnessAsksAtItsOwnScreen(t *testing.T) {
 }
 
 // A view is told while a panel of the harness's own is open in its
-// composer's place, one that asks nothing, and told again once its composer
-// is back.
+// composer's place, one that asks nothing, with its rows, its list and its
+// keys, and told again once its composer is back.
 func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 	h, server := nativeBoard(t, "direct")
 	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
@@ -1036,13 +1037,13 @@ func TestANativeViewIsToldWhileAPanelOfItsHarnessIsOpen(t *testing.T) {
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "harness\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "panel\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":true,"working":false,"submission":"","panel":{"rows":["Permissions:  Allow   Ask   Deny"],"choices":[{"text":"Add a new rule…","focused":true},{"text":"Bash(go test:*)"}],"hints":["Press ↑↓ to navigate · Esc to cancel"]}}`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 
-	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`
+	open, back := `{"type":"screen","asking":false,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()
@@ -1071,10 +1072,10 @@ func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "background\r")
 	v.waitFor(t, "1 shell")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`)
 
 	v.send(t, websocket.MessageBinary, "/model\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`)
 	v.send(t, websocket.MessageBinary, "harness\r")
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
@@ -1089,7 +1090,7 @@ func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
 	}
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions"}`)
 	if slices.Contains(terminal.lines(t), "turn ended") {
 		t.Error("the view learned of the turn only after its spinner stopped")
 	}
@@ -1115,10 +1116,10 @@ func TestANativeViewCorrelatesScreensWithSubmittedInput(t *testing.T) {
 	}
 	v.send(t, websocket.MessageText, `{"type":"submit","submission":"model"}`)
 	v.send(t, websocket.MessageBinary, "harness\r/model\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"model"}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"model",`)
 
 	second := openNativeView(t, server, viewQuery)
-	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`)
 }
 
 func TestANativeViewKeepsATurnBetweenScreenReads(t *testing.T) {
@@ -1190,12 +1191,12 @@ func TestANativeViewThatOpensWhileItsHarnessAsksIsToldAsItOpens(t *testing.T) {
 	first := openNativeView(t, server, viewQuery)
 	first.waitFor(t, "program ready")
 	first.send(t, websocket.MessageBinary, "permission\r")
-	first.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	first.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`)
 	first.send(t, websocket.MessageBinary, "count\r")
 	first.waitFor(t, "count 00")
 
 	second := openNativeView(t, server, viewQuery)
-	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	second.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`)
 
 	if second.shows("counted") {
 		t.Error("the view was told the harness asks only once the output after its opening paused, want it told as it opens")
@@ -1218,7 +1219,7 @@ func TestANativeViewOfACFOOpenedWhileItStartsIsToldWhenItsHarnessAsks(t *testing
 
 	v.send(t, websocket.MessageBinary, "permission\r")
 
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`)
 }
 
 // A view told the harness asks is told it no longer does while the turn the
@@ -1238,11 +1239,11 @@ func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraw
 	v := openNativeView(t, server, viewQuery)
 	v.waitFor(t, "program ready")
 	v.send(t, websocket.MessageBinary, "permission\r")
-	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`)
+	v.waitFor(t, `{"type":"screen","asking":true,"open":true,"working":false,"submission":"","panel":{"rows":["Do you want to create nine.txt?"],"choices":[{"text":"Yes","number":1,"focused":true},{"text":"No","number":2}]}}`)
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
 
-	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":""}`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":""}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions"}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()

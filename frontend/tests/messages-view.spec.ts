@@ -514,8 +514,8 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
-      board.say({ type: "screen", asking: false, open: true, working: false, submission: "" });
-      await page.getByRole("button", { name: "Answer in the terminal" }).click();
+      board.say({ type: "screen", asking: false, open: true, working: false, submission: "", panel: {} });
+      await page.getByRole("button", { name: "Show the terminal" }).click();
       await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
@@ -722,7 +722,7 @@ test("a keyboard switch in Classic puts the keys in the terminal it shows", asyn
 
 // A harness picker guards direct typing: Send waits for it, so no Enter can act
 // on it. The message he saved before it opened is the board's own and stays.
-test("a held goblin keeps its queued message past a picker, and the picker still guards direct typing", async ({ page }) => {
+test("a held goblin keeps its queued message past a picker, and what he types at the picker goes into it", async ({ page }) => {
   // Arrange
   const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
   const board = await open(page);
@@ -745,17 +745,17 @@ test("a held goblin keeps its queued message past a picker, and the picker still
   // Act: the hold clears and the harness opens a picker of its own, and he
   // types at it.
   await board.sayTo("cg-pi", { type: "held", reason: "" });
-  await board.sayTo("cg-pi", { type: "screen", asking: true, open: true, working: false, submission: "" });
-  await expect(messageBox(page, who).locator(".composer-asking")).toBeVisible();
+  await board.sayTo("cg-pi", { type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Select model"], choices: [{ text: "z-ai/glm-5.3-flash", focused: true }, { text: "deepseek-v4.1-flash" }] } });
+  await expect(messageBox(page, who).getByRole("group", { name: who + " asks" })).toBeVisible();
   await boxField(page, who).fill("typed at a picker");
 
-  // Assert: a picker open in the harness leaves Send disabled and takes no
-  // Enter, since typing then would act on the picker, and the message he saved
-  // before it opened still stands as the board's one.
-  await expect(boxSend(page, who)).toBeDisabled();
+  // Assert: what he types at a picker open in the harness is typed into it,
+  // never saved as a message, and the message he saved before it opened
+  // still stands as the board's one.
   await boxField(page, who).press("Enter");
+  await expect(boxField(page, who)).toHaveValue("");
   await page.waitForTimeout(300);
-  expect(posted.map((each) => each.kind), "a picker never sends anything").toEqual(["message"]);
+  expect(posted.map((each) => each.kind), "a picker's typing is no message").toEqual(["message"]);
 });
 
 // A held session's chat opens at its latest message and stays where he reads:

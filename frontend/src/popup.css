@@ -1,0 +1,14 @@
+/* The one surface every popup of the chat wears: its edge, its fill, its
+   shadow and its radius, so a list, a menu and a card that open over the
+   conversation read as one family. */
+.popup-surface { border: 1px solid var(--glass-border-hover); border-radius: 12px; background: #0b171cf7; box-shadow: var(--glass-shadow-hover); color: var(--bone); }
+/* A list that pops up over the box as he types: it scrolls inside itself,
+   each option its name and, quieter, what it does, the pick lit. */
+.popup-list { display: grid; gap: 2px; max-height: min(16rem, 40dvh); margin: 0; padding: 4px; overflow: auto; overscroll-behavior: contain; list-style: none; }
+.popup-list > li { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: baseline; gap: 12px; min-height: 34px; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+.popup-list > li[aria-selected="true"] { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
+.popup-option-label { min-width: 0; overflow: hidden; color: #edf4f3; font: 600 .875rem/1.4 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.popup-list > li[aria-selected="true"] .popup-option-label { color: var(--mint); }
+.popup-option-detail { min-width: 0; overflow: hidden; color: var(--muted); font-size: .8125rem; text-overflow: ellipsis; white-space: nowrap; }
+@media (pointer: coarse) { .popup-list > li { min-height: 44px; } }
+@media (max-width: 480px) { .popup-list > li { grid-template-columns: minmax(0, 1fr); gap: 0; } }

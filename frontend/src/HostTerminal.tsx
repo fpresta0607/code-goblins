@@ -196,6 +196,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
       stopDictation: dictation.stop,
       feedback: feedback || dictation.note,
       send: (text) => phase === "live" && !reconnecting && visible ? current.current?.submit(text) ?? null : null,
+      paste: (text) => phase === "live" && !reconnecting && visible && !heldWhy ? current.current?.paste(text) ?? false : false,
       escape: () => !!current.current?.escape(),
       control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,
     });

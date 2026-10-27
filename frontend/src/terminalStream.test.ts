@@ -84,14 +84,34 @@ test("the relay says why typing is held while the screen stays live, and when it
 });
 
 test("the relay says when the harness asks at a screen only its terminal takes, and when it no longer does", () => {
-  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true,"working":false,"submission":""}'), { isAsking: true, isOpen: true, isWorking: false, submission: "", hasStarted: false });
-  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":true,"working":false,"submission":""}'), { isAsking: false, isOpen: true, isWorking: false, submission: "", hasStarted: false });
-  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":false,"submission":""}'), { isAsking: false, isOpen: false, isWorking: false, submission: "", hasStarted: false });
-  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":true,"submission":""}'), { isAsking: false, isOpen: false, isWorking: true, submission: "", hasStarted: false });
-  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":true,"submission":"sent-2"}'), { isAsking: false, isOpen: false, isWorking: true, submission: "sent-2", hasStarted: false })
-  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true,"working":false,"submission":"sent-2","started":true}'), { isAsking: true, isOpen: true, isWorking: false, submission: "sent-2", hasStarted: true });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true,"working":false,"submission":""}'), { isAsking: true, isOpen: true, isWorking: false, submission: "", hasStarted: false, panel: null, mode: "" });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":true,"working":false,"submission":""}'), { isAsking: false, isOpen: true, isWorking: false, submission: "", hasStarted: false, panel: null, mode: "" });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":false,"submission":""}'), { isAsking: false, isOpen: false, isWorking: false, submission: "", hasStarted: false, panel: null, mode: "" });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":true,"submission":""}'), { isAsking: false, isOpen: false, isWorking: true, submission: "", hasStarted: false, panel: null, mode: "" });
+  assert.deepEqual(parseScreen('{"type":"screen","asking":false,"open":false,"working":true,"submission":"sent-2"}'), { isAsking: false, isOpen: false, isWorking: true, submission: "sent-2", hasStarted: false, panel: null, mode: "" })
+  assert.deepEqual(parseScreen('{"type":"screen","asking":true,"open":true,"working":false,"submission":"sent-2","started":true}'), { isAsking: true, isOpen: true, isWorking: false, submission: "sent-2", hasStarted: true, panel: null, mode: "" });
   for (const started of [null, 1, "true", {}, []]) assert.equal(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "sent-2", started })), null);
   for (const text of ['{"type":"screen","asking":false,"open":false,"working":true}', '{"type":"screen","asking":false,"open":false,"working":true,"submission":1}', '{"type":"screen","asking":false,"open":false}', '{"type":"screen","asking":false,"open":false,"working":1}', '{"type":"screen"}', '{"type":"screen","asking":true}', '{"type":"screen","asking":1,"open":true,"working":false,"submission":""}', '{"type":"screen","asking":false,"open":1,"working":false,"submission":""}', '{"type":"unread","unread":true}', '{"type":"held","reason":""}', "null", "nope"]) assert.equal(parseScreen(text), null, text);
+});
+
+test("the relay says what an open screen asks, its choices with the focused one, and its keys", () => {
+  // Arrange
+  const panel = { rows: ["Do you want to create nine.txt?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }], hints: ["Esc to cancel"] };
+  const malformed = [{ rows: "one" }, { rows: [1] }, { choices: {} }, { choices: [{ text: 1 }] }, { choices: [{ text: "Yes", number: "1" }] }, { choices: [{ text: "Yes", focused: 1 }] }, { hints: [null] }, "panel", null];
+
+  // Act
+  const screen = parseScreen(JSON.stringify({ type: "screen", asking: true, open: true, working: false, submission: "", panel }));
+
+  // Assert
+  assert.deepEqual(screen?.panel, { rows: ["Do you want to create nine.txt?"], choices: [{ text: "Yes", number: 1, isFocused: true }, { text: "No", number: 2, isFocused: false }], hints: ["Esc to cancel"] });
+  assert.deepEqual(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "", panel: {} }))?.panel, { rows: [], choices: [], hints: [] });
+  for (const each of malformed) assert.equal(parseScreen(JSON.stringify({ type: "screen", asking: false, open: true, working: false, submission: "", panel: each })), null, JSON.stringify(each));
+});
+
+test("the relay says the permission mode the composer's footer names", () => {
+  assert.equal(parseScreen('{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"accept edits"}')?.mode, "accept edits");
+  assert.equal(parseScreen('{"type":"screen","asking":false,"open":false,"working":false,"submission":""}')?.mode, "");
+  assert.equal(parseScreen('{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":1}'), null);
 });
 
 test("a terminal fills its panel with the same padding left, right and below, and its last row at the bottom", () => {

@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -62,9 +63,13 @@ type nativeRelay struct {
 	held []byte
 	// screen tells the view what its harness's screen shows, while the view
 	// has not been told that yet, told is what the view was last told,
-	// and looking says a read of the screen is due.
+	// and looking says a read of the screen is due. screenAt is how much
+	// output had been received when the screen was read: the report goes out
+	// only once that output has, since a panel's rows are the screen's own
+	// text and must never reach the view ahead of output its window holds.
 	screen     []byte
-	told       *screenState
+	screenAt   int64
+	told       []byte
 	looking    bool
 	submission string
 	// closing is how the view closes once everything before it is sent.
@@ -74,13 +79,18 @@ type nativeRelay struct {
 
 // screenState is what a view is told of its harness's screen: whether the
 // harness waits on an answer at a screen of its own, and whether something of
-// its own is open in its input line's place or a turn is running.
+// its own is open in its input line's place or a turn is running. Panel is
+// what is open, read so the board can offer it as a list he picks from, and
+// Mode the permission mode its composer's footer names, which Shift+Tab
+// cycles.
 type screenState struct {
-	Asking     bool   `json:"asking"`
-	Open       bool   `json:"open"`
-	Working    bool   `json:"working"`
-	Submission string `json:"submission"`
-	HasStarted bool   `json:"started,omitempty"`
+	Asking     bool           `json:"asking"`
+	Open       bool           `json:"open"`
+	Working    bool           `json:"working"`
+	Submission string         `json:"submission"`
+	HasStarted bool           `json:"started,omitempty"`
+	Panel      *harness.Panel `json:"panel,omitempty"`
+	Mode       string         `json:"mode,omitempty"`
 }
 
 // relaySize is a size to tell the view once the output before it is sent.
@@ -160,7 +170,10 @@ func (h *HTTP) announce(key string, cols, rows int) {
 // while the harness waits on an answer at a screen of its own, which only its
 // terminal takes, as Claude Code's permission prompt, and open while
 // something of its own is drawn in its input line's place, as a picker, a
-// panel or that question, and working while a turn runs.
+// panel or that question, and working while a turn runs. While something is
+// open the report carries it as a panel: its rows, its choices with the one in
+// focus, and the keys its footer names (harness.ReadPanel), so the board offers
+// it as a list he picks from.
 // custodyProbeBudget is how long a custody check has. no-mistakes'
 // sync --check reads the whole branch state and takes several seconds, and a
 // probe shorter than it reports every check as a failure of the check rather
@@ -279,13 +292,20 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		state := screenState{Asking: screens.IsAsking(rows), Open: screens.IsOpen(rows), Working: screens.IsWorking(rows), Submission: observed, HasStarted: hasStarted}
+		if state.Open {
+			panel := harness.ReadPanel(rows)
+			state.Panel = &panel
+		}
+		state.Mode = screens.Mode(rows)
+		message, _ := json.Marshal(struct {
+			Type string `json:"type"`
+			screenState
+		}{"screen", state})
 		relay.mu.Lock()
-		if submission == relay.submission && (relay.told == nil || *relay.told != state) {
-			relay.told = &state
-			relay.screen, _ = json.Marshal(struct {
-				Type string `json:"type"`
-				screenState
-			}{"screen", state})
+		if submission == relay.submission && !bytes.Equal(relay.told, message) {
+			relay.told = message
+			relay.screen = message
+			relay.screenAt = relay.received
 		}
 		relay.mu.Unlock()
 		relay.signal()
@@ -343,8 +363,8 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		for {
 			relay.mu.Lock()
-			history, unread, held, screen := relay.history, relay.unread, relay.held, relay.screen
-			relay.history, relay.unread, relay.held, relay.screen = nil, nil, nil, nil
+			history, unread, held := relay.history, relay.unread, relay.held
+			relay.history, relay.unread, relay.held = nil, nil, nil
 			var size, output []byte
 			if len(relay.sizes) > 0 && relay.sizes[0].at == relay.sent {
 				size = relay.sizes[0].message
@@ -362,6 +382,10 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 					relay.pending = nil
 				}
 				relay.sent += int64(n)
+			}
+			var screen []byte
+			if relay.screen != nil && relay.sent >= relay.screenAt {
+				screen, relay.screen = relay.screen, nil
 			}
 			closing := relay.closing
 			if len(relay.pending) > 0 || output != nil || size != nil || history != nil || unread != nil || held != nil || screen != nil {
