@@ -1,0 +1,27 @@
+/* A screen of the harness's own, drawn above the box as a list: what it asks,
+   its choices as rows with the harness's focus marked, and the keys it
+   takes. It scrolls inside itself, so the box under it stays in reach. */
+.harness-panel { display: grid; gap: 8px; max-height: min(55dvh, 30rem); overflow: auto; padding: 10px 12px; border: 1px solid var(--glass-border-hover); border-radius: 14px; background: #0b171cf2; overscroll-behavior: contain; }
+.harness-panel-rows { display: grid; gap: 2px; min-width: 0; color: #d8e9e2; }
+.harness-panel-rows > p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.harness-panel-rows > p:first-child { color: #f4fbff; font-weight: 800; }
+.harness-panel-rows > hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px dashed var(--border); }
+.harness-panel-choices { display: grid; gap: 4px; }
+.harness-choice { display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--field-bg); color: #e3ecef; font: inherit; text-align: left; justify-content: stretch; }
+.harness-choice:hover:not(:disabled) { border-color: var(--glass-border-hover); background: var(--glass-bg-hover); }
+.harness-choice[aria-current="true"] { border-color: var(--mint); box-shadow: 0 0 0 1px var(--mint) inset; }
+.harness-choice-key { display: inline-grid; place-items: center; min-width: 1.5rem; height: 1.5rem; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font: 700 .75rem/1 var(--font-mono); }
+.harness-choice-key:empty { border-color: transparent; }
+.harness-choice-key .icon { width: 14px; height: 14px; color: var(--mint); }
+.harness-choice-text { min-width: 0; overflow-wrap: anywhere; }
+.harness-panel-foot { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.harness-panel-keys { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.harness-key { min-height: 28px; padding: 2px 8px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 7px; background: transparent; color: var(--muted); font: 700 .75rem/1 var(--font-mono); }
+.harness-key:hover:not(:disabled) { color: var(--bone); border-color: var(--glass-border-hover); background: transparent; }
+.harness-show-terminal { flex: none; width: 32px; height: 32px; min-height: 32px; border: 0; background: transparent; color: var(--muted); }
+.harness-show-terminal .icon { width: 18px; height: 18px; }
+.harness-panel-hints { margin: 0; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  .harness-choice { min-height: 44px; }
+  .harness-key, .harness-show-terminal { min-height: 44px; min-width: 44px; }
+}

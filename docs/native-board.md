@@ -1416,8 +1416,10 @@ Routine queueing has one neutral note beside the input, naming a review hold or 
 The same composer stays mounted across Classic and Modern surfaces, keeping pending sends, attachment uploads and recordings through release or reconnect.
 The box a terminal's hold, busy program or reconnect shows beside it stays in Classic once the terminal takes typing again, and Modern keeps it then only for the box's own work, a file adding, a Send landing, a failed Send to retry or its own recording; a recording started in the terminal brings it in for neither, and a box that stays sends directly again.
 An unqueued draft stays in the box while its terminal first connects or is closed.
-While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
-That card is not drawn while that terminal is stepped in, which shows the screen itself, or while typing is held, where the note says what Send does and it queues instead.
+While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a permission prompt, a picker or a panel, the box draws it above itself as a list he picks from (`frontend/src/harness-panel.tsx`): what it asks or shows, each choice as a button with the harness's focus marked, and the terminal's keys as buttons.
+A choice sends the arrows from the harness's focus to it and then Enter, or its number where no focus shows (`frontend/src/panel-keys.ts`), an empty box hands the screen the arrows, Enter, Escape, Tab, Space and a choice's number, and Send types what he wrote into the screen on one line with no Enter, which the list's Enter gives.
+There is no amber card and nothing steps the terminal in by itself (the Overlord, 2026-10-27: "why am I getting an answer in terminal? Waiting on you in the terminal? Again, all functionality should be available in the modern chat"); Show the terminal, on the list, steps it in for a screen the list does not cover.
+The list is not drawn while that terminal is stepped in, which shows the screen itself, or while typing is held, when Send queues what he wrote as it does under any hold.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
@@ -1430,7 +1432,7 @@ The ring uses the recorded context tokens and window, and opens available sessio
 The model label prefers the session record over startup settings, and the tooltip identifies task effort as configured effort because the record does not publish a live effort value.
 Model opens the actual harness's `/model` picker; Effort opens Codex's `/model`, Claude Code's `/effort` or Pi's `/thinking`, where the harness supplies its supported choices.
 These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command.
-The native picker steps into the conversation's place when the relay reads it; the board does not invent a model catalog or claim that a selected setting changed before the harness records it.
+The native picker opens above the box as a list when the relay reads it; the board does not invent a model catalog or claim that a selected setting changed before the harness records it.
 The terminal icon opens the current session in its own Windows Terminal window through the same action as the former panel-header opener, which is absent while this composer is visible.
 A Classic view that shows only the native terminal keeps its header opener.
 An authenticated phone can request that window on the board's Windows PC; it does not open a terminal on the phone.
@@ -1447,18 +1449,13 @@ Escape closes Recent messages while it is open, from its button or from inside i
 
 #### The terminal stepping in
 
-What the box sends that opens a screen of the harness's own, a picker, a panel, a question, an editor, a sign-in or a script that asks for input, brings the session's live terminal into the messages' place: PR 4 of the message view plan, which the Overlord asked be proved first.
-The relay reads the screen as it does for the amber card and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`).
-The terminal steps in when the screen opens after a Send from the box and before the harness starts a turn, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
-The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`, so background work that makes the fleet busy does not cancel a Send waiting for its screen.
-Each Send marks its submitted input with an ID before typing it into the host, so a cached or in-flight reading from before the Send cannot cancel it.
-The host observes changed rows as it processes terminal output, before another cursor move or clear can replace them, and keeps turn-start evidence for that viewer's current submission.
-The relay reads that evidence with the host's output screen under the same lock, so a turn that reaches a permission question or ends between relay reads still clears the Send before an unrelated screen can open.
-History, resize repaints and another viewer's submission provide no turn-start evidence.
+Show the terminal, on an open screen's list, brings the session's live terminal into the messages' place, in the same box, with the keyboard in it and a bar floating over its top edge that takes none of its height, Back to messages.
+The relay reads the screen and tells the view whether something of the harness's own is open in its input line's place (`Screens.IsOpen` in `internal/harness/screens.go`) and, while it is, the panel it reads there (`harness.ReadPanel` in `internal/harness/panel.go`): its rows, each choice with its number and whether the harness's focus is on it, and the keys its footer names, taken from the screen's last 30 rows below the conversation's last message or rule, as in `{"type":"screen",...,"panel":{"rows":[...],"choices":[{"text":"Yes","number":1,"focused":true}],"hints":[...]}}`.
+The relay carries `working`, read by `Screens.IsWorking`, beside `asking` and `open`.
+Each Send marks its submitted input with an ID before typing it into the host, which keeps turn-start evidence for it as it processes output, and the relay reports them as `submission` and `started`; the board stepped the terminal in by them until 27 October 2026 and reads neither since a screen opens as a list.
 An older terminal host needs a restart to provide this output-screen protocol, and the board refuses the connection before it can accept input so the draft stays intact.
 Every key is the terminal's while it is in, Escape included, and Shift+Escape leaves it for the panel's top row.
 It steps out by itself once the harness's input line is back, and Back to messages steps out at once and chooses Modern for the board, each handing the keyboard back to the box with his draft as he left it.
-A question that comes during a turn keeps the amber card, whose Answer in the terminal steps the terminal in.
 A step in or out asks the terminal for no new size, which `frontend/tests/terminal-steps-in.spec.ts` counts at the relay.
 Every terminal spec whose terminal a fixture page draws, including `terminal-held`, runs a second time stepped in, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
 A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box saying Not sent, and its terminal's own notice is behind them, while its task list names what brings it back.

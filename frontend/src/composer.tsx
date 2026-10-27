@@ -4,9 +4,11 @@ import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
 import { ContextUsage } from "./context-usage";
 import { DictationButton } from "./dictation-button";
+import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { parseCommands, slashOptions } from "./commands";
+import { panelKey } from "./panel-keys";
 import { QueuedMessage } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
 import type { SessionStats, UsageReading } from "./session-usage";
@@ -42,15 +44,18 @@ function storeDraft(key: string, text: string): void {
 // and Shift+Enter starts a new line. What keeps a message from the terminal
 // says so once beside the box: a busy program, a view that is reconnecting and
 // typing a gate holds save it through the durable queue; a view that is closed
-// or connecting, and a screen of the harness's own open in its terminal, a
-// question, a picker or a panel, which an amber card names with Answer in the
-// terminal, keep the draft, since an Enter typed then would act on that screen,
-// unless typing is held, when the message queues instead. A goblin with no
-// terminal that takes typing now, one paused, resuming or starting, gets what
-// he sends as a message action, delivered once whatever it is doing, and the
-// box lists his latest with where each is, and those a paused goblin's resume
-// will carry, each of which can be deleted. Its microphone, held or tapped on
-// a touch screen, and Ctrl+Shift+Space in the box dictate into it, and the
+// or connecting keeps the draft. A screen of the harness's own open in its
+// terminal, a question, a permission prompt, a picker or a panel, is drawn
+// above the box as a list he picks from (harness-panel.tsx), and while it is
+// open the box answers it with the terminal's own keys: an empty box hands it
+// the arrows, Enter, Escape, Tab, Space and a choice's number, and Send types
+// what he wrote into it without pressing Enter, which the list's Enter does;
+// while typing is held the message queues instead. A goblin with no terminal
+// that takes typing now, one paused, resuming or starting, gets what he sends
+// as a message action, delivered once whatever it is doing, and the box lists
+// his latest with where each is, and those a paused goblin's resume will
+// carry, each of which can be deleted. Its microphone, held or tapped on a
+// touch screen, and Ctrl+Shift+Space in the box dictate into it, and the
 // board's recent dictations are a tap away.
 //
 // A picture pasted into this box, or a file added to it, is kept where the
@@ -63,13 +68,13 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, isShown = true, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, isShown = true, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   stats?: SessionStats; reading?: UsageReading; model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // terminal is the terminal deck's key of the session's terminal, and
-  // onSent is told of each message typed into it, so a screen of the
-  // harness's own that it opens can bring the terminal in.
-  terminal: string; focus?: number; onAnswer?: () => void; onSent?: (submission: string) => void;
+  // onShowTerminal steps that terminal in, for a screen of the harness's own
+  // its list does not cover.
+  terminal: string; focus?: number; onShowTerminal?: () => void;
   isTerminalShown?: boolean; isShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
@@ -139,15 +144,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
   const isAsking = !!live?.screen?.isOpen;
+  // A screen the relay could not read as a list still offers its keys.
+  const panel = isAsking ? live?.screen?.panel ?? { rows: [], choices: [], hints: [] } : null;
   const isUnread = !!live?.isUnread;
   const harness = task?.harness || snapshot.cfo_harness;
   const isEngineSupported = ["claude", "codex", "pi"].includes(harness);
-  const canChangeEngine = isEngineSupported && !!onSent && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
+  const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
   const changeEngine = (setting: "model" | "effort") => {
-    if (!canChangeEngine) return;
-    const command = setting === "model" || harness === "codex" ? "/model" : harness === "claude" ? "/effort" : "/thinking";
-    const submission = link.send(command);
-    if (submission) onSent?.(submission);
+    if (canChangeEngine) link.send(setting === "model" || harness === "codex" ? "/model" : harness === "claude" ? "/effort" : "/thinking");
   };
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   // What this box saves as a board action types nothing into the terminal, so
@@ -156,13 +160,18 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const savesThroughBoard = queues || isHeld || isUnread || !!live?.isReconnecting;
   const send = async () => {
     const text = draft.trim();
-    if (!text || isSending || adding || isAsking && !isHeld) return;
+    if (!text || isSending || adding) return;
     if (!savesThroughBoard && !sendID.current) {
-      // Direct typing waits for a readable program with no screen of its own
-      // open, since an Enter typed then would act on that screen.
-      if (isAsking || isUnread) return;
-      const submission = live?.send(text)
-      if (submission) { setDraft(""); setUnsent(""); onSent?.(submission); } else setUnsent(unsentWhy);
+      // A screen of the harness's own takes what he wrote as typing, on one
+      // line and with no Enter, which would act on the screen before he
+      // chose: the list's Enter confirms. Otherwise direct typing waits for a
+      // readable program.
+      if (isAsking) {
+        if (live?.control(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
+        return;
+      }
+      if (isUnread) return;
+      if (live?.send(text)) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
       return;
     }
     sendID.current ||= crypto.randomUUID();
@@ -270,10 +279,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
         return;
       }
     }
+    // An open screen of the harness's own takes the terminal's keys from an
+    // empty box, so it is answered here as in the terminal.
+    const keysForPanel = panel && !isHeld && !draft ? panelKey(event, panel) : null;
+    if (keysForPanel !== null) {
+      event.preventDefault();
+      if (!live?.control(keysForPanel)) setUnsent(unsentWhy);
+      return;
+    }
     if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault();
-      if (live?.control("\x1b[Z")) onAnswer?.();
-      else setUnsent(isHeld ? "Typing is paused." : unsentWhy);
+      if (!live?.control("\x1b[Z")) setUnsent(isHeld ? "Typing is paused." : unsentWhy);
       return;
     }
     if (event.key.toLowerCase() === "c" && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
@@ -298,12 +314,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
   const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  const canSend = !isSending && !adding && !!draft.trim() && (!isAsking || isHeld) && (savesThroughBoard || !isUnread);
+  const canSend = !isSending && !adding && !!draft.trim() && (savesThroughBoard || isAsking || !isUnread);
   return <section className="composer" aria-label={"Messages to " + name}>
-    {isAsking && !isHeld && !isTerminalShown && <div className="composer-asking" role="status">
-      <Icon name="warning" /><p>Waiting on you in the terminal</p>
-      {onAnswer && <button type="button" className="labelled-button" onClick={onAnswer}><Icon name="terminal" />Answer in the terminal</button>}
-    </div>}
+    {panel && !isHeld && !isTerminalShown && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
+      onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
       {queueRows.map((action) => <li key={action.id}><QueuedMessage action={action} instance={snapshot.instance} name={name} variant="queue" /></li>)}
       {kept.map((text, index) => {
@@ -344,7 +358,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
           {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
         </div>
         <div className="composer-controls">
-          {onSent && <>
+          {!queues && <>
             <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose in the session's model picker" : "Model controls need a connected, unheld composer"} onClick={() => changeEngine("model")}>{model || task?.model || "Model"}</button>
             <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>Effort</button>
           </>}

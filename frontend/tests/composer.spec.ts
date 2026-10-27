@@ -161,23 +161,23 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   expect(typed(relay)).toBe(before);
 });
 
-test("while the harness asks in its terminal an amber card says so and Send waits, and Answer in the terminal shows the terminal with the keyboard in it", async ({ page }) => {
+test("while the harness asks in its terminal the box shows what it asks as a list, with no amber card, and a draft waits until he sends it", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
   await field(page).fill("yes");
 
-  relay.say({ type: "screen", asking: true, open: true, working: false });
+  relay.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Do you want to proceed?"], choices: [{ text: "Yes", number: 1, focused: true }, { text: "No", number: 2 }] } });
 
-  const asking = box(page).locator(".composer-asking");
-  await expect(asking).toContainText("Waiting on you in the terminal");
-  await expect(send(page)).toBeDisabled();
-  await asking.getByRole("button", { name: "Answer in the terminal" }).click();
-  await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
-  expect(typed(relay), "nothing was typed into the harness's own screen").not.toContain("yes");
-  relay.say({ type: "screen", asking: false, open: false, working: false });
-  await expect(field(page)).toBeFocused();
-  await expect(box(page).locator(".composer-asking")).toHaveCount(0);
+  const asking = box(page).getByRole("group", { name: NAME + " asks" });
+  await expect(asking).toContainText("Do you want to proceed?");
+  await expect(page.getByText("Waiting on you in the terminal")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
+  await expect(send(page)).toBeEnabled();
+  await page.waitForTimeout(300);
+  expect(typed(relay), "nothing was typed into the harness's own screen before he chose").toBe("");
+  relay.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+  await expect(asking).toHaveCount(0);
+  await expect(field(page)).toHaveValue("yes");
   await expect(send(page)).toBeEnabled();
 });
 

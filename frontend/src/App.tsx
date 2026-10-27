@@ -128,11 +128,8 @@ export function App() {
   const [switchFocus, setSwitchFocus] = useState(0);
   // A count each hand of the keyboard to a Messages view's box adds to.
   const [boxFocus, setBoxFocus] = useState(0);
-  // The session whose terminal stepped into its messages' place, and the
-  // session whose box last typed into its terminal, until its harness opens a
-  // screen of its own or starts a turn.
+  // The session whose terminal stepped into its messages' place.
   const [steppedIn, setSteppedIn] = useState("");
-  const [sentFrom, setSentFrom] = useState<{ terminal: string; submission: string } | null>(null);
   const [compact, setCompact] = useState(() => matchMedia(SMALL_SCREEN).matches);
   const [firstRunChoice, setFirstRunChoice] = useState<FirstRunChoice>("");
   // startingShown is whether this page already opened the terminal of a CFO
@@ -364,17 +361,13 @@ export function App() {
   // the session, its history, an unsent draft and the place he read.
   // Classic keeps the harness's own terminal in the conversation's place
   // until he steps out of it for this session, and Modern shows the
-  // conversation until a screen or a tap steps the terminal in. The saved
+  // conversation, a screen of the harness's own drawn in it as a list, until
+  // Show the terminal steps the terminal in. The saved
   // choice is the only thing that decides it, so a change of style carries
   // the session, its history, an unsent draft and the place he read.
   const takesTyping = !!task && takesMessages(task);
   const classicInPlace = chatStyle === "classic" && !!terminalKey && classicOut !== terminalKey && !takesTyping;
   const terminalInPlace = isSteppedIn || classicInPlace;
-  if (sentFrom && (sentFrom.terminal !== terminalKey || live?.isReconnecting || live?.phase === "closed")) setSentFrom(null)
-  else if (sentFrom && live?.screen?.submission === sentFrom.submission) {
-    if (live.screen.hasStarted || live.screen.isWorking) setSentFrom(null)
-    else if (live.screen.isOpen) { setSentFrom(null); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); }
-  }
   if (isSteppedIn && live?.screen && !live.screen.isOpen) { setSteppedIn(""); setBoxFocus((prior) => prior + 1); }
   const stepIn = () => { if (chatStyle === "classic") setClassicOut(""); setSteppedIn(terminalKey); setSwitchFocus((prior) => prior + 1); };
   // Reading back in a terminal that cannot take input opens its recorded
@@ -548,7 +541,7 @@ export function App() {
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
             box={(stats, reading, model) => createPortal(<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} stats={stats} reading={reading} model={model} onActive={reportComposerActivity} isTerminalShown={terminalShown}
-              focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
+              focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
@@ -556,7 +549,7 @@ export function App() {
         </PanelStage>
         <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
         {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
-          focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)}
+          focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}
         </div>

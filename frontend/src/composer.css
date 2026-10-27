@@ -3,9 +3,6 @@
 .composer-slot { display: contents; }
 .deck-slot.with-messages { flex-direction: column; }
 .deck-slot.with-messages > .composer { background: #071015; }
-.composer-asking { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f6dcb6; }
-.composer-asking > .icon { width: 20px; height: 20px; color: var(--amber); }
-.composer-asking > p { flex: 1; min-width: 0; margin: 0; color: var(--amber); font-weight: 800; }
 .composer-sent { display: grid; gap: 6px; max-height: min(10rem, 25dvh); overflow: auto; margin: 0; padding: 0; list-style: none; }
 .composer-sent > li { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .composer-sent-text { flex: 1; min-width: 0; color: #d8e9e2; overflow-wrap: anywhere; white-space: pre-wrap; }
