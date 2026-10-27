@@ -187,7 +187,8 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 	// back in the Overlord's In progress order, the highest first, and an
 	// order that cannot be read is said on the board and leaves them in name
 	// order. A failed resume its goblin took is finished first, so that
-	// goblin comes back too.
+	// goblin comes back too. A goblin whose latest report delivered a pull
+	// request stays down, since what it waits on is the merge.
 	if err := finishTakenResumes(directory); err != nil {
 		s.publish(err)
 	}
@@ -200,7 +201,7 @@ func (s *Service) planComeback(now time.Time) (state.Comeback, bool, error) {
 		if meta.Backend != "native" || meta.SpawnGen == "" {
 			continue
 		}
-		if evaluation := evaluations[meta.ID]; evaluation.Generation == meta.SpawnGen && (evaluation.Phase == "done" || evaluation.Phase == "merged") {
+		if evaluation := evaluations[meta.ID]; evaluation.Generation == meta.SpawnGen && (evaluation.Phase == "done" || evaluation.Phase == "merged") || s.reportedDone(meta.ID) != "" {
 			continue
 		}
 		if lifecycle, err := state.ReadLifecycle(directory, meta.ID); err == nil && !lifecycle.LeavesRunning(directory, meta) {
@@ -247,7 +248,7 @@ func (s *Service) bringGoblinBack(comeback *Comeback, id string, memory Memory) 
 	case metaErr != nil && !errors.Is(metaErr, os.ErrNotExist):
 		result = GoblinComeback{Outcome: DidNotComeBack, Said: "its task record cannot be read: " + metaErr.Error()}
 	case metaErr != nil || meta.Backend != "native" || meta.SpawnGen == "":
-	case evaluation.Generation == meta.SpawnGen && (evaluation.Phase == "done" || evaluation.Phase == "merged"):
+	case evaluation.Generation == meta.SpawnGen && (evaluation.Phase == "done" || evaluation.Phase == "merged"), s.reportedDone(id) != "":
 	case lifecycleErr == nil && !lifecycle.LeavesRunning(directory, meta):
 	case NativeTerminalRuns(directory, id):
 		result.Outcome = AlreadyRuns

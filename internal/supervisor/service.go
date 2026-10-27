@@ -923,7 +923,21 @@ func (s *Service) reportedDone(id string) string {
 		return ""
 	}
 	lines, _ := s.statusTail(id)
-	spawned := spawnTime(meta.SpawnGen)
+	return deliveredPR(lines, meta.SpawnGen)
+}
+
+// DeliveredPR is the pull request the goblin of meta's generation says it
+// delivered in its latest report, or "" when that report is not done or
+// names none. Such a goblin has nothing left to do in a session: on
+// 2026-10-27 three that a restart brought back each spent a fresh session
+// only to report the same pull request done again.
+func DeliveredPR(directory string, meta state.TaskMeta) string {
+	lines, _ := state.TailStatus(directory, meta.ID, 200)
+	return deliveredPR(lines, meta.SpawnGen)
+}
+
+func deliveredPR(lines []string, generation string) string {
+	spawned := spawnTime(generation)
 	if _, report := latestReport(lines, spawned); reportKind(report) != "done" {
 		return ""
 	}

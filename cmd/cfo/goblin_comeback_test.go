@@ -80,9 +80,9 @@ func comebackRuntime(running []string, refused error, switched func(spawn.Switch
 // After a reboot goblins resume brings back, in place, every goblin whose
 // terminal ended: on its own conversation where the board's record proves it
 // is the task's, and from a handoff where it does not. It leaves a goblin
-// that still runs, or was paused or stopped on purpose, as it is, finishes a
-// resume the reboot cut short, and says what needs a hand: a goblin that ran
-// in Herdr and a switch that failed.
+// that still runs, was paused or stopped on purpose, or reported its pull
+// request done, as it is, finishes a resume the reboot cut short, and says
+// what needs a hand: a goblin that ran in Herdr and a switch that failed.
 func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 	// Arrange
 	h := comebackHome(t, map[string][2]string{
@@ -95,7 +95,11 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 		"cut-short":    {"codex", "native"},
 		"in-herdr":     {"claude", "herdr"},
 		"fails":        {"codex", "native"},
+		"delivered":    {"claude", "native"},
 	}, map[string]string{"paused": "paused", "stopped": "stopped", "old-pause": "stale paused", "cut-short": "resuming"})
+	if err := state.AppendStatus(h.State, "delivered", "done: PR https://github.com/acme/api/pull/7"); err != nil {
+		t.Fatal(err)
+	}
 	var requests []spawn.SwitchRequest
 	runtime := comebackRuntime([]string{"still-runs"}, nil, func(request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 		if request.ID == "fails" {

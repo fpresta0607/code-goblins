@@ -434,6 +434,47 @@ func TestARestartBringsBackEveryGoblinLeftMeantToRunWhateverItsHostRecordSays(t 
 	}
 }
 
+// A goblin whose latest report delivered a pull request waits on its merge,
+// not on a session: on 2026-10-27 a restart brought three such goblins back,
+// and each spent a fresh session only to report the same pull request done
+// again. The evaluation of a task in manual mode never reads done, so the
+// report is what says it delivered.
+func TestARestartLeavesAGoblinThatDeliveredItsPullRequestDown(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{8, 8})
+	delivered := workingGoblin(t, h, "delivered", lastSignIn.Add(time.Hour))
+	if err := state.AppendStatus(h.State, delivered.ID, "done: PR https://github.com/acme/api/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+	working := workingGoblin(t, h, "working", lastSignIn.Add(time.Hour))
+	if err := state.AppendStatus(h.State, working.ID, "working: the invoice export"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	for minute := range 4 {
+		if err := service.checkFleet(t.Context(), thisSignIn.Add(time.Duration(minute)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		awaitComeback(t, service)
+	}
+
+	// Assert
+	if came := recorder.came(); !slices.Equal(came, []string{"working"}) {
+		t.Errorf("came back %v, want working alone", came)
+	}
+	record, err := state.ReadComeback(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range record.Goblins {
+		if entry.ID == delivered.ID {
+			t.Errorf("the comeback planned %s, which delivered its pull request: %+v", entry.ID, entry)
+		}
+	}
+}
+
 // A goblin that reported from the session its failed resume started took
 // that resume, so it is meant to run: a restart before any reading finished
 // the resume still plans it to come back at the first sign-in.
@@ -766,11 +807,14 @@ func TestTheFirstSupervisorBringsNothingBackAndALaterOneInTheSameSignInCarriesOn
 func TestTheComebackRechecksWaitingGoblinsBeforeLaunching(t *testing.T) {
 	for _, testCase := range []struct {
 		name, evaluation, lifecycle, action string
+		reports                             []string
 		isStale, isRetired, isRunning       bool
 		isResumeOperation, shouldLaunch     bool
 	}{
 		{name: "done", evaluation: "done"},
 		{name: "merged", evaluation: "merged"},
+		{name: "reported its pull request done", reports: []string{"done: PR https://github.com/acme/api/pull/7"}},
+		{name: "took up work after reporting done", reports: []string{"done: PR https://github.com/acme/api/pull/7", "working: the review's fix"}, shouldLaunch: true},
 		{name: "paused", lifecycle: "paused"},
 		{name: "stopped", lifecycle: "stopped"},
 		{name: "pausing", lifecycle: "pausing"},
@@ -802,6 +846,11 @@ func TestTheComebackRechecksWaitingGoblinsBeforeLaunching(t *testing.T) {
 				err := service.Store.save()
 				service.Store.mu.Unlock()
 				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, report := range testCase.reports {
+				if err := state.AppendStatus(h.State, meta.ID, report); err != nil {
 					t.Fatal(err)
 				}
 			}
