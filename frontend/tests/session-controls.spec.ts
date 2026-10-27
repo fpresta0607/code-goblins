@@ -118,13 +118,14 @@ for (const harness of ["codex", "claude", "pi"]) {
       else await control.click();
       const command = setting === "model" || harness === "codex" ? "/model" : harness === "claude" ? "/effort" : "/thinking";
       await expect.poll(() => typed(relay)).toBe(pasted(command) + "\r");
-      relay.say({ type: "screen", asking: true, open: true, working: false });
-      const native = page.getByRole("textbox", { name: "Terminal input", exact: true });
-      await expect(native).toBeFocused();
-      await native.press("ArrowDown");
-      await native.press("Enter");
+      // The picker opens in the chat as a list, and a choice there moves the
+      // harness's focus to it and presses Enter, as the terminal's keys do.
+      relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }, { text: "Other", number: 2 }], hints: ["Enter to confirm · Esc to exit"] } });
+      const picker = box(page, name).getByRole("group", { name: name + " asks", exact: true });
+      const other = picker.getByRole("button", { name: "Other", exact: true });
+      if (width === 390) await other.tap();
+      else await other.click();
       await expect.poll(() => typed(relay)).toBe(pasted(command) + "\r\x1b[B\r");
-      await page.getByRole("button", { name: "Back to messages", exact: true }).click();
       await expect(field(page, name)).toHaveValue("my unsent words");
       await expect(control).toBeDisabled();
       relay.say({ type: "screen", asking: false, open: false, working: true });
