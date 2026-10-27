@@ -1056,6 +1056,9 @@ func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
 // not press its Escape has typed nothing into the terminal, so cfo send's
 // queue sends it again: the failure says nothing was typed.
 func TestAFailedInlineOfferDismissalSaysNothingWasTyped(t *testing.T) {
+	previousSettle := nativeDialogSettle
+	nativeDialogSettle = 0
+	t.Cleanup(func() { nativeDialogSettle = previousSettle })
 	service := Service{StateDir: t.TempDir()}
 	screens, ok := harness.NativeScreens(harness.Codex)
 	if !ok {
@@ -1110,6 +1113,55 @@ func TestAnOpenPickerUnderAnOffersRowsKeepsItsEscape(t *testing.T) {
 
 	if err != nil || dismissed {
 		t.Fatalf("dismissal = %v, %v; want no key sent into the picker", dismissed, err)
+	}
+}
+
+// A startup dialog Codex draws while an offer is being dismissed is what the
+// terminal then shows, and Escape is that dialog's own key: the folder trust
+// prompt quits Codex. The dismissal reads the screen again after the offer has
+// had its settle, so it sends nothing there and leaves the dialog to the
+// delivery that answers it (#1432).
+func TestAStartupDialogDrawnWhileAnOfferSettlesKeepsItsEscape(t *testing.T) {
+	previousSettle := nativeDialogSettle
+	nativeDialogSettle = 0
+	t.Cleanup(func() { nativeDialogSettle = previousSettle })
+	service := Service{StateDir: t.TempDir()}
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	offer := []string{
+		"Set up security for Daybreak mode",
+		"",
+		"\u203a 1. Set up security",
+		"",
+		"Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue",
+		"",
+		"\u203a Ask Codex to do anything",
+		"100% context left",
+	}
+	trust := []string{
+		"  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt",
+		"  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.",
+		"",
+		"\u203a 1. Yes, continue",
+		"  2. No, quit",
+		"",
+		"  Press enter to continue",
+	}
+	reads := 0
+	service.ReadScreen = func(host.Record) ([]string, error) {
+		reads++
+		if reads > 1 {
+			return append(slices.Clone(offer[:6]), trust...), nil
+		}
+		return offer, nil
+	}
+
+	_, dismissed, err := service.dismissOffer(t.Context(), host.Record{ID: "task-7"}, screens)
+
+	if err != nil || dismissed {
+		t.Fatalf("dismissal = %v, %v; want no key sent into the dialog", dismissed, err)
 	}
 }
 

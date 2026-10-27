@@ -311,7 +311,10 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	var launchKept bool
 	if req.Capsule != nil {
 		// A spawn that fails before the task is published has no teardown, so
-		// the capsule goes with it rather than claiming the id for a retry.
+		// the capsule goes with it rather than claiming the id for a retry. A
+		// launch kept with its terminal still running keeps it instead: its
+		// brief.md, task-capsule.json and runtime-capsule.md are what the kept
+		// session and its resume read.
 		defer func() {
 			if err == nil || launchKept {
 				return

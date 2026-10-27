@@ -195,22 +195,46 @@ func inlineOffer(screens harness.Screens, screen []string) (harness.Dialog, bool
 // Codex gives that key to the composer once it holds a draft, and takes it as
 // its own over an empty one, while a leading digit typed at a live offer is
 // taken as the offer's own choice, so every delivery dismisses one shown over
-// such a composer before it types. It reads the screen itself just before the
-// key is written, so a dialog or a picker drawn since the delivery last read is
-// left to the delivery that answers it instead of taking the Escape: Escape
-// leaves a picker, and it quits Codex's folder trust prompt. It returns the
-// screen it read and whether it pressed the key.
+// such a composer before it types. It decides on the screen it read and again
+// on a fresh read after the offer has had nativeDialogSettle to be drawn, as
+// answerDialog does, since a harness draws an offer before it reads keys and
+// an Escape sent into a screen that does not take it yet is lost. A dialog, a
+// picker or a draft drawn since the delivery last read means no key is sent:
+// Escape leaves a picker, quits Codex's folder trust prompt, and belongs to a
+// composer that holds text. It returns the screen it read and whether it
+// pressed the key.
 func (s Service) dismissOffer(ctx context.Context, record host.Record, screens harness.Screens) ([]string, bool, error) {
 	screen, err := s.readNativeScreen(ctx, record)
 	if err != nil {
 		return nil, false, err
 	}
-	history := withoutInlineOffer(screens)
-	offer, shown := inlineOffer(screens, screen)
-	if !shown || history.ComposerHoldsText(screen) || history.IsOpen(screen) {
+	offer, live := liveInlineOffer(screens, screen)
+	if !live {
+		return screen, false, nil
+	}
+	if err := s.sleep(ctx, nativeDialogSettle); err != nil {
+		return nil, false, err
+	}
+	screen, err = s.readNativeScreen(ctx, record)
+	if err != nil {
+		return nil, false, err
+	}
+	offer, live = liveInlineOffer(screens, screen)
+	if !live {
 		return screen, false, nil
 	}
 	return screen, true, s.dismissInlineOffer(ctx, record, offer)
+}
+
+// liveInlineOffer reports the inline offer screen shows over a composer that
+// is not proved to hold text, which a delivery dismisses before it types.
+func liveInlineOffer(screens harness.Screens, screen []string) (harness.Dialog, bool) {
+	history := withoutInlineOffer(screens)
+	offer, shown := inlineOffer(screens, screen)
+	if !shown || history.ComposerHoldsText(screen) || history.IsOpen(screen) {
+		return harness.Dialog{}, false
+	}
+	return offer, true
 }
 
 // dismissInlineOffer presses the one key a live inline offer takes, Escape. An
