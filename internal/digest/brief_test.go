@@ -209,21 +209,39 @@ func TestTheBriefNamesTheFileThatHoldsTheLongDigest(t *testing.T) {
 }
 
 // A session that resumed the conversation which read the long digest is
-// told where it is and not to read it again: on 2026-10-27 a CFO brought back
+// told where it is and not to read it again, and its read-once contract says
+// the files are in it rather than unread: on 2026-10-27 a CFO brought back
 // five times in 32 minutes on its own conversation read it again after one of
-// those comebacks.
+// those comebacks. Where no long digest is written, the brief names none for
+// the conversation to have read.
 func TestABriefForAResumedConversationDoesNotAskForTheLongDigestAgain(t *testing.T) {
+	const (
+		longDigestNamed = FullDigestFile + " holds what this digest leaves out"
+		unread          = "you have not read data\\projects.md, data\\overlord.md"
+		readBefore      = "are in the file named under READ THIS NEXT, which this conversation read before"
+		notReadAgain    = "This session resumed the conversation that read it before, so do not read it again"
+	)
 	for _, testCase := range []struct {
-		name      string
-		isResumed bool
-		want      string
+		name                       string
+		isResumed, isHeldElsewhere bool
+		wants, notWants            []string
 	}{
-		{name: "resumed", isResumed: true, want: "This session resumed the conversation that read it before, so do not read it again"},
-		{name: "new", isResumed: false, want: "Read all of it, in parts if your tool caps a read"},
+		{name: "resumed", isResumed: true, wants: []string{longDigestNamed, notReadAgain, readBefore}, notWants: []string{unread}},
+		{name: "new", wants: []string{longDigestNamed, "Read all of it, in parts if your tool caps a read", unread}, notWants: []string{notReadAgain, readBefore}},
+		{name: "resumed in a home another session holds", isResumed: true, isHeldElsewhere: true, wants: []string{"READ THIS NEXT: this session does not hold the home, so no long digest was written", unread}, notWants: []string{notReadAgain, readBefore}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Arrange
 			h := bigHome(t, 3, 2)
+			if testCase.isHeldElsewhere {
+				if _, err := lock.AcquireOwner(h.State, startLiveForeignProcess(t).Process.Pid, "other"); err != nil {
+					t.Fatal(err)
+				}
+				// The takeover cannot be recorded, so the lock stays with its holder.
+				if err := os.Mkdir(filepath.Join(h.State, lock.AuditFile), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
 			var out bytes.Buffer
 
 			// Act
@@ -233,9 +251,15 @@ func TestABriefForAResumedConversationDoesNotAskForTheLongDigestAgain(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(h.State, FullDigestFile)
-			if !strings.Contains(out.String(), "READ THIS NEXT: "+path) || !strings.Contains(out.String(), testCase.want) {
-				t.Fatalf("the brief does not point at %s saying %q:\n%s", path, testCase.want, out.String())
+			for _, want := range testCase.wants {
+				if !strings.Contains(out.String(), want) {
+					t.Errorf("the brief does not say %q:\n%s", want, out.String())
+				}
+			}
+			for _, notWant := range testCase.notWants {
+				if strings.Contains(out.String(), notWant) {
+					t.Errorf("the brief says %q:\n%s", notWant, out.String())
+				}
 			}
 		})
 	}
