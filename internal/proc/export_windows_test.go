@@ -66,3 +66,23 @@ func LeaveOutForTest(t testing.TB, pid int) {
 		return nil
 	}
 }
+
+// StaleListForTest makes every read of a job's list, until the test ends,
+// return the list the first read returned, even once the processes it names
+// have exited, as a job's list can while a handle still holds one.
+func StaleListForTest(t testing.TB) {
+	original := readJobList
+	t.Cleanup(func() { readJobList = original })
+	var first []uintptr
+	readJobList = func(job syscall.Handle, buffer []uintptr) error {
+		if first == nil {
+			if err := original(job, buffer); err != nil {
+				return err
+			}
+			first = slices.Clone(buffer)
+			return nil
+		}
+		copy(buffer, first)
+		return nil
+	}
+}
