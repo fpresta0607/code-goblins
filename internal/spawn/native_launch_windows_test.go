@@ -65,6 +65,7 @@ const (
 	fakeCodexRecord     = "SPAWN_TEST_CODEX_RECORD"
 	fakeCodexMode       = "SPAWN_TEST_CODEX_MODE"
 	fakeCodexTranscript = "SPAWN_TEST_CODEX_TRANSCRIPT"
+	fakeCodexDraft      = "SPAWN_TEST_CODEX_DRAFT"
 )
 
 func TestMain(m *testing.M) {
@@ -176,6 +177,14 @@ func fakeHarness() {
 		for key := range keys {
 			record(codexEvent{Event: "typed blind", Text: key})
 		}
+		return
+	}
+	if mode == "daybreak-inline" {
+		inlineSecurityComposer(keys, record, draw)
+		return
+	}
+	if mode == "daybreak-stale" {
+		staleOfferComposer(keys, record, draw)
 		return
 	}
 	if mode == "pi-ready" || mode == "pi-starting" || mode == "pi-stuck" || mode == "pi-stale" {
@@ -337,6 +346,103 @@ func fakeHarness() {
 	}
 }
 
+func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw func(...string)) {
+	draft := os.Getenv(fakeCodexDraft)
+	isWorking := false
+	show := func() {
+		if isWorking {
+			draw("› "+draft, "• Working (0s • esc to interrupt)")
+			return
+		}
+		text := draft
+		if text == "" {
+			text = "Ask Codex to do anything"
+		}
+		draw("Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "", "› "+text, "100% context left")
+	}
+	show()
+	for key := range keys {
+		if key == "\x1b" {
+			select {
+			case next := <-keys:
+				if next == "[" {
+					select {
+					case end := <-keys:
+						key += next + end
+					case <-time.After(time.Second):
+						return
+					}
+				} else {
+					return
+				}
+			case <-time.After(100 * time.Millisecond):
+				record(codexEvent{Event: "composer escape", Text: draft})
+				continue
+			}
+		}
+		switch {
+		case key == "\x1b[F":
+		case key == "\r":
+			record(codexEvent{Event: "submitted", Text: draft})
+			isWorking = true
+			show()
+		case draft == "" && key >= "1" && key <= "9":
+			record(codexEvent{Event: "security enrollment", Text: key})
+		default:
+			draft += key
+			show()
+		}
+	}
+}
+
+// staleOfferComposer shows codex's composer under the rows of an optional
+// Daybreak security offer that an earlier redraw drew and a later one no
+// longer draws: the banner renders above the composer, so the rows it left sit
+// in the console's buffer while the composer below them is ready and takes
+// every key. Nothing reaches those rows any more, which is how a ready screen
+// looked blocked on 2026-10-27 (#1432).
+func staleOfferComposer(keys <-chan string, record func(codexEvent), draw func(...string)) {
+	var line strings.Builder
+	show := func() {
+		text := line.String()
+		if text == "" {
+			text = "Ask Codex to do anything"
+		}
+		draw("Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.", "", "\u203a 1. Set up security", "", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", "", "\u203a "+text, "100% context left")
+	}
+	show()
+	for key := range keys {
+		if key == "\x1b" {
+			// A lone Escape is the dismissal the rows outlive; one followed by a
+			// sequence is End or an arrow, which the composer takes.
+			select {
+			case <-keys:
+				select {
+				case <-keys:
+				case <-time.After(time.Second):
+					return
+				}
+			case <-time.After(100 * time.Millisecond):
+				record(codexEvent{Event: "security dismissal attempted", Text: key})
+			}
+			continue
+		}
+		switch {
+		case key == "\r" && line.Len() == 0:
+		case key == "\r":
+			record(codexEvent{Event: "submitted", Text: line.String()})
+			draw("", "\u203a "+line.String(), "", "\u2022 Working (0s \u2022 esc to interrupt)")
+			return
+		case line.Len() == 0 && key >= "1" && key <= "9":
+			// A live offer would take this key as its own choice.
+			record(codexEvent{Event: "security enrollment", Text: key})
+		default:
+			line.WriteString(key)
+			show()
+		}
+	}
+}
+
 // codexStartup shows codex's own startup screens, as captured on this
 // machine, and reports whether they ended at its composer.
 func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string), composer func(text string)) bool {
@@ -354,9 +460,6 @@ func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw
 			switch key {
 			case "\x1b":
 				record(codexEvent{Event: "security dismissal attempted", Text: key})
-				if mode == "daybreak-stuck" {
-					continue
-				}
 				record(codexEvent{Event: "security dismissed", Text: key})
 				return true
 			case "\r":
@@ -828,25 +931,69 @@ func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testi
 	}
 }
 
-func TestANativeSpawnDoesNotContinueUntilTheDaybreakOfferDisappears(t *testing.T) {
-	previous := nativeKeyEffect
-	nativeKeyEffect = 3 * time.Second
-	t.Cleanup(func() { nativeKeyEffect = previous })
-	f := newNativeFixture(t, harness.Codex, "daybreak-stuck")
+func TestNativeSpawnPreservesAnUnrelatedDraftUnderAnInlineOffer(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak-inline")
+	f.userEnv = append(f.userEnv, fakeCodexDraft+"=An unfinished user draft")
 
-	_, err := f.service.Spawn(context.Background(), f.request)
+	_, err := f.service.Spawn(t.Context(), f.request)
 
-	if err == nil || !strings.Contains(err.Error(), "still shows the optional Daybreak security setup offer after Escape") {
-		t.Errorf("native spawn: %v, want an unconfirmed dismissal error", err)
+	if err == nil || !strings.Contains(err.Error(), "holds a draft") {
+		t.Fatalf("spawn = %v, want a refusal to type over the draft", err)
+	}
+	record, err := host.ReadRecord(f.stateDir, f.request.ID)
+	if err != nil || !host.Running(record) {
+		t.Fatalf("the terminal holding the draft was not kept: %v", err)
+	}
+	rows, err := host.ReadScreen(record)
+	if err != nil || !strings.Contains(strings.Join(rows, "\n"), "An unfinished user draft") {
+		t.Errorf("the draft was not preserved: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 0 {
+		t.Errorf("submitted the draft: %+v", submitted)
+	}
+}
+
+func TestNativeSpawnPreservesAnExistingInstructionFileUnderAnInlineOffer(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak-inline")
+	path := filepath.Join(f.stateDir, "tasktmp", f.request.ID, "instruction.md")
+	f.request.BeforeLaunch = func() error { return os.WriteFile(path, []byte("pending instruction\n"), 0o600) }
+	f.userEnv = append(f.userEnv, fakeCodexDraft+"="+instructionPointer(path))
+
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	if err == nil || !strings.Contains(err.Error(), "holds a draft") {
+		t.Fatalf("spawn = %v, want a refusal to type over the draft", err)
+	}
+	if saved, err := os.ReadFile(path); err != nil || string(saved) != "pending instruction\n" {
+		t.Errorf("saved instruction = %q, %v", saved, err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 0 {
+		t.Errorf("submitted the pending instruction: %+v", submitted)
+	}
+}
+
+// Codex draws its optional Daybreak offer above the composer rather than in
+// its place, and a screen keeps the rows of an offer an earlier redraw
+// dismissed. The composer below them is ready, the rows are history no key
+// reaches, and the spawn delivers its instruction there exactly once without
+// ever choosing the offer (#1432).
+func TestANativeSpawnDeliversOnceUnderADismissedOffersRows(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak-stale")
+
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
 	}
 	events := f.events(t)
 	if attempts := named(events, "security dismissal attempted"); len(attempts) != 1 || attempts[0].Text != "\x1b" {
-		t.Errorf("dismissal attempts %v, want exactly one Escape", attempts)
+		t.Errorf("dismissal attempts = %+v, want exactly one Escape", attempts)
 	}
-	for _, event := range []string{"security dismissed", "security enrollment", "typed into security offer", "submitted"} {
-		if got := named(events, event); len(got) != 0 {
-			t.Errorf("unexpected %s: %d events", event, len(got))
-		}
+	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
+		t.Errorf("security enrollment = %+v", enrollment)
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != spawnPointer(t, f.fixture) {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
 	}
 }
 

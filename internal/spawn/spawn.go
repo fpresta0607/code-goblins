@@ -505,6 +505,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// is delivered: the goblin is running either way.
 	_ = endTurn()
 	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		if host.Running(nativeHost) {
+			cause := fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with cfo peek %s before recovering it", err, req.ID)
+			if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(cause.Error()), 1000)); statusErr != nil {
+				cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", statusErr))
+			}
+			return result, cause
+		}
 		return fail(result, err)
 	}
 

@@ -37,7 +37,11 @@ func lateHookComposer(mode string, keys <-chan string, record func(codexEvent), 
 			}
 			draw(append(rows, footer)...)
 		case "daybreak":
-			draw("Set up security for Daybreak mode", "\u203a 1. Set up security", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", "", "\u203a "+line, "100% context left")
+			text := line
+			if text == "" {
+				text = "Ask Codex to do anything"
+			}
+			draw("Set up security for Daybreak mode", "\u203a 1. Set up security", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", "", "\u203a "+text, "100% context left")
 		default:
 			if isWorking {
 				text := line
@@ -54,14 +58,14 @@ func lateHookComposer(mode string, keys <-chan string, record func(codexEvent), 
 	}
 	show()
 	for key := range keys {
-		if dialog == "daybreak" {
-			if key == "\x1b" {
-				record(codexEvent{Event: "security dismissed", Text: key})
-				dialog = ""
-			} else {
-				record(codexEvent{Event: "typed into security offer", Text: key})
-			}
+		if dialog == "daybreak" && line == "" && key == "\x1b" {
+			record(codexEvent{Event: "security dismissed", Text: key})
+			dialog = ""
 			show()
+			continue
+		}
+		if dialog == "daybreak" && line == "" && key >= "1" && key <= "9" {
+			record(codexEvent{Event: "security enrollment", Text: key})
 			continue
 		}
 		isEscape := dialog == "hooks" && !strings.Contains(mode, "legacy") && key == "\x1b"
@@ -134,6 +138,7 @@ func lateHookComposer(mode string, keys <-chan string, record func(codexEvent), 
 				record(codexEvent{Event: "submitted", Text: line})
 			}
 			isWorking = true
+			dialog = ""
 		case "\x1b[F":
 		default:
 			line += key
@@ -219,15 +224,21 @@ func TestNativeSpawnRecoversALateDialogAndSubmitsOnce(t *testing.T) {
 				t.Errorf("submissions = %+v, want %d complete instructions", submitted, wantSubmissions)
 			}
 			if strings.Contains(mode, "daybreak") {
-				if got := named(events, "security dismissed"); len(got) != 1 {
-					t.Errorf("dismissals = %+v", got)
+				if got := named(events, "security dismissed"); len(got) != 0 {
+					t.Errorf("dismissed the offer while a draft was retained: %+v", got)
 				}
-				if got := named(events, "typed into security offer"); len(got) != 0 {
-					t.Errorf("keys in Daybreak = %+v", got)
+				if got := named(events, "security enrollment"); len(got) != 0 {
+					t.Errorf("security enrollment = %+v", got)
 				}
 			}
-			if _, err := state.ReadTaskMeta(f.stateDir, f.request.ID); (err != nil) != isIncomplete {
+			if _, err := state.ReadTaskMeta(f.stateDir, f.request.ID); err != nil {
 				t.Errorf("task not retained: %v", err)
+			}
+			if isIncomplete {
+				terminal, err := host.ReadRecord(f.stateDir, f.request.ID)
+				if err != nil || !host.Running(terminal) {
+					t.Errorf("terminal holding the incomplete draft was not retained: %v", err)
+				}
 			}
 			pending, err := wake.Pending(f.stateDir)
 			if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
@@ -335,6 +346,101 @@ func TestNativeResumeKeepsItsWorkWhenALateDialogCannotRecover(t *testing.T) {
 				t.Error("resume closed its live terminal")
 			}
 		})
+	}
+}
+
+func TestFailedNativeResumeCanRecoverOnItsExistingHost(t *testing.T) {
+	f := newQuickFixture(t)
+	f.service.Commands = dirtyWorktree{f.service.Worktrees.Commands}
+	closeCurrentTerminal(t, f)
+	if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+		t.Fatal(err)
+	}
+	first, err := host.ReadRecord(f.stateDir, f.request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Close(f.stateDir, first, nativeCloseWait); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadTaskMeta(f.stateDir, f.request.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(before.Worktree, "unfinished.txt")
+	if err := os.WriteFile(work, []byte("preserved work"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	draft := "Read the retained instruction and continue."
+	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-inline", fakeCodexDraft+"="+draft)
+	paused := state.Lifecycle{ID: before.ID, Generation: before.SpawnGen, RequestGeneration: before.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Session: "owned-resume-session", ResumeNote: "A pending message", Started: time.Now().UTC()}
+	if err := state.WriteLifecycle(f.stateDir, paused); err != nil {
+		t.Fatal(err)
+	}
+	var handed []state.Lifecycle
+	controller := lifecycle.Service{StateDir: f.stateDir, Operations: lifecycle.Operations{
+		Memory: func() (uint64, uint64, error) { return 5 << 30, 5 << 30, nil },
+		Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
+			_, err := f.service.Switch(ctx, SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, IsResume: true, ResumeSession: prior.Session})
+			return err
+		},
+		IsRunning: func(_ context.Context, meta state.TaskMeta) (bool, error) {
+			return nativeTerminalRuns(f.stateDir, meta.ID), nil
+		},
+		HandOverRelaunched: func(prior state.Lifecycle) (bool, error) {
+			handed = append(handed, prior)
+			return true, nil
+		},
+		Notify: func(state.Lifecycle) error { return nil },
+	}}
+
+	failed, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: before.SpawnGen, Operation: "resume-1", Action: "resume"})
+	if err == nil || failed.Phase != "failed" {
+		t.Fatalf("resume = %+v, %v; want an unconfirmed live host", failed, err)
+	}
+	terminal, err := host.ReadRecord(f.stateDir, before.ID)
+	if err != nil || !host.Running(terminal) {
+		t.Fatalf("replacement host was not retained: %v", err)
+	}
+	client, err := host.Dial(terminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.Input([]byte("\x1b")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(250 * time.Millisecond)
+	if err := client.Input([]byte("\r")); err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Codex)
+	if _, err := f.service.awaitScreen(t.Context(), terminal, 5*time.Second, screens.IsWorking); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, before.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := controller.Run(t.Context(), lifecycle.Request{ID: before.ID, Generation: meta.SpawnGen, Operation: "resume-2", Action: "resume"})
+	if err != nil || resumed.Phase != "running" {
+		t.Fatalf("recover existing host = %+v, %v", resumed, err)
+	}
+	if len(handed) != 1 || handed[0].ResumeNote != paused.ResumeNote {
+		t.Errorf("pending handoff = %+v", handed)
+	}
+	events := f.events(t)
+	if launches := named(events, "env"); len(launches) != 2 {
+		t.Errorf("launches = %+v; want the original and one replacement", launches)
+	}
+	if submissions := named(events, "submitted"); len(submissions) != 2 || submissions[1].Text != draft {
+		t.Errorf("submissions = %+v; want the retained draft submitted once", submissions)
+	}
+	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
+		t.Errorf("security enrollment = %+v", enrollment)
+	}
+	if contents, err := os.ReadFile(work); err != nil || string(contents) != "preserved work" {
+		t.Errorf("unfinished work = %q, %v", contents, err)
 	}
 }
 

@@ -123,11 +123,75 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 			return err
 		}
 	}
+	screen, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return err
+	}
+	// Text typed into a composer that holds something lands on top of it, and
+	// the Enter that submits the instruction would submit that draft instead.
+	if !withoutInlineOffer(screens).ComposerEmpty(screen) {
+		return fmt.Errorf("spawn: native terminal %s holds a draft, so nothing was typed into it; the terminal, its task record and its worktree are kept", record.ID)
+	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
 	if err != nil {
 		return err
 	}
 	return s.deliverNativeInstruction(ctx, record, screens, state.TaskMeta{ID: id, Harness: string(kind), Worktree: launch.Dir, SpawnGen: launch.Env["CFO_SPAWN_GEN"]}, launch.ResumeSession, instruction, true)
+}
+
+// withoutInlineOffer returns screens that read the optional offer Codex draws
+// inline above its composer as the harness's rendered history. The offer is
+// drawn above the composer rather than in its place, and Codex hands every key
+// to a composer that holds a draft, taking Escape only over an empty one and
+// only while no turn runs (codex-rs tui/src/bottom_pane/actionable_banner.rs,
+// handle_inline_banner_key). So it never holds a delivery back, and nothing
+// ever chooses its option: rows left on a screen an earlier redraw drew make
+// a ready composer look blocked, as they did for cg-command-center-notifications
+// on 2026-10-27 (#1432), while a live one is dismissed with Escape. Every other
+// dialog a harness draws still stops or answers a spawn.
+func withoutInlineOffer(screens harness.Screens) harness.Screens {
+	if !slices.ContainsFunc(screens.Dialogs, isInlineOffer) {
+		return screens
+	}
+	history := screens
+	history.Dialogs = slices.DeleteFunc(slices.Clone(screens.Dialogs), isInlineOffer)
+	return history
+}
+
+// isInlineOffer reports whether dialog is a harness's optional offer drawn
+// above the composer, which owns no key a composer holding a draft uses.
+func isInlineOffer(dialog harness.Dialog) bool {
+	return dialog.OverlayOption != nil
+}
+
+// inlineOffer reports the optional offer screen shows, if any. A spawn reads a
+// dialog it must answer first, so it never mistakes one for an offer.
+func inlineOffer(screens harness.Screens, screen []string) (harness.Dialog, bool) {
+	if screens.IsWorking(screen) {
+		return harness.Dialog{}, false
+	}
+	for _, dialog := range screens.Dialogs {
+		if isInlineOffer(dialog) && dialog.Shows(screen) {
+			return dialog, true
+		}
+	}
+	return harness.Dialog{}, false
+}
+
+// dismissInlineOffer presses the one key a live inline offer takes over an
+// empty composer, Escape. An offer still showing afterwards was left by an
+// earlier redraw and owns nothing, so it is read as history rather than waited
+// out: waiting on it is what made a ready composer fail its startup (#1432).
+func (s Service) dismissInlineOffer(ctx context.Context, record host.Record, dialog harness.Dialog) error {
+	client, err := host.Dial(record)
+	if err != nil {
+		return fmt.Errorf("spawn: type into native terminal %s: %w", record.ID, err)
+	}
+	defer client.Close()
+	if err := client.Input([]byte("\x1b")); err != nil {
+		return fmt.Errorf("spawn: dismiss %s in native terminal %s: %w", dialog.Name, record.ID, err)
+	}
+	return nil
 }
 
 // typedInstructionLimit is the longest instruction typed whole into a
@@ -184,13 +248,15 @@ func instructionPointer(path string) string {
 // dialog's own words, or nothing.
 func (s Service) awaitNativeReady(ctx context.Context, record host.Record, screens harness.Screens) (untrusted string, working bool, err error) {
 	deadline := time.Now().Add(nativeStartup)
+	history := withoutInlineOffer(screens)
 	ready, busy := 0, 0
+	offerDismissed := false
 	for {
 		screen, err := s.readNativeScreen(ctx, record)
 		if err != nil {
 			return "", false, fmt.Errorf("spawn: %w", err)
 		}
-		if dialog, found := screens.Dialog(screen); found {
+		if dialog, found := history.Dialog(screen); found {
 			if dialog.Summary != nil {
 				if untrusted = dialog.Summary.FindString(strings.Join(screen, "\n")); untrusted == "" {
 					untrusted = dialog.Name
@@ -202,7 +268,15 @@ func (s Service) awaitNativeReady(ctx context.Context, record host.Record, scree
 			ready, busy = 0, 0
 			continue
 		}
-		if !screens.IsReady(screen) {
+		if offer, shown := inlineOffer(screens, screen); shown && !offerDismissed && history.ComposerEmpty(screen) {
+			offerDismissed = true
+			if err := s.dismissInlineOffer(ctx, record, offer); err != nil {
+				return "", false, err
+			}
+			ready, busy = 0, 0
+			continue
+		}
+		if !history.IsReady(screen) {
 			ready = 0
 		} else if ready++; ready > readySettleReads() {
 			return untrusted, false, nil
@@ -420,7 +494,8 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		if err != nil {
 			return err
 		}
-		if _, hasDialog := screens.Dialog(screen); hasDialog {
+		current := withoutInlineOffer(screens)
+		if _, hasDialog := current.Dialog(screen); hasDialog {
 			if err := recoverStartup(); err != nil {
 				return err
 			}
@@ -432,7 +507,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		if !busy && screens.IsWorking(screen) {
 			return nil
 		}
-		if !busy && !screens.IsStarting(before) && screens.IsStarting(screen) && !screens.ComposerEmpty(screen) {
+		if !busy && !screens.IsStarting(before) && screens.IsStarting(screen) && !current.ComposerEmpty(screen) {
 			if startingSince.IsZero() {
 				startingSince = time.Now()
 			}
@@ -490,6 +565,7 @@ func pressNativeEnter(record host.Record) error {
 // would take the Enter as its answer. It returns the screen as the Enter was
 // pressed.
 func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration, isRecovering bool) ([]string, error) {
+	screens = withoutInlineOffer(screens)
 	before, err := s.readNativeScreen(ctx, record)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
