@@ -242,24 +242,35 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 		}
 	} else {
-		trusted, err := reader.CheckStart(ctx, meta.Project, gated, branch, selection.Policy)
+		check, err := reader.CheckStart(ctx, meta.Project, gated, branch, intent, selection.Policy)
 		if err != nil {
 			return err
 		}
-		start, err := pipeline.StartOf(ctx, commands, gated, nativeEnv(root), intent)
-		if err != nil {
-			return fmt.Errorf("pipeline: %w", err)
+		var start pipeline.Start
+		if check.ReattachRun != "" {
+			// The native bounded wait expiring is not a failed run: the run
+			// keeps working, and this start reattaches to it. no-mistakes starts
+			// a run only from an intent, so a start that names none reattaches
+			// to the branch's live run and keeps its intent, head and review
+			// budget, where a launch selection of the same run changes nothing.
+			start = pipeline.Start{Args: []string{"axi", "run"}}
+			fmt.Fprintf(out, "pipeline: reattached to run %s on %s, which keeps its own intent and review budget; no new run starts\n", check.ReattachRun, branch)
+		} else {
+			start, err = pipeline.StartOf(ctx, commands, gated, nativeEnv(root), intent)
+			if err != nil {
+				return fmt.Errorf("pipeline: %w", err)
+			}
+			if start.IsOnCommandLine {
+				fmt.Fprintln(out, "pipeline: this no-mistakes takes a gate's intent on its command line only, where Microsoft Defender can read a long one as a lure and Windows can refuse the start. no-mistakes 1.86.0 and later take it from a file")
+			}
 		}
 		defer start.Close()
-		if start.IsOnCommandLine {
-			fmt.Fprintln(out, "pipeline: this no-mistakes takes a gate's intent on its command line only, where Microsoft Defender can read a long one as a lure and Windows can refuse the start. no-mistakes 1.86.0 and later take it from a file")
-		}
 		nativeArgs = start.Args
-		if selection.Policy.Version > 5 {
+		if check.ReattachRun == "" && selection.Policy.Version > 5 {
 			if err := pipeline.GateHarness(meta.Harness); err != nil {
 				return fmt.Errorf("%w. Task %s runs on %s, so switch it with cfo switch %s --harness <harness>", err, meta.ID, meta.Harness, meta.ID)
 			}
-			launch, err := launchSelectionArgs(ctx, commands, root, meta, selection, trusted, out)
+			launch, err := launchSelectionArgs(ctx, commands, root, meta, selection, check.TrustedHead, out)
 			if err != nil {
 				return err
 			}
@@ -280,9 +291,42 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		if args[0] == "run" && selection.Policy.Version > 5 && isLaunchSelectionUnknown(result) {
 			return fmt.Errorf("pipeline: native command exited %d. This no-mistakes build takes no launch selection, which policy version %d needs to run a gate on its task's own harness. See docs/pipeline.md for the build that does", result.ExitCode, selection.Policy.Version)
 		}
+		if args[0] == "run" && isGateWaitElapsed(result) {
+			// no-mistakes bounds its hold so a harness tool cap cannot hang it,
+			// and says in its own output that an elapsed wait is not a failed
+			// run. Name the start that reattaches instead of only the exit
+			// code, since the caller's next command is the reattachment.
+			live := stillRunningGateRun(ctx, reader, meta.Project, branch)
+			where := "the run"
+			statusCommand := "no-mistakes axi status"
+			if live != "" {
+				where = "run " + live
+				statusCommand = "no-mistakes axi status --run " + live
+			}
+			return fmt.Errorf("pipeline: the gate's bounded hold ended with no decision, which is not a gate failure and leaves %s working on %s. Repeat this command to reattach to that run on the same branch, head and intent, starting no new run and resetting no review budget, or read it with %s and answer its next gate with cfo pipeline respond %s", where, branch, statusCommand, meta.ID)
+		}
 		return fmt.Errorf("pipeline: native command exited %d", result.ExitCode)
 	}
 	return nil
+}
+
+// stillRunningGateRun is the gate run still working on the branch, and empty
+// when the run has finished or its state cannot be read.
+func stillRunningGateRun(ctx context.Context, reader pipeline.Reader, project, branch string) string {
+	run, err := reader.Interruption(ctx, project, branch)
+	if err != nil || run.IsTerminal() {
+		return ""
+	}
+	return run.ID
+}
+
+// isGateWaitElapsed reports no-mistakes' own return for a bounded hold that
+// ended with no decision, which it marks in the document it prints and which is
+// not a gate failure. No other native return carries that line, so a real
+// refusal is never reported as a wait.
+func isGateWaitElapsed(result execx.Result) bool {
+	said := append(append([]byte(nil), result.Stdout...), result.Stderr...)
+	return bytes.Contains(said, []byte("elapsed while driving the run"))
 }
 
 // taskWorktree is the worktree a gate command acts in and the branch checked
