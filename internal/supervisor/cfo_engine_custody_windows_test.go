@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -25,6 +26,7 @@ func TestCFOEngineCustodyOnlyWaitsForWorkInTheCFOJob(t *testing.T) {
 		{name: "contained worker", members: []proc.Entry{{PID: 2, ExeBase: "goblins.exe"}}, args: []string{"goblins.exe", "host"}, want: "worker contained"},
 		{name: "ordinary CFO command", members: []proc.Entry{{PID: 2, ExeBase: "cfo.exe"}}, args: []string{"cfo.exe", "drain"}},
 		{name: "unreadable command", members: []proc.Entry{{PID: 2, ExeBase: "cfo.exe"}}, args: []string{"cfo.exe"}, wantError: true},
+		{name: "process access denied", members: []proc.Entry{{PID: 2, ExeBase: "cfo.exe"}}, argumentErr: errors.New("access denied"), wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reason, err := cfoJobBlocking(test.members, test.services, 1, func(int) ([]string, error) { return test.args, test.argumentErr })
