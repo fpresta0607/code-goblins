@@ -103,19 +103,26 @@ func NativeHooks(root, stateDir string) []Hook {
 // its own.
 const KeyAlarmSeconds = 600
 
-// CFOAutoCompactWindow is the window, in tokens, the CFO compacts in. Claude
-// Code takes it as its autoCompactWindow setting, takes its 20K output
-// reserve off it and compacts 13K short of what is left, or at the percent of
-// that a CLAUDE_AUTOCOMPACT_PCT_OVERRIDE names where that is lower: at 342K
-// under the Overlord's override of 90, 367K without one. On the model's own
-// 1M window the CFO compacted at 882K, and a restart came first in its
-// conversation of 2026-10-18. Measured on the CFO's 16 ended conversations of
-// 2026-09-16 to 10-18: a compaction left it 68K to 96K tokens, and it grew by
-// at most 88K in one request and 368K in one hour, so 342K leaves it at least
-// 246K tokens between compactions, which no request fills: one compaction
-// every 40 minutes in its busiest hour, and every two to seven hours at the
-// pace of its days between compactions.
-const CFOAutoCompactWindow = 400_000
+// AutoCompactWindow is the window, in tokens, the CFO and every Claude Code
+// goblin compact in. Claude Code takes it as its autoCompactWindow setting,
+// takes its 20K output reserve off it and compacts 13K short of what is left,
+// or at the percent of that a CLAUDE_AUTOCOMPACT_PCT_OVERRIDE names where
+// that is lower: at 342K under the Overlord's override of 90, 367K without
+// one. On the model's own 1M window the CFO compacted at 882K, and a restart
+// came first in its conversation of 2026-10-18. Measured on the CFO's 16
+// ended conversations of 2026-09-16 to 10-18: a compaction left it 68K to 96K
+// tokens, and it grew by at most 88K in one request and 368K in one hour, so
+// 342K leaves it at least 246K tokens between compactions, which no request
+// fills: one compaction every 40 minutes in its busiest hour, and every two
+// to seven hours at the pace of its days between compactions.
+//
+// Every request reads the whole conversation again, so what a goblin spends
+// grows with the context it carries. Measured on 2026-10-27 over the week
+// before, Claude Code goblins made 36,450 requests at a median of 302K tokens
+// of context and up to 882K, and reading that context again was 83 percent
+// of what they spent; compacting at this window would have cut their spend
+// by about a third.
+const AutoCompactWindow = 400_000
 
 // CFOSettings is the Claude Code settings document the CFO's terminal starts
 // with: the CFO's hooks and its native session hooks, and its auto-compact
@@ -124,7 +131,7 @@ const CFOAutoCompactWindow = 400_000
 // /autocompact's included; only CLAUDE_CODE_AUTO_COMPACT_WINDOW in the
 // environment beats it.
 func CFOSettings(root, stateDir string) ([]byte, error) {
-	file := &settingsFile{values: map[string]any{"autoCompactWindow": CFOAutoCompactWindow}}
+	file := &settingsFile{values: map[string]any{"autoCompactWindow": AutoCompactWindow}}
 	if err := file.addHooks(append(Hooks(root), NativeHooks(root, stateDir)...)); err != nil {
 		return nil, err
 	}
@@ -156,8 +163,8 @@ func GoblinHooks(root, stateDir string) []Hook {
 }
 
 // GoblinSettings is the Claude Code settings document a goblin starts with:
-// the goblin hooks and nothing else, which Claude Code adds to the user's own
-// settings for that session alone. Each runs the home's hook program where it
+// the goblin hooks and the auto-compact window, which Claude Code adds to
+// the user's own settings for that session alone. Each runs the home's hook program where it
 // is the same build as cfo.exe (HookCommand), which Windows starts with no
 // console host.
 func GoblinSettings(root, stateDir string) ([]byte, error) {
@@ -166,7 +173,7 @@ func GoblinSettings(root, stateDir string) ([]byte, error) {
 	for index := range hooks {
 		hooks[index].Command = command
 	}
-	file := &settingsFile{values: map[string]any{}}
+	file := &settingsFile{values: map[string]any{"autoCompactWindow": AutoCompactWindow}}
 	if err := file.addHooks(hooks); err != nil {
 		return nil, err
 	}
