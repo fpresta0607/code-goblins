@@ -181,7 +181,13 @@ func fakeHarness() {
 		return
 	}
 	if mode == "daybreak-inline" {
-		inlineSecurityComposer(keys, record, draw)
+		inlineSecurityComposer(keys, record, draw, 0)
+		return
+	}
+	if mode == "daybreak-late-keys" {
+		// This banner is drawn before the harness reads keys, as Codex drew
+		// its hook review: a key sent the moment the rows show is lost.
+		inlineSecurityComposer(keys, record, draw, time.Second)
 		return
 	}
 	if mode == "daybreak-stale" {
@@ -347,7 +353,10 @@ func fakeHarness() {
 	}
 }
 
-func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw func(...string)) {
+// inlineSecurityComposer shows codex's optional Daybreak offer above its
+// composer. A banner drawn before the harness reads keys loses every key that
+// arrives in its first drawBeforeReading, which is recorded rather than taken.
+func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw func(...string), drawBeforeReading time.Duration) {
 	draft := os.Getenv(fakeCodexDraft)
 	isWorking, live := false, true
 	show := func() {
@@ -366,7 +375,12 @@ func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw fu
 		draw(rows...)
 	}
 	show()
+	reading := time.Now().Add(drawBeforeReading)
 	for key := range keys {
+		if time.Now().Before(reading) {
+			record(codexEvent{Event: "security key lost", Text: key})
+			continue
+		}
 		if key == "\x1b" {
 			select {
 			case next := <-keys:
@@ -1041,6 +1055,58 @@ func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
 		t.Fatalf("SendNative: %v", sendErr)
 	}
 	events := f.events(t)
+	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
+		t.Errorf("security enrollment = %+v, want the offer's option never chosen", enrollment)
+	}
+	if dismissed := named(events, "composer escape"); len(dismissed) != 1 {
+		t.Errorf("offer dismissals = %+v, want exactly one Escape before typing", dismissed)
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != message {
+		t.Errorf("submitted = %+v, want the whole message once", submitted)
+	}
+}
+
+// A goblin idle at a live Daybreak offer it only reads keys for after the
+// banner was drawn, as Codex drew its hook review, takes a CFO message whose
+// first key is a digit: the delivery lets the offer settle before its one
+// Escape, as answerDialog does for a dialog, so the key is not lost while the
+// banner starts and the whole message arrives once with no offer chosen
+// (#1432).
+func TestANativeSendSettlesALiveInlineOfferBeforeItsEscape(t *testing.T) {
+	previousEffect, previousPace := nativeKeyEffect, nativeTypedPace
+	nativeKeyEffect, nativeTypedPace = 3*time.Second, 0
+	t.Cleanup(func() { nativeKeyEffect, nativeTypedPace = previousEffect, previousPace })
+	f := newQuickFixture(t)
+	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-late-keys")
+	meta := state.TaskMeta{ID: "task-7", Harness: string(harness.Codex), Worktree: f.worktree, TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7"), Scratch: taskScratch(f.stateDir, "task-7"), SpawnGen: "s1"}
+	launch, err := nativeAdapter{kind: harness.Codex}.Build(harness.LaunchSpec{BriefPath: f.brief, TaskTmp: meta.TaskTmp, Scratch: meta.Scratch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch.Dir = f.worktree
+	f.service.nativeEnvironment(launch.Env, meta)
+	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Codex)
+	if _, err := f.service.awaitScreen(context.Background(), terminal, 30*time.Second, func(rows []string) bool {
+		_, shown := inlineOffer(screens, rows)
+		return shown
+	}); err != nil {
+		t.Fatalf("the fake harness never showed its live offer: %v", err)
+	}
+
+	message := "1) run the tests and report back"
+	sendErr := f.service.SendNative(context.Background(), meta, message)
+
+	if sendErr != nil {
+		t.Fatalf("SendNative: %v", sendErr)
+	}
+	events := f.events(t)
+	if lost := named(events, "security key lost"); len(lost) != 0 {
+		t.Errorf("keys the starting banner lost = %+v, want the Escape to reach it once it reads keys", lost)
+	}
 	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
 		t.Errorf("security enrollment = %+v, want the offer's option never chosen", enrollment)
 	}
