@@ -487,7 +487,7 @@ func TestEvaluationReportsGitFailureWithoutExposingStderrAndRetries(t *testing.T
 	service := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}, Git: Git{Reads: readcache.New()}}
 	service.Git.stream = func(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
 		if isFailing && slices.Equal(request.Args[len(request.Args)-4:], []string{"symbolic-ref", "--quiet", "--short", "HEAD"}) {
-			_, _ = io.WriteString(stderr, "fatal: permission denied for https://user:password@example.invalid/repo?token=ghp_12345678901234567890")
+			_, _ = io.WriteString(stderr, "fatal: permission denied\nhttps://user:password@example.invalid/repo?token=ghp_12345678901234567890")
 			return 128, nil
 		}
 		return (execx.OSRunner{}).Stream(ctx, request, stdout, stderr)
@@ -502,6 +502,110 @@ func TestEvaluationReportsGitFailureWithoutExposingStderrAndRetries(t *testing.T
 	retried, err := service.execute(context.Background(), action)
 	if err != nil || retried.Verified || retried.Reason != pipeline.ErrNoProgress.Error() {
 		t.Fatalf("retried evaluation = %+v, %v; want fresh gate evidence read", retried, err)
+	}
+}
+
+func TestEvaluationPreservesBaseGitFailures(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		retained    bool
+		failingArgs []string
+	}{
+		{"retained base validation", true, []string{"merge-base", "--is-ancestor"}},
+		{"base lookup", false, []string{"merge-base", "HEAD"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			gitFixture(t, meta.Worktree)
+			checkout := exec.Command("git", "checkout", "-q", "--detach", "HEAD")
+			checkout.Dir = meta.Worktree
+			if output, err := checkout.CombinedOutput(); err != nil {
+				t.Fatalf("detach fixture: %s: %v", output, err)
+			}
+			if test.retained {
+				base := gitOutput(t, meta.Worktree, "rev-parse", "HEAD~1")
+				store.mu.Lock()
+				store.db.Tasks[meta.ID] = Evaluation{Base: base, Generation: meta.SpawnGen}
+				err := store.save()
+				store.mu.Unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			isFailing := true
+			service := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service.Git.stream = func(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
+				if isFailing && len(request.Args) >= 5 && slices.Equal(request.Args[3:5], test.failingArgs) {
+					return 128, nil
+				}
+				return (execx.OSRunner{}).Stream(ctx, request, stdout, stderr)
+			}
+			action := Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen}
+			failed, err := service.execute(context.Background(), action)
+			if err == nil || !strings.Contains(err.Error(), "Git merge-base failed: exit status 128") || failed.Verified {
+				t.Fatalf("failed evaluation = %+v, %v; want base Git failure", failed, err)
+			}
+			isFailing = false
+			retried, err := service.execute(context.Background(), action)
+			if err != nil || retried.Base == "" || !strings.Contains(retried.Reason, "detached") {
+				t.Fatalf("retried evaluation = %+v, %v; want retained base and detached review", retried, err)
+			}
+		})
+	}
+}
+
+func TestEvaluationHandlesUnavailableBases(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		unrelatedBase  bool
+		missingRef     bool
+		wantGitFailure bool
+	}{
+		{"unset origin", false, false, false},
+		{"unrelated retained base", true, false, false},
+		{"origin points to missing commit", false, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			gitFixture(t, meta.Worktree)
+			if test.unrelatedBase {
+				base := gitOutput(t, meta.Worktree, "commit-tree", "HEAD^{tree}", "-m", "Unrelated root")
+				store.mu.Lock()
+				store.db.Tasks[meta.ID] = Evaluation{Base: base, Generation: meta.SpawnGen}
+				err := store.save()
+				store.mu.Unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			args := []string{"symbolic-ref", "--delete", "refs/remotes/origin/HEAD"}
+			if test.missingRef {
+				args = []string{"symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/missing"}
+			}
+			for _, command := range [][]string{args, {"checkout", "-q", "--detach", "HEAD"}} {
+				git := exec.Command("git", command...)
+				git.Dir = meta.Worktree
+				if output, err := git.CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %s: %v", command, output, err)
+				}
+			}
+			result, err := (&Service{Store: store}).execute(context.Background(), Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen})
+			if test.wantGitFailure {
+				if err == nil || !strings.Contains(err.Error(), "Git merge-base failed: exit status 128") {
+					t.Fatalf("evaluation = %+v, %v; want lookup failure", result, err)
+				}
+			} else if err != nil || result.Base != "" || !strings.Contains(result.Reason, "detached") {
+				t.Fatalf("evaluation = %+v, %v; want detached review without base", result, err)
+			}
+		})
 	}
 }
 

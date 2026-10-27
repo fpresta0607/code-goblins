@@ -62,8 +62,11 @@ const (
 
 var errPreviewTooLarge = errors.New("file exceeds the preview limit")
 var errDetachedHead = errors.New("HEAD is detached")
+var errRevisionNotInHistory = errors.New("commit is not in this task's history")
+var errBaseUnavailable = errors.New("task diff base is unavailable: establish origin/HEAD for this project before reviewing the full task diff")
 
 var commitID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+var dubiousOwnership = regexp.MustCompile(`^fatal: detected dubious ownership in repository at '[^'\r\n]*'$`)
 
 // limitedBuffer keeps at most limit bytes of a command's output. It is not a
 // bytes.Buffer, whose ReadFrom would let io.Copy go around Write and the limit.
@@ -81,10 +84,16 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 
-type diagnosticBuffer struct{ buffer bytes.Buffer }
+type diagnosticBuffer struct {
+	buffer    bytes.Buffer
+	truncated bool
+}
 
 func (b *diagnosticBuffer) Write(p []byte) (int, error) {
 	remaining := maxGitDiagnostic - b.buffer.Len()
+	if len(p) > remaining {
+		b.truncated = true
+	}
 	if remaining > 0 {
 		_, _ = b.buffer.Write(p[:min(len(p), remaining)])
 	}
@@ -130,15 +139,31 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 		}
 		var description string
 		if code == 128 {
-			switch message := strings.ToLower(diagnostic.buffer.String()); {
-			case strings.Contains(message, "detected dubious ownership"):
-				description = "Git reported unsafe repository ownership; check repository ownership and Git safe-directory configuration"
-			case strings.Contains(message, "permission denied"):
-				description = "Git reported permission denied; check worktree and repository access"
-			case strings.Contains(message, "not a git repository"):
-				description = "Git reported that the worktree is not a repository; check its path and Git metadata"
-			default:
-				description = "check the worktree and Git access"
+			description = "check the worktree and Git access"
+			category := ""
+			if !diagnostic.truncated {
+				for _, line := range strings.Split(strings.ToLower(diagnostic.buffer.String()), "\n") {
+					line = strings.TrimSuffix(line, "\r")
+					match := ""
+					switch {
+					case dubiousOwnership.MatchString(line):
+						match = "Git reported unsafe repository ownership; check repository ownership and Git safe-directory configuration"
+					case line == "fatal: permission denied" || line == "error: permission denied":
+						match = "Git reported permission denied; check worktree and repository access"
+					case line == "fatal: not a git repository (or any of the parent directories): .git":
+						match = "Git reported that the worktree is not a repository; check its path and Git metadata"
+					}
+					if match != "" && category != "" && match != category {
+						category = ""
+						break
+					}
+					if match != "" {
+						category = match
+					}
+				}
+				if category != "" {
+					description = category
+				}
 			}
 		}
 		return execx.Result{Stdout: out.buffer.Bytes(), Stderr: []byte(description), ExitCode: code}, nil
@@ -181,7 +206,7 @@ func (g Git) validateRevision(ctx context.Context, dir, revision string) error {
 	}
 	_, err := g.run(ctx, dir, "merge-base", "--is-ancestor", revision, "HEAD")
 	if isGitExit(err, 1) {
-		return errors.New("commit is not in this task's history")
+		return errRevisionNotInHistory
 	}
 	return err
 }
@@ -234,6 +259,9 @@ func (g Git) base(ctx context.Context, dir string) (string, error) {
 	if err != nil && !isGitExit(err, 1) {
 		return "", err
 	}
+	if isGitExit(err, 1) {
+		return "", errBaseUnavailable
+	}
 	if err == nil && strings.HasPrefix(strings.TrimSpace(ref), "refs/remotes/") {
 		base, err := g.run(ctx, dir, "merge-base", "HEAD", strings.TrimSpace(ref))
 		if err != nil {
@@ -241,7 +269,7 @@ func (g Git) base(ctx context.Context, dir string) (string, error) {
 		}
 		return strings.TrimSpace(base), nil
 	}
-	return "", errors.New("task diff base is unavailable: establish origin/HEAD for this project before reviewing the full task diff")
+	return "", errors.New("origin/HEAD does not point to a remote-tracking ref")
 }
 
 func (g Git) Files(ctx context.Context, dir, revision string) ([]ChangedFile, error) {

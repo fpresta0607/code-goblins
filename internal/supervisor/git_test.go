@@ -22,11 +22,14 @@ func TestGitFailureDiagnosticsAreBoundedAndNeverExposeStderr(t *testing.T) {
 	for _, test := range []struct {
 		name, stderr, want string
 	}{
-		{"permission", "fatal: Permission denied " + secret, "permission denied"},
-		{"ownership", "fatal: detected dubious ownership " + secret, "unsafe repository ownership"},
-		{"repository", "fatal: not a git repository " + secret, "not a repository"},
+		{"permission", "fatal: Permission denied\n" + secret, "permission denied"},
+		{"ownership", "fatal: detected dubious ownership in repository at '" + secret + "'", "unsafe repository ownership"},
+		{"repository", "fatal: not a git repository (or any of the parent directories): .git\n" + secret, "not a repository"},
 		{"unknown", "fatal: " + secret, "check the worktree and Git access"},
-		{"bounded", strings.Repeat("x", maxGitDiagnostic) + "permission denied " + secret, "check the worktree and Git access"},
+		{"path containing permission denied", "fatal: '/tmp/permission denied/repo' does not appear to be a git repository", "check the worktree and Git access"},
+		{"truncated recognized line", "fatal: Permission denied\n" + strings.Repeat("x", maxGitDiagnostic), "check the worktree and Git access"},
+		{"conflicting categories", "fatal: Permission denied\nfatal: not a git repository (or any of the parent directories): .git", "check the worktree and Git access"},
+		{"unprefixed", "Permission denied", "check the worktree and Git access"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			git := Git{stream: func(_ context.Context, _ execx.Request, _, stderr io.Writer) (int, error) {
