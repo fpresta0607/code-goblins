@@ -1516,6 +1516,8 @@ func (f realOriginForge) Run(ctx context.Context, req execx.Request) (execx.Resu
 }
 
 func TestCIMonitorSkipsNonGitHubOrigin(t *testing.T) {
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_HOST", "")
 	for _, remote := range []string{"https://gitlab.com/example/project.git", "git@gitlab.com:example/project.git", "gitlab.com:example/project.git", "../local-repository"} {
 		t.Run(remote, func(t *testing.T) {
 			s, h := fleetService(t)
