@@ -28,6 +28,11 @@ for (const who of ["CFO", "goblin"] as const) {
     await expect(log.locator(".message-diff")).toContainText("+new");
     await expect(field(page, name)).toHaveValue("continue from this draft");
 
+    // Enter types into the terminal once its view is live, which a busy
+    // machine can take seconds to reach; until then the box keeps the draft
+    // and says the terminal is connecting (#1574). openGoblin waits for it,
+    // and the CFO's panel, opened by its key, waits here.
+    await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1, { timeout: 20_000 });
     await field(page, name).press("Enter");
     await expect.poll(() => typed(relay)).toContain(pasted("continue from this draft") + "\r");
     relay.drop();
