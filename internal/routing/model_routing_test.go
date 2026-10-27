@@ -112,6 +112,22 @@ func TestVerificationHelperRejectsUniformModelWhenQuotaIsUnavailable(t *testing.
 	}
 }
 
+func TestVerificationHelperDoesNotTreatAnUnknownModelAsIndependent(t *testing.T) {
+	for _, unknown := range []string{"", "default"} {
+		t.Run("model-"+unknown, func(t *testing.T) {
+			table := Table{DefaultLane: "same", Fallbacks: map[string][]string{"same": {"unknown"}}, Lanes: map[string]ExecutionLane{
+				"same":    {Name: "same", Harness: "codex", Model: "selected-model"},
+				"unknown": {Name: "unknown", Harness: "codex", Model: unknown},
+			}}
+			assessment := Assessment{Class: Verification, CheckedHarness: "codex", CheckedModel: "selected-model"}
+			choice, err := Choose(assessment, table, func(ExecutionLane) (bool, string) { return true, "quota checked" })
+			if err != nil || choice.Model != "selected-model" {
+				t.Fatalf("choice=%+v err=%v", choice, err)
+			}
+		})
+	}
+}
+
 func TestVerificationClassifiesTheTaskRatherThanItsChecklist(t *testing.T) {
 	for _, newline := range []string{"\n", "\r\n"} {
 		for _, test := range []struct {

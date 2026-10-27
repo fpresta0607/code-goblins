@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -24,6 +25,7 @@ type CFOEngine struct {
 	Pending bool      `json:"pending,omitempty"`
 	Since   time.Time `json:"since,omitzero"`
 	Problem string    `json:"problem,omitempty"`
+	Waiting string    `json:"waiting,omitempty"`
 }
 
 func writeCFOEngine(stateDir string, choice CFOEngine) error {
@@ -37,17 +39,35 @@ func writeCFOEngine(stateDir string, choice CFOEngine) error {
 	return fsx.AtomicWriteFile(filepath.Join(stateDir, "cfo-engine.json"), data)
 }
 
-func (s *Service) cfoEngineGatesIdle(ctx context.Context) bool {
-	for _, task := range liveTasks(s.Store.Home.State) {
-		if task.Mode != "no-mistakes" {
-			continue
-		}
-		idle, err := s.engineGateIdle(ctx, task)
-		if err != nil || !idle {
-			return false
-		}
+func (s *Service) cfoEngineActivity() string {
+	record, err := host.ReadRecord(s.Store.Home.State, NativeCFOTerminal)
+	if err != nil {
+		return "Cannot inspect the CFO's terminal; reopen it before applying the selection"
 	}
-	return true
+	inspect := s.Options.CFOJobActivity
+	if inspect == nil {
+		inspect = cfoJobActivity
+	}
+	reason, err := inspect(record)
+	if err != nil {
+		return "Cannot verify the CFO's terminal work; restore process access and try again: " + err.Error()
+	}
+	return reason
+}
+
+func (s *Service) noteCFOEngineWaiting(choice CFOEngine, reason string) {
+	s.starts.Lock()
+	defer s.starts.Unlock()
+	current, err := ReadCFOEngine(s.Store.Home.State)
+	if err != nil || current != choice || choice.Waiting == reason {
+		return
+	}
+	choice.Waiting = reason
+	if err := writeCFOEngine(s.Store.Home.State, choice); err != nil {
+		s.publish(err)
+		return
+	}
+	s.notify()
 }
 
 func (s *Service) applyCFOEngine(ctx context.Context) {
@@ -70,7 +90,12 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 		s.starts.Unlock()
 		return
 	}
-	if !s.cfoEngineGatesIdle(ctx) || !s.cfoAtStoppingPoint(ctx, cfo.harness) {
+	if reason := s.cfoEngineActivity(); reason != "" {
+		s.noteCFOEngineWaiting(choice, reason)
+		return
+	}
+	if !s.cfoAtStoppingPoint(ctx, cfo.harness) {
+		s.noteCFOEngineWaiting(choice, "Waiting for the CFO's turn, terminal draft and background work to finish")
 		return
 	}
 	s.starts.Lock()
@@ -98,14 +123,22 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 		s.notify()
 		return
 	}
-	if !s.cfoEngineGatesIdle(ctx) || !s.cfoAtStoppingPoint(ctx, cfo.harness) {
+	if reason := s.cfoEngineActivity(); reason != "" {
+		choice.Waiting = reason
+		if err := writeCFOEngine(stateDir, choice); err != nil {
+			s.publish(err)
+		}
+		s.notify()
+		return
+	}
+	if !s.cfoAtStoppingPoint(ctx, cfo.harness) {
 		return
 	}
 	cfo = readCFOState(stateDir)
 	if !cfo.registered || !cfo.since.Equal(choice.Since) {
 		return
 	}
-	choice.Pending = false
+	choice.Pending, choice.Waiting = false, ""
 	if err := writeCFOEngine(stateDir, choice); err != nil {
 		s.publish(err)
 		return

@@ -3,9 +3,11 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -26,6 +29,15 @@ type standInScreen struct {
 	mu   sync.Mutex
 	rows []string
 }
+
+type unrelatedGate struct{ calls int }
+
+func (gate *unrelatedGate) Progress(context.Context, string, string) (pipeline.Progress, error) {
+	gate.calls++
+	return pipeline.Progress{}, errors.New("unrelated gate unavailable")
+}
+
+func (*unrelatedGate) CanSteer(context.Context, string, string, string) error { return nil }
 
 func (s *standInScreen) show(rows []string) {
 	s.mu.Lock()
@@ -114,23 +126,91 @@ func TestCFOEngineSelectionWaitsForIdleAndAnEmptyComposer(t *testing.T) {
 	if machine.restarted != 0 {
 		t.Fatal("selection discarded a draft")
 	}
-	gate := &engineGate{isRunning: true}
-	handler.Service.Options.Gate = gate
+	isGateRunning := true
+	handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) {
+		if isGateRunning {
+			return "Waiting for the CFO's gate command to finish", nil
+		}
+		return "", nil
+	}
 	meta := state.TaskMeta{ID: "gate-task", SpawnGen: "s1", Mode: "no-mistakes", Worktree: handler.Service.Store.Home.Root, Project: handler.Service.Store.Home.Root}
 	if err := state.WriteTaskMeta(handler.Service.Store.Home.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	gitFixture(t, meta.Worktree)
 	screen.show(claudeAtPrompt(""))
 	handler.Service.applyCFOEngine(t.Context())
 	if machine.restarted != 0 {
 		t.Fatal("selection interrupted an active gate")
 	}
-	gate.isRunning = false
+	choice, err := ReadCFOEngine(handler.Service.Store.Home.State)
+	if err != nil || !strings.Contains(choice.Waiting, "gate command") {
+		t.Fatalf("pending choice = %+v, %v; want an actionable gate reason", choice, err)
+	}
+	isGateRunning = false
 	handler.Service.applyCFOEngine(t.Context())
 	handler.Service.applyCFOEngine(t.Context())
 	if machine.restarted != 1 {
 		t.Fatalf("restarted %d times, want once at the safe boundary", machine.restarted)
+	}
+}
+
+func TestCFOEngineSelectionIgnoresUnrelatedTaskGateRecords(t *testing.T) {
+	for _, kind := range []string{"absent", "paused", "detached", "stale", "slow"} {
+		t.Run(kind, func(t *testing.T) {
+			handler, machine, screen := updateBoard(t)
+			handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) { return "", nil }
+			gate := &unrelatedGate{}
+			handler.Service.Options.Gate = gate
+			if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if kind != "absent" {
+				meta := state.TaskMeta{ID: "other-task", SpawnGen: "s1", Mode: "no-mistakes", Worktree: filepath.Join(t.TempDir(), kind), Project: t.TempDir()}
+				if kind == "detached" {
+					meta.Worktree = gitFixture(t)
+					command := exec.Command("git", "checkout", "--quiet", "--detach")
+					command.Dir = meta.Worktree
+					if output, err := command.CombinedOutput(); err != nil {
+						t.Fatalf("detach fixture: %s %v", output, err)
+					}
+				}
+				if err := state.WriteTaskMeta(handler.Service.Store.Home.State, meta); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "paused" {
+					if err := state.WriteLifecycle(handler.Service.Store.Home.State, state.Lifecycle{ID: meta.ID, Generation: "s1", Operation: "pause-1", Action: "pause", Phase: "paused"}); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			screen.show(claudeAtPrompt(""))
+			response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+			if response.Code != http.StatusOK {
+				t.Fatalf("selection = %d %s", response.Code, response.Body)
+			}
+			handler.Service.applyCFOEngine(t.Context())
+			if machine.restarted != 1 || gate.calls != 0 {
+				t.Fatalf("unrelated %s record: restarted=%d gate reads=%d", kind, machine.restarted, gate.calls)
+			}
+		})
+	}
+}
+
+func TestCFOEngineSelectionReportsUnverifiableTerminalCustody(t *testing.T) {
+	handler, machine, screen := updateBoard(t)
+	handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) { return "", errors.New("access denied") }
+	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	screen.show(claudeAtPrompt(""))
+	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("selection = %d %s", response.Code, response.Body)
+	}
+	handler.Service.applyCFOEngine(t.Context())
+	choice, err := ReadCFOEngine(handler.Service.Store.Home.State)
+	if err != nil || !choice.Pending || !strings.Contains(choice.Waiting, "access denied") || machine.restarted != 0 {
+		t.Fatalf("choice=%+v err=%v restarted=%d", choice, err, machine.restarted)
 	}
 }
 

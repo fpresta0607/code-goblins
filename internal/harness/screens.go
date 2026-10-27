@@ -534,6 +534,15 @@ func RunningWork(screen []string) (string, bool) {
 	return "", false
 }
 
+func HasBackgroundWork(screen []string) bool {
+	for _, row := range screen {
+		if backgroundCount.MatchString(row) && !turnEnded.MatchString(row) {
+			return true
+		}
+	}
+	return false
+}
+
 // OutputDigest is a digest of what has been written to screen: every row but
 // those RunningWork reads, which a harness redraws by itself while work runs,
 // with its spinner, its clock and its interrupt hint. Two screens that differ

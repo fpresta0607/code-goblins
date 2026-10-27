@@ -177,6 +177,7 @@ type Options struct {
 	// board offers; nil reads the machine's.
 	ReadScreen       func(host.Record) ([]string, error)
 	ProgramInstalled func(harness.Kind) (string, time.Time, error)
+	CFOJobActivity   func(host.Record) (string, error)
 	// KeyPages are the reviewed key page recipes the binary carries; the
 	// browser broker lends a login's browser only for a provider they name.
 	KeyPages keypages.Recipes

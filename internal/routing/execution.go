@@ -109,6 +109,10 @@ func Choose(a Assessment, t Table, usable Usable) (Choice, error) {
 	}
 	for _, name := range order {
 		lane := t.Lanes[name]
+		if a.CheckedModel != "" && (lane.Model == "" || lane.Model == "default") {
+			c.Notes = append(c.Notes, name+": verification requires an explicit model")
+			continue
+		}
 		if a.ExplicitModel != "" && lane.Harness != wanted.Harness {
 			c.Notes = append(c.Notes, name+": an explicit model stays on "+wanted.Harness)
 			continue
