@@ -545,3 +545,48 @@ func TestResumeGivesAWorkerWithoutARecordedBriefItsRealBriefUnderTheHome(t *test
 		t.Fatalf("resume brief = %q, want it resolved under the home as %q", switched[0].BriefPath, want)
 	}
 }
+
+// cfo kill retires a paused task whose project checkout was removed after it
+// paused, as a gate proof's fixture repository under the home's scratch folder
+// was on 2026-10-27, and keeps what is left of it: its worktree folder, whose
+// .git file names a repository that no longer exists, with its files, and its
+// record. Before, the kill refused with "read the task branch before
+// identifying its gate", so the task could never be retired (issue #1578).
+func TestKillRetiresATaskWhoseProjectCheckoutIsGone(t *testing.T) {
+	// Arrange
+	h, meta := killedTask(t)
+	gateRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(gateRoot, "state.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NM_HOME", gateRoot)
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	at := time.Now().UTC().Add(-time.Hour)
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, RequestGeneration: meta.SpawnGen, Operation: "pause-1", Action: "pause", Phase: "paused", Started: at, Updated: at, Pause: &state.PauseCondition{Reason: "overlord", At: at}, NoticeSent: true}); err != nil {
+		t.Fatal(err)
+	}
+	leftover := filepath.Join(meta.Worktree, "README.md")
+	if err := os.WriteFile(leftover, []byte("the goblin's work"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(meta.Project); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	record, err := defaultTaskLifecycle(t.Context(), h, lifecycle.Request{ID: meta.ID, Generation: meta.SpawnGen, Operation: "kill-1", Action: "stop", Reason: "Requested by the operator", IsWatched: true}, "")
+
+	// Assert
+	if err != nil || record.Phase != "stopped" {
+		t.Fatalf("the kill = phase %q, %v, want the task retired\nproblems: %s", record.Phase, err, strings.Join(record.Problems, "; "))
+	}
+	if _, err := state.ReadTaskMeta(h.State, meta.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the task record after the kill: %v, want it retired", err)
+	}
+	if content, err := os.ReadFile(leftover); err != nil || string(content) != "the goblin's work" {
+		t.Errorf("the worktree's file after the kill = %q, %v, want it kept", content, err)
+	}
+	if kept := strings.Join(record.Kept, "; "); !strings.Contains(kept, meta.Worktree) || !strings.Contains(kept, "project checkout "+meta.Project+" is gone") {
+		t.Errorf("the kill kept %q, want it to name the worktree it left in place and that its project checkout is gone", record.Kept)
+	}
+}

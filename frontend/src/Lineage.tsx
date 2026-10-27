@@ -23,10 +23,11 @@ export interface Selection { session?: string; task?: string; child?: string; tr
 export const childSelection = (task: Task, child: TreeNode): Selection =>
   child.kind === "helper" ? { task: child.id.replace(/^helper:/, "") } : { task: task.id, child: child.id };
 
-export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effects, presentations, now }: {
+export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effects, presentations, now, freshNow }: {
   presentations:BoardActivity[];
   snapshot: Snapshot;
   now: number;
+  freshNow: number;
   effects: ActivityEffect[];
   project: string;
   selected: Selection | null;
@@ -97,7 +98,7 @@ export function Lineage({ snapshot, project, selected, onSelect, onOpenCfo, effe
             <span className="node-status">{owner && task ? taskStatus(task, snapshot).text : nodeStatus(node.id === CFO_ROOT && family.cfo ? family.cfo : { id: node.id, title, task, session: node, relation }, false, snapshot.tasks, snapshot.merge_trains)}</span>
           </button>
           {owner && task && <div className="node-facts"><CardFacts task={task} now={now} /></div>}
-          {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={now} onOpenCfo={onOpenCfo} /></div>}
+          {node.role === "cfo" && snapshot.cfo_runs && !snapshot.cfo_closed && <div className="node-facts"><CfoCardFacts snapshot={snapshot} now={freshNow} onOpenCfo={onOpenCfo} /></div>}
           {descendants.length > 0 && <button className="node-disclosure" aria-expanded={!isCollapsed}
             aria-label={(isCollapsed ? "Expand" : "Collapse") + " children of " + title} onClick={() => toggle(node.id)}>
             <Chevron collapsed={isCollapsed} />

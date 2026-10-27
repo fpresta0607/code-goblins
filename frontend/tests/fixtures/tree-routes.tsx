@@ -39,5 +39,5 @@ const snapshot = parseSnapshot({
 });
 watchTips();
 createRoot(document.getElementById("root")!).render(<main style={{ height: "100vh", width: isNarrow ? 836 : "100%", display: "flex", flexDirection: "column" }}>
-  <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} onSelect={() => {}} onChild={() => {}} />
+  <Orchestration onOpenCfo={() => {}} snapshot={snapshot} selected="" connected effects={[]} presentations={[]} now={now} freshNow={now} onSelect={() => {}} onChild={() => {}} />
 </main>);

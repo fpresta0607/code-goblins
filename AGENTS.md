@@ -869,6 +869,12 @@ A pull request's own run waits for the plan first and is then as long as the slo
 A pull request reaches the default branch after its own run and then its train's, which is under 20 minutes from its push when nothing waits for a runner.
 Runs of one account share its runners: when eight runs started together on 2026-10-10, each job waited 13 to 15 minutes for a runner, so a burst of pushes or merges costs more than the sum of its runs.
 
+### The board's render budget
+
+Every change to the board keeps the Overlord's rule of 2026-10-27, that it loads intelligently: panels, terminals and long histories load on demand and are windowed, an update redraws only what it changed, an animation runs only while something happens and stops off screen and under reduced motion, and nothing polls when an event can say it.
+`frontend/tests/render-budget.spec.ts` holds the board to it in CI: an idle board commits nothing between its minutes, a snapshot that changes nothing or only the meters redraws no card, one that changes one goblin redraws that card alone, and a board with no goblin at work asks for no animation frame.
+A change that needs more widens that budget in the same pull request and says why, and the goblin's done report shows the render counts or a profile of its change.
+
 ### Merge trains
 
 Landing pull requests one at a time costs one CI run each, in a row, because every merge makes the other green runs stale.
