@@ -33,9 +33,12 @@ test("driveCodexPicker picks the model, then the effort, by their digits", () =>
   codex.show(MODELS);
   codex.show(MODELS);
   codex.show(EFFORTS);
+  const beforeClosing = [...results];
+  codex.show(null);
 
-  // Assert
+  // Assert: it ends once Codex closes its picker, not before.
   assert.deepEqual(codex.sent, ["2", "3"]);
+  assert.deepEqual(beforeClosing, []);
   assert.deepEqual(results, [""]);
   offerLink("codex-a", null);
 });

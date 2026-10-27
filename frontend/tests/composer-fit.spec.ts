@@ -168,7 +168,7 @@ test("the box's caret is the height of its letters, empty and while he types", a
     // Act
     await field(page).fill(text);
     await field(page).focus();
-    const { line, letters } = await field(page).evaluate((box) => {
+    const { line, letters } = await field(page).evaluate((box, text) => {
       const style = getComputedStyle(box);
       const block = document.createElement("div");
       const word = document.createElement("span");
@@ -181,7 +181,7 @@ test("the box's caret is the height of its letters, empty and while he types", a
       const sizes = { line: block.getBoundingClientRect().height, letters: word.getBoundingClientRect().height };
       block.remove();
       return sizes;
-    });
+    }, text);
 
     // Assert
     expect(Math.abs(line - letters), `the line is ${line}px and the letters ${letters}px`).toBeLessThanOrEqual(1);

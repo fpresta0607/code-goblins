@@ -153,7 +153,7 @@ for (const harness of ["codex", "claude", "pi"] as const) {
       await expect(pane.getByRole("menuitemradio", { checked: true })).toHaveCount(1);
       expect(typed(relay), "opening the pane types nothing").toBe("");
       await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
-      const choice = pane.getByRole("menuitemradio", { name: option });
+      const choice = pane.getByRole("menuitemradio", { name: option, exact: typeof option === "string" });
       if (width === 390) await choice.tap();
       else await choice.click();
 

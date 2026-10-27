@@ -415,7 +415,7 @@ test("a live Classic terminal keeps its own dictation after the hold that showed
   // Assert: Speech history holds the one dictation, and it types nothing more.
   await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Speech history", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
-  await page.getByRole("button", { name: "Close recent messages", exact: true }).click();
+  await page.getByRole("button", { name: "Close speech history", exact: true }).click();
   expect(typed(relay)).toBe(before + pasted("rebase onto main"));
   await expect(field(page)).toHaveValue("");
 });

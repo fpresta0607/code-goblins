@@ -502,7 +502,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
               onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" /><span className="mode-chip-name">{MODE_NAMES[mode] ?? mode}</span></button>}
             <button type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={pane === "model"} disabled={!canChangeEngine}
               data-tip={pane === "model" ? undefined : (shownModel || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}
-              onClick={() => setPane((open) => open === "model" ? null : "model")}><HarnessMark harness={harness} />{shortModel(shownModel) || "Model"}</button>
+              onClick={() => setPane((open) => open === "model" ? null : "model")}>{harness && <HarnessMark harness={harness} />}{shortModel(shownModel) || "Model"}</button>
             <button type="button" className="composer-control engine-control" aria-label="Change effort" aria-haspopup="menu" aria-expanded={pane === "effort"} disabled={!canChangeEngine}
               data-tip={pane === "effort" ? undefined : canChangeEngine ? "Effort · Choose the session's reasoning effort" : "Effort controls need a connected, unheld composer"}
               onClick={() => setPane((open) => open === "effort" ? null : "effort")}>{shownEffort ? <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span> : <Icon name="sparkle" />}</button>

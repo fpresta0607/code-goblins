@@ -278,7 +278,7 @@ for (const [label, width, height] of [["desktop", 1440, 960], ["phone", 390, 844
     expect(frame.y + frame.height, "the conversation ends where the dock begins").toBeLessThanOrEqual(dock.y + 0.5);
     expect(frame.height, "the conversation keeps a few lines").toBeGreaterThanOrEqual(80);
     expect(await list(page).evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
-    for (const control of [box(page).getByRole("button", { name: "Send", exact: true }), box(page).getByRole("button", { name: "Change model", exact: true })]) {
+    for (const control of [box(page).locator(".composer-send"), box(page).getByRole("button", { name: "Change model", exact: true })]) {
       const bounds = (await control.boundingBox())!;
       expect(bounds.y + bounds.height, "the box's controls are inside the window").toBeLessThanOrEqual(height + 0.5);
     }
@@ -293,12 +293,12 @@ test("the session's permission mode shows under the box, and a press or Shift+Ta
 
   // Act and Assert: the mode the terminal's footer names, then each change.
   relay.say({ ...closed, mode: "auto mode" });
-  await expect(chip).toHaveText("Auto mode");
+  await expect(chip).toHaveText("Auto");
   await chip.click();
   await expect.poll(() => typed(relay)).toBe("\x1b[Z");
   await expect(field(page)).toBeFocused();
   relay.say({ ...closed, mode: "plan mode" });
-  await expect(chip).toHaveText("Plan mode");
+  await expect(chip).toHaveText("Plan");
   await field(page).press("Shift+Tab");
   await expect.poll(() => typed(relay)).toBe("\x1b[Z\x1b[Z");
   await expect(field(page)).toBeFocused();
