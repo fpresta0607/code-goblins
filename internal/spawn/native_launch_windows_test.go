@@ -187,7 +187,7 @@ func fakeHarness() {
 	if mode == "daybreak-late-keys" {
 		// This banner is drawn before the harness reads keys, as Codex drew
 		// its hook review: a key sent the moment the rows show is lost.
-		inlineSecurityComposer(keys, record, draw, time.Second)
+		inlineSecurityComposer(keys, record, draw, time.Second) // stall-accepted: the stand-in's deaf moment starts before its rows are drawn, so a stall only shortens it, and the spawn's longer settle after it sees the rows outlasts it on the same clock.
 		return
 	}
 	if mode == "daybreak-stale" {
@@ -374,8 +374,8 @@ func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw fu
 		}
 		draw(rows...)
 	}
-	show()
 	reading := time.Now().Add(drawBeforeReading)
+	show()
 	for key := range keys {
 		if time.Now().Before(reading) {
 			record(codexEvent{Event: "security key lost", Text: key})
@@ -388,13 +388,13 @@ func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw fu
 					select {
 					case end := <-keys:
 						key += next + end
-					case <-time.After(time.Second):
+					case <-time.After(30 * time.Second):
 						return
 					}
 				} else {
 					return
 				}
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(100 * time.Millisecond): // stall-accepted: the rest of an End sequence the spawn writes in the same input as its Escape follows at once, so only a stall between the stand-in's own reads can cut it, and that failure is accepted to citest's rerun.
 				record(codexEvent{Event: "composer escape", Text: draft})
 				if live {
 					live = false
@@ -442,10 +442,10 @@ func staleOfferComposer(keys <-chan string, record func(codexEvent), draw func(.
 			case <-keys:
 				select {
 				case <-keys:
-				case <-time.After(time.Second):
+				case <-time.After(30 * time.Second):
 					return
 				}
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(100 * time.Millisecond): // stall-accepted: the rest of an End sequence the spawn writes in the same input as its Escape follows at once, so only a stall between the stand-in's own reads can cut it, and that failure is accepted to citest's rerun.
 				record(codexEvent{Event: "security dismissal attempted", Text: key})
 			}
 			continue
