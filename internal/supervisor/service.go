@@ -800,7 +800,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 	s.nativeInboxRepair = nil
 	s.mu.Unlock()
 	// Question failures cannot stop native events or independent progression.
-	reconcileErr := errors.Join(ingestErr, followErr, s.Store.ingestQuestions())
+	reconcileErr := errors.Join(ingestErr, followErr, s.Store.wakeForAFillingInbox(), s.Store.ingestQuestions())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestAnswers())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestActivity())
 	reconcileErr = errors.Join(reconcileErr, s.Store.ingestReviews())
