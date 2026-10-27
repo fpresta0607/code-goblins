@@ -201,11 +201,12 @@ func (t Tree) Gate() (step GateStep, ok bool) {
 // ActivityAt is the latest sign of work the goblin's own records show: its
 // conversation written, any agent, shell or monitor under it active, its
 // gate's step at work, or the heavy line moving while a run of its waits in
-// it. A process job's activity is its processor use, which Jobs carries
-// instead, and a gate waiting on a decision is not at work.
+// it, though the run counts in the goblin (#1443). A process job's activity
+// is its processor use, which Jobs carries instead, and a gate waiting on a
+// decision is not at work.
 func (t Tree) ActivityAt() time.Time {
 	latest := t.ConversationAt
-	for _, child := range t.Children {
+	for _, child := range t.withOwn() {
 		if child.Kind != KindProcess && (child.Kind != KindGate || child.State == Working || child.State == Silent) && child.LastActivity.After(latest) {
 			latest = child.LastActivity
 		}
@@ -248,10 +249,11 @@ func (t Tree) Jobs() ([]string, time.Duration) {
 // Waits names what the goblin waits on by design, which resumes it when it
 // ends: the agents, shells and monitors its harness records still open,
 // working or silent, whatever processes they run, and its runs in the
-// machine's heavy line, each of which tells it how it ended.
+// machine's heavy line, each of which tells it how it ended, those that
+// count in the goblin too (#1443).
 func (t Tree) Waits() []string {
 	var names []string
-	for _, child := range t.Children {
+	for _, child := range t.withOwn() {
 		switch {
 		case child.heavyRun:
 			names = append(names, "heavy run "+quote(child.Label))
