@@ -366,14 +366,21 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		)
 	}
 
-	// fail records the exact cause and tears the half-built task down cleanly
-	// (close its terminal, return the worktree, retire the metadata). It is the
-	// one failure path: nothing here can leave an unaddressable terminal behind.
-	fail := func(result Result, cause error) (Result, error) {
+	// recordLaunchFailure records cause as the task's launch failure.
+	recordLaunchFailure := func(id string, cause error) error {
 		line := "failed: " + bounded(state.NormalizeStatusDetail(cause.Error()), 1000)
-		if err := state.AppendStatus(s.StateDir, result.Meta.ID, line); err != nil {
-			cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
+		if err := state.AppendStatus(s.StateDir, id, line); err != nil {
+			return errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", err))
 		}
+		return cause
+	}
+	// fail records the exact cause and tears the half-built task down cleanly
+	// (close its terminal, return the worktree, retire the metadata). A launch
+	// failure after the brief is delivered keeps its running terminal instead,
+	// with the task record and worktree, so the session stays addressable for
+	// `cfo peek` and recovery rather than leaving an orphan behind.
+	fail := func(result Result, cause error) (Result, error) {
+		cause = recordLaunchFailure(result.Meta.ID, cause)
 		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID); err != nil {
 			cause = errors.Join(cause, err)
 		}
@@ -506,11 +513,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	_ = endTurn()
 	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		if host.Running(nativeHost) {
-			cause := fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with cfo peek %s before recovering it", err, req.ID)
-			if statusErr := state.AppendStatus(s.StateDir, req.ID, "failed: "+bounded(state.NormalizeStatusDetail(cause.Error()), 1000)); statusErr != nil {
-				cause = errors.Join(cause, fmt.Errorf("spawn: record launch failure: %w", statusErr))
-			}
-			return result, cause
+			return result, recordLaunchFailure(req.ID, fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with cfo peek %s before recovering it", err, req.ID))
 		}
 		return fail(result, err)
 	}

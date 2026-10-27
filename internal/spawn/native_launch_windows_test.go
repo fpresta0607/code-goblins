@@ -972,6 +972,33 @@ func TestNativeSpawnPreservesAnExistingInstructionFileUnderAnInlineOffer(t *test
 	}
 }
 
+// A composer whose footer this spawn does not recognize cannot be proved
+// empty, and it proves no draft either: the spawn types its instruction there
+// as it always has, instead of refusing a ready composer as held text (#1432).
+func TestANativeSpawnDeliversToAComposerWhoseFooterItCannotRead(t *testing.T) {
+	f := newQuickFixture(t)
+	f.service.ReadScreen = func(record host.Record) ([]string, error) {
+		screen, err := host.ReadScreen(record)
+		read := make([]string, 0, len(screen))
+		for _, row := range screen {
+			if strings.Contains(row, "for shortcuts") {
+				continue
+			}
+			read = append(read, row)
+		}
+		return read, err
+	}
+
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 || submitted[0].Text != spawnPointer(t, f.fixture) {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
+	}
+}
+
 // Codex draws its optional Daybreak offer above the composer rather than in
 // its place, and a screen keeps the rows of an offer an earlier redraw
 // dismissed. The composer below them is ready, the rows are history no key

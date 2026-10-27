@@ -129,7 +129,10 @@ func (s Service) briefNativeHarness(ctx context.Context, id string, record host.
 	}
 	// Text typed into a composer that holds something lands on top of it, and
 	// the Enter that submits the instruction would submit that draft instead.
-	if !withoutInlineOffer(screens).ComposerEmpty(screen) {
+	// A startup dialog drawn over an empty composer, or a composer this cannot
+	// read, proves no draft: the delivery answers the one and types into the
+	// other as it always has.
+	if withoutInlineOffer(screens).ComposerHoldsText(screen) {
 		return fmt.Errorf("spawn: native terminal %s holds a draft, so nothing was typed into it; the terminal, its task record and its worktree are kept", record.ID)
 	}
 	instruction, err := s.typedInstruction(id, launch.PromptInstruction())
