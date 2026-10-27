@@ -1929,6 +1929,7 @@ A goblin's question with choices waits on the CFO; once the CFO has left it unan
 The CFO's bar then says, in place of All quiet, how many such questions wait and how long the oldest has, so it never names a question his Command Center does not show.
 The bar counts as at work only the goblins in In progress whose terminals run, never one paused, pausing or resuming, whatever it waits for.
 Before an announcement the board claims the item through `POST /api/announce` (`keys`) and announces only what the answer's `claimed` names.
+A browser without granted notification permission leaves the claim for another viewer, including the minimized desktop window; AFK mode still records suppressed events without asking for permission.
 The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
 A hidden tab waits a second and a half before claiming, giving a visible tab the first chance; with no tab in view the hidden tab can send its Windows notification.
