@@ -274,3 +274,61 @@ func TestApproveAcceptsExactlyTheOpenFindings(t *testing.T) {
 		})
 	}
 }
+
+// An approved Test exception keeps the operator's reason: it reaches the
+// native --reason, and every use the native engine would drop or store as none
+// is refused here instead, so a Test exception never reads as one nobody
+// explained (#1422).
+func TestApprovedTestExceptionCarriesTheOperatorReason(t *testing.T) {
+	selection, err := testPolicy(t).Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"test-2","action":"ask-user"}]}`}
+	quiet := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[]}`}
+	review := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}
+	const reason = "the only failure was the sandbox's missing compiler, read in the step log"
+	for _, c := range []struct {
+		name string
+		gate Gate
+		// response is the answer the CFO gave.
+		response Response
+		// want is the exact argv handed to the native engine.
+		want string
+		// refusal is the rule a refused answer must name; unresolved means it
+		// stays a decision instead.
+		refusal    string
+		unresolved bool
+	}{
+		{name: "a Test exception whose open finding the CFO accepted", gate: open, response: Response{Action: "approve", Accept: "test-2", Reason: reason}, want: "axi respond --step test --action approve --reason " + reason},
+		{name: "a Test gate with nothing open", gate: quiet, response: Response{Action: "approve", Reason: reason}, want: "axi respond --step test --action approve --reason " + reason},
+		{name: "a reason on another step", gate: review, response: Response{Action: "approve", Reason: reason}, refusal: "applies only to an approve of the test step, and this gate is review"},
+		{name: "a reason with fix", gate: review, response: Response{Action: "fix", Findings: "bug", Reason: reason}, refusal: "never with fix"},
+		{name: "a reason of nothing but space", gate: quiet, response: Response{Action: "approve", Reason: "   "}, refusal: "must say why the exception is approved"},
+		{name: "a reason of more than one line", gate: open, response: Response{Action: "approve", Accept: "test-2", Reason: "the compiler\nwas missing"}, refusal: "must be one line of plain text"},
+		{name: "a reason where an open finding is left out", gate: open, response: Response{Action: "approve", Reason: reason}, unresolved: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Act
+			args, err := ResponseArgs(selection, c.gate, c.response)
+
+			// Assert
+			switch {
+			case c.unresolved:
+				// A reason is never consent: the finding still needs the CFO's
+				// explicit --accept.
+				if !errors.Is(err, ErrUnresolved) || len(args) != 0 {
+					t.Fatalf("got %v %q, want it unresolved", err, args)
+				}
+			case c.refusal != "":
+				if err == nil || errors.Is(err, ErrUnresolved) || !strings.Contains(err.Error(), c.refusal) || len(args) != 0 {
+					t.Fatalf("got %v %q, want a refusal naming %q", err, args, c.refusal)
+				}
+			default:
+				if err != nil || strings.Join(args, " ") != c.want {
+					t.Fatalf("got %v %q, want %q", err, args, c.want)
+				}
+			}
+		})
+	}
+}

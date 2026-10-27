@@ -104,6 +104,7 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Findings, "findings", "", "comma-separated finding IDs")
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
 		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CFO accepts as it stands")
+		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
 	}
 	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" {
 		flags.StringVar(&wantBranch, "branch", "", "the branch, checked out in one of the task's worktrees, to act on")
@@ -133,13 +134,21 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if wantBranch != "" && wantRun != "" {
 		return errors.New("pipeline: name a branch or a run, not both")
 	}
-	if response.Accept != "" {
-		// Taking open findings as they stand is the CFO's decision, never a
-		// goblin's about its own gate.
+	if response.Accept != "" || response.Reason != "" {
+		// Taking open findings as they stand, and the reason an approved Test
+		// exception keeps, are the CFO's decisions, never a goblin's about its
+		// own gate.
+		given := []string{}
+		if response.Accept != "" {
+			given = append(given, "--accept")
+		}
+		if response.Reason != "" {
+			given = append(given, "--reason")
+		}
 		cfo := supervisor.CFOConnection{State: h.State}
 		_, release, err := cfo.CallerIdentity()
 		if err != nil {
-			return fmt.Errorf("pipeline: --accept is honoured only from the registered primary CFO: %w", err)
+			return fmt.Errorf("pipeline: %s is honoured only from the registered primary CFO: %w", strings.Join(given, " and "), err)
 		}
 		release()
 	}
@@ -238,6 +247,11 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		}
 		if response.Accept != "" {
 			if err := state.AppendStatus(h.State, id, fmt.Sprintf("pipeline-findings-accepted: step=%s run=%s round=%d findings=%s by=cfo", gate.Step, gate.RunID, gate.Round, response.Accept)); err != nil {
+				return err
+			}
+		}
+		if response.Reason != "" {
+			if err := state.AppendStatus(h.State, id, fmt.Sprintf("pipeline-approval-reason: step=%s run=%s round=%d reason=%q by=cfo", gate.Step, gate.RunID, gate.Round, response.Reason)); err != nil {
 				return err
 			}
 		}

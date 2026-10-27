@@ -173,6 +173,7 @@ Migration never changes a worktree, native run row, gate ref, origin ref, or rev
 cfo pipeline run <id> --intent-file intent.md
 cfo pipeline respond <id> --action fix --findings finding-id --instructions "Concrete guidance"
 cfo pipeline respond <id> --action approve
+cfo pipeline respond <id> --action approve --accept ask-1,bug-2 --reason "the only failure was the sandbox's missing compiler"
 cfo pipeline respond <id> --branch fix/connections --action approve
 cfo pipeline recover <id>
 cfo pipeline migrate <id>
@@ -184,6 +185,7 @@ Either way `cfo pipeline run` hands it to no-mistakes in a file, never on a comm
 An intent is prose, often several thousand characters that name a shell, and on 2026-10-02 Microsoft Defender detected one on a command line as `Trojan:Win32/ClickFix.DQ!MTB`, the lure that has a person paste such a line, and Windows refused the start.
 A no-mistakes before 1.86.0 has no `--intent-file`, so for such a build alone the intent stays on the command line, and the command says so.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
+An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
 Commands operate in the recorded task worktree and use its frozen policy.
 A task that gates several branches from extra worktrees names one: `run`, `respond` and `recover` take `--branch <branch>`, and `respond` and `recover` take `--run <run-id>` instead.
@@ -215,6 +217,10 @@ The one exception is the CFO's own decision: `respond <id> --action approve --ac
 It is honoured only from the registered primary CFO process, proven as `cfo question` proves it, and a goblin running it on its own gate is refused before anything is recorded.
 The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer; a finding with an empty action still needs its fix.
 The task's status log records `pipeline-findings-accepted` with the step, run, round and IDs before approve reaches the gate.
+An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.
+It is the registered primary CFO's reason as `--accept` is its decision, so a goblin is refused before anything is recorded.
+The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
+A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.
 Unsupported or malformed evidence fails closed.
 The command returns exit 3 for unresolved work requiring a CFO decision, without advancing the gate.
 Other refusals return exit 1.
