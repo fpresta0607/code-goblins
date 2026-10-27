@@ -35,7 +35,7 @@ type timedOutOrigin struct {
 }
 
 func (forge timedOutOrigin) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
-	if *forge.isTimingOut && (slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) || slices.Equal(request.Args, []string{"config", "--local", "--get", "remote.origin.url"})) {
+	if *forge.isTimingOut && slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) {
 		return execx.Result{}, context.DeadlineExceeded
 	}
 	return forge.fakeForge.Run(ctx, request)

@@ -258,6 +258,7 @@ type fakeForge struct {
 	branch          string
 	noOrigin        bool
 	noOriginHead    bool
+	origin          string // the repository's origin, github.com/o/r.git unless set
 	originBranches  []string
 	ghFailure       string
 	ghCalls         int
@@ -294,11 +295,16 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 		}
 	}
 	switch {
-	case strings.HasPrefix(command, "git config --local --get remote.origin.url"), strings.HasPrefix(command, "git config --get remote.origin.url"):
+	case strings.HasPrefix(command, "git config --get remote.origin.url"):
 		if inRepo && f.noOrigin {
 			return execx.Result{ExitCode: 1}, nil
 		}
-		return execx.Result{Stdout: []byte("https://github.com/o/r.git\n")}, nil
+		return execx.Result{Stdout: []byte(cmp.Or(f.origin, "https://github.com/o/r.git") + "\n")}, nil
+	case strings.HasPrefix(command, "git rev-parse --git-dir"):
+		if !inRepo {
+			return execx.Result{ExitCode: 128, Stderr: []byte("fatal: not a git repository")}, nil
+		}
+		return execx.Result{Stdout: []byte(".git\n")}, nil
 	case strings.HasPrefix(command, "git branch --show-current"):
 		if !strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.worktree)) {
 			return execx.Result{Stdout: []byte("\n")}, nil
@@ -1505,20 +1511,24 @@ func TestMemoryReadyKeepsAReportWhoseLifecycleRecordIsUnreadable(t *testing.T) {
 	}
 }
 
-// realOriginForge uses Git for the checkout probe and a fake for GitHub reads.
+// realOriginForge uses Git for the checkout probes and a fake for GitHub reads.
+// A checkout probe is the origin's configuration and whether a repository is
+// there at all; every other question is the fake's, which answers for GitHub.
 type realOriginForge struct{ *fakeForge }
 
 func (f realOriginForge) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
-	if req.Name == "git" && len(req.Args) > 0 && req.Args[0] == "config" && req.Dir == f.repo {
+	isCheckoutProbe := len(req.Args) > 1 && (req.Args[0] == "config" || req.Args[0] == "rev-parse" && req.Args[1] == "--git-dir")
+	if req.Name == "git" && isCheckoutProbe && req.Dir == f.repo {
 		return (execx.OSRunner{}).Run(ctx, req)
 	}
 	return f.fakeForge.Run(ctx, req)
 }
 
 func TestCIMonitorSkipsNonGitHubOrigin(t *testing.T) {
-	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
 	t.Setenv("GH_HOST", "")
-	for _, remote := range []string{"https://gitlab.com/example/project.git", "git@gitlab.com:example/project.git", "gitlab.com:example/project.git", "../local-repository"} {
+	for _, remote := range []string{"https://gitlab.com/example/project.git", "git@gitlab.com:example/project.git", "gitlab.com:example/project.git", "https://gitlab.com", "../local-repository", "file:///C:/repos/project.git"} {
 		t.Run(remote, func(t *testing.T) {
 			s, h := fleetService(t)
 			project := t.TempDir()
@@ -1642,6 +1652,70 @@ func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
 	}
 }
 
+func TestCIMonitorReportsGitHubOriginWithoutRepository(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	s, h := fleetService(t)
+	project := t.TempDir()
+	git := execx.OSRunner{}
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com"}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if forge.ghCalls != 0 {
+		t.Fatalf("a remote naming no repository made %d GitHub calls, want none", forge.ghCalls)
+	}
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "names no repository") || strings.Contains(wakes[0].Detail, "gh auth login") {
+		t.Fatalf("wakes = %+v, want one saying the origin names no repository", wakes)
+	}
+}
+
+// An origin kept in an included configuration file is the checkout's effective
+// origin, so the monitor reads it. A probe of the local configuration alone
+// silently turned such a repository into no repository at all.
+func TestCIMonitorReadsOriginFromIncludedConfiguration(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	s, h := fleetService(t)
+	project := t.TempDir()
+	git := execx.OSRunner{}
+	included := filepath.Join(project, "included.gitconfig")
+	if err := os.WriteFile(included, []byte("[remote \"origin\"]\n\turl = https://github.com/o/r.git\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init"}, {"config", "include.path", filepath.ToSlash(included)}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.pulls, forge.runs = "[]", "[]"
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	if forge.ghCalls == 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+		t.Fatalf("calls=%d wakes=%+v, want the effective origin read and nothing to answer", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+	}
+}
+
 func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("GH_CONFIG_DIR", config)
@@ -1649,7 +1723,7 @@ func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(config, "hosts.yml"), []byte("enterprise.example:\n  user: example\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, remote := range []string{"https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "https://enterprise.example/o/r.git", "https://github.com/%zz", "https://gitlab.com"} {
+	for _, remote := range []string{"https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "https://enterprise.example/o/r.git", "https://github.com/%zz"} {
 		t.Run(remote, func(t *testing.T) {
 			s, h := fleetService(t)
 			project := t.TempDir()
@@ -1673,6 +1747,55 @@ func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
 				t.Fatalf("calls=%d wakes=%+v, want GitHub failure visible", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
 			}
 		})
+	}
+}
+
+func TestPullRequestAddressesOnAMonitoredHost(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	if err := os.WriteFile(filepath.Join(config, "hosts.yml"), []byte("enterprise.example:\n  user: example\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		url, host, repository, owner, name string
+		isBase                             bool
+	}{
+		{"https://github.com/o/r/pull/1", "github.com", "o/r", "o", "r", true},
+		{"https://enterprise.example/o/r/pull/1", "enterprise.example", "o/r", "o", "r", true},
+		{"https://gitlab.com/o/r/merge_requests/1", "", "", "o", "r", false},
+		{"https://github.com/o/r/issues/1", "", "", "o", "r", false},
+	} {
+		host, repository, isBase := pullRequestBaseRepository(c.url)
+		owner, name := pullRequestRepository(c.url)
+		if host != c.host || repository != c.repository || isBase != c.isBase || owner != c.owner || name != c.name {
+			t.Fatalf("%s: base=(%q,%q,%t) repository=(%q,%q), want base=(%q,%q,%t) repository=(%q,%q)", c.url, host, repository, isBase, owner, name, c.host, c.repository, c.isBase, c.owner, c.name)
+		}
+	}
+}
+
+// A pull request opened on a host gh is configured for is read like any other:
+// its repository comes from its own address, so PR health is not silently off
+// for a checkout that lives on an enterprise host.
+func TestPRHealthReadsAPullRequestOnAConfiguredHost(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	if err := os.WriteFile(filepath.Join(config, "hosts.yml"), []byte("enterprise.example:\n  user: example\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	service, h, forge, now := healthService(t, false)
+	forge.origin = "https://enterprise.example/o/r.git"
+	forge.pulls = `[{"number":209,"url":"https://enterprise.example/o/r/pull/209","headRefName":"feat/wakes","headRefOid":"head-one","baseRefName":"main","mergeable":"CONFLICTING","isCrossRepository":false,"author":{"login":"teammate"},"statusCheckRollup":[]}]`
+	forge.comparisons = healthComparison("head-one", 0)
+
+	if err := service.checkFleet(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+
+	wakes := fleetWakeRecords(t, h, "pr")
+	if len(wakes) != 1 || wakes[0].Key != "health:o/r" || !strings.Contains(wakes[0].Detail, "conflicts") {
+		t.Fatalf("health wakes = %+v, want one for o/r naming its conflict", wakes)
 	}
 }
 
