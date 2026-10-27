@@ -354,8 +354,13 @@ func (s Service) classify(ctx context.Context, meta state.TaskMeta, prior Observ
 		if s.isStoppedOnRequest(meta) {
 			return lifecycleObservation(meta, HealthParked, now), sample
 		}
-		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && verb == "paused" && line > observation.ConsumedVerbLine {
-			return s.pausedMissingObservation(observation, sample.Detail, now), sample
+		if verb, line, ok := s.latestStatusVerb(meta.ID); ok && line > observation.ConsumedVerbLine {
+			switch verb {
+			case "done":
+				return lifecycleObservation(meta, HealthParked, now), sample
+			case "paused":
+				return s.pausedMissingObservation(observation, sample.Detail, now), sample
+			}
 		}
 		return unknownObservation(observation, EndpointMissing, sample.Detail, now), sample
 	}

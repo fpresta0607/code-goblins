@@ -212,6 +212,45 @@ func TestRestartPCWritesEveryHandoffAndPauseBeforeWindowsRestarts(t *testing.T) 
 	}
 }
 
+// A goblin whose latest report delivered a pull request waits on its merge,
+// not on a session. A restart that paused it would have the scheduler resume
+// it after the sign-in, only to report the same pull request done again, as
+// three goblins did after a restart on 2026-10-27, so the restart leaves it
+// unpaused and pauses only the goblin still working.
+func TestRestartPCLeavesAGoblinThatDeliveredItsPullRequestUnpaused(t *testing.T) {
+	// Arrange
+	s, h, log, spawner := restartBoard(t, 8*gigabyte)
+	now := time.Now().UTC()
+	delivered := hostedGoblin(t, h, "first-goblin", now)
+	working := hostedGoblin(t, h, "second-goblin", now)
+	if err := state.AppendStatus(h.State, delivered.ID, "done: PR https://github.com/acme/api/pull/7"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	code, _ := askTheBoard(t, s, "POST", "/api/pc/restart", "{}", nil)
+	select {
+	case <-log.restarted:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("Windows was never restarted: %v", log.recorded())
+	}
+	awaitRestartState(t, s, "restarting")
+
+	// Assert
+	if code != http.StatusAccepted {
+		t.Fatalf("POST /api/pc/restart = %d, want it accepted", code)
+	}
+	if calls := spawner.recorded(); len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != working.ID {
+		t.Errorf("cfo ran %v, want a pause of %s alone", calls, working.ID)
+	}
+	if got, isPaused := log.atRestart[delivered.ID]; isPaused {
+		t.Errorf("as Windows restarted %s was %q, want it left unpaused", delivered.ID, got)
+	}
+	if record, err := state.ReadLifecycle(h.State, delivered.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s has lifecycle %+v, %v; want none, so no pause clears into a resume", delivered.ID, record, err)
+	}
+}
+
 // A goblin that does not pause stops the restart short, so its work is not
 // cut off: Windows is not restarted, the board says why, the CFO is told,
 // and the goblins already paused stay paused until the PC restarts.

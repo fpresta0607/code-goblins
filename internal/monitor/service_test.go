@@ -394,12 +394,85 @@ func TestAPausedTaskWhoseTerminalIsGoneWakesOncePerResurface(t *testing.T) {
 	}
 }
 
+// A goblin that reported done and rests on it waits on nothing a session
+// does: a restart that ends its terminal leaves it down, so its gone terminal
+// is parked and raises no endpoint_missing wake advising to bring it back.
+// One seen working past its done report took up more work, and losing its
+// terminal still wakes the CFO.
+func TestADoneTaskWhoseTerminalIsGoneWakesOnlyWhenSeenWorkingPastItsReport(t *testing.T) {
+	for _, testCase := range []struct {
+		name                      string
+		isSeenWorking, shouldWake bool
+	}{
+		{name: "resting on its done report"},
+		{name: "seen working past its done report", isSeenWorking: true, shouldWake: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			now := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+			meta := metaFor("g1")
+			writeTask(t, stateDir, meta)
+			probe := &fakeProber{samples: map[string]EndpointSample{"g1": sampleFor(meta, herdr.BusyIdle, "same")}}
+			service := testService(stateDir, probe, &now)
+			if _, err := service.Scan(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.AppendStatus(stateDir, "g1", "done: PR https://github.com/acme/api/pull/7"); err != nil {
+				t.Fatal(err)
+			}
+			now = now.Add(time.Second)
+			if _, err := service.Scan(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if testCase.isSeenWorking {
+				probe.samples["g1"] = sampleFor(meta, herdr.BusyWorking, "the review's fix")
+				now = now.Add(time.Second)
+				if _, err := service.Scan(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			probe.samples["g1"] = EndpointSample{Verdict: ProbeMissing, Detail: "native terminal g1's host does not answer; goblins resume brings it back in place, resuming its session, as cfo switch g1 --harness claude does for it alone"}
+
+			// Act
+			var wakes []Event
+			var last Observation
+			for range 12 {
+				now = now.Add(5 * time.Minute)
+				result, err := service.Scan(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				last = result.Observations[0]
+				if result.Event == nil {
+					continue
+				}
+				wakes = append(wakes, *result.Event)
+				if _, err := service.Publish(*result.Event); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Assert
+			if !testCase.shouldWake {
+				if len(wakes) != 0 || last.Health != HealthParked {
+					t.Errorf("a done task with no terminal woke %+v and reads %s, want no wake and parked", wakes, last.Health)
+				}
+				return
+			}
+			if len(wakes) == 0 || !strings.HasPrefix(wakes[0].Detail, string(EndpointMissing)+": ") {
+				t.Errorf("a task seen working past its done report lost its terminal and woke %+v, want an endpoint_missing wake", wakes)
+			}
+		})
+	}
+}
+
 func TestScanUnknownEndpointPreservesCorruptRecordAndContinuesAfterRestart(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)
 	meta := metaFor("g1")
 	writeTask(t, stateDir, meta)
-	if err := state.AppendStatus(stateDir, "g1", "done: do not trust this"); err != nil {
+	if err := state.AppendStatus(stateDir, "g1", "working: do not trust this"); err != nil {
 		t.Fatal(err)
 	}
 	probe := &fakeProber{samples: map[string]EndpointSample{"g1": {Verdict: ProbeMissing, Detail: "pane missing"}}}
