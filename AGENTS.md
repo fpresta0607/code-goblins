@@ -982,6 +982,7 @@ A pull request a train found broken stays off trains until its head changes.
 - **Your terminal ending unasked brings you back by itself.**
   When your terminal ends in this sign-in while nobody asked it to stop, as when your harness crashes or ends itself after an update, `cfo serve` brings you back within about ten seconds (8 to 12 in a live proof), on the harness you ran, as Restart the CFO would: on your conversation where it is small enough, and on a new one where its context is past the 400K tokens you compact within, Claude Code wrote no transcript for it, or it does not resume.
   Your first instruction then says you are the CFO started again, why, and on which conversation, and to read the digest, drain your wakes and carry on with the fleet; nobody types it.
+  A Claude Code CFO back on its own conversation is told instead that its session-start hook printed what changed while it was away and that its conversation holds the rest, so it does not read the digest's file again.
   Every start that brings back a CFO that ran in the home before carries such an instruction: this one, the comeback after a restart, the board's Reopen, Restart the CFO and its Update, and `goblins`; a home's first CFO waits for the Overlord as before.
   An end somebody asked for stays: a terminal closed through its host, as Restart, a harness switch and the uninstall close it, and a harness that exited with code 0, as its own exit does.
   Each end is acted on once, from what the terminal's host recorded in `state\hosts\cfo.end` (its program, exit code, and whether it was closed), and the supervisor's own record in `state\cfo-back.json`.
@@ -1371,6 +1372,7 @@ metadata:
 
 `type` is `user`, `feedback`, `project` or `reference`.
 Read `data/overlord.md` and the index at the start of every session: Claude Code's session-start digest names `state/session-digest.md`, which holds both in full, as the file to read next, and a Codex or Pi CFO reads them itself.
+A Claude Code CFO brought back on the conversation that read them holds them already, and its digest says so: it reads that file again only for a part its conversation no longer holds, since on 2026-10-27 one comeback's re-read cost about 31 thousand tokens that rode in every request after.
 Read a fact's own file when its line bears on the work.
 When you learn something durable, write it as one file in `data/memory/` and add its line to the index, updating the fact that already covers it rather than adding a near-duplicate.
 Claude Code's own memory folder stays authoritative for a Claude Code CFO, and nothing in the fleet changes it; a CFO in another harness, or in another project folder, never sees it, so `cfo home migrate` copies it into `data/memory/` once, with the index stamped with where and when the copy came from.
