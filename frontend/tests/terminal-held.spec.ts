@@ -12,10 +12,7 @@ import { expect, test, type Page } from "./site";
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
 const SCREEN = "\x1b[2J\x1b[HGate review running\r\n$ ";
-// What the terminal says while the gate holds it, in the words of this
-// branch's heldNotice: what he sends is queued and typed once it lets go,
-// which is the path the board's box gives him meanwhile.
-const NOTICE = "The review gate owns this goblin's work right now, so what you send is queued and typed once it lets go.";
+const NOTICE = "Typing is paused.";
 
 // open plays the terminal's relay with play, which is handed each socket.
 async function open(page: Page, play: (socket: { send: (message: string | Buffer) => void; close: (code: number, reason: string) => void }) => void) {

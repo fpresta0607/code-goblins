@@ -50,12 +50,14 @@ test("a session whose usage cannot be read leaves its ring unmeasured and says w
   await open(page);
   await openGoblin(page);
 
-  // Assert
-  await expect(footer(page)).toContainText("usage unreadable");
-  await expect(footer(page)).toContainText("its Claude usage could not be read");
+  // Assert: the footer says it once, and its reason is in the disclosure.
+  await expect(footer(page)).toContainText("Usage unavailable");
+  await expect(footer(page)).not.toContainText("its Claude usage could not be read");
   await expect(page.getByRole("region", { name: "Session usage", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Context usage unavailable", exact: true }).click();
-  await expect(page.getByRole("tooltip", { name: "Session statistics", exact: true })).toContainText("its token usage and spend");
+  const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
+  await expect(stats).toContainText("its Claude usage could not be read");
+  await expect(stats).toContainText("its token usage and spend");
 });
 
 test("the context ring opens available session stats and allowance without covering the composer", async ({ page }) => {

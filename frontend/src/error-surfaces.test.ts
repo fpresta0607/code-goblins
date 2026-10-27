@@ -7,14 +7,16 @@ import ts from "typescript";
 // The Overlord, 2026-10-08: "again everything error wise goes to cfo and cfo
 // decides what to tell me in command center", and of a line saying how and
 // when a panel was read: "i dont need descriptive text everywhere like this".
-// The board keeps six kinds of words about trouble: a one or two word status
+// The board keeps seven kinds of words about trouble: a one or two word status
 // on a card, a disabled button's reason in its tip, a few words beside what
 // he clicked that go by themselves (ClickFeedback), one short line while the
 // supervisor is down, the box that says his AFK switch was refused, in full,
 // which he chose on 2026-10-08 over a few words that went by themselves
 // ("this yellow text i hate. as an error"), and, under a key card's row, why
 // the board refused the value he pasted, so the row stays open, which he
-// approved with the key card on 2026-10-12. This reads the board's source for
+// approved with the key card on 2026-10-12, and a failed Send beside its kept
+// draft, which must stay actionable even while input is held (2026-10-27).
+// This reads the board's source for
 // every other way of showing him an error, and for a line explaining where a
 // number came from or how fresh it is.
 const SOURCE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
@@ -51,7 +53,8 @@ function findingsIn(file: string, code: string): Finding[] {
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText(source), value = node.initializer && ts.isStringLiteral(node.initializer) ? node.initializer.text : node.initializer?.getText(source) || "";
       const keyRefusal = path.basename(file) === KEY_CARD && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === KEY_REFUSAL);
-      if (name === "role" && /alert/.test(value) && !keyRefusal) at(node, 'role="alert"');
+      const isComposerRefusal = path.basename(file) === "composer.tsx" && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === "composer-note");
+      if (name === "role" && /alert/.test(value) && !keyRefusal && !isComposerRefusal) at(node, 'role="alert"');
       if (name === "className" && ERROR_CLASSES.test(value)) at(node, "className " + value);
     }
     const text = ts.isJsxText(node) ? node.getText(source).trim()
@@ -66,7 +69,7 @@ function findingsIn(file: string, code: string): Finding[] {
   return found;
 }
 
-test("the board shows no error, warning or explanatory line outside the four kept kinds", () => {
+test("the board shows no error, warning or explanatory line outside its kept action feedback", () => {
   // Arrange
   const files = readdirSync(SOURCE).filter((name) => name.endsWith(".tsx")).map((name) => path.join(SOURCE, name));
 

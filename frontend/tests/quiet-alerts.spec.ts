@@ -92,6 +92,50 @@ async function open(page: Page) {
 test.describe("on the board, in a browser tab", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
 
+  for (const permission of ["denied", "default", "unsupported"] as const) {
+    test(`a browser with ${permission} notifications leaves the announcement for the desktop window`, async ({ page, context }) => {
+      test.slow();
+      // Arrange
+      await page.addInitScript((state) => {
+        Object.defineProperty(window, "Notification", { configurable: true, value: state === "unsupported" ? undefined : class {
+          static permission = state;
+          constructor() { throw new Error("Notifications are unavailable"); }
+        } });
+      }, permission);
+      await standInStream(context);
+      const asked = await announcer(context);
+      await open(page);
+      const allowed = await context.newPage();
+      await allowed.addInitScript(RECORD_NOTIFICATIONS);
+      await allowed.addInitScript(OUT_OF_SIGHT);
+      await open(allowed);
+
+      // Act
+      await send(page, board({ questions: [RELEASE] }));
+      await expect(page.getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
+      await page.waitForTimeout(ANNOUNCED_BY_MS);
+
+      // Assert
+      expect(asked).toEqual([]);
+      await expect(page.getByRole("button", { name: "Turn on", exact: true })).toHaveCount(permission === "default" ? 1 : 0);
+      await send(allowed, board({ questions: [RELEASE] }));
+      await expect.poll(() => notes(allowed)).toEqual([{ title: "CFO", body: "The CFO asks: " + ASKS, tag: "question:" + RELEASE.id + "@" + RELEASE.created_at, closed: false }]);
+      await send(allowed, board({ questions: [RELEASE] }));
+      await send(allowed, board({ instance: "board-2" }));
+      await send(allowed, board({ instance: "board-2", questions: [RELEASE] }));
+      await page.waitForTimeout(ANNOUNCED_BY_MS);
+      expect(await notes(allowed)).toHaveLength(1);
+      expect(asked).toEqual(["alert:question:" + RELEASE.id + "@" + RELEASE.created_at]);
+      await allowed.evaluate(() => (window as unknown as { notes: { onclick: () => void }[] }).notes[0].onclick());
+      await expect(card(allowed)).toContainText(ASKS);
+      await open(allowed);
+      await send(allowed, board({ questions: [RELEASE] }));
+      await page.waitForTimeout(ANNOUNCED_BY_MS);
+      expect(await notes(allowed)).toEqual([]);
+      expect(asked).toHaveLength(1);
+    });
+  }
+
   // A browser that allows notifications records each one the board asks it
   // to show.
   const RECORD_NOTIFICATIONS = () => {
@@ -107,6 +151,22 @@ test.describe("on the board, in a browser tab", () => {
     Object.assign(window, { notes: [], Notification: Note });
   };
   const notes = (page: Page) => page.evaluate(() => (window as unknown as { notes: { title: string; options: { body: string; tag: string }; closed: boolean }[] }).notes.map((note) => ({ title: note.title, body: note.options.body, tag: note.options.tag, closed: note.closed })));
+
+  test("AFK mode still records a suppressed event without asking for notification permission", async ({ page, context }) => {
+    // Arrange
+    await page.addInitScript(() => Object.defineProperty(Notification, "permission", { get: () => "default" }));
+    await standInStream(context);
+    const asked = await announcer(context);
+    await open(page);
+
+    // Act
+    await send(page, board({ afk: { state: "on" }, questions: [RELEASE] }));
+
+    // Assert
+    await expect.poll(() => asked).toEqual(["alert:question:" + RELEASE.id + "@" + RELEASE.created_at]);
+    await expect(page.locator(".toasts")).toHaveCount(0);
+    await expect(card(page)).toBeHidden();
+  });
 
   test("a goblin done, failed or blocked, a retired goblin's pause that did not finish, and the CFO falling behind raise no alert; their cards and the CFO's bar say them", async ({ page, context }, testInfo) => {
     // Arrange
@@ -207,6 +267,11 @@ window.addEventListener("DOMContentLoaded", () => { ${notesScript} });`;
     expect(quiet).toEqual([]);
     const fromPage = "question:" + RELEASE.id + "@" + RELEASE.created_at;
     await expect.poll(() => posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
+    await send(page, { ...news(), questions: [RELEASE, second] });
+    await send(page, board({ instance: "board-2" }));
+    await send(page, board({ instance: "board-2", questions: [RELEASE, second] }));
+    await page.waitForTimeout(ANNOUNCED_BY_MS);
+    expect(await posted(page)).toEqual([{ id: fromPage, title: "CFO", body: "The CFO asks: " + ASKS }]);
     await testInfo.attach("one item posted to Windows, in the window's size", { body: await page.screenshot(), contentType: "image/png" });
     await clicked(page, fromPage);
     await expect(card(page)).toContainText(ASKS);

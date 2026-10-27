@@ -1,11 +1,12 @@
 /* One input bar with plain controls beneath it, shared by both chat views. */
 .composer { position: relative; display: grid; align-content: start; gap: 8px; padding: 10px 14px 12px; }
+.composer-slot { display: contents; }
 .deck-slot.with-messages { flex-direction: column; }
 .deck-slot.with-messages > .composer { background: #071015; }
 .composer-asking { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid #735338; border-radius: var(--radius); background: #292116f2; color: #f6dcb6; }
 .composer-asking > .icon { width: 20px; height: 20px; color: var(--amber); }
 .composer-asking > p { flex: 1; min-width: 0; margin: 0; color: var(--amber); font-weight: 800; }
-.composer-sent { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.composer-sent { display: grid; gap: 6px; max-height: min(10rem, 25dvh); overflow: auto; margin: 0; padding: 0; list-style: none; }
 .composer-sent > li { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .composer-sent-text { flex: 1; min-width: 0; color: #d8e9e2; overflow-wrap: anywhere; white-space: pre-wrap; }
 .composer-sent-state { flex: none; color: var(--muted); font-size: .875rem; }
@@ -44,20 +45,23 @@
 .composer-style-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 9rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .composer-style-popover > button { justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
 .composer-style-popover > button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
-.composer-note { min-width: 0; margin: 0; padding: 0 10px; color: #f1c598; font-size: .875rem; overflow-wrap: anywhere; }
+.composer-note { min-width: 0; margin: 0; padding: 0 10px; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.composer-note[role="alert"] { color: #f1c598; }
 .composer-note:empty { display: none; }
 .composer-send { display: grid; place-items: center; flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
 .composer-send[data-active] { color: var(--accent-green); }
 .composer-send:hover { background: transparent; }
 .composer-send:disabled { cursor: default; }
 .composer-send .icon { width: 18px; height: 18px; }
-.queued-control { color: #f1c598; }
 .queued-control > span { font-variant-numeric: tabular-nums; }
 .composer-box > .voice-recent { right: 0; bottom: calc(100% + 8px); }
 @media (pointer: coarse) {
   .composer-control, .composer-input .voice-bubble, .composer-send { min-width: 44px; min-height: 44px; height: 44px; }
+  .composer-sent .icon-button { width: 44px; min-height: 44px; height: 44px; margin-block: 0; }
 }
 @media (max-width: 480px) {
+  .fills-phone .composer textarea { max-height: 4.5em; }
+  .fills-phone .composer-sent { max-height: 5rem; }
   .composer-controls:last-child { width: 100%; gap: 4px; }
   .composer-controls .engine-control:first-child { flex: 1; min-width: 0; max-width: none; text-align: left; }
 }

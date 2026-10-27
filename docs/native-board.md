@@ -539,7 +539,7 @@ A caret only ever opens or closes what it stands before: the same test names eve
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust`, but nothing on the board files or shows one.
 The CFO's task list holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
 Board and Orchestration both open a goblin, and the CFO, on its one view, a Claude Code session's showing its messages ([The Messages view](#the-messages-view)); Orchestration's view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
-A Claude Code session's messages stay mounted too, from their first showing while its panel shows the session.
+A Claude Code session's messages stay mounted too, from the first showing of its conversation or of the box it holds while its panel shows the session; a Classic terminal that shows neither loads no messages.
 Typing happens in the terminal itself, or in a Claude Code session's message box, which types into it.
 Where a goblin's terminal cannot take typing, for a goblin paused, resuming or starting, a session the board does not read as messages has a message box under its terminal's place instead, the same box the messages have: Send or Enter sends a `message` action through `POST /api/actions` with the task's id, and the supervisor delivers it once whatever the goblin is doing.
 The CFO's terminal has no message box under it: while no CFO runs, closed or between the two terminals of a restart, it shows only why it has no terminal (the Overlord, 2026-10-09: "when cfo is off no message box should exist").
@@ -795,12 +795,12 @@ For Claude Code that is a dialog the supervisor knows while no turn, composer or
 What the conversation shows above decides nothing: a dialog's words a diff quotes have the composer waiting under them, and a mode a reply names lies above a list that asks.
 While the view was last told `true`, the screen is read 300 ms after the first output that follows, pause or not, so the turn an answer starts clears the card at once.
 A busy program takes a key only once it is free, as Claude Code does while it starts a tool and a shell does while a command runs, and until then nothing on its screen shows the key was pressed.
-The board's terminal says so once a key has waited a second, and for at least a second, with the note Program busy. Typed keys are waiting. in its top left corner, so a key is not pressed a second time: on a screen where a key switches something on and off, as Enter does on a row of Claude Code's permissions screen, the second press undoes the first, which is how an Enter the Overlord pressed there on 9 October 2026 approved nothing.
+The board's terminal, while the board shows no message box for the session, says so once a key has waited a second, and for at least a second, with the note Program busy. Typed keys are waiting. in its top left corner, so a key is not pressed a second time: on a screen where a key switches something on and off, as Enter does on a row of Claude Code's permissions screen, the second press undoes the first, which is how an Enter the Overlord pressed there on 9 October 2026 approved nothing.
 A view opened while keys wait is told so first and shows the note once it is whole.
 A host tells a viewer of it only when the viewer's handshake asks, so `cfo attach` and a relay from before hosts told it are told nothing, and a host from before tells nothing.
 `TestOnlyAViewerThatAskedIsToldOfAKeyABusyProgramLeavesUnread`, `TestANativeViewIsToldOfAKeyABusyProgramLeavesUnreadUntilItIsRead` and `frontend/tests/terminal-keys.spec.ts` cover it.
 Gate custody and the task's generation are checked when the view opens and on every five-second tick.
-While custody holds typing, as a review gate that owns the goblin's work does, the view stays open and its screen live: the relay tells it `{"type":"held","reason":"..."}` when it opens and whenever that changes, and an empty reason once typing is free, and the view says so in its top left corner, such as The review gate owns this goblin's work right now, so typing is paused. The screen stays live.
+While custody holds typing, as a review gate that owns the goblin's work does, the view stays open and its screen live: the relay tells it `{"type":"held","reason":"..."}` when it opens and whenever that changes, and an empty reason once typing is free, and the view says it on a plain line under its screen as Typing is paused. A session's message box, once shown, replaces that line with its queue note. The screen stays live.
 A key or a paste sent under custody is dropped and never typed, and a resize is ignored, so the terminal keeps its size until a resize arrives after custody ends.
 Until 22 October 2026 the first input under custody closed the view, and xterm sends input by itself, a focus report once a program asks for them or a reply to a query the replayed history holds, so a goblin a gate owned opened as a Reconnect button with no screen and no words (the Overlord, 2026-10-22, "every time I open up some of my goblins in the task panel it always says reconnect even though it's connected"; #1304; `TestANativeViewUnderAGateStaysOpenAndTypesNothing`, `frontend/tests/terminal-held.spec.ts`).
 The terminal's end closes the view with its exit code in the reason.
@@ -1032,6 +1032,7 @@ Clicking the bubble lists the board's five most recent dictations, newest first,
 The supervisor keeps that one list, the newest ten, in `state/dictations.json` in the home, so it outlasts a restart and never leaves this PC: `GET /api/dictations` reads it and `POST /api/dictations` adds one, both only from the board's own page at 127.0.0.1, as dictation itself, and nothing about the words is logged.
 An open list reads it again when its window takes the focus, with what another window added meanwhile.
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
+A message box's list says Paste into the message instead: it puts the chosen words where the caret or the selection is, keeps the rest of the draft, and reads no clipboard, so what an older dictation adds is never taken for an empty clipboard (the Overlord, 2026-10-27).
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
 
 The supervisor's speech engine is what makes that dictation free and local.
@@ -1383,13 +1384,14 @@ Jump to latest, at the list's foot while he reads up, returns to the end.
 Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
 While such a terminal cannot accept input, scrolling back opens its recorded conversation, which saves Modern as Back to messages does, without typing.
+The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
 At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
 The indicator has no icon of its own and takes the harness's colour.
-When the session is not working the line keeps the time facts and says why when the session's usage cannot be read at all; the fuller usage stays in the banner.
+When the session is not working the line keeps the time facts, and the fuller usage stays in the banner.
 Above the message box an unboxed usage line opens the full stats in place: recorded session usage, available account quota and shared API-key spend, each labeled for its actual scope.
 Shared key spend is never presented as session cost, and available session usage stays readable when quota is unavailable.
 A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.
-A session whose usage cannot be read draws no banner, and the line above says why.
+A session whose usage cannot be read draws one neutral Usage unavailable state, with the reason in its accessible statistics disclosure.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
@@ -1408,12 +1410,18 @@ Under the conversation is the session's message box, in place of its terminal's 
 The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
 While the harness works the footer says so with Stop, which presses Escape in its terminal.
-Busy or gate-held sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
-An unqueued draft stays in the box while its terminal connects, reconnects or is closed.
+Busy, held or reconnecting sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
+Routine queueing has one neutral note beside the input, naming a review hold or a detached worktree waiting for a branch and never a message queued before it is accepted, and a failed Send takes priority, keeps the draft and retries with the same submission identity.
+The same composer stays mounted across Classic and Modern surfaces, keeping pending sends, attachment uploads and recordings through release or reconnect.
+The box a terminal's hold, busy program or reconnect shows beside it stays in Classic once the terminal takes typing again, and Modern keeps it then only for the box's own work, a file adding, a Send landing, a failed Send to retry or its own recording; a recording started in the terminal brings it in for neither, and a box that stays sends directly again.
+An unqueued draft stays in the box while its terminal first connects or is closed.
 While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
+That card is not drawn while that terminal is stepped in, which shows the screen itself, or while typing is held, where the note says what Send does and it queues instead.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
+The active composer owns the microphone and queue note, while a phone terminal keeps Copy terminal text independently available.
+An already-running terminal recording keeps one Stop control, on the active composer when a box is shown and on the terminal's own bubble when none is, and a live terminal takes the words its own microphone heard, which Speech history still lists, and holds for pasting back, only where held input refused them.
 The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
 Plain style, model, effort, speech-history, terminal and send controls sit underneath without pills, beside the current session's context ring.
 Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.
@@ -1943,6 +1951,7 @@ A goblin's question with choices waits on the CFO; once the CFO has left it unan
 The CFO's bar then says, in place of All quiet, how many such questions wait and how long the oldest has, so it never names a question his Command Center does not show.
 The bar counts as at work only the goblins in In progress whose terminals run, never one paused, pausing or resuming, whatever it waits for.
 Before an announcement the board claims the item through `POST /api/announce` (`keys`) and announces only what the answer's `claimed` names.
+A browser without granted notification permission leaves the claim for another viewer, including the minimized desktop window; AFK mode still records suppressed events without asking for permission.
 The supervisor hands each key to the first request and keeps it for thirty days, at most 2048 keys, so a second tab or a restart never announces that item again.
 While [AFK mode](#afk-mode) is on it hands out nothing and records what was asked about, so nothing announces while the Overlord is away or repeats when he returns.
 A hidden tab waits a second and a half before claiming, giving a visible tab the first chance; with no tab in view the hidden tab can send its Windows notification.

@@ -1,6 +1,47 @@
 import { expect, test, type Page } from "./site";
 import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
+test.describe("phone speech history", () => {
+  test.use({ hasTouch: true });
+  for (const style of ["classic", "modern"]) {
+    for (const width of [360, 390]) {
+      test(`phone ${style} inserts an older speech entry at the selection without reading the clipboard at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 800 });
+        await page.addInitScript((chatStyle) => {
+          localStorage.setItem("cfo-chat-style", chatStyle);
+          let reads = 0;
+          Object.defineProperty(navigator, "clipboard", { configurable: true, value: { read: async () => { reads++; return []; } } });
+          Object.assign(window, { clipboardReads: () => reads });
+        }, style);
+        const relay = await open(page);
+        await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [
+          { text: "newest dictation", at: Date.parse("2026-10-22T09:31:00Z") },
+          { text: "older dictation", at: Date.parse("2026-10-22T09:30:00Z") },
+        ] } }));
+        await card(page, NAME).tap();
+        await expect.poll(() => relay.views).toBeGreaterThan(0);
+        if (style === "classic") relay.say({ type: "held", reason: "pipeline owns this task" });
+        await expect(field(page)).toBeVisible();
+        await field(page).fill("before replace after");
+        await field(page).evaluate((element) => { const box = element as HTMLTextAreaElement; box.focus(); box.setSelectionRange(7, 14); });
+
+        await box(page).getByRole("button", { name: "Speech history", exact: true }).tap();
+        const history = page.getByRole("dialog", { name: "Recent messages" });
+        await expect(history).toBeVisible();
+        await history.getByRole("button", { name: "Paste into the message: older dictation", exact: true }).tap();
+
+        await expect(field(page)).toHaveValue("before older dictation after");
+        await expect(field(page)).toBeFocused();
+        await expect.poll(() => field(page).evaluate((element) => (element as HTMLTextAreaElement).selectionStart)).toBe(22);
+        await expect(history).toHaveCount(0);
+        await expect(box(page).locator(".composer-note")).not.toContainText("Nothing to paste");
+        expect(await page.evaluate(() => { const reads: unknown = Reflect.get(window, "clipboardReads"); return typeof reads === "function" ? reads() : -1; })).toBe(0);
+        expect(typed(relay)).toBe("");
+      });
+    }
+  }
+});
+
 // The Overlord chose design A on 2026-10-22, and two tabs that evening: a
 // Claude Code session's Terminal view shows its messages, and the box under
 // the messages takes the place of the terminal's input. Send types what he wrote through the terminal's own
@@ -75,7 +116,7 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
   await expect.poll(() => typed(relay)).toContain(pasted("first line\rsecond line") + "\r");
 });
 
-test("busy and held messages use the durable queue while a reconnect keeps an unsent draft", async ({ page }) => {
+test("busy, held and reconnecting sessions save messages in the durable queue", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
   const note = box(page).locator(".composer-note");
@@ -84,7 +125,7 @@ test("busy and held messages use the durable queue while a reconnect keeps an un
   await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
 
   relay.say({ type: "unread", unread: true });
-  await expect(note).toHaveText("Program busy. Typed keys are waiting.");
+  await expect(note).toHaveText("Messages will be queued.");
   await expect(send(page)).toBeEnabled();
   await field(page).press("Enter");
   await expect.poll(() => actions.length).toBe(1);
@@ -112,8 +153,10 @@ test("busy and held messages use the durable queue while a reconnect keeps an un
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
 
-  await expect(note).toHaveText("Not sent. The terminal is reconnecting.");
-  await expect(field(page)).toHaveValue("merge it");
+  await expect(note).toHaveText("Messages will be queued.");
+  await expect(field(page)).toHaveValue("");
+  expect(actions).toHaveLength(2);
+  expect(actions[1]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "merge it" });
   await page.waitForTimeout(1500);
   expect(typed(relay)).toBe(before);
 });
@@ -287,7 +330,7 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // Assert: no pill over the thread, the plain copy beside the box, and Send
   // usable so the message is queued.
   await expect(page.locator(".terminal-held")).toHaveCount(0);
-  await expect(note).toHaveText("Queued. Delivery waits until this session takes input again.");
+  await expect(note).toHaveText("Messages will be queued.");
   await expect(field(page)).toBeVisible();
   await field(page).fill("send this while the check fails");
   await expect(send(page)).toBeEnabled();

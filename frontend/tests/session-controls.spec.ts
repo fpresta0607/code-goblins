@@ -59,6 +59,9 @@ for (const width of [1440, 390]) {
       await expect(stats).toBeInViewport();
       await field(page, name).click();
       await expect(stats).toHaveCount(0);
+      // Choosing a dictation puts it where the caret is, so it is put at the
+      // end of the draft first, as a tap on its last word does.
+      await page.keyboard.press("End");
       await composer.getByRole("button", { name: "Speech history", exact: true }).click();
       await page.getByRole("dialog", { name: "Recent messages", exact: true }).getByRole("button", { name: "Paste into the message: from speech", exact: true }).click();
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");

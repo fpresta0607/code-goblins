@@ -40,11 +40,12 @@ const UNREAD = "The session's messages cannot be read";
 // whose replies they are, task is the goblin whose baby goblins its calls
 // open, absent for the CFO, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, harness, model, effort, memory, isWorking, onStop, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, box }: {
+export function MessagesView({ query, instance, name, task, harness, model, effort, memory, isWorking, onStop, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
   query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean; onStop?: () => void;
   workingSince: string; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (stats: SessionStats, reading: UsageReading, model: string) => ReactNode;
+  onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
@@ -286,6 +287,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     </div>
     {(box || reading.banner) && <div className="composer-dock">
       <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} onStop={onStop} />
+      {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
       {box?.(stats, reading, held.usage?.model || model)}
     </div>}
   </section>;

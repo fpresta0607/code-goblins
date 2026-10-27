@@ -113,7 +113,7 @@ div.message-call, .message-baby, .disclosure.message-call > summary { align-item
 .session-fact.muted { opacity: .8; }
 /* The input floats above the conversation with its controls outside the bar. */
 .composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; gap: 8px; padding: 0 16px 16px; }
-.composer-dock > .composer { padding: 0; border-top: 0; background: transparent; }
+.composer-dock .composer { padding: 0; border-top: 0; background: transparent; }
 .composer-dock .composer-input { background: #0b171cf2; backdrop-filter: blur(14px); }
 .composer-dock .composer-sent { max-height: 10rem; overflow: auto; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: 14px; background: #0b171ce6; }
 /* A message the board still holds for delivery, in the conversation. */
