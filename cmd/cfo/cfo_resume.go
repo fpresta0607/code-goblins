@@ -162,7 +162,7 @@ func comebackCFO(ctx context.Context, h home.Home, runtime commandRuntime, why s
 // compaction, and records of requests, which it never sends the model, were
 // 94 percent of a CFO transcript's bytes, so a CFO that compacted was past
 // 20 MB for good and never resumed.
-const cfoContextLimit = install.CFOAutoCompactWindow
+const cfoContextLimit = install.AutoCompactWindow
 
 // cfoResume is how a CFO starting as agent comes back after the home's CFO
 // was closed. args are the harness's own arguments that resume the
