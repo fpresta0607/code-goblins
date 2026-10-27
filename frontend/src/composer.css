@@ -70,7 +70,11 @@
 @media (max-width: 480px) {
   .fills-phone .composer textarea { max-height: 4.5em; }
   .fills-phone .composer-sent { max-height: 5rem; }
-  .messages-view .composer-dock { padding-inline: 8px; }
+}
+/* A narrow chat, a phone's or a narrow side panel's, gives the box the room
+   its edge would take, so the whole row fits inside its border. */
+@container (max-width: 480px) {
+  .composer-dock { padding-inline: 8px; }
 }
 
 /* The permission mode the session's terminal shows, which a press or
@@ -80,6 +84,12 @@
 @container (max-width: 420px) {
   .composer-control.mode-chip { min-width: 28px; padding: 0 6px; }
   .mode-chip-name { display: none; }
+}
+/* A row narrower still draws its icon buttons a little tighter, so a long
+   model name stays whole. */
+@container (max-width: 340px) {
+  .composer-row .composer-control, .composer-row .voice-bubble, .composer-row .composer-send { min-width: 32px; padding-inline: 4px; }
+  .composer-row .composer-send { width: 32px; }
 }
 
 /* The model's button leads with the mark of the session's harness, drawn
