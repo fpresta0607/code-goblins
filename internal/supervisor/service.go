@@ -1231,6 +1231,10 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 		return result, nil
 	}
 	branch, err := s.Git.Branch(ctx, meta.Worktree)
+	if errors.Is(err, errDetachedHead) {
+		result.Reason = "HEAD is detached; gate evidence requires a branch"
+		return result, nil
+	}
 	if err != nil {
 		return result, err
 	}

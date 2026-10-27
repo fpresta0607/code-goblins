@@ -24,8 +24,9 @@ import (
 // retained base, and Reads answers the reads the board repeats while the
 // files git reads for them are unchanged; without it every read runs git.
 type Git struct {
-	Base  string
-	Reads *readcache.Cache
+	Base   string
+	Reads  *readcache.Cache
+	stream func(context.Context, execx.Request, io.Writer, io.Writer) (int, error)
 }
 type ChangedFile struct {
 	Path   string `json:"path"`
@@ -59,6 +60,7 @@ const (
 )
 
 var errPreviewTooLarge = errors.New("file exceeds the preview limit")
+var errDetachedHead = errors.New("HEAD is detached")
 
 var commitID = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
 
@@ -100,7 +102,11 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 		// Stderr is discarded: only warnings reach it when a command
 		// succeeds, and a failure is reported by its exit status.
 		out := &limitedBuffer{limit: maxGitOutput}
-		code, err := execx.OSRunner{}.Stream(ctx, request, out, io.Discard)
+		stream := g.stream
+		if stream == nil {
+			stream = execx.OSRunner{}.Stream
+		}
+		code, err := stream(ctx, request, out, io.Discard)
 		if out.exceeded {
 			return execx.Result{}, fmt.Errorf("Git %s output exceeds the %d KiB preview limit", args[0], maxGitOutput>>10)
 		}
@@ -118,6 +124,9 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 		return "", err
 	}
 	if result.ExitCode != 0 {
+		if result.ExitCode == 128 {
+			return "", fmt.Errorf("Git %s failed: %w; check the worktree and Git access", args[0], gitExitCode(result.ExitCode))
+		}
 		return "", fmt.Errorf("Git %s failed: %w", args[0], gitExitCode(result.ExitCode))
 	}
 	return string(result.Stdout), nil
@@ -159,7 +168,10 @@ func (g Git) Head(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 func (g Git) Branch(ctx context.Context, dir string) (string, error) {
-	out, err := g.run(ctx, dir, "symbolic-ref", "--short", "HEAD")
+	out, err := g.run(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if isGitExit(err, 1) {
+		return "", errDetachedHead
+	}
 	return strings.TrimSpace(out), err
 }
 

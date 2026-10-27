@@ -4,11 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/fpresta0607/code-goblins/internal/herdr"
-	"github.com/fpresta0607/code-goblins/internal/monitor"
-	"github.com/fpresta0607/code-goblins/internal/nativehook"
-	"github.com/fpresta0607/code-goblins/internal/pipeline"
-	"github.com/fpresta0607/code-goblins/internal/state"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +12,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 type runtimeProbe struct{ sample monitor.EndpointSample }
@@ -438,6 +442,82 @@ func TestBoardTerminalOnADetachedHeadHoldsTypingAndSaysWhy(t *testing.T) {
 	}
 	if detailErr != nil || details.Branch != "detached at "+commit || slices.Contains(details.Notes, "Branch information is unavailable.") {
 		t.Errorf("workspace = %+v, %v; want detached at %s with no unavailable note", details, detailErr, commit)
+	}
+}
+
+func TestEvaluationOfDetachedHeadWaitsForBranchAndRetries(t *testing.T) {
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	checkout := exec.Command("git", "checkout", "-q", "--detach", "HEAD")
+	checkout.Dir = meta.Worktree
+	if output, err := checkout.CombinedOutput(); err != nil {
+		t.Fatalf("detach fixture: %s: %v", output, err)
+	}
+	service := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	action := Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen}
+
+	detached, err := service.execute(context.Background(), action)
+	if err != nil || detached.Phase != "review" || detached.Verified || !strings.Contains(detached.Reason, "detached") {
+		t.Fatalf("detached evaluation = %+v, %v; want unverified review explaining detached HEAD", detached, err)
+	}
+
+	checkout = exec.Command("git", "switch", "-q", "-c", "fix/evaluation-fixture")
+	checkout.Dir = meta.Worktree
+	if output, err := checkout.CombinedOutput(); err != nil {
+		t.Fatalf("create fixture branch: %s: %v", output, err)
+	}
+	retried, err := service.execute(context.Background(), action)
+	if err != nil || retried.Phase != "review" || retried.Verified || retried.Reason != pipeline.ErrNoProgress.Error() {
+		t.Fatalf("branch evaluation after retry = %+v, %v; want gate evidence read", retried, err)
+	}
+}
+
+func TestEvaluationReportsGitFailureWithoutExposingStderrAndRetries(t *testing.T) {
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitFixture(t, meta.Worktree)
+	isFailing := true
+	service := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}, Git: Git{Reads: readcache.New()}}
+	service.Git.stream = func(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
+		if isFailing && slices.Equal(request.Args[len(request.Args)-4:], []string{"symbolic-ref", "--quiet", "--short", "HEAD"}) {
+			_, _ = io.WriteString(stderr, "fatal: private credential and path")
+			return 128, nil
+		}
+		return (execx.OSRunner{}).Stream(ctx, request, stdout, stderr)
+	}
+	action := Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen}
+
+	failed, err := service.execute(context.Background(), action)
+	if err == nil || !strings.Contains(err.Error(), "exit status 128") || !strings.Contains(err.Error(), "check the worktree and Git access") || strings.Contains(err.Error(), "private credential") || failed.Verified {
+		t.Fatalf("failed evaluation = %+v, %v; want actionable sanitized Git failure", failed, err)
+	}
+	isFailing = false
+	retried, err := service.execute(context.Background(), action)
+	if err != nil || retried.Verified || retried.Reason != pipeline.ErrNoProgress.Error() {
+		t.Fatalf("retried evaluation = %+v, %v; want fresh gate evidence read", retried, err)
+	}
+}
+
+func TestEvaluationReportsMissingWorktree(t *testing.T) {
+	store, h := testStore(t)
+	meta, err := state.ReadTaskMeta(h.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Worktree = filepath.Join(h.Root, "missing-worktree")
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (&Service{Store: store}).execute(context.Background(), Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen})
+	if err == nil || result.Verified || !strings.Contains(err.Error(), "Git rev-parse") {
+		t.Fatalf("missing worktree evaluation = %+v, %v; want Git error", result, err)
 	}
 }
 
