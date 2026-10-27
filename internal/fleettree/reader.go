@@ -228,16 +228,18 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		// one is, as a test suite a script started in the background is. A
 		// server or a browser left detached serves or draws whatever the
 		// goblin does, so its processor use says nothing of the goblin's
-		// work. Git Bash runs each program of a pipeline or a loop by
-		// replacing its own process, which leaves the program no parent, so
-		// a detached job counts in the child whose processes host the console
-		// it is attached to.
+		// work, but a run in the heavy line was left by nothing: it runs its
+		// command and tells the goblin how it ended, whatever server or
+		// browser that command starts (#1443). Git Bash runs each program of
+		// a pipeline or a loop by replacing its own process, which leaves the
+		// program no parent, so a detached job counts in the child whose
+		// processes host the console it is attached to.
 		detached := r.withoutLinkBrowsers(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)})
 		left, _ := r.jobNodes(detached, commands, tree.Children, line, now)
 		for i := range left {
 			node := &left[i]
 			node.Detached = true
-			if node.Group == GroupDevServer || node.Group == GroupBrowser {
+			if (node.Group == GroupDevServer || node.Group == GroupBrowser) && !node.heavyRun {
 				node.cpu, node.process, node.outsideWork = 0, "", true
 			}
 			tree.Memory += node.Memory

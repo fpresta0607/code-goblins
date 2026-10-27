@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 type progressGit struct {
@@ -547,6 +548,94 @@ func TestADetachedSuiteUnderTheGoblinsLauncherKeepsItFromStalling(t *testing.T) 
 	}
 	if progress := watched.Progress["slow-task"]; progress.Source != "its own processes" || !progress.At.Equal(now.Add(45*time.Minute)) {
 		t.Fatalf("progress = %+v, want its own processes at the last reading", progress)
+	}
+}
+
+// On 2026-10-23 the CFO drew a progress_stalled wake on a goblin that had
+// reported a wait and then left its browser checks to cfo gate turn --detach
+// (#1443). Its run of a node script waited in the heavy line as no test or
+// build, so it was taken for a command of the goblin's own, neither a wait
+// nor its line moving seen. Once admitted, the run's Vite server listened on
+// a port, so it was taken for a server left detached and its processor use
+// dropped. The run's waiting and its work are the goblin's progress, also
+// after it ends; a goblin that then shows nothing still wakes.
+func TestADetachedHeavyRunWaitingThenWorkingKeepsItsGoblinFromStalling(t *testing.T) {
+	// Arrange
+	now := time.Date(2026, 10, 23, 20, 43, 16, 0, time.UTC)
+	goblin := newToolCallGoblin(t, now)
+	writeFile(t, filepath.Join(goblin.home.State, "slow-task.status"), now.Format(time.RFC3339)+" waiting on 14340: the final browser run is next in line\n")
+	launched := now.Add(-time.Hour)
+	joined, moved, admitted, ended := now.Add(-time.Hour), now.Add(15*time.Minute), now.Add(30*time.Minute), now.Add(40*time.Minute)
+	browserCPU := time.Duration(0)
+	reader := goblin.service.Options.Tree
+	reader.Processes = func() ([]fleettree.Process, error) {
+		processes := []fleettree.Process{
+			{PID: 100, ParentPID: 1, Exe: "claude.exe", Created: 1, Started: launched},
+			{PID: 102, ParentPID: 100, Exe: "bash.exe", Created: 2, Started: launched.Add(20 * time.Minute)},
+			{PID: 103, ParentPID: 102, Exe: "node.exe", Created: 3, Started: launched.Add(20*time.Minute + time.Second), CPU: time.Second},
+		}
+		if goblin.clock.Before(ended) {
+			processes = append(processes, fleettree.Process{PID: 300, ParentPID: 904, Exe: "goblins.exe", Created: 30, Started: joined})
+		}
+		if !goblin.clock.Before(admitted) && goblin.clock.Before(ended) {
+			processes = append(processes,
+				fleettree.Process{PID: 301, ParentPID: 300, Exe: "node.exe", Created: 31, Started: admitted},
+				fleettree.Process{PID: 302, ParentPID: 301, Exe: "node.exe", Created: 32, Started: admitted},
+				fleettree.Process{PID: 303, ParentPID: 302, Exe: "chrome.exe", Created: 33, Started: admitted, CPU: browserCPU},
+			)
+		}
+		return processes, nil
+	}
+	reader.Listeners = func() (map[int][]int, error) { return map[int][]int{301: {5174}}, nil }
+	reader.CommandLine = func(pid int) (string, error) {
+		return map[int]string{
+			102: `bash -c "npm run test:browser"`,
+			103: "node --test",
+			300: `C:\dev\code-goblins\bin\goblins.exe gate turn --detached -- node run-palette.mjs final-validated`,
+			301: `node.exe run-palette.mjs final-validated`,
+			302: `node.exe frontend\node_modules\@playwright\test\cli.js test --project=mocked-chrome`,
+			303: `chrome.exe --headless --remote-debugging-pipe`,
+		}[pid], nil
+	}
+	reader.Owner = func(pid int) string { return map[int]string{300: "slow-task"}[pid] }
+	reader.HeavyLine = func() ([]verify.Standing, []verify.Standing, error) {
+		if !goblin.clock.Before(admitted) {
+			return []verify.Standing{{Who: "run-palette", PID: 300, Since: admitted}}, nil, nil
+		}
+		holder := now.Add(-30 * time.Minute)
+		if !goblin.clock.Before(moved) {
+			holder = moved
+		}
+		return []verify.Standing{{Who: "another goblin's suite", PID: 777, Since: holder}}, []verify.Standing{{Who: "run-palette", PID: 300, Since: joined}}, nil
+	}
+
+	// Act: a reading each minute while the run waits in line, works and
+	// ends, then nothing new until a minute before the stall interval past
+	// its last work.
+	quietUntil := ended.Add(-time.Minute).Add(PROGRESS_THRESHOLD)
+	for at := now; at.Before(quietUntil); at = at.Add(time.Minute) {
+		if !at.Before(admitted) && at.Before(ended) {
+			browserCPU += 30 * time.Second
+		}
+		goblin.read(t, at)
+	}
+	before := progressWakeCount(t, goblin.service)
+	watched, err := readFleetWakes(goblin.home.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := watched.Progress["slow-task"]
+	goblin.read(t, quietUntil)
+
+	// Assert
+	if before != 0 {
+		t.Fatalf("a goblin whose detached run waited, worked and ended drew %d progress_stalled wakes within %s of the run's last work, want none", before, PROGRESS_THRESHOLD)
+	}
+	if progress.Source != "its own processes" || !progress.At.Equal(ended.Add(-time.Minute)) {
+		t.Fatalf("progress = %+v, want its own processes at the run's last reading", progress)
+	}
+	if got := progressWakeCount(t, goblin.service); got != 1 {
+		t.Fatalf("a goblin quiet for %s after its run ended drew %d progress_stalled wakes, want one", PROGRESS_THRESHOLD, got)
 	}
 }
 
