@@ -33,8 +33,13 @@ for (const who of ["CFO", "goblin"] as const) {
     // and says the terminal is connecting (#1574). openGoblin waits for it,
     // and the CFO's panel, opened by its key, waits here.
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1, { timeout: 20_000 });
-    await field(page, name).press("Enter");
-    await expect.poll(() => typed(relay)).toContain(pasted("continue from this draft") + "\r");
+    // The box hears the view is live a render after its class changes, so an
+    // Enter in between is refused too. A refused Enter keeps the draft and a
+    // sent one clears it, so Enter again only while the draft is there.
+    await expect(async () => {
+      if (await field(page, name).inputValue() === "continue from this draft") await field(page, name).press("Enter");
+      expect(typed(relay)).toContain(pasted("continue from this draft") + "\r");
+    }).toPass({ timeout: 20_000 });
     relay.drop();
     await expect.poll(() => relay.views).toBe(2);
     await expect(log).toContainText("The latest reply arrived.");
