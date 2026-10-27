@@ -190,18 +190,27 @@ func inlineOffer(screens harness.Screens, screen []string) (harness.Dialog, bool
 	return offer, found
 }
 
-// dismissOffer presses the one key a live inline offer takes over a composer
-// that is not proved to hold text, Escape. Codex gives that key to the
-// composer once it holds a draft, and takes it as its own over an empty one,
-// while a leading digit typed at a live offer is taken as the offer's own
-// choice, so every delivery dismisses one shown over such a composer before it
-// types. It reports whether it pressed the key.
-func (s Service) dismissOffer(ctx context.Context, record host.Record, screens harness.Screens, screen []string) (bool, error) {
-	offer, shown := inlineOffer(screens, screen)
-	if !shown || withoutInlineOffer(screens).ComposerHoldsText(screen) {
-		return false, nil
+// dismissOffer reads the terminal's screen and presses the one key a live
+// inline offer takes over a composer that is not proved to hold text, Escape.
+// Codex gives that key to the composer once it holds a draft, and takes it as
+// its own over an empty one, while a leading digit typed at a live offer is
+// taken as the offer's own choice, so every delivery dismisses one shown over
+// such a composer before it types. It reads the screen itself just before the
+// key is written, so a dialog or a picker drawn since the delivery last read is
+// left to the delivery that answers it instead of taking the Escape: Escape
+// leaves a picker, and it quits Codex's folder trust prompt. It returns the
+// screen it read and whether it pressed the key.
+func (s Service) dismissOffer(ctx context.Context, record host.Record, screens harness.Screens) ([]string, bool, error) {
+	screen, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return nil, false, err
 	}
-	return true, s.dismissInlineOffer(ctx, record, offer)
+	history := withoutInlineOffer(screens)
+	offer, shown := inlineOffer(screens, screen)
+	if !shown || history.ComposerHoldsText(screen) || history.IsOpen(screen) {
+		return screen, false, nil
+	}
+	return screen, true, s.dismissInlineOffer(ctx, record, offer)
 }
 
 // dismissInlineOffer presses the one key a live inline offer takes, Escape. An
@@ -585,23 +594,27 @@ func pressNativeEnter(record host.Record) error {
 func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration, isRecovering bool) ([]string, error) {
 	offers := screens
 	screens = withoutInlineOffer(screens)
-	read := func() ([]string, error) {
-		screen, err := s.readNativeScreen(ctx, record)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
-		}
+	checked := func(screen []string) ([]string, error) {
 		if _, hasDialog := screens.Dialog(screen); hasDialog {
 			return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, errNativeStartupDialog)
 		}
 		return screen, nil
 	}
-	before, err := read()
+	read := func() ([]string, error) {
+		screen, err := s.readNativeScreen(ctx, record)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
+		}
+		return checked(screen)
+	}
+	before, dismissed, err := s.dismissOffer(ctx, record, offers)
 	if err != nil {
+		return nil, fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
+	}
+	if before, err = checked(before); err != nil {
 		return nil, err
 	}
-	if dismissed, err := s.dismissOffer(ctx, record, offers, before); err != nil {
-		return nil, err
-	} else if dismissed {
+	if dismissed {
 		if err := s.sleep(ctx, nativePoll); err != nil {
 			return nil, err
 		}
@@ -635,13 +648,11 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	if err := s.sleep(ctx, settle); err != nil {
 		return nil, err
 	}
-	atPress, err := s.readNativeScreen(ctx, record)
+	atPress, dismissed, err := s.dismissOffer(ctx, record, offers)
 	if err != nil {
 		return nil, err
 	}
-	if dismissed, err := s.dismissOffer(ctx, record, offers, atPress); err != nil {
-		return nil, err
-	} else if dismissed {
+	if dismissed {
 		if err := s.sleep(ctx, nativePoll); err != nil {
 			return nil, err
 		}

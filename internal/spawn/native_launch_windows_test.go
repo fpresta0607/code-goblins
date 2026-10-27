@@ -21,6 +21,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -1048,6 +1049,67 @@ func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
 	}
 	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != message {
 		t.Errorf("submitted = %+v, want the whole message once", submitted)
+	}
+}
+
+// A delivery that met a live Daybreak offer over an empty composer and could
+// not press its Escape has typed nothing into the terminal, so cfo send's
+// queue sends it again: the failure says nothing was typed.
+func TestAFailedInlineOfferDismissalSaysNothingWasTyped(t *testing.T) {
+	service := Service{StateDir: t.TempDir()}
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	service.ReadScreen = func(host.Record) ([]string, error) {
+		return []string{
+			"Set up security for Daybreak mode",
+			"Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.",
+			"",
+			"› 1. Set up security",
+			"",
+			"Press a number to choose · esc to dismiss · type to continue",
+			"",
+			"› Ask Codex to do anything",
+			"100% context left",
+		}, nil
+	}
+
+	_, err := service.submitNative(t.Context(), host.Record{ID: "task-7"}, screens, "1) run the tests and report back", 0, false)
+
+	if !errors.Is(err, fleet.ErrNotTyped) {
+		t.Fatalf("delivery = %v, want it to say nothing was typed", err)
+	}
+}
+
+// A picker Codex draws in its composer's place owns Escape, so an offer's
+// stale rows above it never send one into it: the dismissal leaves the screen
+// to the delivery, which refuses to type into it.
+func TestAnOpenPickerUnderAnOffersRowsKeepsItsEscape(t *testing.T) {
+	service := Service{StateDir: t.TempDir()}
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	service.ReadScreen = func(host.Record) ([]string, error) {
+		return []string{
+			"Set up security for Daybreak mode",
+			"",
+			"› 1. Set up security",
+			"",
+			"Press a number to choose · esc to dismiss · type to continue",
+			"",
+			"Select a model",
+			"› 1. Current",
+			"  2. Another model",
+			"Enter to confirm · Esc to exit",
+		}, nil
+	}
+
+	_, dismissed, err := service.dismissOffer(t.Context(), host.Record{ID: "task-7"}, screens)
+
+	if err != nil || dismissed {
+		t.Fatalf("dismissal = %v, %v; want no key sent into the picker", dismissed, err)
 	}
 }
 
