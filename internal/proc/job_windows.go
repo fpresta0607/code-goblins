@@ -87,6 +87,53 @@ func JobProcesses(holderPID int) ([]Entry, error) {
 	return held.Processes()
 }
 
+// CustodyJobProcesses refuses a partial listing, since a terminal close can
+// terminate a job member even when this process cannot inspect it.
+func CustodyJobProcesses(holderPID int) ([]Entry, error) {
+	held, err := holdJobs(holderPID, jobObjectQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer held.Close()
+	members, err := held.Processes()
+	if err != nil {
+		return nil, err
+	}
+	for _, job := range held.jobs {
+		ids, unlisted, err := JobProcessIDs(job)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkCustodyJobListing(ids, unlisted, members); err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			for _, member := range members {
+				if member.PID == int(id) {
+					started, isRunning := StartTime(member.PID)
+					if !isRunning || !started.Equal(member.Start) {
+						return nil, fmt.Errorf("cannot verify terminal job process %d; wait for it to exit or restore process access", id)
+					}
+					break
+				}
+			}
+		}
+	}
+	return members, nil
+}
+
+func checkCustodyJobListing(ids []uint32, unlisted uint32, members []Entry) error {
+	if unlisted != 0 {
+		return fmt.Errorf("the terminal job has %d unlisted processes; wait for them to exit", unlisted)
+	}
+	for _, id := range ids {
+		if !slices.ContainsFunc(members, func(member Entry) bool { return member.PID == int(id) }) {
+			return fmt.Errorf("cannot inspect terminal job process %d; wait for it to exit or restore process access", id)
+		}
+	}
+	return nil
+}
+
 // HeldJobs are the job objects a process held open, held open by this
 // process too. A job lives while a handle to it is open, so its processes
 // can still be listed and ended through these once the process that made it

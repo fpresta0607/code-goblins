@@ -150,67 +150,132 @@ func sqlString(value string) string { return "'" + strings.ReplaceAll(value, "'"
 // two cannot disagree about whether a gate run starts.
 var ErrGateFileRequired = errors.New("pipeline: readable committed task and origin default-branch .no-mistakes.yaml required")
 
-// CheckStart refuses a restart over unresolved work and checks repository
-// overrides before the native engine could spend an automatic repair cycle.
-// It returns the head of origin's default branch, which is the trusted
-// commit a launch selection names.
-func (r Reader) CheckStart(ctx context.Context, project, worktree, branch string, policy Policy) (string, error) {
+// StartCheck is what a gate start may do: the trusted commit a launch
+// selection names, and the live run this start reattaches to when it validates
+// the same work.
+//
+// A run that is still working keeps driving the branch after the native
+// bounded wait expires, and reattachment keeps its own intent, head and review
+// budget while starting no new run, so it is never the restart an unresolved
+// earlier run forbids.
+type StartCheck struct {
+	// TrustedHead is the head of origin's default branch, which a launch
+	// selection names. A reattachment carries no selection.
+	TrustedHead string
+	// ReattachRun is the live run of this exact work that the start reattaches
+	// to, and empty when the start begins a run of its own.
+	ReattachRun string
+}
+
+// CheckStart refuses a new run over a live one that validates other work, and
+// checks repository overrides before the native engine could spend an
+// automatic repair cycle. A live run of the same work is reattached to: same
+// branch, same head, same intent, no new run and no review budget reset.
+func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, intent string, policy Policy) (StartCheck, error) {
 	var repos []struct {
 		DefaultBranch string `json:"default_branch"`
 	}
 	if err := r.query(ctx, `SELECT default_branch FROM repos WHERE lower(replace(working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`)`, &repos); err != nil {
-		return "", err
+		return StartCheck{}, err
 	}
 	if len(repos) != 1 || repos[0].DefaultBranch == "" || branch == repos[0].DefaultBranch {
-		return "", errors.New("pipeline: registered repository and non-default branch required")
+		return StartCheck{}, errors.New("pipeline: registered repository and non-default branch required")
 	}
-	var previous []struct {
-		Status string `json:"status"`
+	var previous []previousRun
+	if err := r.query(ctx, `SELECT runs.id AS id, runs.status AS status, runs.head_sha AS head, COALESCE(runs.submitted_head_sha,'') AS submitted_head, COALESCE(runs.intent,'') AS intent FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
+		return StartCheck{}, err
 	}
-	if err := r.query(ctx, `SELECT runs.status FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
-		return "", err
-	}
+	var reattach string
 	// A terminal run has no budget left to reset, so only a still-live one
-	// blocks a restart. The set matches Idle's.
+	// can block a new run. The set matches Idle's.
 	if len(previous) > 0 && !terminalRunStatus[previous[0].Status] {
-		return "", fmt.Errorf("%w; an earlier run must be resolved, not restarted", ErrUnresolved)
+		run := previous[0]
+		// Native reattachment keeps the run's own intent, so a start may only
+		// reattach to the work it names. Head and intent are compared first,
+		// because a start of other work is refused whatever the branch holds.
+		if strings.TrimSpace(intent) == "" || strings.TrimSpace(run.Intent) != strings.TrimSpace(intent) {
+			return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s with another intent, so an earlier run must be resolved, not restarted: read it with no-mistakes axi status --run %s", ErrUnresolved, run.ID, run.Status, branch, run.ID)
+		}
+		head, err := r.branchHead(ctx, worktree)
+		if err != nil {
+			return StartCheck{}, err
+		}
+		if !run.sameHead(head) {
+			return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s and started at %s, not the head this start has, so an earlier run must be resolved, not restarted: read it with no-mistakes axi status --run %s", ErrUnresolved, run.ID, run.Status, branch, run.submittedOrHead(), run.ID)
+		}
+		reattach = run.ID
 	}
 	status, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}})
 	if err != nil || status.ExitCode != 0 || len(strings.TrimSpace(string(status.Stdout))) != 0 {
-		return "", errors.New("pipeline: commit task work before starting the gate")
+		return StartCheck{}, errors.New("pipeline: commit task work before starting the gate")
 	}
 	task, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"show", "HEAD:.no-mistakes.yaml"}})
 	if err != nil || task.ExitCode != 0 {
-		return "", ErrGateFileRequired
+		return StartCheck{}, ErrGateFileRequired
 	}
 	if err := checkRepoConfig(task.Stdout, policy, true); err != nil {
-		return "", err
+		return StartCheck{}, err
 	}
 	defaultBranch := repos[0].DefaultBranch
 	remoteHead, err := r.originDefaultHead(ctx, project, defaultBranch)
 	if err != nil {
-		return "", err
+		return StartCheck{}, err
 	}
 	trustedRef := "refs/remotes/origin/" + defaultBranch
 	local, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"rev-parse", "--verify", trustedRef}})
 	localFields := strings.Fields(string(local.Stdout))
 	if err != nil || local.ExitCode != 0 || len(localFields) != 1 {
-		return "", errors.New("pipeline: readable origin default-branch tracking evidence is required")
+		return StartCheck{}, errors.New("pipeline: readable origin default-branch tracking evidence is required")
 	}
 	if localFields[0] != remoteHead {
-		return "", errors.New("pipeline: origin default-branch tracking evidence is stale")
+		return StartCheck{}, errors.New("pipeline: origin default-branch tracking evidence is stale")
 	}
 	trusted, err := r.Commands.Run(ctx, execx.Request{Dir: project, Name: "git", Args: []string{"show", trustedRef + ":.no-mistakes.yaml"}})
 	if err != nil || trusted.ExitCode != 0 {
-		return "", ErrGateFileRequired
+		return StartCheck{}, ErrGateFileRequired
 	}
 	if err := checkRepoConfig(trusted.Stdout, policy, false); err != nil {
-		return "", err
+		return StartCheck{}, err
 	}
 	if err := CheckRepoAgent(task.Stdout, trusted.Stdout, policy); err != nil {
-		return "", err
+		return StartCheck{}, err
 	}
-	return remoteHead, nil
+	return StartCheck{TrustedHead: remoteHead, ReattachRun: reattach}, nil
+}
+
+// previousRun is the branch's latest run as CheckStart reads it.
+type previousRun struct {
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	Head          string `json:"head"`
+	SubmittedHead string `json:"submitted_head"`
+	Intent        string `json:"intent"`
+}
+
+// sameHead reports whether the run started on the commit the branch still
+// holds. A run from a no-mistakes that records no submitted head is read by its
+// current head, which is that commit until a gate fix moves it, so a moved one
+// is unproven rather than another run's work.
+func (run previousRun) sameHead(head string) bool {
+	return run.submittedOrHead() == head
+}
+
+func (run previousRun) submittedOrHead() string {
+	if run.SubmittedHead != "" {
+		return run.SubmittedHead
+	}
+	return run.Head
+}
+
+// branchHead is the commit the task branch holds, which a live run started at
+// until the gate moves its own worktree.
+func (r Reader) branchHead(ctx context.Context, worktree string) (string, error) {
+	result, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"rev-parse", "HEAD"}})
+	head := strings.TrimSpace(string(result.Stdout))
+	if err != nil || result.ExitCode != 0 || !gateCommit.MatchString(head) {
+		return "", errors.New("pipeline: readable task branch head is required")
+	}
+	return head, nil
 }
 
 // CheckRepoAgent says whether a policy refuses the agent a repository's gate

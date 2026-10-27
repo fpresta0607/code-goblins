@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,72 @@ import (
 type engineGate struct {
 	isRunning bool
 	err       error
+}
+
+func TestCFOEngineSelectionSavesWithoutRestartAndRejectsInvalidChoices(t *testing.T) {
+	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+	machine := newFirstRunMachine(t)
+	machine.runs = true
+	handler.Service.Options.FirstRun = machine.run
+	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	if response.Code != http.StatusOK || machine.restarted != 0 {
+		t.Fatalf("save = %d %s, restarted %d", response.Code, response.Body, machine.restarted)
+	}
+	path := filepath.Join(h.State, "cfo-engine.json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []map[string]string{
+		{"harness": "codex", "model": "missing-model", "effort": "high"},
+		{"harness": "codex", "model": "selected-model", "effort": "max"},
+		{"harness": "unknown", "model": "selected-model", "effort": "high"},
+		{"harness": "codex", "model": "default", "effort": "high"},
+	} {
+		response = taskControlRequest(handler, "/api/cfo/engine", invalid)
+		after, err := os.ReadFile(path)
+		if response.Code != http.StatusConflict || err != nil || string(after) != string(before) || machine.restarted != 0 {
+			t.Fatalf("invalid save %v = %d %s, file %s, err %v, restarted %d", invalid, response.Code, response.Body, after, err, machine.restarted)
+		}
+	}
+}
+
+// The catalog is the harness's own, so a selection it offers is one the reader
+// must hand that harness even where the fleet's shared list has no such word.
+func TestReadCFOEngineHandsAHarnessItsOwnModelAndEffort(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		saved    string
+		wantErr  bool
+		wantModl string
+	}{
+		{name: "an effort only its own catalog offers", saved: `{"harness":"claude","model":"claude-opus-5-5","effort":"ultra"}`, wantModl: "claude-opus-5-5"},
+		{name: "an effort as a switch", saved: `{"harness":"codex","model":"gpt-6-astra","effort":"--yolo"}`, wantErr: true},
+		{name: "no effort", saved: `{"harness":"codex","model":"gpt-6-astra"}`, wantErr: true},
+		{name: "no model", saved: `{"harness":"codex","effort":"xhigh"}`, wantErr: true},
+		{name: "a harness the fleet cannot start", saved: `{"harness":"grok","model":"grok-4","effort":"high"}`, wantErr: true},
+		{name: "the catalog's word for whichever model", saved: `{"harness":"codex","model":"default","effort":"high"}`, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "cfo-engine.json"), []byte(test.saved), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			choice, err := ReadCFOEngine(dir)
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "cfo-engine.json") {
+					t.Fatalf("choice=%+v err=%v, want a refusal naming the file", choice, err)
+				}
+				return
+			}
+			if err != nil || choice.Model != test.wantModl || choice.Effort != "ultra" {
+				t.Fatalf("choice=%+v err=%v", choice, err)
+			}
+		})
+	}
 }
 
 func (gate *engineGate) Progress(context.Context, string, string) (pipeline.Progress, error) {

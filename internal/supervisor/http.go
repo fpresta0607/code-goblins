@@ -244,6 +244,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.reopenCFO(w, r)
 	case r.URL.Path == "/api/cfo/restart" && r.Method == "POST":
 		h.restartCFO(w, r)
+	case r.URL.Path == "/api/cfo/engine" && r.Method == "POST":
+		h.selectCFOEngine(w, r)
 	case r.URL.Path == "/api/cfo/update" && r.Method == "POST":
 		h.updateCFO(w, r)
 	case r.URL.Path == "/api/cfo/report" && r.Method == "POST":

@@ -60,6 +60,78 @@ func switchStandIns(t *testing.T, h home.Home) {
 	}
 }
 
+func TestRestartCodexCFOUsesSelectedModelAndEffortOnItsConversation(t *testing.T) {
+	h := home.Home{Root: t.TempDir()}
+	h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
+	switchStandIns(t, h)
+	if err := startNativeCFO(h, h.Root, "codex", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+	before, err := host.ReadRecord(h.State, supervisor.NativeCFOTerminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerRestartCFO(t, h, before, "codex", "codex-session")
+	selection := `{"harness":"codex","model":"selected-model","effort":"xhigh"}`
+	if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(selection), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conversation, fresh, err := restartCFO(h, "")
+	if err != nil || fresh != "" || conversation.Session != "codex-session" {
+		t.Fatalf("restart = %+v, %q, %v", conversation, fresh, err)
+	}
+	path := filepath.Join(h.Root, "switch-arguments.txt")
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		data, _ := os.ReadFile(path)
+		if strings.Contains(string(data), "resume codex-session") {
+			if !strings.Contains(string(data), "--model selected-model") || !strings.Contains(string(data), "model_reasoning_effort=xhigh") {
+				t.Fatalf("resumed arguments = %s, want selected model and effort", data)
+			}
+			return
+		}
+	}
+	t.Fatal("the resumed CFO did not start")
+}
+
+// An explicit harness wins for that start, as `goblins --harness` and the
+// board's Restart promise, and the saved selection keeps its own harness's model
+// and effort for when the CFO runs as that harness again.
+func TestAnExplicitHarnessStartsWithoutTheSavedEnginesFlags(t *testing.T) {
+	h := home.Home{Root: t.TempDir()}
+	h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
+	switchStandIns(t, h)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	selection := `{"harness":"pi","model":"selected-model","effort":"xhigh","pending":true}`
+	if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(selection), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := startNativeCFO(h, h.Root, "codex", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+
+	path := filepath.Join(h.Root, "switch-arguments.txt")
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		data, _ := os.ReadFile(path)
+		if len(data) == 0 {
+			continue
+		}
+		if strings.Contains(string(data), "--model") || strings.Contains(string(data), "model_reasoning_effort") {
+			t.Fatalf("started as codex with the saved selection's flags: %s", data)
+		}
+		choice, err := supervisor.ReadCFOEngine(h.State)
+		if err != nil || choice.Harness != "pi" || choice.Model != "selected-model" || choice.Pending || !strings.Contains(choice.Problem, "started as codex") {
+			t.Fatalf("saved selection = %+v, %v", choice, err)
+		}
+		return
+	}
+	t.Fatal("the CFO did not start")
+}
+
 func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	// Arrange
 	h := home.Home{Root: t.TempDir()}

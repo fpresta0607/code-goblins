@@ -38,6 +38,11 @@ var errNoRunningCFO = errors.New("no CFO runs in native terminal cfo")
 // would end before it started the CFO again. Closing the terminal ends the harness and everything it started;
 // goblins, each in a terminal of its own, keep running.
 func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string, error) {
+	// A selection the fleet cannot read names no harness to restart onto: the
+	// board reports it, and the restart goes ahead as harness was asked for.
+	if choice, err := supervisor.ReadCFOEngine(h.State); err == nil && harness == "" {
+		harness = choice.Harness
+	}
 	if harness != "" && !slices.Contains(cfoHarnesses, harness) {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("harness %q is not claude, codex or pi, so the CFO is left running", harness)
 	}

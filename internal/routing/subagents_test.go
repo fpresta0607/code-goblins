@@ -25,16 +25,28 @@ func TestSubagentsRouteByJobAndKeepVerificationIndependent(t *testing.T) {
 	}
 }
 
-func TestSubagentsRefuseVerificationWithoutAnotherModel(t *testing.T) {
+func TestSubagentsRefuseVerificationWithoutKnownParentModel(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, `{"default_lane":"build","lanes":{"build":{"harness":"claude","model":"opus"}},"subagents":{"claude":{"search":["build"],"review":["build"],"verify":["build"]}}}`)
 	policy, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, model := range []string{"opus", "claude-opus-5-5", "opus[1m]", "", "default"} {
+	for _, model := range []string{"", "default"} {
 		if _, err := policy.SubagentRoutes("claude", model); err == nil {
-			t.Errorf("verification of %q accepted without a known different model", model)
+			t.Errorf("verification of %q accepted without a known parent model", model)
 		}
+	}
+}
+
+func TestSubagentsAcceptUniformConfiguredModel(t *testing.T) {
+	for _, harness := range []string{"codex", "claude"} {
+		t.Run(harness, func(t *testing.T) {
+			policy := Policy{DefaultLane: "build", Lanes: map[string]Lane{"build": {Harness: harness, Model: "selected-model", Effort: "xhigh"}}, Subagents: map[string]map[string][]string{harness: {"search": {"build"}, "review": {"build"}, "verify": {"build"}}}}
+			routes, err := policy.SubagentRoutes(harness, "selected-model")
+			if err != nil || routes["verify"].Model != "selected-model" {
+				t.Fatalf("routes=%+v err=%v, want the configured model", routes, err)
+			}
+		})
 	}
 }

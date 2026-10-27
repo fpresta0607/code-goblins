@@ -185,6 +185,7 @@ func TestRepoAgentCannotAlterRenderedGlobalReviewAgents(t *testing.T) {
 type primaryRoutingRunner struct {
 	task    []byte
 	trusted []byte
+	head    string
 }
 
 const primaryRoutingSHA = "0123456789abcdef0123456789abcdef01234567"
@@ -197,6 +198,12 @@ func (r *primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (
 		return execx.Result{}, errors.New("unexpected command")
 	}
 	switch strings.Join(request.Args, " ") {
+	case "rev-parse HEAD":
+		head := r.head
+		if head == "" {
+			head = primaryRoutingSHA
+		}
+		return execx.Result{Stdout: []byte(head + "\n")}, nil
 	case "status --porcelain --untracked-files=all":
 		return execx.Result{}, nil
 	case "show HEAD:.no-mistakes.yaml":
@@ -209,7 +216,10 @@ func (r *primaryRoutingRunner) Run(ctx context.Context, request execx.Request) (
 	case "rev-parse --verify refs/remotes/origin/main":
 		return execx.Result{Stdout: []byte(primaryRoutingSHA + "\n")}, nil
 	case "show refs/remotes/origin/main:.no-mistakes.yaml":
-		return execx.Result{Stdout: r.trusted}, nil
+		if len(r.trusted) != 0 {
+			return execx.Result{Stdout: r.trusted}, nil
+		}
+		return execx.Result{Stdout: []byte("auto_fix: {review: 0}\n")}, nil
 	default:
 		return execx.Result{}, errors.New("unexpected git command")
 	}
@@ -267,13 +277,13 @@ func TestCheckStartRefusesStaleTrustedPrimaryWithoutUpdatingTrackingRef(t *testi
 		t.Fatal("remote fixture did not advance")
 	}
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');`
 	if out, err := exec.Command("sqlite3", filepath.Join(state, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	reader := Reader{Root: state, Commands: execx.OSRunner{}}
-	_, err := reader.CheckStart(context.Background(), project, project, "feature", testPolicy(t))
+	_, err := reader.CheckStart(context.Background(), project, project, "feature", "ship safely", testPolicy(t))
 	if err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("CheckStart error=%v, want stale trusted primary refusal", err)
 	}
@@ -291,7 +301,7 @@ func TestCheckStartUsesOnlyCodexForTheTrustedPrimaryRole(t *testing.T) {
 	project := filepath.Join(t.TempDir(), "project")
 	dir := t.TempDir()
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');`
 	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
@@ -316,7 +326,7 @@ INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'ma
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader := Reader{Root: dir, Commands: &primaryRoutingRunner{task: []byte(test.task), trusted: []byte(test.trusted)}}
-			_, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", testPolicy(t))
+			_, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", "ship safely", testPolicy(t))
 			if test.wantErr {
 				if err == nil || !strings.Contains(err.Error(), "agent overrides") {
 					t.Fatalf("CheckStart error=%v, want trusted primary refusal", err)
@@ -341,17 +351,76 @@ func TestCheckStartLeavesARepositoryAgentToTheLaunchSelection(t *testing.T) {
 	project := filepath.Join(t.TempDir(), "project")
 	dir := t.TempDir()
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT);
 INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');`
 	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
 	for _, trusted := range []string{"auto_fix: {review: 0}\n", "agent: codex\n", "agent: claude\n", "agent: [codex, claude]\n", "agent: auto\n"} {
 		reader := Reader{Root: dir, Commands: &primaryRoutingRunner{trusted: []byte(trusted)}}
-		head, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", versionSix(t, Reviewer{}))
-		if err != nil || head != primaryRoutingSHA {
-			t.Fatalf("trusted %q: head=%q err=%v, want the start allowed at the trusted commit", trusted, head, err)
+		check, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", "ship safely", versionSix(t, Reviewer{}))
+		if err != nil || check.TrustedHead != primaryRoutingSHA {
+			t.Fatalf("trusted %q: check=%+v err=%v, want the start allowed at the trusted commit", trusted, check, err)
 		}
+	}
+}
+
+// A live run keeps working after the native bounded wait expires, and the run
+// it left behind is the same work when the branch still holds its submitted
+// head and the intent is the one it was started with. Reattach to that run
+// instead of refusing it as an earlier run that must be resolved (issue 1421).
+func TestCheckStartReattachesToTheLiveRunOfTheSameWork(t *testing.T) {
+	sqlite, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 CLI not available")
+	}
+	const liveIntent = "ship the connection fix safely"
+	const movedHead = "89abcdef0123456789abcdef0123456789abcdef"
+	for _, c := range []struct {
+		name           string
+		submittedHead  string
+		head           string
+		intent         string
+		wantReattach   string
+		wantUnresolved bool
+	}{
+		{name: "same branch, head and intent", submittedHead: primaryRoutingSHA, wantReattach: "previous"},
+		{name: "the intent names other work", submittedHead: primaryRoutingSHA, intent: "rework the billing export", wantUnresolved: true},
+		{name: "the branch moved since the run started", submittedHead: primaryRoutingSHA, head: movedHead, wantUnresolved: true},
+		{name: "a run that records no submitted head at the same head", wantReattach: "previous"},
+		{name: "a run that records no submitted head at a moved head", head: movedHead, wantUnresolved: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			project := filepath.Join(t.TempDir(), "project")
+			dir := t.TempDir()
+			intent := c.intent
+			if intent == "" {
+				intent = liveIntent
+			}
+			sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT);
+INSERT INTO repos VALUES('repo',` + sqlString(filepath.ToSlash(project)) + `,'main');
+INSERT INTO runs VALUES('previous','repo','feature',1,'running','` + primaryRoutingSHA + `','` + c.submittedHead + `','` + liveIntent + `');`
+			if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
+				t.Fatalf("fixture: %s %v", out, err)
+			}
+			reader := Reader{Root: dir, Commands: &primaryRoutingRunner{head: c.head}}
+
+			// Act
+			check, err := reader.CheckStart(context.Background(), project, filepath.Join(project, "worktree"), "feature", intent, testPolicy(t))
+
+			// Assert
+			if c.wantUnresolved {
+				if !errors.Is(err, ErrUnresolved) || check.ReattachRun != "" {
+					t.Fatalf("check=%+v err=%v, want an unresolved earlier-run refusal", check, err)
+				}
+				return
+			}
+			if err != nil || check.ReattachRun != c.wantReattach || check.TrustedHead != primaryRoutingSHA {
+				t.Fatalf("check=%+v err=%v, want reattachment to %s", check, err, c.wantReattach)
+			}
+		})
 	}
 }
 
@@ -376,18 +445,22 @@ func TestCheckStartRefusesOnlyANonTerminalPreviousRun(t *testing.T) {
 		t.Run(c.status, func(t *testing.T) {
 			dir := t.TempDir()
 			sql := `CREATE TABLE repos(id TEXT,working_path TEXT,default_branch TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER,status TEXT,head_sha TEXT,submitted_head_sha TEXT,intent TEXT);
 INSERT INTO repos VALUES('repo','C:\project','main');
-INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `');`
+INSERT INTO runs VALUES('previous','repo','feat',1,'` + c.status + `','` + primaryRoutingSHA + `','` + primaryRoutingSHA + `','ship safely');`
 			if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 				t.Fatalf("fixture: %s %v", out, err)
 			}
 			worktree := t.TempDir()
-			// The worktree is a plain folder: the search for a repository stops
-			// above it, not at whatever checkout holds the temp folder.
+			// The worktree holds a commit of its own, so a live run is read as
+			// other work than this branch: it started at the fixture's head and
+			// this branch has moved past it. The search for a repository stops
+			// above the worktree, not at whatever checkout holds the temp folder.
+			runPipelineGit(t, worktree, "init", "--initial-branch=feat")
+			runPipelineGit(t, worktree, "-c", "user.name=Pipeline Test", "-c", "user.email=pipeline@example.com", "commit", "--allow-empty", "-m", "work")
 			t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(worktree))
 			reader := Reader{Root: dir, Commands: execx.OSRunner{}}
-			_, err := reader.CheckStart(context.Background(), "C:/project", worktree, "feat", testPolicy(t))
+			_, err := reader.CheckStart(context.Background(), "C:/project", worktree, "feat", "ship safely", testPolicy(t))
 			if errors.Is(err, ErrUnresolved) != c.unresolved {
 				t.Fatalf("status %q: %v", c.status, err)
 			}
