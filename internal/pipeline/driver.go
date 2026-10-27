@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"gopkg.in/yaml.v3"
@@ -422,8 +423,9 @@ func (r Reader) RunBranch(ctx context.Context, project, run string) (string, err
 }
 
 // Response is one answer to a parked gate. Accept names the open ask-user and
-// auto-fix findings the CFO takes as they stand, with approve only.
-type Response struct{ Action, Findings, Instructions, Accept string }
+// auto-fix findings the CFO takes as they stand, with approve only, and Reason
+// is the operator's rationale, which only an approved Test exception keeps.
+type Response struct{ Action, Findings, Instructions, Accept, Reason string }
 type finding struct {
 	ID     string `json:"id"`
 	Action string `json:"action"`
@@ -474,6 +476,17 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	args := []string{"axi", "respond", "--step", gate.Step, "--action", response.Action}
 	switch response.Action {
 	case "approve":
+		if response.Reason != "" {
+			// The native engine keeps a reason only for an approved Test
+			// exception, and a reason it drops would leave the run reading as
+			// one nobody explained, so every other approval is refused here.
+			if gate.Step != "test" {
+				return nil, fmt.Errorf("pipeline: --reason applies only to an approve of the test step, and this gate is %s", gate.Step)
+			}
+			if problem := approvalReasonProblem(response.Reason); problem != "" {
+				return nil, fmt.Errorf("pipeline: --reason %s", problem)
+			}
+		}
 		if response.Accept != "" {
 			// The CFO takes the open findings as they stand only by naming
 			// every one of them; a finding with no action still needs its fix.
@@ -494,9 +507,15 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		if response.Findings != "" || response.Instructions != "" {
 			return nil, errors.New("pipeline: approve does not accept fix arguments")
 		}
+		if response.Reason != "" {
+			args = append(args, "--reason", response.Reason)
+		}
 	case "fix":
 		if response.Accept != "" {
 			return nil, errors.New("pipeline: --accept goes with approve, never with fix")
+		}
+		if response.Reason != "" {
+			return nil, errors.New("pipeline: --reason goes with approve of the test step, never with fix")
 		}
 		if gate.Step == "review" && gate.Round-1 >= s.ReviewCycles {
 			return nil, ErrUnresolved
@@ -520,6 +539,22 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 		return nil, errors.New("pipeline: only explicit fix or clean approve is supported; no skip or blanket approval")
 	}
 	return args, nil
+}
+
+// approvalReasonProblem says what keeps a response's reason out of the native
+// exception record, and is empty when nothing does. A blank reason is stored
+// as none and the run reads as approved by nobody, and a control character
+// would break the status line the reason is audited on.
+func approvalReasonProblem(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return "must say why the exception is approved"
+	}
+	for _, r := range reason {
+		if unicode.IsControl(r) {
+			return "must be one line of plain text"
+		}
+	}
+	return ""
 }
 
 // TrustedHead is the head of origin's default branch for a registered
