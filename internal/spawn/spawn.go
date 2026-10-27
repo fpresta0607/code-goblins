@@ -308,11 +308,12 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return Result{}, err
 		}
 	}
+	var launchKept bool
 	if req.Capsule != nil {
 		// A spawn that fails before the task is published has no teardown, so
 		// the capsule goes with it rather than claiming the id for a retry.
 		defer func() {
-			if err == nil {
+			if err == nil || launchKept {
 				return
 			}
 			if removeErr := fsx.RemoveAll(taskTmp); removeErr != nil {
@@ -376,9 +377,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	// fail records the exact cause and tears the half-built task down cleanly
 	// (close its terminal, return the worktree, retire the metadata). A launch
-	// failure after the brief is delivered keeps its running terminal instead,
-	// with the task record and worktree, so the session stays addressable for
-	// `cfo peek` and recovery rather than leaving an orphan behind.
+	// failure with the terminal still running keeps it instead, with the task
+	// record and worktree, delivered or not, so the session stays addressable
+	// for `cfo peek` and recovery rather than leaving an orphan behind.
 	fail := func(result Result, cause error) (Result, error) {
 		cause = recordLaunchFailure(result.Meta.ID, cause)
 		if err := s.teardownLaunch(ctx, nativeHost, project, wt.Path, scratch, result.Meta.ID); err != nil {
@@ -513,6 +514,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	_ = endTurn()
 	if err := s.briefNativeHarness(ctx, req.ID, nativeHost, req.Harness, launch); err != nil && !errors.Is(err, fleet.ErrQueuedForToolCall) {
 		if host.Running(nativeHost) {
+			launchKept = true
 			return result, recordLaunchFailure(req.ID, fmt.Errorf("%w; the native terminal is still running and its task and worktree are kept; inspect it with cfo peek %s before recovering it", err, req.ID))
 		}
 		return fail(result, err)

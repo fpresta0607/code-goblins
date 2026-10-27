@@ -348,7 +348,7 @@ func fakeHarness() {
 
 func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw func(...string)) {
 	draft := os.Getenv(fakeCodexDraft)
-	isWorking := false
+	isWorking, live := false, true
 	show := func() {
 		if isWorking {
 			draw("› "+draft, "• Working (0s • esc to interrupt)")
@@ -358,7 +358,11 @@ func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw fu
 		if text == "" {
 			text = "Ask Codex to do anything"
 		}
-		draw("Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "", "› "+text, "100% context left")
+		rows := []string{"› " + text, "100% context left"}
+		if live {
+			rows = append([]string{"Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", ""}, rows...)
+		}
+		draw(rows...)
 	}
 	show()
 	for key := range keys {
@@ -377,6 +381,10 @@ func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw fu
 				}
 			case <-time.After(100 * time.Millisecond):
 				record(codexEvent{Event: "composer escape", Text: draft})
+				if live {
+					live = false
+					show()
+				}
 				continue
 			}
 		}
@@ -386,7 +394,7 @@ func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw fu
 			record(codexEvent{Event: "submitted", Text: draft})
 			isWorking = true
 			show()
-		case draft == "" && key >= "1" && key <= "9":
+		case live && draft == "" && key >= "1" && key <= "9":
 			record(codexEvent{Event: "security enrollment", Text: key})
 		default:
 			draft += key
@@ -996,6 +1004,50 @@ func TestANativeSpawnDeliversToAComposerWhoseFooterItCannotRead(t *testing.T) {
 	}
 	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 || submitted[0].Text != spawnPointer(t, f.fixture) {
 		t.Errorf("submitted = %+v, want the instruction once", submitted)
+	}
+}
+
+// A goblin idle at a live Daybreak security offer takes a CFO message whose
+// first key is a digit: the delivery dismisses the offer with its one Escape
+// before it types, so the banner never takes that digit as its own choice and
+// the whole message arrives once (#1432).
+func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
+	f := newQuickFixture(t)
+	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-inline")
+	meta := state.TaskMeta{ID: "task-7", Harness: string(harness.Codex), Worktree: f.worktree, TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7"), Scratch: taskScratch(f.stateDir, "task-7"), SpawnGen: "s1"}
+	launch, err := nativeAdapter{kind: harness.Codex}.Build(harness.LaunchSpec{BriefPath: f.brief, TaskTmp: meta.TaskTmp, Scratch: meta.Scratch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch.Dir = f.worktree
+	f.service.nativeEnvironment(launch.Env, meta)
+	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Codex)
+	if _, err := f.service.awaitScreen(context.Background(), terminal, 30*time.Second, func(rows []string) bool {
+		_, shown := inlineOffer(screens, rows)
+		return shown
+	}); err != nil {
+		t.Fatalf("the fake harness never showed its live offer: %v", err)
+	}
+
+	message := "1) run the tests and report back"
+	sendErr := f.service.SendNative(context.Background(), meta, message)
+
+	if sendErr != nil {
+		t.Fatalf("SendNative: %v", sendErr)
+	}
+	events := f.events(t)
+	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
+		t.Errorf("security enrollment = %+v, want the offer's option never chosen", enrollment)
+	}
+	if dismissed := named(events, "composer escape"); len(dismissed) != 1 {
+		t.Errorf("offer dismissals = %+v, want exactly one Escape before typing", dismissed)
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != message {
+		t.Errorf("submitted = %+v, want the whole message once", submitted)
 	}
 }
 
