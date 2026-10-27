@@ -19,7 +19,7 @@ const TAILSCALE_NOTES: Record<string, string> = {
 };
 // How often the setting reads remote access again while the board shows.
 const READ_EVERY_MS = 5000;
-const SCRAWL_NOTES: Record<string, string> ={ bypassed: "Direct route", exposed: "Not private", foreign: "Other server", outdated: "Update Scrawl", unrouted: "Needs setup" };
+const SCRAWL_NOTES: Record<string, string> = { bypassed: "Direct route", exposed: "Not private", foreign: "Other server", outdated: "Update Scrawl", unrouted: "Needs setup" };
 
 type Status = ReturnType<typeof parse>;
 type Machine = ReturnType<typeof parseMachines>[number];
@@ -62,13 +62,16 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
   // undoes what the press did.
   const turn = useRef(0);
   const pressing = useRef(false);
+  const reading = useRef<number | undefined>(undefined);
   const read = useCallback(() => {
     const mine = ++turn.current;
+    reading.current = mine;
     void request("/api/remote").then((value) => {
       if (mine !== turn.current) return;
       setStatus(parse(value));
       setFailed(false);
-    }).catch(() => { if (mine === turn.current) setFailed(true); });
+    }).catch(() => { if (mine === turn.current) setFailed(true); })
+      .finally(() => { if (reading.current === mine) reading.current = undefined; });
   }, []);
   const readMachines = useCallback(() => {
     if (local) return;
@@ -87,7 +90,7 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
       read();
       readMachines();
     };
-    const every = setInterval(() => { if (!document.hidden && !pressing.current) read(); }, READ_EVERY_MS);
+    const every = setInterval(() => { if (!document.hidden && !pressing.current && reading.current !== turn.current) read(); }, READ_EVERY_MS);
     window.addEventListener("focus", again);
     document.addEventListener("visibilitychange", again);
     return () => { clearInterval(every); window.removeEventListener("focus", again); document.removeEventListener("visibilitychange", again); };

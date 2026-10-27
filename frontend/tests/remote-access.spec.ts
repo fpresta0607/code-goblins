@@ -382,6 +382,30 @@ for (const [change, before, after, isOn, note] of [
   });
 }
 
+// A Tailscale that hangs makes each read wait for its 15 s timeout, longer
+// than the setting waits between reads. The read on its way is waited for,
+// with none begun beside it, and what it answers shows.
+test("a read slower than the setting's next read still shows, with none begun beside it", async ({ page }) => {
+  // Arrange
+  await page.clock.install();
+  const { panel } = await open(page, ON);
+  const tailscale = panel.getByRole("switch", { name: "Tailscale", exact: true });
+  await expect(panel.getByRole("img", { name: "Tailscale works", exact: true })).toBeVisible();
+  const held: (() => Promise<void>)[] = [];
+  await page.route("**/api/remote", (route) => { held.push(() => route.fulfill({ json: { ...ON, ready: false, attention: "unavailable", issue: "Tailscale did not answer in time" } })); });
+  await page.clock.runFor(5000);
+  await expect.poll(() => held.length).toBe(1);
+
+  // Act
+  await page.clock.runFor(10000);
+  expect(held).toHaveLength(1);
+  await held[0]();
+
+  // Assert
+  await expect(tailscale).toHaveAccessibleDescription("Not answering");
+  await expect(panel.getByRole("img", { name: "Tailscale did not answer in time", exact: true })).toBeVisible();
+});
+
 test("coming back to the board while a switch turns never undoes the turn", async ({ page }) => {
   // Arrange
   const { panel } = await open(page, OFF, { slow: true });
