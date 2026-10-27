@@ -641,7 +641,8 @@ func TestPRHealthLeavesTrainsAndThePullRequestsTheyCarryAlone(t *testing.T) {
 
 // trainCIRunner answers the CI of a train's pull request as still running,
 // after timeouts reads of it time out, and refuses every other call,
-// recording each.
+// recording each. The repository the fixture's goblin works in is hosted
+// outside GitHub, so the CI monitor asks GitHub nothing about it.
 type trainCIRunner struct {
 	calls    []string
 	timeouts int
@@ -649,6 +650,12 @@ type trainCIRunner struct {
 
 func (r *trainCIRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	r.calls = append(r.calls, request.Name+" "+strings.Join(request.Args, " "))
+	if request.Name == "git" && slices.Equal(request.Args, []string{"rev-parse", "--show-toplevel"}) {
+		return execx.Result{Stdout: []byte(request.Dir + "\n")}, nil
+	}
+	if request.Name == "git" && slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) {
+		return execx.Result{Stdout: []byte("https://gitlab.com/o/r.git\n")}, nil
+	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "pr" && request.Args[1] == "view" {
 		if r.timeouts > 0 {
 			r.timeouts--
@@ -680,6 +687,8 @@ func runningTrain(t *testing.T, h home.Home, checkout string) train.Train {
 // the CFO only once the step failed on three polls in a row.
 func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T) {
 	// Arrange
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_HOST", "")
 	service, h := fleetService(t)
 	runner := &trainCIRunner{timeouts: 3}
 	service.Options.CI = runner
@@ -703,6 +712,8 @@ func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *t
 
 func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 	// Arrange
+	t.Setenv("GH_CONFIG_DIR", t.TempDir())
+	t.Setenv("GH_HOST", "")
 	service, h := fleetService(t)
 	runner := &trainCIRunner{}
 	service.Options.CI = runner
