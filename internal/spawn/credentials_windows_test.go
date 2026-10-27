@@ -401,21 +401,84 @@ func TestAWithheldNameInTheUsersOwnEnvironmentDoesNotReachTheTerminal(t *testing
 	}
 }
 
-// A goblin writes its helper's brief, so that brief cannot give the helper a
-// service: a helper carries what its parent carries.
-func TestAHelperCarriesWhatItsParentCarriesWhateverItsBriefSays(t *testing.T) {
-	// Arrange
-	f := newQuickFixture(t)
+// newHelperFixture is a project with a real repository, a goblin that carries
+// two services and both MCP servers whose entry holds a value, and a fixture
+// whose request starts one of that goblin's helpers, in the fake harness mode
+// given.
+func newHelperFixture(t *testing.T, mode string) *nativeFixture {
+	t.Helper()
+	f := newNativeFixture(t, harness.Codex, mode)
 	project, parentWorktree := parentRepository(t)
 	f.project = project
 	giveStandInCredentials(t, f.fixture)
 	writeFile(t, filepath.Join(project, ".mcp.json"), standInMCP)
-	writeParent(t, f.stateDir, state.TaskMeta{ID: "task", Project: project, Worktree: parentWorktree, Credentials: []string{"database"}, HasCredentials: true, MCPServers: []string{"literal-env"}})
+	writeParent(t, f.stateDir, state.TaskMeta{
+		ID: "task", Project: project, Worktree: parentWorktree,
+		Credentials: []string{"database", "payments"}, HasCredentials: true,
+		MCPServers: []string{"literal-env", "literal-header"},
+	})
 	f.service.Worktrees.Git = nil
 	f.service.Worktrees.Commands = execx.OSRunner{}
 	f.service.Commands = execx.OSRunner{}
 	f.request.Project, f.request.Parent, f.request.Mode = project, "task", "local-only"
-	writeFile(t, f.brief, "Do the helper's part.\n\n## Authentication\n\ncredentials: payments\nmcp: literal-header\n")
+	return f
+}
+
+// helperBriefWith writes the helper's brief with the Authentication section
+// body given, or in the older form with no section at all when it is empty.
+func helperBriefWith(t *testing.T, f *nativeFixture, section string) {
+	t.Helper()
+	body := ""
+	if section != "" {
+		body = "\n## Authentication\n\n" + section + "\n"
+	}
+	writeFile(t, f.brief, "Do the helper's part.\n"+body)
+}
+
+// A read-only reviewer needs no credential, and its brief selects exactly
+// that: no service of its parent and neither of the MCP servers whose entry
+// holds a value. Nothing of the parent's reaches its terminal, and its
+// record names none.
+func TestAHelperWhoseBriefNamesNoCredentialCarriesNone(t *testing.T) {
+	// Arrange
+	f := newHelperFixture(t, "ready")
+	helperBriefWith(t, f, "credentials: none\nmcp: none")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, err := f.service.Spawn(ctx, f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if got := carriedBy(named(f.events(t), "env")[0]); len(got) != 0 {
+		t.Errorf("the helper's terminal carries %v, want none of its parent's", got)
+	}
+	if !result.Meta.HasCredentials || len(result.Meta.Credentials) != 0 {
+		t.Errorf("the helper's record names %v (recorded %v), want it to say none", result.Meta.Credentials, result.Meta.HasCredentials)
+	}
+	servers, text := mcpServersOf(t, filepath.Join(result.Meta.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "plain"}; !slices.Equal(servers, want) || len(result.Meta.MCPServers) != 0 {
+		t.Errorf("the helper's MCP servers = %v and its record names %v, want %v and none", servers, result.Meta.MCPServers, want)
+	}
+	holdsNoStandInMCPValue(t, "the helper's MCP configuration", text)
+	for _, want := range []string{"withheld 3 of app's services (database, payments, source)", "mcp: withheld 2 servers whose entry holds a value (literal-env, literal-header)"} {
+		if !strings.Contains(result.Output, want) {
+			t.Errorf("output = %q, want %q", result.Output, want)
+		}
+	}
+	holdsNoStandInValue(t, "the spawn's output", result.Output)
+	holdsNoStandInValue(t, "the helper's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
+}
+
+// A helper's brief narrows what it carries to a part of its parent's: one of
+// its parent's services and one of the servers whose entry holds a value.
+func TestAHelperCarriesTheSubsetItsBriefNames(t *testing.T) {
+	// Arrange
+	f := newHelperFixture(t, "ready")
+	helperBriefWith(t, f, "credentials: database\nmcp: literal-header")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
@@ -427,16 +490,168 @@ func TestAHelperCarriesWhatItsParentCarriesWhateverItsBriefSays(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 	if got := carriedBy(named(f.events(t), "env")[0]); !slices.Equal(got, []string{standInDatabase}) {
-		t.Errorf("the helper's terminal carries %v, want only %s, as its parent's does", got, standInDatabase)
+		t.Errorf("the helper's terminal carries %v, want only %s", got, standInDatabase)
 	}
 	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"database"}) {
-		t.Errorf("the helper's record names %v, want its parent's database", result.Meta.Credentials)
+		t.Errorf("the helper's record names %v, want database alone", result.Meta.Credentials)
+	}
+	servers, text := mcpServersOf(t, filepath.Join(result.Meta.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "literal-header", "plain"}; !slices.Equal(servers, want) || !slices.Equal(result.Meta.MCPServers, []string{"literal-header"}) {
+		t.Errorf("the helper's MCP servers = %v and its record names %v, want %v with literal-header alone", servers, result.Meta.MCPServers, want)
+	}
+	if strings.Contains(text, "stand-in-mcp-env-value") {
+		t.Error("the helper was given the server its brief left out")
+	}
+	for _, want := range []string{"withheld 2 of app's services (payments, source)", "mcp: withheld 1 server whose entry holds a value (literal-env)"} {
+		if !strings.Contains(result.Output, want) {
+			t.Errorf("output = %q, want %q", result.Output, want)
+		}
+	}
+	holdsNoStandInValue(t, "the helper's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
+}
+
+// A helper's brief that states neither line, the form every helper brief had
+// before this, carries its parent's services and servers: a brief written for
+// a helper is never silently narrowed by an older form.
+func TestAHelperWhoseBriefStatesNoLineCarriesItsParents(t *testing.T) {
+	// Arrange
+	f := newHelperFixture(t, "ready")
+	helperBriefWith(t, f, "")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, err := f.service.Spawn(ctx, f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if got, want := carriedBy(named(f.events(t), "env")[0]), []string{standInDatabase, standInPayments}; !slices.Equal(got, want) {
+		t.Errorf("the helper's terminal carries %v, want %v, as its parent's does", got, want)
+	}
+	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"database", "payments"}) {
+		t.Errorf("the helper's record names %v, want its parent's two services", result.Meta.Credentials)
 	}
 	servers, _ := mcpServersOf(t, filepath.Join(result.Meta.TaskTmp, "mcp.json"))
-	if want := []string{"by-reference", "literal-env", "plain"}; !slices.Equal(servers, want) || !slices.Equal(result.Meta.MCPServers, []string{"literal-env"}) {
-		t.Errorf("the helper's MCP servers = %v and its record names %v, want %v with its parent's literal-env and not the one its brief names", servers, result.Meta.MCPServers, want)
+	if want := []string{"by-reference", "literal-env", "literal-header", "plain"}; !slices.Equal(servers, want) {
+		t.Errorf("the helper's MCP servers = %v, want %v", servers, want)
+	}
+	if want := []string{"literal-env", "literal-header"}; !slices.Equal(result.Meta.MCPServers, want) {
+		t.Errorf("the helper's record names the MCP servers %v, want %v", result.Meta.MCPServers, want)
 	}
 }
+
+// A helper narrows what its parent carries and never widens it: a brief that
+// names a service or server its parent does not carry, or that contradicts
+// itself, is refused before anything is built, saying what its lines may say.
+func TestASpawnRefusesAHelperBriefThatWouldWidenItsAccess(t *testing.T) {
+	cases := []struct {
+		name    string
+		section string
+		want    []string
+	}{
+		{"a service its parent does not carry", "credentials: database, source\nmcp: literal-env", []string{"names the service source", "never widens it", "its credentials line names some of database, payments"}},
+		{"services its parent carries none of", "credentials: source\nmcp: literal-env", []string{"names the service source", "its credentials line names some of database, payments"}},
+		{"a server its parent does not carry", "credentials: database\nmcp: literal-env, plain", []string{"names the MCP server plain", "its mcp line names some of literal-env, literal-header"}},
+		{"none beside a service", "credentials: none, database\nmcp: none", []string{"says none beside a service"}},
+		{"the same line twice", "credentials: database\ncredentials: payments", []string{"more than one credentials line"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			f := newHelperFixture(t, "ready")
+			helperBriefWith(t, f, tc.section)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			// Act
+			_, err := f.service.Spawn(ctx, f.request)
+
+			// Assert
+			if err == nil {
+				t.Fatalf("Spawn = nil, want the helper refused for %s", tc.section)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Spawn = %v, want %q", err, want)
+				}
+			}
+			holdsNoStandInValue(t, "the refusal", err.Error())
+			if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+				t.Errorf("the refused start left its task record: %v", readErr)
+			}
+			if _, readErr := host.ReadRecord(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+				t.Errorf("the refused start launched a terminal: %v", readErr)
+			}
+		})
+	}
+}
+
+// A helper's narrowed scope is its record's, not its parent's: a later switch
+// and resume carry what it selected, though its parent and its own brief both
+// name more by then.
+func TestAResumeOfANarrowedHelperKeepsItsScope(t *testing.T) {
+	// Arrange
+	f := newHelperFixture(t, "turns")
+	helperBriefWith(t, f, "credentials: database\nmcp: literal-env")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := f.service.Spawn(ctx, f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	closeCurrentTerminal(t, f)
+	awaitComposer(t, f)
+	f.service.Commands = cleanWorktree{f.service.Worktrees.Commands}
+	f.service.Harness = harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: nativeAdapter{kind: harness.Codex, control: harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}}}}}
+	helperBriefWith(t, f, "credentials: database, payments\nmcp: literal-env, literal-header")
+
+	// Act
+	switched, err := f.service.Switch(ctx, SwitchRequest{ID: "task-7", Model: "gpt-9"})
+	if err != nil {
+		t.Fatalf("Switch: %v", err)
+	}
+	second, err := host.ReadRecord(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Close(f.stateDir, second, nativeCloseWait); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := f.service.Switch(ctx, SwitchRequest{ID: "task-7", ResumeSession: "owned-task-7-session"})
+	if err != nil {
+		t.Fatalf("resume in place: %v", err)
+	}
+
+	// Assert
+	launches := named(f.events(t), "env")
+	if len(launches) != 3 {
+		t.Fatalf("the harness started %d times, want the spawn, the switch and the resume", len(launches))
+	}
+	for index, launch := range launches {
+		if got := carriedBy(launch); !slices.Equal(got, []string{standInDatabase}) {
+			t.Errorf("launch %d carries %v, want only %s every time", index, got, standInDatabase)
+		}
+	}
+	after, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil || !after.HasCredentials || !slices.Equal(after.Credentials, []string{"database"}) {
+		t.Errorf("after the resume the record names %v (recorded %v), %v, want database alone", after.Credentials, after.HasCredentials, err)
+	}
+	if want := []string{"literal-env"}; !slices.Equal(after.MCPServers, want) {
+		t.Errorf("after the resume the record names the MCP servers %v, want %v", after.MCPServers, want)
+	}
+	servers, text := mcpServersOf(t, filepath.Join(after.TaskTmp, "mcp.json"))
+	if want := []string{"by-reference", "literal-env", "plain"}; !slices.Equal(servers, want) {
+		t.Errorf("the resumed helper's MCP servers = %v, want %v", servers, want)
+	}
+	if strings.Contains(text, "stand-in-mcp-header-value") {
+		t.Error("the resumed helper was given the server its brief left out")
+	}
+	holdsNoStandInValue(t, "the switch's output", switched.Output)
+	holdsNoStandInValue(t, "the resume's output", resumed.Output)
+	holdsNoStandInValue(t, "the helper's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
+}
+
 
 // scriptNames is the variables a credential script sets, sorted.
 func scriptNames(t *testing.T, path string) []string {

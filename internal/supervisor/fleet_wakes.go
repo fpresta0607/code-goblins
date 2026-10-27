@@ -9,6 +9,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -612,9 +613,16 @@ type ciGoblin struct {
 // raises ci_finished for each goblin pull request whose checks have all
 // concluded since it was last reported, for each red push run of main, and
 // pr_health for each conflicting or behind pull request head.
-// A repository with no origin remote is a local one and is asked nothing.
-// One whose origin git did not answer for is asked again on the next poll,
-// and is an error once that failed failingPasses polls in a row.
+// A repository with no origin remote is a local one, and one whose origin is
+// a path or a host GitHub does not serve is hosted elsewhere: neither has CI
+// here to read, so neither is asked of GitHub and neither is answered with
+// gh's sign-in advice. One whose directory is gone, one that is no Git
+// checkout, one that is only a folder inside another repository, one git
+// refuses to read, and one whose origin names a GitHub host but no repository
+// are reported with what repairs them, since GitHub is what would otherwise be
+// read. One whose origin git did
+// not answer for is asked again on the next poll, and is an error once that
+// failed failingPasses polls in a row.
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
 // until a poll reads it again, and raises ci_unreadable; one whose pull
 // request health is not all read is remembered in w.PRUnread and raises
@@ -636,6 +644,40 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			continue
 		}
 		delete(w.BackOff, repo)
+		// The checkout comes before its origin: git answers from the nearest
+		// repository above a directory as well as from the one in it, so a
+		// checkout that moved leaving its old path inside another checkout
+		// would otherwise be read, and polled, as that other project.
+		root, refusal, rootErr := checkoutRoot(ctx, runner, repo)
+		if ctx.Err() != nil {
+			return errs
+		}
+		if rootErr != nil {
+			if _, statErr := os.Stat(repo); errors.Is(statErr, os.ErrNotExist) {
+				failure := fmt.Errorf("ci wakes: checkout %s is missing", repo)
+				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
+				delete(w.Failing, "origin:"+repo)
+			} else {
+				failure := fmt.Errorf("ci wakes: read the checkout of %s: %s", repo, redact(rootErr.Error()))
+				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "check the checkout's Git repository, its ownership and its access", now))
+			}
+			continue
+		}
+		if refusal != nil {
+			failure := fmt.Errorf("ci wakes: read the checkout of %s: %s", repo, refusal.Error())
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "check the checkout's Git repository, its ownership and its access", now))
+			continue
+		}
+		if root == "" {
+			failure := fmt.Errorf("ci wakes: %s is not a Git checkout", repo)
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
+			continue
+		}
+		if !fsx.SamePath(root, repo) {
+			failure := fmt.Errorf("ci wakes: %s is not a checkout of its own, only a folder inside the repository at %s", repo, root)
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
+			continue
+		}
 		probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 		origin, err := runner.Run(probe, execx.Request{Dir: repo, Name: "git", Args: []string{"config", "--get", "remote.origin.url"}})
 		cancel()
@@ -643,14 +685,40 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			return errs
 		}
 		if err != nil {
-			errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read the origin of %s: %w", repo, err)))
+			errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read the origin of %s: %s", repo, redact(err.Error()))))
 			continue
 		}
 		delete(w.Failing, "origin:"+repo)
+		// git config --get exits 1 with nothing to say when the key is not set,
+		// which is a local repository; every other non-zero exit is the
+		// checkout's own.
+		if origin.ExitCode != 0 && (origin.ExitCode != 1 || strings.TrimSpace(string(origin.Stderr)) != "") {
+			failure := fmt.Errorf("ci wakes: read the origin of %s: git config exited %d: %s", repo, origin.ExitCode, bounded(redact(strings.TrimSpace(string(origin.Stderr))), 300))
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "repair the checkout's Git configuration", now))
+			continue
+		}
 		if origin.ExitCode != 0 {
-			delete(w.Unreadable, repo)
-			delete(w.PRUnread, repo)
-			delete(w.OverlapUnread, repo)
+			forgetUnreadable(w, repo)
+			continue
+		}
+		remote := strings.TrimSpace(string(origin.Stdout))
+		host, repository, hasRemote := splitRemote(remote)
+		// A repository with no origin, one kept on this machine and one hosted
+		// outside GitHub have no CI here to read, so GitHub is asked nothing
+		// about them and gh's sign-in advice is never given for one of them. An
+		// origin git reads as none of its forms but whose host is GitHub's is a
+		// broken origin of this monitor's own, reported below rather than
+		// forgotten as a repository kept elsewhere.
+		if !isGitHubHost(host) && (hasRemote || !namesGitHubHost(remote)) {
+			forgetUnreadable(w, repo)
+			continue
+		}
+		// A remote that names a GitHub host but no repository is a checkout
+		// whose origin is broken, which is reported rather than read as a
+		// repository that is merely somewhere else.
+		if !hasRemote || repository == "" {
+			failure := fmt.Errorf("ci wakes: the origin of %s names no repository", repo)
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "set origin to the repository's own URL", now))
 			continue
 		}
 		var mine []ciGoblin
@@ -676,7 +744,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
-		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, trainErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), now))
+		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, trainErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), "sign gh in with gh auth login, or point origin at GitHub, or set origin's default branch with git remote set-head origin -a", now))
 	}
 	errs = errors.Join(errs, s.advanceUnwatchedTrains(ctx, runner, w, repos, currentTime), s.keepTrains(now))
 	maps.DeleteFunc(w.SameArea, func(id string, _ sameArea) bool {
@@ -715,12 +783,120 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	return errs
 }
 
+// checkoutRoot reads the root of the Git repository a recorded checkout is in,
+// which is empty when git finds none. Git answers from the nearest repository
+// above a directory as well as from the one in it, which is why the caller
+// compares this root with the checkout it recorded rather than trusting the
+// answer. A folder holding its own .git is a checkout, so git refusing to read
+// that one is returned as the refusal it is rather than read as no checkout:
+// which of the two happened is decided by what is on disk, never by the words
+// of a message git may print in another language.
+func checkoutRoot(ctx context.Context, runner execx.Runner, dir string) (root string, refusal error, err error) {
+	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	defer cancel()
+	result, err := runner.Run(probe, execx.Request{Dir: dir, Name: "git", Args: []string{"rev-parse", "--show-toplevel"}})
+	if err != nil {
+		return "", nil, err
+	}
+	if result.ExitCode == 0 {
+		return strings.TrimSpace(string(result.Stdout)), nil, nil
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".git")); statErr == nil {
+		detail := bounded(redact(strings.TrimSpace(string(result.Stderr))), 300)
+		return "", fmt.Errorf("git rev-parse --show-toplevel exited %d: %s", result.ExitCode, detail), nil
+	}
+	return "", nil, nil
+}
+
+// forgetUnreadable clears what a repository's earlier failing reads
+// remembered, so a repository that reads again wakes nobody.
+func forgetUnreadable(w *fleetWakes, repo string) {
+	delete(w.Unreadable, repo)
+	delete(w.PRUnread, repo)
+	delete(w.OverlapUnread, repo)
+}
+
+// splitRemote reads the host and the repository path of a Git remote in any
+// of the forms git takes: a URL with a scheme, and the scp-like user@host:path
+// form. A remote kept on this machine, as an absolute or relative path or a
+// file URL, names no host.
+func splitRemote(remote string) (host, repository string, ok bool) {
+	if remote == "" || filepath.IsAbs(remote) || path.IsAbs(remote) || strings.HasPrefix(remote, ".") {
+		return "", "", false
+	}
+	if _, rest, hasScheme := strings.Cut(remote, "://"); hasScheme {
+		return splitAuthority(rest)
+	}
+	if scheme, rest, found := strings.Cut(remote, ":/"); found && isSchemeName(scheme) {
+		return splitAuthority(rest)
+	}
+	hostAndPath := remote
+	if _, after, found := strings.Cut(hostAndPath, "@"); found {
+		hostAndPath = after
+	}
+	host, repository, found := strings.Cut(hostAndPath, ":")
+	if !found || strings.ContainsAny(host, `/\`) {
+		return "", "", false
+	}
+	return host, repository, host != ""
+}
+
+// splitAuthority reads the host and the repository path of a remote from its
+// authority and path, whichever scheme carried them.
+func splitAuthority(rest string) (host, repository string, ok bool) {
+	authority, after, _ := strings.Cut(rest, "/")
+	if _, userinfo, found := strings.Cut(authority, "@"); found {
+		authority = userinfo
+	}
+	host, _, _ = strings.Cut(authority, ":")
+	return host, after, host != ""
+}
+
+// isSchemeName reports whether name is a URL scheme: a letter followed by
+// letters, digits, '+', '-' or '.'.
+func isSchemeName(name string) bool {
+	for i, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		case i > 0 && (r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.'):
+		default:
+			return false
+		}
+	}
+	return name != ""
+}
+
+// namesGitHubHost reports whether remote names a GitHub host where its host
+// belongs, even when git reads the address as none of its forms: GitHub
+// spelled wrongly is a broken origin of a repository this monitor reads, not a
+// repository kept somewhere else.
+func namesGitHubHost(remote string) bool {
+	hostAndPath := remote
+	if _, after, found := strings.Cut(hostAndPath, "@"); found {
+		hostAndPath = after
+	}
+	host, _, _ := strings.Cut(hostAndPath, "/")
+	if strings.ContainsAny(host, `\`) {
+		return false
+	}
+	host, _, _ = strings.Cut(host, ":")
+	return isGitHubHost(host)
+}
+
+// isGitHubHost reports whether host is one GitHub serves. The fleet reads a
+// repository's pull requests, tickets, trains and task evidence on github.com
+// only, so a checkout kept elsewhere is hosted somewhere this monitor does not
+// read and is asked of GitHub nothing.
+func isGitHubHost(host string) bool {
+	return strings.EqualFold(host, "github.com") || strings.EqualFold(host, "ssh.github.com")
+}
+
 // reportUnreadable remembers why repo's CI could not be read and raises
 // ci_unreadable once the same failure was met on failingPasses polls in a
 // row: once for as long as it stays the same, and again for a different
 // failure or for one that cleared and came back. A repository that reads
 // again is forgotten and wakes nobody.
-func reportUnreadable(stateDir string, w *fleetWakes, repo string, failure error, now time.Time) error {
+func reportUnreadable(stateDir string, w *fleetWakes, repo string, failure error, next string, now time.Time) error {
 	if failure == nil {
 		delete(w.Unreadable, repo)
 		return nil
@@ -737,7 +913,7 @@ func reportUnreadable(stateDir string, w *fleetWakes, repo string, failure error
 	if record.Woke || record.Polls < failingPasses || !w.due(key, ciWakeGap, now) {
 		return nil
 	}
-	detail := fmt.Sprintf("ci_unreadable: %s; next: sign gh in with gh auth login, or point origin at GitHub, or set origin's default branch with git remote set-head origin -a; no CI wake comes from this repository until it reads again", record.Failure)
+	detail := fmt.Sprintf("ci_unreadable: %s; next: %s; no CI wake comes from this repository until it reads again", record.Failure, next)
 	if err := raiseFleetWake(stateDir, "ci", "repo:"+filepath.Base(repo), detail); err != nil {
 		return err
 	}
@@ -854,7 +1030,6 @@ func isInside(path, folder string) bool {
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-
 // prBaseBranch reads the base and head branch names of a pull request. The base
 // repository is not asked for: gh pr view rejects baseRepository as an unknown
 // JSON field, and the pull request's own URL names the repository its base
@@ -898,7 +1073,6 @@ func pullRequestBaseRepository(url string) (host, repository string, ok bool) {
 	}
 	return parts[0], parts[1] + "/" + parts[2], true
 }
-
 
 // prBaseRemote names the remote that holds the pull request's base repository,
 // or reports that none does. That is a local question answered from the parsed
@@ -1567,10 +1741,13 @@ func runOutput(ctx context.Context, runner execx.Runner, dir, name string, args 
 	defer cancel()
 	result, err := runner.Run(ctx, execx.Request{Dir: dir, Name: name, Args: args})
 	if err != nil {
+		if safe := redact(err.Error()); safe != err.Error() {
+			return "", errors.New(safe)
+		}
 		return "", err
 	}
 	if result.ExitCode != 0 {
-		return "", fmt.Errorf("%s %s exited %d: %s", name, args[0], result.ExitCode, bounded(strings.TrimSpace(string(result.Stderr)), 300))
+		return "", fmt.Errorf("%s %s exited %d: %s", name, args[0], result.ExitCode, bounded(redact(strings.TrimSpace(string(result.Stderr))), 300))
 	}
 	return strings.TrimSpace(string(result.Stdout)), nil
 }

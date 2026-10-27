@@ -1,7 +1,9 @@
 package spawn
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
 	"strings"
 
@@ -12,18 +14,12 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
-// spawnNeed is the services a new task's terminal is to carry: the ones its
-// brief's Authentication section names. A helper carries what its parent
-// carries, whatever its own brief says, since a goblin writes its helper's
-// brief and no goblin gives itself a service.
+// spawnNeed is the services and MCP servers a new task's terminal is to
+// carry: the ones its brief's Authentication section names. A helper narrows
+// what its parent carries and never widens it, so each line its brief states
+// must name no more than its parent has, and a line its brief leaves out is
+// its parent's.
 func (s Service) spawnNeed(req Request) (auth.Need, error) {
-	if req.Parent != "" {
-		parent, err := state.ReadTaskMeta(s.StateDir, req.Parent)
-		if err != nil {
-			return auth.Need{}, fmt.Errorf("spawn: read the record of the helper's parent %s: %w", req.Parent, err)
-		}
-		return taskNeed(parent), nil
-	}
 	brief, err := fsx.ReadFile(req.BriefPath)
 	if err != nil {
 		return auth.Need{}, fmt.Errorf("spawn: read brief: %w", err)
@@ -32,7 +28,82 @@ func (s Service) spawnNeed(req Request) (auth.Need, error) {
 	if err != nil {
 		return auth.Need{}, fmt.Errorf("spawn: %w", err)
 	}
+	if req.Parent == "" {
+		return need, nil
+	}
+	parent, err := state.ReadTaskMeta(s.StateDir, req.Parent)
+	if err != nil {
+		return auth.Need{}, fmt.Errorf("spawn: read the record of the helper's parent %s: %w", req.Parent, err)
+	}
+	carried, err := s.parentNeed(parent)
+	if err != nil {
+		return auth.Need{}, err
+	}
+	return helperNeed(req.Parent, carried, need)
+}
+
+// parentNeed is what a helper's parent carries: the services and MCP servers
+// its record names. A parent an older build spawned names no service, and its
+// terminals carry the manifest's default services, which is what its helper
+// may narrow.
+func (s Service) parentNeed(parent state.TaskMeta) (auth.Need, error) {
+	need := taskNeed(parent)
+	if !need.IsUnstated {
+		return need, nil
+	}
+	manifest, err := auth.LoadManifest(s.Worktrees.DataDir, parent.Project)
+	if errors.Is(err, fs.ErrNotExist) {
+		return auth.Need{MCPServers: need.MCPServers}, nil
+	}
+	if err != nil {
+		return auth.Need{}, fmt.Errorf("spawn: %w", err)
+	}
+	return auth.Need{Services: manifest.Grant(need).Services, MCPServers: need.MCPServers}, nil
+}
+
+// helperNeed is the need a helper starts with: its own brief's Authentication
+// section, which may select fewer services and MCP servers than its parent
+// carries but never more, and its parent's for a line its brief leaves out.
+// A name its parent does not carry is refused rather than silently dropped,
+// since a helper that starts without what its brief says it needs fails at
+// the work instead of at the request.
+func helperNeed(parentID string, parent, brief auth.Need) (auth.Need, error) {
+	need := parent
+	if !brief.IsUnstated {
+		if refusal := helperRefusal(parentID, "credentials", "service", parent.Services, brief.Services); refusal != "" {
+			return auth.Need{}, errors.New(refusal)
+		}
+		need.Services = brief.Services
+	}
+	if !brief.IsMCPUnstated {
+		if refusal := helperRefusal(parentID, "mcp", "MCP server", parent.MCPServers, brief.MCPServers); refusal != "" {
+			return auth.Need{}, errors.New(refusal)
+		}
+		need.MCPServers = brief.MCPServers
+	}
 	return need, nil
+}
+
+// helperRefusal says which names a helper's brief asks for that its parent
+// does not carry, and the line that would name some of what the parent does.
+// It names services and servers, never a value.
+func helperRefusal(parentID, key, subject string, carried, named []string) string {
+	var added []string
+	for _, name := range named {
+		if !slices.Contains(carried, name) {
+			added = append(added, name)
+		}
+	}
+	if len(added) == 0 {
+		return ""
+	}
+	continues := "which is"
+	if len(added) > 1 {
+		subject += "s"
+		continues = "which are"
+	}
+	return fmt.Sprintf("spawn: the helper's brief names the %s %s, %s not among what its parent %s carries. A helper narrows what its parent carries and never widens it: its %s line names some of %s, or %s: %s, and a line it leaves out is its parent's",
+		subject, strings.Join(added, ", "), continues, parentID, key, namesOr(carried, auth.NoServices), key, auth.NoServices)
 }
 
 // taskNeed is the services a recorded task's next terminal and its credential

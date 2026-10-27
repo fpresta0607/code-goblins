@@ -299,6 +299,8 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 			return execx.Result{ExitCode: 1}, nil
 		}
 		return execx.Result{Stdout: []byte("https://github.com/o/r.git\n")}, nil
+	case strings.HasPrefix(command, "git rev-parse --show-toplevel"):
+		return execx.Result{Stdout: []byte(req.Dir + "\n")}, nil
 	case strings.HasPrefix(command, "git branch --show-current"):
 		if !strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.worktree)) {
 			return execx.Result{Stdout: []byte("\n")}, nil
@@ -1502,5 +1504,409 @@ func TestMemoryReadyKeepsAReportWhoseLifecycleRecordIsUnreadable(t *testing.T) {
 	// Assert
 	if woke != 1 {
 		t.Fatalf("memory_ready woke %d times, want one, since unreadable lifecycle evidence must not drop the report", woke)
+	}
+}
+
+// realOriginForge uses Git for the checkout probes and a fake for GitHub reads.
+// A checkout probe is the origin's configuration and whether a repository is
+// there at all; every other question is the fake's, which answers for GitHub.
+type realOriginForge struct{ *fakeForge }
+
+func (f realOriginForge) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	isCheckoutProbe := len(req.Args) > 1 && (req.Args[0] == "config" || req.Args[0] == "rev-parse" && req.Args[1] == "--show-toplevel")
+	if req.Name == "git" && isCheckoutProbe && req.Dir == f.repo {
+		return (execx.OSRunner{}).Run(ctx, req)
+	}
+	return f.fakeForge.Run(ctx, req)
+}
+
+// refusingCheckoutForge makes git refuse the checkout's root probe with its
+// own stderr, as it does for a repository it will not read, and answers every
+// other question as the fake forge does.
+type refusingCheckoutForge struct {
+	*fakeForge
+	stderr string
+}
+
+func (f refusingCheckoutForge) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+	if req.Name == "git" && slices.Equal(req.Args, []string{"rev-parse", "--show-toplevel"}) && strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.repo)) {
+		return execx.Result{ExitCode: 128, Stderr: []byte(f.stderr)}, nil
+	}
+	return f.fakeForge.Run(ctx, req)
+}
+
+func TestCIMonitorSkipsNonGitHubOrigin(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	for _, remote := range []string{"https://gitlab.com/example/project.git", "git@gitlab.com:example/project.git", "gitlab.com:example/project.git", "https://gitlab.com", "../local-repository", "file:///C:/repos/project.git", "repos/github.com/o/r.git", "file:///C:/repos/github.com/o/r.git"} {
+		t.Run(remote, func(t *testing.T) {
+			s, h := fleetService(t)
+			project := t.TempDir()
+			git := execx.OSRunner{}
+			for _, args := range [][]string{{"init"}, {"remote", "add", "origin", remote}} {
+				result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+				}
+			}
+			liveGoblin(t, h, "cg-wakes", project)
+			forge := forgeFor(project, "cg-wakes")
+			forge.ghFailure = "no GitHub host"
+			s.Options.CI = realOriginForge{forge}
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			for range 4 {
+				_ = s.checkFleet(t.Context(), now)
+				now = now.Add(ciPollEvery)
+			}
+			if forge.ghCalls != 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+				t.Fatalf("non-GitHub origin made %d GitHub calls and raised %d wakes", forge.ghCalls, len(fleetWakeRecords(t, h, "ci")))
+			}
+		})
+	}
+}
+
+func TestCIMonitorReportsMissingCheckoutAndRecovers(t *testing.T) {
+	s, h := fleetService(t)
+	parent := t.TempDir()
+	project := filepath.Join(parent, "project")
+	if err := os.Mkdir(project, 0700); err != nil {
+		t.Fatal(err)
+	}
+	git := execx.OSRunner{}
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com/o/r.git"}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	pausedAt := time.Date(2026, 9, 30, 11, 0, 0, 0, time.UTC)
+	pause := state.Lifecycle{ID: "cg-wakes", Generation: "s1", Operation: "pause-1", Action: "pause", Phase: "paused", Reason: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: pausedAt}, Started: pausedAt, Updated: pausedAt}
+	if err := state.WriteLifecycle(h.State, pause); err != nil {
+		t.Fatal(err)
+	}
+	trackedPR := "https://github.com/o/r/pull/209"
+	if err := writeFleetWakes(h.State, fleetWakes{Checks: map[string]reportedChecks{trackedPR: {Signature: "already reported", At: pausedAt}}}); err != nil {
+		t.Fatal(err)
+	}
+	forge := forgeFor(project, "cg-wakes")
+	forge.pulls, forge.runs = "[]", "[]"
+	s.Options.CI = realOriginForge{forge}
+	moved := filepath.Join(parent, "moved")
+	if err := os.Rename(project, moved); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 5 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "checkout") || !strings.Contains(wakes[0].Detail, "restore") || strings.Contains(wakes[0].Detail, "gh auth login") {
+		t.Fatalf("missing checkout wakes = %+v, want one identifying the checkout and how to restore it", wakes)
+	}
+	if err := os.Rename(moved, project); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.checkFleet(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	remembered, err := readFleetWakes(h.State)
+	if err != nil || len(remembered.Unreadable) != 0 || forge.ghCalls == 0 {
+		t.Fatalf("after restoration: unreadable=%+v gh calls=%d error=%v", remembered.Unreadable, forge.ghCalls, err)
+	}
+	if remembered.Checks[trackedPR].Signature != "already reported" {
+		t.Fatalf("tracked PR lost: %+v", remembered.Checks)
+	}
+	lifecycle, err := state.ReadLifecycle(h.State, "cg-wakes")
+	if err != nil || lifecycle.Phase != "paused" || lifecycle.Pause == nil || lifecycle.Pause.Reason != "overlord" {
+		t.Fatalf("pause changed: %+v, %v", lifecycle, err)
+	}
+	if err := os.Rename(project, moved); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		now = now.Add(ciPollEvery)
+		_ = s.checkFleet(t.Context(), now)
+	}
+	if wakes := fleetWakeRecords(t, h, "ci"); len(wakes) != 2 {
+		t.Fatalf("a returning outage should raise one new wake: %+v", wakes)
+	}
+	if err := os.Rename(moved, project); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(ciPollEvery)
+	if err := s.checkFleet(t.Context(), now); err != nil {
+		t.Fatal(err)
+	}
+	remembered, err = readFleetWakes(h.State)
+	if err != nil || len(remembered.Unreadable) != 0 {
+		t.Fatalf("second restoration: unreadable=%+v error=%v", remembered.Unreadable, err)
+	}
+}
+
+func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
+	project := t.TempDir()
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(project))
+	s, h := fleetService(t)
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if forge.ghCalls != 0 {
+		t.Fatalf("a non-checkout made %d GitHub calls, want none", forge.ghCalls)
+	}
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, project) || !strings.Contains(wakes[0].Detail, "is not a Git checkout") || strings.Contains(wakes[0].Detail, "gh auth login") {
+		t.Fatalf("non-checkout wakes = %+v, want one saying the directory is not a Git checkout", wakes)
+	}
+}
+
+// Git refusing to read a checkout is not the same as there being no checkout:
+// the refusal git gave is reported with the repair step, not a wrong diagnosis.
+func TestCIMonitorReportsGitRefusalInsteadOfCallingTheCheckoutInvalid(t *testing.T) {
+	s, h := fleetService(t)
+	project := t.TempDir()
+	// The folder holds its own .git, as a checkout does: git refusing to read
+	// that checkout is a fault to report, never a folder that is no checkout.
+	if err := os.Mkdir(filepath.Join(project, ".git"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.pulls, forge.runs = "[]", "[]"
+	s.Options.CI = refusingCheckoutForge{fakeForge: forge, stderr: "fatal: detected dubious ownership in repository at 'https://user:fixture-password@example.invalid/repo'"}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if forge.ghCalls != 0 {
+		t.Fatalf("a checkout git refused made %d GitHub calls, want none", forge.ghCalls)
+	}
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "dubious ownership") || !strings.Contains(wakes[0].Detail, "next:") || strings.Contains(wakes[0].Detail, "is not a Git checkout") || strings.Contains(wakes[0].Detail, "fixture-password") {
+		t.Fatalf("wakes = %+v, want one reporting git's refusal, its next step and no credential", wakes)
+	}
+}
+
+// A checkout whose recorded path is now only a folder inside another checkout
+// is not that repository's project: git answers with the enclosing repository's
+// origin, which would poll another project in this one's place.
+func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	s, h := fleetService(t)
+	outer := t.TempDir()
+	git := execx.OSRunner{}
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com/o/outer.git"}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: outer, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	moved := filepath.Join(outer, "moved-checkout")
+	if err := os.Mkdir(moved, 0700); err != nil {
+		t.Fatal(err)
+	}
+	liveGoblin(t, h, "cg-wakes", moved)
+	forge := forgeFor(moved, "cg-wakes")
+	forge.pulls, forge.runs = "[]", "[]"
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, "repository at "+filepath.ToSlash(fsx.LongPath(outer))) {
+		t.Fatalf("wakes = %+v, want one naming the repository that encloses it", wakes)
+	}
+	if forge.ghCalls != 0 {
+		t.Fatalf("the enclosing repository was polled %d times, want none", forge.ghCalls)
+	}
+}
+
+func TestCIMonitorReportsGitHubOriginWithoutRepository(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	s, h := fleetService(t)
+	project := t.TempDir()
+	git := execx.OSRunner{}
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com"}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if forge.ghCalls != 0 {
+		t.Fatalf("a remote naming no repository made %d GitHub calls, want none", forge.ghCalls)
+	}
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "names no repository") || strings.Contains(wakes[0].Detail, "gh auth login") {
+		t.Fatalf("wakes = %+v, want one saying the origin names no repository", wakes)
+	}
+}
+
+// An origin that names GitHub but is spelled in none of the forms git reads is
+// a broken origin of a repository this monitor reads, not a repository kept
+// somewhere else, so it is reported and keeps its CI wake.
+func TestCIMonitorReportsGitHubOriginSpelledInNoFormGitReads(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	for _, remote := range []string{"git@github.com/o/r.git", "github.com/o/r.git"} {
+		t.Run(remote, func(t *testing.T) {
+			s, h := fleetService(t)
+			project := t.TempDir()
+			git := execx.OSRunner{}
+			for _, args := range [][]string{{"init"}, {"remote", "add", "origin", remote}} {
+				result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+				}
+			}
+			liveGoblin(t, h, "cg-wakes", project)
+			forge := forgeFor(project, "cg-wakes")
+			s.Options.CI = realOriginForge{forge}
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			for range 4 {
+				_ = s.checkFleet(t.Context(), now)
+				now = now.Add(ciPollEvery)
+			}
+			wakes := fleetWakeRecords(t, h, "ci")
+			if forge.ghCalls != 0 {
+				t.Fatalf("an origin git cannot read made %d GitHub calls, want none", forge.ghCalls)
+			}
+			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "names no repository") || !strings.Contains(wakes[0].Detail, "set origin") || strings.Contains(wakes[0].Detail, "gh auth login") {
+				t.Fatalf("wakes = %+v, want one naming the broken origin and its repair", wakes)
+			}
+		})
+	}
+}
+
+// An origin kept in an included configuration file is the checkout's effective
+// origin, so the monitor reads it. A probe of the local configuration alone
+// silently turned such a repository into no repository at all.
+func TestCIMonitorReadsOriginFromIncludedConfiguration(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	s, h := fleetService(t)
+	project := t.TempDir()
+	git := execx.OSRunner{}
+	included := filepath.Join(project, "included.gitconfig")
+	if err := os.WriteFile(included, []byte("[remote \"origin\"]\n\turl = https://github.com/o/r.git\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init"}, {"config", "include.path", filepath.ToSlash(included)}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.pulls, forge.runs = "[]", "[]"
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	if forge.ghCalls == 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+		t.Fatalf("calls=%d wakes=%+v, want the effective origin read and nothing to answer", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+	}
+}
+
+// A checkout hosted where GitHub does not serve is none of this monitor's
+// business, even when gh itself is signed in to that host, so it is asked of
+// GitHub nothing and never answered with gh's sign-in advice.
+func TestCIMonitorSkipsAHostGitHubDoesNotServe(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	if err := os.WriteFile(filepath.Join(config, "hosts.yml"), []byte("enterprise.example:\n  user: example\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s, h := fleetService(t)
+	project := t.TempDir()
+	git := execx.OSRunner{}
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://enterprise.example/o/r.git"}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	if forge.ghCalls != 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+		t.Fatalf("an enterprise host made %d GitHub calls and raised %+v, want neither", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+	}
+}
+
+func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
+	for _, remote := range []string{"https://github.com/o/r.git", "git@github.com:o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "git+ssh://git@github.com/o/r.git", "ssh+git://git@github.com/o/r.git", "https:/github.com/o/r.git", "https://github.com/%zz"} {
+		t.Run(remote, func(t *testing.T) {
+			s, h := fleetService(t)
+			project := t.TempDir()
+			git := execx.OSRunner{}
+			for _, args := range [][]string{{"init"}, {"config", "--local", "remote.origin.url", remote}} {
+				result, err := git.Run(t.Context(), execx.Request{Dir: project, Name: "git", Args: args})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+				}
+			}
+			liveGoblin(t, h, "cg-wakes", project)
+			forge := forgeFor(project, "cg-wakes")
+			forge.ghFailure = "HTTP 404: Not Found"
+			s.Options.CI = realOriginForge{forge}
+			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+			for range 4 {
+				_ = s.checkFleet(t.Context(), now)
+				now = now.Add(ciPollEvery)
+			}
+			if forge.ghCalls == 0 || len(fleetWakeRecords(t, h, "ci")) != 1 {
+				t.Fatalf("calls=%d wakes=%+v, want GitHub failure visible", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+			}
+		})
+	}
+}
+
+func TestCIMonitorRedactsCredentialsFromCommandErrors(t *testing.T) {
+	s, h, forge, _ := unreadableForge(t)
+	forge.ghFailure = "cannot read ssh://user:fixture-password@github.com/o/r and user:fixture-scp-password@github.com:o/r: token=fixture-token"
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		err := s.checkFleet(t.Context(), now)
+		if err != nil && (strings.Contains(err.Error(), "fixture-password") || strings.Contains(err.Error(), "fixture-token") || strings.Contains(err.Error(), "fixture-scp-password")) {
+			t.Fatalf("credentials in error: %v", err)
+		}
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if len(wakes) != 1 || strings.Contains(wakes[0].Detail, "fixture-password") || strings.Contains(wakes[0].Detail, "fixture-token") || strings.Contains(wakes[0].Detail, "fixture-scp-password") {
+		t.Fatalf("credentials in wake: %+v", wakes)
 	}
 }
