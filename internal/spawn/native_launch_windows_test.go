@@ -455,6 +455,9 @@ func staleOfferComposer(keys <-chan string, record func(codexEvent), draw func(.
 		case key == "\r":
 			record(codexEvent{Event: "submitted", Text: line.String()})
 			draw("", "\u203a "+line.String(), "", "\u2022 Working (0s \u2022 esc to interrupt)")
+			// Like codex, it stays at work: a spawn reads the screen after Enter.
+			for range keys {
+			}
 			return
 		case line.Len() == 0 && key >= "1" && key <= "9":
 			// A live offer would take this key as its own choice.
