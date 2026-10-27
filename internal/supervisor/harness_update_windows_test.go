@@ -94,6 +94,36 @@ func updateBoard(t *testing.T) (*HTTP, *firstRunMachine, *standInScreen) {
 	return handler, machine, screen
 }
 
+// A selection saved while the CFO's terminal holds nothing registered in it
+// waits for that terminal's CFO to start and register, rather than being read
+// as one a session it never replaced left behind.
+func TestASelectionSavedForAStartingTerminalWaitsForItsCFO(t *testing.T) {
+	// Arrange: a native terminal that runs with no CFO registered in it yet,
+	// which is what a Codex or pi CFO is until its first prompt registers it.
+	handler, h := startBoard(t, 5*gigabyte, &spawnRecorder{})
+	machine := newFirstRunMachine(t)
+	machine.runs = true
+	s := handler.Service
+	s.Options.FirstRun = machine.run
+	s.Options.CFOJobActivity = func(host.Record) (string, error) { return "", nil }
+	hostTerminal(t, h.State, NativeCFOTerminal)
+	if cfo := readCFOState(h.State); !cfo.starting || cfo.registered {
+		t.Fatalf("cfo state = %+v, want a starting terminal with nothing registered", cfo)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(`{"harness":"codex","model":"selected-model","effort":"high","pending":true,"since":"2026-10-26T20:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	s.applyCFOEngine(t.Context())
+
+	// Assert
+	choice, err := ReadCFOEngine(h.State)
+	if err != nil || !choice.Pending || choice.Problem != "" || !strings.Contains(choice.Waiting, "terminal to start") || machine.restarted != 0 {
+		t.Fatalf("choice=%+v err=%v restarted=%d, want the selection still pending on a starting terminal", choice, err, machine.restarted)
+	}
+}
+
 func pressCFOUpdate(handler *HTTP, body string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest("POST", "http://board.local/api/cfo/update", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")

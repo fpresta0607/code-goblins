@@ -1607,7 +1607,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	}
 	cfo := readCFOState(s.Store.Home.State)
 	out.CFOTerminal, out.CFORuns, out.CFOStarting, out.CFOClosed, out.CFOHarness, out.CFOSession = cfo.terminal, cfo.registered || cfo.starting, cfo.starting, cfo.closed, cfo.harness, cfo.session
-	if engine, err := ReadCFOEngine(directory); err == nil {
+	if engine, err := s.cfoEngine(); err == nil {
 		out.CFOEngine = &engine
 	} else if !errors.Is(err, os.ErrNotExist) {
 		out.Issues = append(out.Issues, "CFO engine selection: "+err.Error())

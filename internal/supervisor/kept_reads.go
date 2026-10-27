@@ -232,6 +232,14 @@ func (s *Service) cfoConversationLeft() string {
 	return cfoConversationLeftNotice(data)
 }
 
+// cfoEngine is the engine the CFO was selected to run, read once per state of
+// its file: a snapshot that opened it every time spent one more open than the
+// budget the board's own reads keep.
+func (s *Service) cfoEngine() (CFOEngine, error) {
+	directory := s.Store.Home.State
+	return kept(&s.reads, "cfo-engine", []string{filepath.Join(directory, "cfo-engine.json")}, func() (CFOEngine, error) { return ReadCFOEngine(directory) })
+}
+
 func (s *Service) taskMeta(id string) (state.TaskMeta, error) {
 	directory := s.Store.Home.State
 	return kept(&s.reads, "meta", []string{state.TaskMetaPath(directory, id)}, func() (state.TaskMeta, error) { return state.ReadTaskMeta(directory, id) })

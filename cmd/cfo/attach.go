@@ -313,13 +313,18 @@ func cfoCompactArguments(agent string) []string {
 // such as the arguments that resume a conversation, and prompt as its first
 // instruction (cfoStartArguments).
 func startNativeCFO(h home.Home, project, harness string, args []string, prompt string) error {
+	// A selection the fleet cannot read names no engine to start the CFO with:
+	// the board reports it, and the CFO starts as harness was asked for rather
+	// than not starting at all.
 	choice, err := supervisor.ReadCFOEngine(h.State)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("read the CFO's selected engine: %w", err)
-	}
 	var engine []string
 	if err == nil && choice.Harness != harness {
-		return fmt.Errorf("the CFO's saved engine is for %s, not %s; choose its model and effort before starting", choice.Harness, harness)
+		// An explicit harness wins for this start, as `goblins --harness` and the
+		// board's Restart promise, and the selection stays saved for when the CFO
+		// runs as its own harness again.
+		if noteErr := supervisor.NoteCFOEngineOverridden(h.State, harness); noteErr != nil {
+			return fmt.Errorf("note that the CFO started as %s: %w", harness, noteErr)
+		}
 	}
 	if err == nil && choice.Harness == harness {
 		switch harness {

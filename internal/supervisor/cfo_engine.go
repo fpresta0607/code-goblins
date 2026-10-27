@@ -80,6 +80,13 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 		return
 	}
 	cfo := readCFOState(stateDir)
+	// A terminal that is starting holds the launch the selection is applied by,
+	// and registers seconds later: while it does, the selection waits rather
+	// than being reported as one a session left behind.
+	if cfo.starting && !cfo.registered {
+		s.noteCFOEngineWaiting(choice, "Waiting for the CFO's terminal to start")
+		return
+	}
 	if choice.Since.IsZero() {
 		if !cfo.registered || cfo.since.IsZero() {
 			s.noteCFOEngineWaiting(choice, cfoEngineNextStart)
@@ -205,6 +212,26 @@ func ReadCFOEngine(stateDir string) (CFOEngine, error) {
 // catalog's word for whichever one the harness picks.
 func engineValue(value string) bool {
 	return value != "" && value != "default" && !strings.HasPrefix(value, "-") && spawnValue.MatchString(value)
+}
+
+// NoteCFOEngineOverridden records that the CFO started as started rather than
+// as the harness its saved selection names, which a start with an explicit
+// harness does and which the board reports beside the selection. The selection
+// stays saved for when the CFO runs as its own harness again, and nothing is
+// written when it already names started or when no selection is saved.
+func NoteCFOEngineOverridden(stateDir, started string) error {
+	choice, err := ReadCFOEngine(stateDir)
+	if err != nil {
+		// Nothing is saved that names a harness, so there is nothing to note; a
+		// selection the fleet cannot read is the board's to report.
+		return nil
+	}
+	if choice.Harness == started {
+		return nil
+	}
+	choice.Pending = false
+	choice.Problem = fmt.Sprintf("The CFO started as %s, not as the %s its saved engine names; the selection is used when the CFO runs as %s again", started, choice.Harness, choice.Harness)
+	return writeCFOEngine(stateDir, choice)
 }
 
 func (h *HTTP) selectCFOEngine(w http.ResponseWriter, r *http.Request) {
