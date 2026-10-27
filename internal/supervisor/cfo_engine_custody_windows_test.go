@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -88,6 +89,29 @@ func TestCFOEngineTakesTheShimAndTheHarnessForTheTerminalsOwnProgram(t *testing.
 func TestCFOEngineWaitsForAChildItCannotProveIsTheHarness(t *testing.T) {
 	shrinkHarnessLaunch(t)
 	_, record := shimTerminal(t, t.TempDir(), "codex")
+	// The shim starts the program a moment after the terminal's host record
+	// appears, and a supervisor reads the job on its later tick; a read taken
+	// before the child exists sees only the shim, which proves nothing either
+	// way. Wait for the child, so the read is of a terminal that holds work.
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		processes, err := fleettree.Processes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		started := false
+		for _, process := range processes {
+			if process.ParentPID == record.ChildPID {
+				started = true
+				break
+			}
+		}
+		if started {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the terminal's program never started its harness")
+		}
+	}
 	reason, err := cfoJobActivity(record)
 	if err != nil || !strings.Contains(reason, "supervisor.test.exe") || !strings.Contains(reason, "pid ") {
 		t.Fatalf("live terminal child custody = %q, %v", reason, err)

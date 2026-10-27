@@ -283,6 +283,7 @@ Beside Restart, a dropdown shows the selected harness's name and icon and offers
 Selecting a harness sends nothing until Restart is pressed, which immediately interrupts the CFO's current response and restarts it in that harness.
 Keeping that harness resumes its conversation where it can, while choosing another starts a new conversation with the home's digest and remembers the choice for later starts.
 `goblins resume --harness claude|codex|pi` makes the same choice from another terminal.
+Below Restart, an engine selector chooses the harness, model and effort the CFO runs; saving it restarts nothing, since the CFO takes it at its next safe turn ([the native board guide](docs/native-board.md) has the details).
 A restart that started the CFO on a new conversation says so in one line beside it.
 When Claude Code, Codex or pi was updated while the CFO or a goblin runs, as Claude Code's "Update installed · Restart to update" says, the board shows **Update** beside the AFK switch on the CFO's header, and on that goblin's card: your press restarts it onto the update on its own conversation once its turn ends, and nothing restarts until you press it ([Harness updates](docs/native-board.md#harness-updates)).
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
