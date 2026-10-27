@@ -187,6 +187,15 @@ func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, re
 		return resources, nil
 	}
 	if err != nil || result.ExitCode != 0 {
+		// A task whose project checkout is gone has no gate run left to stop:
+		// the gate keeps its runs by the checkout's path and the task's
+		// branch, and the branch went with the checkout's repository, which
+		// the worktree's .git file still names. On 2026-10-27 a gate proof's
+		// fixture checkout was removed, and every kill of its task refused
+		// here (#1578).
+		if _, statErr := os.Stat(meta.Project); errors.Is(statErr, os.ErrNotExist) {
+			return resources, nil
+		}
 		return resources, errors.New("read the task branch before identifying its gate")
 	}
 	resources.Gate, err = gate.Interruption(ctx, meta.Project, strings.TrimSpace(string(result.Stdout)))

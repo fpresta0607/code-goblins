@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,6 +30,13 @@ func PreserveWork(ctx context.Context, commands execx.Runner, meta state.TaskMet
 	}
 	top, err := git("rev-parse", "--show-toplevel")
 	if err != nil || top.ExitCode != 0 {
+		// The worktree of a project checkout that is gone has no repository
+		// left for git to read, so whatever files it still holds stay where
+		// they are.
+		if _, statErr := os.Stat(meta.Project); errors.Is(statErr, os.ErrNotExist) {
+			result.Kept[0] += " (its project checkout " + meta.Project + " is gone)"
+			return result, nil
+		}
 		return result, errors.New("worktree could not be verified; left in place")
 	}
 	if !strings.EqualFold(filepath.Clean(strings.TrimSpace(string(top.Stdout))), filepath.Clean(meta.Worktree)) {

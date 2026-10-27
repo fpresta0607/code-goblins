@@ -130,7 +130,13 @@ func (s Service) Cleanup(ctx context.Context, id string) (result Result, err err
 
 	project, err := fsx.Canonical(meta.Project)
 	if err != nil {
-		return Result{}, fmt.Errorf("cleanup: canonicalize project %q: %w", meta.Project, err)
+		// A project checkout deleted out from under the record leaves its
+		// worktree no repository to return to, so ForceArchive keeps it in
+		// place, as it keeps a worktree it cannot resolve.
+		if !s.ForceArchive || !errors.Is(err, fs.ErrNotExist) {
+			return Result{}, fmt.Errorf("cleanup: canonicalize project %q: %w", meta.Project, err)
+		}
+		return s.forceArchive(ctx, meta, id, meta.Worktree)
 	}
 	worktreePath, err := fsx.Canonical(meta.Worktree)
 	if err != nil {
