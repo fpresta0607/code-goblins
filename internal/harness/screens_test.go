@@ -581,6 +581,31 @@ func TestRunningWorkIsReadFromAnyHarnessPane(t *testing.T) {
 	}
 }
 
+// HasBackgroundWork answers off the same rows RunningWork reads as background
+// work, indented as a harness draws them, and never off the line that ended
+// the turn or a reply that only says so.
+func TestHasBackgroundWorkReadsEveryRowRunningWorkDoes(t *testing.T) {
+	for name, screen := range map[string][]string{
+		"agents awaited":      {"  ✻ Waiting for 1 background agent to finish", ">", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"agents and a shell":  {"· Waiting for 2 background tasks to finish", ">", "  ⏵⏵ bypass permissions on · 1 shell"},
+		"a footer shell":      {">", "  ⏵⏵ bypass permissions on · 1 shell"},
+		"shells and monitors": {">", "  ⏵⏵ bypass permissions on · 4 shells, 1 monitor"},
+	} {
+		if !HasBackgroundWork(screen) {
+			t.Errorf("%s: HasBackgroundWork(%q) = false, want true", name, screen)
+		}
+	}
+	for name, screen := range map[string][]string{
+		"a turn ended, its shell gone": {"✻ Cooked for 23s · done 12:01 PM · 1 shell still running", ">", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"a reply about waiting":        {"● Waiting for 1 background agent is the plan.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+		"claude idle":                  {"● Done. The branch is pushed.", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"},
+	} {
+		if HasBackgroundWork(screen) {
+			t.Errorf("%s: HasBackgroundWork(%q) = true, want false", name, screen)
+		}
+	}
+}
+
 // A screen whose only movement is the harness's own clock, spinner or hint
 // shows no new output, and a row written to it does: on 2026-10-08 the CFO
 // was woken about 30 times for goblins whose screens were filling with test

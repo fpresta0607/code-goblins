@@ -68,6 +68,8 @@ func TestAHarnessIsAtAStoppingPointOnlyOnceItsTurnHasEnded(t *testing.T) {
 		"no composer to read":                         {[]string{"● Pushed the branch."}, false, false},
 		"its Stop hook waits, text unsent":            {claudeAtPrompt("one more thing"), true, false},
 		"its Stop hook waits with a background shell": {claudeAtPrompt("", "  ⏵⏵ auto mode on · 1 shell"), true, false},
+		"its Stop hook waits, an agent runs":          {claudeAtPrompt("", "  ✻ Waiting for 1 background agent to finish"), true, false},
+		"its Stop hook waits, no agent":               {claudeAtPrompt("", "  ⏵⏵ auto mode on (shift+tab to cycle)"), true, true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := atStoppingPoint(screens, test.screen, test.isHookWaiting); got != test.want {

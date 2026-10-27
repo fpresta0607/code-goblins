@@ -77,10 +77,14 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 	}
 	cfo := readCFOState(stateDir)
 	if !cfo.registered || !cfo.since.Equal(choice.Since) {
+		problem := "The CFO session changed; the selection is saved for its next start"
+		if cfo.registered && cfo.harness == choice.Harness && cfo.since.After(choice.Since) {
+			problem = ""
+		}
 		s.starts.Lock()
 		if current, err := ReadCFOEngine(stateDir); err == nil && current == choice {
 			choice.Pending = false
-			choice.Problem = "The CFO session changed; the selection is saved for its next start"
+			choice.Problem = problem
 			if err := writeCFOEngine(stateDir, choice); err != nil {
 				s.publish(err)
 			}
@@ -115,7 +119,7 @@ func (s *Service) applyCFOEngine(ctx context.Context) {
 	}
 	if err != nil {
 		choice.Pending = false
-		choice.Problem = "The selection could not be applied: " + err.Error()
+		choice.Problem = fmt.Sprintf("The selection could not be applied: %v. It stays saved, with model %s and effort %s, and is used at the CFO's next start", err, choice.Model, choice.Effort)
 		if writeErr := writeCFOEngine(stateDir, choice); writeErr != nil {
 			s.publish(writeErr)
 		}

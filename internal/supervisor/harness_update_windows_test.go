@@ -55,7 +55,13 @@ func (s *standInScreen) read(host.Record) ([]string, error) {
 // process, whose program started at childStart.
 func recordTerminal(t *testing.T, stateDir, id string, childStart time.Time) {
 	t.Helper()
-	data, err := json.Marshal(host.Record{ID: id, Pipe: `\\.\pipe\stand-in-` + id, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: os.Getpid(), ChildStart: childStart, Started: time.Now().UTC()})
+	recordTerminalStarted(t, stateDir, id, childStart, time.Now().UTC())
+}
+
+// recordTerminalStarted records the same host, opened at started.
+func recordTerminalStarted(t *testing.T, stateDir, id string, childStart, started time.Time) {
+	t.Helper()
+	data, err := json.Marshal(host.Record{ID: id, Pipe: `\\.\pipe\stand-in-` + id, Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: os.Getpid(), ChildStart: childStart, Started: started})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +157,129 @@ func TestCFOEngineSelectionWaitsForIdleAndAnEmptyComposer(t *testing.T) {
 	handler.Service.applyCFOEngine(t.Context())
 	if machine.restarted != 1 {
 		t.Fatalf("restarted %d times, want once at the safe boundary", machine.restarted)
+	}
+}
+
+// The restart that changed the CFO's session applied the saved selection on
+// the harness it names, so the board is left with it applied and nothing
+// pending.
+func TestCFOEngineSelectionTheCFOAlreadyRunsLeavesNothingPending(t *testing.T) {
+	// Arrange
+	handler, machine, _ := updateBoard(t)
+	stateDir := handler.Service.Store.Home.State
+	if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("selection = %d %s", response.Code, response.Body)
+	}
+	saved, err := ReadCFOEngine(stateDir)
+	if err != nil || !saved.Pending {
+		t.Fatalf("saved choice = %+v, %v; want it pending", saved, err)
+	}
+
+	// Act: the CFO comes back as codex in a session that began after the save.
+	nativePrimaryAs(t, stateDir, "codex")
+	recordTerminal(t, stateDir, NativeCFOTerminal, time.Now().Add(-time.Minute))
+	handler.Service.applyCFOEngine(t.Context())
+
+	// Assert
+	choice, err := ReadCFOEngine(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if choice.Pending || choice.Problem != "" {
+		t.Fatalf("choice = %+v, want the selection the CFO now runs, with nothing pending", choice)
+	}
+	if choice.Model != "selected-model" || choice.Effort != "high" || machine.restarted != 0 {
+		t.Fatalf("choice = %+v restarted = %d; want the same engine kept and nothing restarted", choice, machine.restarted)
+	}
+}
+
+// A session change that did not consume the saved selection, a restart as
+// another harness or a session that began before it was saved, leaves it
+// saved for the CFO's next start and says so.
+func TestCFOEngineSelectionAnotherSessionKeepsItForTheNextStart(t *testing.T) {
+	for name, test := range map[string]struct {
+		harness string
+		started func(time.Time) time.Time
+	}{
+		"a restart as another harness": {"claude", func(saved time.Time) time.Time { return saved.Add(time.Minute) }},
+		"a session before the save":    {"codex", func(saved time.Time) time.Time { return saved.Add(-2 * time.Hour) }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			handler, machine, _ := updateBoard(t)
+			stateDir := handler.Service.Store.Home.State
+			if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+			if response.Code != http.StatusOK {
+				t.Fatalf("selection = %d %s", response.Code, response.Body)
+			}
+			saved, err := ReadCFOEngine(stateDir)
+			if err != nil || !saved.Pending {
+				t.Fatalf("saved choice = %+v, %v; want it pending", saved, err)
+			}
+
+			// Act
+			nativePrimaryAs(t, stateDir, test.harness)
+			recordTerminalStarted(t, stateDir, NativeCFOTerminal, time.Now().Add(-time.Minute), test.started(saved.Since))
+			handler.Service.applyCFOEngine(t.Context())
+
+			// Assert
+			choice, err := ReadCFOEngine(stateDir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if choice.Pending || !strings.Contains(choice.Problem, "saved for its next start") || machine.restarted != 0 {
+				t.Fatalf("choice = %+v restarted = %d; want it saved for the next start and nothing restarted", choice, machine.restarted)
+			}
+		})
+	}
+}
+
+// A selection the installed catalog no longer offers at the safe boundary
+// says it stays saved for the CFO's next start, and it does.
+func TestCFOEngineSelectionThatFailsAtApplyStaysSavedForTheNextStart(t *testing.T) {
+	// Arrange
+	handler, machine, screen := updateBoard(t)
+	stateDir := handler.Service.Store.Home.State
+	handler.Service.Options.CFOJobActivity = func(host.Record) (string, error) { return "", nil }
+	catalog := func(models string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(machine.home, ".codex", "models_cache.json"), []byte(models), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	catalog(`{"models":[{"slug":"selected-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`)
+	screen.show(claudeAtPrompt(""))
+	response := taskControlRequest(handler, "/api/cfo/engine", map[string]string{"harness": "codex", "model": "selected-model", "effort": "high"})
+	if response.Code != http.StatusOK {
+		t.Fatalf("selection = %d %s", response.Code, response.Body)
+	}
+
+	// Act: the model leaves the installed catalog before the CFO's turn ends.
+	catalog(`{"models":[{"slug":"another-model","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]}]}`)
+	handler.Service.applyCFOEngine(t.Context())
+
+	// Assert
+	choice, err := ReadCFOEngine(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if choice.Pending || machine.restarted != 0 {
+		t.Fatalf("choice = %+v restarted = %d; want nothing pending and nothing restarted", choice, machine.restarted)
+	}
+	for _, want := range []string{"stays saved", "selected-model", "high", "next start"} {
+		if !strings.Contains(choice.Problem, want) {
+			t.Fatalf("problem = %q, want it to name %q", choice.Problem, want)
+		}
+	}
+	if choice.Model != "selected-model" || choice.Effort != "high" {
+		t.Fatalf("choice = %+v; want the selection kept for the CFO's next start", choice)
 	}
 }
 

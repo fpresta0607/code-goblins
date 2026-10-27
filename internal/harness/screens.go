@@ -506,15 +506,17 @@ var runningWork = []*regexp.Regexp{
 	regexp.MustCompile(`[\x{2800}-\x{28FF}]\s+Working`),
 	regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 	backgroundCount,
-	regexp.MustCompile(`^[·✢✳*✶✻✽] Waiting for \d+ background `),
+	backgroundAgents,
 }
 
 // backgroundCount is Claude Code's footer count of the background shells and
-// monitors a turn left running, and turnEnded the line that ends a turn,
-// which counts them too.
+// monitors a turn left running, backgroundAgents its spinner row while a turn
+// waits on the background agents it started, and turnEnded the line that ends
+// a turn, which counts them too.
 var (
-	backgroundCount = regexp.MustCompile(`(^|·)\s*\d+ (shells?|monitors?)(,\s*\d+ (shells?|monitors?))*\s*(·|$)`)
-	turnEnded       = regexp.MustCompile(`· done \d{1,2}:\d{2}`)
+	backgroundCount  = regexp.MustCompile(`(^|·)\s*\d+ (shells?|monitors?)(,\s*\d+ (shells?|monitors?))*\s*(·|$)`)
+	backgroundAgents = regexp.MustCompile(`^[·✢✳*✶✻✽] Waiting for \d+ background `)
+	turnEnded        = regexp.MustCompile(`· done \d{1,2}:\d{2}`)
 )
 
 // RunningWork returns the first row of screen that shows a tool, a turn or a
@@ -536,7 +538,11 @@ func RunningWork(screen []string) (string, bool) {
 
 func HasBackgroundWork(screen []string) bool {
 	for _, row := range screen {
-		if backgroundCount.MatchString(row) && !turnEnded.MatchString(row) {
+		row = strings.TrimSpace(row)
+		if turnEnded.MatchString(row) {
+			continue
+		}
+		if backgroundCount.MatchString(row) || backgroundAgents.MatchString(row) {
 			return true
 		}
 	}
