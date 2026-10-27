@@ -684,7 +684,11 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
   return <section className="native-terminal" aria-label={cfo ? "CFO terminal" : "Goblin terminal"}>
     <div className="terminal-surface" ref={host} />
     <div className={"terminal-surface terminal-history" + (inHistory && live ? "" : " away")} ref={pastHost} aria-hidden={!(inHistory && live)} />
-    {!live && status === "Connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
+    {/* Connecting is a plain line under the terminal's box, never a cover over
+        it: he types into that box while it connects, and the loader must sit
+        outside it (the Overlord, 2026-10-27: "the connecting loader overlays
+        and looks improper on box"). */}
+    {!live && status === "Connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the terminal</p>}
     <div className="terminal-overlay">
       {/* A live pane shows nothing over the screen; only a change of state or
           a copy needs saying, and the cover says it is connecting. */}

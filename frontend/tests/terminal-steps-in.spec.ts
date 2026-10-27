@@ -1,5 +1,5 @@
 import { expect, openTaskList, test, type Page } from "./site";
-import { at, box, field, open, openGoblin, pasted, type Relay, snapshot, typed } from "./session-board";
+import { at, box, card, field, NAME, open, openGoblin, pasted, type Relay, snapshot, typed } from "./session-board";
 
 // PR 4 of the message view plan, which the Overlord asked be proved first:
 // what the box sends that opens a screen of the harness's own, a picker, a
@@ -113,6 +113,28 @@ test("Back to messages returns to the messages with the keyboard in the box, and
   await expect(field(page)).toBeFocused();
   await expect(field(page)).toHaveValue("half a thought");
   expect(typed(relay)).toBe("1");
+});
+
+test("Back to messages saves Modern, so the conversation stays after the step out", async ({ page }) => {
+  // Arrange: this browser draws its conversations as Classic, so the panel
+  // opens on the harness's terminal with its Back to messages bar.
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page);
+  await card(page, NAME).click();
+  await expect(page.locator("#panel-title")).toHaveText(NAME);
+  await expect(terminal(page)).toBeVisible();
+
+  // Act
+  await back(page).click();
+
+  // Assert: he stands in the conversation, and the board keeps Modern from
+  // then on, on the same session, with its history and the box ready.
+  await expect(messages(page)).toBeVisible();
+  await expect(field(page)).toBeFocused();
+  await expect(page.getByText("On it.", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Back to messages chose Modern").toBe("modern");
+  expect(relay.views, "the session is the one the terminal already kept").toBe(1);
+  await expect(back(page)).toHaveCount(0);
 });
 
 test("a panel that asks nothing brings the terminal in as a picker does, and while it stays open the box sends nothing into it", async ({ page }) => {

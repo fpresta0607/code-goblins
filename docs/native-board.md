@@ -746,7 +746,7 @@ Releasing a drag selection copies it to the clipboard, the way Herdr does, and C
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
 At most eight views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
 Adjacent printable keystrokes coalesce into bounded ordered inputs; control keys and paste wrappers stay inputs of their own.
-Until the first frame is drawn a full-pane state says the terminal is connecting, and a view that has stopped says why in a pill with Reconnect beside it.
+Until the first frame is drawn a plain line under the terminal's box says the terminal is connecting, never a cover over the box he types into (the Overlord, 2026-10-27: "the connecting loader overlays and looks improper on box"), and a view that has stopped says why in a pill with Reconnect beside it.
 The terminal carries no options menu or help text; xterm's default input mode accepts InsertText and IME Unicode, and paste works.
 Text written into the terminal's hidden text box without a key, as a phone's dictation, an emoji picker or a keyboard's suggestion writes it, is sent as the change it made to the box: what it added is typed, and what it replaced is erased with Backspace back to where the change began and typed again, never erasing text before a key typed after it.
 A phone's dictation writes each partial result over the one before it, and until 21 October 2026 xterm sent each as new keys, so one dictated sentence reached the program about forty times, each a little longer (`frontend/tests/dictated-input.spec.ts`).
@@ -961,8 +961,9 @@ On a small screen the tour keeps the board and the CFO's panel stacked, one unde
 The question mark in the top bar replays it from any view on a screen wider than 40rem, and since its first step says how to dictate, a tour owed spends the terminal's voice hint.
 The panel of anything but the CFO (a queued, running, paused or completed task, or a session on Orchestration) has Back in its corner where the CFO's own panel has Close: a button with a back arrow and its name, which returns the panel to the CFO's panel on the view that panel last showed, or on the view a panel opens on when it has shown none, keeps a maximized panel maximized, and hands the keyboard back to the card or node the panel was opened from, or to the panel when that is hidden behind it.
 Escape outside a terminal does what the corner button does: back from a task's panel, close on the CFO's.
-On a small screen (40rem or less), such as a phone over remote access or the board's Home Screen app, a panel opened on anything, a card, the CFO's bar, a node or a train, is the whole view below the top bar, and the board or the graph leaves the screen until Back, the corner's one button there, or Escape returns to it, with the keyboard on the card or node the panel was opened from (the Overlord, 2026-10-20: "It should become the full screen below the header banner").
-The top bar there is the brand with the Command Center and the connection beside it, and the view switch under them while no panel is open; the tour, the layout button and Open CFO are left off, as are the controls that act on the PC: Open in terminal, Open in VS Code and Open folder.
+On a small screen (40rem or less), such as a phone over remote access or the board's Home Screen app, a panel opened on anything, a card, the CFO's bar, a node or a train, is the whole view, and the board or the graph leaves the screen until Back, the corner's one button there, or Escape returns to it, with the keyboard on the card or node the panel was opened from (the Overlord, 2026-10-20: "It should become the full screen below the header banner").
+While a panel fills that screen the top bar is put away, so a terminal or a conversation keeps the room it would eat (the Overlord, 2026-10-27: "header banner not needed on movible as it eats space"); it comes back with the board or the graph on Back.
+While no panel is open the top bar there is the brand with the Command Center and the connection beside it, and the view switch under them; the tour, the layout button and Open CFO are left off, as are the controls that act on the PC: Open in terminal, Open in VS Code and Open folder.
 The panel is held to the visual viewport, which the on-screen keyboard shrinks while the layout viewport stays as it was, so when the keyboard opens the terminal shrinks to the room above it, sends its new rows to the goblin's terminal and keeps its input line and footer in sight, and takes the room back when the keyboard closes; when Safari moves the visual viewport down the page to keep the focused field in sight, the panel moves with it.
 `frontend/tests/phone-terminal.spec.ts` checks this at 390 by 844 and 360 by 800, with the keyboard played by a visual viewport the test shrinks.
 The panel's top row is one line at every width the panel can take, 360 px at its narrowest: its controls (Open in terminal and Maximize or Restore today, neither on a small screen), then the corner button, Close or Back.
@@ -1365,7 +1366,7 @@ At its end it follows what arrives, and while he reads further up nothing moves 
 Jump to latest, at the list's foot while he reads up, returns to the end.
 Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
-While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference.
+While such a terminal cannot accept input, scrolling back opens its recorded conversation, which saves Modern as Back to messages does, without typing.
 At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
 The indicator has no icon of its own and takes the harness's colour.
 When the session is not working the line keeps the time facts and says why when the session's usage cannot be read at all; the fuller usage stays in the banner.
@@ -1381,7 +1382,7 @@ Shift+Escape leaves the messages for the panel's top row, as it leaves a termina
 The messages lie where the terminal deck lies, under the panel's compact header, beside its task list, in the same flex and under the same rule (`frontend/src/panel-stage.tsx`), so their box is the terminal's.
 Stepping the terminal in or out therefore never asks it for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
 It stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.
-A stream that drops reconnects by itself and says Reconnecting meanwhile.
+A stream that drops reconnects by itself and says Reconnecting meanwhile, and a plain line above the conversation says it is connecting until its first page arrives, never a cover over the box he types into.
 A stream the supervisor ends says why, and one that drops five times, or that the supervisor refuses, says the messages cannot be read, each with Reconnect.
 What the board could not parse goes to the CFO.
 
