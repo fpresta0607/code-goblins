@@ -253,7 +253,7 @@ test("his words from Something else? complete the step card as Sent, and History
   await row.locator(".history-open").click();
   await expect(row.locator(".history-mark")).toHaveAttribute("aria-label", "You wrote: which plan?");
   await expect(row.locator(".history-detail")).toHaveText("You wrote: which plan?");
-  await expect(page.locator(".click-feedback, .signin-note, .credential-refusal, .message-note")).toHaveCount(0);
+  await expect(page.locator(".notice")).toHaveCount(0);
   await menu.locator(".command-center-updates").screenshot({ path: testInfo.outputPath("step-card-answer-history.png") });
 });
 
@@ -273,5 +273,5 @@ test("a refused answer from Something else? stays in his window in full, with hi
   await expect(note.getByRole("status").filter({ hasText: refusal })).toHaveText(refusal);
   await expect(note.getByLabel("Your note")).toHaveValue("which plan?");
   await expect(note.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
-  await expect(card.locator(".click-feedback")).toHaveCount(0);
+  await expect(card.locator(".notice")).toHaveCount(0);
 });

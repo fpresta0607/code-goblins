@@ -183,7 +183,7 @@ test("unavailable values and failed saves show their reasons", async ({ page }) 
   await engine.getByRole("combobox", { name: "Model", exact: true }).selectOption("next-model");
   await engine.getByRole("combobox", { name: "Effort", exact: true }).selectOption("high");
   await engine.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(engine.locator(".click-feedback")).toHaveText("The task was edited. Reload its card.");
+  await expect(engine.locator(".notice")).toHaveText("The task was edited. Reload its card.");
   await expect(engine.getByRole("alert")).toHaveCount(0);
 });
 

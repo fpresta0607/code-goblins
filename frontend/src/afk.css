@@ -24,18 +24,10 @@
 .afk-toggle[aria-checked="true"] .afk-toggle-thumb { transform: translateX(14px); background: #03130c; }
 @media (prefers-reduced-motion: reduce) { .afk-toggle-track, .afk-toggle-thumb { transition: none; } }
 .afk-toggle .card-start-spinner { flex: none; }
-/* A refusal, or a switch that cannot be read, takes a row of its own under
-   the header. */
-.panel-header > .afk-refusal { flex: 1 0 100%; margin: 8px 0 0; }
-
-/* A refusal of his switch: what did not happen, in the board's red, then the
-   supervisor's own words in full, which say why and what to do instead. */
-.afk-refusal { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 0; padding: 12px 14px; border: 1px solid rgba(239, 142, 131, 0.45); border-radius: var(--radius); background: rgba(239, 142, 131, 0.08); color: #f3d4cf; text-align: left; }
-.afk-refusal > .icon { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--red); }
-.afk-refusal-text { display: grid; gap: 4px; flex: 1; min-width: 0; }
-.afk-refusal-text strong { color: #ffdcd7; font-weight: 700; }
-.afk-refusal-text p { margin: 0; font-size: .9375rem; line-height: 1.5; overflow-wrap: anywhere; }
-.afk-refusal > .icon-button { flex: none; width: 30px; height: 30px; min-height: 30px; margin: -6px -8px 0 0; }
+/* A refusal of his switch, or the CFO's pending update, takes a row of its
+   own under the header; in a dialog a refusal sits under its words. */
+.panel-header > .notice { flex: 1 0 100%; margin: 8px 0 0; }
+.afk-dialog > .notice { margin: 16px 0 0; }
 
 /* A button that waits on the supervisor says so: its spinner, then what it
    is doing. */

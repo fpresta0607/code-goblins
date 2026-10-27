@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { plainText, summary } from "./task-words";
-import "./click-feedback.css";
+import { Notice } from "./notice";
 
 // How long feedback on a click stays, and the most it says.
 const SHOWN_MS = 6000;
@@ -25,5 +25,5 @@ export function useClickFeedback(): [string, (text: string) => void] {
 // instead.
 export function ClickFeedback({ text }: { text: string }) {
   if (!text) return null;
-  return <span className="click-feedback" role="status">{summary(plainText(text), LONGEST)}</span>;
+  return <Notice tone="warning">{summary(plainText(text), LONGEST)}</Notice>;
 }

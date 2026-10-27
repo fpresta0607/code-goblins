@@ -439,12 +439,12 @@ test("a note under the open list never covers it", async ({ page }) => {
   const recent = page.getByRole("dialog", { name: "Recent messages" });
   await expect(recent).toBeVisible();
   await pane.evaluate((section) => {
-    const note = document.createElement("p");
-    note.className = "terminal-note";
+    const note = document.createElement("div");
+    note.className = "terminal-float";
     note.textContent = "The microphone is blocked.";
     section.append(note);
   });
-  const note = await pane.locator(".terminal-note").boundingBox(), card = await recent.boundingBox();
+  const note = await pane.locator(".terminal-float").boundingBox(), card = await recent.boundingBox();
   expect(note && card && note.y < card.y + card.height).toBe(true);
   const covered = await page.evaluate(({ x, y }) => !document.elementFromPoint(x, y)?.closest(".voice-recent"), { x: card!.x + card!.width / 2, y: note!.y + note!.height / 2 });
   expect(covered).toBe(false);
@@ -765,14 +765,14 @@ test("a silent hold he has already dictated past is never told as nothing heard 
   await replies[0].fulfill({ json: { text: "" } });
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.replies)).toBe(1);
   await page.waitForTimeout(300);
-  await expect(pane.locator(".terminal-note"), "no note while he is being heard").toHaveCount(0);
+  await expect(pane.locator(".terminal-float"), "no note while he is being heard").toHaveCount(0);
   await releaseShortcut(page);
   await expect.poll(() => replies.length).toBe(2);
   await replies[1].fulfill({ json: { text: "and merge it" } });
 
   // Assert
   await expect(page.locator("output")).toHaveText("and merge it");
-  await expect(pane.locator(".terminal-note")).toHaveCount(0);
+  await expect(pane.locator(".terminal-float")).toHaveCount(0);
 });
 
 test("with the browser's speech recognition, a silence it gives up over while the keys are held shows no note, and the whole hold is typed at the release", async ({ page }) => {
@@ -790,11 +790,11 @@ test("with the browser's speech recognition, a silence it gives up over while th
   // Assert: the hold goes on, on a recognizer of its own.
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.recognitions.length)).toBe(2);
   await expect(bubble).toHaveClass(/recording/);
-  await expect(pane.locator(".terminal-note")).toHaveCount(0);
+  await expect(pane.locator(".terminal-float")).toHaveCount(0);
   await expect(page.locator("output")).toHaveText("");
   await releaseShortcut(page);
   await expect(page.locator("output")).toHaveText("first the board heard by the browser");
-  await expect(pane.locator(".terminal-note")).toHaveCount(0);
+  await expect(pane.locator(".terminal-float")).toHaveCount(0);
 });
 
 // A long dictation for the fake microphone: a second of near silence, then
@@ -920,7 +920,7 @@ test.describe("at his window's size", () => {
       await page.evaluate(() => window.dispatchEvent(new Event("allow-microphone")));
       await page.waitForTimeout(500);
       await expect(page.locator("output"), "a hold let go before the microphone opened types nothing").toHaveText("");
-      await expect(page.locator(".terminal-note"), "and says nothing").toHaveCount(0);
+      await expect(page.locator(".terminal-float"), "and says nothing").toHaveCount(0);
       expect(posts).toHaveLength(0);
     });
   }

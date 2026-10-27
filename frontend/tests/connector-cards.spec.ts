@@ -113,7 +113,7 @@ test("a press the supervisor refuses puts the card back and says why beside it",
   await context7.getByRole("button", { name: "Give context7" }).click();
 
   // Assert
-  await expect(panel.locator(".click-feedback")).toHaveText("Change it in the Code Goblins window, or ask the CFO.");
+  await expect(panel.locator(".notice")).toHaveText("Change it in the Code Goblins window, or ask the CFO.");
   await expect(context7.getByRole("button", { name: "Give context7" })).toBeVisible();
 });
 

@@ -84,7 +84,7 @@ test("an answer the board refuses after he closed its card stays waiting, and it
   const row = page.locator(".command-center-menu section[aria-label='Waiting on you'] li");
   await expect(row.locator("small")).toHaveCount(0);
   await row.getByRole("button", { name: /^Answer/ }).click();
-  await expect(dialog.locator(".click-feedback")).toHaveText(refusal);
+  await expect(dialog.locator(".notice")).toHaveText(refusal);
   await expect(dialog.getByRole("button", { name: "Retry" })).toBeVisible();
   await expect(dialog.getByRole("alert")).toHaveCount(0);
 });

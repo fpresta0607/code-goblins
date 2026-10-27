@@ -100,9 +100,9 @@ test("a failed first Start keeps its error and selection while configuration sna
   const rejected = page.waitForResponse("**/api/setup/start");
   release();
   await rejected;
-  await expect(page.locator(".first-run-actions .click-feedback")).toHaveText("The chosen CFO could not start.");
+  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CFO could not start.");
   await page.evaluate((snapshot) => window.dispatchEvent(new CustomEvent("setup-snapshot", { detail: snapshot })), { ...initial, revision: 3 });
-  await expect(page.locator(".first-run-actions .click-feedback")).toHaveText("The chosen CFO could not start.");
+  await expect(page.locator(".first-run-actions .notice")).toHaveText("The chosen CFO could not start.");
   await expect(page.getByRole("tab", { name: "Codex", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("textbox", { name: "Projects folder" })).toHaveValue("C:\\chosen-projects");
   await expect(page.getByRole("button", { name: "Start the CFO" })).toBeEnabled();
@@ -135,7 +135,7 @@ test("reopening a configured home with no registered CFO stays on the board and 
   await page.getByRole("button", { name: "Reopen the CFO" }).click();
 
   // Assert
-  await expect(page.locator(".cfo-pin .click-feedback")).toHaveText("The CFO could not be reopened.");
+  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CFO could not be reopened.");
   await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
   expect(reopenRequests).toEqual([{ token: "fixture", body: "{}" }]);
   await page.reload();
