@@ -18,8 +18,9 @@ owner account. No personal hostname, account or key is included in the build.
    you come back to the board.
 3. Copy the private HTTPS link shown there. On the phone, connect Tailscale and
    open the link in its browser. Open the CFO terminal to control the existing
-   session: on the phone a terminal fills the screen below the top bar and
-   stays above the keyboard while you type, and **Back** returns to the board.
+   session: on the phone a terminal fills the screen, with the top bar put
+   away while it does, and stays above the keyboard while you type, and
+   **Back** returns to the board.
    Swipe a terminal to scroll its history. Beside its microphone, **Paste**
    types your phone's clipboard or adds its picture, **Add a picture** adds
    one from your photos, and **Copy text** shows the terminal's text to select

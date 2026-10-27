@@ -51,7 +51,9 @@ interface Relay { resizes: { cols: number; rows: number }[]; say: (message: obje
 // open serves the board with a phone's visual viewport the test can shrink,
 // and a terminal relay that takes each size the view asks for and redraws
 // the harness's screen at it, as the real one does.
-async function open(page: Page, run: typeof RUNS[number]): Promise<Relay> {
+// hold keeps every connection connecting: the relay claims no size and sends
+// no screen, which is the state he types into while a terminal connects.
+async function open(page: Page, run: typeof RUNS[number], { hold = false } = {}): Promise<Relay> {
   await page.addInitScript((steppedIn) => localStorage.setItem("cfo-chat-style", steppedIn ? "modern" : "classic"), run.isSteppedIn);
   await page.addInitScript(() => {
     const real = window.visualViewport!;
@@ -78,6 +80,7 @@ async function open(page: Page, run: typeof RUNS[number]): Promise<Relay> {
       const message: { type?: string; cols?: number; rows?: number } = JSON.parse(data);
       if (message.type !== "resize" || !message.cols || !message.rows) return;
       if (new URL(socket.url()).searchParams.has("task")) relay.resizes.push({ cols: message.cols, rows: message.rows });
+      if (hold) return;
       socket.send(JSON.stringify({ type: "size", cols: message.cols, rows: message.rows }));
       socket.send(Buffer.from(harnessScreen(message.cols, message.rows)));
     });
@@ -129,13 +132,14 @@ for (const run of RUNS) for (const { name, viewport, keyboard: keyboardHeight } 
       const full = await settled(relay);
       await page.screenshot({ path: testInfo.outputPath("terminal.png") });
 
-      // Assert: the panel is the whole view under the top bar, the board out
-      // of sight, and the terminal at the phone's font, its grid as wide as
-      // the panel and the size its program draws at.
+      // Assert: the panel is the whole view, the header banner put away so the
+      // terminal keeps the room it would eat, the board out of sight, and the
+      // terminal at the phone's font, its grid as wide as the panel and the
+      // size its program draws at.
       await expect(page.locator(".canvas-region")).toBeHidden();
-      const [bar, pane, screen] = [await box(page, ".topbar"), await box(page, ".context-pane"), await box(page, ".terminal-view:not(.staged) .xterm-screen")];
-      expect(pane.y).toBeGreaterThan(bar.y + bar.height);
-      expect(pane.y - (bar.y + bar.height)).toBeLessThanOrEqual(12);
+      await expect(page.locator(".topbar"), "the header banner is put away on a phone with a panel open").toBeHidden();
+      const [pane, screen] = [await box(page, ".context-pane"), await box(page, ".terminal-view:not(.staged) .xterm-screen")];
+      expect(pane.y).toBeLessThanOrEqual(12);
       expect(viewport.height - (pane.y + pane.height)).toBeLessThanOrEqual(12);
       expect(viewport.width - pane.width).toBeLessThanOrEqual(24);
       expect(screen.x).toBeGreaterThanOrEqual(pane.x);
@@ -188,13 +192,32 @@ for (const run of RUNS) for (const { name, viewport, keyboard: keyboardHeight } 
       // Act
       await page.getByRole("button", { name: "Back to Board", exact: true }).click();
 
-      // Assert
+      // Assert: the board is back with its header banner, and the card that
+      // opened the panel has the keyboard.
       await expect(page.locator(".canvas-region")).toBeVisible();
       await expect(page.locator(".context-pane")).toBeHidden();
+      await expect(page.locator(".topbar")).toBeVisible();
       await expect(card(page)).toBeFocused();
     });
   });
 }
+
+test("a connecting terminal's loader sits outside its box and covers no part of it", async ({ page }) => {
+  // Arrange: a phone in Classic on a terminal that never completes its first
+  // screen.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const run = RUNS[0];
+  const relay = await open(page, run, { hold: true });
+  await openGoblin(page, relay, run);
+  const loader = page.getByRole("status").filter({ hasText: "Connecting to the terminal" });
+  await expect(loader).toBeVisible();
+
+  // Assert: the loader is a plain line outside the terminal's box, so it
+  // covers no row of the screen he types into.
+  const [line, surface] = [await box(page, ".terminal-connecting"), await box(page, ".terminal-surface")];
+  expect(line.y).toBeGreaterThanOrEqual(surface.y + surface.height);
+  expect(line.height).toBeLessThan(surface.height);
+});
 
 // A window on the PC means nothing on a phone, so there the CFO's panel has
 // no Open in terminal; the desktop keeps it. The board is stacked there, so
