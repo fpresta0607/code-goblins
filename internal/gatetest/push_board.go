@@ -83,7 +83,8 @@ func boardChecks(root string, changed []string) (steps []Step, left []Deferred) 
 			Why:     "the change touched or names them",
 			Detail:  specs,
 			Dir:     boardDir,
-			Command: []string{"npx", "playwright", "test", "--reporter=line"},
+			Command: []string{"npx", "playwright", "test", "--reporter=list"},
+			Browser: true,
 		}
 		for _, spec := range specs {
 			file, _, _ := strings.Cut(spec, " ")
