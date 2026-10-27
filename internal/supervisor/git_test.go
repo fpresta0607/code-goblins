@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -90,6 +91,48 @@ func TestFullTaskDiffDoesNotGuessBase(t *testing.T) {
 	}
 	if _, err := (Git{}).Files(context.Background(), dir, ""); err == nil {
 		t.Fatal("missing base silently omitted earlier commits")
+	}
+}
+
+func TestDirectOriginHeadProvidesTaskDiffBase(t *testing.T) {
+	dir := gitFixture(t)
+	want := gitOutput(t, dir, "rev-parse", "HEAD~1")
+	cmd := exec.Command("git", "update-ref", "--no-deref", "refs/remotes/origin/HEAD", want)
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set direct origin/HEAD: %s: %v", output, err)
+	}
+	git := Git{Reads: readcache.New()}
+	base, err := git.base(context.Background(), dir)
+	if err != nil || base != want {
+		t.Fatalf("direct origin/HEAD base = %q, %v; want %q", base, err, want)
+	}
+	files, err := git.Files(context.Background(), dir, "")
+	if err != nil || len(files) != 1 || files[0].Path != "main.go" {
+		t.Fatalf("direct origin/HEAD files = %+v, %v; want the task change", files, err)
+	}
+	diff, err := git.Diff(context.Background(), dir, "", "main.go")
+	if err != nil || !strings.Contains(diff.Patch, "+func main() { println(1) }") {
+		t.Fatalf("direct origin/HEAD diff = %+v, %v; want the task change", diff, err)
+	}
+}
+
+func TestDirectOriginHeadVerificationFailureIsReported(t *testing.T) {
+	dir := gitFixture(t)
+	cmd := exec.Command("git", "update-ref", "--no-deref", "refs/remotes/origin/HEAD", "HEAD~1")
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("set direct origin/HEAD: %s: %v", output, err)
+	}
+	git := Git{stream: func(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
+		if slices.Equal(request.Args[3:], []string{"rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD"}) {
+			return 128, nil
+		}
+		return (execx.OSRunner{}).Stream(ctx, request, stdout, stderr)
+	}}
+	_, err := git.base(context.Background(), dir)
+	if err == nil || !strings.Contains(err.Error(), "Git rev-parse failed: exit status 128") {
+		t.Fatalf("direct origin/HEAD verification = %v; want Git failure", err)
 	}
 }
 

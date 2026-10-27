@@ -253,16 +253,22 @@ func (g Git) base(ctx context.Context, dir string) (string, error) {
 		}
 		return g.Base, nil
 	}
-	ref, err := g.run(ctx, dir, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-	// Only symbolic-ref's own exit code 1 says origin/HEAD is not set; a git
-	// that failed or did not finish says nothing about the project.
+	const originHead = "refs/remotes/origin/HEAD"
+	ref, err := g.run(ctx, dir, "symbolic-ref", "-q", originHead)
 	if err != nil && !isGitExit(err, 1) {
 		return "", err
 	}
 	if isGitExit(err, 1) {
-		return "", errBaseUnavailable
+		_, err = g.run(ctx, dir, "rev-parse", "--verify", "--quiet", originHead)
+		if isGitExit(err, 1) {
+			return "", errBaseUnavailable
+		}
+		if err != nil {
+			return "", err
+		}
+		ref = originHead
 	}
-	if err == nil && strings.HasPrefix(strings.TrimSpace(ref), "refs/remotes/") {
+	if strings.HasPrefix(strings.TrimSpace(ref), "refs/remotes/") {
 		base, err := g.run(ctx, dir, "merge-base", "HEAD", strings.TrimSpace(ref))
 		if err != nil {
 			return "", err

@@ -558,6 +558,68 @@ func TestEvaluationPreservesBaseGitFailures(t *testing.T) {
 	}
 }
 
+func TestEvaluationFailureKeepsOnlyTheCurrentGenerationBase(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		priorGeneration string
+		keepBase        bool
+	}{
+		{"current generation", "g1", true},
+		{"previous generation", "g0", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			gitFixture(t, meta.Worktree)
+			oldBase := gitOutput(t, meta.Worktree, "rev-parse", "HEAD")
+			newBase := gitOutput(t, meta.Worktree, "rev-parse", "HEAD~1")
+			store.mu.Lock()
+			store.db.Tasks[meta.ID] = Evaluation{Base: oldBase, Generation: test.priorGeneration}
+			store.mu.Unlock()
+			isFailing := true
+			service := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			service.Git.stream = func(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
+				if isFailing && request.Args[3] == "merge-base" {
+					return 128, nil
+				}
+				return (execx.OSRunner{}).Stream(ctx, request, stdout, stderr)
+			}
+			if _, err := store.Queue(Action{ID: "failed-evaluation", Kind: "evaluate", TaskID: meta.ID}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+				t.Fatal(err)
+			}
+			failed := store.Snapshot().Tasks[meta.ID]
+			wantFailedBase := ""
+			if test.keepBase {
+				wantFailedBase = oldBase
+			}
+			if failed.Phase != "unavailable" || failed.Generation != meta.SpawnGen || failed.Base != wantFailedBase {
+				t.Fatalf("failed evaluation = %+v; want base %q for current generation", failed, wantFailedBase)
+			}
+			isFailing = false
+			if _, err := store.Queue(Action{ID: "retry-evaluation", Kind: "evaluate", TaskID: meta.ID}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+				t.Fatal(err)
+			}
+			wantRetryBase := newBase
+			if test.keepBase {
+				wantRetryBase = oldBase
+			}
+			retried := store.Snapshot().Tasks[meta.ID]
+			if retried.Base != wantRetryBase || retried.Generation != meta.SpawnGen || retried.Phase != "review" {
+				t.Fatalf("retried evaluation = %+v; want base %q", retried, wantRetryBase)
+			}
+		})
+	}
+}
+
 func TestEvaluationHandlesUnavailableBases(t *testing.T) {
 	for _, test := range []struct {
 		name           string
