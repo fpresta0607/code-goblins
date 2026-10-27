@@ -1725,7 +1725,7 @@ func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T)
 		now = now.Add(ciPollEvery)
 	}
 	wakes := fleetWakeRecords(t, h, "ci")
-	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, "repository at "+filepath.ToSlash(outer)) {
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, "repository at "+filepath.ToSlash(fsx.LongPath(outer))) {
 		t.Fatalf("wakes = %+v, want one naming the repository that encloses it", wakes)
 	}
 	if forge.ghCalls != 0 {
