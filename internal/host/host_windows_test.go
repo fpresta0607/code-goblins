@@ -1021,6 +1021,32 @@ func TestClosingTheTerminalLeavesNoProcess(t *testing.T) {
 	}
 }
 
+func TestClosingOneTerminalLeavesAnIndependentTerminalAndItsWorkRunning(t *testing.T) {
+	_, cfo := launch(t)
+	_, worker := launch(t)
+	cfoView := connect(t, cfo)
+	workerView := connect(t, worker)
+	cfoView.waitFor(t, "ready")
+	workerView.waitFor(t, "ready")
+	typeLine(t, workerView, "spawn")
+	child, err := strconv.Atoi(workerView.waitFor(t, `grandchild (\d+)`)[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin(t, child)
+	if err := cfoView.CloseTerminal(); err != nil {
+		t.Fatal(err)
+	}
+	cfoView.waitForExit(t)
+	if !running(worker.HostPID) || !running(worker.ChildPID) || !running(child) {
+		t.Fatal("closing the CFO's terminal ended independent work")
+	}
+	if err := workerView.CloseTerminal(); err != nil {
+		t.Fatal(err)
+	}
+	workerView.waitForExit(t)
+}
+
 // A host that is killed takes its terminal and everything in it along.
 func TestAKilledHostTakesItsTerminalWithIt(t *testing.T) {
 	_, record := launch(t)

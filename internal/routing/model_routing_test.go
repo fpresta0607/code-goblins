@@ -40,6 +40,94 @@ func TestVerificationHelperUsesAnotherModelEvenWithoutQuotaEvidence(t *testing.T
 	}
 }
 
+func TestVerificationHelperAcceptsUniformConfiguredModel(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `{"default_lane":"verification","lanes":{"verification":{"harness":"codex","model":"selected-model","effort":"xhigh"}}}`)
+	policy, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := policy.LaneTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment := Classify("Verify the completed implementation.")
+	assessment.CheckedHarness, assessment.CheckedModel = "codex", "selected-model"
+	choice, err := Choose(assessment, table, nil)
+	if err != nil || choice.Model != "selected-model" {
+		t.Fatalf("choice=%+v err=%v, want the configured model", choice, err)
+	}
+}
+
+func TestVerificationHelperUsesSameModelWhenAlternativeIsUnavailable(t *testing.T) {
+	table := Table{DefaultLane: "same", Fallbacks: map[string][]string{"same": {"other"}}, Lanes: map[string]ExecutionLane{
+		"same":  {Name: "same", Harness: "codex", Model: "selected-model"},
+		"other": {Name: "other", Harness: "codex", Model: "other-model"},
+	}}
+	assessment := Assessment{Class: Verification, CheckedHarness: "codex", CheckedModel: "selected-model"}
+	checked := []string{}
+	choice, err := Choose(assessment, table, func(lane ExecutionLane) (bool, string) {
+		checked = append(checked, lane.Name)
+		return lane.Name == "same", "quota checked"
+	})
+	if err != nil || choice.Name != "same" || strings.Join(checked, ",") != "other,same" {
+		t.Fatalf("choice=%+v checked=%v err=%v", choice, checked, err)
+	}
+}
+
+func TestVerificationHelperKeepsExplicitModelOnItsHarness(t *testing.T) {
+	table := Table{DefaultLane: "same", Fallbacks: map[string][]string{"same": {"other"}}, Lanes: map[string]ExecutionLane{
+		"same":  {Name: "same", Harness: "codex", Model: "selected-model"},
+		"other": {Name: "other", Harness: "claude", Model: "other-model"},
+	}}
+	assessment := Assessment{Class: Verification, CheckedHarness: "codex", CheckedModel: "selected-model", ExplicitModel: "selected-model"}
+	choice, err := Choose(assessment, table, func(lane ExecutionLane) (bool, string) {
+		return lane.Name == "same", "quota checked"
+	})
+	if err != nil || choice.Name != "same" {
+		t.Fatalf("choice=%+v err=%v", choice, err)
+	}
+}
+
+func TestVerificationHelperDoesNotReplaceExplicitModel(t *testing.T) {
+	table := Table{DefaultLane: "same", Fallbacks: map[string][]string{"same": {"other"}}, Lanes: map[string]ExecutionLane{
+		"same":  {Name: "same", Harness: "codex", Model: "selected-model"},
+		"other": {Name: "other", Harness: "codex", Model: "other-model"},
+	}}
+	assessment := Assessment{Class: Verification, CheckedHarness: "codex", CheckedModel: "selected-model", ExplicitModel: "selected-model"}
+	choice, err := Choose(assessment, table, func(lane ExecutionLane) (bool, string) { return true, "quota checked" })
+	if err != nil || choice.Model != "selected-model" {
+		t.Fatalf("choice=%+v err=%v", choice, err)
+	}
+}
+
+func TestVerificationHelperRejectsUniformModelWhenQuotaIsUnavailable(t *testing.T) {
+	table := Table{DefaultLane: "same", Lanes: map[string]ExecutionLane{
+		"same": {Name: "same", Harness: "codex", Model: "selected-model"},
+	}}
+	assessment := Assessment{Class: Verification, CheckedHarness: "codex", CheckedModel: "selected-model"}
+	_, err := Choose(assessment, table, func(ExecutionLane) (bool, string) { return false, "quota exhausted" })
+	if err == nil || !strings.Contains(err.Error(), "quota exhausted") {
+		t.Fatalf("verification ignored quota: %v", err)
+	}
+}
+
+func TestVerificationHelperDoesNotTreatAnUnknownModelAsIndependent(t *testing.T) {
+	for _, unknown := range []string{"", "default"} {
+		t.Run("model-"+unknown, func(t *testing.T) {
+			table := Table{DefaultLane: "same", Fallbacks: map[string][]string{"same": {"unknown"}}, Lanes: map[string]ExecutionLane{
+				"same":    {Name: "same", Harness: "codex", Model: "selected-model"},
+				"unknown": {Name: "unknown", Harness: "codex", Model: unknown},
+			}}
+			assessment := Assessment{Class: Verification, CheckedHarness: "codex", CheckedModel: "selected-model"}
+			choice, err := Choose(assessment, table, func(ExecutionLane) (bool, string) { return true, "quota checked" })
+			if err != nil || choice.Model != "selected-model" {
+				t.Fatalf("choice=%+v err=%v", choice, err)
+			}
+		})
+	}
+}
+
 func TestVerificationClassifiesTheTaskRatherThanItsChecklist(t *testing.T) {
 	for _, newline := range []string{"\n", "\r\n"} {
 		for _, test := range []struct {

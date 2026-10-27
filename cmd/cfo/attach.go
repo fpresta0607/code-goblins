@@ -313,6 +313,29 @@ func cfoCompactArguments(agent string) []string {
 // such as the arguments that resume a conversation, and prompt as its first
 // instruction (cfoStartArguments).
 func startNativeCFO(h home.Home, project, harness string, args []string, prompt string) error {
+	// A selection the fleet cannot read names no engine to start the CFO with:
+	// the board reports it, and the CFO starts as harness was asked for rather
+	// than not starting at all.
+	choice, err := supervisor.ReadCFOEngine(h.State)
+	var engine []string
+	if err == nil && choice.Harness != harness {
+		// An explicit harness wins for this start, as `goblins --harness` and the
+		// board's Restart promise, and the selection stays saved for when the CFO
+		// runs as its own harness again.
+		if noteErr := supervisor.NoteCFOEngineOverridden(h.State, harness); noteErr != nil {
+			return fmt.Errorf("note that the CFO started as %s: %w", harness, noteErr)
+		}
+	}
+	if err == nil && choice.Harness == harness {
+		switch harness {
+		case "codex":
+			engine = []string{"--model", choice.Model, "-c", "model_reasoning_effort=" + choice.Effort}
+		case "claude":
+			engine = []string{"--model", choice.Model, "--effort", choice.Effort}
+		case "pi":
+			engine = []string{"--model", choice.Model, "--thinking", choice.Effort}
+		}
+	}
 	hooks, err := cfoHookArguments(h, harness)
 	if err != nil {
 		return err
@@ -321,7 +344,7 @@ func startNativeCFO(h home.Home, project, harness string, args []string, prompt 
 	if err != nil {
 		return err
 	}
-	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, cfoCompactArguments(harness), args, screen), prompt)...)
+	program, err := nativeCFOProgram(harness, cfoStartArguments(harness, slices.Concat(hooks, cfoCompactArguments(harness), args, screen, engine), prompt)...)
 	if err != nil {
 		return err
 	}

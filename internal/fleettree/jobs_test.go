@@ -75,6 +75,43 @@ func TestHarnessJobsDoesNotWalkThroughPowerShell(t *testing.T) {
 	}
 }
 
+// A terminal's custody places each of its processes against the harness its
+// program runs, so a caller deciding whether closing the terminal would strand
+// work never has to read a launcher's chain out of a process name.
+func TestHarnessCustodyTellsALaunchersChainFromItsWork(t *testing.T) {
+	launched := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
+	processes := []Process{
+		{PID: 40, ParentPID: 1, Exe: "cmd.exe", Started: launched},
+		{PID: 41, ParentPID: 40, Exe: "node.exe", Started: launched.Add(time.Second)},
+		// The harness an npm .cmd shim and node launcher stand in front of,
+		// with the MCP server it starts as it launches.
+		{PID: 42, ParentPID: 41, Exe: "codex.exe", Started: launched.Add(2 * time.Second)},
+		{PID: 43, ParentPID: 42, Exe: "node.exe", Started: launched.Add(3 * time.Second)},
+		// A command the harness started once its turn began.
+		{PID: 44, ParentPID: 42, Exe: "bash.exe", Started: launched.Add(20 * time.Minute)},
+		{PID: 45, ParentPID: 44, Exe: "go.exe", Started: launched.Add(21 * time.Minute)},
+	}
+
+	custody, ok := HarnessCustody(40, []int{40, 41, 42, 43, 44, 45, 99}, processes, HarnessLaunch)
+	if !ok {
+		t.Fatal("the terminal's program was not placed")
+	}
+	want := map[int]Custody{40: CustodyHarness, 41: CustodyHarness, 42: CustodyHarness, 43: CustodyHarness, 44: CustodyWork, 45: CustodyWork}
+	for pid, kind := range want {
+		if custody[pid] != kind {
+			t.Errorf("pid %d is %v, want %v", pid, custody[pid], kind)
+		}
+	}
+	// A process of the terminal the read cannot place, such as one whose
+	// parent has exited, is left unplaced rather than taken for the harness.
+	if kind := custody[99]; kind != CustodyUnplaced {
+		t.Errorf("an unplaced process is %v, want %v", kind, CustodyUnplaced)
+	}
+	if _, placed := HarnessCustody(98, []int{40}, processes, HarnessLaunch); placed {
+		t.Error("a program that is not running placed its terminal's processes")
+	}
+}
+
 // TestMain runs this test binary as a busy child when a test starts it so.
 func TestMain(m *testing.M) {
 	if os.Getenv("FLEETTREE_BUSY_CHILD") == "1" {

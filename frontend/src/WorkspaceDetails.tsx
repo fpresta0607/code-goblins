@@ -8,6 +8,7 @@ import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
 import { ConnectionsPanel } from "./connections-panel";
 import { EngineSelector } from "./engine-selector";
+import { CfoEngineSelector } from "./cfo-engine-selector";
 import { DevDriveSetting } from "./dev-drive-setting";
 import { isCfoRestartOffered, RestartCfoButton } from "./restart-cfo-button";
 import { RemoteAccessSetting } from "./remote-access-setting";
@@ -62,6 +63,7 @@ export function WorkspaceDetails({ task, node, runs, snapshot, connected, onRepa
           {model.name && <li><ConnectorMark mark={provider.mark} label={provider.provider} /><span className="connection-name">{model.name}<span className="chip">{model.basis ? model.basis + " model" : "Model"}</span></span></li>}
         </ul>}
         {isCfo && <RestartCfoButton snapshot={snapshot} />}
+        {isCfo && <CfoEngineSelector snapshot={snapshot} />}
       </>}
     </Disclosure>
     {hasConnections && <Disclosure kind="connections" title="Connections">

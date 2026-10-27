@@ -780,11 +780,11 @@ A fallback records the wanted lane and evidence, and puts a durable notice in th
 This changes no running goblin: the separate `rules` array remains the CFO's authority for switching one.
 
 `subagents` maps each harness to `search`, `review` and `verify`, each an ordered array of lane names on that harness.
-Search includes reading and summaries, review uses a strong model, and verification takes the first model different from the parent's recorded model.
+Search includes reading and summaries, review uses a strong model, and verification prefers the first model different from the parent's recorded model, taking the configured one when the policy names no other.
 The shipped Codex verifier uses `gpt-6-sol` at `high`, falling back to Astra when Sol is the parent.
 Claude uses Sonnet for verification of Opus work and Opus for verification of Sonnet work.
 A configured role without a usable model refuses launch, including an unknown parent model for verification.
-A supervisor helper whose Task asks for verification also excludes the parent's model.
+A supervisor helper whose Task asks for verification also tries the parent's model last.
 
 For example, these fields refer to lanes defined in the same file:
 
