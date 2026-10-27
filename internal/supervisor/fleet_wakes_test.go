@@ -1659,8 +1659,11 @@ func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
 		now = now.Add(ciPollEvery)
 	}
 	wakes := fleetWakeRecords(t, h, "ci")
-	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, project) || strings.Contains(wakes[0].Detail, "gh auth login") {
-		t.Fatalf("non-checkout wakes = %+v, want one naming the invalid checkout", wakes)
+	if forge.ghCalls != 0 {
+		t.Fatalf("a non-checkout made %d GitHub calls, want none", forge.ghCalls)
+	}
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, project) || !strings.Contains(wakes[0].Detail, "is not a Git checkout") || strings.Contains(wakes[0].Detail, "gh auth login") {
+		t.Fatalf("non-checkout wakes = %+v, want one saying the directory is not a Git checkout", wakes)
 	}
 }
 

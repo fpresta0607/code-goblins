@@ -11,7 +11,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -27,6 +26,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
+	"github.com/fpresta0607/code-goblins/internal/readcache"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
@@ -851,20 +851,7 @@ func isGitHubHost(host string) bool {
 	if strings.EqualFold(host, "github.com") || strings.EqualFold(host, "ssh.github.com") || strings.EqualFold(host, os.Getenv("GH_HOST")) {
 		return true
 	}
-	folder := os.Getenv("GH_CONFIG_DIR")
-	if folder == "" {
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			folder = filepath.Join(xdg, "gh")
-		} else if appData := os.Getenv("AppData"); runtime.GOOS == "windows" && appData != "" {
-			folder = filepath.Join(appData, "GitHub CLI")
-		} else {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return true
-			}
-			folder = filepath.Join(home, ".config", "gh")
-		}
-	}
+	folder := readcache.GHConfigFolder()
 	data, err := fsx.ReadFile(filepath.Join(folder, "hosts.yml"))
 	if errors.Is(err, os.ErrNotExist) {
 		return false
