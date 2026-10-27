@@ -28,7 +28,10 @@ const MAX_RETRIES = 5;
 // which shows the voice bubble only while the dictation keys are held.
 // reportAs names the terminal in what it reports to the CFO. link, when set,
 // is the terminal deck's key it offers its link by (terminal-link.ts), so the
-// Messages view's box types through this terminal's own view.
+// Messages view's box types through this terminal's own view. hasComposer says
+// the session's message box is the active input surface: its queue note, its
+// microphone and its copy control replace this terminal's own, so no second
+// layer says the same thing.
 export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, hasComposer = false, link, onHistory }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; hasComposer?: boolean; link?: string; onHistory?: () => void }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
@@ -70,6 +73,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // terminal's text while it is laid out to select.
   const [feedback, showFeedback] = useClickFeedback();
   const dictation = useDictation((text, isSent) => {
+    // A live terminal takes what its own microphone heard, and only input it
+    // refused as held leaves the words to Speech history for pasting back.
     if (current.current?.held) { showFeedback("Dictation saved to Speech history."); return; }
     current.current?.paste(text);
     if (isSent) current.current?.enter();

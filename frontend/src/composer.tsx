@@ -40,17 +40,18 @@ function storeDraft(key: string, text: string): void {
 // input. With a live terminal Send, or Enter, types what he wrote as one
 // paste and presses Enter, through the terminal's own view (terminal-link.ts),
 // and Shift+Enter starts a new line. What keeps a message from the terminal
-// says so beside the box, and the draft stays: a busy program, a view that is
-// reconnecting or closed, typing a gate holds, and a screen of the harness's
-// own open in its terminal, a question, a picker or a panel, which an amber
-// card names with Answer in the terminal, since an Enter typed then would act
-// on it. A goblin with no terminal that
-// takes typing now, one paused, resuming or starting, gets what he sends as a
-// message action, delivered once whatever it is doing, and the box lists his
-// latest with where each is, and those a paused goblin's resume will carry,
-// each of which can be deleted. Its microphone, held or tapped on a touch
-// screen, and Ctrl+Shift+Space in the box dictate into it, and the board's
-// recent dictations are a tap away.
+// says so once beside the box: a busy program, a view that is reconnecting and
+// typing a gate holds save it through the durable queue; a view that is closed
+// or connecting, and a screen of the harness's own open in its terminal, a
+// question, a picker or a panel, which an amber card names with Answer in the
+// terminal, keep the draft, since an Enter typed then would act on that screen,
+// unless typing is held, when the message queues instead. A goblin with no
+// terminal that takes typing now, one paused, resuming or starting, gets what
+// he sends as a message action, delivered once whatever it is doing, and the
+// box lists his latest with where each is, and those a paused goblin's resume
+// will carry, each of which can be deleted. Its microphone, held or tapped on
+// a touch screen, and Ctrl+Shift+Space in the box dictate into it, and the
+// board's recent dictations are a tap away.
 //
 // A picture pasted into this box, or a file added to it, is kept where the
 // session he writes to reads it, and the message names its path, as the

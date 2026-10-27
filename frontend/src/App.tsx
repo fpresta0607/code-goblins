@@ -251,10 +251,10 @@ export function App() {
     return () => { composerTarget.removeEventListener("focusin", remember); composerTarget.remove(); };
   }, [composerTarget]);
   // composerTerminal is the session whose composer this board has shown: a
-  // box beside a terminal that was held or reconnecting, or a conversation's.
-  // Once shown, work of the box's own, an upload, a recording or a Send still
-  // landing, keeps it there; a recording that starts in the terminal itself
-  // never brings it in.
+  // box beside a terminal that was held, busy or reconnecting, or a
+  // conversation's. Once shown, work of the box's own, an upload, a Send
+  // still landing, a failed Send to retry or its own recording, keeps it
+  // there; a recording that starts in the terminal itself never brings it in.
   const [composerTerminal, setComposerTerminal] = useState("");
   if (needsQueue && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const [chatStyle] = useChatStyle();
@@ -381,7 +381,8 @@ export function App() {
   // Classic shows for the session.
   const stepOut = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
   // Once offered, the composer stays reachable as input becomes ready so an
-  // upload, recording or pending Send keeps its controls and result.
+  // upload, a Send still landing, a failed Send to retry or its own recording
+  // keeps its controls and result.
   const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || terminalInPlace);
   const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !terminalInPlace;
   // The conversation portals its one mounted composer to the shared footer.
