@@ -14,7 +14,7 @@ import (
 var subagentDescriptions = map[string]string{
 	"search": "Search, read and summarize a bounded question. Return evidence without editing files.",
 	"review": "Review code and design for correctness, risk and missing coverage. Return findings without editing files.",
-	"verify": "Independently verify completed work and test results. Return evidence and failures without implementing fixes.",
+	"verify": "Independently verify completed work and test results. Return evidence and failures without editing files.",
 }
 
 // Each selection has its own directory, so planning a switch never rewrites
@@ -58,6 +58,6 @@ func configureSubagents(launch Launch, kind Kind, spec LaunchSpec) (Launch, erro
 		search := spec.Subagents["search"]
 		launch.Args = append(launch.Args, "-c", "agents.default_subagent_model="+search.Model, "-c", "agents.default_subagent_reasoning_effort="+search.Effort)
 	}
-	launch.SubagentInstruction = " Route native subagents by their job." + launch.SubagentInstruction + " Verification must use its independent model and must not implement the work it verifies."
+	launch.SubagentInstruction = " Route native subagents by their job." + launch.SubagentInstruction + " Verification must be independent and must not implement the work it verifies."
 	return launch, nil
 }

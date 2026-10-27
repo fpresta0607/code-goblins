@@ -145,6 +145,59 @@ func readHarness(root int, processes []Process, launch time.Duration) (harnessPr
 	return read, true
 }
 
+// Custody is what a process is to the program a terminal runs.
+//
+// Closing a terminal ends everything in its job, so a caller deciding whether
+// the terminal holds work it would strand has to tell the harness itself from
+// the work the harness was asked to do. When the terminal's program is a
+// harness installed behind an npm .cmd shim or a node launcher, the harness
+// runs one process further down (readHarness), and nothing in its name,
+// wrapper or process tree separates that chain from a command the harness
+// started.
+type Custody int
+
+const (
+	// CustodyUnplaced is a process this read could not place under the
+	// terminal's program, such as one whose parent has exited. Closing the
+	// terminal would end it, so a caller must take it for work.
+	CustodyUnplaced Custody = iota
+	// CustodyHarness is the terminal's program, any launch shim between it
+	// and the harness, the harness itself, and what the harness started as
+	// it launched, its MCP servers included.
+	CustodyHarness
+	// CustodyWork is a job the harness started after launching, with
+	// everything under it: the work it was asked to do.
+	CustodyWork
+)
+
+// HarnessCustody places each of pids against the harness the terminal's
+// program root runs, as readHarness reads it: the launch chain is the
+// harness, and the jobs it started after launching are work. ok is false
+// when root is not running, so nothing can be placed and a caller must place
+// none of them.
+func HarnessCustody(root int, pids []int, processes []Process, launch time.Duration) (map[int]Custody, bool) {
+	read, ok := readHarness(root, processes, launch)
+	if !ok {
+		return nil, false
+	}
+	placed := make(map[int]Custody, len(read.all))
+	for _, process := range read.all {
+		placed[process.PID] = CustodyHarness
+	}
+	for _, job := range read.jobs {
+		for _, member := range job.members {
+			placed[member.PID] = CustodyWork
+		}
+	}
+	custody := make(map[int]Custody, len(pids))
+	for _, pid := range pids {
+		if kind, found := placed[pid]; found {
+			custody[pid] = kind
+		}
+	}
+	return custody, true
+}
+
 // name is how a wake names a job: "bash.exe (pid 13)".
 func (j job) name() string {
 	return fmt.Sprintf("%s (pid %d)", j.root.Exe, j.root.PID)

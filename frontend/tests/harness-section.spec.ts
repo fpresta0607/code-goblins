@@ -13,7 +13,7 @@ const catalog = { harnesses: [
 const task = (phase: string) => ({ id: "engine-task", title: "Choose the task engine", project: "code-goblins", harness: "codex", model: "current-model", effort: "xhigh", phase, verified: false, backend: "native", generation: phase === "queued" ? "" : "s1", queue_revision: "q1", brief: true });
 const CFO = { cfo_runs: true, cfo_terminal: "cfo", cfo_terminal_since: "2026-10-13T09:00:00Z", cfo_harness: "codex", sessions: [{ id: "cfo-1", harness: "codex", role: "cfo", model: "gpt-6-astra" }] };
 
-async function open(page: Page, tasks: object[]) {
+async function open(page: Page, tasks: object[], overrides: object = {}) {
   const posts: { path: string; body: unknown }[] = [];
   await page.addInitScript((initial) => {
     class Stream extends EventTarget {
@@ -25,11 +25,11 @@ async function open(page: Page, tasks: object[]) {
       close() {}
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
-  }, { instance: "fixture", healthy: true, revision: 1, tasks, ...CFO });
+  }, { instance: "fixture", healthy: true, revision: 1, tasks, ...CFO, ...overrides });
   await page.route("**/api/**", (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/engines") return route.fulfill({ json: catalog });
-    if (path === "/api/tasks/engine" || path === "/api/cfo/restart") {
+    if (path === "/api/tasks/engine" || path === "/api/cfo/restart" || path === "/api/cfo/engine") {
       posts.push({ path, body: route.request().postDataJSON() });
       return route.fulfill({ status: 202, json: { accepted: true } });
     }
@@ -55,6 +55,32 @@ async function openCfo(page: Page) {
 
 const harness = (page: Page) => page.locator("details.harness");
 const connections = (page: Page) => page.locator("details.connections");
+
+test("the CFO engine is saved for a safe turn without restarting on selection", async ({ page }) => {
+  const posts = await open(page, []);
+  await openCfo(page);
+  await harness(page).locator("> summary").click();
+  const engine = harness(page).getByRole("group", { name: "CFO engine" });
+  await engine.getByRole("combobox", { name: "Model" }).selectOption("current-model");
+  await engine.getByRole("combobox", { name: "Effort" }).selectOption("xhigh");
+  expect(posts).toHaveLength(0);
+  await engine.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => posts).toEqual([{ path: "/api/cfo/engine", body: { harness: "codex", model: "current-model", effort: "xhigh" } }]);
+});
+
+// A selection waits for the CFO's own safe turn, and the board says so beside
+// its selectors rather than showing it as applied.
+test("a CFO engine the CFO cannot take yet shows as pending with its reason", async ({ page }) => {
+  const waiting = "Waiting for python.exe (pid 2) in the CFO's terminal to finish";
+  await open(page, [], { cfo_engine: { harness: "codex", model: "next-model", effort: "low", pending: true, problem: "", waiting } });
+  await openCfo(page);
+  await harness(page).locator("> summary").click();
+  const engine = harness(page).getByRole("group", { name: "CFO engine" });
+  await expect(engine.getByRole("combobox", { name: "Model" })).toHaveValue("next-model");
+  await expect(engine.getByRole("combobox", { name: "Effort" })).toHaveValue("low");
+  const pending = engine.getByText("Pending: next-model low");
+  await expect(pending).toHaveAttribute("data-tip", waiting);
+});
 
 for (const who of ["goblin", "CFO"] as const) {
   for (const transition of ["breakpoint", "maximize", "disclosure"] as const) {

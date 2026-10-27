@@ -145,6 +145,26 @@ func TestJobProcessesListsWhatStartProcessWaitIsWaitingOn(t *testing.T) {
 	}
 }
 
+func TestCustodyJobListingRejectsUnidentifiedMembers(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		ids       []uint32
+		unlisted  uint32
+		members   []Entry
+		wantError bool
+	}{
+		{name: "identified", ids: []uint32{1}, members: []Entry{{PID: 1}}},
+		{name: "unreadable", ids: []uint32{1, 2}, members: []Entry{{PID: 1}}, wantError: true},
+		{name: "unlisted", ids: []uint32{1}, unlisted: 1, members: []Entry{{PID: 1}}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := checkCustodyJobListing(test.ids, test.unlisted, test.members); (err != nil) != test.wantError {
+				t.Fatalf("error = %v, want error %v", err, test.wantError)
+			}
+		})
+	}
+}
+
 // A processor-time FILETIME is a duration, not a date: read as a date it
 // loses the 1601 epoch offset, and every reading comes back hugely negative.
 // Deltas on one process hid that; a sum across processes does not.

@@ -95,6 +95,7 @@ func (s *Service) keepHarnessUpdates(ctx context.Context, every time.Duration) {
 	for {
 		s.lookForHarnessUpdates()
 		s.applyCFOUpdate(ctx)
+		s.applyCFOEngine(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -286,9 +287,8 @@ func (s *Service) cfoAtStoppingPoint(ctx context.Context, agent string) bool {
 }
 
 // atStoppingPoint reports whether screen shows a harness whose turn has ended:
-// no dialog shows, and either its Stop hook waits on the wake queue, or no
-// turn, tool or background work runs and nothing waits unsent in its
-// composer. A Claude Code CFO's Stop hook waits out the end of every turn
+// no dialog shows, its composer is empty, and either its Stop hook waits on
+// the wake queue, or no turn, tool or background work runs. A Claude Code CFO's Stop hook waits out the end of every turn
 // while goblins work, drawn as a turn still running, so its wait is read
 // from the hook rather than the screen.
 func atStoppingPoint(screens harness.Screens, screen []string, isHookWaiting bool) bool {
@@ -296,7 +296,7 @@ func atStoppingPoint(screens harness.Screens, screen []string, isHookWaiting boo
 		return false
 	}
 	if isHookWaiting {
-		return true
+		return screens.ComposerEmpty(screen) && !harness.HasBackgroundWork(screen)
 	}
 	_, running := harness.RunningWork(screen)
 	return !running && !screens.IsWorking(screen) && screens.ComposerEmpty(screen)

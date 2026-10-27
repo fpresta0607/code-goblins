@@ -53,7 +53,8 @@ func TestRunSpawnKeepsVerificationHelpersIndependent(t *testing.T) {
 		wantExit                int
 	}{
 		{"route verifier", "Verify the completed implementation.", "gpt-6-sol", nil, "gpt-6-astra", 0},
-		{"refuse same explicit model", "Verify the completed implementation.", "gpt-6-sol", []string{"--harness", "codex", "--model", "gpt-6-sol"}, "", 1},
+		{"accept same explicit model", "Verify the completed implementation.", "gpt-6-sol", []string{"--harness", "codex", "--model", "gpt-6-sol"}, "gpt-6-sol", 0},
+		{"refuse unknown explicit model", "Verify the completed implementation.", "gpt-6-sol", []string{"--harness", "codex"}, "", 1},
 		{"refuse unknown parent", "Verify the completed implementation.", "default", nil, "", 1},
 		{"implementation checklist", "Implement a settings page.\n\n## Acceptance criteria\nVerify the page works.", "default", nil, "gpt-6-astra", 0},
 	} {
