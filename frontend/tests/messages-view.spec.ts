@@ -218,10 +218,11 @@ test("the Messages view draws the conversation as the session recorded it, under
   await expect(talk.locator(".message-prompt.cfo .message-bubble")).toHaveText("Read the brief at brief.md and follow it exactly.");
   await expect(talk.locator("strong").filter({ hasText: "Found the scroll bug." })).toBeVisible();
   await expect(talk.locator(".message-words li")).toHaveText(["Hand a vertical swipe to the history", "Keep a long press for Paste"]);
-  await expect(talk.locator(".message-code")).toHaveText("const swipe = true;");
+  await expect(talk.locator(".message-code pre")).toHaveText("const swipe = true;");
+  await expect(talk.locator(".message-code figcaption")).toContainText("ts");
   await expect(talk.locator(".message-table td")).toHaveText(["S11", "fixed"]);
-  await expect(talk.locator(".message-thinking-read")).toBeVisible();
-  await expect(talk.locator(".thinking-label")).toHaveText("Thinking");
+  await expect(talk.locator(".message-thinking summary")).toHaveText("ThinkingThe swipe lands on the text box.");
+  await expect(talk.locator(".message-thinking .disclosure-content"), "thinking stays folded until opened").toHaveCount(0);
   await expect(talk.locator(".message-call").filter({ hasText: "Edit" }).locator(".call-end")).toHaveText("+1−1");
   await expect(talk.locator(".message-call").filter({ hasText: "npx playwright test" }).locator(".call-end")).toHaveText("Running");
   await expect(talk.locator(".message-call").filter({ hasText: "missing.ts" }).locator(".call-end")).toHaveText("Failed");
@@ -234,7 +235,7 @@ test("the Messages view draws the conversation as the session recorded it, under
   await expect(talk.locator(".message-notice")).toHaveText("Background command finished");
 });
 
-test("a call's result and an edit's diff unfold under their rows, and thinking reads in place", async ({ page }) => {
+test("a call's result, an edit's diff and thinking unfold under their one-line rows", async ({ page }) => {
   await open(page);
   await openGoblin(page);
   const talk = list(page, "Zeke - Touch Wrangler");
@@ -245,8 +246,9 @@ test("a call's result and an edit's diff unfold under their rows, and thinking r
   await expect(talk.locator(".call-result").first()).toHaveText("1\timport { Terminal } from \"@xterm/xterm\";");
   await expect(talk.locator(".message-diff > .line-added")).toHaveText("+  this.element.addEventListener(\"touchmove\", this.swipe);");
   await expect(talk.locator(".message-diff > .line-removed")).toHaveText("-  // A swipe was left to the page.");
-  await expect(talk.locator(".message-thinking-read .message-words")).toBeVisible();
-  await expect(talk.locator(".message-thinking-read .message-words")).toHaveText("The swipe lands on the text box.");
+  await talk.locator(".message-thinking summary").click();
+  await expect(talk.locator(".message-thinking .message-words")).toHaveText("The swipe lands on the text box.");
+  await expect(talk.locator(".message-thinking .thinking-preview")).toBeHidden();
 });
 
 test("a baby goblin's row opens that baby goblin's own terminal", async ({ page }) => {

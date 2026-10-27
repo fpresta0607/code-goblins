@@ -1,4 +1,5 @@
 import { BabyGoblin } from "./BabyGoblin";
+import { callWords } from "./call-words";
 import { Disclosure } from "./Disclosure";
 import { babyName } from "./fleet-tree";
 import { Icon, type IconName } from "./Icon";
@@ -7,14 +8,17 @@ import type { CallState, MessageBlock } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
 const STATE_WORDS: Record<CallState, string> = { running: "Running", done: "", failed: "Failed", denied: "Denied", interrupted: "Interrupted", "": "" };
-const STATE_MARKS: Record<CallState, IconName> = { running: "clock", done: "check", failed: "warning", denied: "lock", interrupted: "pause", "": "check" };
+const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", done: "check", failed: "warning", denied: "lock", interrupted: "pause" };
 
-// A tool call in a reply, as one row: the mark of its outcome, its tool in
-// bold and what it was called on, and at its end its state while it is not
-// done, or an edit's added and removed lines. What came back, an edit's diff
-// and its pictures fold under the row, in the board's one Disclosure. A call
-// that started a sub-agent is its baby goblin's row instead, whose Open shows
-// that baby goblin's terminal while its goblin's tree holds it.
+// A tool call in a reply, as one quiet row: its tool's icon, the verb it is
+// told by (Read, Edited, Ran, Searched), what it was called on, and at its
+// end an edit's added and removed lines and the mark of its outcome, a quiet
+// static one while it runs so the footer stays the conversation's one
+// animation, with its state's word for a reader. What came back, an
+// edit's diff and its pictures fold under the row in the board's one
+// Disclosure, which mounts them only while it is open. A call that started a
+// sub-agent is its baby goblin's row instead, whose Open shows that baby
+// goblin's terminal while its goblin's tree holds it.
 export function MessageCall({ call, task, picture, onChild }: {
   call: MessageBlock; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
 }) {
@@ -28,10 +32,16 @@ export function MessageCall({ call, task, picture, onChild }: {
         {child && <button type="button" className="text-button" onClick={(event) => onChild(child, event.currentTarget)}>Open<Icon name="next" /></button>}</span>
     </div>;
   }
+  const words = callWords(call.tool, call.state === "running");
+  const mark = STATE_MARKS[call.state];
   const head = <>
-    <span className={"call-mark " + call.state}><Icon name={STATE_MARKS[call.state]} /></span>
-    <span className="call-what"><strong>{call.tool}</strong> {call.subject && <span className="call-subject">{call.subject}</span>}</span>
-    <span className="call-end">{call.edit ? <><span className="call-added">+{call.edit.added}</span><span className="call-removed">−{call.edit.removed}</span></> : STATE_WORDS[call.state]}</span>
+    <span className="call-icon"><Icon name={words.icon} /></span>
+    <span className="call-what"><span className="call-verb">{words.verb}</span> {call.subject && <span className="call-subject">{call.subject}</span>}</span>
+    <span className="call-end">
+      {call.edit && <><span className="call-added">+{call.edit.added}</span><span className="call-removed">−{call.edit.removed}</span></>}
+      <span className={"call-mark " + call.state}>{mark && <Icon name={mark} />}</span>
+      {STATE_WORDS[call.state] && <span className="sr-only">{STATE_WORDS[call.state]}</span>}
+    </span>
   </>;
   if (!call.result && !call.edit?.diff.length && !call.pictures.length) return <div className="message-call">{head}</div>;
   return <Disclosure kind="disclosure-line message-call" title={head}>

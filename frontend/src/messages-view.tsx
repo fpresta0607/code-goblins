@@ -3,6 +3,7 @@ import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
+import { ESTIMATED_ROW_PX, messageWindow } from "./message-window";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
@@ -68,6 +69,15 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   // how far its top lies below the list's, which stays put.
   const following = useRef(true);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
+  // The page holds only the rows within reach of where he reads
+  // (message-window.ts): rowHeights is each drawn row's measured height with
+  // the gap after it, by its message's id, and view where he reads, kept only
+  // when it moves which rows are drawn: the list's height, and the message at
+  // its top then with how far that message's top lay below the list's, so an
+  // older page read in above it draws the same rows, or the scroll top while
+  // no message is at the top.
+  const [rowHeights, setRowHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [view, setView] = useState({ top: 0, height: 0, anchor: "", offset: 0 });
   // Whether an older page is on its way, and how many failed to arrive in a
   // row and when the last did: his next approach to the top asks again once
   // OLDER_RETRY_MS have passed, until OLDER_TRIES have failed, which leaves
@@ -157,8 +167,15 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     });
   }, [address, where]);
 
-  // remember notes where he reads after he scrolls, and reads the older page
-  // once he nears the top.
+  // The rows drawn: those within reach of where he reads, or of the end while
+  // he follows it, each row not measured yet taken at an estimate.
+  const heights = held.messages.map((message) => rowHeights.get(message.id) ?? ESTIMATED_ROW_PX);
+  const anchorAt = held.messages.findIndex((message) => message.id === view.anchor);
+  const readTop = anchorAt < 0 ? view.top : heights.slice(0, anchorAt).reduce((sum, each) => sum + each, 0) - view.offset;
+  const drawn = messageWindow(heights, isAtEnd ? Infinity : readTop, view.height);
+
+  // remember notes where he reads after he scrolls, draws the rows that come
+  // within reach, and reads the older page once he nears the top.
   const remember = () => {
     const box = list.current;
     if (!box || !shownValue.current) return;
@@ -167,9 +184,45 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     setAtEnd(isEnd);
     const top = box.getBoundingClientRect().top;
     const first = [...box.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
-    anchor.current = first ? { id: first.dataset.message || "", offset: first.getBoundingClientRect().top - top } : null;
+    const firstTop = first?.getBoundingClientRect().top ?? Infinity;
+    if (first && firstTop < top + box.clientHeight) anchor.current = { id: first.dataset.message || "", offset: firstTop - top };
+    else {
+      // A jump past the rows drawn finds none of them in view, so the message
+      // at the top is read from the rows' heights, where the window places
+      // each row.
+      let at = (items.current?.getBoundingClientRect().top ?? top) - top, index = 0;
+      while (index < heights.length - 1 && at + heights[index] <= 0) at += heights[index++];
+      const message = held.messages[index];
+      anchor.current = message ? { id: message.id, offset: at } : null;
+    }
+    const next = messageWindow(heights, isEnd ? Infinity : box.scrollTop, box.clientHeight);
+    if (next.start !== drawn.start || next.end !== drawn.end) setView({ top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 });
     if (box.scrollTop < OLDER_WITHIN_PX) readOlder();
   };
+
+  // Each drawn row is measured as it lays out and again whenever it changes,
+  // as a picture loads or a call unfolds; a row the hidden view lays out at
+  // no size keeps the height it had.
+  useLayoutEffect(() => {
+    const box = items.current;
+    if (!box) return;
+    const observer = new ResizeObserver((entries) => {
+      const gap = parseFloat(getComputedStyle(box).rowGap) || 0;
+      setRowHeights((prior) => {
+        let next: Map<string, number> | null = null;
+        for (const entry of entries) {
+          const id = entry.target instanceof HTMLElement ? entry.target.dataset.message : undefined;
+          const size = entry.borderBoxSize[0]?.blockSize ?? 0;
+          if (!id || !size || prior.get(id) === Math.round(size + gap)) continue;
+          next ??= new Map(prior);
+          next.set(id, Math.round(size + gap));
+        }
+        return next ?? prior;
+      });
+    });
+    for (const row of box.querySelectorAll<HTMLElement>(":scope > [data-message]")) observer.observe(row);
+    return () => observer.disconnect();
+  }, [held, drawn.start, drawn.end]);
 
   useLayoutEffect(() => {
     heldValue.current = held;
@@ -186,9 +239,13 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     settle();
   }, [font, settle]);
   // A picture that loads or a message unfolded above where he reads moves
-  // nothing either.
+  // nothing either, and a view that changes size draws the rows it reaches.
   useEffect(() => {
-    const observer = new ResizeObserver(settle);
+    const observer = new ResizeObserver(() => {
+      settle();
+      const box = list.current;
+      if (box) setView((prior) => prior.height === box.clientHeight ? prior : { ...prior, height: box.clientHeight });
+    });
     for (const box of [list.current, items.current]) if (box) observer.observe(box);
     return () => observer.disconnect();
   }, [settle]);
@@ -272,8 +329,8 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
       <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
-        <div ref={items} className="conversation-items">
-          {held.messages.map((message) => <MessageRow key={message.id} message={message}
+        <div ref={items} className="conversation-items" style={{ paddingTop: drawn.before, paddingBottom: drawn.after }}>
+          {held.messages.slice(drawn.start, drawn.end).map((message) => <MessageRow key={message.id} message={message}
             task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>

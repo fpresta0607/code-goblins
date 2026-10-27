@@ -138,11 +138,11 @@ export function messagesQuery(snapshot: Pick<Snapshot, "cfo_terminal" | "cfo_har
 }
 
 // A reply's text in the parts it is drawn in: a fenced code block as written,
-// a heading, and the prose between them, which messageText draws with its
-// bold, code, lists, tables and links.
-export type TextPart = { kind: "prose"; text: string } | { kind: "heading"; text: string } | { kind: "code"; text: string };
+// with the language its fence names, a heading, and the prose between them,
+// which messageText draws with its bold, code, lists, tables and links.
+export type TextPart = { kind: "prose"; text: string } | { kind: "heading"; text: string } | { kind: "code"; text: string; language: string };
 
-const FENCE = /^\s*(`{3,}|~{3,})/;
+const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+#.-]*)/;
 const HEADING = /^#{1,6}\s+(.+?)\s*#*\s*$/;
 
 export function textParts(text: string): TextPart[] {
@@ -162,7 +162,7 @@ export function textParts(text: string): TextPart[] {
       // A fence closes on a line of the same mark at least as long; one left
       // open, as a reply cut short leaves it, runs to the end.
       for (at++; at < lines.length && !new RegExp("^\\s*" + fence[1][0] + "{" + fence[1].length + ",}\\s*$").test(lines[at]); at++) code.push(lines[at]);
-      parts.push({ kind: "code", text: code.join("\n") });
+      parts.push({ kind: "code", text: code.join("\n"), language: fence[2] });
     } else if (heading) {
       flush();
       parts.push({ kind: "heading", text: heading[1] });
@@ -177,6 +177,23 @@ export function textParts(text: string): TextPart[] {
 export function copyText(message: SessionMessage): string {
   if (message.kind === "reply") return message.blocks.filter((each) => each.kind === "text").map((each) => each.text).join("\n\n");
   return [message.text, message.output, message.errors].filter(Boolean).join("\n\n");
+}
+
+// A reply's blocks in the parts it is drawn in: its text and its thinking
+// that hold words, each where it was written, and each run of calls made one
+// after another as one stack. at is the first block's place in the reply.
+export type ReplyPart = { kind: "text" | "thinking"; at: number; text: string } | { kind: "calls"; at: number; calls: MessageBlock[] };
+
+export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
+  const parts: ReplyPart[] = [];
+  blocks.forEach((block, at) => {
+    const last = parts.at(-1);
+    if (block.kind !== "call") {
+      if (block.text) parts.push({ kind: block.kind, at, text: block.text });
+    } else if (last?.kind === "calls") last.calls.push(block);
+    else parts.push({ kind: "calls", at, calls: [block] });
+  });
+  return parts;
 }
 
 // The message text's size, kept in this browser apart from the terminals',
