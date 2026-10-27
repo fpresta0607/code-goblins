@@ -620,10 +620,11 @@ type ciGoblin struct {
 // a path or a host GitHub does not serve is hosted elsewhere: neither has CI
 // here to read, so neither is asked of GitHub and neither is answered with
 // gh's sign-in advice. One whose directory is gone, one that is no Git
-// checkout at all and one whose origin names a GitHub host but no repository
-// are reported with what repairs them, since GitHub is what would otherwise
-// be read. One whose origin git did not answer for is asked again on the next
-// poll, and is an error once that failed failingPasses polls in a row.
+// checkout, one that is only a folder inside another repository, and one whose
+// origin names a GitHub host but no repository are reported with what repairs
+// them, since GitHub is what would otherwise be read. One whose origin git did
+// not answer for is asked again on the next poll, and is an error once that
+// failed failingPasses polls in a row.
 // One with an origin whose CI cannot be read is remembered in w.Unreadable
 // until a poll reads it again, and raises ci_unreadable; one whose pull
 // request health is not all read is remembered in w.PRUnread and raises
@@ -645,6 +646,34 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			continue
 		}
 		delete(w.BackOff, repo)
+		// The checkout comes before its origin: git answers from the nearest
+		// repository above a directory as well as from the one in it, so a
+		// checkout that moved leaving its old path inside another checkout
+		// would otherwise be read, and polled, as that other project.
+		root, rootErr := checkoutRoot(ctx, runner, repo)
+		if ctx.Err() != nil {
+			return errs
+		}
+		if rootErr != nil {
+			if _, statErr := os.Stat(repo); errors.Is(statErr, os.ErrNotExist) {
+				failure := fmt.Errorf("ci wakes: checkout %s is missing", repo)
+				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
+				delete(w.Failing, "origin:"+repo)
+			} else {
+				errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read the checkout of %s: %s", repo, redact(rootErr.Error()))))
+			}
+			continue
+		}
+		if root == "" {
+			failure := fmt.Errorf("ci wakes: %s is not a Git checkout", repo)
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
+			continue
+		}
+		if !fsx.SamePath(root, repo) {
+			failure := fmt.Errorf("ci wakes: %s is not a checkout of its own, only a folder inside the repository at %s", repo, root)
+			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
+			continue
+		}
 		probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 		origin, err := runner.Run(probe, execx.Request{Dir: repo, Name: "git", Args: []string{"config", "--get", "remote.origin.url"}})
 		cancel()
@@ -652,38 +681,19 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			return errs
 		}
 		if err != nil {
-			if _, statErr := os.Stat(repo); errors.Is(statErr, os.ErrNotExist) {
-				failure := fmt.Errorf("ci wakes: checkout %s is missing", repo)
-				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
-				delete(w.Failing, "origin:"+repo)
-			} else {
-				errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read the origin of %s: %s", repo, redact(err.Error()))))
-			}
+			errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read the origin of %s: %s", repo, redact(err.Error()))))
 			continue
 		}
 		delete(w.Failing, "origin:"+repo)
 		// git config --get exits 1 with nothing to say when the key is not set,
-		// which a local repository does and so does a directory that is no
-		// checkout at all; every other non-zero exit is the checkout's own.
+		// which is a local repository; every other non-zero exit is the
+		// checkout's own.
 		if origin.ExitCode != 0 && (origin.ExitCode != 1 || strings.TrimSpace(string(origin.Stderr)) != "") {
 			failure := fmt.Errorf("ci wakes: read the origin of %s: git config exited %d: %s", repo, origin.ExitCode, bounded(redact(strings.TrimSpace(string(origin.Stderr))), 300))
 			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "repair the checkout's Git configuration", now))
 			continue
 		}
 		if origin.ExitCode != 0 {
-			// git config reads the user's own configuration outside a
-			// repository too, where it answers with no origin just as it does
-			// in a repository that has none, so the two are told apart here.
-			checkout, checkErr := isGitCheckout(ctx, runner, repo)
-			if checkErr != nil {
-				errs = errors.Join(errs, w.failing("origin:"+repo, fmt.Errorf("ci wakes: read whether %s is a Git checkout: %s", repo, redact(checkErr.Error()))))
-				continue
-			}
-			if !checkout {
-				failure := fmt.Errorf("ci wakes: %s is not a Git checkout", repo)
-				errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "restore the checkout at its recorded path or correct the project path", now))
-				continue
-			}
 			forgetUnreadable(w, repo)
 			continue
 		}
@@ -766,17 +776,21 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	return errs
 }
 
-// isGitCheckout reports whether dir holds a Git repository, which git config
-// on its own does not say: outside one it reads the user's configuration and
-// answers with no origin, exactly as it does in a repository that has none.
-func isGitCheckout(ctx context.Context, runner execx.Runner, dir string) (bool, error) {
+// checkoutRoot reads the root of the Git repository git finds for dir, which
+// is empty when it finds none. Git answers from the nearest repository above a
+// directory as well as from the one in it, which is why the caller compares
+// this root with the checkout it recorded rather than trusting the answer.
+func checkoutRoot(ctx context.Context, runner execx.Runner, dir string) (string, error) {
 	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
-	result, err := runner.Run(probe, execx.Request{Dir: dir, Name: "git", Args: []string{"rev-parse", "--git-dir"}})
+	result, err := runner.Run(probe, execx.Request{Dir: dir, Name: "git", Args: []string{"rev-parse", "--show-toplevel"}})
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	return result.ExitCode == 0, nil
+	if result.ExitCode != 0 {
+		return "", nil
+	}
+	return strings.TrimSpace(string(result.Stdout)), nil
 }
 
 // forgetUnreadable clears what a repository's earlier failing reads

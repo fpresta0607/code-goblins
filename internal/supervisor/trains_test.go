@@ -650,6 +650,9 @@ type trainCIRunner struct {
 
 func (r *trainCIRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	r.calls = append(r.calls, request.Name+" "+strings.Join(request.Args, " "))
+	if request.Name == "git" && slices.Equal(request.Args, []string{"rev-parse", "--show-toplevel"}) {
+		return execx.Result{Stdout: []byte(request.Dir + "\n")}, nil
+	}
 	if request.Name == "git" && slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) {
 		return execx.Result{Stdout: []byte("https://gitlab.com/o/r.git\n")}, nil
 	}

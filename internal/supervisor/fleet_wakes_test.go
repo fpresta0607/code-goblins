@@ -300,11 +300,8 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 			return execx.Result{ExitCode: 1}, nil
 		}
 		return execx.Result{Stdout: []byte(cmp.Or(f.origin, "https://github.com/o/r.git") + "\n")}, nil
-	case strings.HasPrefix(command, "git rev-parse --git-dir"):
-		if !inRepo {
-			return execx.Result{ExitCode: 128, Stderr: []byte("fatal: not a git repository")}, nil
-		}
-		return execx.Result{Stdout: []byte(".git\n")}, nil
+	case strings.HasPrefix(command, "git rev-parse --show-toplevel"):
+		return execx.Result{Stdout: []byte(req.Dir + "\n")}, nil
 	case strings.HasPrefix(command, "git branch --show-current"):
 		if !strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.worktree)) {
 			return execx.Result{Stdout: []byte("\n")}, nil
@@ -1517,7 +1514,7 @@ func TestMemoryReadyKeepsAReportWhoseLifecycleRecordIsUnreadable(t *testing.T) {
 type realOriginForge struct{ *fakeForge }
 
 func (f realOriginForge) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
-	isCheckoutProbe := len(req.Args) > 1 && (req.Args[0] == "config" || req.Args[0] == "rev-parse" && req.Args[1] == "--git-dir")
+	isCheckoutProbe := len(req.Args) > 1 && (req.Args[0] == "config" || req.Args[0] == "rev-parse" && req.Args[1] == "--show-toplevel")
 	if req.Name == "git" && isCheckoutProbe && req.Dir == f.repo {
 		return (execx.OSRunner{}).Run(ctx, req)
 	}
@@ -1649,6 +1646,44 @@ func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
 	wakes := fleetWakeRecords(t, h, "ci")
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, project) || strings.Contains(wakes[0].Detail, "gh auth login") {
 		t.Fatalf("non-checkout wakes = %+v, want one naming the invalid checkout", wakes)
+	}
+}
+
+// A checkout whose recorded path is now only a folder inside another checkout
+// is not that repository's project: git answers with the enclosing repository's
+// origin, which would poll another project in this one's place.
+func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("GH_CONFIG_DIR", config)
+	t.Setenv("GH_HOST", "")
+	s, h := fleetService(t)
+	outer := t.TempDir()
+	git := execx.OSRunner{}
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://github.com/o/outer.git"}} {
+		result, err := git.Run(t.Context(), execx.Request{Dir: outer, Name: "git", Args: args})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+		}
+	}
+	moved := filepath.Join(outer, "moved-checkout")
+	if err := os.Mkdir(moved, 0700); err != nil {
+		t.Fatal(err)
+	}
+	liveGoblin(t, h, "cg-wakes", moved)
+	forge := forgeFor(moved, "cg-wakes")
+	forge.pulls, forge.runs = "[]", "[]"
+	s.Options.CI = realOriginForge{forge}
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for range 4 {
+		_ = s.checkFleet(t.Context(), now)
+		now = now.Add(ciPollEvery)
+	}
+	wakes := fleetWakeRecords(t, h, "ci")
+	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, outer) {
+		t.Fatalf("wakes = %+v, want one naming the repository that encloses it", wakes)
+	}
+	if forge.ghCalls != 0 {
+		t.Fatalf("the enclosing repository was polled %d times, want none", forge.ghCalls)
 	}
 }
 
