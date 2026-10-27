@@ -75,7 +75,7 @@ for (const timing of ["cached", "in flight"] as const) {
     const note = box(page).locator(".composer-note")
     relay.say({ type: "screen", asking: false, open: false, working: true, submission: "earlier-turn" })
     relay.say({ type: "unread", unread: true })
-    await expect(note).toHaveText("Program busy. Typed keys are waiting.")
+    await expect(note).toHaveText("Messages will be queued.")
     relay.say({ type: "unread", unread: false })
     await expect(note).toHaveText("")
 
@@ -83,7 +83,7 @@ for (const timing of ["cached", "in flight"] as const) {
     if (timing === "in flight") {
       relay.say({ type: "screen", asking: false, open: false, working: true, submission: "earlier-turn" })
       relay.say({ type: "unread", unread: true })
-      await expect(note).toHaveText("Program busy. Typed keys are waiting.")
+      await expect(note).toHaveText("Messages will be queued.")
       relay.say({ type: "unread", unread: false })
       await expect(note).toHaveText("")
     }
@@ -165,7 +165,7 @@ for (const isSampled of [true, false]) {
     await sendFromBox(page, relay, "write nine.txt");
     if (isSampled) relay.say({ type: "screen", asking: false, open: false, working: true });
     relay.say({ type: "unread", unread: true })
-    await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+    await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.")
     relay.say({ type: "unread", unread: false })
     await expect(box(page).locator(".composer-note")).toHaveText("")
 
@@ -184,12 +184,12 @@ for (const isSampled of [true, false]) {
     await sendFromBox(page, relay, "read the brief");
     if (isSampled) relay.say({ type: "screen", asking: false, open: false, working: true });
     relay.say({ type: "unread", unread: true })
-    await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+    await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.")
     relay.say({ type: "unread", unread: false })
     await expect(box(page).locator(".composer-note")).toHaveText("")
     relay.say({ type: "screen", asking: false, open: false, working: false, started: true });
     relay.say({ type: "unread", unread: true })
-    await expect(box(page).locator(".composer-note")).toHaveText("Program busy. Typed keys are waiting.")
+    await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.")
     relay.say({ type: "unread", unread: false })
     await expect(box(page).locator(".composer-note")).toHaveText("")
 

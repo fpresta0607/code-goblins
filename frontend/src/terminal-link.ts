@@ -10,6 +10,12 @@ export interface TerminalLink {
   phase: "connecting" | "live" | "closed";
   // Whether the view is reconnecting.
   isReconnecting: boolean;
+  // A recording the terminal's own microphone started, and what stops it and
+  // what it last reported, so a box shown beside the terminal keeps the one
+  // control for that recording and shows its words instead of a second layer.
+  isDictating: boolean;
+  stopDictation: () => void;
+  feedback: string;
   // Whether typed keys sit unread in a busy program's input, why typing is
   // held, and what the view was last told of the harness's screen, null
   // until it is told.

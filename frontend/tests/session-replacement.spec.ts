@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { at, card, field, GOBLIN, NAME, open, PAGE, pasted, snapshot, typed } from "./session-board";
+import { at, box, card, field, GOBLIN, NAME, open, PAGE, pasted, snapshot, typed } from "./session-board";
 
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
@@ -23,13 +23,16 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await expect(terminal).toBeVisible();
       if (state === "held") {
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(page.locator(".terminal-held-line")).toBeVisible();
+        // The board says the hold once, beside the one input it concerns.
+        await expect(page.locator(".context-pane").getByText("Review in progress. Send to queue until it finishes.")).toBeVisible();
       } else if (state === "ended") {
         relay.end();
         await expect(page.locator(".terminal-closed")).toBeVisible();
       } else relay.drop();
       if (input === "keyboard") await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
-      else if (input === "wheel") { await terminal.hover(); await page.mouse.wheel(0, -45); }
+      // The wheel goes over the terminal's top rows: its box also holds the
+      // queue's box under it, and the history is what the wheel asks for.
+      else if (input === "wheel") { const bounds = (await terminal.boundingBox())!; await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + Math.min(60, bounds.height / 4)); await page.mouse.wheel(0, -45); }
       else {
         const touch = await page.context().newCDPSession(page);
         await touch.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
@@ -43,7 +46,9 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       const conversation = page.locator(".messages-view:not([hidden]) .conversation");
       await expect(conversation).toBeVisible();
       await expect(field(page)).toHaveValue("keep my draft");
-      await expect(page.locator(".context-pane").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(conversation.getByText(pending.text, { exact: true })).toBeVisible();
+      // The conversation already lists what waits, so the box does not repeat it.
+      await expect(box(page, NAME).locator(".composer-sent-text")).toHaveCount(0);
       const before = await conversation.evaluate((element) => element.scrollTop);
       await conversation.focus();
       await page.keyboard.press("Shift+PageUp");
@@ -56,6 +61,56 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
     });
   }
 }
+
+// xterm's scrollbar takes a wheel first whenever it has room to scroll, as
+// for a moment after an ended terminal's box shrinks under its closed line,
+// and xterm then never asks the board's wheel handler. The board decides
+// first, so the wheel still opens the history.
+test("Classic full-screen Codex opens readable history with wheel while ended though xterm's scrollbar would take the wheel", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "\x1b[?1049h" + HISTORY);
+  await card(page, NAME).click();
+  const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
+  await expect(terminal).toBeVisible();
+  relay.end();
+  await expect(page.locator(".terminal-closed")).toBeVisible();
+  await page.locator(".terminal-view:not(.staged) .xterm-scrollable-element").evaluate((scrollbar) => scrollbar.addEventListener("wheel", (event) => { event.preventDefault(); event.stopPropagation(); }));
+
+  // Act
+  await terminal.hover();
+  await page.mouse.wheel(0, -45);
+
+  // Assert
+  await expect(page.locator(".messages-view:not([hidden]) .conversation")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("modern");
+});
+
+// The right button held while the wheel turns zooms the text, even over a
+// full-screen program that a wheel up alone would leave for its history.
+test("Classic full-screen Codex zooms on a right-button wheel up while ended and keeps its terminal", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "\x1b[?1049h" + HISTORY);
+  await card(page, NAME).click();
+  const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
+  await expect(terminal).toBeVisible();
+  relay.end();
+  await expect(page.locator(".terminal-closed")).toBeVisible();
+  const keptSize = () => page.evaluate(() => localStorage.getItem("cfo-terminal-font-size"));
+  const before = await keptSize();
+
+  // Act
+  await terminal.hover();
+  await page.mouse.down({ button: "right" });
+  await page.mouse.wheel(0, -100);
+  await page.mouse.up({ button: "right" });
+
+  // Assert
+  await expect.poll(keptSize).not.toBe(before);
+  await expect(page.locator(".messages-view:not([hidden])")).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+});
 
 for (const style of ["classic", "modern"] as const) {
   test(`${style} follows an ended CFO host into Codex without reload or losing its draft`, async ({ page }) => {
@@ -76,7 +131,9 @@ for (const style of ["classic", "modern"] as const) {
     await expect(page.locator(".terminal-closed")).toHaveCount(0);
     if (style === "modern") {
       await expect(field(page, "CFO")).toHaveValue("keep the CFO draft");
-      await expect(page.locator(".context-pane").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })).toBeVisible();
+      // The conversation already lists what waits, so the box does not repeat it.
+      await expect(box(page, "CFO").locator(".composer-sent-text")).toHaveCount(0);
       await field(page, "CFO").press("Enter");
       await expect.poll(() => typed(relay)).toContain(pasted("keep the CFO draft") + "\r");
     } else {
@@ -119,7 +176,12 @@ for (const style of ["classic", "modern"] as const) {
     }
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("generation") === codex.generation)).toBe(true);
     relay.say({ type: "held", reason: "pipeline owns this task" });
-    await expect(page.locator(".context-pane").getByText(pending.text, { exact: true })).toBeVisible();
+    // Modern keeps its conversation, which lists what waits; Classic keeps the
+    // terminal, so the box beside it lists them.
+    const waits = style === "modern"
+      ? page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })
+      : box(page, NAME).getByText(pending.text, { exact: true });
+    await expect(waits).toBeVisible();
     await expect(field(page)).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`${style}-codex-replaced-pi.png`) });
   });
@@ -141,7 +203,12 @@ for (const phone of [false, true]) {
         await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
         if (style === "modern") await field(page).fill("draft survives reconnect");
         const scroll = async (distance: number) => {
-          if (!phone) { await surface.hover(); await page.mouse.wheel(0, -distance); return; }
+          if (!phone) {
+            const bounds = (await surface.boundingBox())!;
+            await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + Math.min(60, bounds.height / 4));
+            await page.mouse.wheel(0, -distance);
+            return;
+          }
           const bounds = (await surface.boundingBox())!;
           const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height * .3;
           const touch = await page.context().newCDPSession(page);

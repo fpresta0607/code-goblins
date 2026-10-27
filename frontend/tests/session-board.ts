@@ -30,14 +30,22 @@ export interface Relay {
   inputs: { address: string; text: string }[];
   write: (text: string) => void;
   end: () => void;
-  // say tells the newest view a relay message; drop closes it as a relay
-  // that went away does, which the view reconnects from.
+  // say tells the goblin's newest view a relay message, or another's while
+  // its terminal has not connected; drop closes that view as a relay that
+  // went away does, which it reconnects from.
   say: (message: object) => void;
   drop: () => void;
+  // refuse closes each new view of the goblin's terminal at once, as a relay
+  // that has not come back does, so the board stays in its reconnect until
+  // accept lets the next view connect whole.
+  refuse: () => void;
+  accept: () => void;
 }
 
 export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n"): Promise<Relay> {
-  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {} };
+  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
+  let isRefused = false;
+  let goblinSpoke = false;
   await page.addInitScript(() => {
     if (!localStorage.getItem("cfo-first-open")) localStorage.setItem("cfo-first-open", "shown");
     localStorage.setItem("cfo-voice-hint-v1", "dismissed");
@@ -73,16 +81,29 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     relay.views++;
     relay.addresses.push(socket.url());
+    const isGoblin = new URL(socket.url()).searchParams.get("task") === GOBLIN.id;
     let submission = ""
-    relay.say = (message) => {
-      if ("type" in message && message.type === "held") holds.set(socket.url(), message);
-      socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message));
+    const spoke = {
+      say: (message: object) => {
+        if ("type" in message && message.type === "held") holds.set(socket.url(), message);
+        socket.send(JSON.stringify("type" in message && message.type === "screen" ? { submission, ...message } : message));
+      },
+      drop: () => socket.close({ code: 1001 }),
+      end: () => socket.close({ code: 1000, reason: "No terminal is running for this task." }),
+      write: (text: string) => socket.send(Buffer.from(text)),
     };
-    relay.drop = () => socket.close({ code: 1001 });
-    relay.end = () => socket.close({ code: 1000, reason: "No terminal is running for this task." });
-    relay.write = (text) => socket.send(Buffer.from(text));
-    socket.send(JSON.stringify({ type: "history", bytes: 0 }));
-    if (holds.has(socket.url())) socket.send(JSON.stringify(holds.get(socket.url())));
+    // The relay speaks for the goblin's terminal, whichever view of it
+    // connected last, and for another's only while its own has not connected.
+    if (isGoblin || !goblinSpoke) Object.assign(relay, spoke);
+    if (isGoblin) goblinSpoke = true;
+    const whole = () => {
+      socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+      if (holds.has(socket.url())) socket.send(JSON.stringify(holds.get(socket.url())));
+    };
+    relay.refuse = () => { isRefused = true; };
+    relay.accept = () => { isRefused = false; };
+    if (isGoblin && isRefused) { socket.close({ code: 1001 }); return; }
+    whole();
     socket.onMessage((data) => {
       if (typeof data !== "string") { const text = data.toString("utf8"); relay.typed.push(text); relay.inputs.push({ address: socket.url(), text }); return; }
       const sent: unknown = JSON.parse(data);

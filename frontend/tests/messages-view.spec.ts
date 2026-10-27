@@ -204,7 +204,7 @@ test("Claude Code and Codex panels show their messages in the same Modern view",
 
   await expect(pill(page)).toHaveCount(0);
   await expect(page.locator(".messages-view")).toBeVisible();
-  await expect(page.locator(".messages-view .composer textarea")).toBeInViewport();
+  await expect(page.getByRole("textbox", { name: /^Message / })).toBeInViewport();
 });
 
 test("the Messages view draws the conversation as the session recorded it, under the terminal's compact header", async ({ page }) => {
@@ -555,7 +555,7 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   await openGoblin(page, "Pia - Pi Pilot");
   const who = "Pia - Pi Pilot";
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
-  await expect(messageBox(page, who).locator(".composer-note")).toHaveText("Queued. Delivery waits until this session takes input again.");
+  await expect(messageBox(page, who).locator(".composer-note")).toHaveText("Messages will be queued.");
 
   // Act: he sends while the input is held.
   const typedBefore = board.say;
@@ -630,7 +630,7 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
 // while custody holds the input the board's own box comes back under it, with
 // the same queue: a message is kept and reloaded there, nothing is typed into
 // the terminal, and a clear custody leaves the terminal's own input to it.
-test("a held send in Classic is queued through the board, and its box goes once custody clears", async ({ page }) => {
+test("a held send in Classic is queued through the board, and its box remains usable after release", async ({ page }) => {
   // Arrange
   const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
@@ -668,8 +668,9 @@ test("a held send in Classic is queued through the board, and its box goes once 
   // Act: the hold clears.
   await board.sayTo("cg-pi", { type: "held", reason: "" });
 
-  // Assert: the board's box goes, leaving the terminal's own input to Classic.
-  await expect(boxField(page, who)).toHaveCount(0);
+  // Assert: release keeps the input and its queue reachable.
+  await expect(boxField(page, who)).toBeVisible();
+  await expect(messageBox(page, who).locator(".composer-note")).toHaveText("");
   await expect(page.locator(".native-terminal")).toBeVisible();
 });
 
@@ -691,7 +692,7 @@ test("a draft typed in Classic's held box survives the hold clearing", async ({ 
   // Act: the hold clears, so Classic goes back to the terminal, and he takes
   // its Back to messages to read the conversation and write to it.
   await board.sayTo("cg-pi", { type: "held", reason: "" });
-  await expect(page.locator(".classic-queue")).toHaveCount(0);
+  await expect(boxField(page, who)).toHaveValue("half a thought");
   await page.getByRole("button", { name: "Back to messages" }).click();
 
   // Assert: still one box, holding the very words he typed into the held one.

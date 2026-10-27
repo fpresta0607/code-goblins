@@ -30,8 +30,8 @@ import { goblinName, terminalOf } from "./task-words";
 // view's box types through it. behind lays the shown terminal out unseen,
 // behind its session's Messages view in the same box, so it takes its size
 // before it is first seen and a switch to it resizes nothing.
-export function TerminalDeck({ snapshot, task, node, child, cfo, shown, behind = false, connected, focus, onOwner, onHistory }: {
-  snapshot: Snapshot; task?: Task; node?: Session; child?: TreeNode; cfo: boolean; shown: boolean; behind?: boolean; connected: boolean; focus: number; onOwner?: () => void; onHistory?: () => void;
+export function TerminalDeck({ snapshot, task, node, child, cfo, shown, behind = false, hasComposer = false, connected, focus, onOwner, onHistory }: {
+  snapshot: Snapshot; task?: Task; node?: Session; child?: TreeNode; cfo: boolean; shown: boolean; behind?: boolean; hasComposer?: boolean; connected: boolean; focus: number; onOwner?: () => void; onHistory?: () => void;
 }) {
   const owner = !!task && (!!task.generation || !!sessionEnd(task)) && (!node || ownsTaskSession(node, task));
   const key = cfo ? CFO_KEY : owner && !child ? task.id : "";
@@ -58,7 +58,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, behind =
         if (entry === CFO_KEY) {
           const view = cfoView(snapshot);
           if (view.kind === "empty") return slot(entry, here, <TerminalEmpty text={view.text} />);
-          return slot(entry, here, view.kind === "host" ? <HostTerminal key={view.query} query={view.query} harness={snapshot.cfo_harness} label="CFO terminal" reportAs="the CFO's terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} link={entry} onHistory={here ? onHistory : undefined} />
+          return slot(entry, here, view.kind === "host" ? <HostTerminal key={view.query} query={view.query} harness={snapshot.cfo_harness} label="CFO terminal" reportAs="the CFO's terminal" instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} link={entry} hasComposer={here && hasComposer} onHistory={here ? onHistory : undefined} />
             : <NativeTerminal harness={snapshot.cfo_harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
         }
         const each = snapshot.tasks.find((candidate) => candidate.id === entry);
@@ -72,7 +72,7 @@ export function TerminalDeck({ snapshot, task, node, child, cfo, shown, behind =
         const view = goblinView(each);
         if (view.kind === "empty") return takesMessages(each) ? messaging(entry, here, <TerminalEmpty text={view.text} />, each) : slot(entry, here, <TerminalEmpty text={view.text} />);
         return slot(entry, here, view.kind === "host"
-          ? <HostTerminal key={view.query} query={view.query} harness={each.harness} label="Goblin terminal" reportAs={terminalOf(each)} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} link={entry} onHistory={here ? onHistory : undefined} />
+          ? <HostTerminal key={view.query} query={view.query} harness={each.harness} label="Goblin terminal" reportAs={terminalOf(each)} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} link={entry} hasComposer={here && hasComposer} onHistory={here ? onHistory : undefined} />
           : <NativeTerminal task={each} node={snapshot.sessions.find((session) => ownsTaskSession(session, each))} harness={each.harness} instance={snapshot.instance} visible={connected} shown={here} focus={here ? focus : 0} />);
       })}
       {shown && child && task && <div className="deck-slot"><AgentTerminal key={task.id + " " + child.id} task={task} child={child} visible={connected} /></div>}

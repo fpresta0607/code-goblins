@@ -71,9 +71,11 @@ export function Alerts({ snapshot, onOpen }: { snapshot: Snapshot; onOpen: (item
     // pushes do, once he turns its App badge on, which alone asks for its
     // notifications, so the board on his PC keeps every claim.
     if (!fresh.length || isPushingApp()) return;
+    // AFK still records suppressed events; an unavailable browser leaves delivery to another viewer.
+    const shouldClaim = permission() === "granted" || snapshot.afk.state === "on";
     // The supervisor answers after later snapshots may have come, so what
     // it hands this tab is notified against the items open by then.
-    void announce(snapshot.instance, fresh.map(announceKey)).then((claimed) => {
+    void (shouldClaim ? announce(snapshot.instance, fresh.map(announceKey)) : Promise.resolve(null)).then((claimed) => {
       // With AFK mode on now, even an earlier claim hands nothing.
       const mine = fresh.filter((alert) => latest.current.afk.state !== "on" && (claimed === null || claimed.includes(announceKey(alert))) && !outlived(alert, latest.current));
       if (!mine.length) return;

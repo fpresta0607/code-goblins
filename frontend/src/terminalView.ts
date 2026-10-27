@@ -160,15 +160,11 @@ export class TerminalView {
     this.detachDictatedInput = attachDictatedInput(this.term, (keys) => { if (this.isSendable()) this.term.input(keys, true); });
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
+    this.term.element?.addEventListener("wheel", this.wheelHistory, { capture: true, passive: false });
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
     let wheelRest = 0;
     this.term.attachCustomWheelEventHandler((event) => {
       if (!this.heldReason && this.socket.readyState === WebSocket.OPEN) return true;
-      if (this.term.buffer.active.type !== "normal") {
-        if (event.deltaY < 0) this.events.history?.();
-        event.preventDefault();
-        return false;
-      }
       const movement = wheelLines(wheelRest, event.deltaY, event.deltaMode, this.cell().height, this.term.rows);
       wheelRest = movement.rest;
       this.term.scrollLines(movement.lines);
@@ -315,6 +311,7 @@ export class TerminalView {
     this.frames.dispose();
     this.element.removeEventListener("pointerdown", this.startCopy);
     this.element.removeEventListener("paste", this.pasteClipboard, true);
+    this.term.element?.removeEventListener("wheel", this.wheelHistory, true);
     window.removeEventListener("pointerup", this.copy);
     this.socket.onclose = null;
     this.socket.close(1000);
@@ -544,6 +541,20 @@ export class TerminalView {
     if (input && "text" in input) this.paste(input.text);
     else if (input && "image" in input) this.events.image(input.image);
     else if (input && this.isSendable()) this.term.input(input.key, true);
+  };
+
+  // wheelHistory opens the history on a wheel up over a full-screen program
+  // that takes no typing, held or closed, as a swipe does. It listens on
+  // xterm's element ahead of xterm: xterm's scrollbar takes a wheel first
+  // whenever it has room to scroll, as for a moment after the terminal's box
+  // changes size, and xterm then never asks its wheel handler. The zoom
+  // gesture, on the view's element above it, takes a right-button wheel
+  // before it.
+  private readonly wheelHistory = (event: WheelEvent): void => {
+    if (this.term.buffer.active.type === "normal" || !this.heldReason && this.socket.readyState === WebSocket.OPEN) return;
+    if (event.deltaY < 0) this.events.history?.();
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   // Releasing a drag selection copies it, wherever the pointer is released.
