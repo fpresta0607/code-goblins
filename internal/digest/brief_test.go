@@ -116,7 +116,7 @@ func holdsWhole(t *testing.T, text, path string) bool {
 func composeBrief(t *testing.T, h home.Home) string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := ComposeBrief(h, os.Getpid(), "s1", false, &out); err != nil {
+	if err := ComposeBrief(h, os.Getpid(), "s1", false, false, &out); err != nil {
 		t.Fatalf("ComposeBrief: %v", err)
 	}
 	return out.String()
@@ -205,6 +205,38 @@ func TestTheBriefNamesTheFileThatHoldsTheLongDigest(t *testing.T) {
 		if !strings.Contains(string(long), want) {
 			t.Errorf("the long digest is missing %q", want)
 		}
+	}
+}
+
+// A session that resumed the conversation which read the long digest is
+// told where it is and not to read it again: on 2026-10-27 a CFO whose
+// terminal ended four times in 25 minutes read it whole on every comeback.
+func TestABriefForAResumedConversationDoesNotAskForTheLongDigestAgain(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		isResumed bool
+		want      string
+	}{
+		{name: "resumed", isResumed: true, want: "This session resumed the conversation that read it before, so do not read it again"},
+		{name: "new", isResumed: false, want: "Read all of it, in parts if your tool caps a read"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			h := bigHome(t, 3, 2)
+			var out bytes.Buffer
+
+			// Act
+			err := ComposeBrief(h, os.Getpid(), "s1", false, testCase.isResumed, &out)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(h.State, FullDigestFile)
+			if !strings.Contains(out.String(), "READ THIS NEXT: "+path) || !strings.Contains(out.String(), testCase.want) {
+				t.Fatalf("the brief does not point at %s saying %q:\n%s", path, testCase.want, out.String())
+			}
+		})
 	}
 }
 

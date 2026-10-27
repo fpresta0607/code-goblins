@@ -204,7 +204,14 @@ func composeLong(h home.Home, ew *werr) {
 // call holds, as every other mutation is: a session that does not hold the
 // home is told to print the long form with `cfo session-start` instead. The
 // completion marker is written as Compose writes it.
-func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool, w io.Writer) error {
+//
+// A session that resumed the conversation which read the long digest before
+// is told it holds it already: the long digest is mostly data\overlord.md,
+// which changes rarely, and the brief shows what changes between comebacks.
+// On 2026-10-27 a CFO brought back five times in 32 minutes on its own
+// conversation read 126 thousand characters of it again after one of them,
+// about 31 thousand tokens that rode in every request after.
+func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isResumed bool, w io.Writer) error {
 	var lockSection bytes.Buffer
 	heldLock := writeSessionLock(h.State, ownerPID, session, &werr{w: &lockSection})
 
@@ -219,7 +226,12 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact bool
 		if err := fsx.AtomicWriteFile(path, long.Bytes()); err != nil {
 			next = fmt.Sprintf("the long digest could not be written (%s): %s", err, fallback)
 		} else {
-			next = path + " holds what this digest leaves out: the backlog's queued rows, every state\\*.meta in full with its status tail, the orphan sweep, and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. Read all of it, in parts if your tool caps a read, before acting on anything not shown here."
+			next = path + " holds what this digest leaves out: the backlog's queued rows, every state\\*.meta in full with its status tail, the orphan sweep, and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. "
+			if isResumed {
+				next += "This session resumed the conversation that read it before, so do not read it again: read one of its parts only when you need it and your conversation no longer holds it."
+			} else {
+				next += "Read all of it, in parts if your tool caps a read, before acting on anything not shown here."
+			}
 		}
 	}
 

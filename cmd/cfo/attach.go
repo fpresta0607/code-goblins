@@ -248,6 +248,8 @@ func cfoBackPrompt(harness, why, fresh string) string {
 	prompt += " This instruction came with the start, not from the Overlord."
 	if supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
 		prompt += " First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session."
+	} else if fresh == "" {
+		prompt += " Your SessionStart hook registered you and printed what changed while you were away; your conversation holds the rest, so act on that."
 	} else {
 		prompt += " Your SessionStart hook registered you and printed the session digest: read the file it names and act on it."
 	}

@@ -967,7 +967,15 @@ func hookSessionStart(h home.Home, program proc.Entry, payload claudehook.Payloa
 		}
 	}
 
-	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, payload.Source == "compact", stdout); err != nil {
+	// A CFO brought back on the conversation the home last registered has
+	// read the long digest in it already.
+	isResumed := false
+	switch payload.Source {
+	case "resume", "reload", "fork":
+		conversation, err := supervisor.ReadCFOConversation(h.State)
+		isResumed = err == nil && payload.SessionID != "" && conversation.Session == payload.SessionID
+	}
+	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, payload.Source == "compact", isResumed, stdout); err != nil {
 		fmt.Fprintf(stdout, "SESSION START DEGRADED: %s\n", err)
 	}
 	registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)

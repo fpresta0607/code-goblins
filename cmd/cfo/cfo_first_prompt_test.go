@@ -143,6 +143,28 @@ func TestACFOStartedAgainIsToldWhyAndToTakeUpItsWork(t *testing.T) {
 	}
 }
 
+// A Claude Code CFO back on its own conversation acts on what its digest
+// says changed, since that conversation read the long digest already; one on
+// a new conversation reads it.
+func TestAClaudeCFOBackOnItsConversationIsNotToldToReadTheLongDigest(t *testing.T) {
+	for _, testCase := range []struct {
+		name, fresh, want, notWant string
+	}{
+		{name: "its own conversation", want: "your conversation holds the rest", notWant: "read the file it names"},
+		{name: "a new conversation", fresh: "You start on a new conversation.", want: "read the file it names", notWant: "your conversation holds the rest"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Act
+			prompt := cfoBackPrompt("claude", "its terminal ended with exit code 1", testCase.fresh)
+
+			// Assert
+			if !strings.Contains(prompt, testCase.want) || strings.Contains(prompt, testCase.notWant) {
+				t.Errorf("cfoBackPrompt = %q, want %q and not %q", prompt, testCase.want, testCase.notWant)
+			}
+		})
+	}
+}
+
 // A Codex or pi CFO draws on its harness's own full screen, as a goblin
 // does and as Claude Code's does for the CFO, which keeps the input line and
 // footer on the bottom rows while the transcript scrolls above them: the
