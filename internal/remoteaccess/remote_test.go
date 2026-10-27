@@ -433,6 +433,7 @@ func TestOnStatusNamesWhatNeedsHimInAWord(t *testing.T) {
 	}{
 		{"settings unreadable", testConfig().Target, "{", &fakeTailscale{}, "settings"},
 		{"board moved", "http://127.0.0.1:4399", "", &fakeTailscale{config: ownProxy}, "board_moved"},
+		{"board moved while Tailscale is stopped", "http://127.0.0.1:4399", "", &fakeTailscale{fail: true}, "stopped"},
 		{"Tailscale stopped", testConfig().Target, "", &fakeTailscale{fail: true}, "stopped"},
 		{"Funnel on", testConfig().Target, "", &fakeTailscale{config: funnel}, "funnel"},
 		{"route gone", testConfig().Target, "", &fakeTailscale{}, "route_missing"},
