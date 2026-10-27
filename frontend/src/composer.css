@@ -63,9 +63,3 @@
   .composer-controls .engine-control:first-child { flex: 1; min-width: 0; max-width: none; text-align: left; }
 }
 
-/* The session's own slash commands, above the prompt: filtered as he types
-   the command word, arrow keys move the pick, Enter takes it, Escape closes
-   the list without clearing the draft, and arguments stay. */
-.composer-commands { display: grid; gap: 2px; max-height: 12rem; margin: 0; padding: 4px; overflow: auto; list-style: none; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--hero-surface); }
-.composer-commands > li { padding: 6px 10px; border-radius: 8px; color: var(--bone); cursor: pointer; font-size: .9375rem; }
-.composer-commands > li[aria-selected="true"] { background: var(--glass-bg-hover); color: var(--mint); }

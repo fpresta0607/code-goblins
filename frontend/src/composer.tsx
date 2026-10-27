@@ -7,8 +7,10 @@ import { DictationButton } from "./dictation-button";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
+import { mentionAt, mentionFile, parseFiles } from "./mentions";
 import { parseCommands, slashOptions } from "./commands";
 import { panelKey } from "./panel-keys";
+import { PopupList } from "./popup-list";
 import { QueuedMessage } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
 import type { SessionStats, UsageReading } from "./session-usage";
@@ -22,6 +24,9 @@ import "./composer.css";
 // How many of his latest messages to a goblin with no live terminal show
 // above the box.
 const SHOWN = 5;
+// How long the @ list waits after a keystroke before it reads the files, so
+// a burst of typing asks once.
+const MENTION_WAIT_MS = 120;
 // What he wrote and has not sent, kept per session for this tab's life, so a
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
@@ -92,15 +97,18 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const [unsent, setUnsent] = useState("");
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [isStyleOpen, setStyleOpen] = useState(false);
-  // The session's own slash commands, read from its harness, and the command
-  // the list has picked while he types its word.
-  const commandQuery = new URLSearchParams(task ? { task: task.id, generation: task.generation } : { cfo: snapshot.cfo_terminal || "1", since: snapshot.cfo_terminal_since || "" });
-  commandQuery.set("token", snapshot.instance);
-  // A box that is not on screen reads nothing: its own commands are read when
-  // he can see and use it, so a hidden box never reports a refusal.
-  const commands = useResource(isShown ? "/api/commands?" + commandQuery.toString() : null, parseCommands);
+  // The session's slash commands, read from its harness, the files its @
+  // names, and the option the open list has picked while he types its word.
+  // Escape closes the list until the draft changes. A box that is not on
+  // screen reads nothing: its own commands are read when he can see and use
+  // it, so a hidden box never reports a refusal.
+  const sessionQuery = new URLSearchParams(task ? { task: task.id, generation: task.generation } : { cfo: snapshot.cfo_terminal || "1", since: snapshot.cfo_terminal_since || "" });
+  sessionQuery.set("token", snapshot.instance);
+  const commands = useResource(isShown ? "/api/commands?" + sessionQuery.toString() : null, parseCommands);
   const [pick, setPick] = useState(0);
-  const [isCommandsClosed, setCommandsClosed] = useState(false);
+  const [isListClosed, setListClosed] = useState(false);
+  const [caret, setCaret] = useState(0);
+  const [found, setFound] = useState<string[]>([]);
   const [adding, setAdding] = useState(0);
   const [, setEngine] = useState(0);
   // The kept message whose delete is on its way.
@@ -131,7 +139,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const write = (next: (prior: string) => string) => {
     setDraft(next);
     setUnsent("");
-    setCommandsClosed(false);
+    setListClosed(false);
     setPick(0);
     sendID.current = "";
   };
@@ -255,12 +263,41 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     event.target.value = "";
     void add(chosen);
   };
-  const options = isCommandsClosed ? [] : slashOptions(commands.data ?? [], draft);
-  const choose = (name: string) => {
-    const gap = draft.search(/\s/);
-    const args = gap >= 0 ? draft.slice(gap).replace(/\s+$/, "") : "";
-    write(() => "/" + name + (args || " "));
-    requestAnimationFrame(() => field.current?.focus());
+  // The open list: the slash commands while he types the command word, or
+  // the session's files while the caret stands in an @, read a moment after
+  // he stops typing, the last list kept on screen meanwhile.
+  const commandOptions = isListClosed ? [] : slashOptions(commands.data ?? [], draft);
+  const mention = isListClosed || commandOptions.length ? null : mentionAt(draft, caret);
+  const mentionQuery = mention?.query ?? null;
+  const filesAddress = "/api/files?" + sessionQuery.toString();
+  useEffect(() => {
+    if (mentionQuery === null) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      request(filesAddress + "&q=" + encodeURIComponent(mentionQuery), controller.signal).then(parseFiles)
+        .then(setFound, (error: unknown) => { if (!controller.signal.aborted) reportToCfo("the files of " + name, message(error)); });
+    }, MENTION_WAIT_MS);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [mentionQuery, filesAddress, name]);
+  const mentionFiles = mention ? found : [];
+  const listOptions = commandOptions.length
+    ? commandOptions.map((command) => ({ key: command.name, label: "/" + command.name, detail: command.description }))
+    : mentionFiles.map((file) => ({ key: file, label: file.slice(file.lastIndexOf("/") + 1), detail: file }));
+  const picked = Math.min(pick, listOptions.length - 1);
+  const choose = (at: number) => {
+    const box = field.current;
+    if (commandOptions.length) {
+      const gap = draft.search(/\s/);
+      const args = gap >= 0 ? draft.slice(gap).replace(/\s+$/, "") : "";
+      write(() => "/" + commandOptions[at].name + (args || " "));
+      requestAnimationFrame(() => box?.focus());
+      return;
+    }
+    if (!mention) return;
+    const chosen = mentionFile(draft, mention, caret, mentionFiles[at]);
+    write(() => chosen.text);
+    setCaret(chosen.caret);
+    requestAnimationFrame(() => { box?.focus(); box?.setSelectionRange(chosen.caret, chosen.caret); });
   };
   const keys = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (dictation.key(event.nativeEvent) !== null) return;
@@ -269,13 +306,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       void pasteKey();
       return;
     }
-    if (options.length) {
-      if (event.key === "ArrowDown") { event.preventDefault(); setPick((prior) => (prior + 1) % options.length); return; }
-      if (event.key === "ArrowUp") { event.preventDefault(); setPick((prior) => (prior - 1 + options.length) % options.length); return; }
-      if (event.key === "Escape") { event.preventDefault(); setCommandsClosed(true); return; }
-      if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (listOptions.length) {
+      if (event.key === "ArrowDown") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) + 1) % listOptions.length); return; }
+      if (event.key === "ArrowUp") { event.preventDefault(); setPick((prior) => (Math.min(prior, listOptions.length - 1) - 1 + listOptions.length) % listOptions.length); return; }
+      if (event.key === "Escape") { event.preventDefault(); setListClosed(true); return; }
+      if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && !event.nativeEvent.isComposing) {
         event.preventDefault();
-        choose(options[Math.min(pick, options.length - 1)]);
+        choose(picked);
         return;
       }
     }
@@ -335,16 +372,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
       else if (isStyleOpen) { event.stopPropagation(); setStyleOpen(false); }
     }}>
-      {options.length > 0 && <ul className="composer-commands" role="listbox" aria-label="Commands">
-        {options.map((name, at) => <li key={name} role="option" aria-selected={at === Math.min(pick, options.length - 1)} onMouseDown={(event) => { event.preventDefault(); choose(name); }}><span>/{name}</span></li>)}
-      </ul>}
+      {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
       {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
       <div className="composer-input">
         <button type="button" className="composer-control add-files" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
-          onChange={(event) => { const value = event.target.value; write(() => value); }} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+          onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
         {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
       </div>
       <div className="composer-tools">
