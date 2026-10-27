@@ -9,7 +9,7 @@ import { QueuedTasks } from "./QueuedTasks";
 import { RankedCards } from "./RankedCards";
 import { RenderBoundary } from "./render-boundary";
 import { nextInOrder, resumeOrder } from "./start";
-import { TaskCard } from "./TaskCard";
+import { cardFacts, TaskCard } from "./TaskCard";
 import { completedCards, inProgressCards, taskColumn } from "./workflow";
 
 const COLUMNS = [
@@ -38,7 +38,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, onSelect
   onStartCfo: () => void;
 }) {
   const next = nextInOrder(snapshot, now);
-  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} snapshot={snapshot} selected={selected === task.id} presentations={presentations} now={now} rank={rank} next={task.id === next?.id ? next : undefined} onSelect={onSelect} />;
+  const card = (task: Task, rank?: string) => <TaskCard key={task.id} task={task} {...cardFacts(task, snapshot, presentations)} selected={selected === task.id} now={now} rank={rank} {...(task.id === next?.id ? { nextText: next.text, nextTone: next.tone } : {})} onSelect={onSelect} />;
   const paused = resumeOrder(snapshot.tasks.filter((task) => taskColumn(task) === "Paused"), snapshot.tasks, now);
   const working = inProgressCards(snapshot.tasks.filter((task) => taskColumn(task) === "In progress"));
   const ids = (tasks: Task[]) => tasks.map((task) => task.id);

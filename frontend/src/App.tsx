@@ -1,6 +1,8 @@
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useRuntimeStream } from "./stream";
+import { useNow } from "./clock";
+import type { Task } from "./types";
 import { useItemState } from "./use-item-state";
 import { useTaskClicks } from "./use-task-clicks";
 import { withClicks } from "./task-clicks";
@@ -183,8 +185,7 @@ export function App() {
   // A merge train opened from its card.
   const train = selected?.train ? snapshot?.merge_trains?.find((each) => each.id === selected.train) : undefined;
   const reviews = useReview(task, snapshot);
-  const [now,setNow]=useState(Date.now);
-  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
+  const now = useNow(60_000);
   const served = snapshot?.build || "";
   const connected = connection === "Live";
   const [hasUnsentAnswers, setHasUnsentAnswers] = useState(false);
@@ -216,6 +217,10 @@ export function App() {
   const presentations=snapshot&&connected?livePresentations(snapshot,now):[];
   // A selection opens its panel, its messages or its terminal beside its task
   // list.
+  // A card is drawn again only when what it shows changed, so the handler
+  // it is given stays the same between renders and calls the latest select.
+  const latestSelect = useRef<(next: Selection, source: HTMLElement) => void>(() => undefined);
+  const selectTask = useCallback((task: Task, source: HTMLElement) => latestSelect.current({ task: task.id }, source), []);
   const select = (next: Selection, source: HTMLElement) => {
     returnFocus.current = source;
     // An empty selection is the supervisor root drawn for the CFO.
@@ -227,6 +232,7 @@ export function App() {
     setPaneOpen(true);
     requestAnimationFrame(() => pane.current?.focus({ preventScroll: true }));
   };
+  useEffect(() => { latestSelect.current = select; });
   // keyboardTo hands the keyboard to the session of key: the box under its
   // messages, or its terminal, where the board does not read it as messages
   // or its terminal stepped in.
@@ -518,7 +524,7 @@ export function App() {
     </main> : <div ref={workspace} className={"workspace" + (paneOpen ? " with-pane" : "") + (view === "Board" && boardLayout === "kanban" ? " kanban" : "") + (resizing && divided ? " resizing" : "")} style={layout}>
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
-          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} onSelect={(task, source) => select({ task: task.id }, source)} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
+          : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
             : compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} connected={connected}
                 selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}

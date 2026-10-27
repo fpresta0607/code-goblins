@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { parseItems, parseSnapshot, type Snapshot } from "./types";
 import { knowInstance, message, reportToCfo } from "./api";
 import { withItems } from "./item-state";
+import { shared } from "./shared";
 
 const STREAM_RECONNECT_BASE_DELAY_MS = 500;
 const STREAM_RECONNECT_MAX_DELAY_MS = 5_000;
@@ -37,7 +38,10 @@ export function useRuntimeStream() {
           const value: unknown = JSON.parse(event.data);
           const next = parseSnapshot(value);
           knowInstance(next.instance);
-          setSnapshot((current) => newerSnapshot(current, next));
+          setSnapshot((current) => {
+            const newer = newerSnapshot(current, next);
+            return newer === next ? shared(current, next) : newer;
+          });
           setConnection("Live");
           retry = STREAM_RECONNECT_BASE_DELAY_MS;
         } catch (error: unknown) {
