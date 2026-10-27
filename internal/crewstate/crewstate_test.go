@@ -219,6 +219,7 @@ func TestLatestReportSkipsCFOAuditLines(t *testing.T) {
 	ctx := context.Background()
 	for _, audit := range []string{
 		"pipeline-findings-accepted: step=review run=r1 round=2 findings=ask,bug by=cfo",
+		`pipeline-approval-reason: step=test run=r1 round=1 reason="only the sandbox's compiler is missing" by=cfo`,
 		"pipeline-policy-migrated: class=ordinary review_cycles=3 old=aaa new=bbb",
 		"overlap-accepted: it only adds a log line (PR #412 by ana-teammate changes tasks/billing_sync.py)",
 		`notify-handled: {"seq":7,"kind":"notify","key":"g1","detail":"failed: Which fix?"}`,

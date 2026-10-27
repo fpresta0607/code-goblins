@@ -1407,14 +1407,12 @@ func TestPipelineConfigDriftDoesNotWriteOrExposeValues(t *testing.T) {
 	}
 }
 
-// Taking a gate's open findings as they stand is the CFO's decision alone. A
-// goblin that tries it on its own gate is refused before anything is recorded
-// or sent, even while the registered CFO is live in its pane; the CFO's
-// acceptance reaches the task's status log before approve reaches the gate.
-func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("the primary CFO registration is verified on Windows only")
-	}
+// registeredCFOStage stages a gated task whose primary registration names the
+// caller: this test process as the CFO, or for a goblin a separate live
+// process this one does not run under. It returns the home, the native root
+// and a runner whose gate is the one given.
+func registeredCFOStage(t *testing.T, caller string, gate pipeline.Gate) (home.Home, string, *pipelineRunner) {
+	t.Helper()
 	p, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1423,79 +1421,91 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state")}
+	nm := filepath.Join(root, "nm")
+	tmp := filepath.Join(h.State, "tasktmp", "task")
+	project := filepath.Join(root, "project")
+	wt := filepath.Join(project, ".worktrees", "gb-task")
+	for _, path := range []string{nm, tmp, wt} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// The registered CFO is this test process, or for the goblin a separate
+	// live process this one does not run under.
+	var registered *lock.Info
+	if caller == "cfo" {
+		registered, err = lock.Acquire(h.State)
+		t.Cleanup(func() { _ = lock.Release(h.State) })
+	} else {
+		other := exec.Command("ping", "-n", "30", "127.0.0.1")
+		if err := other.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = other.Process.Kill(); _, _ = other.Process.Wait() })
+		registered, err = lock.AcquireOwner(h.State, other.Process.Pid, "other")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The registration names native terminal cfo, whose host record names the
+	// registered process as the terminal's program.
+	data, err := json.Marshal(struct {
+		Host    string    `json:"host"`
+		Agent   string    `json:"agent"`
+		Process lock.Info `json:"process"`
+	}{"cfo", "codex", *registered})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	record, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-test-` + strconv.Itoa(os.Getpid()), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: registered.PID, Started: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(h.State, "hosts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.State, "hosts", "cfo.json"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return h, nm, &pipelineRunner{worktree: wt, gate: gate}
+}
+
+// Taking a gate's open findings as they stand is the CFO's decision alone. A
+// goblin that tries it on its own gate is refused before anything is recorded
+// or sent, even while the registered CFO is live in its pane; the CFO's
+// acceptance reaches the task's status log before approve reaches the gate.
+func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}
 	for _, caller := range []string{"goblin", "cfo"} {
 		t.Run(caller, func(t *testing.T) {
-			root := t.TempDir()
-			h := home.Home{Root: root, State: filepath.Join(root, "state")}
-			nm := filepath.Join(root, "nm")
-			tmp := filepath.Join(h.State, "tasktmp", "task")
-			project := filepath.Join(root, "project")
-			wt := filepath.Join(project, ".worktrees", "gb-task")
-			for _, path := range []string{nm, tmp, wt} {
-				if err := os.MkdirAll(path, 0700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := selection.Save(filepath.Join(tmp, "pipeline.json")); err != nil {
-				t.Fatal(err)
-			}
-			meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Worktree: wt, Project: project, TaskTmp: tmp, PipelineClass: selection.Class, PipelineHash: selection.Hash}
-			if err := state.WriteTaskMeta(h.State, meta); err != nil {
-				t.Fatal(err)
-			}
-			config, _, err := pipeline.Render([]byte("{}"), p)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(nm, "config.yaml"), config, 0600); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(nm, "state.sqlite"), nil, 0600); err != nil {
-				t.Fatal(err)
-			}
-			// The registered CFO is this test process, or for the goblin a
-			// separate live process this one does not run under.
-			var registered *lock.Info
-			if caller == "cfo" {
-				registered, err = lock.Acquire(h.State)
-				t.Cleanup(func() { _ = lock.Release(h.State) })
-			} else {
-				other := exec.Command("ping", "-n", "30", "127.0.0.1")
-				if err := other.Start(); err != nil {
-					t.Fatal(err)
-				}
-				t.Cleanup(func() { _ = other.Process.Kill(); _, _ = other.Process.Wait() })
-				registered, err = lock.AcquireOwner(h.State, other.Process.Pid, "other")
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			// The registration names native terminal cfo, whose host record
-			// names the registered process as the terminal's program.
-			data, err := json.Marshal(struct {
-				Host    string    `json:"host"`
-				Agent   string    `json:"agent"`
-				Process lock.Info `json:"process"`
-			}{"cfo", "codex", *registered})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(h.State, "primary.json"), data, 0600); err != nil {
-				t.Fatal(err)
-			}
-			record, err := json.Marshal(host.Record{ID: "cfo", Pipe: `\\.\pipe\code-goblins-host-test-` + strconv.Itoa(os.Getpid()), Token: "token", Version: host.Version, HostPID: os.Getpid(), ChildPID: registered.PID, Started: time.Now().UTC()})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.MkdirAll(filepath.Join(h.State, "hosts"), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(h.State, "hosts", "cfo.json"), record, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			runner := &pipelineRunner{worktree: wt, gate: pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 3, Findings: `{"findings":[{"id":"ask","action":"ask-user"},{"id":"bug","action":"auto-fix"},{"id":"note","action":"no-op"}]}`}}
+			h, nm, runner := registeredCFOStage(t, caller, gate)
 			var out bytes.Buffer
-			err = pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &out)
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "bug,ask"}, &out)
 			lines, _ := state.TailStatus(h.State, "task", 10)
 			if caller == "goblin" {
 				if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") || len(runner.native) != 0 || len(lines) != 0 {
@@ -1511,4 +1521,55 @@ func TestPipelineAcceptIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The reason an approved Test exception keeps is the CFO's decision too. A
+// goblin's is refused before anything is recorded or sent, a gate the native
+// engine would drop it from is refused by the driver, and the CFO's reaches
+// both the native --reason and the task's own audit (#1422).
+func TestPipelineTestExceptionReasonIsHonouredOnlyFromTheRegisteredCFO(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the primary CFO registration is verified on Windows only")
+	}
+	const reason = "the only failure was the sandbox's missing compiler, read in the step log"
+	testException := pipeline.Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"test-2","action":"ask-user"}]}`}
+	for _, caller := range []string{"goblin", "cfo"} {
+		t.Run(caller, func(t *testing.T) {
+			// Arrange
+			h, nm, runner := registeredCFOStage(t, caller, testException)
+
+			// Act
+			err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--accept", "test-2", "--reason", reason}, &bytes.Buffer{})
+			lines, _ := state.TailStatus(h.State, "task", 10)
+
+			// Assert
+			if caller == "goblin" {
+				if err == nil || !strings.Contains(err.Error(), "does not run under the registered CFO") || len(runner.native) != 0 || len(lines) != 0 {
+					t.Fatalf("a goblin reasoning its own Test exception: %v, %d native calls, status %q; want it refused with nothing recorded or sent", err, len(runner.native), lines)
+				}
+				return
+			}
+			if err != nil || len(runner.native) != 1 || strings.Join(runner.native[0].Args, " ") != "axi respond --step test --action approve --reason "+reason {
+				// The request carries the native terminal's environment, so a
+				// failure names its arguments and never the whole request.
+				t.Fatalf("the CFO approving a Test exception: %v, want one approve carrying the reason", err)
+			}
+			if len(lines) != 2 || !strings.HasSuffix(lines[0], "pipeline-findings-accepted: step=test run=run round=1 findings=test-2 by=cfo") || !strings.HasSuffix(lines[1], `pipeline-approval-reason: step=test run=run round=1 reason="`+reason+`" by=cfo`) {
+				t.Fatalf("status log %q, want the acceptance and the reason audited before the gate was answered", lines)
+			}
+		})
+	}
+	t.Run("a gate the engine would drop it from", func(t *testing.T) {
+		// Arrange
+		h, nm, runner := registeredCFOStage(t, "cfo", pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"note","action":"no-op"}]}`})
+
+		// Act
+		err := pipelineCommand(context.Background(), h, nm, runner, []string{"respond", "task", "--action", "approve", "--reason", reason}, &bytes.Buffer{})
+		lines, _ := state.TailStatus(h.State, "task", 10)
+
+		// Assert
+		if err == nil || !strings.Contains(err.Error(), "applies only to an approve of the test step") || len(runner.native) != 0 || len(lines) != 0 {
+			t.Fatalf("a reason on a review gate: %v, %d native calls, status %q; want it refused with nothing recorded or sent", err, len(runner.native), lines)
+		}
+	})
 }
