@@ -1655,17 +1655,17 @@ func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
 
 func TestCIMonitorRedactsCredentialsFromCommandErrors(t *testing.T) {
 	s, h, forge, _ := unreadableForge(t)
-	forge.ghFailure = "cannot read ssh://user:fixture-password@github.com/o/r: token=fixture-token"
+	forge.ghFailure = "cannot read ssh://user:fixture-password@github.com/o/r and user:fixture-scp-password@github.com:o/r: token=fixture-token"
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		err := s.checkFleet(t.Context(), now)
-		if err != nil && (strings.Contains(err.Error(), "fixture-password") || strings.Contains(err.Error(), "fixture-token")) {
+		if err != nil && (strings.Contains(err.Error(), "fixture-password") || strings.Contains(err.Error(), "fixture-token") || strings.Contains(err.Error(), "fixture-scp-password")) {
 			t.Fatalf("credentials in error: %v", err)
 		}
 		now = now.Add(ciPollEvery)
 	}
 	wakes := fleetWakeRecords(t, h, "ci")
-	if len(wakes) != 1 || strings.Contains(wakes[0].Detail, "fixture-password") || strings.Contains(wakes[0].Detail, "fixture-token") {
+	if len(wakes) != 1 || strings.Contains(wakes[0].Detail, "fixture-password") || strings.Contains(wakes[0].Detail, "fixture-token") || strings.Contains(wakes[0].Detail, "fixture-scp-password") {
 		t.Fatalf("credentials in wake: %+v", wakes)
 	}
 }

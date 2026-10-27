@@ -666,8 +666,9 @@ func fileTail(path string, keep int) ([]string, error) {
 }
 
 var tokenPattern = regexp.MustCompile(`(?i)(bearer\s+|(?:api[_-]?key|token|password|secret)\s*[=:]\s*["']?)[^\s"']+`)
-var urlCredential = regexp.MustCompile(`(?i)((?:https?|ssh|git)://)[^\s/@]+@`)
+var urlCredential = regexp.MustCompile(`(?i)((?:https?|ssh|git)://)[^\s/]+@`)
+var scpCredential = regexp.MustCompile(`[^\s/:]+:[^\s/@]+@`)
 
 func redact(text string) string {
-	return urlCredential.ReplaceAllString(tokenPattern.ReplaceAllString(text, "${1}[redacted]"), "${1}[redacted]@")
+	return scpCredential.ReplaceAllString(urlCredential.ReplaceAllString(tokenPattern.ReplaceAllString(text, "${1}[redacted]"), "${1}[redacted]@"), "[redacted]@")
 }
