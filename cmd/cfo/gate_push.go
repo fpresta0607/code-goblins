@@ -194,8 +194,19 @@ func runPushStep(ctx context.Context, step gatetest.Step, root, project string, 
 	var exit int
 	var err error
 	if step.Command[0] != "go" || step.Command[1] != "test" {
-		exit, err = runtime.pushRun(ctx, step.Command, dir, env, stdout, stderr)
+		output := stdout
+		var cases *gatetest.BrowserReport
+		if step.Browser {
+			cases = gatetest.NewBrowserReport(stdout)
+			output = cases
+		}
+		exit, err = runtime.pushRun(ctx, step.Command, dir, env, output, stderr)
 		sayEnded(stdout, "the time limit", step.What, err)
+		if err != nil && ctx.Err() != nil && cases != nil {
+			if failed := cases.Failed(); len(failed) > 0 {
+				return browserCasesFailed(failed), false
+			}
+		}
 	} else {
 		var failed []string
 		var isBuilt bool
@@ -266,6 +277,17 @@ func runPushTests(ctx context.Context, command []string, dir, project string, en
 		}
 	}
 	return failed, isBuilt, exit, err
+}
+
+// browserCasesFailed says the cases a browser check reported as failed
+// before the time limit ended it. A case that ended before the limit is a
+// failure the run knows, whatever came after it never ran, so the check
+// fails the push rather than leaving the cases it reached to CI (issue 1542).
+func browserCasesFailed(cases []string) string {
+	if len(cases) == 1 {
+		return fmt.Sprintf("1 browser case failed before the time limit ended the check: %s. CI would fail on it too, so fix it before you push.", cases[0])
+	}
+	return fmt.Sprintf("%d browser cases failed before the time limit ended the check: %s. CI would fail on them too, so fix them before you push.", len(cases), namedPushTests(cases))
 }
 
 // namedPushTests names tests in one line: the first few, and how many more.

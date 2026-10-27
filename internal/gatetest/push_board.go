@@ -84,6 +84,7 @@ func boardChecks(root string, changed []string) (steps []Step, left []Deferred) 
 			Detail:  specs,
 			Dir:     boardDir,
 			Command: []string{"npx", "playwright", "test", "--reporter=line"},
+			Browser: true,
 		}
 		for _, spec := range specs {
 			file, _, _ := strings.Cut(spec, " ")
