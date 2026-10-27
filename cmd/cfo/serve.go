@@ -312,6 +312,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	defer removeBoardRecord(h.State, os.Getpid())
+	// Only the supervisor that holds the singleton moves remote access to its
+	// board: a serve that lost the race to it exits before here.
+	if remoteSetting != nil {
+		go remoteSetting.FollowBoard(ctx, func(line string) { fmt.Fprintln(stderr, line) })
+	}
 	handler := supervisor.NewHTTP(s, listener.Addr().String(), assets)
 	// After an update to a build that pins a newer speech model, the board
 	// replaces the earlier one now rather than at the first dictation.

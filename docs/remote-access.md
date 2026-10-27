@@ -14,8 +14,10 @@ owner account. No personal hostname, account or key is included in the build.
    **Remote access**, and turn the **Tailscale** switch on. The board finds
    Tailscale by itself and offers the switch once Tailscale is installed and
    signed in on the PC; until then a few words under it say what is missing,
-   such as Not installed or Signed out, and it reads Tailscale again whenever
-   you come back to the board.
+   such as Not installed or Signed out. It reads Tailscale again whenever
+   you come back to the board, and every five seconds while the board shows,
+   so Tailscale stopping or starting, `cfo remote on` or `off` and a restart
+   show on the switch within seconds.
 3. Copy the private HTTPS link shown there. On the phone, connect Tailscale and
    open the link in its browser. Open the CFO terminal to control the existing
    session: on the phone a terminal fills the screen, with the top bar put
@@ -140,8 +142,11 @@ routes.
 
 Turning Tailscale on also turns on Code Goblins' existing **Start at login**
 setting. Tailscale's background proxy and the saved owner setting survive
-restarts; the board and its sessions return after Windows sign-in. The PC must
-be awake, online, signed in, and connected to Tailscale. This does not change
+restarts; the board and its sessions return after Windows sign-in. A board
+that comes back at another local address, as one does when its usual address
+is taken, moves this feature's own routes to it, Scrawl's with the board's,
+once Tailscale answers, and looks again every 15 seconds until it does. The
+PC must be awake, online, signed in, and connected to Tailscale. This does not change
 power settings, Windows sign-in policy, router ports or the firewall, and cannot
 wake a powered off PC. Closing the phone's browser or disconnecting the phone
 leaves the CFO and workers running.
@@ -165,8 +170,9 @@ cfo remote off
 `status` verifies the owner, device name, board address and Serve route, and
 reports whether the board and Start at login are running; while access is off
 it says what this PC's Tailscale lacks and the command that mends it, as the
-board's switch does. If the PC's Tailscale name, account or board address
-changes, turn remote access off and on again on the PC. `off` revokes
+board's switch does. If the PC's Tailscale name or account changes, or a
+board that moved could not take its route with it, turn remote access off and
+on again on the PC. `off` revokes
 access even when Tailscale is stopped, then reports any remaining proxy cleanup.
 `on` and `off` are refused in a goblin's or a gate agent's terminal: only you,
 or the CFO on your word, turn remote access on or off. `cfo doctor` reports it
