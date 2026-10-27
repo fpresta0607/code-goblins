@@ -336,6 +336,20 @@ func (s Screens) ComposerEmpty(screen []string) bool {
 	return true
 }
 
+// ComposerHoldsText reports whether screen proves the harness's composer
+// holds text somebody left there unsent, so text typed now would land on top
+// of it. A screen showing a dialog, or one whose composer cannot be read,
+// proves nothing either way: it holds no text.
+func (s Screens) ComposerHoldsText(screen []string) bool {
+	if _, hasDialog := s.Dialog(screen); hasDialog {
+		return false
+	}
+	if _, isRead := s.composer(screen); !isRead {
+		return false
+	}
+	return !s.ComposerEmpty(screen)
+}
+
 // ComposerMatches proves the complete draft survived a startup dialog.
 // Unlike Shows, a suffix, an older prompt or a collapsed paste is not enough.
 func (s Screens) ComposerMatches(screen []string, typed string) bool {

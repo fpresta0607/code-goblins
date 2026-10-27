@@ -21,6 +21,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -65,6 +66,7 @@ const (
 	fakeCodexRecord     = "SPAWN_TEST_CODEX_RECORD"
 	fakeCodexMode       = "SPAWN_TEST_CODEX_MODE"
 	fakeCodexTranscript = "SPAWN_TEST_CODEX_TRANSCRIPT"
+	fakeCodexDraft      = "SPAWN_TEST_CODEX_DRAFT"
 )
 
 func TestMain(m *testing.M) {
@@ -176,6 +178,20 @@ func fakeHarness() {
 		for key := range keys {
 			record(codexEvent{Event: "typed blind", Text: key})
 		}
+		return
+	}
+	if mode == "daybreak-inline" {
+		inlineSecurityComposer(keys, record, draw, 0)
+		return
+	}
+	if mode == "daybreak-late-keys" {
+		// This banner is drawn before the harness reads keys, as Codex drew
+		// its hook review: a key sent the moment the rows show is lost.
+		inlineSecurityComposer(keys, record, draw, time.Second) // stall-accepted: the stand-in's deaf moment starts before its rows are drawn, so a stall only shortens it, and the spawn's longer settle after it sees the rows outlasts it on the same clock.
+		return
+	}
+	if mode == "daybreak-stale" {
+		staleOfferComposer(keys, record, draw)
 		return
 	}
 	if mode == "pi-ready" || mode == "pi-starting" || mode == "pi-stuck" || mode == "pi-stale" {
@@ -337,6 +353,122 @@ func fakeHarness() {
 	}
 }
 
+// inlineSecurityComposer shows codex's optional Daybreak offer above its
+// composer. A banner drawn before the harness reads keys loses every key that
+// arrives in its first drawBeforeReading, which is recorded rather than taken.
+func inlineSecurityComposer(keys <-chan string, record func(codexEvent), draw func(...string), drawBeforeReading time.Duration) {
+	draft := os.Getenv(fakeCodexDraft)
+	isWorking, live := false, true
+	show := func() {
+		if isWorking {
+			draw("› "+draft, "• Working (0s • esc to interrupt)")
+			return
+		}
+		text := draft
+		if text == "" {
+			text = "Ask Codex to do anything"
+		}
+		rows := []string{"› " + text, "100% context left"}
+		if live {
+			rows = append([]string{"Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", ""}, rows...)
+		}
+		draw(rows...)
+	}
+	reading := time.Now().Add(drawBeforeReading)
+	show()
+	for key := range keys {
+		if time.Now().Before(reading) {
+			record(codexEvent{Event: "security key lost", Text: key})
+			continue
+		}
+		if key == "\x1b" {
+			select {
+			case next := <-keys:
+				if next == "[" {
+					select {
+					case end := <-keys:
+						key += next + end
+					case <-time.After(30 * time.Second):
+						return
+					}
+				} else {
+					return
+				}
+			case <-time.After(100 * time.Millisecond): // stall-accepted: the rest of an End sequence the spawn writes in the same input as its Escape follows at once, so only a stall between the stand-in's own reads can cut it, and that failure is accepted to citest's rerun.
+				record(codexEvent{Event: "composer escape", Text: draft})
+				if live {
+					live = false
+					show()
+				}
+				continue
+			}
+		}
+		switch {
+		case key == "\x1b[F":
+		case key == "\r":
+			record(codexEvent{Event: "submitted", Text: draft})
+			isWorking = true
+			show()
+		case live && draft == "" && key >= "1" && key <= "9":
+			record(codexEvent{Event: "security enrollment", Text: key})
+		default:
+			draft += key
+			show()
+		}
+	}
+}
+
+// staleOfferComposer shows codex's composer under the rows of an optional
+// Daybreak security offer that an earlier redraw drew and a later one no
+// longer draws: the banner renders above the composer, so the rows it left sit
+// in the console's buffer while the composer below them is ready and takes
+// every key. Nothing reaches those rows any more, which is how a ready screen
+// looked blocked on 2026-10-27 (#1432).
+func staleOfferComposer(keys <-chan string, record func(codexEvent), draw func(...string)) {
+	var line strings.Builder
+	show := func() {
+		text := line.String()
+		if text == "" {
+			text = "Ask Codex to do anything"
+		}
+		draw("Set up security for Daybreak mode", "Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.", "", "\u203a 1. Set up security", "", "Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue", "", "\u203a "+text, "100% context left")
+	}
+	show()
+	for key := range keys {
+		if key == "\x1b" {
+			// A lone Escape is the dismissal the rows outlive; one followed by a
+			// sequence is End or an arrow, which the composer takes.
+			select {
+			case <-keys:
+				select {
+				case <-keys:
+				case <-time.After(30 * time.Second):
+					return
+				}
+			case <-time.After(100 * time.Millisecond): // stall-accepted: the rest of an End sequence the spawn writes in the same input as its Escape follows at once, so only a stall between the stand-in's own reads can cut it, and that failure is accepted to citest's rerun.
+				record(codexEvent{Event: "security dismissal attempted", Text: key})
+			}
+			continue
+		}
+		switch {
+		case key == "\r" && line.Len() == 0:
+		case key == "\r":
+			record(codexEvent{Event: "submitted", Text: line.String()})
+			draw("", "\u203a "+line.String(), "", "\u2022 Working (0s \u2022 esc to interrupt)")
+			// Like codex, it stays at work: a spawn reads the screen after Enter.
+			for range keys {
+			}
+			return
+		case line.Len() == 0 && key >= "1" && key <= "9":
+			// A live offer would take this key as its own choice.
+			record(codexEvent{Event: "security enrollment", Text: key})
+		default:
+			line.WriteString(key)
+			show()
+		}
+	}
+}
+
 // codexStartup shows codex's own startup screens, as captured on this
 // machine, and reports whether they ended at its composer.
 func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string), composer func(text string)) bool {
@@ -354,9 +486,6 @@ func codexStartup(mode string, keys <-chan string, record func(codexEvent), draw
 			switch key {
 			case "\x1b":
 				record(codexEvent{Event: "security dismissal attempted", Text: key})
-				if mode == "daybreak-stuck" {
-					continue
-				}
 				record(codexEvent{Event: "security dismissed", Text: key})
 				return true
 			case "\r":
@@ -828,25 +957,342 @@ func TestANativeSpawnDismissesTheOptionalDaybreakOfferWithoutEnrollment(t *testi
 	}
 }
 
-func TestANativeSpawnDoesNotContinueUntilTheDaybreakOfferDisappears(t *testing.T) {
-	previous := nativeKeyEffect
-	nativeKeyEffect = 3 * time.Second
-	t.Cleanup(func() { nativeKeyEffect = previous })
-	f := newNativeFixture(t, harness.Codex, "daybreak-stuck")
+func TestNativeSpawnPreservesAnUnrelatedDraftUnderAnInlineOffer(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak-inline")
+	f.userEnv = append(f.userEnv, fakeCodexDraft+"=An unfinished user draft")
 
-	_, err := f.service.Spawn(context.Background(), f.request)
+	_, err := f.service.Spawn(t.Context(), f.request)
 
-	if err == nil || !strings.Contains(err.Error(), "still shows the optional Daybreak security setup offer after Escape") {
-		t.Errorf("native spawn: %v, want an unconfirmed dismissal error", err)
+	if err == nil || !strings.Contains(err.Error(), "holds a draft") {
+		t.Fatalf("spawn = %v, want a refusal to type over the draft", err)
+	}
+	record, err := host.ReadRecord(f.stateDir, f.request.ID)
+	if err != nil || !host.Running(record) {
+		t.Fatalf("the terminal holding the draft was not kept: %v", err)
+	}
+	rows, err := host.ReadScreen(record)
+	if err != nil || !strings.Contains(strings.Join(rows, "\n"), "An unfinished user draft") {
+		t.Errorf("the draft was not preserved: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 0 {
+		t.Errorf("submitted the draft: %+v", submitted)
+	}
+}
+
+func TestNativeSpawnPreservesAnExistingInstructionFileUnderAnInlineOffer(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak-inline")
+	path := filepath.Join(f.stateDir, "tasktmp", f.request.ID, "instruction.md")
+	f.request.BeforeLaunch = func() error { return os.WriteFile(path, []byte("pending instruction\n"), 0o600) }
+	f.userEnv = append(f.userEnv, fakeCodexDraft+"="+instructionPointer(path))
+
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	if err == nil || !strings.Contains(err.Error(), "holds a draft") {
+		t.Fatalf("spawn = %v, want a refusal to type over the draft", err)
+	}
+	if saved, err := os.ReadFile(path); err != nil || string(saved) != "pending instruction\n" {
+		t.Errorf("saved instruction = %q, %v", saved, err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 0 {
+		t.Errorf("submitted the pending instruction: %+v", submitted)
+	}
+}
+
+// A composer whose footer this spawn does not recognize cannot be proved
+// empty, and it proves no draft either: the spawn types its instruction there
+// as it always has, instead of refusing a ready composer as held text (#1432).
+func TestANativeSpawnDeliversToAComposerWhoseFooterItCannotRead(t *testing.T) {
+	f := newQuickFixture(t)
+	f.service.ReadScreen = func(record host.Record) ([]string, error) {
+		screen, err := host.ReadScreen(record)
+		read := make([]string, 0, len(screen))
+		for _, row := range screen {
+			if strings.Contains(row, "for shortcuts") {
+				continue
+			}
+			read = append(read, row)
+		}
+		return read, err
+	}
+
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if submitted := named(f.events(t), "submitted"); len(submitted) != 1 || submitted[0].Text != spawnPointer(t, f.fixture) {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
+	}
+}
+
+// A goblin idle at a live Daybreak security offer takes a CFO message whose
+// first key is a digit: the delivery dismisses the offer with its one Escape
+// before it types, so the banner never takes that digit as its own choice and
+// the whole message arrives once (#1432).
+func TestANativeSendDismissesALiveInlineOfferBeforeTypingADigit(t *testing.T) {
+	f := newQuickFixture(t)
+	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-inline")
+	meta := state.TaskMeta{ID: "task-7", Harness: string(harness.Codex), Worktree: f.worktree, TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7"), Scratch: taskScratch(f.stateDir, "task-7"), SpawnGen: "s1"}
+	launch, err := nativeAdapter{kind: harness.Codex}.Build(harness.LaunchSpec{BriefPath: f.brief, TaskTmp: meta.TaskTmp, Scratch: meta.Scratch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch.Dir = f.worktree
+	f.service.nativeEnvironment(launch.Env, meta)
+	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Codex)
+	if _, err := f.service.awaitScreen(context.Background(), terminal, 30*time.Second, func(rows []string) bool {
+		_, shown := inlineOffer(screens, rows)
+		return shown
+	}); err != nil {
+		t.Fatalf("the fake harness never showed its live offer: %v", err)
+	}
+
+	message := "1) run the tests and report back"
+	sendErr := f.service.SendNative(context.Background(), meta, message)
+
+	if sendErr != nil {
+		t.Fatalf("SendNative: %v", sendErr)
+	}
+	events := f.events(t)
+	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
+		t.Errorf("security enrollment = %+v, want the offer's option never chosen", enrollment)
+	}
+	if dismissed := named(events, "composer escape"); len(dismissed) != 1 {
+		t.Errorf("offer dismissals = %+v, want exactly one Escape before typing", dismissed)
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != message {
+		t.Errorf("submitted = %+v, want the whole message once", submitted)
+	}
+}
+
+// A goblin idle at a live Daybreak offer it only reads keys for after the
+// banner was drawn, as Codex drew its hook review, takes a CFO message whose
+// first key is a digit: the delivery lets the offer settle before its one
+// Escape, as answerDialog does for a dialog, so the key is not lost while the
+// banner starts and the whole message arrives once with no offer chosen
+// (#1432).
+func TestANativeSendSettlesALiveInlineOfferBeforeItsEscape(t *testing.T) {
+	previousEffect, previousPace := nativeKeyEffect, nativeTypedPace
+	nativeKeyEffect, nativeTypedPace = 3*time.Second, 0
+	t.Cleanup(func() { nativeKeyEffect, nativeTypedPace = previousEffect, previousPace })
+	f := newQuickFixture(t)
+	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-late-keys")
+	meta := state.TaskMeta{ID: "task-7", Harness: string(harness.Codex), Worktree: f.worktree, TaskTmp: filepath.Join(f.stateDir, "tasktmp", "task-7"), Scratch: taskScratch(f.stateDir, "task-7"), SpawnGen: "s1"}
+	launch, err := nativeAdapter{kind: harness.Codex}.Build(harness.LaunchSpec{BriefPath: f.brief, TaskTmp: meta.TaskTmp, Scratch: meta.Scratch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch.Dir = f.worktree
+	f.service.nativeEnvironment(launch.Env, meta)
+	terminal, err := f.service.launchNativeHost(meta.ID, harness.Codex, launch, f.userEnv, auth.Result{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Codex)
+	if _, err := f.service.awaitScreen(context.Background(), terminal, 30*time.Second, func(rows []string) bool {
+		_, shown := inlineOffer(screens, rows)
+		return shown
+	}); err != nil {
+		t.Fatalf("the fake harness never showed its live offer: %v", err)
+	}
+
+	message := "1) run the tests and report back"
+	sendErr := f.service.SendNative(context.Background(), meta, message)
+
+	if sendErr != nil {
+		t.Fatalf("SendNative: %v", sendErr)
+	}
+	events := f.events(t)
+	if lost := named(events, "security key lost"); len(lost) != 0 {
+		t.Errorf("keys the starting banner lost = %+v, want the Escape to reach it once it reads keys", lost)
+	}
+	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
+		t.Errorf("security enrollment = %+v, want the offer's option never chosen", enrollment)
+	}
+	if dismissed := named(events, "composer escape"); len(dismissed) != 1 {
+		t.Errorf("offer dismissals = %+v, want exactly one Escape before typing", dismissed)
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != message {
+		t.Errorf("submitted = %+v, want the whole message once", submitted)
+	}
+}
+
+// A delivery that met a live Daybreak offer over an empty composer and could
+// not press its Escape has typed nothing into the terminal, so cfo send's
+// queue sends it again: the failure says nothing was typed.
+func TestAFailedInlineOfferDismissalSaysNothingWasTyped(t *testing.T) {
+	previousSettle := nativeDialogSettle
+	nativeDialogSettle = 0
+	t.Cleanup(func() { nativeDialogSettle = previousSettle })
+	service := Service{StateDir: t.TempDir()}
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	service.ReadScreen = func(host.Record) ([]string, error) {
+		return []string{
+			"Set up security for Daybreak mode",
+			"Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.",
+			"",
+			"› 1. Set up security",
+			"",
+			"Press a number to choose · esc to dismiss · type to continue",
+			"",
+			"› Ask Codex to do anything",
+			"100% context left",
+		}, nil
+	}
+
+	_, err := service.submitNative(t.Context(), host.Record{ID: "task-7"}, screens, "1) run the tests and report back", 0, false)
+
+	if !errors.Is(err, fleet.ErrNotTyped) {
+		t.Fatalf("delivery = %v, want it to say nothing was typed", err)
+	}
+}
+
+// A picker Codex draws in its composer's place owns Escape, so an offer's
+// stale rows above it never send one into it: the dismissal leaves the screen
+// to the delivery, which refuses to type into it.
+func TestAnOpenPickerUnderAnOffersRowsKeepsItsEscape(t *testing.T) {
+	service := Service{StateDir: t.TempDir()}
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	service.ReadScreen = func(host.Record) ([]string, error) {
+		return []string{
+			"Set up security for Daybreak mode",
+			"",
+			"› 1. Set up security",
+			"",
+			"Press a number to choose · esc to dismiss · type to continue",
+			"",
+			"Select a model",
+			"› 1. Current",
+			"  2. Another model",
+			"Enter to confirm · Esc to exit",
+		}, nil
+	}
+
+	_, dismissed, err := service.dismissOffer(t.Context(), host.Record{ID: "task-7"}, screens)
+
+	if err != nil || dismissed {
+		t.Fatalf("dismissal = %v, %v; want no key sent into the picker", dismissed, err)
+	}
+}
+
+// A startup dialog Codex draws while an offer is being dismissed is what the
+// terminal then shows, and Escape is that dialog's own key: the folder trust
+// prompt quits Codex. The dismissal reads the screen again after the offer has
+// had its settle, so it sends nothing there and leaves the dialog to the
+// delivery that answers it (#1432).
+func TestAStartupDialogDrawnWhileAnOfferSettlesKeepsItsEscape(t *testing.T) {
+	previousSettle := nativeDialogSettle
+	nativeDialogSettle = 0
+	t.Cleanup(func() { nativeDialogSettle = previousSettle })
+	service := Service{StateDir: t.TempDir()}
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	offer := []string{
+		"Set up security for Daybreak mode",
+		"",
+		"\u203a 1. Set up security",
+		"",
+		"Press a number to choose \u00b7 esc to dismiss \u00b7 type to continue",
+		"",
+		"\u203a Ask Codex to do anything",
+		"100% context left",
+	}
+	trust := []string{
+		"  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt",
+		"  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.",
+		"",
+		"\u203a 1. Yes, continue",
+		"  2. No, quit",
+		"",
+		"  Press enter to continue",
+	}
+	reads := 0
+	service.ReadScreen = func(host.Record) ([]string, error) {
+		reads++
+		if reads > 1 {
+			return append(slices.Clone(offer[:6]), trust...), nil
+		}
+		return offer, nil
+	}
+
+	_, dismissed, err := service.dismissOffer(t.Context(), host.Record{ID: "task-7"}, screens)
+
+	if err != nil || dismissed {
+		t.Fatalf("dismissal = %v, %v; want no key sent into the dialog", dismissed, err)
+	}
+}
+
+// A screen that still holds an offer's rows while a startup dialog the spawn
+// must answer is drawn is read as that dialog and never as an offer: Escape is
+// the folder trust prompt's own key and quits Codex, so no dismissal goes there
+// (#1432).
+func TestAStartupDialogIsNeverReadAsAnInlineOffer(t *testing.T) {
+	screens, ok := harness.NativeScreens(harness.Codex)
+	if !ok {
+		t.Fatal("codex has no screens")
+	}
+	offer := []string{
+		"Set up security for Daybreak mode",
+		"Set up Advanced Account Security with a hardware security key. You can keep using Codex while you finish setup.",
+		"",
+		"› 1. Set up security",
+		"",
+		"Press a number to choose · esc to dismiss · type to continue",
+		"",
+	}
+	trust := []string{
+		"  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt",
+		"  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.",
+		"",
+		"› 1. Yes, continue",
+		"  2. No, quit",
+		"",
+		"  Press enter to continue",
+	}
+
+	if _, shown := inlineOffer(screens, append(slices.Clone(offer), "› Ask Codex to do anything", "100% context left")); !shown {
+		t.Fatal("an offer over a ready composer was not read as an offer")
+	}
+
+	if _, shown := inlineOffer(screens, append(slices.Clone(offer), trust...)); shown {
+		t.Error("an offer's rows were read as an offer over a startup dialog")
+	}
+}
+
+// Codex draws its optional Daybreak offer above the composer rather than in
+// its place, and a screen keeps the rows of an offer an earlier redraw
+// dismissed. The composer below them is ready, the rows are history no key
+// reaches, and the spawn delivers its instruction there exactly once without
+// ever choosing the offer (#1432).
+func TestANativeSpawnDeliversOnceUnderADismissedOffersRows(t *testing.T) {
+	f := newNativeFixture(t, harness.Codex, "daybreak-stale")
+
+	_, err := f.service.Spawn(t.Context(), f.request)
+
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
 	}
 	events := f.events(t)
 	if attempts := named(events, "security dismissal attempted"); len(attempts) != 1 || attempts[0].Text != "\x1b" {
-		t.Errorf("dismissal attempts %v, want exactly one Escape", attempts)
+		t.Errorf("dismissal attempts = %+v, want exactly one Escape", attempts)
 	}
-	for _, event := range []string{"security dismissed", "security enrollment", "typed into security offer", "submitted"} {
-		if got := named(events, event); len(got) != 0 {
-			t.Errorf("unexpected %s: %d events", event, len(got))
-		}
+	if enrollment := named(events, "security enrollment"); len(enrollment) != 0 {
+		t.Errorf("security enrollment = %+v", enrollment)
+	}
+	if submitted := named(events, "submitted"); len(submitted) != 1 || submitted[0].Text != spawnPointer(t, f.fixture) {
+		t.Errorf("submitted = %+v, want the instruction once", submitted)
 	}
 }
 

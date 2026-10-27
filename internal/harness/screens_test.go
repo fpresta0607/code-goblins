@@ -664,6 +664,42 @@ func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
 	}
 }
 
+// A composer that cannot be read, or one a startup dialog covers, proves no
+// draft: only a readable composer showing text is refused, so a recoverable
+// dialog or an unreadable footer is left to the delivery that answers it.
+func TestAComposerHoldsTextOnlyWhenItProvesADraft(t *testing.T) {
+	rule := strings.Repeat("─", 120)
+	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		holds  bool
+	}{
+		"codex empty placeholder":             {Codex, []string{"• ok", "› Ask Codex to do anything", "  gpt-6-astra low · work"}, false},
+		"codex text typed":                    {Codex, []string{"• ok", "› An unfinished user draft", "  gpt-6-astra low · work"}, true},
+		"codex composer without its footer":   {Codex, []string{"› Ask Codex to do anything"}, false},
+		"codex hook review over the composer": {Codex, []string{"Hooks need review", "2 hooks are new or changed", "› 1. Review hooks", "  2. Trust all and continue", "  3. Continue without trusting (hooks won't run)", "enter confirm / esc skip"}, false},
+		"claude empty composer":               {Claude, []string{rule, "❯", rule, footer}, false},
+		"claude draft":                        {Claude, []string{rule, "❯ scratch draft for composer proof", rule, footer}, true},
+		"claude composer without its rules":   {Claude, []string{"❯ scratch draft", footer}, false},
+		"pi empty editor":                     {Pi, []string{rule, "  ", rule, footer}, false},
+		"pi text typed":                       {Pi, []string{rule, " run the tests ", rule, footer}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			holds := screens.ComposerHoldsText(test.screen)
+
+			// Assert
+			if holds != test.holds {
+				t.Fatalf("ComposerHoldsText = %v, want %v", holds, test.holds)
+			}
+		})
+	}
+}
+
 // Claude Code 2.1.288, captured in an isolated native terminal on 2026-10-03:
 // the last two rules enclose the current composer, including collapsed paste.
 func TestClaudesCapturedComposerReadsEmptyWithoutMistakingADraft(t *testing.T) {
