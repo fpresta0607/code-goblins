@@ -58,6 +58,10 @@ type Screens struct {
 	// its terminal takes, as Claude Code draws a permission prompt, and
 	// Choices any other row of that list.
 	Choice, Choices *regexp.Regexp
+	// Modes matches the composer footer's row that names the session's
+	// permission mode, its first group the mode, for a harness that cycles
+	// modes with Shift+Tab.
+	Modes *regexp.Regexp
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -103,7 +107,8 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// cycle)" or "⏸ manual mode on": a goblin runs with permission
 			// checks bypassed, and a CFO in whichever mode its session
 			// chose. The modes are Claude Code 2.1.302's.
-			Ready: regexp.MustCompile(`(manual mode|plan mode|accept edits|bypass permissions|don't ask|auto mode) on\b`),
+			Ready: claudeModes,
+			Modes: claudeModes,
 			// A spinner glyph, then a verb that ends in an ellipsis, as in
 			// "✽ Reticulating…". Claude Code draws the spinner from one of
 			// three glyph lists; one has "*" where the others have "✳".
@@ -305,6 +310,30 @@ func (s Screens) IsOpen(screen []string) bool {
 		}
 	}
 	return len(last) > 0 && !anyRow(last, s.Ready)
+}
+
+// claudeModes is the footer row Claude Code 2.1.302 names its permission mode
+// on while its composer waits, as in "⏵⏵ auto mode on (shift+tab to cycle)".
+var claudeModes = regexp.MustCompile(`(manual mode|plan mode|accept edits|bypass permissions|don't ask|auto mode) on\b`)
+
+// Mode returns the permission mode screen's composer footer names, read only
+// in the footer's last rows as IsOpen reads them, and "" while no footer shows
+// one, as while a picker is open, or for a harness without modes.
+func (s Screens) Mode(screen []string) string {
+	if s.Modes == nil {
+		return ""
+	}
+	seen := 0
+	for i := len(screen) - 1; i >= 0 && seen < footerRows; i-- {
+		if strings.TrimSpace(screen[i]) == "" {
+			continue
+		}
+		seen++
+		if match := s.Modes.FindStringSubmatch(screen[i]); match != nil {
+			return match[1]
+		}
+	}
+	return ""
 }
 
 // IsStarting reports whether screen shows the harness turning a submitted

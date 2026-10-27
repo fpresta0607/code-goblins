@@ -76,6 +76,10 @@ type HTTP struct {
 	dictationPatience time.Duration
 	// refusals holds when each kind of refused board press last woke the CFO.
 	refusals map[string]time.Time
+	// fileListings keeps each session folder's file list for the composer's
+	// "@" list, and fileListingsMu lets one listing run at a time.
+	fileListingsMu sync.Mutex
+	fileListings   map[string]fileListing
 }
 
 func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
@@ -86,7 +90,7 @@ func NewHTTP(s *Service, host string, assets fs.FS) *HTTP {
 			build = hex.EncodeToString(sum[:8])
 		}
 	}
-	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience}
+	return &HTTP{build: build, Service: s, Host: host, Assets: assets, cache: map[string]cachedResponse{}, gitSlots: make(chan struct{}, 2), streams: make(chan struct{}, 8), terminalSlots: make(chan struct{}, 8), nativeSlots: make(chan struct{}, 32), messageSlots: make(chan struct{}, 32), terminals: map[string]*terminalLease{}, openTerminal: herdr.OpenTerminal, terminalTick: 5 * time.Second, relays: map[string]map[*nativeRelay]struct{}{}, terminalWindow: 1 << 20, terminalBacklog: 8 << 20, editor: execx.OSRunner{}, editorLookup: exec.LookPath, openWindow: windowsTerminal, putImage: clipboard.SetImage, dictationSlot: make(chan struct{}, 1), dictationPatience: dictationPatience, fileListings: map[string]fileListing{}}
 }
 
 func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +209,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.keepComposerFile(w, r)
 	case r.URL.Path == "/api/commands" && r.Method == "GET":
 		h.commands(w, r)
+	case r.URL.Path == "/api/files" && r.Method == "GET":
+		h.sessionFiles(w, r)
 	case r.URL.Path == "/api/order" && r.Method == "POST":
 		h.order(w, r)
 	case r.URL.Path == "/api/announce" && r.Method == "POST":

@@ -129,13 +129,42 @@ export function parseHeld(text: string): string | null {
 // answer at a screen of its own, which only its terminal takes, as Claude
 // Code's permission prompt, and whether something of its own is open in its
 // input line's place, as a picker, a panel or that question, and whether a turn
-// is running.
+// is running. panel is what is open, read by the relay so the board offers it
+// as a list (internal/harness/panel.go), and null while nothing is; mode is
+// the permission mode the composer's footer names, which Shift+Tab cycles,
+// and empty while none shows.
 export interface ScreenState {
   isAsking: boolean;
   isOpen: boolean;
   isWorking: boolean;
   hasStarted: boolean;
   submission: string;
+  panel: HarnessPanel | null;
+  mode: string;
+}
+
+// What a harness draws in its input line's place: the rows that ask or show,
+// the choices it lists with the one its focus is on, and the keys its footer
+// names.
+export interface HarnessPanel { rows: string[]; choices: PanelChoice[]; hints: string[] }
+export interface PanelChoice { text: string; number: number; isFocused: boolean }
+
+const strings = (value: unknown): string[] | null => value === undefined ? [] : Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
+
+function parsePanel(value: unknown): HarnessPanel | null | undefined {
+  if (value === undefined) return null;
+  if (typeof value !== "object" || value === null) return undefined;
+  const { rows, choices, hints } = value as Record<string, unknown>;
+  const parsedRows = strings(rows), parsedHints = strings(hints);
+  if (!parsedRows || !parsedHints || choices !== undefined && !Array.isArray(choices)) return undefined;
+  const parsedChoices: PanelChoice[] = [];
+  for (const choice of choices ?? []) {
+    if (typeof choice !== "object" || choice === null) return undefined;
+    const { text, number, focused } = choice as Record<string, unknown>;
+    if (typeof text !== "string" || number !== undefined && typeof number !== "number" || focused !== undefined && typeof focused !== "boolean") return undefined;
+    parsedChoices.push({ text, number: number ?? 0, isFocused: focused === true });
+  }
+  return { rows: parsedRows, choices: parsedChoices, hints: parsedHints };
 }
 
 // The relay says what it read of the harness's screen each time that changes.
@@ -143,8 +172,10 @@ export function parseScreen(text: string): ScreenState | null {
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null) return null;
-    const { type, asking, open, working, submission, started } = value as Record<string, unknown>;
-    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true } : null;
+    const { type, asking, open, working, submission, started, panel, mode } = value as Record<string, unknown>;
+    const parsedPanel = parsePanel(panel);
+    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") && (mode === undefined || typeof mode === "string") && parsedPanel !== undefined
+      ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true, panel: parsedPanel, mode: mode ?? "" } : null;
   } catch {
     return null;
   }
