@@ -41,6 +41,11 @@ type pipelineStartRunner struct {
 	remoteRead  int
 	roleStarted bool
 	native      []execx.Request
+	// previous is the branch's latest run as CheckStart reads it: "[]" when
+	// the branch has none, and a one-element array otherwise.
+	previous []byte
+	// head is the commit the task branch holds.
+	head string
 }
 
 func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Result, error) {
@@ -51,11 +56,20 @@ func (r *pipelineStartRunner) Run(_ context.Context, q execx.Request) (execx.Res
 		if strings.Contains(sql, "SELECT default_branch FROM repos") {
 			return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
 		}
-		if strings.Contains(sql, "SELECT runs.status") {
-			return execx.Result{Stdout: []byte(`[]`)}, nil
+		if strings.Contains(sql, "FROM runs JOIN repos") && strings.Contains(sql, "AS submitted_head") {
+			if len(r.previous) == 0 {
+				return execx.Result{Stdout: []byte(`[]`)}, nil
+			}
+			return execx.Result{Stdout: r.previous}, nil
 		}
 	case "git":
 		switch strings.Join(q.Args, " ") {
+		case "rev-parse HEAD":
+			head := r.head
+			if head == "" {
+				head = trusted
+			}
+			return execx.Result{Stdout: []byte(head + "\n")}, nil
 		case "rev-parse --show-toplevel":
 			return execx.Result{Stdout: []byte(r.worktree + "\n")}, nil
 		case "symbolic-ref --quiet --short HEAD":

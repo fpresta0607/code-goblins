@@ -200,6 +200,9 @@ Up to v5 the `run` check validates the trusted inputs before invoking native sta
 Under v6 the launch selection establishes it: the daemon proves the trusted commit and every role's agents after its own fetch and before any agent starts.
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
+A run that is still working is reattached to instead: repeating `cfo pipeline run` with the same branch, head and intent reattaches to it, so no new run starts and no review budget resets.
+Native `axi run` bounds its hold so a harness tool cap cannot hang it, and a hold that ends with no decision is not a gate failure: `cfo pipeline run` then says the run keeps working and names the reattachment, never only the native exit code.
+A start whose intent or head names other work than the live run's is still refused, with that run named.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
 
 `respond` requires durable evidence of one parked gate in this project's current branch.
