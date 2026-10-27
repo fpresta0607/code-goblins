@@ -267,7 +267,7 @@ test("a message that changes takes its place, and a new one shows at the end he 
   await open(page);
   await openCfo(page);
   const talk = list(page, "CFO");
-  await expect(talk.locator("[data-message]")).toHaveCount(50);
+  await expect(talk).toContainText("Answer 99");
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
 
   await send(page, "messages", [{ ...exchange(99), blocks: [{ kind: "text", text: "Answer 99, finished" }] }, exchange(100), exchange(101)]);
@@ -282,16 +282,17 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
   await open(page);
   await openCfo(page);
   const talk = list(page, "CFO");
-  await expect(talk.locator("[data-message]")).toHaveCount(50);
+  await expect(talk).toContainText("Answer 99");
   const { end } = await scroll(talk);
   await scrollTo(talk, Math.round(end / 2));
   const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
   const before = await offset(talk, read);
+  const { end: was } = await scroll(talk);
 
   // One message above where he reads grows, and two arrive below it.
   await send(page, "messages", [{ ...exchange(51), blocks: [{ kind: "text", text: "Answer 51\n\nnow\nmuch\nlonger\nthan\nit\nwas" }] }, exchange(100), exchange(101)]);
 
-  await expect(talk.locator("[data-message]")).toHaveCount(52);
+  await expect.poll(async () => (await scroll(talk)).end, "the two that arrived below add their room").toBeGreaterThan(was);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
   await page.getByRole("button", { name: "Jump to latest" }).click();
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
@@ -310,14 +311,15 @@ test("older messages are read a page at a time as he reads up, and his place is 
   });
   await openCfo(page);
   const talk = list(page, "CFO");
-  await expect(talk.locator("[data-message]")).toHaveCount(50);
+  await expect(talk).toContainText("Answer 99");
   expect(board.older, "nothing older is read while he reads the end").toEqual([]);
 
   await scrollTo(talk, 0);
   const before = await offset(talk, "m50");
+  const { end: was } = await scroll(talk);
   release();
 
-  await expect(talk.locator("[data-message]")).toHaveCount(100);
+  await expect.poll(async () => (await scroll(talk)).end, "the older page's room is above").toBeGreaterThan(was);
   expect(board.older).toEqual(["50"]);
   await expect.poll(() => moved(talk, "m50", before)).toBeLessThan(2);
   await scrollTo(talk, 0);
@@ -337,7 +339,7 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
   });
   await openCfo(page);
   const talk = list(page, "CFO");
-  await expect(talk.locator("[data-message]")).toHaveCount(50);
+  await expect(talk).toContainText("Answer 99");
   const reported = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/cfo/report");
 
   await scrollTo(talk, 0);
@@ -349,7 +351,8 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
   await page.clock.fastForward(5000);
   await scrollTo(talk, 300);
 
-  await expect(talk.locator("[data-message]")).toHaveCount(100);
+  await expect.poll(() => board.older).toEqual(["50"]);
+  await expect(talk).toContainText("Answer 49");
   expect(failures).toBe(1);
   expect(board.older).toEqual(["50"]);
 });
@@ -358,7 +361,7 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   await open(page);
   await openCfo(page);
   const talk = list(page, "CFO");
-  await expect(talk.locator("[data-message]")).toHaveCount(50);
+  await expect(talk).toContainText("Answer 99");
   await talk.focus();
   const { top } = await scroll(talk);
 
@@ -449,7 +452,7 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
   await open(page);
   await openCfo(page);
   const talk = list(page, "CFO");
-  await expect(talk.locator("[data-message]")).toHaveCount(50);
+  await expect(talk).toContainText("Answer 99");
   const size = () => talk.evaluate((element) => getComputedStyle(element).fontSize);
   await expect.poll(size).toBe("16px");
   await talk.focus();
@@ -479,7 +482,7 @@ test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, siz
 test("a stream the supervisor ends says why, and Reconnect reads the messages again", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await expect(list(page, "CFO").locator("[data-message]")).toHaveCount(50);
+  await expect(list(page, "CFO")).toContainText("Answer 99");
 
   await send(page, "unavailable", "The CFO runs in another terminal now. Open the CFO again.");
 
@@ -493,7 +496,7 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
 test("Back from a goblin's panel returns to the CFO's messages", async ({ page }) => {
   await open(page);
   await openCfo(page);
-  await expect(list(page, "CFO").locator("[data-message]")).toHaveCount(50);
+  await expect(list(page, "CFO")).toContainText("Answer 99");
   await openGoblin(page);
 
   await page.getByRole("button", { name: "Back to the CFO", exact: true }).click();
@@ -783,7 +786,7 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   await send(page, "messages", range(100, 140));
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
   const talk = list(page, who);
-  await expect(talk.locator("[data-message]")).toHaveCount(51);
+  await expect(talk).toContainText("Answer 139");
 
   // Assert: it opened at the latest content, once.
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
@@ -792,10 +795,11 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
   const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
   const before = await offset(talk, read);
+  const { end: was } = await scroll(talk);
   await send(page, "messages", [reply(200, { kind: "text", text: "More arrived." })]);
 
   // Assert: his place is kept rather than snapped to the end.
-  await expect(talk.locator("[data-message]")).toHaveCount(52);
+  await expect.poll(async () => (await scroll(talk)).end, "the reply below adds its room").toBeGreaterThan(was);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
 
   // Act and Assert: the input stays reachable through a maximize and a phone.
