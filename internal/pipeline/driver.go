@@ -186,7 +186,6 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 	if err := r.query(ctx, `SELECT runs.id AS id, runs.status AS status, runs.head_sha AS head, COALESCE(runs.submitted_head_sha,'') AS submitted_head, COALESCE(runs.intent,'') AS intent FROM runs JOIN repos ON repos.id=runs.repo_id WHERE lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch)+` ORDER BY runs.created_at DESC,runs.id DESC LIMIT 1`, &previous); err != nil {
 		return StartCheck{}, err
 	}
-	var reattach string
 	// A terminal run has no budget left to reset, so only a still-live one
 	// can block a new run. The set matches Idle's.
 	if len(previous) > 0 && !terminalRunStatus[previous[0].Status] {
@@ -204,7 +203,11 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 		if !run.sameHead(head) {
 			return StartCheck{}, fmt.Errorf("%w; run %s is %s on %s and started at %s, not the head this start has, so an earlier run must be resolved, not restarted: read it with no-mistakes axi status --run %s", ErrUnresolved, run.ID, run.Status, branch, run.submittedOrHead(), run.ID)
 		}
-		reattach = run.ID
+		// A reattachment starts nothing and carries no launch selection, so the
+		// checks below, of what a new run starts from, do not apply to it: the
+		// live run keeps what it started with, however far origin's default
+		// branch moved during the hold (issue 1586).
+		return StartCheck{ReattachRun: run.ID}, nil
 	}
 	status, err := r.Commands.Run(ctx, execx.Request{Dir: worktree, Name: "git", Args: []string{"status", "--porcelain", "--untracked-files=all"}})
 	if err != nil || status.ExitCode != 0 || len(strings.TrimSpace(string(status.Stdout))) != 0 {
@@ -241,7 +244,7 @@ func (r Reader) CheckStart(ctx context.Context, project, worktree, branch, inten
 	if err := CheckRepoAgent(task.Stdout, trusted.Stdout, policy); err != nil {
 		return StartCheck{}, err
 	}
-	return StartCheck{TrustedHead: remoteHead, ReattachRun: reattach}, nil
+	return StartCheck{TrustedHead: remoteHead}, nil
 }
 
 // previousRun is the branch's latest run as CheckStart reads it.

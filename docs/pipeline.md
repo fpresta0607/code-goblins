@@ -18,7 +18,9 @@ The checked-in file is v5, and a home takes v6 by writing its own, as [A gate on
 No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json`, with its class and SHA-256 recorded in task metadata.
 Editing the source policy does not change a running task's snapshot, and `cfo switch` retains it.
 Direct-PR and local-only tasks retain their existing delivery paths.
-Existing tasks without a snapshot are not silently migrated.
+They have no gate and no frozen policy, so every `cfo pipeline` command that names one refuses it by its mode and names that mode's own route, never a migration, since no migration can give a task a gate it was never spawned with (issue 1438).
+A direct-PR task, as every picked-up root issue is, is verified by its pull request's CI, and a local-only task lands with `cfo merge-local <id>`.
+Existing no-mistakes tasks without a snapshot are not silently migrated.
 
 Policy v4 names one ordered chain for every gate role: Codex gpt-6.1-sol at xhigh effort first, through the machine's existing ChatGPT OAuth login, and Claude next when Codex cannot run.
 It renders the shared config as the operator set it on 2026-10-08, `agent: [codex, claude]`, with no review role pinned outside that chain.
@@ -203,6 +205,7 @@ Under v6 the launch selection establishes it: the daemon proves the trusted comm
 A repository's `agent` field continues to select only its native primary path and cannot replace the global reviewer or fixer profiles.
 An earlier unresolved run cannot be restarted to reset its budget.
 A run that is still working is reattached to instead: repeating `cfo pipeline run` with the same branch, head and intent reattaches to it, so no new run starts and no review budget resets.
+A reattachment starts nothing and carries no launch selection, so none of the checks of what a new run starts from applies to it: a clean worktree, the committed gate files, and origin's default branch with its tracking ref, which a merge landing while the hold lasts leaves stale until the next fetch (issue 1586).
 Native `axi run` bounds its hold so a harness tool cap cannot hang it, and a hold that ends with no decision is not a gate failure: `cfo pipeline run` then says the run keeps working and names the reattachment, never only the native exit code.
 A start whose intent or head names other work than the live run's is still refused, with that run named.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
@@ -220,6 +223,7 @@ The task's status log records `pipeline-findings-accepted` with the step, run, r
 An approved Test exception likewise keeps the operator's reason: `respond <id> --action approve --reason "<why>"` hands it to the native `--reason`, which no-mistakes records as the Test step's approval reason, and the task's status log records `pipeline-approval-reason` with the step, run, round and reason before approve reaches the gate.
 It is the registered primary CFO's reason as `--accept` is its decision, so a goblin is refused before anything is recorded.
 The native engine keeps a reason only for an approve of the Test step, so the driver refuses one for any other gate and for `fix`, and it refuses a blank reason or one that is not a single line of plain text: the engine would store a blank as none and the run would read as a Test exception nobody explained (issue 1422).
+An empty `--reason`, as `--reason "$WHY"` gives with `WHY` unset, is a reason given and refused like any blank one, never read as no reason (issue 1585).
 A reason never approves anything, so open findings still need the exact `--accept` and a clean gate still needs its own approve.
 Unsupported or malformed evidence fails closed.
 The command returns exit 3 for unresolved work requiring a CFO decision, without advancing the gate.
