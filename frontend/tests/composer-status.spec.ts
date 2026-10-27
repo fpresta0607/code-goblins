@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, card, field, GOBLIN, NAME, open, send, snapshot, typed } from "./session-board";
+import { box, card, field, GOBLIN, NAME, open, pasted, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
@@ -380,6 +380,45 @@ for (const style of ["classic", "modern"]) {
     });
   }
 }
+
+test("a live Classic terminal keeps its own dictation after the hold that showed the box clears", async ({ page }) => {
+  // Arrange: a hold shows the box beside Zeke's terminal, and letting go leaves
+  // the box there while the terminal takes typing again.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page);
+  await card(page, NAME).click();
+  await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+  relay.say({ type: "held", reason: "pipeline owns this task" });
+  await expect(field(page)).toBeVisible();
+  relay.say({ type: "held", reason: "" });
+  await expect(box(page).locator(".composer-note")).toHaveText("");
+  const before = typed(relay);
+
+  // Act: he clicks the terminal, holds the shortcut and speaks.
+  await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  await page.keyboard.down("Space");
+  await expect(box(page).getByRole("button", { name: "Stop terminal dictation", exact: true })).toBeVisible();
+  await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
+  await page.waitForTimeout(1200);
+  await page.keyboard.up("Space");
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+
+  // Assert: the words reached the terminal it heard them for, once, not a draft.
+  await expect.poll(() => typed(relay)).toBe(before + pasted("rebase onto main"));
+  await expect(field(page)).toHaveValue("");
+  await expect(box(page).locator(".composer-note")).toHaveText("");
+
+  // Assert: Speech history holds the one dictation, and it types nothing more.
+  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Recent messages", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
+  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
+  expect(typed(relay)).toBe(before + pasted("rebase onto main"));
+  await expect(field(page)).toHaveValue("");
+});
 
 for (const style of ["classic", "modern"]) {
   for (const width of [1440, 390]) {

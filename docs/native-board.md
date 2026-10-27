@@ -1405,7 +1405,7 @@ A goblin paused, resuming or starting has no terminal that takes typing, and its
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
 The active composer owns the microphone and queue note, while a phone terminal keeps Copy terminal text independently available.
-An already-running terminal recording keeps one Stop terminal dictation control on the active composer, and its words remain available in Speech history if held input refuses them.
+An already-running terminal recording keeps one Stop terminal dictation control on the active composer, and a live terminal takes the words its own microphone heard, which Speech history still lists, and holds for pasting back, only where held input refused them.
 The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
 Plain style, model, effort, speech-history, terminal and send controls sit underneath without pills, beside the current session's context ring.
 Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.

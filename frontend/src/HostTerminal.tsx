@@ -70,7 +70,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // terminal's text while it is laid out to select.
   const [feedback, showFeedback] = useClickFeedback();
   const dictation = useDictation((text, isSent) => {
-    if (hasComposer || current.current?.held) { showFeedback("Dictation saved to Speech history."); return; }
+    if (current.current?.held) { showFeedback("Dictation saved to Speech history."); return; }
     current.current?.paste(text);
     if (isSent) current.current?.enter();
   }, instance);
