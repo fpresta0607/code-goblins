@@ -769,6 +769,15 @@ It starts a check only while free memory and commit are over the 4 GB floor, and
 Beside a working fleet free memory dips under the floor for seconds at a time, so a run waits for the floor, says once what it waits for, and leaves the rest to CI only when the limit passes first or memory cannot be read.
 A run that gave up at the first low reading ran 9 of its 42 checks on 2026-10-10 and left the two changed slow packages to CI.
 A check still running at the limit is ended, which is no failure.
+A browser case that failed before the limit ended its check is one: the browser check is run with Playwright's list reporter, which writes a row per case as the case ends, marked with its pass or fail, and the run reads those rows as the check runs.
+So a case that failed before the cutoff fails the push, named, rather than being left to CI as a case that never ran, and a check whose cases all passed before the cutoff is still left to CI.
+On 2026-10-27 a prepush run of 141 specs reported three assertion failures, the limit ended it after 465 of 1603 cases, and the run said it passed what it ran (#1542).
+A case a retry then passed is no failure, since the reporter writes a row per try and a case is what its last row said.
+That failure's line names the cases the check reached:
+
+```text
+cfo gate prepush: failed at check 4 of 4, 1 browser spec: 2 browser cases failed before the time limit ended the check: [board] tests/afk.spec.ts:12:7 › a title, [board] tests/afk.spec.ts:19:3 › another title. CI would fail on them too, so fix them before you push.
+```
 It is ended with everything it started, since each check runs in a Windows job of its own that every process it starts joins and none can leave, a test's helper whose parent already exited included, and the run names each process that ended by its name and pid:
 
 ```text

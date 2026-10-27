@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -316,6 +317,102 @@ func TestGatePrepushEndsACheckThatRunsPastTheTimeLimit(t *testing.T) {
 	}
 }
 
+// boardChange is a module whose change picks the board's four checks and no
+// Go check, with the board's dependencies installed so the pick may run them.
+func boardChange(t *testing.T) string {
+	t.Helper()
+	dir := testStepModule(t,
+		map[string]string{
+			"config/verify.json":                   strings.Replace(quiet, `"slow_packages": ["a"]`, `"slow_packages": []`, 1),
+			"frontend/tests/run-terminal.spec.ts": "",
+		},
+		map[string]string{"frontend/src/RunCard.tsx": "export {};\n"})
+	t.Chdir(dir)
+	if err := os.MkdirAll(filepath.Join(dir, "frontend", "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// boardRun is a runtime whose three quick board checks pass and whose browser
+// check writes rows and then runs until the time limit ends it.
+func boardRun(rows ...string) commandRuntime {
+	runtime := defaultCommandRuntime()
+	runtime.availableMemory = plenty
+	runtime.gateDisk = roomy
+	runtime.pushRun = func(ctx context.Context, command []string, _ string, _ []string, stdout, _ io.Writer) (int, error) {
+		if !slices.Contains(command, "playwright") {
+			return 0, nil
+		}
+		for _, row := range rows {
+			fmt.Fprintln(stdout, row)
+		}
+		<-ctx.Done()
+		return -1, ctx.Err()
+	}
+	return runtime
+}
+
+// A browser case that failed before the time limit ended the check fails the
+// push, named: on 2026-10-27 a prepush run of 141 specs reported three
+// assertion failures, the limit ended it after 465 of 1603 cases, and the run
+// said it passed what it ran (issue 1542). What ran after the failures never
+// ran, and CI would fail on what did.
+func TestGatePrepushFailsABrowserCaseThatFailedBeforeTheTimeLimit(t *testing.T) {
+	// Arrange
+	boardChange(t)
+	runtime := boardRun(
+		`  ok  86 [board] › tests\run-terminal.spec.ts:4:1 › a case that passed (1.2s)`,
+		`  x   87 [board] › tests\run-terminal.spec.ts:12:1 › a case that failed (23ms)`,
+	)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
+
+	// Assert
+	if exit != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	want := "cfo gate prepush: failed at check 4 of 4, 1 browser spec: 1 browser case failed before the time limit ended the check: [board] tests/run-terminal.spec.ts:12:1 › a case that failed. CI would fail on it too, so fix it before you push."
+	if got := lastLine(stdout.String()); got != want {
+		t.Errorf("the run ends with %q, want %q\nstdout=%s", got, want, stdout.String())
+	}
+	for _, unwanted := range []string{"passed what it ran", "left to CI, since the time limit"} {
+		if strings.Contains(stdout.String(), unwanted) {
+			t.Errorf("the run says %q, which hides the failure it knows\nstdout=%s", unwanted, stdout.String())
+		}
+	}
+}
+
+// A browser check the time limit ends whose cases all passed is still no
+// failure: it is left to CI with the checks after it, as before.
+func TestGatePrepushLeavesABrowserCheckTheLimitCutWithNoFailureToCI(t *testing.T) {
+	// Arrange
+	boardChange(t)
+	runtime := boardRun(
+		`  ok  86 [board] › tests\run-terminal.spec.ts:4:1 › a case that passed (1.2s)`,
+		`  ok  87 [board] › tests\run-terminal.spec.ts:12:1 › a case that passed too (23ms)`,
+	)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"left to CI, since the time limit of 2s passed while check 4 ran:\n- 1 browser spec (the change touched or names them)\n",
+		"cfo gate prepush: passed what it ran. 3 of 4 checks ran in ",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout %q lacks %q", stdout.String(), want)
+		}
+	}
+}
+
 // A run waits out a moment under the memory floor and goes on: beside a
 // working fleet free memory dips under it for seconds at a time, and on
 // 2026-10-10 a run that gave up at the first low reading left 33 of its 42
@@ -490,14 +587,14 @@ func TestGatePrepushPlanPrintsThePickAndRunsNothing(t *testing.T) {
 	for _, want := range []string{
 		"cfo gate prepush: 1 file changed since ",
 		"1. the board's type check (a file under frontend changed)\n   would run in frontend: npm run typecheck\n",
-		"4. 1 browser spec (the change touched or names them)\n   - tests/run-finishes.spec.ts (named like the changed src/RunCard.tsx)\n   would run in frontend: npx playwright test --reporter=line tests/run-finishes.spec.ts\n",
+		"4. 1 browser spec (the change touched or names them)\n   - tests/run-finishes.spec.ts (named like the changed src/RunCard.tsx)\n   would run in frontend: npx playwright test --reporter=list tests/run-finishes.spec.ts\n",
 		"left to CI:\n- the 1 other browser spec (the change touched no file of theirs and names none of them)\n",
 	} {
 		if !strings.Contains(plan.String(), want) {
 			t.Errorf("--plan printed %q, which lacks %q", plan.String(), want)
 		}
 	}
-	wantRan := []string{"frontend: npm run typecheck", "frontend: npm run lint", "frontend: npm test", "frontend: npx playwright test --reporter=line tests/run-finishes.spec.ts"}
+	wantRan := []string{"frontend: npm run typecheck", "frontend: npm run lint", "frontend: npm test", "frontend: npx playwright test --reporter=list tests/run-finishes.spec.ts"}
 	if exit != 0 || !slices.Equal(ran, wantRan) {
 		t.Errorf("exit = %d and the run ran %q, want 0 and %q\nstdout=%s stderr=%s", exit, ran, wantRan, stdout.String(), stderr.String())
 	}
