@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,8 +13,33 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+func TestGitFailureDiagnosticsAreBoundedAndNeverExposeStderr(t *testing.T) {
+	const secret = "https://user:password@example.invalid/repo?token=ghp_12345678901234567890"
+	for _, test := range []struct {
+		name, stderr, want string
+	}{
+		{"permission", "fatal: Permission denied " + secret, "permission denied"},
+		{"ownership", "fatal: detected dubious ownership " + secret, "unsafe repository ownership"},
+		{"repository", "fatal: not a git repository " + secret, "not a repository"},
+		{"unknown", "fatal: " + secret, "check the worktree and Git access"},
+		{"bounded", strings.Repeat("x", maxGitDiagnostic) + "permission denied " + secret, "check the worktree and Git access"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			git := Git{stream: func(_ context.Context, _ execx.Request, _, stderr io.Writer) (int, error) {
+				_, _ = io.WriteString(stderr, test.stderr)
+				return 128, nil
+			}}
+			_, err := git.Branch(context.Background(), t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), test.want) || strings.Contains(err.Error(), "password") || strings.Contains(err.Error(), "ghp_") || strings.Contains(err.Error(), "example.invalid") {
+				t.Fatalf("diagnostic = %v; want %q without stderr contents", err, test.want)
+			}
+		})
+	}
+}
 
 func gitFixture(t *testing.T, destination ...string) string {
 	t.Helper()

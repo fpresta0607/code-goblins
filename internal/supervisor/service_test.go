@@ -487,7 +487,7 @@ func TestEvaluationReportsGitFailureWithoutExposingStderrAndRetries(t *testing.T
 	service := &Service{Store: store, Options: Options{Gate: fakeProgress{err: pipeline.ErrNoProgress}}, Git: Git{Reads: readcache.New()}}
 	service.Git.stream = func(ctx context.Context, request execx.Request, stdout, stderr io.Writer) (int, error) {
 		if isFailing && slices.Equal(request.Args[len(request.Args)-4:], []string{"symbolic-ref", "--quiet", "--short", "HEAD"}) {
-			_, _ = io.WriteString(stderr, "fatal: private credential and path")
+			_, _ = io.WriteString(stderr, "fatal: permission denied for https://user:password@example.invalid/repo?token=ghp_12345678901234567890")
 			return 128, nil
 		}
 		return (execx.OSRunner{}).Stream(ctx, request, stdout, stderr)
@@ -495,7 +495,7 @@ func TestEvaluationReportsGitFailureWithoutExposingStderrAndRetries(t *testing.T
 	action := Action{Kind: "evaluate", TaskID: meta.ID, Generation: meta.SpawnGen}
 
 	failed, err := service.execute(context.Background(), action)
-	if err == nil || !strings.Contains(err.Error(), "exit status 128") || !strings.Contains(err.Error(), "check the worktree and Git access") || strings.Contains(err.Error(), "private credential") || failed.Verified {
+	if err == nil || !strings.Contains(err.Error(), "exit status 128") || !strings.Contains(err.Error(), "permission denied") || strings.Contains(err.Error(), "password") || strings.Contains(err.Error(), "ghp_") || strings.Contains(err.Error(), "example.invalid") || failed.Verified {
 		t.Fatalf("failed evaluation = %+v, %v; want actionable sanitized Git failure", failed, err)
 	}
 	isFailing = false

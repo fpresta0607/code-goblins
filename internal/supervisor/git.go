@@ -55,8 +55,9 @@ type FileDiff struct {
 // maxCodePreview bounds a file's whole-file code preview; a larger file shows
 // only its patch. maxGitOutput bounds everything else a preview reads.
 const (
-	maxCodePreview = 256 << 10
-	maxGitOutput   = 1 << 20
+	maxCodePreview   = 256 << 10
+	maxGitOutput     = 1 << 20
+	maxGitDiagnostic = 8 << 10
 )
 
 var errPreviewTooLarge = errors.New("file exceeds the preview limit")
@@ -80,6 +81,16 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 
+type diagnosticBuffer struct{ buffer bytes.Buffer }
+
+func (b *diagnosticBuffer) Write(p []byte) (int, error) {
+	remaining := maxGitDiagnostic - b.buffer.Len()
+	if remaining > 0 {
+		_, _ = b.buffer.Write(p[:min(len(p), remaining)])
+	}
+	return len(p), nil
+}
+
 // gitExitCode is git's own answer of a non-zero exit code, whether git ran
 // now or g.Reads kept the answer.
 type gitExitCode int
@@ -99,14 +110,13 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 	// reads run every minute inside worktrees a goblin is using.
 	request := execx.Request{Dir: dir, Name: "git", Args: append([]string{"--no-pager", "-c", "core.quotepath=false"}, args...), Env: append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never", "GIT_OPTIONAL_LOCKS=0")}
 	result, err := g.Reads.Read(request, func(request execx.Request) (execx.Result, error) {
-		// Stderr is discarded: only warnings reach it when a command
-		// succeeds, and a failure is reported by its exit status.
 		out := &limitedBuffer{limit: maxGitOutput}
+		diagnostic := &diagnosticBuffer{}
 		stream := g.stream
 		if stream == nil {
 			stream = execx.OSRunner{}.Stream
 		}
-		code, err := stream(ctx, request, out, io.Discard)
+		code, err := stream(ctx, request, out, diagnostic)
 		if out.exceeded {
 			return execx.Result{}, fmt.Errorf("Git %s output exceeds the %d KiB preview limit", args[0], maxGitOutput>>10)
 		}
@@ -118,14 +128,27 @@ func (g Git) run(ctx context.Context, dir string, args ...string) (string, error
 		if err != nil {
 			return execx.Result{}, fmt.Errorf("Git %s failed: %w", args[0], err)
 		}
-		return execx.Result{Stdout: out.buffer.Bytes(), ExitCode: code}, nil
+		var description string
+		if code == 128 {
+			switch message := strings.ToLower(diagnostic.buffer.String()); {
+			case strings.Contains(message, "detected dubious ownership"):
+				description = "Git reported unsafe repository ownership; check repository ownership and Git safe-directory configuration"
+			case strings.Contains(message, "permission denied"):
+				description = "Git reported permission denied; check worktree and repository access"
+			case strings.Contains(message, "not a git repository"):
+				description = "Git reported that the worktree is not a repository; check its path and Git metadata"
+			default:
+				description = "check the worktree and Git access"
+			}
+		}
+		return execx.Result{Stdout: out.buffer.Bytes(), Stderr: []byte(description), ExitCode: code}, nil
 	})
 	if err != nil {
 		return "", err
 	}
 	if result.ExitCode != 0 {
 		if result.ExitCode == 128 {
-			return "", fmt.Errorf("Git %s failed: %w; check the worktree and Git access", args[0], gitExitCode(result.ExitCode))
+			return "", fmt.Errorf("Git %s failed: %w; %s", args[0], gitExitCode(result.ExitCode), result.Stderr)
 		}
 		return "", fmt.Errorf("Git %s failed: %w", args[0], gitExitCode(result.ExitCode))
 	}
