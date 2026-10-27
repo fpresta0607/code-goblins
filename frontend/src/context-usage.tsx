@@ -31,7 +31,7 @@ export function ContextUsage({ stats, reading }: { stats: SessionStats; reading:
         {stats.details.map((stat) => <div key={stat.key}><dt>{stat.label}</dt><dd>{stat.text}</dd></div>)}
         {stats.missing.map((missing) => <div key={missing}><dt>Not read</dt><dd>{missing}</dd></div>)}
       </dl>
-      {reading.banner && <p>{reading.banner.text}: {reading.banner.detail}</p>}
+      {reading.banner ? <p>{reading.banner.text}: {reading.banner.detail}</p> : reading.why && <p>{reading.why}</p>}
     </div>}
   </div>;
 }

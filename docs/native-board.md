@@ -1028,6 +1028,7 @@ Clicking the bubble lists the board's five most recent dictations, newest first,
 The supervisor keeps that one list, the newest ten, in `state/dictations.json` in the home, so it outlasts a restart and never leaves this PC: `GET /api/dictations` reads it and `POST /api/dictations` adds one, both only from the board's own page at 127.0.0.1, as dictation itself, and nothing about the words is logged.
 An open list reads it again when its window takes the focus, with what another window added meanwhile.
 Each has Copy and Paste into this terminal, which pastes as dictation does and hands the terminal the keyboard back, and Escape closes the list.
+A message box's list says Paste into the message instead: it puts the chosen words where the caret or the selection is, keeps the rest of the draft, and reads no clipboard, so what an older dictation adds is never taken for an empty clipboard (the Overlord, 2026-10-27).
 The bubble's tip names the shortcut, and a first visit shows a hint about it once, until it is dismissed.
 
 The supervisor's speech engine is what makes that dictation free and local.
@@ -1375,7 +1376,7 @@ When the session is not working the line keeps the time facts and says why when 
 Above the message box an unboxed usage line opens the full stats in place: recorded session usage, available account quota and shared API-key spend, each labeled for its actual scope.
 Shared key spend is never presented as session cost, and available session usage stays readable when quota is unavailable.
 A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.
-A session whose usage cannot be read draws no banner, and the line above says why.
+A session whose usage cannot be read draws one neutral Usage unavailable state, with the reason in its accessible statistics disclosure.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
@@ -1394,12 +1395,17 @@ Under the conversation is the session's message box, in place of its terminal's 
 The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
 While the harness works the footer says so with Stop, which presses Escape in its terminal.
-Busy or gate-held sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
-An unqueued draft stays in the box while its terminal connects, reconnects or is closed.
+Busy, held or reconnecting sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
+Routine queueing has one neutral note beside the input, and a failed Send takes priority, keeps the draft and offers the same Send for retry.
+The same composer stays mounted across Classic and Modern surfaces, keeping pending sends, attachment uploads and recordings through release or reconnect.
+Once shown beside a terminal, it stays reachable when the terminal becomes ready, and sends directly again.
+An unqueued draft stays in the box while its terminal first connects or is closed.
 While a screen of the harness's own is open in its terminal, as the relay reads it, a question, a picker or a panel, an amber card says Waiting on you in the terminal with Answer in the terminal, which steps the terminal in with the keyboard, and Send waits, since an Enter typed then would act on that screen.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
 Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
+The active composer owns the microphone and queue note, while a phone terminal keeps Copy terminal text independently available.
+An already-running terminal recording keeps one Stop terminal dictation control on the active composer, and its words remain available in Speech history if held input refuses them.
 The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
 Plain style, model, effort, speech-history, terminal and send controls sit underneath without pills, beside the current session's context ring.
 Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.

@@ -27,7 +27,10 @@ async function openTerminal(page: Page, backend: "native" | "herdr"): Promise<Te
   const held: (() => void)[] = [];
   await page.addInitScript(() => {
     localStorage.setItem("cfo-voice-hint-v1", "dismissed");
-    Object.defineProperty(navigator, "clipboard", { value: { read: async () => (window as unknown as { clipboardItems: ClipboardItem[] }).clipboardItems ?? [], writeText: async () => {} } });
+    Object.defineProperty(navigator, "clipboard", { value: { read: async () => {
+      if (Reflect.get(window, "clipboardDenied")) throw new DOMException("Denied", "NotAllowedError");
+      return (window as unknown as { clipboardItems: ClipboardItem[] }).clipboardItems ?? [];
+    }, writeText: async () => {} } });
   });
   await page.route("**/api/terminal/image", async (route) => {
     pictures.push(route.request().postDataBuffer()!);
@@ -111,6 +114,18 @@ for (const backend of ["native", "herdr"] as const) {
 
       // Assert
       await expect.poll(terminal.typed).toBe("\x1b[200~git status\rnpm test\x1b[201~");
+      await expect(page.getByText("Nothing to paste: the clipboard is empty.")).toHaveCount(0);
+    });
+
+    test("Paste reports an empty or denied clipboard without typing", async ({ page }) => {
+      const terminal = await openTerminal(page, backend);
+      await page.getByRole("button", { name: "Paste", exact: true }).tap();
+      await expect(page.getByText("Nothing to paste: the clipboard is empty.")).toBeVisible();
+      expect(terminal.typed()).toBe("");
+      await page.evaluate(() => Object.assign(window, { clipboardDenied: true }));
+      await page.getByRole("button", { name: "Paste", exact: true }).tap();
+      await expect(page.getByText("The clipboard was not read. Allow Paste when asked.")).toBeVisible();
+      expect(terminal.typed()).toBe("");
     });
 
     test("Paste of a screenshot puts it on the PC's clipboard, then presses the harness's image key", async ({ page }) => {

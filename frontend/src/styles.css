@@ -671,7 +671,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    on-screen keyboard shrinks, so a terminal's input line and last rows stay
    above the keyboard and take the room back when it closes; the viewport's
    height and top come from use-visual-viewport.ts. */
-.app-shell.fills-phone { position: fixed; inset: var(--visual-top, 0px) 0 auto; height: var(--visual-height, 100dvh); min-height: 0; padding: 6px; gap: 6px; }
+.app-shell.fills-phone { position: fixed; inset: var(--visual-top, 0px) 0 auto; height: var(--visual-height, 100dvh); min-height: 0; padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); gap: 6px; }
 .fills-phone .context-pane { flex: 1; min-height: 0; max-height: none; }
 /* There the Terminal view's header keeps its picture, name, task and status
    at smaller sizes, so the terminal keeps the room above the keyboard. */
@@ -877,6 +877,7 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
    scrolled into view inside it, such as xterm's input while a grid refits,
    can move the screen within it. */
 .terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: clip; background: #071015; }
+.fills-phone .host-terminal.has-composer .terminal-surface { min-height: 0; }
 /* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
    so the input line stays at the bottom of the panel; nothing scrolls. */
 .native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 8px 14px; }
@@ -918,6 +919,8 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
    panel never scrolls around it; until its screen is whole a full-pane state
    covers it. */
 .host-terminal { flex-direction: column; }
+.host-terminal.has-composer .voice-dock { display: none; }
+.terminal-deck.behind .host-terminal.has-composer .voice-dock { display: flex; }
 .host-terminal .terminal-surface { position: relative; }
 /* One connection's xterm: staged out of sight until its screen is whole. */
 .terminal-view { position: absolute; inset: 0; }
@@ -941,7 +944,9 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .host-terminal { flex-direction: column; }
 /* What a held terminal says is a plain line under it, never a pill over the
    screen it would cover. */
-.terminal-held-line { flex: none; margin: 0; padding: 6px 12px; border-top: 1px solid var(--glass-border); color: #f1c598; overflow-wrap: anywhere; }
+.terminal-held-line { flex: none; margin: 0; padding: 6px 12px; border-top: 1px solid var(--glass-border); color: var(--muted); overflow-wrap: anywhere; }
+.terminal-copy { display: none; position: absolute; top: 8px; right: 12px; z-index: 2; }
+@media (pointer: coarse) { .terminal-copy { display: grid; } }
 .terminal-unread, .terminal-unsent { position: absolute; top: 10px; left: 12px; z-index: 2; max-width: calc(100% - 24px); color: #f1c598; }
 .terminal-unread .status-dot, .terminal-unsent .status-dot { background: var(--amber); }
 /* While he reads a terminal's history, the line he types on stays pinned over
@@ -1416,7 +1421,6 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* The stage and, in Classic while custody holds, the box under it. */
 .panel-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .panel-main > .classic-queue { flex: none; min-height: 0; border-top: 1px solid var(--glass-border); }
-.panel-main > .classic-queue .composer-sent { max-height: 30%; overflow: auto; }
 .panel-side { display: flex; flex: none; width: clamp(300px, 32%, 460px); min-width: 0; min-height: 0; padding-left: 12px; }
 .panel-side > .panel-task { flex: 1; min-height: 0; }
 .panel-side .panel-content { padding: 0 18px 24px; }

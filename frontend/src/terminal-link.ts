@@ -10,6 +10,9 @@ export interface TerminalLink {
   phase: "connecting" | "live" | "closed";
   // Whether the view is reconnecting.
   isReconnecting: boolean;
+  isDictating: boolean;
+  stopDictation: () => void;
+  feedback: string;
   // Whether typed keys sit unread in a busy program's input, why typing is
   // held, and what the view was last told of the harness's screen, null
   // until it is told.

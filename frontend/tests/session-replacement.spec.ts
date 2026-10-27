@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { at, card, field, GOBLIN, NAME, open, PAGE, pasted, snapshot, typed } from "./session-board";
+import { at, box, card, field, GOBLIN, NAME, open, PAGE, pasted, snapshot, typed } from "./session-board";
 
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
@@ -23,7 +23,8 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await expect(terminal).toBeVisible();
       if (state === "held") {
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(page.locator(".terminal-held-line")).toBeVisible();
+        // The board says the hold once, beside the one input it concerns.
+        await expect(page.locator(".context-pane").getByText("Review in progress. Send to queue until it finishes.")).toBeVisible();
       } else if (state === "ended") {
         relay.end();
         await expect(page.locator(".terminal-closed")).toBeVisible();
@@ -43,7 +44,9 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       const conversation = page.locator(".messages-view:not([hidden]) .conversation");
       await expect(conversation).toBeVisible();
       await expect(field(page)).toHaveValue("keep my draft");
-      await expect(page.locator(".context-pane").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(conversation.getByText(pending.text, { exact: true })).toBeVisible();
+      // The conversation already lists what waits, so the box does not repeat it.
+      await expect(box(page, NAME).locator(".composer-sent-text")).toHaveCount(0);
       const before = await conversation.evaluate((element) => element.scrollTop);
       await conversation.focus();
       await page.keyboard.press("Shift+PageUp");
@@ -74,7 +77,9 @@ for (const style of ["classic", "modern"] as const) {
     await expect(page.locator(".terminal-closed")).toHaveCount(0);
     if (style === "modern") {
       await expect(field(page, "CFO")).toHaveValue("keep the CFO draft");
-      await expect(page.locator(".context-pane").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })).toBeVisible();
+      // The conversation already lists what waits, so the box does not repeat it.
+      await expect(box(page, "CFO").locator(".composer-sent-text")).toHaveCount(0);
       await field(page, "CFO").press("Enter");
       await expect.poll(() => typed(relay)).toContain(pasted("keep the CFO draft") + "\r");
     } else {
@@ -117,7 +122,12 @@ for (const style of ["classic", "modern"] as const) {
     }
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("generation") === codex.generation)).toBe(true);
     relay.say({ type: "held", reason: "pipeline owns this task" });
-    await expect(page.locator(".context-pane").getByText(pending.text, { exact: true })).toBeVisible();
+    // Modern keeps its conversation, which lists what waits; Classic keeps the
+    // terminal, so the box beside it lists them.
+    const waits = style === "modern"
+      ? page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })
+      : box(page, NAME).getByText(pending.text, { exact: true });
+    await expect(waits).toBeVisible();
     await expect(field(page)).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`${style}-codex-replaced-pi.png`) });
   });

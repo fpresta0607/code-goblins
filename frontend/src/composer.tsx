@@ -13,7 +13,7 @@ import type { SessionStats, UsageReading } from "./session-usage";
 import { useTerminalLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
-import { heldNotice } from "./terminalInput";
+import { GATE_CUSTODY, isDetachedHold } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
@@ -62,13 +62,14 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, onSent, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   stats?: SessionStats; reading?: UsageReading; model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // terminal is the terminal deck's key of the session's terminal, and
   // onSent is told of each message typed into it, so a screen of the
   // harness's own that it opens can bring the terminal in.
   terminal: string; focus?: number; onAnswer?: () => void; onSent?: (submission: string) => void;
+  isTerminalShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -104,7 +105,21 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const files = useRef<HTMLInputElement>(null);
   const [style, chooseStyle] = useChatStyle();
   const closeRecent = () => { setRecentOpen(false); recent.current?.focus(); };
-  useEffect(() => { if (focus) field.current?.focus(); }, [focus]);
+  // The box is one mounted composer moved to the surface on screen, so a
+  // switch asks for its keyboard a frame or two before the move lands and the
+  // browser cannot focus a node that is not in the page yet. Ask again, a few
+  // frames at most, until it is.
+  useEffect(() => {
+    if (!focus) return;
+    let frames = 0, next = 0;
+    const ask = () => {
+      const box = field.current;
+      if (box?.isConnected && box.getClientRects().length) { box.focus(); if (box.matches(":focus")) return; }
+      if (frames++ < 8) next = requestAnimationFrame(ask);
+    };
+    ask();
+    return () => cancelAnimationFrame(next);
+  }, [focus]);
   const write = (next: (prior: string) => string) => {
     setDraft(next);
     setUnsent("");
@@ -113,8 +128,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
     sendID.current = "";
   };
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
+  const isActive = !!(adding || isSending || unsent || dictation.listening || live?.isDictating);
+  useEffect(() => {
+    onActive?.(terminal, isActive);
+    return () => onActive?.(terminal, false);
+  }, [terminal, isActive, onActive]);
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
-  const held = live?.held ? heldNotice(live.held) : "";
+  const isHeld = !!live?.held;
   const isAsking = !!live?.screen?.isOpen;
   const isUnread = !!live?.isUnread;
   const harness = task?.harness || snapshot.cfo_harness;
@@ -130,11 +150,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   // What this box saves as a board action types nothing into the terminal, so
   // a harness picker or a busy program does not stop it: those guard direct
   // typing, which is the path they were written for.
-  const savesThroughBoard = queues || !!held || isUnread;
+  const savesThroughBoard = queues || isHeld || isUnread || !!live?.isReconnecting;
   const send = async () => {
     const text = draft.trim();
-    if (!text || isSending || adding || isAsking && !held) return;
-    if (!savesThroughBoard) {
+    if (!text || isSending || adding || isAsking && !isHeld) return;
+    if (!savesThroughBoard && !sendID.current) {
       // Direct typing waits for a readable program with no screen of its own
       // open, since an Enter typed then would act on that screen.
       if (isAsking || isUnread) return;
@@ -149,7 +169,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
       sendID.current = "";
       storeDraft(draftKey, "");
       setDraft("");
+      setUnsent("");
     } catch (error: unknown) {
+      setUnsent("Not sent. " + message(error));
       reportToCfo("a message to " + name, message(error));
     } finally {
       setSending(false);
@@ -196,11 +218,19 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
     event.preventDefault();
     void add(pictures);
   };
+  // insert puts words where the caret or the selection is, keeping the rest of
+  // the draft, and separates them from a word they would otherwise run into.
   const insert = (text: string) => {
     const box = field.current;
-    const start = box?.selectionStart ?? draft.length, end = box?.selectionEnd ?? start;
-    write((prior) => prior.slice(0, start) + text + prior.slice(end));
-    requestAnimationFrame(() => { box?.setSelectionRange(start + text.length, start + text.length); box?.focus(); });
+    const prior = box?.value ?? draft;
+    const heard = text.trim();
+    const start = box?.selectionStart ?? prior.length, end = box?.selectionEnd ?? start;
+    const before = prior.slice(0, start), after = prior.slice(end);
+    const lead = heard && before && !/\s$/.test(before) ? " " : "";
+    const tail = heard && after && !/^\s/.test(after) ? " " : "";
+    write(() => before + lead + heard + tail + after);
+    const at = start + lead.length + heard.length;
+    requestAnimationFrame(() => { box?.setSelectionRange(at, at); box?.focus(); });
   };
   const pasteKey = async () => {
     const input = await readClipboard();
@@ -240,17 +270,20 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
     if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault();
       if (live?.control("\x1b[Z")) onAnswer?.();
-      else setUnsent(held || unsentWhy);
+      else setUnsent(isHeld ? "Typing is paused." : unsentWhy);
       return;
     }
     if (event.key.toLowerCase() === "c" && event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.currentTarget.selectionStart === event.currentTarget.selectionEnd) {
       event.preventDefault();
-      if (!live?.control("\x03")) setUnsent(held || unsentWhy);
+      if (!live?.control("\x03")) setUnsent(isHeld ? "Typing is paused." : unsentWhy);
       return;
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
-  const note = adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : held || unsent || (isUnread ? "Program busy. Typed keys are waiting." : "") || dictation.note;
+  const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready."
+    : live?.held && GATE_CUSTODY.test(live.held) ? "Review in progress. Send to queue until it finishes."
+      : savesThroughBoard ? "Messages will be queued." : "";
+  const note = unsent || terminalFeedback || (adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : live?.feedback || dictation.note || queueNote);
   // What the board has kept for this goblin is what the board's own record of
   // it says, so it survives a reload and a remount, and it stays on screen
   // after a gate lets go so the action can be read and withdrawn.
@@ -262,9 +295,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
   const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  const canSend = !isSending && !adding && !!draft.trim() && (!isAsking || !!held) && (savesThroughBoard || !isUnread);
+  const canSend = !isSending && !adding && !!draft.trim() && (!isAsking || isHeld) && (savesThroughBoard || !isUnread);
   return <section className="composer" aria-label={"Messages to " + name}>
-    {isAsking && <div className="composer-asking" role="status">
+    {isAsking && !isHeld && !isTerminalShown && <div className="composer-asking" role="status">
       <Icon name="warning" /><p>Waiting on you in the terminal</p>
       {onAnswer && <button type="button" className="labelled-button" onClick={onAnswer}><Icon name="terminal" />Answer in the terminal</button>}
     </div>}
@@ -288,14 +321,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
       {options.length > 0 && <ul className="composer-commands" role="listbox" aria-label="Commands">
         {options.map((name, at) => <li key={name} role="option" aria-selected={at === Math.min(pick, options.length - 1)} onMouseDown={(event) => { event.preventDefault(); choose(name); }}><span>/{name}</span></li>)}
       </ul>}
-      {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { write((prior) => appendDictation(prior, text)); setRecentOpen(false); field.current?.focus(); }}
+      {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
       <div className="composer-input">
         <button type="button" className="composer-control add-files" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
           onChange={(event) => { const value = event.target.value; write(() => value); }} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
-        <DictationButton dictation={dictation} />
+        {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
       </div>
       <div className="composer-tools">
         <div className="composer-controls">
@@ -320,8 +353,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onAnswer, 
           </button>
         </div>
       </div>
-      <p className="composer-note" role="status">{note}</p>
-      {terminalFeedback && <p className="composer-note" role="status">{terminalFeedback}</p>}
+      <p className="composer-note" role={unsent ? "alert" : "status"}>{note}</p>
     </div>
   </section>;
 }

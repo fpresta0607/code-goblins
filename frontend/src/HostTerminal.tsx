@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 import { putImage } from "./terminal-image";
 import { TerminalTextSheet } from "./terminal-text-sheet";
 import { TerminalTouchTools } from "./terminal-touch-tools";
-import { heldNotice, isDetachedHold } from "./terminalInput";
+import { isDetachedHold } from "./terminalInput";
 import { closedReason, ended, reconnects, type ScreenState, storedFontSize, storeFontSize } from "./terminalStream";
 import { offerLink } from "./terminal-link";
 import { TerminalView } from "./terminalView";
@@ -29,7 +29,7 @@ const MAX_RETRIES = 5;
 // reportAs names the terminal in what it reports to the CFO. link, when set,
 // is the terminal deck's key it offers its link by (terminal-link.ts), so the
 // Messages view's box types through this terminal's own view.
-export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, link, onHistory }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; link?: string; onHistory?: () => void }) {
+export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, hasComposer = false, link, onHistory }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; hasComposer?: boolean; link?: string; onHistory?: () => void }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -66,11 +66,15 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   const [isUnsent, setUnsent] = useState(false);
   // What the view was last told of the harness's screen.
   const [screen, setScreen] = useState<ScreenState | null>(null);
-  const dictation = useDictation((text, isSent) => { current.current?.paste(text); if (isSent) current.current?.enter(); }, instance);
-  const dictate = dictation.key;
   // What a touch tool or a pasted picture met, for a moment, and the
   // terminal's text while it is laid out to select.
   const [feedback, showFeedback] = useClickFeedback();
+  const dictation = useDictation((text, isSent) => {
+    if (hasComposer || current.current?.held) { showFeedback("Dictation saved to Speech history."); return; }
+    current.current?.paste(text);
+    if (isSent) current.current?.enter();
+  }, instance);
+  const dictate = dictation.key;
   const [textSheet, setTextSheet] = useState<string | null>(null);
   // A picture reaches the harness as a desktop paste's does: on this PC's
   // clipboard, then the harness's image key.
@@ -115,7 +119,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
         const reading = prior?.readingPosition() ?? null;
         // Disposing the view it replaces takes the keyboard from the page, so
         // where the keyboard was is read first.
-        const hadKeyboard = !!prior?.element.contains(document.activeElement) || !!container.closest(".context-pane")?.contains(document.activeElement);
+        const hadKeyboard = !!prior?.element.contains(document.activeElement);
         current.current = view;
         if (staged.current === view) staged.current = null;
         view.promote();
@@ -182,26 +186,29 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   useEffect(() => {
     if (!link) return;
     offerLink(link, {
-      phase, isReconnecting: reconnecting || !visible, isUnread, held: heldWhy, screen,
+      phase, isReconnecting: reconnecting || !visible, isDictating: dictation.listening, isUnread, held: heldWhy, screen,
+      stopDictation: dictation.stop,
+      feedback: feedback || dictation.note,
       send: (text) => phase === "live" && !reconnecting && visible ? current.current?.submit(text) ?? null : null,
       escape: () => !!current.current?.escape(),
       control: (keys) => phase === "live" && !reconnecting && visible ? current.current?.control(keys) ?? false : false,
     });
     return () => offerLink(link, null);
-  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen]);
-  return <section className="native-terminal host-terminal" aria-label={label}>
+  }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, dictation.listening, dictation.stop, dictation.note, feedback]);
+  return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {phase === "connecting" && <div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div>}
     {phase === "live" && (reconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
     {phase === "closed" && <div className={hasScreen ? "terminal-closed" : "terminal-cover"} role="status"><Icon name="terminal" />{closedWhy && <p>{closedWhy}</p>}{!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}</div>}
     {copied && <span className="terminal-state terminal-copied" role="status">Copied</span>}
     {phase !== "connecting" && isUnsent && <span className="terminal-state terminal-unsent" role="status"><span className="status-dot" />{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</span>}
-    {phase === "live" && heldWhy && <p className="terminal-held-line" role="status">{heldNotice(heldWhy)}</p>}
-    {phase === "live" && isUnread && !isUnsent && !heldWhy && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
+    {phase === "live" && heldWhy && !hasComposer && <p className="terminal-held-line" role="status">Typing is paused.</p>}
+    {phase === "live" && isUnread && !hasComposer && !isUnsent && !heldWhy && <span className="terminal-state terminal-unread" role="status" data-tip="The program is busy. It takes what was typed when it is free, so there is no need to press again."><span className="status-dot" />Program busy. Typed keys are waiting.</span>}
     {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
     {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); current.current?.focus(); }} />}
+    {hasComposer && <button type="button" className="icon-button terminal-copy" aria-label="Copy terminal text" data-tip="Copy terminal text" onClick={() => setTextSheet(current.current?.text() ?? "")}><Icon name="copy" /></button>}
     {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }}
       tools={<TerminalTouchTools events={{ text: (text) => current.current?.paste(text), image: addImage, copy: () => setTextSheet(current.current?.text() ?? ""), problem: showFeedback }} />} />}
-    {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
+    {!hasComposer && (feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>)}
   </section>;
 }

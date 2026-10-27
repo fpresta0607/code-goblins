@@ -1,4 +1,5 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useRuntimeStream } from "./stream";
 import { useItemState } from "./use-item-state";
 import { useTaskClicks } from "./use-task-clicks";
@@ -231,9 +232,34 @@ export function App() {
   const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
   const terminalKey = cfoShown ? CFO_KEY : task?.id || "";
   const live = useTerminalLink(terminalKey);
-  const heldCustody = !!live?.held;
+  const needsQueue = !!live?.held || !!live?.isUnread || !!live?.isReconnecting;
+  const [composerTarget] = useState(() => {
+    const target = document.createElement("div");
+    target.className = "composer-slot";
+    return target;
+  });
+  const [classicDock, setClassicDock] = useState<HTMLDivElement | null>(null);
+  const [messageDock, setMessageDock] = useState<HTMLDivElement | null>(null);
+  const composerFocus = useRef<HTMLElement | null>(null);
+  const [composerActivity, setComposerActivity] = useState({ terminal: "", isActive: false });
+  const reportComposerActivity = useCallback((terminal: string, isActive: boolean) => {
+    setComposerActivity((prior) => prior.terminal === terminal && prior.isActive === isActive ? prior : { terminal, isActive });
+  }, []);
+  useLayoutEffect(() => {
+    const remember = (event: FocusEvent) => { if (event.target instanceof HTMLElement) composerFocus.current = event.target; };
+    composerTarget.addEventListener("focusin", remember);
+    return () => { composerTarget.removeEventListener("focusin", remember); composerTarget.remove(); };
+  }, [composerTarget]);
+  // composerTerminal is the session whose composer this board has shown: a
+  // box beside a terminal that was held or reconnecting, or a conversation's.
+  // Once shown, work of the box's own, an upload, a recording or a Send still
+  // landing, keeps it there; a recording that starts in the terminal itself
+  // never brings it in.
+  const [composerTerminal, setComposerTerminal] = useState("");
+  if (needsQueue && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const [chatStyle] = useChatStyle();
   const [classicOut, setClassicOut] = useState("");
+  const shouldKeepComposer = needsQueue || chatStyle === "classic" && composerTerminal === terminalKey || composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
   const keyboardTo = (key: string) => {
     // The keyboard goes to whatever that session will actually show: the box
     // the panel draws for it, or its terminal. Classic draws the terminal in
@@ -244,7 +270,7 @@ export function App() {
     const hasMessages = !!snapshot && !!messagesQuery(snapshot, target);
     const takes = !!target && takesMessages(target);
     const isTerminalHere = steppedIn === key || (chatStyle === "classic" && classicOut !== key && !takes);
-    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && key === terminalKey && heldCustody;
+    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && key === terminalKey && shouldKeepComposer;
     if (showsBox) setBoxFocus((prior) => prior + 1);
     else setSwitchFocus((prior) => prior + 1);
   };
@@ -354,22 +380,32 @@ export function App() {
   // into it, so only Classic records it: Modern's press must not change what
   // Classic shows for the session.
   const stepOut = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
-  // Whether custody holds or cannot be read at this moment: the board's box is
-  // offered beside a terminal exactly then, since a clear custody leaves typing
-  // to the terminal itself. It is read here because a switch has to know
-  // whether that box is on screen.
+  // Once offered, the composer stays reachable as input becomes ready so an
+  // upload, recording or pending Send keeps its controls and result.
   const terminalShown = showsPanel && !train && shownView === "terminal" && (!messagesSource || terminalInPlace);
   const messagesShown = showsPanel && !train && shownView === "terminal" && !!messagesSource && !terminalInPlace;
-  // One box for the session, moved rather than copied: if each place drew its
-  // own, two of them would keep two drafts of the same words. The deck draws a
-  // box of its own for a goblin that takes messages and has no conversation, so
-  // this one is the conversation's, shown under a terminal that cannot take
-  // typing: a held one, and one of a session the deck draws no box for.
+  // The conversation portals its one mounted composer to the shared footer.
+  // The deck owns the box for a paused goblin without a conversation.
   const deckOwnsBox = !!task && !messagesSource && takesMessages(task);
-  const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && heldCustody;
+  const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && shouldKeepComposer;
   const boxOnScreen = messagesShown || queuedBox;
+  if (boxOnScreen && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
+  const composerDock = queuedBox || !messagesSource ? classicDock : messageDock;
+  useLayoutEffect(() => {
+    if (!composerDock || composerTarget.parentElement === composerDock) return;
+    // Moving the container preserves React state; preserve the browser's focus
+    // too, including when its old ancestor became hidden in this commit.
+    const active = document.activeElement;
+    const focused = composerTarget.contains(active) && active instanceof HTMLElement ? active : active === document.body ? composerFocus.current : null;
+    const selection = focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null;
+    composerDock.appendChild(composerTarget);
+    if (focused && composerTarget.contains(focused) && focused.getClientRects().length) {
+      focused.focus({ preventScroll: true });
+      if (selection && selection.start !== null && selection.end !== null && (focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement)) focused.setSelectionRange(selection.start, selection.end, selection.direction ?? undefined);
+    }
+  }, [composerDock, composerTarget]);
   if ((terminalShown || messagesShown) && !terminalOpened) setTerminalOpened(true);
-  if (messagesShown && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
+  if ((terminalShown || messagesShown) && messagesSource && messagesSource !== messagesOpened) setMessagesOpened(messagesSource);
   useSwitchKeys(snapshot ? switchOrder(snapshot.tasks) : [], cfoShown ? CFO_KEY : task?.id || "", switchTo);
   const maximizeView = maximizedView(view, shownView);
   const maximized = maximizedFor(maximizedChoice[maximizeView]);
@@ -499,23 +535,17 @@ export function App() {
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} harness={panelHarness} model={panelModel} effort={panelEffort} memory={panelMemory}
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending} onStop={() => live?.escape()}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
-            onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }}
-            box={queuedBox ? undefined : (stats, reading, model) => <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation stats={stats} reading={reading} model={model}
-              focus={messagesShown ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />} />}
+            onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
+            box={(stats, reading, model) => createPortal(<Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} stats={stats} reading={reading} model={model} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+              focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
-            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} connected={connected} focus={switchFocus} onHistory={messagesSource ? stepOut : undefined}
+            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? stepOut : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
         </PanelStage>
-        {/* A terminal whose typing the board cannot use keeps the session's own
-            box under it: one held by a gate, or one whose goblin takes messages
-            and has no terminal to take them yet. It is the same Composer the
-            conversation uses, moved here rather than drawn twice, and it types
-            nothing into the terminal. */}
-        {snapshot && queuedBox && <div className="classic-queue">
-          <Composer snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey}
-            focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />
-        </div>}
+        <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
+        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+          focus={boxOnScreen ? boxFocus : 0} onAnswer={stepIn} onSent={(submission) => setSentFrom({ terminal: terminalKey, submission })} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}
         </div>
