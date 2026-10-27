@@ -3,6 +3,7 @@
 package supervisor
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 const maxSessions = 512
@@ -169,6 +171,12 @@ type Store struct {
 	changed       chan struct{}
 	inboxCursor   string
 	deferredUntil map[string]time.Time
+	// inboxRead is each inbox event as the last intake read it, by file
+	// name, so an unchanged event deferred again is not read and parsed
+	// again; isInboxFilling says the CFO was woken for an inbox near its
+	// bound, until it drains to half.
+	inboxRead      map[string]inboxEvent
+	isInboxFilling bool
 	// failingSince is when saves started failing, in Unix nanoseconds; zero
 	// while they succeed.
 	failingSince atomic.Int64
@@ -320,8 +328,13 @@ func cloneDatabase(d Database) Database {
 func (s *Store) Accept(e nativehook.Event) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A refusal puts back what the event changed, a copy of every session,
+	// task and action, so only one that came after a change does: on
+	// 2026-10-27 the inbox held 4,096 events it refused before any change,
+	// and copying the database for each took 11 seconds of every cycle.
+	isChanging := false
 	defer func() {
-		if err != nil {
+		if err != nil && isChanging {
 			s.db = cloneDatabase(s.committed)
 		}
 		if err != nil && !errors.Is(err, ErrStorage) && !errors.Is(err, ErrDeferred) {
@@ -340,6 +353,11 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 	if e.TaskID != "" {
 		meta, err := state.ReadTaskMeta(s.Home.State, e.TaskID)
 		if err != nil {
+			_, isTracked := s.db.TaskSessions[e.TaskID]
+			_, isEvaluated := s.db.Tasks[e.TaskID]
+			if errors.Is(err, os.ErrNotExist) && !isTracked && !isEvaluated && time.Since(e.OccurredAt) > unknownTaskGrace {
+				return fmt.Errorf("%w: %w: task %s has no record", ErrDeferred, errUnknownTask, bounded(e.TaskID, 80))
+			}
 			return fmt.Errorf("%w: task metadata unavailable: %v", ErrDeferred, err)
 		}
 		if e.Generation != meta.SpawnGen {
@@ -390,6 +408,7 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			at = s.db.Sessions[at].Parent
 		}
 	}
+	isChanging = true
 	if e.Role == "goblin" {
 		current := s.db.TaskSessions[e.TaskID]
 		if current == "" && len(s.db.TaskSessions) >= maxSessions {
@@ -1046,9 +1065,43 @@ func (s *Store) updateQuestionOutcomes() {
 	}
 }
 
+// deferralLimit is how long an event waits in the native inbox for the
+// evidence it was deferred for. One that waits longer waits for what does
+// not come, such as the record of a task that was retired or never existed,
+// or the start of a session whose start was lost, and leaves the inbox: on
+// 2026-10-27 such events had filled it to its 4,096 bound, so the hooks of
+// every goblin found it full and their events were lost.
+const deferralLimit = time.Hour
+
+// unknownTaskGrace is how long an event of a task with no record, which the
+// store never tracked, waits for that record before it leaves the inbox: a
+// task's record is written before its terminal starts, so only a process
+// that carries a goblin's variables without being one, as a gate daemon's
+// review sessions did, spools such events, 3,510 of them on 2026-10-27.
+const unknownTaskGrace = 2 * time.Minute
+
+// errUnknownTask marks a deferral that waits for a task the fleet never
+// knew, which leaves the inbox once unknownTaskGrace has passed.
+var errUnknownTask = errors.New("the fleet never knew its task")
+
+// inboxFilling is how many events in the native inbox wake the CFO, a
+// quarter short of the bound at which every goblin's hook fails.
+const inboxFilling = nativehook.MaxQueuedEvents * 3 / 4
+
+// inboxEvent is an inbox event as an intake read it, with the size and
+// write time its file had then.
+type inboxEvent struct {
+	size    int64
+	written time.Time
+	event   nativehook.Event
+	err     error
+}
+
 // Ingest accepts the events waiting in the native inbox and returns each it
 // accepted for the first time, in the order it accepted them, also when it
-// stops short with an error: they have left the inbox.
+// stops short with an error: they have left the inbox. Events deferred past
+// deferralLimit, or waiting for a task the fleet never knew, leave it too,
+// and one issue line says how many.
 func (s *Store) Ingest() ([]nativehook.Event, error) {
 	entries, err := os.ReadDir(nativehook.SpoolDir(s.Home.State))
 	if err != nil {
@@ -1060,6 +1113,7 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 		err   error
 	}
 	records := []record{}
+	read, byTask := map[string]inboxEvent{}, map[string]int{}
 	// Concurrent hook writers can briefly exceed the admission bound. Rotate
 	// a bounded read window rather than wedging or discarding deferred events.
 	start := sort.Search(len(entries), func(i int) bool { return entries[i].Name() > s.inboxCursor })
@@ -1077,7 +1131,9 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 		if statErr != nil {
 			return nil, statErr
 		}
-		if info.Size() > nativehook.MaxEventBytes {
+		if known, ok := s.inboxRead[entry.Name()]; ok && known.size == info.Size() && known.written.Equal(info.ModTime()) {
+			r.event, r.err = known.event, known.err
+		} else if info.Size() > nativehook.MaxEventBytes {
 			r.err = errors.New("oversized event")
 		} else {
 			data, readErr := fsx.ReadFile(r.path)
@@ -1086,7 +1142,15 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 			}
 			r.err = json.Unmarshal(data, &r.event)
 		}
+		read[entry.Name()] = inboxEvent{size: info.Size(), written: info.ModTime(), event: r.event, err: r.err}
 		records = append(records, r)
+		byTask[cmp.Or(r.event.TaskID, "the CFO's sessions")]++
+	}
+	// Only events still in the inbox are kept, so the record of what was
+	// read never outgrows the inbox.
+	s.inboxRead = read
+	if err := s.wakeForAFillingInbox(len(records), byTask); err != nil {
+		return nil, err
 	}
 	sort.SliceStable(records, func(i, j int) bool {
 		if records[i].event.OccurredAt.Equal(records[j].event.OccurredAt) {
@@ -1094,7 +1158,7 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 		}
 		return records[i].event.OccurredAt.Before(records[j].event.OccurredAt)
 	})
-	consumed := 0
+	consumed, dropped, dropReason := 0, 0, ""
 	var accepted []nativehook.Event
 	for _, r := range records {
 		if consumed >= 256 {
@@ -1112,6 +1176,16 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 			return accepted, err
 		}
 		if errors.Is(err, ErrDeferred) {
+			if !errors.Is(err, errUnknownTask) && time.Since(r.event.OccurredAt) < deferralLimit {
+				continue
+			}
+			if dropped++; dropReason == "" {
+				dropReason = err.Error()
+			}
+			if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return accepted, err
+			}
+			consumed++
 			continue
 		}
 		if err == nil && !isReplay {
@@ -1136,7 +1210,47 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 		}
 		consumed++
 	}
+	if dropped > 0 {
+		s.mu.Lock()
+		s.db.Issues = append(s.db.Issues, fmt.Sprintf("%s set aside %d native events that waited for evidence that does not come, the first because %s", time.Now().UTC().Format(time.RFC3339), dropped, bounded(dropReason, 200)))
+		if len(s.db.Issues) > 20 {
+			s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
+		}
+		err := s.save()
+		s.mu.Unlock()
+		if err != nil {
+			return accepted, err
+		}
+	}
 	return accepted, nil
+}
+
+// wakeForAFillingInbox wakes the CFO once as the native inbox passes
+// inboxFilling, naming the tasks whose events fill it most, before every
+// goblin's hook finds it full; it wakes again only after the inbox has
+// drained to half.
+func (s *Store) wakeForAFillingInbox(count int, byTask map[string]int) error {
+	if count < inboxFilling {
+		if count <= nativehook.MaxQueuedEvents/2 {
+			s.isInboxFilling = false
+		}
+		return nil
+	}
+	if s.isInboxFilling {
+		return nil
+	}
+	tasks := slices.SortedFunc(maps.Keys(byTask), func(a, b string) int { return cmp.Or(byTask[b]-byTask[a], strings.Compare(a, b)) })
+	var most []string
+	for _, task := range tasks[:min(3, len(tasks))] {
+		most = append(most, fmt.Sprintf("%s (%d)", bounded(task, 80), byTask[task]))
+	}
+	now := time.Now().UTC()
+	detail := fmt.Sprintf("native_inbox_filling: the native event inbox holds %d events, and at %d every goblin's hook fails and its events are lost. Most come from %s. Find what spools them and stop it; they wait in %s.", count, nativehook.MaxQueuedEvents, strings.Join(most, ", "), nativehook.SpoolDir(s.Home.State))
+	if err := wake.AppendFirstAndPublish(s.Home.State, "native-inbox/filling/"+now.Format(time.RFC3339Nano), "check", "native-inbox", detail); err != nil {
+		return err
+	}
+	s.isInboxFilling = true
+	return nil
 }
 
 func bounded(s string, n int) string {

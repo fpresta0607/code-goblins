@@ -1,11 +1,14 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -14,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 func testStore(t *testing.T) (*Store, home.Home) {
@@ -569,6 +573,211 @@ func TestIngestQuarantinesMalformedWithoutLosingValidEvents(t *testing.T) {
 	files, _ := os.ReadDir(nativehook.SpoolDir(h.State))
 	if len(files) != 0 {
 		t.Fatal("inbox not consumed")
+	}
+}
+
+// An event that waits for evidence that does not come leaves the inbox, said
+// in one issue line: one of a task the fleet never knew after two minutes,
+// since a task's record is written before its terminal starts, and any other
+// after an hour. One that may still be answered stays to be tried again. On
+// 2026-10-27 events of a task that had no record and of retired tasks had
+// filled the inbox to its bound, so every goblin's hook found it full and its
+// events were lost.
+func TestAnEventThatWaitsForEvidenceThatDoesNotComeLeavesTheInbox(t *testing.T) {
+	for _, testCase := range []struct {
+		name                   string
+		task                   string
+		isTracked, isUnstarted bool
+		age                    time.Duration
+		isLeft                 bool
+	}{
+		{name: "a task never known, five minutes old", task: "nm-daemon-temp", age: 5 * time.Minute},
+		{name: "a task never known, thirty seconds old", task: "nm-daemon-temp", age: 30 * time.Second, isLeft: true},
+		{name: "a retired task, five minutes old", task: "retired-task", isTracked: true, age: 5 * time.Minute, isLeft: true},
+		{name: "a retired task, two hours old", task: "retired-task", isTracked: true, age: 2 * time.Hour},
+		{name: "a session with no start, two hours old", task: "task-1", isUnstarted: true, age: 2 * time.Hour},
+		{name: "a session with no start, five minutes old", task: "task-1", isUnstarted: true, age: 5 * time.Minute, isLeft: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			s, h := testStore(t)
+			if testCase.isTracked {
+				s.mu.Lock()
+				s.db.Tasks[testCase.task] = Evaluation{Phase: "review", Generation: "g1", At: time.Now().Add(-3 * time.Hour)}
+				err := s.save()
+				s.mu.Unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			deferred := event(t, h, "UserPromptSubmit", "s1", "turn", time.Now().Add(-testCase.age))
+			deferred.TaskID = testCase.task
+			if err := nativehook.Spool(h.State, deferred); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			if _, err := s.Ingest(); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			files, _ := os.ReadDir(nativehook.SpoolDir(h.State))
+			issues := s.Snapshot().Issues
+			if testCase.isLeft {
+				if len(files) != 1 || len(issues) != 0 {
+					t.Fatalf("inbox %d events and issues %q, want the event left to be tried again and no issue", len(files), issues)
+				}
+				return
+			}
+			if len(files) != 0 || len(issues) != 1 || !strings.Contains(issues[0], "set aside 1 native events that waited for evidence that does not come") {
+				t.Fatalf("inbox %d events and issues %q, want the event gone and one issue saying so", len(files), issues)
+			}
+		})
+	}
+}
+
+// An inbox filling toward its bound wakes the CFO once, naming the task
+// whose events fill it, before any goblin's hook finds it full.
+func TestAFillingInboxWakesTheCFOOnce(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	waiting := event(t, h, "UserPromptSubmit", "unstarted", "turn", time.Now())
+	data, err := json.Marshal(waiting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range inboxFilling {
+		if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), fmt.Sprintf("%04d.event.json", i)), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	for range 2 {
+		if _, err := s.Ingest(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	pending, err := wake.Pending(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || !strings.Contains(pending[0].Detail, fmt.Sprintf("native_inbox_filling: the native event inbox holds %d events", inboxFilling)) || !strings.Contains(pending[0].Detail, fmt.Sprintf("task-1 (%d)", inboxFilling)) {
+		t.Fatalf("wakes %+v, want one naming the inbox and task-1", pending)
+	}
+}
+
+// An intake reads an inbox event again only when its file changed: an
+// unchanged event deferred again is taken as read before.
+func TestAnUnchangedDeferredEventIsNotReadAgain(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	waiting := event(t, h, "UserPromptSubmit", "unstarted", "turn", time.Now())
+	if err := nativehook.Spool(h.State, waiting); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(nativehook.SpoolDir(h.State), waiting.ID+".event.json")
+	if _, err := s.Ingest(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same size and write time with other bytes: a pass that read the
+	// file again would find no event in it.
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), int(info.Size())), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, unchangedErr := s.Ingest()
+	if err := os.Chtimes(path, info.ModTime().Add(time.Second), info.ModTime().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, changedErr := s.Ingest()
+
+	// Assert
+	if unchangedErr != nil || changedErr != nil {
+		t.Fatal(unchangedErr, changedErr)
+	}
+	if issues := s.Snapshot().Issues; len(issues) != 1 {
+		t.Fatalf("issues %q, want the unchanged file taken as read and the changed one read again as malformed", issues)
+	}
+}
+
+// An inbox its bound of events that never come in fills is emptied, so a
+// goblin's hook can spool its next event again.
+func TestAnInboxFullOfStaleDeferredEventsTakesNewEventsAgain(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	stale := event(t, h, "UserPromptSubmit", "s1", "turn", time.Now().Add(-2*time.Hour))
+	stale.TaskID = "retired-task"
+	data, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range nativehook.MaxQueuedEvents {
+		if err := os.WriteFile(filepath.Join(nativehook.SpoolDir(h.State), fmt.Sprintf("%04d.event.json", i)), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := nativehook.Spool(h.State, event(t, h, "SessionStart", "s2", "", time.Now())); err == nil {
+		t.Fatal("a full inbox took an event; the test proves nothing")
+	}
+
+	// Act
+	for range nativehook.MaxQueuedEvents/256 + 1 {
+		if _, err := s.Ingest(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if err := nativehook.Spool(h.State, event(t, h, "SessionStart", "s2", "", time.Now())); err != nil {
+		t.Fatalf("the inbox still refuses a goblin's event: %v", err)
+	}
+	if _, err := s.Ingest(); err != nil {
+		t.Fatal(err)
+	}
+	if s.Snapshot().Sessions["codex/s2"].Phase != "started" {
+		t.Fatalf("sessions %+v, want s2 started", s.Snapshot().Sessions)
+	}
+}
+
+// A refusal that came before the event changed anything puts nothing back,
+// since putting the database back copies every session, task and action: a
+// copy for each of 4,096 deferred events took 11 seconds of every cycle on
+// 2026-10-27.
+func TestARefusalThatChangedNothingCopiesNothing(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	if err := s.Accept(event(t, h, "SessionStart", "s1", "", time.Now().Add(-time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	unstarted := event(t, h, "UserPromptSubmit", "s2", "turn", time.Now())
+	s.mu.Lock()
+	before := reflect.ValueOf(s.db.Sessions).Pointer()
+	s.mu.Unlock()
+
+	// Act
+	err := s.Accept(unstarted)
+
+	// Assert
+	if !errors.Is(err, ErrDeferred) {
+		t.Fatalf("Accept = %v, want the event deferred", err)
+	}
+	s.mu.Lock()
+	after := reflect.ValueOf(s.db.Sessions).Pointer()
+	s.mu.Unlock()
+	if after != before {
+		t.Error("a deferral that changed nothing copied the database")
 	}
 }
 
