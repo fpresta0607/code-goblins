@@ -249,3 +249,33 @@ test("the queue control brings a queued message into view while he reads far up 
   // Assert
   await expect(queued).toBeInViewport();
 });
+
+test("a selection from an older message to the newest copies every message between, however far it reaches", async ({ page }) => {
+  // Arrange: a caret at the start of an older message, as a click leaves it.
+  await open(page, snapshot(), "", LONG);
+  await openGoblin(page);
+  await expect(log(page)).toContainText("Answer 999");
+  const older = log(page).locator('[data-message="m960"]');
+  for (let tries = 0; tries < 40 && await older.count() === 0; tries++) {
+    await log(page).evaluate((element) => { element.scrollTop -= 400; });
+    await page.waitForTimeout(60);
+  }
+  await expect(older).toHaveCount(1);
+  await older.evaluate((row) => { document.getSelection()?.collapse(row.querySelector(".message-bubble")?.firstChild ?? row, 0); });
+
+  // Act: read down to the end, about 3,000 px, and extend the selection there,
+  // as Shift+click does.
+  await jumpTo(page, -1);
+  await expect(log(page).locator('[data-message="m999"]')).toHaveCount(1);
+  await expect(older, "the row the caret is in stays in the page").toHaveCount(1);
+  await log(page).locator('[data-message="m999"]').evaluate((row) => {
+    const text = row.querySelector("p")?.firstChild ?? row;
+    document.getSelection()?.extend(text, (text.textContent ?? "").length);
+  });
+
+  // Assert: every message from the older one to the newest is selected.
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? "")).toContain("Answer 979");
+  const selected = await page.evaluate(() => document.getSelection()?.toString() ?? "");
+  for (const seq of [960, 961, 979, 998, 999]) expect(selected, "message " + seq).toContain((seq % 2 ? "Answer " : "Question ") + seq);
+});
+

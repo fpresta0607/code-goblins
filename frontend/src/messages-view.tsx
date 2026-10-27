@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
-import { ESTIMATED_ROW_PX, messageWindow } from "./message-window";
+import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
@@ -80,6 +80,21 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   // no message is at the top.
   const [rowHeights, setRowHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [view, setView] = useState({ top: 0, height: 0, anchor: "", offset: 0 });
+  // The rows the page's selection starts and ends in while it starts in this
+  // list, so the window keeps them drawn and a long selection copies whole.
+  const [selected, setSelected] = useState<{ from: string; to: string; isCollapsed: boolean } | null>(null);
+  useEffect(() => {
+    const rowOf = (node: Node | null) => (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>("[data-message]")?.dataset.message ?? "";
+    const read = () => {
+      const box = list.current, selection = document.getSelection();
+      const from = selection?.anchorNode && box?.contains(selection.anchorNode) ? rowOf(selection.anchorNode) : "";
+      const to = selection?.focusNode && box?.contains(selection.focusNode) ? rowOf(selection.focusNode) : "";
+      const isCollapsed = !!selection?.isCollapsed;
+      setSelected((prior) => !from ? null : prior?.from === from && prior.to === to && prior.isCollapsed === isCollapsed ? prior : { from, to, isCollapsed });
+    };
+    document.addEventListener("selectionchange", read);
+    return () => document.removeEventListener("selectionchange", read);
+  }, []);
   // The folds he opened, by message and by fold within it, kept here so a
   // row that leaves the window and comes back opens as he left it, and a row
   // is drawn again only when its own folds change.
@@ -193,6 +208,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     return messageWindow(heights, isEnd ? Infinity : readTop, place.height);
   };
   const drawn = windowAt(view, isAtEnd);
+  const rowAt = (id: string) => id ? held.messages.findIndex((message) => message.id === id) : -1;
+  const spans = drawnSpans(drawn, rowAt(selected?.from ?? ""), rowAt(selected?.to ?? ""), selected?.isCollapsed ?? true);
+  const heightOf = (start: number, end: number) => heights.slice(start, end).reduce((sum, each) => sum + each, 0);
 
   // remember notes where he reads after he scrolls, draws the rows that come
   // within reach, and reads the older page once he nears the top.
@@ -363,10 +381,13 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
       <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
         onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
-        <div ref={items} className="conversation-items" style={{ paddingTop: drawn.before }}>
-          {held.messages.slice(drawn.start, drawn.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-            task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
-          <div className="conversation-room" style={{ height: drawn.after }} />
+        <div ref={items} className="conversation-items" style={{ paddingTop: heightOf(0, spans[0].start) }}>
+          {spans.map((span, at) => <Fragment key={span.start}>
+            {at > 0 && <div className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />}
+            {held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
+          </Fragment>)}
+          <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
