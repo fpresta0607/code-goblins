@@ -358,9 +358,9 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			_, isTracked := s.db.TaskSessions[e.TaskID]
 			_, isEvaluated := s.db.Tasks[e.TaskID]
 			if errors.Is(err, os.ErrNotExist) && !isTracked && !isEvaluated && time.Since(e.OccurredAt) > unknownTaskGrace {
-				return fmt.Errorf("%w: %w: task %s has no record", ErrDeferred, errUnknownTask, bounded(e.TaskID, 80))
+				return fmt.Errorf("%w: %w: task %s has no record", errAwaitsEvidence, errUnknownTask, bounded(e.TaskID, 80))
 			}
-			return fmt.Errorf("%w: task metadata unavailable: %v", ErrDeferred, err)
+			return fmt.Errorf("%w: task metadata unavailable: %v", errAwaitsEvidence, err)
 		}
 		if e.Generation != meta.SpawnGen {
 			return errors.New("event belongs to another spawn generation")
@@ -370,11 +370,11 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 		}
 		cwd, err := fsx.Canonical(e.CWD)
 		if err != nil {
-			return fmt.Errorf("%w: cwd unavailable: %v", ErrDeferred, err)
+			return fmt.Errorf("%w: cwd unavailable: %v", errAwaitsEvidence, err)
 		}
 		wt, err := fsx.Canonical(meta.Worktree)
 		if err != nil {
-			return fmt.Errorf("%w: worktree unavailable: %v", ErrDeferred, err)
+			return fmt.Errorf("%w: worktree unavailable: %v", errAwaitsEvidence, err)
 		}
 		rel, err := filepath.Rel(wt, cwd)
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -394,7 +394,7 @@ func (s *Store) Accept(e nativehook.Event) (err error) {
 			return errors.New("session is already ended")
 		}
 	} else if e.Kind != "started" {
-		return fmt.Errorf("%w: session has no start evidence", ErrDeferred)
+		return fmt.Errorf("%w: session has no start evidence", errAwaitsEvidence)
 	}
 	parent := prior.Parent
 	if e.ParentSessionID != "" {
@@ -1082,9 +1082,20 @@ const deferralLimit = time.Hour
 // review sessions did, spools such events, 3,510 of them on 2026-10-27.
 const unknownTaskGrace = 2 * time.Minute
 
+// errAwaitsEvidence is ErrDeferred for evidence of the event itself, its
+// task's record, its worktree or its session's start, which may never come
+// and so is waited for only until deferralLimit; an event deferred for room
+// the store's bounds have not got waits however long that takes.
+var errAwaitsEvidence = fmt.Errorf("%w", ErrDeferred)
+
 // errUnknownTask marks a deferral that waits for a task the fleet never
 // knew, which leaves the inbox once unknownTaskGrace has passed.
 var errUnknownTask = errors.New("the fleet never knew its task")
+
+// setAsideIssue is the part of the one issue line that counts the native
+// events set aside for evidence that does not come, by which each intake
+// pass finds that line to update rather than add another.
+const setAsideIssue = " native events that waited for evidence that does not come, the latest because "
 
 // inboxFilling is how many events in the native inbox wake the CFO, a
 // quarter short of the bound at which every goblin's hook fails.
@@ -1101,9 +1112,9 @@ type inboxEvent struct {
 
 // Ingest accepts the events waiting in the native inbox and returns each it
 // accepted for the first time, in the order it accepted them, also when it
-// stops short with an error: they have left the inbox. Events deferred past
-// deferralLimit, or waiting for a task the fleet never knew, leave it too,
-// and one issue line says how many.
+// stops short with an error: they have left the inbox. Events that waited
+// for evidence past deferralLimit, or for a task the fleet never knew, leave
+// it too, and one issue line counts them.
 func (s *Store) Ingest() ([]nativehook.Event, error) {
 	entries, err := os.ReadDir(nativehook.SpoolDir(s.Home.State))
 	if err != nil {
@@ -1176,16 +1187,14 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 			break
 		}
 		if errors.Is(err, ErrDeferred) {
-			if !errors.Is(err, errUnknownTask) && time.Since(r.event.OccurredAt) < deferralLimit {
+			if !errors.Is(err, errAwaitsEvidence) || !errors.Is(err, errUnknownTask) && time.Since(r.event.OccurredAt) < deferralLimit {
 				continue
 			}
 			if err := os.Remove(r.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				stopErr = err
 				break
 			}
-			if dropped++; dropReason == "" {
-				dropReason = err.Error()
-			}
+			dropped, dropReason = dropped+1, err.Error()
 			consumed++
 			continue
 		}
@@ -1215,7 +1224,17 @@ func (s *Store) Ingest() ([]nativehook.Event, error) {
 	}
 	if dropped > 0 && !errors.Is(stopErr, ErrStorage) {
 		s.mu.Lock()
-		s.db.Issues = append(s.db.Issues, fmt.Sprintf("%s set aside %d native events that waited for evidence that does not come, the first because %s", time.Now().UTC().Format(time.RFC3339), dropped, bounded(dropReason, 200)))
+		at := slices.IndexFunc(s.db.Issues, func(issue string) bool { return strings.Contains(issue, setAsideIssue) })
+		if at < 0 {
+			at = len(s.db.Issues)
+			s.db.Issues = append(s.db.Issues, "")
+		} else {
+			earlier := 0
+			if _, err := fmt.Sscanf(s.db.Issues[at], "%s set aside %d", new(string), &earlier); err == nil {
+				dropped += earlier
+			}
+		}
+		s.db.Issues[at] = fmt.Sprintf("%s set aside %d%s%s", time.Now().UTC().Format(time.RFC3339), dropped, setAsideIssue, bounded(dropReason, 200))
 		if len(s.db.Issues) > 20 {
 			s.db.Issues = s.db.Issues[len(s.db.Issues)-20:]
 		}

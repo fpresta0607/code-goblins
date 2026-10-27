@@ -637,6 +637,67 @@ func TestAnEventThatWaitsForEvidenceThatDoesNotComeLeavesTheInbox(t *testing.T) 
 	}
 }
 
+// An event the store's bounds have no room for waits however long that
+// takes: the bounds hold events back rather than drop what a goblin did, and
+// room comes as sessions end, unlike evidence that does not come.
+func TestAnEventThatWaitsForRoomStaysInTheInbox(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	s.mu.Lock()
+	for i := range maxSessions {
+		id := fmt.Sprintf("codex/busy-%d", i)
+		s.db.Sessions[id] = Session{ID: id, NativeID: fmt.Sprintf("busy-%d", i), Harness: "codex", Role: "cfo", Phase: "active", UpdatedAt: time.Now()}
+	}
+	err := s.save()
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := event(t, h, "SessionStart", "s1", "", time.Now().Add(-2*time.Hour))
+	if err := s.Accept(waiting); err == nil || !strings.Contains(err.Error(), "all retained sessions have recent activity") {
+		t.Fatalf("Accept = %v, want it held back for room; the test proves nothing", err)
+	}
+	if err := nativehook.Spool(h.State, waiting); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, err = s.Ingest()
+
+	// Assert
+	files, _ := os.ReadDir(nativehook.SpoolDir(h.State))
+	if issues := s.Snapshot().Issues; err != nil || len(files) != 1 || len(issues) != 0 {
+		t.Fatalf("Ingest = %v, inbox %d events and issues %q, want the event left to wait for room", err, len(files), issues)
+	}
+}
+
+// However many passes set events aside, one issue line counts them all, so
+// a stray spooler cannot push every other diagnostic out of the 20 lines
+// the board keeps.
+func TestManyPassesThatSetEventsAsideLeaveOneIssueLine(t *testing.T) {
+	// Arrange
+	s, h := testStore(t)
+	const passes = 25
+
+	// Act
+	for i := range passes {
+		stray := event(t, h, "UserPromptSubmit", fmt.Sprintf("stray-%d", i), "turn", time.Now().Add(-5*time.Minute))
+		stray.TaskID = "nm-daemon-temp"
+		if err := nativehook.Spool(h.State, stray); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Ingest(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	issues := s.Snapshot().Issues
+	if len(issues) != 1 || !strings.Contains(issues[0], fmt.Sprintf("set aside %d native events that waited for evidence that does not come", passes)) || !strings.Contains(issues[0], "task nm-daemon-temp has no record") {
+		t.Fatalf("issues %q, want one line counting all %d set aside and why the latest was", issues, passes)
+	}
+}
+
 // waitingForARetiredTask is an event of a task the store tracked and whose
 // record is gone, which waits in the inbox to be tried again.
 func waitingForARetiredTask(t *testing.T, s *Store, h home.Home) []byte {
