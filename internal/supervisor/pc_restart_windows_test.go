@@ -216,7 +216,8 @@ func TestRestartPCWritesEveryHandoffAndPauseBeforeWindowsRestarts(t *testing.T) 
 // not on a session. A restart that paused it would have the scheduler resume
 // it after the sign-in, only to report the same pull request done again, as
 // three goblins did after a restart on 2026-10-27, so the restart leaves it
-// unpaused and pauses only the goblin still working.
+// unpaused. One the CFO steered back to work after its done report took a
+// prompt since, and is paused with its handoff as one still working is.
 func TestRestartPCLeavesAGoblinThatDeliveredItsPullRequestUnpaused(t *testing.T) {
 	// Arrange
 	s, h, log, spawner := restartBoard(t, 8*gigabyte)
@@ -226,6 +227,10 @@ func TestRestartPCLeavesAGoblinThatDeliveredItsPullRequestUnpaused(t *testing.T)
 	if err := state.AppendStatus(h.State, delivered.ID, "done: PR https://github.com/acme/api/pull/7"); err != nil {
 		t.Fatal(err)
 	}
+	if err := state.AppendStatus(h.State, working.ID, "done: PR https://github.com/acme/api/pull/8"); err != nil {
+		t.Fatal(err)
+	}
+	promptedAfterItsReports(t, s.Store, working)
 
 	// Act
 	code, _ := askTheBoard(t, s, "POST", "/api/pc/restart", "{}", nil)

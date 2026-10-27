@@ -100,7 +100,7 @@ func (s Service) idleAtPrompt(ctx context.Context, meta state.TaskMeta, sample E
 // seen working past, parks, pauses or ends it: it waits on something, asked
 // the CFO, or reported its work finished, so it is not idle with work left.
 func (s Service) heldByVerb(id string, observation Observation) bool {
-	verb, line, ok := s.latestStatusVerb(id)
+	verb, _, line, ok := s.latestStatusVerb(id)
 	return ok && line > observation.ConsumedVerbLine && (verb == "paused" || IsParkedDecisionVerb(verb) || IsTerminalVerb(verb))
 }
 

@@ -22,8 +22,9 @@ import (
 
 // comebackHome is a home after a reboot: a task record for every goblin
 // named, each in the harness and backend given, the board's record that
-// claude-owned's conversation is its own, and a lifecycle record for each
-// phase given, of the task's generation unless it says stale.
+// claude-owned's conversation is its own and that steered-back's session took
+// a prompt a minute from now, and a lifecycle record for each phase given, of
+// the task's generation unless it says stale.
 func comebackHome(t *testing.T, goblins map[string][2]string, lifecycles map[string]string) home.Home {
 	t.Helper()
 	h := testHome(t)
@@ -50,8 +51,11 @@ func comebackHome(t *testing.T, goblins map[string][2]string, lifecycles map[str
 		}
 	}
 	database := supervisor.Database{
-		TaskSessions: map[string]string{"claude-owned": "owned"},
-		Sessions:     map[string]supervisor.Session{"owned": {NativeID: "owned-conversation", TaskID: "claude-owned", Generation: "s1", Harness: "claude", Role: "goblin"}},
+		TaskSessions: map[string]string{"claude-owned": "owned", "steered-back": "steered"},
+		Sessions: map[string]supervisor.Session{
+			"owned":   {NativeID: "owned-conversation", TaskID: "claude-owned", Generation: "s1", Harness: "claude", Role: "goblin"},
+			"steered": {NativeID: "steered-conversation", TaskID: "steered-back", Generation: "s1", Harness: "claude", Role: "goblin", PromptAt: time.Now().UTC().Add(time.Minute)},
+		},
 	}
 	data, err := json.Marshal(database)
 	if err != nil {
@@ -81,8 +85,10 @@ func comebackRuntime(running []string, refused error, switched func(spawn.Switch
 // terminal ended: on its own conversation where the board's record proves it
 // is the task's, and from a handoff where it does not. It leaves a goblin
 // that still runs, was paused or stopped on purpose, or reported its pull
-// request done, as it is, finishes a resume the reboot cut short, and says
-// what needs a hand: a goblin that ran in Herdr and a switch that failed.
+// request done and took no prompt since, as it is, brings back one the CFO
+// steered back to work after its done report, finishes a resume the reboot
+// cut short, and says what needs a hand: a goblin that ran in Herdr and a
+// switch that failed.
 func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 	// Arrange
 	h := comebackHome(t, map[string][2]string{
@@ -96,9 +102,12 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 		"in-herdr":     {"claude", "herdr"},
 		"fails":        {"codex", "native"},
 		"delivered":    {"claude", "native"},
+		"steered-back": {"claude", "native"},
 	}, map[string]string{"paused": "paused", "stopped": "stopped", "old-pause": "stale paused", "cut-short": "resuming"})
-	if err := state.AppendStatus(h.State, "delivered", "done: PR https://github.com/acme/api/pull/7"); err != nil {
-		t.Fatal(err)
+	for id, report := range map[string]string{"delivered": "done: PR https://github.com/acme/api/pull/7", "steered-back": "done: PR https://github.com/acme/api/pull/8"} {
+		if err := state.AppendStatus(h.State, id, report); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var requests []spawn.SwitchRequest
 	runtime := comebackRuntime([]string{"still-runs"}, nil, func(request spawn.SwitchRequest) (spawn.SwitchResult, error) {
@@ -131,6 +140,7 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 		"cut-short":    "the resume the restart cut short finished",
 		"in-herdr":     "ran in Herdr",
 		"fails":        "codex is not on PATH",
+		"steered-back": "back on its conversation",
 	}
 	if len(said) != len(want) {
 		t.Errorf("goblins resume said %q; want something only of %q", said, slices.Sorted(func(yield func(string) bool) {
@@ -150,8 +160,8 @@ func TestGoblinsResumeBringsBackTheGoblinsARebootEnded(t *testing.T) {
 	for _, request := range requests {
 		switched[request.ID] = request
 	}
-	if len(switched) != 4 || switched["claude-owned"].ResumeSession != "owned-conversation" || switched["pi-handoff"].ResumeSession != "" {
-		t.Errorf("switches %+v; want claude-owned on its own conversation, and pi-handoff, old-pause and fails without one", requests)
+	if len(switched) != 5 || switched["claude-owned"].ResumeSession != "owned-conversation" || switched["steered-back"].ResumeSession != "steered-conversation" || switched["pi-handoff"].ResumeSession != "" {
+		t.Errorf("switches %+v; want claude-owned and steered-back on their own conversations, and pi-handoff, old-pause and fails without one", requests)
 	}
 	if len(resumes) != 1 || resumes[0].ID != "cut-short" || resumes[0].Action != "resume" || resumes[0].Generation != "s1" {
 		t.Errorf("resumes %+v; want the resume cut-short's record left unfinished", resumes)

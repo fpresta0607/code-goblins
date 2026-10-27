@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -926,14 +928,48 @@ func (s *Service) reportedDone(id string) string {
 	return deliveredPR(lines, meta.SpawnGen)
 }
 
-// DeliveredPR is the pull request the goblin of meta's generation says it
-// delivered in its latest report, or "" when that report is not done or
-// names none. Such a goblin has nothing left to do in a session: on
-// 2026-10-27 three that a restart brought back each spent a fresh session
-// only to report the same pull request done again.
-func DeliveredPR(directory string, meta state.TaskMeta) string {
+// hasDelivered is isDelivered for meta's goblin, read from its status log
+// and the session the store holds for its task.
+func (s *Service) hasDelivered(meta state.TaskMeta) bool {
+	lines, _ := s.statusTail(meta.ID)
+	return isDelivered(lines, meta.SpawnGen, s.Store.taskSession(meta.ID))
+}
+
+// HasDelivered is isDelivered for meta's goblin read from directory, for
+// goblins resume, which runs without the supervisor. The board's record is
+// read only for a goblin whose latest report delivered a pull request, and
+// one that cannot be read is an error, never taken as no prompt.
+func HasDelivered(directory string, meta state.TaskMeta) (bool, error) {
 	lines, _ := state.TailStatus(directory, meta.ID, 200)
-	return deliveredPR(lines, meta.SpawnGen)
+	if deliveredPR(lines, meta.SpawnGen) == "" {
+		return false, nil
+	}
+	var database struct {
+		Sessions     map[string]Session `json:"sessions"`
+		TaskSessions map[string]string  `json:"task_sessions"`
+	}
+	data, err := fsx.ReadFile(filepath.Join(directory, ".supervisor.json"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("read the board's record of %s's session: %w", meta.ID, err)
+	}
+	if err == nil {
+		if err := json.Unmarshal(data, &database); err != nil {
+			return false, fmt.Errorf("read the board's record of %s's session: %w", meta.ID, err)
+		}
+	}
+	return isDelivered(lines, meta.SpawnGen, database.Sessions[database.TaskSessions[meta.ID]]), nil
+}
+
+// isDelivered reports whether the goblin of generation delivered a pull
+// request in its latest report and its session took no prompt after it, as
+// one the CFO steers back to work with cfo send takes. Such a goblin waits on
+// the merge, not on a session: on 2026-10-27 three that a restart brought
+// back each spent a fresh session only to report the same pull request done
+// again.
+func isDelivered(lines []string, generation string, session Session) bool {
+	reportedAt, _ := latestReport(lines, spawnTime(generation))
+	isPromptedSince := session.Generation == generation && session.PromptAt.Truncate(time.Second).After(reportedAt)
+	return deliveredPR(lines, generation) != "" && !isPromptedSince
 }
 
 func deliveredPR(lines []string, generation string) string {
