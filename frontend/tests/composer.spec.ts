@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { at, box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.describe("phone speech history", () => {
   test.use({ hasTouch: true });
@@ -25,7 +25,7 @@ test.describe("phone speech history", () => {
         await field(page).fill("before replace after");
         await field(page).evaluate((element) => { const box = element as HTMLTextAreaElement; box.focus(); box.setSelectionRange(7, 14); });
 
-        await box(page).getByRole("button", { name: "Speech history", exact: true }).tap();
+        await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
         const history = page.getByRole("dialog", { name: "Recent messages" });
         await expect(history).toBeVisible();
         await history.getByRole("button", { name: "Paste into the message: older dictation", exact: true }).tap();
@@ -70,14 +70,22 @@ for (const width of [1440, 390]) {
     expect(replyText && replyActions && replyActions.y >= replyText.y + replyText.height).toBeTruthy();
     await expect(reply.locator(".message-reply-actions time")).toBeVisible();
     const bounds = await Promise.all([input, add, field(page), microphone, style].map((part) => part.boundingBox()));
-    const [bar, plus, prompt, mic, footer] = bounds;
-    expect(bar && plus && prompt && mic && footer).toBeTruthy();
-    if (!bar || !plus || !prompt || !mic || !footer) return;
-    expect(plus.x + plus.width).toBeLessThanOrEqual(prompt.x);
-    expect(prompt.x + prompt.width).toBeLessThanOrEqual(mic.x);
-    expect(footer.y).toBeGreaterThanOrEqual(bar.y + bar.height);
-    expect(bar.height).toBeLessThanOrEqual(60);
-    for (const button of [add, microphone, style, composer.getByRole("button", { name: "Speech history", exact: true })]) {
+    const [bar, plus, prompt, mic, menu] = bounds;
+    expect(bar && plus && prompt && mic && menu).toBeTruthy();
+    if (!bar || !plus || !prompt || !mic || !menu) return;
+    // The words sit above one row of controls, every one inside the box's
+    // border: adding files and the style menu at its start, the microphone
+    // at its end.
+    for (const control of [plus, menu, mic]) {
+      expect(control.y).toBeGreaterThanOrEqual(prompt.y + prompt.height);
+      expect(control.x).toBeGreaterThanOrEqual(bar.x);
+      expect(control.x + control.width).toBeLessThanOrEqual(bar.x + bar.width);
+      expect(control.y + control.height).toBeLessThanOrEqual(bar.y + bar.height);
+    }
+    expect(plus.x + plus.width).toBeLessThanOrEqual(menu.x);
+    expect(menu.x + menu.width).toBeLessThanOrEqual(mic.x);
+    expect(bar.height).toBeLessThanOrEqual(110);
+    for (const button of [add, microphone, style]) {
       expect(await button.evaluate((element) => ({ border: getComputedStyle(element).borderTopWidth, background: getComputedStyle(element).backgroundColor }))).toEqual({ border: "0px", background: "rgba(0, 0, 0, 0)" });
     }
     await field(page).fill("Keep this draft while changing the view");
@@ -337,7 +345,7 @@ test.describe("dictation into the box", () => {
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [{ text: "check the phone spec", at: Date.parse("2026-10-22T09:30:00Z") }] } }));
     await openGoblin(page);
 
-    await box(page).getByRole("button", { name: "Speech history" }).click();
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
     await page.getByRole("dialog", { name: "Recent messages" }).getByRole("button", { name: "Paste into the message: check the phone spec" }).click();
 
     await expect(field(page)).toHaveValue("check the phone spec");
@@ -347,8 +355,8 @@ test.describe("dictation into the box", () => {
     await open(page);
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
     await openGoblin(page);
-    const recent = box(page).getByRole("button", { name: "Speech history" });
-    await recent.click();
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    const recent = box(page).getByRole("button", { name: /^Style: / });
     await expect(page.getByRole("dialog", { name: "Recent messages" })).toBeVisible();
 
     await page.keyboard.press("Escape");

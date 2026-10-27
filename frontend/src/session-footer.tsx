@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useNow } from "./clock";
 import { elapsedText, formatAge } from "./session-usage";
 import { WorkingIndicator } from "./working-indicator";
@@ -5,9 +6,10 @@ import { WorkingIndicator } from "./working-indicator";
 // The line at the very bottom of the conversation: the session's working
 // state in its harness's colour and no icon, then the time facts and not a
 // wall of numbers (the Overlord, 2026-10-26): how long it has been working,
-// when he last sent a message, and when the last reply arrived.
-export function SessionFooter({ ink, isWorking, workingSince, lastSentAt, lastReplyAt, now, hasUsage, why }: {
-  ink: string; isWorking: boolean; workingSince: string; lastSentAt: string; lastReplyAt: string; now: number; hasUsage: boolean; why: string;
+// when he last sent a message, and when the last reply arrived; usage is
+// the session's context ring at its end, which opens its statistics.
+export function SessionFooter({ ink, isWorking, workingSince, lastSentAt, lastReplyAt, now, hasUsage, why, usage }: {
+  ink: string; isWorking: boolean; workingSince: string; lastSentAt: string; lastReplyAt: string; now: number; hasUsage: boolean; why: string; usage?: ReactNode;
 }) {
   // The board's clock reads whole minutes; how long the session has worked
   // shows seconds, so the footer reads its own clock each second, and only
@@ -19,5 +21,6 @@ export function SessionFooter({ ink, isWorking, workingSince, lastSentAt, lastRe
     {lastSentAt && <span className="session-fact">Sent {formatAge(lastSentAt, now)}</span>}
     {lastReplyAt && <span className="session-fact">Replied {formatAge(lastReplyAt, now)}</span>}
     {(!hasUsage || why) && <span className="session-fact muted">Usage unavailable</span>}
+    {usage}
   </div>;
 }

@@ -1394,6 +1394,7 @@ The terminal decides that before xterm sees the wheel, since xterm's own scroll 
 At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
 The indicator has no icon of its own and takes the harness's colour.
 When the session is not working the line keeps the time facts, and the fuller usage stays in the banner.
+The line ends with the session's context ring, which opens its statistics above itself with one label and its value on each line (`frontend/src/context-usage.tsx`).
 Above the message box an unboxed usage line opens the full stats in place: recorded session usage, available account quota and shared API-key spend, each labeled for its actual scope.
 Shared key spend is never presented as session cost, and available session usage stays readable when quota is unavailable.
 A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.
@@ -1428,12 +1429,12 @@ There is no amber card and nothing steps the terminal in by itself (the Overlord
 The list is not drawn while that terminal is stepped in, which shows the screen itself, or while typing is held, when Send queues what he wrote as it does under any hold.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
-Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
+Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history, in the box's style menu, opens the board's recent dictations, each with Copy and Paste into the message.
 The active composer owns the microphone and queue note, while a phone terminal keeps Copy terminal text independently available.
 An already-running terminal recording keeps one Stop control, on the active composer when a box is shown and on the terminal's own bubble when none is, and a live terminal takes the words its own microphone heard, which Speech history still lists, and holds for pasting back, only where held input refused them.
-The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
-Plain style, model, effort, speech-history, terminal and send controls sit underneath without pills, beside the current session's context ring.
-While the session's terminal names a permission mode, as Claude Code's composer footer does, the mode shows as a chip beside Style, and a press of it, like Shift+Tab in the box, sends the terminal Shift+Tab, which cycles the mode, and leaves the keyboard in the box; it is disabled while typing is held.
+The box is one bordered field with what he writes on top and its controls in one row along its bottom edge, inside the border, as the Claude desktop app draws its box (the CFO's review of step 3, 2026-10-27): Add files and the style menu at its start, then the permission mode, the model by its short name (Opus 5.5), the effort, the microphone and Send, which is Stop while the session works.
+The style menu holds Modern and Classic, Speech history and Open in Windows Terminal; every control in the row has a hover label, and a box narrower than 420 px shows the mode by its icon alone so the whole row fits a 360 px phone without cutting the model's name.
+While the session's terminal names a permission mode, as Claude Code's composer footer does, the mode shows in the box's row, and a press of it, like Shift+Tab in the box, sends the terminal Shift+Tab, which cycles the mode, and leaves the keyboard in the box; it is disabled while typing is held.
 A `/` at the start of the box lists the session's commands from `/api/commands` as he types the command word, the one named exactly that first, then by name and then by description, and an `@` lists the session's files from `/api/files`, read 120 ms after he stops typing, with the last list for that same `@` kept meanwhile; the arrows move through the one list, Enter or Tab takes the picked entry, and Escape closes it until the draft changes.
 Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.
 The ring uses the recorded context tokens and window, and opens available session statistics by hover, keyboard focus or touch; an unknown window is named as unavailable rather than drawn as zero use.

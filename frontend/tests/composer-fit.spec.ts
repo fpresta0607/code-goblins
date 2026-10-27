@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { box, field, open, openGoblin, send } from "./session-board";
+import { box, boxMenu, field, open, openGoblin, send } from "./session-board";
 
 // What he types and what pops up over the box always fit the window (the
 // Overlord, 2026-10-27): "as I'm typing in very, very long messages ... I
@@ -56,7 +56,7 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
     await openGoblin(page);
 
     // Act
-    await box(page).getByRole("button", { name: "Speech history" }).click();
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
 
     // Assert: the card is whole in the window, its title the topmost thing
     // where it is drawn, and a list longer than the room scrolls inside it.
@@ -111,27 +111,46 @@ test("a long message keeps its last lines in view while dictation adds to it", a
   await expect.poll(() => field(page).evaluate((element: HTMLTextAreaElement) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(2);
 });
 
-for (const [label, width, height] of [["a phone", 390, 844], ["a small phone", 360, 640]] as const) {
-  test.describe(`on ${label}'s touch screen`, () => {
-    test.use({ viewport: { width, height }, hasTouch: true, isMobile: true });
+// The box's controls sit in one row inside its border, as the Claude desktop
+// app draws its box (the CFO's review of step 3, 2026-10-27: "No loose rows
+// under it. Model short (Opus 5.5), never cut at 360 px. Every icon gets a
+// hover label. Test against the box border."), on his desktop's side panel
+// and on a phone's touch screen.
+for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 960, false], ["a phone", 390, 844, true], ["a small phone", 360, 640, true]] as const) {
+  test.describe(`on ${label}`, () => {
+    test.use({ viewport: { width, height }, hasTouch: isTouch, isMobile: isTouch });
 
-    test("every control in the row under the box lies whole inside the box", async ({ page }) => {
-      // Arrange
-      await open(page);
+    test("the box's controls lie in one row inside its border, the model whole, and every icon has a hover label", async ({ page }) => {
+      // Arrange: a Claude Code session in auto mode, its effort known.
+      const relay = await open(page);
       await openGoblin(page);
-      await expect(box(page).getByRole("button", { name: "Change model" })).toBeVisible();
+      relay.say({ type: "screen", asking: false, open: false, working: false, submission: "", mode: "auto mode" });
+      const model = box(page).getByRole("button", { name: "Change model" });
+      await expect(model).toHaveText("Opus 5.5");
+      await expect(box(page).getByRole("button", { name: /^Mode: / })).toBeVisible();
 
       // Act
-      const cut = await box(page).evaluate((composer) => {
-        const outer = composer.getBoundingClientRect();
-        return [...composer.querySelectorAll(".composer-tools button")].filter((button) => {
-          const inner = button.getBoundingClientRect();
-          return inner.width === 0 || inner.left < outer.left - 0.5 || inner.right > outer.right + 0.5;
-        }).map((button) => button.getAttribute("aria-label"));
+      const row = await box(page).locator(".composer-input").evaluate((input) => {
+        const border = input.getBoundingClientRect();
+        const text = input.querySelector("textarea")!.getBoundingClientRect();
+        return [...input.querySelectorAll(".composer-row button")].map((button) => {
+          const bounds = button.getBoundingClientRect();
+          return {
+            name: button.getAttribute("aria-label"), tip: button.getAttribute("data-tip"), hasWords: (button.textContent ?? "").trim() !== "",
+            isInside: bounds.width > 0 && bounds.left >= border.left - 0.5 && bounds.right <= border.right + 0.5 && bounds.top >= text.bottom - 0.5 && bounds.bottom <= border.bottom + 0.5,
+            middle: Math.round(bounds.top + bounds.height / 2), isCut: button.scrollWidth > button.clientWidth + 0.5,
+          };
+        });
       });
 
       // Assert
-      expect(cut).toEqual([]);
+      expect(row.map((control) => control.name).slice(0, -1)).toEqual(["Add files", "Style: modern", "Mode: auto mode. Shift+Tab changes it", "Change model", "Change effort", isTouch ? "Dictate" : "Hold to dictate"]);
+      expect(["Send", "Stop"], "Send, or Stop while the session works").toContain(row.at(-1)?.name);
+      expect(row.filter((control) => !control.isInside).map((control) => control.name), "every control inside the box's border, under the words").toEqual([]);
+      expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);
+      expect(row.filter((control) => control.isCut).map((control) => control.name), "no control's words cut").toEqual([]);
+      expect(row.filter((control) => !control.tip).map((control) => control.name), "every control has a hover label").toEqual([]);
+      await expect(box(page).locator(".composer-tools")).toHaveCount(0);
     });
   });
 }

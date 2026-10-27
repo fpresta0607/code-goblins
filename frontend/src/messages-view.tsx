@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
+import { ContextUsage } from "./context-usage";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { SessionFooter } from "./session-footer";
-import { sessionStats, usageBanner, type SessionStats, type UsageReading } from "./session-usage";
+import { sessionStats, usageBanner } from "./session-usage";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import "./messages-view.css";
@@ -44,7 +45,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
   workingSince: string; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (stats: SessionStats, reading: UsageReading, model: string, history: string[]) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[]) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
   const list = useRef<HTMLDivElement>(null);
@@ -289,9 +290,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
         <button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
     </div>
     {(box || reading.banner) && <div className="composer-dock">
-      <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} />
+      <SessionFooter ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
-      {box?.(stats, reading, held.usage?.model || model, history)}
+      {box?.(held.usage?.model || model, history)}
     </div>}
   </section>;
 }

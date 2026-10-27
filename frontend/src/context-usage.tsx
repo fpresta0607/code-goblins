@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { SessionStats, UsageReading } from "./session-usage";
+import "./context-usage.css";
 
 export function ContextUsage({ stats, reading }: { stats: SessionStats; reading: UsageReading }) {
   const [isOpen, setOpen] = useState(false);
@@ -19,7 +20,7 @@ export function ContextUsage({ stats, reading }: { stats: SessionStats; reading:
     onPointerLeave={() => { if (document.activeElement !== button.current) setOpen(false); }}
     onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
     onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setOpen(false); } }}>
-    <button ref={button} type="button" className="composer-control context-ring" aria-label={label} aria-expanded={isOpen} aria-describedby={isOpen ? id : undefined}
+    <button ref={button} type="button" className="context-ring" data-tip={isOpen ? undefined : label} aria-label={label} aria-expanded={isOpen} aria-describedby={isOpen ? id : undefined}
       onFocus={() => setOpen(true)} onClick={() => setOpen(true)}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle className="context-track" cx="12" cy="12" r="9" />
         {percent !== undefined && <circle className="context-used" cx="12" cy="12" r="9" pathLength="100" strokeDasharray={`${percent} 100`} />}

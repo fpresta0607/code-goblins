@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, field, GOBLIN, NAME, open, openGoblin, pasted, snapshot, typed } from "./session-board";
+import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, pasted, snapshot, typed } from "./session-board";
 
 for (const who of ["CFO", "goblin"] as const) {
   for (const width of [1440, 390]) {
@@ -32,7 +32,7 @@ for (const who of ["CFO", "goblin"] as const) {
       expect(typed(relay)).toBe("");
 
       // Act: opening a separate terminal preserves the draft and view.
-      await composer.getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
+      await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
       await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       await expect(field(page, name)).toHaveValue(kept);
 

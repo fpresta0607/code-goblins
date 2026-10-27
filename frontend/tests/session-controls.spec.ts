@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
+import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
 
 const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000, model: "recorded-model" };
 
@@ -10,7 +10,7 @@ for (const width of [1440, 390]) {
     await openGoblin(page);
     await field(page).fill("keep this draft");
     const composer = box(page);
-    await expect(composer.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
 
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), more: false });
 
@@ -46,7 +46,7 @@ for (const width of [1440, 390]) {
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText(USAGE.model);
       await expect(composer.getByRole("button", { name: "Change effort", exact: true }), "the effort control shows the session's effort, or its icon where none is known").toHaveText(who === "CFO" ? "" : "xhigh");
 
-      const ring = composer.getByRole("button", { name: "Context: 24% used", exact: true });
+      const ring = page.getByRole("button", { name: "Context: 24% used", exact: true });
       await ring.focus();
       const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
       await expect(stats).toContainText("24k of 100k");
@@ -62,32 +62,32 @@ for (const width of [1440, 390]) {
       // Choosing a dictation puts it where the caret is, so it is put at the
       // end of the draft first, as a tap on its last word does.
       await page.keyboard.press("End");
-      await composer.getByRole("button", { name: "Speech history", exact: true }).click();
+      await (await boxMenu(page, name)).getByRole("button", { name: "Speech history", exact: true }).click();
       await page.getByRole("dialog", { name: "Recent messages", exact: true }).getByRole("button", { name: "Paste into the message: from speech", exact: true }).click();
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
 
-      await composer.getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
+      await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
       await expect.poll(() => posted).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       await expect(page.locator(".panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
       await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
-      await expect(composer.getByRole("button", { name: "Context: 72% used", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Context: 72% used", exact: true })).toBeVisible();
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("changed-model");
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal: "new-cfo" }, { harness: "codex", generation: "replacement" }));
-      await expect(composer.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
       await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CFO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
-      await composer.getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
+      await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
       await expect.poll(() => posted[1]).toEqual(who === "CFO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText(USAGE.model);
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
-      const controls = await composer.locator(".composer-controls").last().locator("button").evaluateAll((buttons) => buttons.map((button) => {
+      const controls = await composer.locator(".composer-row button").evaluateAll((buttons) => buttons.map((button) => {
         const bounds = button.getBoundingClientRect();
-        return { top: bounds.top, right: bounds.right };
+        return { middle: bounds.top + bounds.height / 2, right: bounds.right };
       }));
-      expect(new Set(controls.map((control) => control.top)).size).toBe(1);
+      expect(new Set(controls.map((control) => Math.round(control.middle))).size, "one row of controls").toBe(1);
       expect(controls.every((control) => control.right <= width)).toBe(true);
       await page.mouse.move(0, 0);
       await page.screenshot({ path: testInfo.outputPath(`session-controls-${who}-${width}.png`) });
@@ -157,7 +157,7 @@ test("a refused terminal window leaves the draft and reports the actual refusal"
   await page.route("**/api/terminal/open", (route) => route.fulfill({ status: 403, json: { error: "Refresh the board before submitting an action" } }));
   await openGoblin(page);
   await field(page).fill("keep this");
-  await box(page).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
+  await (await boxMenu(page)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
   await expect(box(page)).toContainText("Refresh the board before submitting an action");
   await expect(field(page)).toHaveValue("keep this");
   expect(typed(relay)).toBe("");
@@ -170,9 +170,9 @@ test("a narrow desktop panel keeps all session controls inside the composer", as
   });
   await open(page, snapshot(), "", { ...PAGE, usage: USAGE });
   await openGoblin(page);
-  const bounds = await box(page).evaluate((element) => {
+  const bounds = await box(page).locator(".composer-input").evaluate((element) => {
     const edge = element.getBoundingClientRect();
-    return { left: edge.left, right: edge.right, controls: [...element.querySelectorAll(".composer-tools button")].map((button) => {
+    return { left: edge.left, right: edge.right, controls: [...element.querySelectorAll(".composer-row button")].map((button) => {
       const control = button.getBoundingClientRect();
       return { left: control.left, right: control.right };
     }) };

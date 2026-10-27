@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
@@ -296,7 +296,7 @@ for (const style of ["classic", "modern"]) {
         await testInfo.attach("usage-unavailable-surface", { path: surface, contentType: "image/png" });
 
         // Act: keyboard and touch both open useful details in the existing control.
-        const usage = box(page).getByRole("button", { name: "Context usage unavailable", exact: true });
+        const usage = page.getByRole("button", { name: "Context usage unavailable", exact: true });
         if (width === 390) await usage.tap();
         else await usage.focus();
         const details = page.getByRole("tooltip", { name: "Session statistics", exact: true });
@@ -328,7 +328,7 @@ for (const style of ["classic", "modern"]) {
         // Assert: no held input was typed, and speech remains recoverable in history.
         await expect(box(page).getByRole("button", { name: "Dictate", exact: true })).toBeVisible();
         expect(typed(relay)).toBe("");
-        await box(page).getByRole("button", { name: "Speech history", exact: true }).tap();
+        await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
         await page.getByRole("button", { name: "Paste into the message: rebase onto main", exact: true }).tap();
         await expect(field(page)).toHaveValue("rebase onto main");
       });
@@ -413,9 +413,9 @@ test("a live Classic terminal keeps its own dictation after the hold that showed
   await expect(box(page).locator(".composer-note")).toHaveText("");
 
   // Assert: Speech history holds the one dictation, and it types nothing more.
-  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
+  await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Recent messages", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
-  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
+  await page.getByRole("button", { name: "Close recent messages", exact: true }).click();
   expect(typed(relay)).toBe(before + pasted("rebase onto main"));
   await expect(field(page)).toHaveValue("");
 });
