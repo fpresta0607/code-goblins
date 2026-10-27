@@ -18,6 +18,15 @@ import (
 //	  ok  87 [board] › tests\composer-status.spec.ts:10:7 › a title (3.8s)
 //	  x   88 [board] › tests\composer-status.spec.ts:85:7 › a title (23ms)
 //
+// A case a retry ran again writes one row per try, the retry's number before
+// the time:
+//
+//	  x   1 [board] › tests\flaky.spec.ts:3:7 › a flaky case (2ms)
+//	  ok  2 [board] › tests\flaky.spec.ts:3:7 › a flaky case (retry #1) (3ms)
+//
+// so a row's retry number and time are no part of the case's name, and a case
+// is what its last row said.
+//
 // The marks are "ok" and "x" where the run's output is drawn with no color, in
 // a log or a pipe, and the same marks as the reporter's symbols (✓ and ✘)
 // where it is drawn with color. The line reporter writes the same rows without
@@ -47,6 +56,9 @@ var (
 	browserRow = regexp.MustCompile(`^(ok|✓|✔|x|✘|✗)\s+\d+\s+\[([^\]]*)\]\s+›\s+(\S.*)$`)
 	// browserDuration matches the time the reporter puts at the end of a row.
 	browserDuration = regexp.MustCompile(`\s+\([\d.]+(?:ms|s|m|h)(?: [\d.]+(?:ms|s|m|h))?\)$`)
+	// browserRetry matches the retry number a try a retry ran says before its
+	// time.
+	browserRetry = regexp.MustCompile(`\s+\(retry #\d+\)$`)
 )
 
 // NewBrowserReport keeps the cases out reports as failed and passes
@@ -96,8 +108,18 @@ func (r *BrowserReport) note(line string) {
 		return
 	}
 	name := match[3]
-	if duration := browserDuration.FindStringIndex(name); duration != nil {
-		name = name[:duration[0]]
+	// The retry number comes before the time, so strip whichever of the two is
+	// at the end until neither is left: a row that a retry ran ends with the
+	// retry's number and then its time.
+	for {
+		at := browserDuration.FindStringIndex(name)
+		if at == nil {
+			at = browserRetry.FindStringIndex(name)
+		}
+		if at == nil {
+			break
+		}
+		name = name[:at[0]]
 	}
 	name = strings.ReplaceAll("["+match[2]+"] "+name, `\`, "/")
 	if strings.HasPrefix(match[1], "o") || match[1] == "✓" || match[1] == "✔" {

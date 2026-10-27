@@ -127,15 +127,28 @@ func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T)
 }
 
 // A case that failed and passed when the run tried it again is no failure:
-// the reporter writes one row per try, and a case is what its last row said.
+// the reporter writes one row per try and puts the retry's number in the name
+// of the row a retry wrote, so a case is what its last row said. The rows are a
+// transcript of `npx playwright test --reporter=list` on the board's
+// @playwright/test 1.63.0, with `retries: 1`, of a case that passes on its
+// retry and one that fails both tries.
 func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
 	report := NewBrowserReport(&out)
 	rows := strings.Join([]string{
-		`  x   88 [board] › tests\afk.spec.ts:85:7 › a case that failed once (23ms)`,
-		`  ok  88 [board] › tests\afk.spec.ts:85:7 › a case that failed once (1.1s)`,
-		`  x   89 [board] › tests\afk.spec.ts:90:7 › a case that failed twice (23ms)`,
+		`Running 2 tests using 1 worker`,
+		``,
+		`  x  1 [board] › tests\flaky.spec.ts:2:1 › a flaky case (5ms)`,
+		`  ok 2 [board] › tests\flaky.spec.ts:2:1 › a flaky case (retry #1) (5ms)`,
+		`  x  3 [board] › tests\flaky.spec.ts:5:1 › a case that always fails (2ms)`,
+		`  x  4 [board] › tests\flaky.spec.ts:5:1 › a case that always fails (retry #1) (6ms)`,
+		``,
+		``,
+		`  1 failed`,
+		`    [board] › tests\flaky.spec.ts:5:1 › a case that always fails ─────────────────────────────────`,
+		`  1 flaky`,
+		`    [board] › tests\flaky.spec.ts:2:1 › a flaky case ───────────────────────────────────────────────`,
 		"",
 	}, "\n")
 
@@ -145,7 +158,7 @@ func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
 	}
 
 	// Assert
-	want := []string{"[board] tests/afk.spec.ts:90:7 › a case that failed twice"}
+	want := []string{"[board] tests/flaky.spec.ts:5:1 › a case that always fails"}
 	if got := report.Failed(); !slices.Equal(got, want) {
 		t.Errorf("failed cases are %q, want %q", got, want)
 	}
