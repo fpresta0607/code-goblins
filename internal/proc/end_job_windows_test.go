@@ -75,6 +75,28 @@ func TestEndJobBesideAMachineServiceWaitsOutTheExitsItAskedForBeforeItReads(t *t
 	}
 }
 
+// A job's list can still name a process that has exited while a handle holds
+// it, and Windows still counts it in the job: an end beside a machine service
+// that read the job again once what it ended had exited named the worker as a
+// member to end once more, and reported it twice or as outliving the end
+// (issue 1430). The list here names the worker after it has exited, and the
+// test holds it.
+func TestEndJobBesideAMachineServiceSkipsAnExitedProcessItsJobStillLists(t *testing.T) {
+	// Arrange
+	job, pids, _ := standinJob(t, "com.docker.standin", "worker")
+	proc.StaleListForTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	ended, spared, err := proc.EndJob(ctx, job)
+
+	// Assert
+	if err != nil || len(ended) != 1 || ended[0].PID != pids["worker"] || len(spared) != 1 || spared[0].PID != pids["com.docker.standin"] {
+		t.Fatalf("EndJob ended %+v and spared %+v, %v; want the worker %d ended once and the machine service %d spared", ended, spared, err, pids["worker"], pids["com.docker.standin"])
+	}
+}
+
 // A goblin's stop reads the jobs its terminal's host held (proc.HoldJobs)
 // and ends their processes one by one beside a machine service, so the read
 // names a process Windows still holds in a job but lists no more, as it does

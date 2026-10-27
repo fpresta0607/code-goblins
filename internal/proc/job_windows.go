@@ -524,11 +524,18 @@ func closeAll(handles []syscall.Handle) {
 }
 
 func jobProcessStart(job syscall.Handle, id uint32) (time.Time, bool) {
-	process, err := syscall.OpenProcess(processQueryLimitedInformation, false, id)
+	process, err := syscall.OpenProcess(processQueryLimitedInformation|syscall.SYNCHRONIZE, false, id)
 	if err != nil {
 		return time.Time{}, false
 	}
 	defer syscall.CloseHandle(process)
+	// A job's list can still name a process that has exited while a handle
+	// holds it, and Windows still counts it in the job, so a read made once an
+	// end's exits are done named what it ended as a member still to end
+	// (issue 1430).
+	if event, err := syscall.WaitForSingleObject(process, 0); err != nil || event != syscall.WAIT_TIMEOUT {
+		return time.Time{}, false
+	}
 	// Keep one process handle for membership and birth, so PID reuse between
 	// the job snapshot and this read cannot authorize an unrelated process.
 	var isMember int32
