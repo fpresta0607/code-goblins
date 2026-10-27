@@ -62,7 +62,7 @@ func bringCFOBack(h home.Home, agent, why string, start startCFO, runs func(stat
 		fresh = "You start on a new conversation. " + fresh + "."
 	}
 	if len(resume) > 0 {
-		held, err := comeBack(h, agent, resume, backPrompt(h, agent, why, ""), start, runs)
+		held, err := comeBack(h, agent, resume, backPrompt(h, agent, why, "", true), start, runs)
 		if err != nil {
 			return err
 		}
@@ -76,7 +76,7 @@ func bringCFOBack(h home.Home, agent, why string, start startCFO, runs func(stat
 		}
 		fresh = fmt.Sprintf("You start on a new conversation. Your conversation %s could not be resumed.", resume[len(resume)-1])
 	}
-	if err := start(h, h.Root, agent, nil, backPrompt(h, agent, why, fresh)); err != nil {
+	if err := start(h, h.Root, agent, nil, backPrompt(h, agent, why, fresh, false)); err != nil {
 		return err
 	}
 	if len(resume) > 0 {
@@ -90,14 +90,14 @@ func bringCFOBack(h home.Home, agent, why string, start startCFO, runs func(stat
 }
 
 // backPrompt is the first instruction of agent started again as the CFO of h
-// because of why, and on a new conversation as fresh says (cfoBackPrompt), or
-// none for a home whose CFO never registered, whose first CFO waits for the
-// Overlord.
-func backPrompt(h home.Home, agent, why, fresh string) string {
+// because of why, on its conversation where isResumed and on a new one as
+// fresh says (cfoBackPrompt), or none for a home whose CFO never registered,
+// whose first CFO waits for the Overlord.
+func backPrompt(h home.Home, agent, why, fresh string, isResumed bool) string {
 	if _, err := supervisor.ReadCFOConversation(h.State); err != nil {
 		return ""
 	}
-	return cfoBackPrompt(agent, why, fresh)
+	return cfoBackPrompt(agent, why, fresh, isResumed)
 }
 
 // reopenCFO brings the home's closed CFO back for the board's Reopen, and for

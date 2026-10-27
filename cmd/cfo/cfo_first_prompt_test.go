@@ -1,12 +1,15 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/standin"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
 // A Codex or pi CFO has no session-start hook that registers it, so the
@@ -128,7 +131,7 @@ func TestACFOStartedAgainIsToldWhyAndToTakeUpItsWork(t *testing.T) {
 	} {
 		t.Run(test.harness, func(t *testing.T) {
 			// Act
-			prompt := cfoBackPrompt(test.harness, "its terminal ended with exit code 1", "You start on a new conversation. Its last conversation holds 802K tokens of context, past the 400K a CFO resumes.")
+			prompt := cfoBackPrompt(test.harness, "its terminal ended with exit code 1", "You start on a new conversation. Its last conversation holds 802K tokens of context, past the 400K a CFO resumes.", false)
 
 			// Assert
 			for _, want := range []string{"You are the CFO of this Code Goblins home, started again because its terminal ended with exit code 1.", "Its last conversation holds 802K tokens of context", "not from the Overlord", "Run cfo drain", "carry on with the fleet without waiting for the Overlord"} {
@@ -144,22 +147,46 @@ func TestACFOStartedAgainIsToldWhyAndToTakeUpItsWork(t *testing.T) {
 }
 
 // A Claude Code CFO back on its own conversation acts on what its digest
-// says changed, since that conversation read the long digest already; one on
-// a new conversation reads it.
+// says changed, since that conversation read the long digest already; one
+// started on a new conversation reads it, also where the conversation the
+// home registered ran in Herdr or as another harness, which leaves nothing to
+// say of why it is new.
 func TestAClaudeCFOBackOnItsConversationIsNotToldToReadTheLongDigest(t *testing.T) {
 	for _, testCase := range []struct {
-		name, fresh, want, notWant string
+		name, conversationHarness, conversationHost string
+		wantArgs                                    []string
+		want, notWant                               string
 	}{
-		{name: "its own conversation", want: "your conversation holds the rest", notWant: "read the file it names"},
-		{name: "a new conversation", fresh: "You start on a new conversation.", want: "read the file it names", notWant: "your conversation holds the rest"},
+		{name: "its own conversation", conversationHarness: "claude", conversationHost: supervisor.NativeCFOTerminal, wantArgs: []string{"--resume", "a1b2c3d4-session"}, want: "your conversation holds the rest", notWant: "read the file it names"},
+		{name: "a new conversation after one in Herdr", conversationHarness: "claude", want: "read the file it names", notWant: "your conversation holds the rest"},
+		{name: "a new conversation after one of Codex", conversationHarness: "codex", conversationHost: supervisor.NativeCFOTerminal, want: "read the file it names", notWant: "your conversation holds the rest"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
+			// Arrange
+			noResumeWait(t)
+			f := newSessionFixture(t)
+			if err := os.WriteFile(cfoHarnessPath(f.home.State), []byte("claude\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			recordConversation(t, f.home.State, testCase.conversationHarness, "a1b2c3d4-session", testCase.conversationHost)
+			claudeTranscript(t, f.home.Root, "a1b2c3d4-session", 1<<10)
+			var startArgs [][]string
+			var prompts []string
+			start := func(_ home.Home, _, _ string, args []string, prompt string) error {
+				startArgs = append(startArgs, args)
+				prompts = append(prompts, prompt)
+				return nil
+			}
+
 			// Act
-			prompt := cfoBackPrompt("claude", "its terminal ended with exit code 1", testCase.fresh)
+			err := reopenCFO(f.home, "the Overlord reopened it from the board", start, func(string, string) bool { return len(prompts) > 0 })
 
 			// Assert
-			if !strings.Contains(prompt, testCase.want) || strings.Contains(prompt, testCase.notWant) {
-				t.Errorf("cfoBackPrompt = %q, want %q and not %q", prompt, testCase.want, testCase.notWant)
+			if err != nil || len(prompts) != 1 || !slices.Equal(startArgs[0], testCase.wantArgs) {
+				t.Fatalf("reopenCFO = %v, started with %q; want one start with %q", err, startArgs, testCase.wantArgs)
+			}
+			if !strings.Contains(prompts[0], testCase.want) || strings.Contains(prompts[0], testCase.notWant) {
+				t.Errorf("the CFO was told %q, want %q and not %q", prompts[0], testCase.want, testCase.notWant)
 			}
 		})
 	}
@@ -252,7 +279,7 @@ func TestEveryFirstInstructionOfACFOStartedAgainIsInWordsCmdLeavesAlone(t *testi
 			harnessesOnPath(t, harness)
 			for _, why := range whys {
 				for _, fresh := range freshes {
-					prompt := cfoBackPrompt(harness, why, fresh)
+					prompt := cfoBackPrompt(harness, why, fresh, false)
 
 					// Act
 					program, err := nativeCFOProgram(harness, cfoStartArguments(harness, nil, prompt)...)

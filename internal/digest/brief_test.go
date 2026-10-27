@@ -209,8 +209,9 @@ func TestTheBriefNamesTheFileThatHoldsTheLongDigest(t *testing.T) {
 }
 
 // A session that resumed the conversation which read the long digest is
-// told where it is and not to read it again: on 2026-10-27 a CFO whose
-// terminal ended four times in 25 minutes read it whole on every comeback.
+// told where it is and not to read it again: on 2026-10-27 a CFO brought back
+// five times in 32 minutes on its own conversation read it again after one of
+// those comebacks.
 func TestABriefForAResumedConversationDoesNotAskForTheLongDigestAgain(t *testing.T) {
 	for _, testCase := range []struct {
 		name      string

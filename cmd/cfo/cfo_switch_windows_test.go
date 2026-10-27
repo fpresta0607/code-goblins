@@ -264,7 +264,7 @@ func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 		// told why.
 		prompt := cfoFirstPrompt
 		if index > 0 {
-			prompt = cfoBackPrompt(harness, restartedWhy, "The CFO starts a new conversation in "+harness+" because its harness changed.")
+			prompt = cfoBackPrompt(harness, restartedWhy, "The CFO starts a new conversation in "+harness+" because its harness changed.", false)
 		}
 		if lines[index] != want+prompt {
 			t.Errorf("start %d = %q, want fresh arguments %q", index, lines[index], want+prompt)
@@ -361,7 +361,7 @@ func TestGoblinsResumeSwitchesHarnessAndTheBoardSwitchesBack(t *testing.T) {
 	if host.Running(record) {
 		t.Fatal("the earlier Codex CFO still runs")
 	}
-	if arguments, want := waitForFakeClaudeArguments(t, h.Root, nil), cfoBackPrompt("claude", restartedWhy, "The CFO starts a new conversation in claude because its harness changed."); !slices.Equal(arguments, []string{want}) {
+	if arguments, want := waitForFakeClaudeArguments(t, h.Root, nil), cfoBackPrompt("claude", restartedWhy, "The CFO starts a new conversation in claude because its harness changed.", false); !slices.Equal(arguments, []string{want}) {
 		t.Fatalf("Claude arguments = %q, want fresh startup told why", arguments)
 	}
 	if saved, err := cfoHarness(h.State); err != nil || saved != "claude" {
@@ -431,7 +431,7 @@ func TestCFORestartWithTheSameHarnessResumesItsConversationThroughHTTP(t *testin
 				t.Fatalf("restart = %d %s", response.Code, response.Body.String())
 			}
 			arguments := waitForFakeClaudeArguments(t, h.Root, nil)
-			if !slices.Equal(arguments, []string{"--resume", "current-session", cfoBackPrompt("claude", restartedWhy, "")}) {
+			if !slices.Equal(arguments, []string{"--resume", "current-session", cfoBackPrompt("claude", restartedWhy, "", true)}) {
 				t.Fatalf("arguments = %q, want the running conversation, told why it started again", arguments)
 			}
 		})
