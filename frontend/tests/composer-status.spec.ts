@@ -287,10 +287,9 @@ for (const style of ["classic", "modern"]) {
         await field(page).fill("Keep this while inspecting usage");
         const footer = page.locator(".session-footer:visible");
 
-        // Assert: one concise state without a second explanation in the footer.
-        await expect(footer.locator(".session-fact").filter({ hasText: /usage/i })).toHaveCount(1);
-        await expect(footer).toContainText("Usage unavailable");
-        await expect(footer).not.toContainText("its Claude usage could not be read");
+        // Assert: one plain sentence on the notice, said once in the footer.
+        await expect(footer.locator(".notice")).toHaveText("Claude usage could not be read.");
+        await expect(footer.getByText(/usage/i)).toHaveCount(1);
         const surface = testInfo.outputPath("usage-unavailable-surface.png");
         await page.screenshot({ path: surface });
         await testInfo.attach("usage-unavailable-surface", { path: surface, contentType: "image/png" });
@@ -302,7 +301,7 @@ for (const style of ["classic", "modern"]) {
         const details = page.getByRole("tooltip", { name: "Session statistics", exact: true });
 
         // Assert
-        await expect(details).toContainText("its Claude usage could not be read");
+        await expect(details).toContainText("Claude usage could not be read");
         await usage.press("Escape");
         await expect(details).toHaveCount(0);
         await expect(field(page)).toHaveValue("Keep this while inspecting usage");

@@ -99,7 +99,7 @@ test("a provider the board cannot read draws no banner and says why", () => {
 
   // Assert
   assert.equal(reading.banner, null);
-  assert.equal(reading.why, "its Claude usage could not be read");
+  assert.equal(reading.why, "Claude usage could not be read");
 });
 
 test("the numbers are drawn as the harness draws them", () => {

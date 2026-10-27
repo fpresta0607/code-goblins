@@ -1393,7 +1393,7 @@ When the session is not working the line keeps the time facts, and the fuller us
 Above the message box an unboxed usage line opens the full stats in place: recorded session usage, available account quota and shared API-key spend, each labeled for its actual scope.
 Shared key spend is never presented as session cost, and available session usage stays readable when quota is unavailable.
 A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.
-A session whose usage cannot be read draws one neutral Usage unavailable state, with the reason in its accessible statistics disclosure.
+A session whose usage cannot be read says so once at the line's end, in one plain sentence on the board's shared notice (`frontend/src/notice.tsx`), such as "Claude usage could not be read.", and its accessible statistics disclosure says it too.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
