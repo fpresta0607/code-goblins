@@ -472,12 +472,16 @@ func oneLine(text string) string {
 	return strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(text)
 }
 
+// Send types text to the primary CFO behind the Overlord's stamp, which says
+// an answer or a result is his, unless it is a command for the harness
+// itself, a line that starts with / or !.
 func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evaluation, error) {
-	return c.sendNative(ctx, identity, text, false)
+	line := oneLine(text)
+	if !strings.HasPrefix(line, "/") && !strings.HasPrefix(line, "!") {
+		line = "Overlord: " + line
+	}
+	return c.sendNative(ctx, identity, line)
 }
-
-// cfoWorkingReason is what a message held while the CFO is in a turn says.
-const cfoWorkingReason = "Queued until the CFO's turn ends. Send now types it for the CFO to take at its next tool call."
 
 // nativeSubmitSettle lets the CFO's harness take typed text before its submit
 // key.
@@ -492,16 +496,13 @@ const (
 	nativeConfirmPoll = 250 * time.Millisecond
 )
 
-// sendNative sends text to the primary CFO identity names. It waits for an
-// empty composer, types once and confirms the text before Enter. A prompt
-// hook or a new working turn proves acceptance by an idle CFO; input
-// submitted during a turn is taken at the CFO's next tool call, and only the
-// CFO's own record of its conversation proves it. A send that holds types
-// nothing into a turn and defers instead, so the board keeps the message
-// queued where he can edit, send now or cancel it until the turn ends (the
-// Overlord, 2026-10-27: "queued should exist at the bottom of the
-// conversation until sent").
-func (c *CFOConnection) sendNative(ctx context.Context, identity, text string, holds bool) (Evaluation, error) {
+// sendNative types line, as it is, to the primary CFO identity names. It
+// waits for an empty composer, types once and confirms the text before
+// Enter. A prompt hook or a new working turn proves acceptance by an idle
+// CFO; a line submitted during a turn waits in the harness's own queue, as
+// one typed into its terminal by hand does, and is taken at the CFO's next
+// tool call, which only the CFO's own record of its conversation proves.
+func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (Evaluation, error) {
 	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
 	if err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, errNotRegistered)
@@ -540,9 +541,6 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, text string, h
 	if err != nil {
 		return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
 	}
-	if holds && screens.IsWorking(before) {
-		return Evaluation{Reason: cfoWorkingReason, CanSendNow: true}, ErrDeferred
-	}
 	if dialog, shown := screens.Dialog(before); shown {
 		if dialog.EscapeHint == "" {
 			return Evaluation{Reason: "The CFO has a dialog open. Your answer is queued; nothing was sent."}, ErrDeferred
@@ -559,10 +557,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, text string, h
 	if !screens.ComposerEmpty(before) || !busy && !screens.IsReady(before) {
 		return Evaluation{Reason: "The CFO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
 	}
-	instruction := oneLine(text)
-	if !strings.HasPrefix(instruction, "/") && !strings.HasPrefix(instruction, "!") {
-		instruction = "Overlord: " + instruction
-	}
+	instruction := oneLine(line)
 	submitted := time.Now()
 	if err := delivery.Write([]byte(instruction)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)

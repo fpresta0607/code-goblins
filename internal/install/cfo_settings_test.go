@@ -45,3 +45,28 @@ func TestTheCFOsAndAGoblinsTerminalsCompactWithinA400KWindow(t *testing.T) {
 		})
 	}
 }
+
+// The Overlord, 2026-10-28: "why is it so slow and not sending". Claude Code
+// draws a suggested next prompt on the CFO's empty input line as each turn
+// ends, which the board reads as words left unsent, so it typed none of his
+// messages while the CFO sat idle. The CFO's terminal starts without them, as
+// a goblin's does.
+func TestTheCFOsTerminalStartsWithoutPromptSuggestions(t *testing.T) {
+	// Arrange
+	root := t.TempDir()
+
+	// Act
+	data, err := CFOSettings(root, filepath.Join(root, "state"))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("the settings are not a JSON object: %v\n%s", err, data)
+	}
+	if got, isSet := document["promptSuggestionEnabled"]; !isSet || got != false {
+		t.Errorf("promptSuggestionEnabled = %v (set %t), want false", got, isSet)
+	}
+}
