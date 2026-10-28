@@ -47,6 +47,39 @@ test("the reply in progress ends with the harness's working animation while the 
   await testInfo.attach("footer-working.png", { body: await page.screenshot(), contentType: "image/png" });
 });
 
+// The Overlord, 2026-10-28, on a panel at rest that ran 32 animations and was
+// drawn again four times a second: "32 animations??? remvoe like all but the
+// streaming one". A working session's conversation runs one animation, of
+// opacity alone, which the compositor draws, and its working spot is never
+// drawn again while nothing happens.
+test("a working session's conversation runs one opacity animation and redraws nothing at rest", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  await open(page, snapshot({}, { ...MEMORY, runtime: { state: "working" } }), "rebase onto main", PAGE_WITH_USAGE);
+  await openGoblin(page);
+  await expect(page.locator(".reply-working .working-indicator")).toBeVisible();
+  await page.evaluate(() => {
+    const seen = { mutations: 0 };
+    new MutationObserver((records) => { seen.mutations += records.length; })
+      .observe(document.querySelector(".reply-working")!, { subtree: true, childList: true, attributes: true, characterData: true });
+    Object.assign(window, { seen });
+  });
+
+  // Act
+  await page.clock.runFor(20_000);
+
+  // Assert
+  const mutations = await page.evaluate(() => (window as unknown as { seen: { mutations: number } }).seen.mutations);
+  const animations = await page.evaluate(() => document.getAnimations()
+    .filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane"))
+    .map((animation) => ({
+      name: (animation as CSSAnimation).animationName,
+      properties: [...new Set((animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)),
+    })));
+  expect(mutations).toBe(0);
+  expect(animations).toEqual([{ name: "working-breath", properties: ["opacity"] }]);
+});
+
 test("a session whose usage cannot be read leaves its ring unmeasured and says why", async ({ page }) => {
   // Arrange
   await open(page);

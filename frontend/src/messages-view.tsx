@@ -50,9 +50,9 @@ const UNREAD = "The session's messages cannot be read";
 // open, absent for the CFO, terminal is the key of the session's terminal,
 // whose link stops a turn, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, memory, isWorking, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, memory, isWorking, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
-  workingSince: string; pending: Action[];
+  pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
@@ -413,7 +413,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
-          {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} since={workingSince} />}
+          {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} />}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
           {sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) => <QueuedMessage key={"queued-" + send.id} instance={instance} name={name} variant="pane"
             action={parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "queued", message: "Reaching the board.", send_now_why: "It is still reaching the board." })} />)}
