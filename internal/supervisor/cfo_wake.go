@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
@@ -315,7 +316,8 @@ func wakeLine(records []wake.Record) string {
 // harness sits idle at an empty composer on two readings cfoIdleRecheck
 // apart, marking the records up to covered as typed about at now first, and
 // delivers it with the proof cfo send uses: its native hooks report the
-// prompt taken, or its screen shows it working when it was not.
+// prompt taken, or its screen shows it working when it was not. A delivery
+// that typed nothing leaves the records as they were.
 func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistration, text string, covered int, now time.Time) (cfoWakeSkip, error) {
 	screens, readable := harness.NativeScreens(harness.Kind(primary.Agent))
 	if !readable {
@@ -354,6 +356,10 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 			return cfoWakeSkip{Why: why, Screen: host.ScreenTail(screen, cfoWakeSkipRows)}, nil
 		}
 	}
+	previous, previousAt, err := readCFOWoken(c.State)
+	if err != nil {
+		return cfoWakeSkip{}, err
+	}
 	if err := writeCFOWoken(c.State, covered, now); err != nil {
 		return cfoWakeSkip{}, err
 	}
@@ -361,7 +367,18 @@ func (c *CFOConnection) typeWake(ctx context.Context, primary primaryRegistratio
 	if deliver == nil {
 		deliver = c.deliverNative
 	}
-	if err := deliver(ctx, state.TaskMeta{ID: primary.Host, Harness: primary.Agent}, text); err != nil {
+	err = deliver(ctx, state.TaskMeta{ID: primary.Host, Harness: primary.Agent}, text)
+	if errors.Is(err, fleet.ErrNotTyped) {
+		// Nothing reached the terminal, so the records stay for the next look.
+		if err := writeCFOWoken(c.State, previous, previousAt); err != nil {
+			return cfoWakeSkip{}, err
+		}
+		if errors.Is(err, spawn.ErrInTurn) {
+			return cfoWakeSkip{Why: whyInTurn}, nil
+		}
+		return cfoWakeSkip{}, fmt.Errorf("no wake line reached the CFO's native terminal %s: %w", primary.Host, err)
+	}
+	if err != nil {
 		return cfoWakeSkip{}, fmt.Errorf("a wake line was typed into the CFO's native terminal %s, and nothing proves it taken: %w", primary.Host, err)
 	}
 	return cfoWakeSkip{}, nil
@@ -399,9 +416,10 @@ func notIdle(screens harness.Screens, screen []string) string {
 
 // deliverNative submits text in terminal's native terminal as cfo send does
 // for a native goblin: taken once the harness's own prompt hook reports it or
-// its screen shows it working.
+// its screen shows it working. A turn that started after typeWake found the
+// CFO idle, shown on the screen it reads just before typing, gets nothing.
 func (c *CFOConnection) deliverNative(ctx context.Context, terminal state.TaskMeta, text string) error {
-	sender := spawn.Service{StateDir: c.State, PromptSince: func(hostID, _ string, since time.Time) (bool, error) {
+	sender := spawn.Service{StateDir: c.State, ReadScreen: c.ReadScreen, ShouldRefuseTurn: true, PromptSince: func(hostID, _ string, since time.Time) (bool, error) {
 		return NativeHostPromptSince(c.State, hostID, since)
 	}}
 	return sender.SendNative(ctx, terminal, text)

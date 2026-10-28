@@ -142,6 +142,10 @@ type Service struct {
 	// queues such text and hands it over at its next tool call. Nil proves
 	// nothing. Session names the exact saved conversation on a resume.
 	Took func(ctx context.Context, meta state.TaskMeta, session, text string, since time.Time) bool
+	// ShouldRefuseTurn types nothing into a native harness whose screen shows
+	// it in a turn as its text is about to be typed, and says so with
+	// ErrInTurn: the supervisor's wake line, which is never typed mid-turn.
+	ShouldRefuseTurn bool
 	// EndLeft ends the processes a task's ended terminal left running, for a
 	// relaunch, once no terminal runs for the task and before its next
 	// harness starts, and names them: lifecycle.EndLeft in production. Nil
