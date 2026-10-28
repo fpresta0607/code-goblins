@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -446,12 +447,13 @@ func awaitRunEnd(started RunStarted, dir string, commandWait, endWait time.Durat
 
 // A hidden command that takes longer than its runner may take to end, as
 // one whose shell a loaded runner is slow to start does, is a run that ends
-// with its command, not one whose process outlives it.
+// with its command, not one whose process outlives it. The end's bound stays
+// at the stall floor, so the command sleeps past it.
 func TestASlowHiddenCommandIsNotReadAsARunThatOutlivesIt(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
 	script := filepath.Join(dir, "command.ps1")
-	if err := os.WriteFile(script, []byte("Start-Sleep -Seconds 3\r\nexit 0\r\n"), 0o600); err != nil {
+	if err := os.WriteFile(script, []byte("Start-Sleep -Seconds "+strconv.Itoa(runnerLinger/2+5)+"\r\nexit 0\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	started, err := OSRunLauncher{}.Launch(context.Background(), RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir, Hidden: true})
@@ -460,7 +462,7 @@ func TestASlowHiddenCommandIsNotReadAsARunThatOutlivesIt(t *testing.T) {
 	}
 
 	// Act
-	err = awaitRunEnd(started, dir, hiddenCommandWait, 2*time.Second)
+	err = awaitRunEnd(started, dir, hiddenCommandWait, runnerLinger/2*time.Second)
 
 	// Assert
 	if err != nil {
@@ -478,7 +480,7 @@ func TestARunThatOutlivesItsCommandIsCaught(t *testing.T) {
 	}
 
 	// Act
-	err := awaitRunEnd(liveStart(t), dir, hiddenCommandWait, 500*time.Millisecond)
+	err := awaitRunEnd(liveStart(t), dir, hiddenCommandWait, 500*time.Millisecond) // stall-accepted: the test means this bound to run out, since its process never ends.
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "still runs 500ms after its command finished") {
