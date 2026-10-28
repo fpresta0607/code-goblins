@@ -44,9 +44,9 @@ test("a queued message shows in the conversation with what it waits on, and its 
   await expect(send).toBeDisabled();
   await expect(send).toHaveAttribute("data-tip", /Its gate holds the branch/);
   await expect(entry(page).getByRole("button", { name: "Edit" })).toBeVisible();
-  await expect(entry(page).getByRole("button", { name: "Delete" })).toBeVisible();
+  await expect(entry(page).getByRole("button", { name: "Cancel" })).toBeVisible();
   // Icon-only: none of the three carries words of its own.
-  for (const name of ["Send now", "Edit", "Delete"]) await expect(entry(page).getByRole("button", { name })).toHaveText("");
+  for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name })).toHaveText("");
   // The queue control is a quiet count that reveals the entry, not a second
   // copy of its words.
   await expect(page.getByRole("button", { name: "1 queued message", exact: true })).toBeVisible();
@@ -80,7 +80,7 @@ test("Send now asks for the message at the next safe moment when it can, and Del
   await expect.poll(() => posts).toContainEqual({ kind: "message_now", target: "q1", text: "" });
 
   // Act: and it is withdrawn by its own row.
-  await entry(page).getByRole("button", { name: "Delete" }).click();
+  await entry(page).getByRole("button", { name: "Cancel" }).click();
 
   // Assert
   await expect.poll(() => posts).toContainEqual({ kind: "message_withdraw", target: "q1", text: "hold the merge until the gate lets go" });
@@ -93,5 +93,5 @@ test("a message already typed says the turn takes it and offers no Send now", as
   // Assert
   await expect(entry(page).locator(".queued-state")).toBeVisible();
   await expect(entry(page).getByRole("button", { name: "Send now" })).toHaveCount(0);
-  await expect(entry(page).getByRole("button", { name: "Delete" })).toBeVisible();
+  await expect(entry(page).getByRole("button", { name: "Cancel" })).toBeVisible();
 });

@@ -15,6 +15,7 @@ import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { shortModel } from "./model-name";
 import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
+import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { PANEL_KEYS, panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
 import { QueuedMessage } from "./queued-message";
@@ -246,6 +247,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // a harness picker or a busy program does not stop it: those guard direct
   // typing, which is the path they were written for.
   const savesThroughBoard = queues || isHeld || isUnread || !!live?.isReconnecting;
+  // While the session works, Modern Chat's box types nothing into its turn:
+  // the board holds the message as his queued bubble at the bottom of the
+  // conversation, where he can edit, send now or cancel it, and delivers it
+  // when the turn ends (the Overlord, 2026-10-27: "queued should exist at the
+  // bottom of the conversation until sent").
+  const holdsForTurn = isWorking && hasConversation;
+  // A send the board has shown as its own action is no longer drawn from here.
+  const sending = usePendingSends();
+  useEffect(() => {
+    for (const send of sending) if (snapshot.actions.some((action) => action.id === send.id)) removePendingSend(send.id);
+  }, [sending, snapshot.actions]);
   const send = async () => {
     const text = draft.trim();
     if (!text || isSending || adding) return;
@@ -265,7 +277,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       applyEngine(asked.setting, asked.value, false, chosen);
       return;
     }
-    if (!savesThroughBoard && !sendID.current) {
+    if (!savesThroughBoard && !holdsForTurn && !sendID.current) {
       // A screen of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
       // he chose: the list's Enter confirms.
@@ -277,14 +289,24 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       return;
     }
     sendID.current ||= crypto.randomUUID();
+    const id = sendID.current;
+    // The conversation shows it at once as his queued bubble, and the box
+    // empties, before the board has answered; a refusal takes the bubble
+    // back and returns his words to the box.
+    if (hasConversation) {
+      addPendingSend({ id, task: task?.id || "", text });
+      setDraft("");
+    }
     setSending(true);
     try {
-      await post({ id: sendID.current, kind: "message", task_id: task?.id || "", generation: "", text });
+      await post({ id, kind: "message", task_id: task?.id || "", generation: "", text });
       sendID.current = "";
       storeDraft(draftKey, "");
       setDraft("");
       setUnsent("");
     } catch (error: unknown) {
+      removePendingSend(id);
+      setDraft((prior) => prior || text);
       setUnsent("Not sent. " + message(error));
       reportToCfo("a message to " + name, message(error));
     } finally {

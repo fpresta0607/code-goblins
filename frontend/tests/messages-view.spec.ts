@@ -590,7 +590,7 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   // Assert: the queue is still there, and still withdrawable.
   const stillQueued = page.locator(".queued-message.pane").filter({ hasText: sentText });
   await expect(stillQueued).toBeVisible();
-  await stillQueued.getByRole("button", { name: "Delete" }).click();
+  await stillQueued.getByRole("button", { name: "Cancel" }).click();
 
   // Assert: the withdrawal names the goblin, the words and the queued action
   // its row draws, so two messages with the same words are told apart.
@@ -622,7 +622,7 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
   // Act: he withdraws the second of the two equal messages.
   const rows = page.locator(".queued-message.pane").filter({ hasText: "same words" });
   await expect(rows).toHaveCount(2);
-  const withdraw = rows.nth(1).getByRole("button", { name: "Delete" });
+  const withdraw = rows.nth(1).getByRole("button", { name: "Cancel" });
   await withdraw.focus();
   await page.keyboard.press("Enter");
 
@@ -823,7 +823,7 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
   const stillQueued = page.locator(".queued-message.pane").filter({ hasText: sentText });
   await expect(stillQueued).toBeVisible();
-  const withdraw = stillQueued.getByRole("button", { name: "Delete" });
+  const withdraw = stillQueued.getByRole("button", { name: "Cancel" });
   await withdraw.focus();
   await page.keyboard.press("Enter");
 
