@@ -324,7 +324,7 @@ test("a second press on its control closes the pane, and a press outside closes 
 
 test("Escape with the box's pane or style menu open closes it and never stops the working harness", async ({ page }) => {
   // Arrange: the harness works, and its catalog cannot be read, so the pane
-  // only says so.
+  // only offers Retry.
   const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: true });
@@ -332,8 +332,8 @@ test("Escape with the box's pane or style menu open closes it and never stops th
   await field(page).fill("/model");
   await field(page).press("Enter");
   const pane = box(page).getByRole("menu", { name: "Model", exact: true });
-  await expect(pane).toContainText("could not be read");
-  await expect(pane, "the pane takes the keyboard while it only shows a note").toBeFocused();
+  await expect(pane.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  await expect(pane, "the pane takes the keyboard while it only offers Retry").toBeFocused();
 
   // Act
   await page.keyboard.press("Escape");
@@ -444,7 +444,7 @@ test("a /model or /effort typed while the controls cannot change the session sta
     await field(page).press("Enter");
 
     // Assert
-    await expect(box(page).locator(".composer-note")).toHaveText("The model and effort controls need a connected, unheld session.");
+    await expect(box(page).getByRole("alert")).toHaveText("The model and effort controls need a connected, unheld session.");
     await expect(field(page)).toHaveValue(command);
   }
   await expect(box(page).getByRole("menu")).toHaveCount(0);
