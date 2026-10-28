@@ -3,10 +3,12 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -405,17 +407,83 @@ exit 3
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(60 * time.Second)
-	for runProcessAlive(started.PID, started.Start) {
-		if time.Now().After(deadline) {
-			t.Fatal("the hidden run's process still runs a minute after its command")
-		}
-		time.Sleep(200 * time.Millisecond)
+	if err := awaitRunEnd(started, dir, hiddenCommandWait, runnerLinger/2*time.Second); err != nil {
+		t.Fatal(err)
 	}
 	if code, ok := readRunExit(dir); !ok || code != 3 {
 		t.Fatalf("exit.txt = %d, %v; want 3", code, ok)
 	}
 	if output := readRunOutput(dir); !strings.Contains(output, "updated") || !strings.Contains(output, "console-visible=False") {
 		t.Fatalf("output.log = %q", output)
+	}
+}
+
+// hiddenCommandWait bounds how long a hidden run's command may take to
+// finish, its shells' starts among it: a hosted runner has stalled
+// powershell.exe for more than 30 s before it ran a line (#866, #1497).
+const hiddenCommandWait = 3 * time.Minute
+
+// awaitRunEnd waits up to commandWait for a run's command to finish, as the
+// exit code its runner writes in dir, and then up to endWait for the runner's
+// process to end. Only that last wait is the runner's own: a slow start is
+// the command's time, never a runner that outlives its command.
+func awaitRunEnd(started RunStarted, dir string, commandWait, endWait time.Duration) error {
+	deadline := time.Now().Add(commandWait)
+	for _, ok := readRunExit(dir); !ok; _, ok = readRunExit(dir) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the run's command did not finish within %s; its output so far: %q", commandWait, readRunOutput(dir))
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	deadline = time.Now().Add(endWait)
+	for runProcessAlive(started.PID, started.Start) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the run's process still runs %s after its command finished", endWait)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
+// A hidden command that takes longer than its runner may take to end, as
+// one whose shell a loaded runner is slow to start does, is a run that ends
+// with its command, not one whose process outlives it. The end's bound stays
+// at the stall floor, so the command sleeps past it.
+func TestASlowHiddenCommandIsNotReadAsARunThatOutlivesIt(t *testing.T) {
+	// Arrange
+	dir := t.TempDir()
+	script := filepath.Join(dir, "command.ps1")
+	if err := os.WriteFile(script, []byte("Start-Sleep -Seconds "+strconv.Itoa(runnerLinger/2+5)+"\r\nexit 0\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started, err := OSRunLauncher{}.Launch(context.Background(), RunLaunch{Shell: "powershell", Script: script, Dir: dir, Cwd: dir, Hidden: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err = awaitRunEnd(started, dir, hiddenCommandWait, runnerLinger/2*time.Second)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("a command slower than its runner's end: %v, want the run to end with it", err)
+	}
+}
+
+// A runner whose process still runs once its command wrote its exit code is
+// caught, however long the command took.
+func TestARunThatOutlivesItsCommandIsCaught(t *testing.T) {
+	// Arrange: this test's own process stands in for a runner that lingers.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "exit.txt"), []byte("0"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := awaitRunEnd(liveStart(t), dir, hiddenCommandWait, 500*time.Millisecond) // stall-accepted: the test means this bound to run out, since its process never ends.
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "still runs 500ms after its command finished") {
+		t.Fatalf("a runner that outlives its command: %v, want it caught", err)
 	}
 }
