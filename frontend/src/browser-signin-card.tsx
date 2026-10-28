@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Avatar } from "./Avatar";
 import { ClickFeedback } from "./click-feedback";
 import { Icon } from "./Icon";
+import { Notice } from "./notice";
 import { signInHeading, signInOutcome } from "./browser-signins";
 import { onThisMachine } from "./credentials";
 import { age } from "./presentation";
@@ -40,7 +41,7 @@ export function BrowserSignInCard({ signin, snapshot, connected, isOpening, erro
     {isWaiting && <p className="signin-waiting" role="status"><span className="credential-ring storing" aria-hidden="true" />{signin.state === "open"
       ? "The " + signin.provider + " window is open on your screen. Sign in there and this card moves on by itself."
       : "Opening the " + signin.provider + " sign-in window on your PC."}</p>}
-    {signin.state === "ready" && !isOpening && signin.reason && <p className="signin-note"><Icon name="warning" />{signin.reason}</p>}
+    {signin.state === "ready" && !isOpening && signin.reason && <Notice tone="warning" icon="warning">{signin.reason}</Notice>}
     {isLocal
       ? <button type="button" className="primary signin-open" disabled={!connected || isWaiting || signin.state !== "ready"} onClick={onOpen}><Icon name="external" />Open the sign-in window</button>
       : <p className="credential-remote"><Icon name="lock" />Open the sign-in window from the board on your PC.</p>}

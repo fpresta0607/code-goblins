@@ -42,7 +42,7 @@ test("a closed CFO is said to be closed in plain words, with Reopen as its one a
   expect(requests).toEqual([{ token: "fixture", body: "{}" }]);
   release();
   await expect(reopen).toBeEnabled();
-  await expect(page.locator(".click-feedback")).toHaveCount(0);
+  await expect(page.locator(".notice")).toHaveCount(0);
 });
 
 test("a CFO that could not come back says so in a few words beside Reopen, which can be tried again", async ({ page }) => {
@@ -55,7 +55,7 @@ test("a CFO that could not come back says so in a few words beside Reopen, which
   await page.getByRole("button", { name: "Reopen the CFO" }).click();
 
   // Assert
-  await expect(page.locator(".cfo-pin .click-feedback")).toHaveText("The CFO could not be reopened: claude is not on PATH.");
+  await expect(page.locator(".cfo-pin .notice")).toHaveText("The CFO could not be reopened: claude is not on PATH.");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Reopen the CFO" })).toBeEnabled();
   expect(requests).toHaveLength(1);

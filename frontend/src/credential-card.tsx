@@ -3,6 +3,7 @@ import { message, request as call } from "./api";
 import { object, strings, type CredentialRequest, type Snapshot } from "./types";
 import { Avatar } from "./Avatar";
 import { Icon } from "./Icon";
+import { Notice } from "./notice";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
 import { canPressDone, credentialHeading, fetchOffer, heldTip, inputLabel, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials";
@@ -221,7 +222,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
         ? <button type="button" className="primary" disabled={!connected || !!pressing || request.window_state !== ""} onClick={() => void press("/api/credentials/window", {}, "window")}><Icon name="external" />Open the browser window</button>
         : <p className="credential-remote"><Icon name="lock" />Open the browser window from the board on your PC.</p>}
       {windowNote && <p className="signin-waiting" role="status"><span className="credential-ring storing" aria-hidden="true" />{windowNote}</p>}
-      {request.window_state === "" && request.reason && <p className="signin-note"><Icon name="warning" />{request.reason}</p>}
+      {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{request.reason}</Notice>}
     </div>}
     {open && !local && <p className="credential-remote"><Icon name="lock" />{request.grant_service ? "Grant service access from the board on your PC." : "Values can only be typed on the board on your PC. Here, copy the terminal command instead."}</p>}
     {!open && <p className="credential-outcome" data-tip={request.reason}><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong></p>}
@@ -249,7 +250,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendPlain(name); } }} />}
             {open && local && <button type="button" className="icon-button raised credential-store" aria-label={"Send " + inputLabel(request, name)} data-tip={"Send it to " + asker} disabled={!connected || !(plainValues[name] || "").trim() || storing.includes(name)} onClick={() => void sendPlain(name)}><Icon name="send" /></button>}
           </div>}
-          {refusals[name] && <p className="credential-refusal" role="alert"><Icon name="warning" />{refusals[name]}</p>}
+          {refusals[name] && <Notice tone="error" icon="warning" role="alert" className="credential-refusal">{refusals[name]}</Notice>}
           {refusals[name] && keyShaped.includes(name) && <button type="button" className="raised pill-link credential-not-secret" disabled={!connected || storing.includes(name)} onClick={() => void sendPlain(name, true)}>It is not a secret: send it anyway</button>}
         </td>
       </tr>)}{request.names.map((name) => {
@@ -273,7 +274,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
                 ? <span className="credential-check held" role="img" aria-label="Stored before" data-tip={heldTip(request)}><Icon name="check" /></span>
                 : <span className={"credential-ring" + (isStoring ? " storing" : "")} role="img" aria-label={isStoring ? "Storing" : "Not stored yet"} data-tip={whereItGoes(request, name)} />}
             </div>}
-            {refusals[name] && <p className="credential-refusal" role="alert"><Icon name="warning" />{refusals[name]}</p>}
+            {refusals[name] && <Notice tone="error" icon="warning" role="alert" className="credential-refusal">{refusals[name]}</Notice>}
           </td>
         </tr>;
       })}</tbody>

@@ -140,7 +140,7 @@ test("OAuth opens its sign-in and a failed repair is said in a few words beside 
   await page.goto("/tests/fixtures/connections.html");
   await page.getByText("Connections", { exact: true }).click();
   await page.getByRole("button", { name: "Sign in to Context7" }).click();
-  await expect(page.locator(".connections-panel .click-feedback")).toHaveText("Task restarted. Refresh connections.");
+  await expect(page.locator(".connections-panel .notice")).toHaveText("Task restarted. Refresh connections.");
   isRejected = false;
   const opened = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Sign in to Context7" }).click();

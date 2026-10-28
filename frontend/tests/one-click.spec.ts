@@ -98,6 +98,6 @@ for (const [name, id, button, status, path, waiting] of [
     // Assert
     await expect.poll(() => posted.filter((request) => request.path === "/api/cfo/report").map((request) => request.body.text)).toEqual(["The task session changed; refresh its card"]);
     await expect(card(page, id).locator(".card-status-text")).not.toHaveText(status);
-    await expect(page.locator(".click-feedback, .task-notes, [role=alert]")).toHaveCount(0);
+    await expect(page.locator(".workspace .notice, .task-notes, [role=alert]")).toHaveCount(0);
   });
 }

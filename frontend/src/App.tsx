@@ -16,6 +16,7 @@ import { livePresentations } from "./activity";
 import { useReview } from "./review";
 import { ownsTaskSession } from "./lineageTree";
 import { Icon } from "./Icon";
+import { Notice } from "./notice";
 import { Avatar } from "./Avatar";
 import { GoblinPanel, type PanelView } from "./GoblinPanel";
 import { PaneDivider } from "./PaneDivider";
@@ -505,13 +506,11 @@ export function App() {
           : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
-        <div className="connection" role="status">
-          <span className={"live-dot " + (!connected ? "offline" : "")} />{connection}
-        </div>
+        <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>
         {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>
-    {updated && <div className="update-banner" role="status"><span>The board was updated.</span><button className="primary" onClick={() => location.reload()}>Reload</button></div>}
+    {updated && <Notice form="box" actions={<button className="primary" onClick={() => location.reload()}>Reload</button>}>The board was updated.</Notice>}
     {snapshot && <ComebackBanner comeback={snapshot.comeback} />}
     {snapshot && <Alerts snapshot={snapshot} onOpen={(key) => setCommandFocus({ key, at: Date.now() })} />}
     {firstRun ? <main className="first-run-region" aria-label="First run">

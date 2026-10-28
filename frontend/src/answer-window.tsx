@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { message, request } from "./api";
 import { DictatedAnswer } from "./dictated-answer";
 import { Icon } from "./Icon";
+import { Notice } from "./notice";
 import { object, string } from "./types";
 import "./credential-card.css";
 
@@ -64,10 +65,10 @@ export function AnswerWindow({ asker, task, instance, isSending = false, refusal
         <button type="button" className="icon-button" aria-label={"Remove picture " + (index + 1)} onClick={() => setPictures((prior) => prior.filter((each) => each.key !== picture.key))}><Icon name="close" /></button>
       </span>)}
     </div>}
-    {isKeeping && <p className="message-note" role="status">Saving picture...</p>}
-    {refusal && <p className="message-note" role="status">{refusal}</p>}
-    {isTooLong && <p className="message-note" role="status">Use a shorter answer or fewer pictures.</p>}
-    {refused && <p className="message-note" role="status">{refused}</p>}
+    {isKeeping && <Notice form="box">Saving picture...</Notice>}
+    {refusal && <Notice form="box" tone="warning">{refusal}</Notice>}
+    {isTooLong && <Notice form="box" tone="warning">Use a shorter answer or fewer pictures.</Notice>}
+    {refused && <Notice form="box" tone="warning">{refused}</Notice>}
     <div className="credential-replace-choices">
       <button type="button" className="credential-replace-cancel" onClick={onCancel}><Icon name="close" />Cancel</button>
       <button type="button" className="primary" disabled={!canSend} onClick={() => onSend(text)}><Icon name="send" />Send</button>

@@ -130,13 +130,13 @@ export interface UsageReading {
 // usageBanner reads a session's provider usage. A Claude Code or Codex
 // session reads its subscription's remaining share, and a pi session its
 // OpenRouter key's spend. A provider that is missing, stale or unreadable
-// draws no banner, and the answer says why.
+// draws no banner, and the answer says why, in words that open a sentence.
 export function usageBanner(harness: string, subscriptions: SubscriptionUsage[] = [], spend: KeySpend[] = []): UsageReading {
   if (harness === "claude" || harness === "codex") {
     const subscription = subscriptions.find((each) => each.provider === harness);
     const label = harness === "claude" ? "Claude" : "Codex";
     if (!subscription || subscription.status !== "available" || subscription.percent_remaining == null) {
-      return { banner: null, why: "its " + label + " usage could not be read" };
+      return { banner: null, why: label + " usage could not be read" };
     }
     const used = Math.max(0, Math.min(100, 100 - subscription.percent_remaining));
     return {
@@ -148,7 +148,7 @@ export function usageBanner(harness: string, subscriptions: SubscriptionUsage[] 
     };
   }
   const key = spend.find((each) => each.provider === "openrouter");
-  if (!key || key.status !== "available" || key.spent_usd == null) return { banner: null, why: "its key spend could not be read" };
+  if (!key || key.status !== "available" || key.spent_usd == null) return { banner: null, why: "OpenRouter key spend could not be read" };
   const spent = formatUSD(key.spent_usd);
   const detail = key.limit_usd != null ? spent + " of " + formatUSD(key.limit_usd) + (key.resets_at ? " · Resets " + resetText(key.resets_at) : "") : spent + " spent";
   return { banner: { text: "Shared key spend", detail }, why: "" };
