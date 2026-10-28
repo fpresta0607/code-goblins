@@ -23,11 +23,18 @@ const cfoQuietAfter = 10 * time.Minute
 // IsOpenOnly marks and it does not count, so that once it waits on him it is
 // not new.
 type Item struct {
-	ID         string
-	Asker      string
-	Text       string
-	IsQuiet    bool
-	IsOpenOnly bool
+	ID         string `json:"id"`
+	Asker      string `json:"asker"`
+	Text       string `json:"text"`
+	IsQuiet    bool   `json:"is_quiet"`
+	IsOpenOnly bool   `json:"is_open_only"`
+}
+
+// Look is what the supervisor answers the desktop window's look for what
+// waits: its instance and the items.
+type Look struct {
+	Instance string `json:"instance"`
+	Items    []Item `json:"items"`
 }
 
 // Items lists what a board snapshot holds that asks the Overlord
