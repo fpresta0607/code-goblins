@@ -31,7 +31,6 @@ for (const session of SESSIONS) {
   test(`a ${session.harness} session shows its model by name and the effort it runs, and no raw model id anywhere`, async ({ page }) => {
     // Arrange
     await open(page, snapshot({ cfo_harness: session.harness }, { harness: session.harness, model: session.model, effort: session.effort, phase: "settled" }), "", { ...PAGE, usage: { ...RECORD, model: session.model } });
-    await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
 
     // Act
     await openGoblin(page);
@@ -54,6 +53,29 @@ test("the CFO's box shows the effort its engine was started at", async ({ page }
   // Assert
   await expect(box(page, "CFO").getByRole("button", { name: "Change effort", exact: true })).toHaveText("high");
 });
+
+// The server keeps a saved engine it did not apply, with pending false: one
+// for another harness than the CFO started as, or one whose apply failed
+// (internal/supervisor/cfo_engine.go). The CFO does not run its effort.
+const UNAPPLIED = [
+  { why: "names another harness", cfo_harness: "codex", model: "gpt-6-astra", shown: "GPT-6 Astra", engine: { harness: "claude", pending: false, problem: "" } },
+  { why: "could not be applied", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: false, problem: "The selection could not be applied: the CFO is busy" } },
+  { why: "is still pending", cfo_harness: "claude", model: "claude-opus-5-5", shown: "Opus 5.5", engine: { harness: "claude", pending: true, problem: "" } },
+] as const;
+for (const unapplied of UNAPPLIED) {
+  test(`the CFO's box takes no effort from a saved engine that ${unapplied.why}`, async ({ page }) => {
+    // Arrange
+    await open(page, snapshot({ cfo_harness: unapplied.cfo_harness, cfo_engine: { ...unapplied.engine, model: "claude-opus-5-5", effort: "high", waiting: "" } }), "", { ...PAGE, usage: { ...RECORD, model: unapplied.model } });
+
+    // Act
+    await page.keyboard.press("Control+Alt+1");
+
+    // Assert: the session's record has arrived, and the effort control shows
+    // its icon, not the saved engine's effort.
+    await expect(box(page, "CFO").getByRole("button", { name: "Change model", exact: true })).toHaveText(unapplied.shown);
+    await expect(box(page, "CFO").getByRole("button", { name: "Change effort", exact: true })).toHaveText("");
+  });
+}
 
 test("max effort is drawn as a rainbow", async ({ page }) => {
   // Arrange
@@ -98,6 +120,27 @@ test("the effort is a drawer off the model's pane, out when the effort control o
   await expect(drawer).toHaveCount(0);
   await toggle.click();
   await expect(drawer.getByRole("menuitemradio")).toHaveCount(5);
+});
+
+test("the effort control pressed by keyboard with the model's pane open pulls the drawer out", async ({ page }) => {
+  // Arrange: the model's pane open, its running model taking the keyboard.
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", { ...PAGE, usage: { ...RECORD, model: GOBLIN.model, effort: "xhigh" } });
+  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  const model = box(page).getByRole("menu", { name: "Model", exact: true });
+  await box(page).getByRole("button", { name: "Change model", exact: true }).click();
+  await expect(model.getByRole("menuitemradio", { name: "Opus 5.5", exact: true })).toBeFocused();
+
+  // Act: back to the effort control, and Enter.
+  await page.keyboard.press("Shift+Tab");
+  await expect(box(page).getByRole("button", { name: "Change effort", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  // Assert: the same pane, its drawer out, the effort it runs focused.
+  await expect(box(page).getByRole("button", { name: "Change effort", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(model.getByRole("button", { name: /^Effort/ })).toHaveAttribute("aria-expanded", "true");
+  await expect(model.getByRole("menu", { name: "Effort", exact: true }).getByRole("menuitemradio", { name: "xhigh", exact: true })).toBeFocused();
 });
 
 test("Close on speech history closes it", async ({ page }) => {

@@ -33,6 +33,11 @@ export function EnginePane({ setting, harness, model, effort, control, onPick, o
   const running = models.find((listed) => listed.id === model) ?? models.find((listed) => !!model && shortModel(listed.id) === shortModel(model));
   const efforts = effortsInOrder(running?.efforts.length ? running.efforts : [...new Set(models.flatMap((listed) => listed.efforts))]);
   const [isDrawerOpen, setDrawerOpen] = useState(setting === "effort");
+  const [drawerSetting, setDrawerSetting] = useState(setting);
+  if (drawerSetting !== setting) {
+    setDrawerSetting(setting);
+    setDrawerOpen(setting === "effort");
+  }
   const isReady = setting === "model" ? models.length > 0 : efforts.length > 0;
   // A catalog that cannot be read goes to the CFO, as the board's errors do,
   // and the pane offers Retry.

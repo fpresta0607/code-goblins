@@ -215,11 +215,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   }
   const shownModel = chosenEngine.model && chosenEngine.model.over === recordedModel ? chosenEngine.model.value : recordedModel;
   const shownEffort = chosenEngine.effort && chosenEngine.effort.over === recordedEffort ? chosenEngine.effort.value : recordedEffort;
-  // The model by its proper name, as its harness's catalog names it, read
-  // while the box shows, and short (model-name.ts); never its raw id (the
+  // The model by its short, proper name (model-name.ts), never its raw id (the
   // Overlord, 2026-10-28: "claude-opus-5-5 is not proper case").
-  const catalog = useResource(isShown ? "/api/engines" : null, parseEngineCatalog);
-  const modelName = shortModel(catalog.data?.find((item) => item.id === harness)?.models.find((listed) => listed.id === shownModel)?.name || shownModel);
+  const modelName = shortModel(shownModel);
   // applyEngine sets the session's model or effort in its harness, as Classic
   // would through the harness's own menu (the Overlord, 2026-10-27: "they
   // should control the same interfaces. Same session"): one line for Claude

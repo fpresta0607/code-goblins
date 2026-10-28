@@ -118,7 +118,7 @@ const CATALOG = { harnesses: [
 const SESSIONS = {
   claude: { model: "claude-opus-5-5", effort: "xhigh", picks: { model: ["claude-sonnet-5-5", /^Sonnet 5\.5/, "Sonnet 5.5"], effort: ["max", "max", "max"] } },
   codex: { model: "gpt-6-astra", effort: "medium", picks: { model: ["gpt-6.1-sol", /^GPT-6\.1 Sol/, "GPT-6.1 Sol"], effort: ["high", "high", "high"] } },
-  pi: { model: "openrouter/z-ai/glm-5.3-flash", effort: "medium", picks: { model: ["openrouter/deepseek/deepseek-v4.1-flash", /^DeepSeek V4\.1 Flash/, "DeepSeek V4.1 Flash"], effort: ["high", "high", "high"] } },
+  pi: { model: "openrouter/z-ai/glm-5.3-flash", effort: "medium", picks: { model: ["openrouter/deepseek/deepseek-v4.1-flash", /^DeepSeek V4\.1 Flash/, "Deepseek V4.1 Flash"], effort: ["high", "high", "high"] } },
 } as const;
 const CODEX_MODELS = { rows: ["Select Model and Effort"], choices: [{ text: "gpt-6-astra (current)", number: 1, focused: true }, { text: "gpt-6.1-sol", number: 2 }], hints: ["Press enter to confirm or esc to go back"] };
 const CODEX_EFFORTS = { rows: ["Select Reasoning Level"], choices: [{ text: "Low", number: 1 }, { text: "Medium (default)", number: 2, focused: true }, { text: "High", number: 3 }, { text: "Extra high", number: 4 }], hints: ["Press enter to confirm or esc to go back"] };
