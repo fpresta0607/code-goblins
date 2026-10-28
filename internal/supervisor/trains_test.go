@@ -897,6 +897,38 @@ func TestATrainsRepositoryReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testi
 	}
 }
 
+// On 2026-10-24 the supervisor met "merge train: the origin of <path> is not
+// on GitHub" again an hour after it first met it (#1485). The CI poll reads an
+// origin as GitHub in every form git takes, an ssh URL, ssh.github.com and a
+// host in capitals among them, and runs the train on each checkout it reads
+// so, while the train read the origin by a narrower pattern of its own and
+// refused that checkout again on every poll. The train reads an origin as the
+// poll does.
+func TestATrainRunsOnEveryOriginTheCIPollReadsAsGitHub(t *testing.T) {
+	for _, origin := range []string{"ssh://git@github.com/o/r.git", "ssh://git@ssh.github.com:443/o/r.git", "git+ssh://git@github.com/o/r.git", "https://GitHub.com/o/r", "git@github.com:o/r.git/"} {
+		t.Run(origin, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			project := newTrainProject(t)
+			project.git(project.checkout, "remote", "set-url", "origin", origin)
+			project.git(project.checkout, "config", "--add", "url."+filepath.ToSlash(project.remote)+".insteadOf", origin)
+			first, second := project.pull(11), project.pull(12)
+			reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+			reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+			watched := &fleetWakes{}
+
+			// Act
+			err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+
+			// Assert
+			trains, listErr := train.List(h.State)
+			if err != nil || listErr != nil || len(trains) != 1 || trains[0].Repository != "o/r" || len(watched.Failing) != 0 {
+				t.Fatalf("trains = %+v, errors %v, %v, failing reads %v, want one train on o/r and nothing failing", trains, err, listErr, watched.Failing)
+			}
+		})
+	}
+}
+
 // A train's start that is cut short is kept, and the train's next step builds
 // it. What cut it short is the train's first failed step, counted with every
 // later one, so a read that ran out of time once as a train started wakes
