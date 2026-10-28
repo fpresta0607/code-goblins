@@ -9,7 +9,8 @@ import type { Action } from "./types";
 // he can do with it (the Overlord, 2026-10-26: "Does this seem to be a way to
 // like send now or edit the cue messages either or delete them?").
 // Send now clears its wait so the next safe moment types it; Edit changes
-// what will be sent; Delete withdraws it by its own row. pane draws it in the
+// what will be sent; Cancel takes it back unsent, by its own row, so it never
+// reaches the harness. pane draws it in the
 // conversation, queue in the message box's own list, and both offer the same
 // acts.
 export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
@@ -53,7 +54,7 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
           onClick={() => void act({ kind: "message_now" })}><Icon name="arrow-up" /></button>}
         {isWaiting && <button type="button" className="icon-button" aria-label="Edit" data-tip="Edit · change the words before delivery" disabled={isSending}
           onClick={() => { setDraft(action.text); setEditing(true); }}><Icon name="edit" /></button>}
-        <button type="button" className="icon-button" aria-label="Delete" data-tip="Delete · withdraw it before delivery" disabled={isSending}
+        <button type="button" className="icon-button" aria-label="Cancel" data-tip="Cancel · take it back unsent" disabled={isSending}
           onClick={() => void act({ kind: "message_withdraw", text: action.text }, onDeleted)}><Icon name="close" /></button>
       </div>}
       {problem && <p className="queued-problem" role="status">{problem}</p>}
