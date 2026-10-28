@@ -11,7 +11,7 @@ import { box, open, openGoblin, snapshot } from "./session-board";
 const SESSIONS = [
   { harness: "claude", name: "Claude Code", model: "claude-opus-5-5", shown: "Opus 5.5" },
   { harness: "codex", name: "Codex", model: "gpt-6-astra", shown: "GPT-6 Astra" },
-  { harness: "pi", name: "Pi", model: "z-ai/glm-5.3-flash", shown: "glm-5.3-flash" },
+  { harness: "pi", name: "Pi", model: "z-ai/glm-5.3-flash", shown: "GLM 5.3 Flash" },
 ] as const;
 
 // The drawing of the first mark under selector: its glyph's path.

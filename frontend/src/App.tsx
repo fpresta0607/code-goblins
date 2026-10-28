@@ -351,8 +351,10 @@ export function App() {
   // What the conversation's stats read: the session's harness, the model and
   // effort the board recorded for it, and the memory its processes hold.
   const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
-  const panelModel = cfoShown || !task ? ((snapshot && liveCfoSession(snapshot)?.model) || "") : task.model || "";
-  const panelEffort = cfoShown || !task ? "" : task.effort || "";
+  // The model and effort a session was started at, which its own record
+  // overrides once it says otherwise: the CFO's engine, or the goblin's.
+  const panelModel = cfoShown || !task ? ((snapshot && (liveCfoSession(snapshot)?.model || (!snapshot.cfo_engine?.pending && snapshot.cfo_engine?.model))) || "") : task.model || "";
+  const panelEffort = cfoShown || !task ? (!snapshot?.cfo_engine?.pending && snapshot?.cfo_engine?.effort) || "" : task.effort || "";
   const panelMemory = cfoShown || !task ? 0 : task.tree?.memory || 0;
   const panelWorkingSince = cfoShown || !task ? ((snapshot && liveCfoSession(snapshot)?.runtime?.at) || "") : task.runtime?.at || "";
   const panelPending = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "").filter(isPendingMessage) : [];

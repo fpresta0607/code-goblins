@@ -168,6 +168,10 @@ type Usage struct {
 	Effort          string  `json:"effort,omitempty"`
 }
 
+// syntheticModel is what Claude Code names as the model of an entry it writes
+// itself rather than the model, such as a usage limit's notice.
+const syntheticModel = "<synthetic>"
+
 // add folds one request's usage into the session's.
 func (u *Usage) add(input, output, cacheRead int64, model string) {
 	u.InputTokens += input
@@ -405,9 +409,14 @@ func (l *messageLog) reply(entry messageEntry, id string) {
 		index = l.add(Message{ID: id, Kind: MessageReply, At: entry.Timestamp, Model: entry.Message.Model})
 		l.replies[id] = index
 		// Claude Code writes one entry for each block of an answer, and
-		// repeats the answer's usage on them: only the first counts it.
-		usage := entry.Message.Usage
-		l.usage.add(usage.InputTokens+usage.CacheCreationInputTokens, usage.OutputTokens, usage.CacheReadInputTokens, entry.Message.Model)
+		// repeats the answer's usage on them: only the first counts it. A
+		// notice Claude Code writes itself, such as a usage limit's, names
+		// no model ("<synthetic>") and used nothing, so it changes neither
+		// the session's model nor how full its context is.
+		if entry.Message.Model != syntheticModel {
+			usage := entry.Message.Usage
+			l.usage.add(usage.InputTokens+usage.CacheCreationInputTokens, usage.OutputTokens, usage.CacheReadInputTokens, entry.Message.Model)
+		}
 	}
 	reply := &l.messages[index]
 	for _, block := range added {

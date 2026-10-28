@@ -12,8 +12,9 @@ test("a model is shown by its short name", () => {
     ["gpt-6", "GPT-6"],
     ["gpt-6-astra", "GPT-6 Astra"],
     ["gpt-6.1-sol", "GPT-6.1 Sol"],
-    ["z-ai/glm-5.3-flash", "glm-5.3-flash"],
-    ["deepseek-v4.1-flash", "deepseek-v4.1-flash"],
+    ["z-ai/glm-5.3-flash", "GLM 5.3 Flash"],
+    ["deepseek-v4.1-flash", "Deepseek V4.1 Flash"],
+    ["kimi-k2", "Kimi K2"],
     ["  ", ""],
   ] as const) {
     // Act and Assert
