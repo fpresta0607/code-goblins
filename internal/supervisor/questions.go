@@ -275,6 +275,12 @@ var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskM
 	return sender.SendNative(ctx, meta, text)
 }
 
+// goblinIsWorking reads whether a goblin's harness is in a turn, from its
+// native terminal's screen. It is a variable so a test can say.
+var goblinIsWorking = func(stateDir string, meta state.TaskMeta) (bool, error) {
+	return spawn.Service{StateDir: stateDir}.NativeIsWorking(meta)
+}
+
 // answerGoblin returns the Overlord's board answer to the goblin that asked.
 // The goblin's blocked notify then reads answered, so neither the monitor
 // nor the CFO asks it again; retiring it is still the CFO's ordinary ack.

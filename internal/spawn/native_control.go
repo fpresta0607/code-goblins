@@ -35,6 +35,29 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	return fmt.Errorf("send: %q was typed into native terminal %s and submitted once, but nothing on its screen confirms a command ran; check it with cfo peek %s rather than sending it again", text, meta.ID, meta.ID)
 }
 
+// NativeIsWorking reads from a native task's terminal whether its harness is
+// in a turn now, as SendNative reads it before it types. It reads once: a
+// screen it cannot read is an error, never a turn.
+func (s Service) NativeIsWorking(meta state.TaskMeta) (bool, error) {
+	screens, ok := harness.NativeScreens(harness.Kind(meta.Harness))
+	if !ok {
+		return false, fmt.Errorf("send: native task %s runs %s, whose screens cfo cannot read", meta.ID, meta.Harness)
+	}
+	record, err := host.ReadRecord(s.StateDir, meta.ID)
+	if err != nil {
+		return false, fmt.Errorf("send: native task %s has no running terminal: %w: %w", meta.ID, fleet.ErrNotTyped, err)
+	}
+	read := s.ReadScreen
+	if read == nil {
+		read = host.ReadScreen
+	}
+	screen, err := read(record)
+	if err != nil {
+		return false, err
+	}
+	return screens.IsWorking(screen), nil
+}
+
 // nativeKeys are the keys cfo send --key names, as a console reads them.
 var nativeKeys = map[string]string{"Enter": "\r", "Escape": "\x1b", "Ctrl+C": "\x03", "Ctrl+U": "\x15"}
 

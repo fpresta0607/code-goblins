@@ -56,7 +56,10 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		if !isLive {
 			return Evaluation{Reason: "Waits for the CFO.", SendNowWhy: "No CFO is running."}, ErrDeferred
 		}
-		return s.Options.CFO.Send(ctx, identity, text)
+		if a.IsSentNow {
+			return s.Options.CFO.Send(ctx, identity, text)
+		}
+		return s.Options.CFO.SendUnlessWorking(ctx, identity, text)
 	}
 	stateDir := s.Store.Home.State
 	s.starts.Lock()
@@ -119,6 +122,12 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		return result, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
+			// A goblin in a turn is not typed into: its message waits, where he
+			// can edit, send now or cancel it, until the turn ends, unless he
+			// asked for it now.
+			if isWorking, err := goblinIsWorking(stateDir, meta); err == nil && isWorking && !a.IsSentNow {
+				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. Send now types it for the goblin to take at its next tool call.", CanSendNow: true}, ErrDeferred
+			}
 			sent := time.Now().UTC()
 			result, err := s.Options.CFO.SendGoblin(ctx, a.TaskID, goblinIdentity(meta), text)
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {

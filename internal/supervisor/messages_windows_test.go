@@ -1696,3 +1696,83 @@ func TestACommandKeepsItsLeadingSlashOrBang(t *testing.T) {
 		t.Fatalf("a message reached the harness as %q, want the Overlord's stamp", got)
 	}
 }
+
+// A message to a goblin in a turn is not typed into it: it waits where he can
+// edit, send now or cancel it, and is delivered once the turn ends (the
+// Overlord, 2026-10-27: "queued should exist at the bottom of the
+// conversation until sent").
+func TestAMessageToAGoblinInATurnWaitsForTheTurnToEnd(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	gitWorktree(t, meta.Worktree)
+	goblinTerminal(t, h.State, meta.ID)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	messageTo(t, store, meta, "message-1", "check the flaky test first")
+	isWorking := true
+	previousWorking, previousType := goblinIsWorking, typeIntoGoblin
+	t.Cleanup(func() { goblinIsWorking, typeIntoGoblin = previousWorking, previousType })
+	goblinIsWorking = func(string, state.TaskMeta) (bool, error) { return isWorking, nil }
+	var received []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		received = append(received, text)
+		return nil
+	}
+
+	// Act: the goblin is in a turn.
+	err := store.ProcessOne(t.Context(), service.execute)
+
+	// Assert: nothing is typed, and the message waits where he can send it now.
+	held := actionOf(store, "message-1")
+	if !errors.Is(err, ErrDeferred) || held.Status != "queued" || !held.CanSendNow || len(received) != 0 {
+		t.Fatalf("delivery = %v, action = %+v, typed %q; want it held, sendable now, untyped", err, held, received)
+	}
+
+	// Act: its turn ends.
+	isWorking = false
+	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+	if err := store.ProcessOne(t.Context(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if len(received) != 1 || !strings.Contains(received[0], "check the flaky test first") || actionOf(store, "message-1").Status != "succeeded" {
+		t.Fatalf("delivered %q, action = %+v, want the message once after the turn", received, actionOf(store, "message-1"))
+	}
+}
+
+// Send now types a message held for a goblin's turn into that turn, for the
+// harness to take at its next tool call.
+func TestSendNowTypesAHeldMessageIntoTheGoblinsTurn(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	gitWorktree(t, meta.Worktree)
+	goblinTerminal(t, h.State, meta.ID)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	messageTo(t, store, meta, "message-1", "stop and rebase")
+	previousWorking, previousType := goblinIsWorking, typeIntoGoblin
+	t.Cleanup(func() { goblinIsWorking, typeIntoGoblin = previousWorking, previousType })
+	goblinIsWorking = func(string, state.TaskMeta) (bool, error) { return true, nil }
+	var received []string
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string) error {
+		received = append(received, text)
+		return nil
+	}
+	if err := store.ProcessOne(t.Context(), service.execute); !errors.Is(err, ErrDeferred) {
+		t.Fatalf("delivery = %v, want it held for the turn", err)
+	}
+
+	// Act
+	if _, err := store.SendQueuedMessageNow("message-1", meta.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(t.Context(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if len(received) != 1 || !strings.Contains(received[0], "stop and rebase") || actionOf(store, "message-1").Status != "succeeded" {
+		t.Fatalf("delivered %q, action = %+v, want it typed into the turn once", received, actionOf(store, "message-1"))
+	}
+}
