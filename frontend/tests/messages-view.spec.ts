@@ -388,6 +388,8 @@ test("Copy puts a message's words on the clipboard, and its text can be selected
   await command.hover();
   await command.getByRole("button", { name: "Copy" }).click();
   await expect.poll(() => clipboard(page)).toBe("git status\n\nnothing to commit");
+  // The turn ends, so its last reply carries Copy.
+  await send(page, "messages", [message(11, { kind: "interrupt", text: "[Request interrupted by user]" })]);
   const last = talk.locator(".message-reply").last();
   await last.hover();
   await last.getByRole("button", { name: "Copy" }).click();
@@ -425,26 +427,29 @@ test.describe("on a phone's touch screen", () => {
     const talk = list(page, "Zeke - Touch Wrangler");
     await expect(talk.locator("[data-message]")).toHaveCount(11);
 
-    // Two replies after the last one, so neither is led by the name, one
-    // with a path that breaks across the whole width and one led by a call.
+    // Two replies after the last one, one with a path that breaks across the
+    // whole width and one led by a call, and the turn ends.
     await send(page, "messages", [
       reply(11, { kind: "text", text: "Changed frontend/src/terminal-touch-handlers/hand-a-vertical-swipe-to-the-history-and-keep-a-long-press-for-paste.ts" }),
       reply(12, { kind: "call", tool: "Bash", subject: "npx playwright test phone-terminal.spec.ts", state: "running" }, { kind: "text", text: "Running the phone terminal spec." }),
+      message(13, { kind: "interrupt", text: "[Request interrupted by user]" }),
     ]);
 
-    const named = talk.locator('[data-message="m10"]');
+    // Only the turn's last reply carries Copy (the Overlord, 2026-10-28: "why
+    // the stray copy button in our chat?").
     const words = talk.locator('[data-message="m11"]');
     const called = talk.locator('[data-message="m12"]');
     await expect(called).toBeVisible();
-    for (const row of [named, words, called]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCSS("opacity", "1");
+    for (const row of [talk.locator('[data-message="m10"]'), words]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCount(0);
+    const copyButton = called.getByRole("button", { name: "Copy" });
+    await expect(copyButton).toHaveCSS("opacity", "1");
     await expect(words.locator(".message-from")).toHaveCount(0);
     await expect(called.locator(".message-from")).toHaveCount(0);
-    expect(shared(await box(words.getByRole("button", { name: "Copy" })), await contents(words.locator(".message-words"))), "Copy covers no word of the reply's text").toBe(0);
-    expect(shared(await box(called.getByRole("button", { name: "Copy" })), await box(called.locator(".call-end"))), "Copy covers no call state").toBe(0);
-    const corner = await box(named);
-    const copy = await box(named.getByRole("button", { name: "Copy" }));
+    const copy = await box(copyButton);
+    expect(shared(copy, await contents(called.locator(".message-words"))), "Copy covers no word of the reply's text").toBe(0);
+    expect(shared(copy, await box(called.locator(".call-end"))), "Copy covers no call state").toBe(0);
+    const corner = await box(called);
     expect(copy.top >= corner.top - 1 && copy.bottom <= corner.bottom + 1, "Copy lies in the message's corner").toBe(true);
-    expect(shared(copy, await contents(named.locator(".message-words").first())), "Copy covers no word of the reply").toBe(0);
   });
 });
 
