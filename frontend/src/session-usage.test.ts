@@ -60,6 +60,22 @@ test("a session whose usage cannot be read says so and still shows what it can",
   assert.deepEqual(stats.details.map((part) => part.text), ["4.0k", "claude-opus-5-5 xhigh"]);
 });
 
+test("a record that names only the session's model and effort has recorded no usage", () => {
+  // Arrange: a record before its first reply, as pi's model and thinking
+  // level changes or Codex's turn context leave it.
+  const engineOnly = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cost_usd: 0, context_tokens: 0, context_window: 0, model: "openrouter/z-ai/glm-5.3-flash", effort: "high" };
+
+  // Act
+  const stats = sessionStats({ usage: engineOnly, model: "", effort: "", memory: 0 });
+
+  // Assert
+  assert.equal(stats.hasUsage, false);
+  assert.ok(stats.missing.includes("its token usage and spend"));
+  assert.ok(!stats.missing.includes("its cost"));
+  assert.equal(stats.contextPercent, undefined);
+  assert.equal(stats.details.find((part) => part.key === "engine")?.text, engineOnly.model);
+});
+
 test("a session that is not working carries the time of the last thing it wrote", () => {
   // Arrange
   const now = Date.parse("2026-10-26T12:00:00Z");

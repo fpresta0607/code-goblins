@@ -3,7 +3,7 @@ import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
 import { DictationButton } from "./dictation-button";
-import type { EngineModel } from "./engine-catalog";
+import { parseEngineCatalog, type EngineModel } from "./engine-catalog";
 import { CODEX_NOT_SENT, driveCodexPicker } from "./codex-picker";
 import { effortTone, engineCommand, settingCommand, type EngineSetting } from "./engine-choices";
 import { EnginePane } from "./engine-pane";
@@ -147,8 +147,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // so a send retried after its answer was lost is the same message.
   const sendID = useRef("");
   const field = useRef<HTMLTextAreaElement>(null);
-  // A pane that closes hands the keyboard back to the box.
-  const closePane = useCallback(() => { setPane(null); field.current?.focus(); }, []);
+  // A press outside a pane closes it and leaves the keyboard where he pressed;
+  // Escape and a pick hand it back to the box.
+  const closePane = useCallback(() => setPane(null), []);
+  const modelControl = useRef<HTMLButtonElement>(null);
+  const effortControl = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLButtonElement>(null);
   const composerBox = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
@@ -215,16 +218,18 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     const command = engineCommand(harness, setting, value);
     const nextEffort = setting === "effort" ? value : chosen?.efforts.includes(shownEffort) ? shownEffort : chosen?.default_effort ?? "";
     if (command ? !link.send(command) : !link.send("/model")) { setUnsent(unsentWhy); return; }
+    setChosenEngine((prior) => setting === "model" ? { ...prior, model: { value, over: recordedModel } } : { ...prior, effort: { value, over: recordedEffort } });
     if (!command) {
       stopDriving.current?.();
       setDriving(true);
       stopDriving.current = driveCodexPicker(terminal, { model: setting === "model" ? value : shownModel, name: setting === "model" ? chosen?.name ?? "" : "", effort: nextEffort }, CODEX_PICKER_WAIT_MS, (failed) => {
         stopDriving.current = null;
         setDriving(false);
-        if (failed) setUnsent(failed === CODEX_NOT_SENT ? unsentWhy : failed);
+        if (!failed) return;
+        setUnsent(failed === CODEX_NOT_SENT ? unsentWhy : failed);
+        setChosenEngine((prior) => setting === "model" ? { ...prior, model: undefined } : { ...prior, effort: undefined });
       });
     }
-    setChosenEngine((prior) => setting === "model" ? { ...prior, model: { value, over: recordedModel } } : { ...prior, effort: { value, over: recordedEffort } });
     requestAnimationFrame(() => field.current?.focus());
   };
   // What this box saves as a board action types nothing into the terminal, so
@@ -236,11 +241,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu.
+    // A Codex model typed by its id keeps the effort a pick of it in the pane
+    // would, when the harness's catalog lists it.
     const asked = canChangeEngine ? settingCommand(harness, text) : null;
     if (asked) {
       setDraft("");
-      if (asked.value) applyEngine(asked.setting, asked.value);
-      else setPane(asked.setting);
+      if (!asked.value) { setPane(asked.setting); return; }
+      const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
+        (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
+        (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
+      applyEngine(asked.setting, asked.value, chosen);
       return;
     }
     if (!savesThroughBoard && !sendID.current) {
@@ -385,14 +395,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     const shown = recalled !== null && draft === history[recalled] ? recalled : null;
     if (event.key === "ArrowUp" && (!draft || shown !== null && !box.value.slice(0, box.selectionStart).includes("\n")) && history.length) {
       const at = Math.max(0, (shown ?? history.length) - 1);
+      write(() => history[at]);
       setRecalled(at);
-      setDraft(history[at]);
+      setListClosed(true);
       return true;
     }
     if (event.key === "ArrowDown" && shown !== null && !box.value.slice(box.selectionEnd).includes("\n")) {
       const at = shown + 1;
+      write(() => at < history.length ? history[at] : "");
       setRecalled(at < history.length ? at : null);
-      setDraft(at < history.length ? history[at] : "");
+      setListClosed(true);
       return true;
     }
     return false;
@@ -414,6 +426,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         return;
       }
     }
+    // Escape with the box's own pane, speech history or style menu open
+    // closes it (the box's handler below), and reaches neither the harness
+    // nor its screen.
+    if (event.key === "Escape" && (pane || isRecentOpen || isStyleOpen)) return;
     // An open screen of the harness's own takes the terminal's keys from an
     // empty box, so it is answered here as in the terminal.
     const keysForPanel = panel && !isHeld && !draft ? panelKey(event, panel) : null;
@@ -472,7 +488,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     </ol>}
     <div ref={composerBox} className="composer-box" onKeyDown={(event) => {
       if (event.key !== "Escape") return;
-      if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
+      if (pane) { event.stopPropagation(); setPane(null); field.current?.focus(); }
+      else if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
       else if (isStyleOpen) { event.stopPropagation(); setStyleOpen(false); }
     }}>
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
@@ -500,13 +517,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
           <div className="composer-row-end">
             {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}
               onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" /><span className="mode-chip-name">{MODE_NAMES[mode] ?? mode}</span></button>}
-            <button type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={pane === "model"} disabled={!canChangeEngine}
+            <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={pane === "model"} disabled={!canChangeEngine}
               data-tip={pane === "model" ? undefined : (shownModel || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}
               onClick={() => setPane((open) => open === "model" ? null : "model")}>{harness && <HarnessMark harness={harness} />}{shortModel(shownModel) || "Model"}</button>
-            <button type="button" className="composer-control engine-control" aria-label="Change effort" aria-haspopup="menu" aria-expanded={pane === "effort"} disabled={!canChangeEngine}
+            <button ref={effortControl} type="button" className="composer-control engine-control" aria-label="Change effort" aria-haspopup="menu" aria-expanded={pane === "effort"} disabled={!canChangeEngine}
               data-tip={pane === "effort" ? undefined : canChangeEngine ? "Effort · Choose the session's reasoning effort" : "Effort controls need a connected, unheld composer"}
               onClick={() => setPane((open) => open === "effort" ? null : "effort")}>{shownEffort ? <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span> : <Icon name="sparkle" />}</button>
-            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} onPick={(value, chosen) => applyEngine(pane, value, chosen)} onClose={closePane} />}
+            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} control={pane === "model" ? modelControl : effortControl} onPick={(value, chosen) => applyEngine(pane, value, chosen)} onClose={closePane} />}
             {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
             {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
               : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>

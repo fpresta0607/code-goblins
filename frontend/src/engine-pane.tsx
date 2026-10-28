@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import { useResource } from "./api";
 import { parseEngineCatalog, type EngineModel } from "./engine-catalog";
 import { effortsInOrder, effortTone, type EngineSetting } from "./engine-choices";
@@ -7,43 +7,44 @@ import { Icon } from "./Icon";
 import { shortModel } from "./model-name";
 import "./engine-pane.css";
 
-// isModel says whether a catalog model is the one a session names, by its id
-// or by the name the box shows for that id.
-const isModel = (listed: EngineModel, named: string) => !!named && (listed.id === named || shortModel(listed.id) === shortModel(named));
-
 // EnginePane is Modern Chat's own pane for a session's model or effort (the
 // Overlord, 2026-10-27: "The modern chat should have its own panels to adjust
 // the settings. It shouldn't rely on any terminal views or UI"). It lists
 // what the session's harness really offers, read from its own catalog
 // (GET /api/engines) only while the pane is open: its models, or the efforts
 // of the model it runs, each effort in its level's colour. The one it runs is
-// checked; a pick goes to onPick, and Escape or a press outside closes it.
-// The keyboard moves through the choices with the arrows.
-export function EnginePane({ setting, harness, model, effort, onPick, onClose }: {
+// checked: the model whose id the session names, or, when no id matches, the
+// first by the name the box shows. A pick goes to onPick, and a press outside
+// the pane and its control closes it (onClose); Escape is the box's. The pane
+// takes the keyboard as it opens, and the arrows move through the choices.
+export function EnginePane({ setting, harness, model, effort, control, onPick, onClose }: {
   setting: EngineSetting; harness: string; model: string; effort: string;
+  control: RefObject<HTMLButtonElement | null>;
   onPick: (value: string, chosen?: EngineModel) => void; onClose: () => void;
 }) {
   const pane = useRef<HTMLDivElement>(null);
   const catalog = useResource("/api/engines", parseEngineCatalog);
   const offered = catalog.data?.find((item) => item.id === harness);
-  const running = offered?.models.find((listed) => isModel(listed, model));
-  const efforts = effortsInOrder(running?.efforts.length ? running.efforts : [...new Set(offered?.models.flatMap((listed) => listed.efforts) ?? [])]);
+  const models = offered?.models ?? [];
+  const running = models.find((listed) => listed.id === model) ?? models.find((listed) => !!model && shortModel(listed.id) === shortModel(model));
+  const efforts = effortsInOrder(running?.efforts.length ? running.efforts : [...new Set(models.flatMap((listed) => listed.efforts))]);
   const choices = setting === "model"
-    ? (offered?.models ?? []).map((listed) => ({ value: listed.id, label: shortModel(listed.name) || listed.name, detail: listed.id === listed.name ? "" : listed.id, isChosen: isModel(listed, model), tone: "", chosen: listed }))
+    ? models.map((listed) => ({ value: listed.id, label: shortModel(listed.name) || listed.name, detail: listed.id === listed.name ? "" : listed.id, isChosen: listed === running, tone: "", chosen: listed }))
     : efforts.map((level) => ({ value: level, label: level, detail: "", isChosen: level === effort, tone: effortTone(level), chosen: undefined }));
   const isReady = choices.length > 0;
   useEffect(() => {
-    if (!isReady) return;
     const items = Array.from(pane.current?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ?? []);
-    (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
+    (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0] ?? pane.current)?.focus();
   }, [isReady]);
   useEffect(() => {
-    const away = (event: PointerEvent) => { if (!pane.current?.contains(event.target as Node)) onClose(); };
+    const away = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!pane.current?.contains(target) && !control.current?.contains(target)) onClose();
+    };
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
-  }, [onClose]);
+  }, [control, onClose]);
   const keys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); return; }
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
     const items = Array.from(pane.current?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ?? []);
@@ -51,7 +52,7 @@ export function EnginePane({ setting, harness, model, effort, onPick, onClose }:
     items[(at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
   };
   const title = setting === "model" ? "Model" : "Effort";
-  return <div ref={pane} className="popup-surface engine-pane" role="menu" aria-label={title} onKeyDown={keys}>
+  return <div ref={pane} className="popup-surface engine-pane" role="menu" aria-label={title} tabIndex={-1} onKeyDown={keys}>
     <p className="engine-pane-title"><HarnessMark harness={harness} />{title}</p>
     {catalog.error ? <p className="engine-pane-note" role="alert">The session's {setting === "model" ? "models" : "efforts"} could not be read.</p>
       : !catalog.data ? <p className="engine-pane-note" role="status">Reading the session's {setting === "model" ? "models" : "efforts"}…</p>

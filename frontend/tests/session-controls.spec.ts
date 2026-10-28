@@ -272,6 +272,113 @@ test("a refused terminal window leaves the draft and reports the actual refusal"
   expect(typed(relay)).toBe("");
 });
 
+test("a second press on its control closes the pane, and a press outside closes it leaving the keyboard where he pressed", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  const control = box(page).getByRole("button", { name: "Change model", exact: true });
+  const pane = box(page).getByRole("menu", { name: "Model", exact: true });
+  await control.click();
+  await expect(pane.getByRole("menuitemradio", { checked: true })).toBeFocused();
+
+  // Act
+  await control.click();
+
+  // Assert
+  await expect(pane).toHaveCount(0);
+  await expect(control).toHaveAttribute("aria-expanded", "false");
+
+  // Act: a press on the conversation.
+  await control.click();
+  await expect(pane.getByRole("menuitemradio", { checked: true })).toBeFocused();
+  await page.locator(".message-reply .message-words").click();
+
+  // Assert
+  await expect(pane).toHaveCount(0);
+  await expect(field(page)).not.toBeFocused();
+  expect(typed(relay)).toBe("");
+});
+
+test("Escape with the box's pane or style menu open closes it and never stops the working harness", async ({ page }) => {
+  // Arrange: the harness works, and its catalog cannot be read, so the pane
+  // only says so.
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await field(page).fill("/model");
+  await field(page).press("Enter");
+  const pane = box(page).getByRole("menu", { name: "Model", exact: true });
+  await expect(pane).toContainText("could not be read");
+  await expect(pane, "the pane takes the keyboard while it only shows a note").toBeFocused();
+
+  // Act
+  await page.keyboard.press("Escape");
+
+  // Assert
+  await expect(pane).toHaveCount(0);
+  await expect(field(page)).toBeFocused();
+
+  // Act: the style menu, open while he is back in the box.
+  const style = box(page).getByRole("button", { name: "Style: modern", exact: true });
+  await style.click();
+  await field(page).focus();
+  await field(page).press("Escape");
+
+  // Assert
+  await expect(style).toHaveAttribute("aria-expanded", "false");
+  expect(typed(relay), "no Escape reached the harness").toBe("");
+  await field(page).press("Escape");
+  await expect.poll(() => typed(relay), "with nothing open, Escape stops it").toBe("\x1b");
+});
+
+test("a Codex pick its picker never offered leaves its control showing what the session runs", async ({ page }) => {
+  // Arrange
+  await page.clock.install();
+  const relay = await open(page, snapshot({}, { harness: "codex", model: "gpt-6-astra", effort: "medium" }), "", { ...PAGE, usage: recorded("gpt-6-astra", "medium") });
+  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  const control = box(page).getByRole("button", { name: "Change model", exact: true });
+  await control.click();
+  await box(page).getByRole("menu", { name: "Model", exact: true }).getByRole("menuitemradio", { name: /^GPT-6\.1 Sol/ }).click();
+  await expect(control).toContainText("GPT-6.1 Sol");
+  await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r");
+
+  // Act: Codex's model list never offers it, and the box gives up.
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { ...CODEX_MODELS, choices: CODEX_MODELS.choices.slice(0, 1) } });
+  await page.clock.fastForward(8_001);
+
+  // Assert
+  await expect(box(page)).toContainText("Codex did not offer that choice in its model picker.");
+  await expect(control).toContainText("GPT-6 Astra");
+});
+
+test("a Codex model typed after /model keeps the session's effort when its catalog lists the model", async ({ page }) => {
+  // Arrange: the session runs high, which gpt-6.1-sol offers too, while
+  // Codex's reasoning list focuses Medium.
+  const relay = await open(page, snapshot({}, { harness: "codex", model: "gpt-6-astra", effort: "high" }), "", { ...PAGE, usage: recorded("gpt-6-astra", "high") });
+  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
+
+  // Act
+  await field(page).fill("/model gpt-6.1-sol");
+  await field(page).press("Enter");
+  await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r");
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: CODEX_MODELS });
+  await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r2");
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: CODEX_EFFORTS });
+
+  // Assert
+  await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r23");
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toContainText("GPT-6.1 Sol");
+});
+
 test("a narrow desktop panel keeps all session controls inside the composer", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("cfo-pane-width", "360");

@@ -2,6 +2,7 @@
    box's row, right-aligned with it, on the surface every popup of the chat
    wears (popup.css), and scrolls inside itself past a third of the window. */
 .engine-pane { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; display: grid; gap: 2px; width: min(20rem, calc(100cqw - 8px)); max-height: min(22rem, 45dvh); padding: 6px; overflow: auto; overscroll-behavior: contain; }
+.engine-pane:focus-visible { outline: none; }
 .engine-pane-title { display: flex; align-items: center; gap: 8px; margin: 2px 6px 6px; color: var(--muted); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .engine-pane-title .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .engine-pane-title .mark svg, .engine-pane-title .mark .icon { width: 14px; height: 14px; }

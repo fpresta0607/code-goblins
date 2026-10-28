@@ -59,6 +59,27 @@ test("driveCodexPicker ends after the model when Codex closes its picker without
   offerLink("codex-b", null);
 });
 
+test("driveCodexPicker answers the reasoning list with Enter for its focused level when no effort was chosen", () => {
+  // Arrange
+  const codex = terminal("codex-d");
+  const results: string[] = [];
+  driveCodexPicker("codex-d", { model: "gpt-6.1-sol", name: "", effort: "" }, 60_000, (failed) => results.push(failed));
+
+  // Act
+  codex.show(MODELS);
+  codex.show(MODELS);
+  const beforeReasoning = [...codex.sent];
+  codex.show(EFFORTS);
+  codex.show(null);
+
+  // Assert: the model list drawn again after its pick takes no Enter.
+  assert.deepEqual(beforeReasoning, ["2"]);
+  assert.deepEqual(codex.sent, ["2", "\r"]);
+  assert.equal(codex.escapes(), 0);
+  assert.deepEqual(results, [""]);
+  offerLink("codex-d", null);
+});
+
 test("driveCodexPicker closes a picker that never offers the choice and says so", async () => {
   // Arrange
   const codex = terminal("codex-c");

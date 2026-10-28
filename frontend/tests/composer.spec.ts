@@ -210,22 +210,26 @@ test("while the harness works an empty box's send button is Stop, which presses 
 });
 
 test("Up in an empty box recalls what he sent before, newest first, and Down walks back to the empty box", async ({ page }) => {
-  // Arrange: he sent two messages and a command earlier in the session.
+  // Arrange: he sent two messages and a command earlier in the session, and
+  // the session offers that command in its slash list.
   const at2 = "2026-10-22T09:05:00Z";
-  await open(page, snapshot(), "", { messages: [
+  const relay = await open(page, snapshot(), "", { messages: [
     { id: "p0", seq: 0, at, kind: "prompt", source: "overlord", text: "Read the brief" },
     { id: "r1", seq: 1, at, kind: "reply", blocks: [{ kind: "text", text: "On it." }] },
     { id: "p2", seq: 2, at: at2, kind: "prompt", source: "cfo", text: "A note from the CFO" },
     { id: "p3", seq: 3, at: at2, kind: "prompt", source: "slash", text: "/cost", output: "Total cost: $0.12" },
     { id: "p4", seq: 4, at: at2, kind: "prompt", source: "overlord", text: "Now fix the swipe" },
   ], more: false });
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [{ name: "cost", description: "Show the session's cost", source: "builtin" }] } }));
   await openGoblin(page);
 
-  // Act and Assert
+  // Act and Assert: a recalled command keeps the slash list closed, so Up
+  // walks on past it.
   await field(page).press("ArrowUp");
   await expect(field(page)).toHaveValue("Now fix the swipe");
   await field(page).press("ArrowUp");
   await expect(field(page)).toHaveValue("/cost");
+  await expect(page.getByRole("listbox", { name: "Commands", exact: true })).toHaveCount(0);
   await field(page).press("ArrowUp");
   await expect(field(page)).toHaveValue("Read the brief");
   await field(page).press("ArrowUp");
@@ -242,6 +246,15 @@ test("Up in an empty box recalls what he sent before, newest first, and Down wal
   await field(page).type(" now");
   await field(page).press("ArrowUp");
   await expect(field(page)).toHaveValue("Now fix the swipe now");
+
+  // Enter sends a recalled command as it is.
+  await field(page).fill("");
+  await field(page).press("ArrowUp");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("/cost");
+  await field(page).press("Enter");
+  await expect.poll(() => typed(relay)).toBe(pasted("/cost") + "\r");
+  await expect(field(page)).toHaveValue("");
 });
 
 test("his draft stays through a switch of sessions, a reconnect and a reload of the board, as an update reloads it", async ({ page }) => {

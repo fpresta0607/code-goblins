@@ -1,5 +1,5 @@
 import { codexChoice } from "./engine-choices.ts";
-import { chooseKeys } from "./panel-keys.ts";
+import { chooseKeys, PANEL_KEYS } from "./panel-keys.ts";
 import { watchLink, type TerminalLink } from "./terminal-link.ts";
 
 // The words for a choice Codex's picker never offered, and for keys its
@@ -12,10 +12,12 @@ export const CODEX_NOT_SENT = "not sent";
 // no value, so it picks the model in its model list and then the effort in
 // its reasoning list by their digits, as he would, while the terminal stays
 // out of sight, and ends once Codex closes its picker, so its list is never
-// drawn. A model with no reasoning list, or an empty effort, ends after the
-// model. done hears "" once it is set, CODEX_NOT_SENT when the terminal
-// did not take a pick, or CODEX_NOT_OFFERED after wait ms without the choice,
-// when the picker, if open, is closed with Escape. It returns what stops it.
+// drawn. A model with no reasoning list ends after the model, and with an
+// empty effort Enter takes the level Codex's reasoning list has focused, once
+// its model list is gone. done hears "" once it is set, CODEX_NOT_SENT when
+// the terminal did not take a pick, or CODEX_NOT_OFFERED after wait ms
+// without the choice, when the picker, if open, is closed with Escape. It
+// returns what stops it.
 export function driveCodexPicker(key: string, target: { model: string; name: string; effort: string }, wait: number, done: (failed: string) => void): () => void {
   let step: "model" | "effort" | "closing" = "model";
   let latest: TerminalLink | undefined;
@@ -33,11 +35,16 @@ export function driveCodexPicker(key: string, target: { model: string; name: str
     if (step !== "model" && !link.screen.isOpen) { finish(""); return; }
     const panel = link.screen.panel;
     if (!panel || step === "closing") return;
-    const at = codexChoice(panel, step, step === "model" ? target.model : target.effort, step === "model" ? target.name : "");
-    if (at < 0) return;
-    const keys = chooseKeys(panel, at);
+    let keys: string | null = PANEL_KEYS.enter;
+    if (step === "effort" && !target.effort) {
+      if (codexChoice(panel, "model", target.model, target.name) >= 0) return;
+    } else {
+      const at = codexChoice(panel, step, step === "model" ? target.model : target.effort, step === "model" ? target.name : "");
+      if (at < 0) return;
+      keys = chooseKeys(panel, at);
+    }
     if (!keys || !link.control(keys)) { finish(CODEX_NOT_SENT); return; }
-    step = step === "model" && target.effort ? "effort" : "closing";
+    step = step === "model" ? "effort" : "closing";
   };
   const timer = setTimeout(() => {
     if (latest?.screen?.isOpen) latest.escape();
