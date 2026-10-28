@@ -1381,6 +1381,48 @@ func TestALaunchSaysPlainlyWhenItsHostDoesNotAnswerInTime(t *testing.T) {
 	}
 }
 
+// A launch that ends a host which did not answer in time returns once that
+// host has ended, so nothing it held outlives the launch: on 2026-10-24 the
+// host's log was still open when the test that launched it removed its folder
+// (issue #1472), since Kill only asks Windows to end a process.
+func TestALaunchThatEndsAHostWhichDidNotAnswerReturnsOnceItHasEnded(t *testing.T) {
+	// Arrange
+	usual := launchTimeout
+	launchTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { launchTimeout = usual })
+	stateDir := t.TempDir()
+	logPath := filepath.Join(stateDir, "hosts", "g1.log")
+
+	// Act
+	// The test binary as "sleep-child" waits and never records itself.
+	_, err := Launch(stateDir, []string{os.Args[0], "sleep-child"}, hostEnvironment(), Spec{ID: "g1", Args: []string{os.Args[0], "echo-child"}, Cols: 80, Rows: 25})
+
+	// Assert
+	match := regexp.MustCompile(`^host: host pid (\d+) did not record itself within 300ms; see `).FindStringSubmatch(fmt.Sprint(err))
+	if match == nil {
+		t.Fatalf("err = %v, want that the host did not record itself within 300ms", err)
+	}
+	pid, _ := strconv.Atoi(match[1])
+	if handle, openErr := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid)); openErr == nil {
+		event, _ := windows.WaitForSingleObject(handle, 0)
+		windows.CloseHandle(handle)
+		if event != windows.WAIT_OBJECT_0 {
+			end(pid)
+			t.Fatalf("the launch returned while the host pid %d it ended still ran", pid)
+		}
+	}
+	logged, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !regexp.MustCompile(`host: pid \d+ ended \S+ after this launch ended it`).Match(logged) {
+		t.Errorf("the host log does not say how long the host took to end: %s", logged)
+	}
+	if removeErr := os.Remove(logPath); removeErr != nil {
+		t.Errorf("the host's log is still held once the launch returned: %v", removeErr)
+	}
+}
+
 // A host whose terminal's program ends at once can record itself, serve and
 // end between two of its launch's looks for its record, as hosts did by chance
 // in CI (#1243). It served all the same, and its end names it, so the launch
