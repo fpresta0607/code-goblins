@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
@@ -81,7 +81,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   const [rowHeights, setRowHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const [view, setView] = useState({ top: 0, height: 0, anchor: "", offset: 0 });
   // The rows the page's selection starts and ends in while it starts in this
-  // list, so the window keeps them drawn and a long selection copies whole.
+  // list, so the window keeps them drawn and a long selection copies whole. A
+  // caret a press on a control leaves, as on a fold's line or a button, is no
+  // place he reads from, so it keeps no row drawn.
   const [selected, setSelected] = useState<{ from: string; to: string; isCollapsed: boolean } | null>(null);
   useEffect(() => {
     const rowOf = (node: Node | null) => (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>("[data-message]")?.dataset.message ?? "";
@@ -90,6 +92,9 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
       const from = selection?.anchorNode && box?.contains(selection.anchorNode) ? rowOf(selection.anchorNode) : "";
       const to = selection?.focusNode && box?.contains(selection.focusNode) ? rowOf(selection.focusNode) : "";
       const isCollapsed = !!selection?.isCollapsed;
+      const anchor = selection?.anchorNode;
+      const isOnControl = !!(anchor instanceof Element ? anchor : anchor?.parentElement)?.closest("summary, button, a, input, textarea");
+      if (isCollapsed && isOnControl) { setSelected(null); return; }
       setSelected((prior) => !from ? null : prior?.from === from && prior.to === to && prior.isCollapsed === isCollapsed ? prior : { from, to, isCollapsed });
     };
     document.addEventListener("selectionchange", read);
@@ -382,11 +387,13 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
         onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
         onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
         <div ref={items} className="conversation-items" style={{ paddingTop: heightOf(0, spans[0].start) }}>
-          {spans.map((span, at) => <Fragment key={span.start}>
-            {at > 0 && <div className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />}
-            {held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
-          </Fragment>)}
+          {/* One flat list keyed by message, so a row keeps its place in the
+              page, its DOM and any selection in it as the window moves. */}
+          {spans.flatMap((span, at) => [
+            ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
+            ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
+          ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
