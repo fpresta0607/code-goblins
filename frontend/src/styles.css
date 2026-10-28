@@ -677,6 +677,15 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .fills-phone .panel-header.compact h2 { font-size: 1.125rem; }
 .fills-phone .panel-header.compact .panel-identity { gap: 0; }
 .fills-phone .panel-header.compact :is(.panel-goblin-task, .panel-status) { font-size: .9375rem; line-height: 1.35; }
+/* On a phone a panel's top is one row (GoblinPanel's phone header): Back as a
+   round icon, the name with its status under it, each cut short rather than
+   wrapped, and "..." for the rest. */
+.phone-header { display: flex; flex: none; align-items: center; gap: 6px; min-height: 52px; padding: 2px 4px; }
+.phone-header > .labelled-button { flex: none; justify-content: center; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; }
+.phone-header > .labelled-button > span { display: none; }
+.fills-phone .phone-header .panel-header.compact { flex: 1; min-width: 0; grid-template-columns: minmax(0, 1fr); padding: 0; }
+.phone-header .panel-header :is(.goblin-avatar, .panel-goblin-task) { display: none; }
+.phone-header :is(#panel-title, .panel-status) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* VS Code and a task's folder open on the PC, so a small screen has neither,
    and a row of the panel's buttons left with nothing in it takes no room. */
 @media (max-width: 40rem) {

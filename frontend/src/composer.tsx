@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
@@ -85,7 +86,7 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, menuSlot, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // model and effort are what the session's own record last says it runs.
@@ -99,6 +100,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // the send button's place interrupts while the box is empty, and history
   // is what he sent the session before, oldest first, which Up recalls.
   isWorking?: boolean; history?: string[];
+  // menuSlot is given on a phone, where the box's own menu and its mode live
+  // in the panel's "..." menu: the place to draw them while that menu is
+  // open, and null while it is closed (phone-menu.tsx).
+  menuSlot?: HTMLElement | null;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -492,6 +497,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
   const canStop = isWorking && !draft.trim() && !isSending && !!live && !isHeld;
+  const isPhone = menuSlot !== undefined;
+  // The box's own menu, the chat style, speech history and Windows Terminal,
+  // drawn in its popover, or on a phone in the panel's "..." menu.
+  const styleItems = <>
+    <div className="composer-style-choices" role="group" aria-label="Chat style">
+      <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}><Icon name="comment" />Modern</button>
+      <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}><Icon name="terminal" />Classic</button>
+    </div>
+    <button type="button" onClick={() => { setStyleOpen(false); setRecentOpen(true); menu.current?.focus(); }}><Icon name="clock" />Speech history</button>
+    {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="external" />Open in Windows Terminal</button>}
+  </>;
   return <section className="composer" aria-label={"Messages to " + name}>
     {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
@@ -517,26 +533,23 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       {isRecentOpen && <RecentDictations where="the message" anchor={composerBox} model={dictation.model} look="pane" onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
       <div className="composer-input">
-        <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
+        <textarea ref={field} aria-label={"Message " + name} placeholder={isPhone && isWorking ? "Queue for after this…" : "Message " + name} rows={1} value={draft} disabled={isSending}
           onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <div className="composer-row">
           <div className="composer-row-start">
             <button type="button" className="composer-control" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
-            <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip={isStyleOpen ? undefined : "Chat style and speech history"}
-              onClick={() => setStyleOpen((prior) => !prior)}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
-            {isStyleOpen && <div className="composer-style-popover">
-              <div className="composer-style-choices" role="group" aria-label="Chat style">
-                <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}><Icon name="comment" />Modern</button>
-                <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}><Icon name="terminal" />Classic</button>
-              </div>
-              <button type="button" onClick={() => { setStyleOpen(false); setRecentOpen(true); menu.current?.focus(); }}><Icon name="clock" />Speech history</button>
-              {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="external" />Open in Windows Terminal</button>}
-            </div>}
+            {!isPhone && <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip={isStyleOpen ? undefined : "Chat style and speech history"}
+              onClick={() => setStyleOpen((prior) => !prior)}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>}
+            {!isPhone && isStyleOpen && <div className="composer-style-popover">{styleItems}</div>}
+            {menuSlot && createPortal(<div className="composer-menu-items">
+              {styleItems}
+              {mode && <button type="button" disabled={isHeld} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); }}><Icon name="shield" />{"Mode: " + (MODE_NAMES[mode] ?? mode)}</button>}
+            </div>, menuSlot)}
             {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
           </div>
           <div className="composer-row-end">
-            {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}
+            {!isPhone && mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}
               onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" /><span className="mode-chip-name">{MODE_NAMES[mode] ?? mode}</span></button>}
             <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={pane === "model"} disabled={!canChangeEngine}
               data-tip={pane === "model" ? undefined : (shownModel || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}

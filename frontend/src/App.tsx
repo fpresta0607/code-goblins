@@ -246,6 +246,9 @@ export function App() {
     return target;
   });
   const [classicDock, setClassicDock] = useState<HTMLDivElement | null>(null);
+  // Where the box draws its own menu's choices on a phone: inside the
+  // panel's "..." menu while it is open (phone-menu.tsx).
+  const [phoneMenuSlot, setPhoneMenuSlot] = useState<HTMLDivElement | null>(null);
   const [messageDock, setMessageDock] = useState<HTMLDivElement | null>(null);
   const composerFocus = useRef<HTMLElement | null>(null);
   const [composerActivity, setComposerActivity] = useState({ terminal: "", isActive: false });
@@ -534,7 +537,7 @@ export function App() {
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
             view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
-            onOpenTask={openTask} />)}
+            onOpenTask={openTask} isPhone={fillsPhone} onMenuSlot={setPhoneMenuSlot} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
@@ -547,7 +550,7 @@ export function App() {
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} menuSlot={fillsPhone ? phoneMenuSlot : undefined} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
@@ -555,7 +558,7 @@ export function App() {
           </Suspense>}
         </PanelStage>
         <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
-        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
+        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} menuSlot={fillsPhone ? phoneMenuSlot : undefined} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
           focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}

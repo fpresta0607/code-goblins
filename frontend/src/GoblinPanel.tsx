@@ -14,6 +14,9 @@ import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
 import { PanelViewSwitch } from "./panel-view-switch";
+import { PhoneMenu } from "./phone-menu";
+import { CfoSwitches } from "./cfo-switches";
+import { Icon } from "./Icon";
 
 export type PanelView = "terminal" | "task";
 
@@ -32,12 +35,19 @@ export type PanelView = "terminal" | "task";
 // and says which conversation it could not resume when it came back; its
 // Restart is in its header. A goblin's baby goblin (child) has the same
 // panel, with its name and its task above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, now, presentations, cardStart, onAnswer, onOpenTask, row }: {
+// On a phone (isPhone) the top is one row, as in Claude's phone app (the
+// Overlord, 2026-10-28: "back button and header takes up too much space.
+// More menus and openable functionality"): Back as a round icon, the name
+// with its status under it, and "..." holding the selector, the row's
+// controls, the CFO's switches, and the box's own menu, which the box draws
+// into onMenuSlot.
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, now, presentations, cardStart, onAnswer, onOpenTask, row, isPhone = false, onMenuSlot }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; maximized: boolean; side: HTMLElement | null;
   now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
   // row is the top row's controls, corner button and notice (see PanelRow).
   cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode };
+  isPhone?: boolean; onMenuSlot?: (node: HTMLDivElement | null) => void;
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   // A failure's Open the log opens the Activity section and brings it into view.
@@ -77,6 +87,20 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {!maximized && <div ref={taskMount} className="panel-task" hidden={view !== "task"} />}
     {createPortal(taskList, taskHost)}
   </>;
+  if (isPhone) return <section className={"goblin-panel phone" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
+    <div className="phone-header">
+      {row.corner}
+      {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact hasAfk={false} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
+      <PhoneMenu>
+        {!child && <PanelViewSwitch view={view} views={views} onView={onView} />}
+        {row.controls.map((control) => <button key={control.id} type="button" onClick={control.onPress}><Icon name={control.icon} />{control.label}</button>)}
+        {!task && !node && <CfoSwitches snapshot={snapshot} />}
+        <div ref={onMenuSlot} className="phone-menu-slot" />
+      </PhoneMenu>
+      {row.notice}
+    </div>
+    {list}
+  </section>;
   return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow {...row} />
     {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={maximized || view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}

@@ -12,9 +12,7 @@ import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
 import { plainMessage } from "./messageText";
-import { AfkToggle } from "./afk-toggle";
-import { CfoUpdate } from "./cfo-update";
-import { RestartPcButton } from "./restart-pc-button";
+import { CfoSwitches } from "./cfo-switches";
 import { finishedEvidence, goblinName, taskSummary } from "./task-words";
 import { RawDetails } from "./raw-details";
 import { taskStatus } from "./task-status";
@@ -43,7 +41,7 @@ import { TaskAdjustment } from "./task-adjustment";
 // while an update of the CFO's harness waits and Restart PC before that while
 // the kernel's pools are past their line, and under them what a press of
 // Update waits for or why it did not restart the CFO.
-export function PanelHeader({ task, node, snapshot, compact, isDetails = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, compact, isDetails = false, hasAfk = true, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; hasAfk?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -135,7 +133,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
           a small screen, since VS Code and the folder open on the PC. */}
       {!compact && actions}
     </div>
-    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />}
+    {cfo && hasAfk && <CfoSwitches snapshot={snapshot} />}
     {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
   </header>;
 }

@@ -51,6 +51,11 @@
 .composer-control .icon, .composer-input .voice-bubble .icon { width: 18px; height: 18px; }
 .composer-input .voice-bubble.recording { color: var(--amber); }
 .composer-file-input { display: none; }
+/* On a phone the box keeps +, the model and effort, the microphone and Send
+   or Stop inside its border, each a 44 px target, and its text at 16 px or
+   more, so iOS never zooms the page as the box takes the keyboard. */
+.fills-phone .composer textarea { font-size: max(16px, 1em); }
+.fills-phone :is(.composer-control, .composer-send, .composer-input .voice-bubble) { min-width: 44px; height: 44px; min-height: 44px; }
 .composer-style-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 13rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
 .composer-style-choices { display: grid; gap: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--glass-border); }
 .composer-style-popover button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
