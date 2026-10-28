@@ -13,8 +13,8 @@ const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", do
 // A tool call in a reply, as one quiet row: its tool's icon, the verb it is
 // told by (Read, Edited, Ran, Searched), what it was called on, and at its
 // end an edit's added and removed lines and the mark of its outcome, a quiet
-// static one while it runs so the footer stays the conversation's one
-// animation, with its state's word for a reader. What came back, an
+// static one while it runs so the end of the reply in progress stays the
+// conversation's one animation, with its state's word for a reader. What came back, an
 // edit's diff and its pictures fold under the row in the board's one
 // Disclosure, which mounts them only while it is open. A call that started a
 // sub-agent is its baby goblin's row instead, whose Open shows that baby
