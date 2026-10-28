@@ -224,3 +224,31 @@ func TestAPiSessionReadsTheModelItLastChangedTo(t *testing.T) {
 		t.Fatalf("usage = %+v, want the model it changed to", page.Usage)
 	}
 }
+
+// A usage limit's notice is an entry Claude Code writes itself, under the
+// model "<synthetic>" with no usage: the session keeps the model it runs and
+// how full its context is (the Overlord, 2026-10-28: the box showed
+// "<synthetic>").
+func TestAClaudeLimitNoticeKeepsTheModelAndTheContext(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	worked := answer("a1", "reply-1", textBlock("done"))
+	worked["message"].(object)["usage"] = object{"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 3}
+	limit := answer("a2", "reply-2", textBlock("You've hit your 5-hour limit · resets 10pm (America/Chicago)"))
+	limit["message"].(object)["model"] = "<synthetic>"
+	limit["message"].(object)["usage"] = object{"input_tokens": 0, "output_tokens": 0}
+	path := conversation(t, home, prompted("u1", "work"), worked, prompted("u2", "more"), limit)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Usage{InputTokens: 10, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 18, Model: "claude-opus-5-5"}
+	if page.Usage == nil || *page.Usage != want {
+		t.Fatalf("usage = %+v, want %+v", page.Usage, want)
+	}
+}

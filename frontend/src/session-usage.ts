@@ -1,5 +1,6 @@
 import type { KeySpend, SubscriptionUsage } from "./types";
 import type { SessionUsage } from "./session-messages";
+import { shortModel } from "./model-name.ts";
 
 // What a session has spent, drawn from what the fleet already read: its own
 // conversation's usage, the model and effort the board recorded for it, and
@@ -117,7 +118,7 @@ export function sessionStats({ usage, model, effort, memory }: SessionFacts): Se
   }
   if (memory > 0) add("memory", "Memory", formatMemory(memory));
   else missing.push("its memory");
-  if (model || effort) add("engine", effort ? "Model / configured effort" : "Model", [model, effort].filter(Boolean).join(" "));
+  if (model || effort) add("engine", effort ? "Model / configured effort" : "Model", [shortModel(model), effort].filter(Boolean).join(" "));
   else missing.push("its model and effort");
   const contextPercent = spent && spent.context_window > 0 ? Math.max(0, Math.min(100, spent.context_tokens / spent.context_window * 100)) : undefined;
   return { details, missing, hasUsage: !!spent, contextPercent };

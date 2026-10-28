@@ -41,10 +41,10 @@ test("harnesses and model providers each carry their own mark", () => {
   for (const [model, mark, provider] of models) assert.deepEqual(modelMark(model), { mark, provider }, model);
 });
 
-test("a harness mark's tip names the harness, then the model and effort it runs when known", () => {
+test("a harness mark's tip names the harness, then the model by its short name and the effort it runs when known", () => {
   const cases: [string, string, string, string][] = [
-    ["codex", "gpt-6-astra", "xhigh", "Codex · gpt-6-astra · xhigh"],
-    ["claude", "claude-opus-5-5", "", "Claude Code · claude-opus-5-5"],
+    ["codex", "gpt-6-astra", "xhigh", "Codex · GPT-6 Astra · xhigh"],
+    ["claude", "claude-opus-5-5", "", "Claude Code · Opus 5.5"],
     ["pi", "", "", "Pi"],
     ["opencode", "", "high", "opencode · high"],
   ];
