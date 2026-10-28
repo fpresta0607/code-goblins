@@ -1160,9 +1160,9 @@ func whileDelivering(t *testing.T, act func()) {
 	t.Helper()
 	deliver := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = deliver })
-	typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string) error {
+	typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string, shouldRefuseTurn bool) error {
 		typeIntoGoblin = deliver
 		act()
-		return deliver(ctx, stateDir, meta, text)
+		return deliver(ctx, stateDir, meta, text, shouldRefuseTurn)
 	}
 }

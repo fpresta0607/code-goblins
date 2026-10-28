@@ -269,8 +269,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // together that were sent previously").
   // It holds on what the harness's own screen says, in a turn or showing a
   // screen of its own, not on the task being under way, which a goblin's is
-  // while its harness waits at an empty prompt.
-  const holdsForTurn = hasConversation && !isAsking && (!!live?.screen?.isWorking || isScreenOpen);
+  // while its harness waits at an empty prompt. A box with no conversation,
+  // Classic's or the deck's, holds at such a screen too, through the board's
+  // queue it lists, and in a turn types into the harness's own queue.
+  const holdsForTurn = !isAsking && (isScreenOpen || hasConversation && !!live?.screen?.isWorking);
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
   useEffect(() => {
@@ -295,7 +297,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       applyEngine(asked.setting, asked.value, false, chosen);
       return;
     }
-    if (!savesThroughBoard && !sendID.current && (isAsking || !holdsForTurn)) {
+    if (!savesThroughBoard && !sendID.current && !holdsForTurn) {
       // A question of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
       // he chose: the list's Enter confirms. It answers that question even

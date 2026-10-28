@@ -259,7 +259,7 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 			if current, err := state.ReadTaskMeta(stateDir, meta.ID); err != nil || current.SpawnGen != meta.SpawnGen {
 				return
 			}
-			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path)); err != nil {
+			if err := typeIntoGoblin(ctx, stateDir, meta, goblinLine("credentials refreshed: re-source "+item.Path), false); err != nil {
 				s.publish(fmt.Errorf("telling %s to load the credentials the Overlord granted: %w", meta.ID, err))
 			}
 		}()

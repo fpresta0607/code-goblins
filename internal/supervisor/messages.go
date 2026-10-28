@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -56,10 +57,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		if !isLive {
 			return Evaluation{Reason: "Waits for the CFO.", SendNowWhy: "No CFO is running."}, ErrDeferred
 		}
-		if a.IsSentNow {
-			return s.Options.CFO.Send(ctx, identity, text)
-		}
-		return s.Options.CFO.SendUnlessWorking(ctx, identity, text)
+		return s.Options.CFO.sendNative(ctx, identity, text, !a.IsSentNow)
 	}
 	stateDir := s.Store.Home.State
 	s.starts.Lock()
@@ -122,16 +120,16 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		return result, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
+			sent := time.Now().UTC()
+			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, !a.IsSentNow)
+			if errors.Is(err, fleet.ErrQueuedForToolCall) {
+				return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
+			}
 			// A goblin in a turn is not typed into: its message waits, where he
 			// can edit, send now or cancel it, until the turn ends, unless he
 			// asked for it now.
-			if isWorking, err := goblinIsWorking(stateDir, meta); err == nil && isWorking && !a.IsSentNow {
+			if errors.Is(err, spawn.ErrInTurn) {
 				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. Send now types it for the goblin to take at its next tool call.", CanSendNow: true}, ErrDeferred
-			}
-			sent := time.Now().UTC()
-			result, err := s.Options.CFO.SendGoblin(ctx, a.TaskID, goblinIdentity(meta), text)
-			if errors.Is(err, fleet.ErrQueuedForToolCall) {
-				return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
 			}
 			if errors.Is(err, fleet.ErrNotTyped) {
 				return Evaluation{Reason: "Queued until its terminal can take a message. Nothing was typed.", SendNowWhy: "Its terminal is not ready to take it yet."}, ErrDeferred

@@ -31,8 +31,10 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
     catch (error: unknown) { setProblem(message(error)); reportToCfo("a queued message to " + name, message(error)); }
     finally { setSending(false); }
   };
-  const isWaiting = action.status === "queued";
-  const isTyped = !!action.awaiting || action.status === "running";
+  // A message is typed only once it awaits the turn; one the board is
+  // looking at again, running with nothing awaited, still waits.
+  const isWaiting = action.status === "queued" || action.status === "running" && !action.awaiting;
+  const isTyped = !!action.awaiting;
   const isPending = isWaiting || isTyped;
   const state = isWaiting ? (variant === "queue" ? "Queued" : "Waiting") : isTyped ? "Typed, awaiting the turn" : messageState(action);
   const reason = isPending ? action.message : "";

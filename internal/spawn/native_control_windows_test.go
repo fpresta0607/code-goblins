@@ -185,26 +185,31 @@ func TestASteerToANativeGoblinInATurnIsQueuedWithoutAHookReport(t *testing.T) {
 }
 
 // A delivery that refuses a harness in a turn, as the supervisor's wake line
-// does, types nothing into one, where it once submitted the text into the
-// turn and reported it queued for the next tool call (#1468).
+// and a board message held for the turn do, types nothing into one, where it
+// once submitted the text into the turn and reported it queued for the next
+// tool call (#1468). A command he sends is refused the same way.
 func TestADeliveryThatRefusesATurnTypesNothingIntoOne(t *testing.T) {
-	f := newNativeFixture(t, harness.Codex, "")
-	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.service.ShouldRefuseTurn = true
+	for _, text := range []string{"cfo watcher wake: 1 queued wake", "/compact"} {
+		t.Run(text, func(t *testing.T) {
+			f := newNativeFixture(t, harness.Codex, "")
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.service.ShouldRefuseTurn = true
 
-	err = f.service.SendNative(context.Background(), meta, "cfo watcher wake: 1 queued wake")
+			err = f.service.SendNative(context.Background(), meta, text)
 
-	if !errors.Is(err, ErrInTurn) || !errors.Is(err, fleet.ErrNotTyped) {
-		t.Fatalf("SendNative = %v, want it refused as in a turn with nothing typed", err)
-	}
-	if submitted := submittedLines(t, f, 1); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture)}) {
-		t.Errorf("submitted = %q, want only the spawn's instruction", submitted)
+			if !errors.Is(err, ErrInTurn) || !errors.Is(err, fleet.ErrNotTyped) {
+				t.Fatalf("SendNative = %v, want it refused as in a turn with nothing typed", err)
+			}
+			if submitted := submittedLines(t, f, 1); !slices.Equal(submitted, []string{spawnPointer(t, f.fixture)}) {
+				t.Errorf("submitted = %q, want only the spawn's instruction", submitted)
+			}
+		})
 	}
 }
 

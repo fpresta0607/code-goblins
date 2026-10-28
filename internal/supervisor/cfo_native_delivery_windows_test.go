@@ -425,11 +425,11 @@ func TestNativeCFOHoldsAMessageWhileItWorks(t *testing.T) {
 			defer cancel()
 
 			// Act
-			result, err := connection.SendUnlessWorking(ctx, registrationIdentity(t, stateDir), "Check the flaky test first")
+			result, err := connection.sendNative(ctx, registrationIdentity(t, stateDir), "Check the flaky test first", true)
 
 			// Assert
 			if !errors.Is(err, ErrDeferred) || !result.CanSendNow || result.Awaiting != nil {
-				t.Errorf("SendUnlessWorking = %+v, %v; want held, sendable now, nothing typed", result, err)
+				t.Errorf("sendNative = %+v, %v; want held, sendable now, nothing typed", result, err)
 			}
 			if lines := terminal.lines(t); len(lines) != 1 {
 				t.Errorf("terminal input = %q; want only registration", lines)

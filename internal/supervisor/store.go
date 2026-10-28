@@ -793,6 +793,11 @@ func (s *Store) queue(a Action) (Action, error) {
 		a.Status, a.Message = "succeeded", "That is already the answer, so nothing was sent."
 	}
 	s.db.Actions = append(s.db.Actions, a)
+	if message {
+		s.waitBehind(slices.IndexFunc(s.db.Actions, func(queued Action) bool {
+			return queued.Kind == "message" && queued.TaskID == a.TaskID && queued.Status == "queued"
+		}))
+	}
 	if answer {
 		for i := range s.db.Questions {
 			if s.db.Questions[i].ID == a.QuestionID {
@@ -992,6 +997,9 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 				completed.Message = bounded(result.Reason, 1200)
 			}
 			completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
+			if a.Kind == "message" {
+				s.waitBehind(i)
+			}
 			if s.deferredUntil == nil {
 				s.deferredUntil = make(map[string]time.Time)
 			}

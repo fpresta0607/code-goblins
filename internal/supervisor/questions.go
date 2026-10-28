@@ -243,6 +243,12 @@ func questionChoices(options []string) ([]string, string) {
 // native terminal. The delivery is pinned to the task generation that asked,
 // so a restarted task never receives an answer meant for its predecessor.
 func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text string) (Evaluation, error) {
+	return c.sendGoblin(ctx, taskID, identity, text, false)
+}
+
+// sendGoblin delivers text as SendGoblin does. A send that holds types nothing
+// into a goblin in a turn and says so with spawn.ErrInTurn.
+func (c *CFOConnection) sendGoblin(ctx context.Context, taskID, identity, text string, holds bool) (Evaluation, error) {
 	meta, err := state.ReadTaskMeta(c.State, taskID)
 	if err != nil || goblinIdentity(meta) != identity {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task restarted or ended; nothing was sent", ErrRejected)
@@ -250,7 +256,7 @@ func (c *CFOConnection) SendGoblin(ctx context.Context, taskID, identity, text s
 	if meta.Backend != "native" {
 		return Evaluation{}, fmt.Errorf("%w: the goblin's task was recorded in Herdr by an older build, which this build cannot reach; nothing was sent", ErrRejected)
 	}
-	if err := typeIntoGoblin(ctx, c.State, meta, goblinLine(text)); err != nil {
+	if err := typeIntoGoblin(ctx, c.State, meta, goblinLine(text), holds); err != nil {
 		return Evaluation{}, err
 	}
 	return Evaluation{Reason: "Accepted by the goblin in its native terminal."}, nil
@@ -266,19 +272,14 @@ func goblinLine(text string) string {
 // can prove what an answer does when that evidence is not there.
 var readAnswerRecipient = state.ReadTaskMeta
 
-// typeIntoGoblin delivers text into a goblin's native terminal. It is a
-// variable so a test can act while a delivery is in flight.
-var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string) error {
-	sender := spawn.Service{StateDir: stateDir, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
+// typeIntoGoblin delivers text into a goblin's native terminal, and types
+// nothing into a turn when it should refuse one. It is a variable so a test
+// can act while a delivery is in flight.
+var typeIntoGoblin = func(ctx context.Context, stateDir string, meta state.TaskMeta, text string, shouldRefuseTurn bool) error {
+	sender := spawn.Service{StateDir: stateDir, ShouldRefuseTurn: shouldRefuseTurn, PromptSince: func(taskID, generation string, since time.Time) (bool, error) {
 		return NativePromptSince(stateDir, taskID, generation, since)
 	}, Took: NativeTook}
 	return sender.SendNative(ctx, meta, text)
-}
-
-// goblinIsWorking reads whether a goblin's harness is in a turn, from its
-// native terminal's screen. It is a variable so a test can say.
-var goblinIsWorking = func(stateDir string, meta state.TaskMeta) (bool, error) {
-	return spawn.Service{StateDir: stateDir}.NativeIsWorking(meta)
 }
 
 // answerGoblin returns the Overlord's board answer to the goblin that asked.
