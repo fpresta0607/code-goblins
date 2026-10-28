@@ -421,7 +421,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
         </div>
       </div>
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
-      {!isAtEnd && <button type="button" className="message-jump" onClick={jump}><Icon name="arrow-down" />Jump to latest</button>}
+      {/* A touch that stops the conversation gliding after a flick is one
+          the browser gives no click, and the button shows the moment he
+          leaves the end, while it glides, so a touch's lift takes him there
+          as a click does (the Overlord, 2026-10-28, from his phone: "Jump to
+          latest button mobile doesn't work"). */}
+      {!isAtEnd && <button type="button" className="message-jump" onClick={jump} onPointerUp={(event) => { if (event.pointerType === "touch") jump(); }}><Icon name="arrow-down" />Jump to latest</button>}
       {isCopied && <Notice className="terminal-corner">Copied</Notice>}
       {phase !== "closed" && (isReconnecting || !visible) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"

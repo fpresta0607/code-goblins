@@ -855,3 +855,35 @@ test("Classic: the held box and its queue stay reachable through resize, maximiz
   await expect(boxField(page, who)).toBeVisible();
   await expect(page.locator(".terminal-held")).toHaveCount(0);
 });
+
+// The Overlord, 2026-10-28, from his phone: "Jump to latest button mobile
+// doesn't work again match fill color of chat input box". A flick up the
+// conversation shows the button while the conversation still glides, and the
+// tap that stops the glide is one the browser gives no click.
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+
+  test("a tap on Jump to latest while the conversation glides takes him to the newest message, the button leaves, and it wears the box's fill", async ({ page }) => {
+    // Arrange: a flick up the conversation.
+    await open(page);
+    await openCfo(page);
+    const talk = list(page, "CFO");
+    await expect(talk).toContainText("Answer 99");
+    const jump = page.getByRole("button", { name: "Jump to latest" });
+    const shape = (await talk.boundingBox())!;
+    const touch = await page.context().newCDPSession(page);
+    await touch.send("Input.synthesizeScrollGesture", { x: Math.round(shape.x + shape.width / 2), y: Math.round(shape.y + shape.height / 3), yDistance: 700, speed: 5000, gestureSourceType: "touch", preventFling: false });
+    await expect(jump).toBeVisible();
+    const fill = await jump.evaluate((element) => getComputedStyle(element).backgroundColor);
+    const button = (await jump.boundingBox())!;
+
+    // Act: a tap at once, while it glides.
+    await page.touchscreen.tap(button.x + button.width / 2, button.y + button.height / 2);
+
+    // Assert
+    await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
+    await expect(talk.locator("[data-message]").last()).toBeInViewport();
+    await expect(jump).toHaveCount(0);
+    expect(fill).toBe(await page.locator(".messages-view:not([hidden]) .composer-input").evaluate((element) => getComputedStyle(element).backgroundColor));
+  });
+});

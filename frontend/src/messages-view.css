@@ -2,7 +2,10 @@
    terminal fills, the same flex and the same rule above it as the terminal
    deck, so the two take the one size. Every size in the list is in em of the
    text size he chooses, so his size scales the whole conversation. */
-.messages-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+/* --box-fill is the fill of the box he writes in, which Jump to latest
+   wears too (the Overlord, 2026-10-28: "match fill color of chat input
+   box"). */
+.messages-view { --box-fill: #0b171cf2; position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* The conversation over the message box, with what floats over it, never
    shorter than a few lines, so a list open above the box cannot fold it
    under its own padding, unless the chat has no room for them beside the
@@ -140,7 +143,7 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-reply-actions .message-copy { opacity: 1; }
 .message-copy, .message-actions .message-copy { border: 0; background: transparent; box-shadow: none; }
 @media (pointer: coarse) { .message-copy { opacity: 1; } }
-.message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: rgba(3, 5, 10, 0.92); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; }
+.message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--box-fill); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; touch-action: manipulation; }
 .message-jump .icon { width: 16px; height: 16px; }
 .messages-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); pointer-events: none; }
 @media (max-width: 40rem) {
@@ -162,7 +165,7 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
    its controls outside the bar. */
 .composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; align-self: center; gap: 8px; width: min(100%, 51rem); padding: 0 16px 16px; }
 .composer-dock .composer { padding: 0; border-top: 0; background: transparent; }
-.composer-dock .composer-input { background: #0b171cf2; backdrop-filter: blur(14px); }
+.composer-dock .composer-input { background: var(--box-fill); backdrop-filter: blur(14px); }
 .composer-dock .composer-sent { max-height: 10rem; overflow: auto; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: 14px; background: #0b171ce6; }
 /* A message the board still holds for delivery, in the conversation. */
 /* His queued messages, pinned under the conversation in its column, the
