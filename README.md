@@ -23,6 +23,18 @@
   <a href="https://github.com/fpresta0607/code-goblins/releases/latest/download/CodeGoblinsSetup.exe"><strong>Download for Windows</strong></a> (the CLI and the desktop app) or <a href="#install">install from PowerShell</a>
 </p>
 
+## New since v0.5.15
+
+- **Modern Chat**: the CFO and every goblin read as a conversation, with a message box of their own and a harness's questions and pickers answered as lists ([The goblin panel](#the-goblin-panel)).
+- **Dictation** runs on Parakeet TDT 0.6B v2, a sharper speech model that stays on your PC, and an update fetches it once in the background.
+- **Your phone**: the board and Scrawl reviews over private Tailscale access, with the board as an iPhone Home Screen app and a live badge ([phone access](docs/remote-access.md)).
+- **The CFO's agent, model and effort** can be chosen from the board, applied at a safe point between turns.
+- **Codex and pi conversations** read on the board as Claude Code's do, and every goblin gets native hooks.
+- **Browser steps only you can take**, such as a sign-in, arrive as one Command Center card, with logins kept per project.
+- **Updates** from a published release keep your home, settings, projects, credentials, dictation and running goblins and CFO, and roll back a build whose board does not start ([What an update keeps](docs/install.md#what-an-update-keeps)).
+
+Already on v0.5.15 or v0.5.16? Press **Update** on **Update Code Goblins** in the Command Center, or run `goblins update` in a terminal of your own, once the release is published.
+
 ## Why Code Goblins
 
 Use the board on your phone through optional, owner-only Tailscale access.
