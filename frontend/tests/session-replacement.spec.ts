@@ -259,12 +259,17 @@ for (const phone of [false, true]) {
         relay.say({ type: "unread", unread: true });
         relay.write("\r\nThe Codex turn continues\r\n");
         await expect.poll(position).toBe(anchor);
+        const asked = relay.resizes.length;
         relay.say({ type: "held", reason: "pipeline owns this task" });
         if (style === "modern") await expect(field(page)).toBeInViewport();
-        else await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
-        // Classic's note takes a row or two from the terminal, which keeps its
-        // last line and moves its first, so the swipe counts from where the
-        // hold left the history once it settles.
+        else {
+          // Classic's note takes a row or two from the terminal, which asks
+          // the pane for the rows left and keeps its last line, moving its
+          // first by as much as a short swipe; the swipe counts from where
+          // that leaves the history.
+          await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
+          await expect.poll(() => relay.resizes.length).toBeGreaterThan(asked);
+        }
         let held: unknown;
         await expect.poll(async () => {
           const prior = held;
