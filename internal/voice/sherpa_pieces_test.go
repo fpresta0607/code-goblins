@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -327,6 +329,118 @@ func TestRoomNoiseAloneIsLeftOutAtAnyLevel(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// heldSilent builds a hold of seconds from a microphone that hears nothing:
+// noise of a few of the 16-bit samples' steps, at -87 dB, as from a muted or
+// unplugged input, and, when click is not 0, the 10 ms click of the keys let
+// go at click decibels 0.1 s before its end. Two holds the board reported as
+// speech the engine found no words in, issue #1456, were such sounds: the
+// one kept had its loudest 10 ms, the click, at -70 dB, and the model heard
+// nothing in it even made 63 dB louder.
+func heldSilent(seconds, click float64) []float32 {
+	random := rand.New(rand.NewPCG(20261027, 1456))
+	sound := make([]float32, int(seconds*testRate))
+	for index := range sound {
+		sound[index] = float32(random.NormFloat64() * math.Pow(10, -87.0/20))
+	}
+	if click != 0 {
+		at := len(sound) - testRate/10
+		for index := range testRate / FRAMES_A_SECOND {
+			sound[at+index] += float32(math.Sqrt2 * math.Pow(10, click/20) * math.Sin(float64(index)*0.9))
+		}
+	}
+	return sound
+}
+
+// A hold whose microphone heard nothing but the keys holds no speech, so
+// the board says nothing was heard rather than that the engine found no words
+// in speech, and it is handed to the model whole, as it is.
+func TestAHoldThatHeardOnlyTheKeysHoldsNoSpeech(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		sound []float32
+	}{
+		{"a 3.6 s hold from a muted microphone, ended by the keys' click", heldSilent(3.6, -68)},
+		{"a 2.0 s hold from a muted microphone, ended by the keys' click", heldSilent(2.0, -68)},
+		{"a hold of a muted microphone alone", heldSilent(3.6, 0)},
+		{"a click as loud as speech, alone in a hold", heldSilent(2.0, -20)},
+		{"a hold of digital silence", make([]float32, 2*testRate)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			isSpoken := Spoken(wavOf(test.sound, testRate, 1, 16))
+			api, _ := recognizeSound(t, test.sound)
+
+			// Assert
+			if isSpoken {
+				t.Error("Spoken = true for a hold with no speech in it")
+			}
+			if len(api.accepted) != 1 || len(api.accepted[0]) != len(test.sound) {
+				t.Errorf("the model was handed %d pieces, not the hold whole", len(api.accepted))
+			}
+		})
+	}
+}
+
+// A short line is speech however softly it is said, down to the -50 dB the
+// pinned model still hears it at, and so is a single word of a tenth of a
+// second; a sound loud for less is a click, not a word.
+func TestAShortLineOrWordIsSpeech(t *testing.T) {
+	line, err := os.ReadFile(filepath.Join("testdata", "open-the-pull-request.wav"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	samples, rate := pcm16(line)
+	softened := func(decibels float64) []byte {
+		sound := make([]float32, len(samples))
+		for index, sample := range samples {
+			sound[index] = sample * float32(math.Pow(10, decibels/20))
+		}
+		return wavOf(sound, rate, 1, 16)
+	}
+	word := func(seconds float64) []byte {
+		sound, _ := spokenAt(-80, leveled{0, 0.5}, leveled{-50, seconds}, leveled{0, 0.5})
+		return wavOf(sound, testRate, 1, 16)
+	}
+	for _, test := range []struct {
+		name  string
+		sound []byte
+		want  bool
+	}{
+		{"a 2.1 s line", line, true},
+		{"the line 40 dB softer", softened(-40), true},
+		{"the line 50 dB softer", softened(-50), true},
+		{"a soft word of 0.1 s", word(0.1), true},
+		{"a soft sound of 0.09 s", word(0.09), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := Spoken(test.sound); got != test.want {
+				t.Fatalf("Spoken = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+// A piece whose only loud part is a click, in a dictation with speech
+// elsewhere, is left out, as the model writes words of its own into it.
+func TestAPieceWithOnlyAClickInItIsLeftOut(t *testing.T) {
+	// Arrange
+	sound, loud := spoken(soundPart{true, 3}, soundPart{false, 12})
+	for index := range testRate / FRAMES_A_SECOND {
+		sound[len(sound)-testRate+index] = float32(0.3 * math.Sin(float64(index)*0.9))
+	}
+
+	// Act
+	api, _ := recognizeSound(t, sound)
+
+	// Assert
+	for index, piece := range api.accepted {
+		at, length := within(sound, piece, 0)
+		if at < 0 || at >= loud[0][1] || at+length <= loud[0][0] {
+			t.Errorf("piece %d of %d holds no speech", index+1, len(api.accepted))
+		}
 	}
 }
 
