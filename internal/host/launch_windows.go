@@ -127,6 +127,19 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	alive := cmd.ProcessState == nil
 	fmt.Fprintf(log, "host: pid %d had not recorded itself after %s of the %s this launch allows (still running: %t); this launch ends it\n", cmd.Process.Pid, time.Since(launched).Round(time.Millisecond), launchTimeout, alive)
 	_ = cmd.Process.Kill()
+	// Kill only asks Windows to end the host, which holds its log and its
+	// terminal's job until it has ended, and on 2026-10-24 still held the log
+	// when the test that launched it removed its folder. So the launch returns
+	// once the host has ended, and the log says how long that took.
+	killed := time.Now()
+	ending, cancelEnding := awake.WithTimeout(context.Background(), closeEndWait)
+	defer cancelEnding()
+	select {
+	case <-exited:
+		fmt.Fprintf(log, "host: pid %d ended %s after this launch ended it\n", cmd.Process.Pid, time.Since(killed).Round(time.Millisecond))
+	case <-ending.Done():
+		return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s, and had not ended %s after this launch ended it; see %s", cmd.Process.Pid, launchTimeout, closeEndWait, logPath)
+	}
 	return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s; see %s", cmd.Process.Pid, launchTimeout, logPath)
 }
 
