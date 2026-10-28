@@ -136,8 +136,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
    inside it, so saying it never makes the line taller or moves the box. */
 .session-footer .notice { padding: 0 8px; border: 0; box-shadow: inset 0 0 0 1px var(--glass-border); font-size: inherit; line-height: inherit; }
 .session-footer .notice-dot { margin-top: calc(.5lh - 4px); }
-.session-stop { min-height: 26px; margin-left: .4em; padding: 2px 6px; border: 0; background: transparent; font-size: .8125em; }
-.session-stop .icon { width: 14px; height: 14px; }
 /* The input floats above the conversation, centred under its column, with
    its controls outside the bar. */
 .composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; align-self: center; gap: 8px; width: min(100%, 51rem); padding: 0 16px 16px; }
@@ -176,3 +174,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 }
 
 /* A settled selection copies itself, and says so quietly in the corner. */
+/* The session line starts with the mark of the session's harness. */
+.session-footer .mark { width: 22px; height: 22px; }
+.session-footer .mark svg, .session-footer .mark .icon { width: 13px; height: 13px; }

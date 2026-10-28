@@ -1,8 +1,7 @@
 import type { Task } from "./types";
 import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
-import { ConnectorMark } from "./ConnectorMark";
-import { harnessMark } from "./connectors";
+import { HarnessMark } from "./harness-mark";
 import { harnessTip } from "./workflow";
 
 // What a goblin's board card says beside its name, project and status, on its
@@ -12,6 +11,6 @@ export function CardFacts({ task, now }: { task: Task; now: number }) {
   return <>
     <CardClock task={task} now={now} />
     <CardPullRequest task={task} />
-    {task.harness && <span className="card-harness"><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
+    {task.harness && <span className="card-harness"><HarnessMark harness={task.harness} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
   </>;
 }

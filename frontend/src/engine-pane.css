@@ -1,0 +1,29 @@
+/* Modern Chat's own pane for a session's model or effort: it opens above the
+   box's row, right-aligned with it, on the surface every popup of the chat
+   wears (popup.css), and scrolls inside itself past a third of the window. */
+.engine-pane { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; display: grid; gap: 2px; width: min(20rem, calc(100cqw - 8px)); max-height: min(22rem, 45dvh); padding: 6px; overflow: auto; overscroll-behavior: contain; }
+.engine-pane:focus-visible { outline: none; }
+.engine-pane-title { display: flex; align-items: center; gap: 8px; margin: 2px 6px 6px; color: var(--muted); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.engine-pane-title .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.engine-pane-title .mark svg, .engine-pane-title .mark .icon { width: 14px; height: 14px; }
+.engine-pane-note { margin: 4px 8px 8px; color: var(--muted); font-size: .875rem; }
+.engine-pane-retry { justify-self: start; margin: 4px 8px 8px; }
+.engine-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; min-height: 36px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: #edf4f3; text-align: left; }
+.engine-choice:hover, .engine-choice:focus-visible { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
+.engine-choice[aria-checked="true"] { background: var(--glass-bg-hover); }
+.engine-choice > .icon { grid-row: 1 / span 2; grid-column: 2; width: 16px; height: 16px; color: var(--mint); }
+.engine-choice-label { min-width: 0; overflow: hidden; font-size: .875rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.engine-choice-detail { grid-column: 1; min-width: 0; overflow: hidden; color: var(--muted); font: .75rem/1.4 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+@media (pointer: coarse) { .engine-choice { min-height: 44px; } }
+
+/* An effort is coloured by its level in Code Goblins' palette, wherever the
+   chat names it, as Claude Code colours its own: the least dull, then light,
+   rising through green to purple, and max the brand gradient. Each colour
+   keeps at least 4.5:1 against the box and the pane, the board's dark
+   surfaces (the board has no light theme). */
+.effort-level.dull { color: #8b9aa7; }
+.effort-level.light { color: #dce6e3; }
+.effort-level.green { color: var(--mint); }
+.effort-level.teal { color: #7cc4f0; }
+.effort-level.purple { color: var(--purple); }
+.effort-level.max { background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }

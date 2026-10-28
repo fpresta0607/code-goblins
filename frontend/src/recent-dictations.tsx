@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { spoken } from "./dictation";
 import { browserOffered, setUsesBrowser, usesBrowser } from "./dictationEngine";
 import { Icon } from "./Icon";
 import { refreshDictations, useVoice } from "./useVoice";
+import "./speech-pane.css";
 
 const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+// How far the card keeps from its anchor and from the window's edges.
+const MARGIN_PX = 8;
 
 // The board's recent dictations, from every box in every window, each with
 // Copy and Paste into where, as a terminal's voice bubble and the message box
@@ -12,11 +15,42 @@ const clock = (at: number) => at ? new Date(at).toLocaleTimeString([], { hour: "
 // own speech recognition, and offers the browser's where it has one; onEngine
 // is told of a choice of it. It reads the list as it opens, and again as its
 // window takes the focus, with what was dictated in another window meanwhile.
-export function RecentDictations({ where, model, onPaste, onClose, onEngine }: {
-  where: string; model: string; onPaste: (text: string) => void; onClose: () => void; onEngine: () => void;
+// It opens in the page's top layer, above anchor and right-aligned with it
+// while the edge allows, never past either side of anchor's terminal or of
+// the window, as tall as the window allows above anchor and scrolling inside itself
+// beyond that, so no panel's edge or overflow clips it at any size (the
+// Overlord, 2026-10-27: "the dictation Copy or history pane doesn't go over
+// the top of the container, it gets clipped at the very top"). Modern Chat's
+// box opens it as Speech history in the look of its own panes (the Overlord,
+// 2026-10-27: "speech history styling should have its own modern modal");
+// a terminal's voice bubble keeps the card.
+export function RecentDictations({ where, anchor, model, look = "card", onPaste, onClose, onEngine }: {
+  where: string; anchor: RefObject<HTMLElement | null>; model: string; look?: "card" | "pane"; onPaste: (text: string) => void; onClose: () => void; onEngine: () => void;
 }) {
   const messages = useVoice();
   const [copied, setCopied] = useState("");
+  const card = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const shown = card.current, under = anchor.current;
+    if (!shown || !under) return;
+    shown.showPopover();
+    const place = () => {
+      const box = under.getBoundingClientRect();
+      const frame = (under.closest(".native-terminal") ?? document.documentElement).getBoundingClientRect();
+      const left = Math.max(0, frame.left) + MARGIN_PX, right = Math.min(innerWidth, frame.right) - MARGIN_PX;
+      shown.style.maxWidth = Math.max(0, right - left) + "px";
+      shown.style.right = innerWidth - Math.max(left + shown.offsetWidth, Math.min(box.right, right)) + "px";
+      shown.style.bottom = innerHeight - box.top + MARGIN_PX + "px";
+      shown.style.maxHeight = Math.max(0, box.top - 2 * MARGIN_PX) + "px";
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [anchor]);
   const browser = usesBrowser();
   const engine = browser ? "this browser's speech recognition" : (model || "the speech model") + " on this PC";
   useEffect(() => {
@@ -31,9 +65,10 @@ export function RecentDictations({ where, model, onPaste, onClose, onEngine }: {
   }, [copied]);
   // A page served over plain HTTP, such as across the tailnet, has no clipboard.
   const clipboard = !!navigator.clipboard;
-  return <section className="voice-card voice-recent" role="dialog" aria-label="Recent messages">
-    <p className="voice-card-title">Recent messages</p>
-    <button className="icon-button pixel-icon voice-close" aria-label="Close recent messages" data-tip="Close" onClick={onClose}><Icon name="close" /></button>
+  const title = look === "pane" ? "Speech history" : "Recent messages";
+  return <section ref={card} popover="manual" className={look === "pane" ? "popup-surface speech-pane voice-recent" : "voice-card voice-recent"} role="dialog" aria-label={title}>
+    <p className="voice-card-title">{title}</p>
+    <button className={"icon-button voice-close" + (look === "pane" ? "" : " pixel-icon")} aria-label={"Close " + title.toLowerCase()} data-tip="Close" onClick={onClose}><Icon name="close" /></button>
     {messages.length ? <ul>{messages.map((message, index) => {
       const key = message.at + ":" + index;
       return <li key={key}>

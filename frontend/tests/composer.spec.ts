@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { at, box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.describe("phone speech history", () => {
   test.use({ hasTouch: true });
@@ -25,8 +25,8 @@ test.describe("phone speech history", () => {
         await field(page).fill("before replace after");
         await field(page).evaluate((element) => { const box = element as HTMLTextAreaElement; box.focus(); box.setSelectionRange(7, 14); });
 
-        await box(page).getByRole("button", { name: "Speech history", exact: true }).tap();
-        const history = page.getByRole("dialog", { name: "Recent messages" });
+        await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
+        const history = page.getByRole("dialog", { name: "Speech history" });
         await expect(history).toBeVisible();
         await history.getByRole("button", { name: "Paste into the message: older dictation", exact: true }).tap();
 
@@ -70,14 +70,22 @@ for (const width of [1440, 390]) {
     expect(replyText && replyActions && replyActions.y >= replyText.y + replyText.height).toBeTruthy();
     await expect(reply.locator(".message-reply-actions time")).toBeVisible();
     const bounds = await Promise.all([input, add, field(page), microphone, style].map((part) => part.boundingBox()));
-    const [bar, plus, prompt, mic, footer] = bounds;
-    expect(bar && plus && prompt && mic && footer).toBeTruthy();
-    if (!bar || !plus || !prompt || !mic || !footer) return;
-    expect(plus.x + plus.width).toBeLessThanOrEqual(prompt.x);
-    expect(prompt.x + prompt.width).toBeLessThanOrEqual(mic.x);
-    expect(footer.y).toBeGreaterThanOrEqual(bar.y + bar.height);
-    expect(bar.height).toBeLessThanOrEqual(60);
-    for (const button of [add, microphone, style, composer.getByRole("button", { name: "Speech history", exact: true })]) {
+    const [bar, plus, prompt, mic, menu] = bounds;
+    expect(bar && plus && prompt && mic && menu).toBeTruthy();
+    if (!bar || !plus || !prompt || !mic || !menu) return;
+    // The words sit above one row of controls, every one inside the box's
+    // border: adding files and the style menu at its start, the microphone
+    // at its end.
+    for (const control of [plus, menu, mic]) {
+      expect(control.y).toBeGreaterThanOrEqual(prompt.y + prompt.height);
+      expect(control.x).toBeGreaterThanOrEqual(bar.x);
+      expect(control.x + control.width).toBeLessThanOrEqual(bar.x + bar.width);
+      expect(control.y + control.height).toBeLessThanOrEqual(bar.y + bar.height);
+    }
+    expect(plus.x + plus.width).toBeLessThanOrEqual(menu.x);
+    expect(menu.x + menu.width).toBeLessThanOrEqual(mic.x);
+    expect(bar.height).toBeLessThanOrEqual(110);
+    for (const button of [add, microphone, style]) {
       expect(await button.evaluate((element) => ({ border: getComputedStyle(element).borderTopWidth, background: getComputedStyle(element).backgroundColor }))).toEqual({ border: "0px", background: "rgba(0, 0, 0, 0)" });
     }
     await field(page).fill("Keep this draft while changing the view");
@@ -181,15 +189,72 @@ test("while the harness asks in its terminal the box shows what it asks as a lis
   await expect(send(page)).toBeEnabled();
 });
 
-test("while the harness works the working line's Stop presses Escape in its terminal", async ({ page }) => {
+test("while the harness works an empty box's send button is Stop, which presses Escape as Esc in the box does, and a draft turns it back to Send", async ({ page }) => {
+  // Arrange
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "", at } }));
   await openGoblin(page);
-  const working = page.locator(".session-working");
-  await expect(working).toContainText("Working");
+  await expect(page.locator(".session-working")).toContainText("Working");
+  const stop = box(page).getByRole("button", { name: "Stop", exact: true });
 
-  await working.getByRole("button", { name: "Stop" }).click();
-
+  // Act and Assert: the button, then the key.
+  await stop.click();
   await expect.poll(() => typed(relay)).toBe("\x1b");
+  await field(page).press("Escape");
+  await expect.poll(() => typed(relay)).toBe("\x1b\x1b");
+
+  // A draft makes it Send again, and the footer has no second Stop.
+  await field(page).fill("one more thing");
+  await expect(stop).toHaveCount(0);
+  await expect(send(page)).toBeEnabled();
+  await expect(page.locator(".session-working").getByRole("button")).toHaveCount(0);
+});
+
+test("Up in an empty box recalls what he sent before, newest first, and Down walks back to the empty box", async ({ page }) => {
+  // Arrange: he sent two messages and a command earlier in the session, and
+  // the session offers that command in its slash list.
+  const at2 = "2026-10-22T09:05:00Z";
+  const relay = await open(page, snapshot(), "", { messages: [
+    { id: "p0", seq: 0, at, kind: "prompt", source: "overlord", text: "Read the brief" },
+    { id: "r1", seq: 1, at, kind: "reply", blocks: [{ kind: "text", text: "On it." }] },
+    { id: "p2", seq: 2, at: at2, kind: "prompt", source: "cfo", text: "A note from the CFO" },
+    { id: "p3", seq: 3, at: at2, kind: "prompt", source: "slash", text: "/cost", output: "Total cost: $0.12" },
+    { id: "p4", seq: 4, at: at2, kind: "prompt", source: "overlord", text: "Now fix the swipe" },
+  ], more: false });
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [{ name: "cost", description: "Show the session's cost", source: "builtin" }] } }));
+  await openGoblin(page);
+
+  // Act and Assert: a recalled command keeps the slash list closed, so Up
+  // walks on past it.
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("Now fix the swipe");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("/cost");
+  await expect(page.getByRole("listbox", { name: "Commands", exact: true })).toHaveCount(0);
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("Read the brief");
+  await field(page).press("ArrowUp");
+  await expect(field(page), "the oldest stays").toHaveValue("Read the brief");
+  await field(page).press("ArrowDown");
+  await expect(field(page)).toHaveValue("/cost");
+  await field(page).press("ArrowDown");
+  await field(page).press("ArrowDown");
+  await expect(field(page)).toHaveValue("");
+
+  // An edit ends the recall: Up in a box he wrote in moves the caret.
+  await field(page).press("ArrowUp");
+  await field(page).press("End");
+  await field(page).type(" now");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("Now fix the swipe now");
+
+  // Enter sends a recalled command as it is.
+  await field(page).fill("");
+  await field(page).press("ArrowUp");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("/cost");
+  await field(page).press("Enter");
+  await expect.poll(() => typed(relay)).toBe(pasted("/cost") + "\r");
+  await expect(field(page)).toHaveValue("");
 });
 
 test("his draft stays through a switch of sessions, a reconnect and a reload of the board, as an update reloads it", async ({ page }) => {
@@ -293,23 +358,23 @@ test.describe("dictation into the box", () => {
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [{ text: "check the phone spec", at: Date.parse("2026-10-22T09:30:00Z") }] } }));
     await openGoblin(page);
 
-    await box(page).getByRole("button", { name: "Speech history" }).click();
-    await page.getByRole("dialog", { name: "Recent messages" }).getByRole("button", { name: "Paste into the message: check the phone spec" }).click();
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    await page.getByRole("dialog", { name: "Speech history" }).getByRole("button", { name: "Paste into the message: check the phone spec" }).click();
 
     await expect(field(page)).toHaveValue("check the phone spec");
   });
 
-  test("Escape closes the recent dictations, leaving the panel open and the keyboard on Recent messages", async ({ page }) => {
+  test("Escape closes speech history, leaving the panel open and the keyboard on the style menu", async ({ page }) => {
     await open(page);
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [] } }));
     await openGoblin(page);
-    const recent = box(page).getByRole("button", { name: "Speech history" });
-    await recent.click();
-    await expect(page.getByRole("dialog", { name: "Recent messages" })).toBeVisible();
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    const recent = box(page).getByRole("button", { name: /^Style: / });
+    await expect(page.getByRole("dialog", { name: "Speech history" })).toBeVisible();
 
     await page.keyboard.press("Escape");
 
-    await expect(page.getByRole("dialog", { name: "Recent messages" })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Speech history" })).toHaveCount(0);
     await expect(page.locator("#panel-title")).toHaveText(NAME);
     await expect(recent).toBeFocused();
   });

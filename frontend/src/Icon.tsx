@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 // Line icons drawn on one 24px grid, so every glyph centres by construction
 // instead of by a font's metrics. The Pi entry is a plain glyph, since no
 // official mark is available for it; the OpenAI entry is a plain stand-in for
@@ -71,6 +73,8 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
-export function Icon({ name }: { name: IconName }) {
+// An icon draws only its name, so a redraw of the control around it passes
+// it by (tests/render-budget.spec.ts).
+export const Icon = memo(function Icon({ name }: { name: IconName }) {
   return <svg className="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={PATHS[name]} /></svg>;
-}
+});

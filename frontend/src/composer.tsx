@@ -1,20 +1,24 @@
-import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
 import type { Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
-import { ContextUsage } from "./context-usage";
 import { DictationButton } from "./dictation-button";
+import { parseEngineCatalog, type EngineModel } from "./engine-catalog";
+import { CODEX_NOT_SENT, driveCodexPicker } from "./codex-picker";
+import { effortTone, engineCommand, settingCommand, type EngineSetting } from "./engine-choices";
+import { EnginePane } from "./engine-pane";
+import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
+import { shortModel } from "./model-name";
 import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
 import { PANEL_KEYS, panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
 import { QueuedMessage } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
-import type { SessionStats, UsageReading } from "./session-usage";
 import { useTerminalLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
@@ -22,12 +26,19 @@ import { GATE_CUSTODY, isDetachedHold } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
+// The permission modes the box names in the fewest words, as the terminal's
+// footer names them in more.
+const MODE_NAMES: Record<string, string> = { "auto mode": "Auto", "plan mode": "Plan", "accept edits": "Accept edits", "bypass permissions": "Bypass", "don't ask": "Don't ask", "manual mode": "Manual" };
+
 // How many of his latest messages to a goblin with no live terminal show
 // above the box.
 const SHOWN = 5;
 // How long the @ list waits after a keystroke before it reads the files, so
 // a burst of typing asks once.
 const MENTION_WAIT_MS = 120;
+// How long the box waits for Codex's /model picker to show the choice it
+// set out to pick before it closes the picker and says so.
+const CODEX_PICKER_WAIT_MS = 8000;
 // What he wrote and has not sent, kept per session for this tab's life, so a
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
@@ -74,14 +85,20 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, stats, reading, model, hasConversation = false, isTerminalShown = false, isShown = true, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
-  stats?: SessionStats; reading?: UsageReading; model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
+  model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
+  // model and effort are what the session's own record last says it runs.
+  effort?: string;
   // terminal is the terminal deck's key of the session's terminal, and
   // onShowTerminal steps that terminal in, for a screen of the harness's own
   // its list does not cover.
   terminal: string; focus?: number; onShowTerminal?: () => void;
   isTerminalShown?: boolean; isShown?: boolean; onActive?: (terminal: string, isActive: boolean) => void;
+  // isWorking says the session's harness is running a turn, which Stop in
+  // the send button's place interrupts while the box is empty, and history
+  // is what he sent the session before, oldest first, which Up recalls.
+  isWorking?: boolean; history?: string[];
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -98,6 +115,19 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const [unsent, setUnsent] = useState("");
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [isStyleOpen, setStyleOpen] = useState(false);
+  // Which of the board's own setting panes is open over the row, if one is.
+  const [pane, setPane] = useState<EngineSetting | null>(null);
+  // What he last picked in a pane, kept on its control until the session's
+  // record says something other than what it said when he picked (over).
+  const [chosenEngine, setChosenEngine] = useState<{ model?: { value: string; over: string }; effort?: { value: string; over: string } }>({});
+  // Whether the box is answering Codex's own /model picker, which takes no
+  // value (codex-picker.ts), and what stops that; the harness's list is not
+  // drawn meanwhile.
+  const [isDriving, setDriving] = useState(false);
+  const stopDriving = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDriving.current?.(), []);
+  // Which of his earlier messages Up has brought back into the box, if any.
+  const [recalled, setRecalled] = useState<number | null>(null);
   // The session's slash commands, read from its harness, the files its @
   // names, and the option the open list has picked while he types its word.
   // Escape closes the list until the draft changes. A box that is not on
@@ -118,10 +148,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // so a send retried after its answer was lost is the same message.
   const sendID = useRef("");
   const field = useRef<HTMLTextAreaElement>(null);
-  const recent = useRef<HTMLButtonElement>(null);
+  // A press outside a pane closes it and leaves the keyboard where he pressed;
+  // Escape and a pick hand it back to the box.
+  const closePane = useCallback(() => setPane(null), []);
+  const modelControl = useRef<HTMLButtonElement>(null);
+  const effortControl = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLButtonElement>(null);
+  const composerBox = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const [style, chooseStyle] = useChatStyle();
-  const closeRecent = () => { setRecentOpen(false); recent.current?.focus(); };
+  const closeRecent = () => { setRecentOpen(false); menu.current?.focus(); };
   // The box is one mounted composer moved to the surface on screen, so a
   // switch asks for its keyboard a frame or two before the move lands and the
   // browser cannot focus a node that is not in the page yet. Ask again, a few
@@ -137,8 +173,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     ask();
     return () => cancelAnimationFrame(next);
   }, [focus]);
+  // While he writes at the end of a draft taller than the box's cap, the
+  // box keeps its last lines and the caret in view, as dictated words or a
+  // paste land there too.
+  useLayoutEffect(() => {
+    const box = field.current;
+    if (box && document.activeElement === box && box.selectionEnd === box.value.length) box.scrollTop = box.scrollHeight;
+  }, [draft]);
   const write = (next: (prior: string) => string) => {
     setDraft(next);
+    setRecalled(null);
     setUnsent("");
     setListClosed(false);
     setPick(0);
@@ -160,10 +204,44 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const harness = task?.harness || snapshot.cfo_harness;
   const isEngineSupported = ["claude", "codex", "pi"].includes(harness);
   const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
-  const changeEngine = (setting: "model" | "effort") => {
-    if (canChangeEngine) link.send(setting === "model" || harness === "codex" ? "/model" : harness === "claude" ? "/effort" : "/thinking");
-  };
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
+  const recordedModel = model || task?.model || "";
+  const recordedEffort = effort || task?.effort || "";
+  // A pick shows until the session's record says something new, and is then
+  // dropped, so a record that later returns to what it said before never
+  // brings the old pick back.
+  if (chosenEngine.model && chosenEngine.model.over !== recordedModel || chosenEngine.effort && chosenEngine.effort.over !== recordedEffort) {
+    setChosenEngine((prior) => ({ model: prior.model?.over === recordedModel ? prior.model : undefined, effort: prior.effort?.over === recordedEffort ? prior.effort : undefined }));
+  }
+  const shownModel = chosenEngine.model && chosenEngine.model.over === recordedModel ? chosenEngine.model.value : recordedModel;
+  const shownEffort = chosenEngine.effort && chosenEngine.effort.over === recordedEffort ? chosenEngine.effort.value : recordedEffort;
+  // applyEngine sets the session's model or effort in its harness, as Classic
+  // would through the harness's own menu (the Overlord, 2026-10-27: "they
+  // should control the same interfaces. Same session"): one line for Claude
+  // Code and pi, and Codex's own picker, answered here, for Codex. A pick from
+  // the pane, which lists only what the harness offers, shows on its control
+  // at once (shouldShow); a value typed after the command shows once the
+  // session's record says it runs it.
+  const applyEngine = (setting: EngineSetting, value: string, shouldShow: boolean, chosen?: EngineModel) => {
+    setPane(null);
+    if (!canChangeEngine || !value) return;
+    const command = engineCommand(harness, setting, value);
+    const nextEffort = setting === "effort" ? value : chosen?.efforts.includes(shownEffort) ? shownEffort : chosen?.default_effort ?? "";
+    if (command ? !link.send(command) : !link.send("/model")) { setUnsent(unsentWhy); return; }
+    if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: { value, over: recordedModel } } : { ...prior, effort: { value, over: recordedEffort } });
+    if (!command) {
+      stopDriving.current?.();
+      setDriving(true);
+      stopDriving.current = driveCodexPicker(terminal, { model: setting === "model" ? value : shownModel, name: setting === "model" ? chosen?.name ?? "" : "", effort: nextEffort }, CODEX_PICKER_WAIT_MS, (failed) => {
+        stopDriving.current = null;
+        setDriving(false);
+        if (!failed) return;
+        setUnsent(failed === CODEX_NOT_SENT ? unsentWhy : failed);
+        if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: undefined } : { ...prior, effort: undefined });
+      });
+    }
+    requestAnimationFrame(() => field.current?.focus());
+  };
   // What this box saves as a board action types nothing into the terminal, so
   // a harness picker or a busy program does not stop it: those guard direct
   // typing, which is the path they were written for.
@@ -171,6 +249,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const send = async () => {
     const text = draft.trim();
     if (!text || isSending || adding) return;
+    // A setting the box has a control for opens the board's own pane, or is
+    // set at once with the value typed after it, never the terminal's menu;
+    // while those controls cannot change the session it stays in the box and
+    // is never queued. A Codex model typed by its id keeps the effort a pick
+    // of it in the pane would, when the harness's catalog lists it.
+    const asked = settingCommand(harness, text);
+    if (asked && !canChangeEngine) { setUnsent("The model and effort controls need a connected, unheld session."); return; }
+    if (asked) {
+      setDraft("");
+      if (!asked.value) { setPane(asked.setting); return; }
+      const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
+        (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
+        (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
+      applyEngine(asked.setting, asked.value, false, chosen);
+      return;
+    }
     if (!savesThroughBoard && !sendID.current) {
       // A screen of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
@@ -305,6 +399,28 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setCaret(chosen.caret);
     requestAnimationFrame(() => { box?.focus(); box?.setSelectionRange(chosen.caret, chosen.caret); });
   };
+  // Up in an empty box, or on the first line of a message it recalled,
+  // brings back what he sent before, newest first, as the terminal does, and
+  // Down walks forward again to the empty box; any edit ends the recall.
+  const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const box = event.currentTarget;
+    const shown = recalled !== null && draft === history[recalled] ? recalled : null;
+    if (event.key === "ArrowUp" && (!draft || shown !== null && !box.value.slice(0, box.selectionStart).includes("\n")) && history.length) {
+      const at = Math.max(0, (shown ?? history.length) - 1);
+      write(() => history[at]);
+      setRecalled(at);
+      setListClosed(true);
+      return true;
+    }
+    if (event.key === "ArrowDown" && shown !== null && !box.value.slice(box.selectionEnd).includes("\n")) {
+      const at = shown + 1;
+      write(() => at < history.length ? history[at] : "");
+      setRecalled(at < history.length ? at : null);
+      setListClosed(true);
+      return true;
+    }
+    return false;
+  };
   const keys = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (dictation.key(event.nativeEvent) !== null) return;
     if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "v") {
@@ -322,6 +438,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         return;
       }
     }
+    // Escape with the box's own pane, speech history or style menu open
+    // closes it (the box's handler below), and reaches neither the harness
+    // nor its screen.
+    if (event.key === "Escape" && (pane || isRecentOpen || isStyleOpen)) return;
     // An open screen of the harness's own takes the terminal's keys from an
     // empty box, so it is answered here as in the terminal.
     const keysForPanel = panel && !isHeld && !draft ? panelKey(event, panel) : null;
@@ -330,6 +450,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       if (!live?.control(keysForPanel)) setUnsent(unsentWhy);
       return;
     }
+    if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && recall(event)) { event.preventDefault(); return; }
+    if (event.key === "Escape" && canStop && !event.shiftKey) { event.preventDefault(); live?.escape(); return; }
     if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault();
       if (!live?.control("\x1b[Z")) setUnsent(isHeld ? "Typing is paused." : unsentWhy);
@@ -367,8 +489,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     queued?.scrollIntoView({ block: "nearest" });
   };
   const canSend = !isSending && !adding && !!draft.trim();
+  // While the harness works and the box is empty, the send button is Stop,
+  // which presses Escape in its terminal as the terminal's own Esc does.
+  const canStop = isWorking && !draft.trim() && !isSending && !!live && !isHeld;
   return <section className="composer" aria-label={"Messages to " + name}>
-    {panel && !isHeld && !isTerminalShown && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
+    {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
       {queueRows.map((action) => <li key={action.id}><QueuedMessage action={action} instance={snapshot.instance} name={name} variant="queue" /></li>)}
@@ -382,42 +507,50 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         </li>;
       })}
     </ol>}
-    <div className="composer-box" onKeyDown={(event) => {
+    <div ref={composerBox} className="composer-box" onKeyDown={(event) => {
       if (event.key !== "Escape") return;
-      if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
+      if (pane) { event.stopPropagation(); setPane(null); field.current?.focus(); }
+      else if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
       else if (isStyleOpen) { event.stopPropagation(); setStyleOpen(false); }
     }}>
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
-      {isRecentOpen && <RecentDictations where="the message" model={dictation.model} onPaste={(text) => { insert(text); setRecentOpen(false); }}
+      {isRecentOpen && <RecentDictations where="the message" anchor={composerBox} model={dictation.model} look="pane" onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
       <div className="composer-input">
-        <button type="button" className="composer-control add-files" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
-        <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
           onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
-        {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
-      </div>
-      <div className="composer-tools">
-        <div className="composer-controls">
-          <button type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip="How this conversation is drawn"
-            onClick={() => setStyleOpen((prior) => !prior)}>{style === "classic" ? "Classic" : "Modern"}</button>
-          {isStyleOpen && <div className="composer-style-popover" role="group" aria-label="Chat style">
-            <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}>Modern</button>
-            <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}>Classic</button>
-          </div>}
-          {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip="Shift+Tab changes the mode" disabled={isHeld}
-            onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" />{mode[0].toUpperCase() + mode.slice(1)}</button>}
-          {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
-        </div>
-        <div className="composer-controls">
-          <button type="button" className="composer-control engine-control" aria-label="Change model" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose in the session's model picker" : "Model controls need a connected, unheld composer"} onClick={() => changeEngine("model")}>{model || task?.model || "Model"}</button>
-          <button type="button" className="composer-control engine-control" aria-label="Change effort" disabled={!canChangeEngine} data-tip={canChangeEngine ? "Choose the session's supported reasoning effort" : "Effort controls need a connected, unheld composer"} onClick={() => changeEngine("effort")}>Effort</button>
-          <button ref={recent} type="button" className="composer-control" aria-label="Speech history" aria-expanded={isRecentOpen} data-tip="Speech history" onClick={() => setRecentOpen((prior) => !prior)}><Icon name="clock" /></button>
-          {onOpenTerminal && <button type="button" className="composer-control" aria-label="Open in Windows Terminal" data-tip="Open this session in its own terminal window" onClick={onOpenTerminal}><Icon name="terminal" /></button>}
-          {stats && reading && <ContextUsage stats={stats} reading={reading} />}
-          <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
-            <Icon name={isSending ? "clock" : "send"} />
-          </button>
+        <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
+        <div className="composer-row">
+          <div className="composer-row-start">
+            <button type="button" className="composer-control" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
+            <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip={isStyleOpen ? undefined : "Chat style and speech history"}
+              onClick={() => setStyleOpen((prior) => !prior)}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
+            {isStyleOpen && <div className="composer-style-popover">
+              <div className="composer-style-choices" role="group" aria-label="Chat style">
+                <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}><Icon name="comment" />Modern</button>
+                <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}><Icon name="terminal" />Classic</button>
+              </div>
+              <button type="button" onClick={() => { setStyleOpen(false); setRecentOpen(true); menu.current?.focus(); }}><Icon name="clock" />Speech history</button>
+              {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="external" />Open in Windows Terminal</button>}
+            </div>}
+            {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
+          </div>
+          <div className="composer-row-end">
+            {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}
+              onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" /><span className="mode-chip-name">{MODE_NAMES[mode] ?? mode}</span></button>}
+            <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={pane === "model"} disabled={!canChangeEngine}
+              data-tip={pane === "model" ? undefined : (shownModel || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}
+              onClick={() => setPane((open) => open === "model" ? null : "model")}>{harness && <HarnessMark harness={harness} />}{shortModel(shownModel) || "Model"}</button>
+            <button ref={effortControl} type="button" className="composer-control engine-control" aria-label="Change effort" aria-haspopup="menu" aria-expanded={pane === "effort"} disabled={!canChangeEngine}
+              data-tip={pane === "effort" ? undefined : canChangeEngine ? "Effort · Choose the session's reasoning effort" : "Effort controls need a connected, unheld composer"}
+              onClick={() => setPane((open) => open === "effort" ? null : "effort")}>{shownEffort ? <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span> : <Icon name="sparkle" />}</button>
+            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} control={pane === "model" ? modelControl : effortControl} onPick={(value, chosen) => applyEngine(pane, value, true, chosen)} onClose={closePane} />}
+            {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
+            {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
+              : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
+                <Icon name={isSending ? "clock" : "send"} />
+              </button>}
+          </div>
         </div>
       </div>
       {unsent ? <Notice tone="warning" role="alert" className="composer-refusal">{unsent}</Notice> : <p className="composer-note" role="status">{note}</p>}

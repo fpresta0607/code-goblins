@@ -226,9 +226,12 @@ test("a baby goblin shows no raw command line, its task is in its tip and its pa
   const reviewer = baby(page, "Grub III - Test Runner");
   const chip = reviewer.locator(".state-chip");
   await expect(chip).toHaveText("Working 40m");
-  const look = (locator: typeof chip) => locator.evaluate((node) => ({ color: getComputedStyle(node).color, indicator: getComputedStyle(node.querySelector(".working-indicator")!).color }));
+  const look = (locator: typeof chip) => locator.evaluate((node) => ({ color: getComputedStyle(node).color, dot: getComputedStyle(node.querySelector(".status-dot")!).backgroundColor }));
   const working = await look(baby(page, "Grub Jr. - Plumbing Mapper").locator(".state-chip"));
   expect(await look(chip)).toEqual(working);
+  // A working baby's row shows the plain dot, with nothing that moves.
+  await expect(chip.locator(".working-indicator")).toHaveCount(0);
+  expect(await chip.evaluate((node) => node.getAnimations({ subtree: true }).length)).toBe(0);
   await reviewer.hover();
   await expect(page.getByRole("tooltip")).toHaveText("Review the affected Go tests");
 });

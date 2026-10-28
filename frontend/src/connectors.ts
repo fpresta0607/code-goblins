@@ -74,9 +74,15 @@ export function connectorAbout(name: string): string {
   return serviceOf(name)?.[2] || "";
 }
 
+// The harnesses with a mark of their own.
+const HARNESS_MARKS: Record<string, Mark> = { claude: { brand: "claude" }, codex: { glyph: "codex" }, pi: { glyph: "pi" }, kimi: { brand: "kimi" } };
+
 export function harnessMark(harness: string): Mark {
-  const marks: Record<string, Mark> = { claude: { brand: "claude" }, codex: { glyph: "codex" }, pi: { glyph: "pi" }, kimi: { brand: "kimi" } };
-  return marks[harness] || { glyph: "terminal" };
+  return HARNESS_MARKS[harness] || { glyph: "terminal" };
+}
+
+export function hasHarnessMark(harness: string): boolean {
+  return Object.hasOwn(HARNESS_MARKS, harness);
 }
 
 export function modelMark(model: string): { mark: Mark; provider: string } {

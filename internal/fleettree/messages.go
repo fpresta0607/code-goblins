@@ -154,9 +154,9 @@ type MessagePage struct {
 
 // Usage is what a session has spent, read from its own conversation: its
 // input, output and cached tokens, the dollars it recorded, the context its
-// last request carried against the model's window, and that model. A field a
-// conversation does not record is left zero, and the board leaves that stat
-// out rather than inventing it.
+// last request carried against the model's window, that model, and the
+// effort the session last set. A field a conversation does not record is left
+// zero, and the board leaves that stat out rather than inventing it.
 type Usage struct {
 	InputTokens     int64   `json:"input_tokens,omitempty"`
 	OutputTokens    int64   `json:"output_tokens,omitempty"`
@@ -165,6 +165,7 @@ type Usage struct {
 	ContextTokens   int64   `json:"context_tokens,omitempty"`
 	ContextWindow   int64   `json:"context_window,omitempty"`
 	Model           string  `json:"model,omitempty"`
+	Effort          string  `json:"effort,omitempty"`
 }
 
 // add folds one request's usage into the session's.
@@ -479,6 +480,12 @@ var (
 	commandArgs   = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
 	bashInput     = regexp.MustCompile(`(?s)^<bash-input>(.*?)</bash-input>`)
 	commandStdout = regexp.MustCompile(`(?s)<(local-command|bash)-(stdout|stderr)>(.*?)</(?:local-command|bash)-(?:stdout|stderr)>`)
+	// effortSet is the level Claude Code's /effort says it set, from its
+	// picker or from the level typed after it, read only from the start of its
+	// success line ("Set effort level to xhigh: ..." or "Effort level set to
+	// auto"), so a cancelled /effort, or a refusal that lists every level as
+	// "Invalid argument: hgih. Valid options are: low, ...", sets none.
+	effortSet = regexp.MustCompile(`(?i)^(?:set effort level to|effort level set to) (low|medium|high|xhigh|max|auto)\b`)
 	// boardAnswer begins the words the board types for the Overlord's answer
 	// from the Command Center (internal/supervisor/questions.go and the
 	// items beside it), to a goblin after the CFO's stamp.
@@ -591,6 +598,9 @@ func (l *messageLog) commandOutput(text string) bool {
 		printed := bounded(strings.TrimSpace(ansi.ReplaceAllString(match[3], "")), resultLimit)
 		if match[2] == "stdout" {
 			command.Output = printed
+			if level := effortSet.FindStringSubmatch(printed); level != nil && (command.Text == "/effort" || strings.HasPrefix(command.Text, "/effort ")) {
+				l.usage.Effort = strings.ToLower(level[1])
+			}
 		} else {
 			command.Errors = printed
 		}

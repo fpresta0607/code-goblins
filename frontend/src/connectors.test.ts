@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { connectorAbout, connectorLogo, connectorMark, harnessMark, modelMark, runLabel, shellLabel, shellMark } from "./connectors.ts";
+import { connectorAbout, connectorLogo, connectorMark, harnessMark, hasHarnessMark, modelMark, runLabel, shellLabel, shellMark } from "./connectors.ts";
 import { harnessTip } from "./workflow.ts";
 
 test("every connector name the fleet declares resolves to its service mark", () => {
@@ -32,6 +32,7 @@ test("harnesses and model providers each carry their own mark", () => {
   assert.deepEqual(harnessMark("pi"), { glyph: "pi" });
   assert.deepEqual(harnessMark("kimi"), { brand: "kimi" });
   assert.deepEqual(harnessMark("something-new"), { glyph: "terminal" });
+  assert.deepEqual(["claude", "codex", "pi", "kimi", "something-new", "toString", ""].map(hasHarnessMark), [true, true, true, true, false, false, false]);
   const models: [string, object, string][] = [
     ["claude-opus-5-5", { brand: "anthropic" }, "Anthropic"], ["opus", { brand: "anthropic" }, "Anthropic"], ["claude-fable-5-1", { brand: "anthropic" }, "Anthropic"],
     ["gpt-5.6-sol", { brand: "openai" }, "OpenAI"], ["gpt-6-astra", { brand: "openai" }, "OpenAI"], ["o4-mini", { brand: "openai" }, "OpenAI"],

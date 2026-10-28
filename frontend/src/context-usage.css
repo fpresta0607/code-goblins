@@ -1,0 +1,17 @@
+/* The session's context ring at the end of the conversation's bottom line,
+   and the statistics it opens above itself: one label and its value on each
+   line (the CFO's review of step 3, 2026-10-27). */
+.context-usage { position: relative; display: inline-flex; }
+.context-ring { display: inline-grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; color: var(--muted); }
+.context-ring::before { content: none; }
+.context-ring:hover { color: var(--bone); background: transparent; }
+.context-ring svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; transform: rotate(-90deg); }
+.context-track { opacity: .25; }
+.context-used { stroke: var(--mint); }
+.context-tooltip { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 4; width: min(20rem, calc(100vw - 32px)); max-height: min(50dvh, 24rem); overflow: auto; padding: 12px 14px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); color: var(--bone); font-size: .875rem; text-align: left; white-space: normal; }
+.context-tooltip strong { font-weight: 600; }
+.context-tooltip p { margin: 8px 0 0; color: var(--muted); }
+.usage-stats { display: grid; gap: 6px; margin: 10px 0 0; }
+.usage-stats > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.usage-stats dt { flex: none; color: var(--muted); }
+.usage-stats dd { min-width: 0; margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }

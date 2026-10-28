@@ -14,7 +14,8 @@ function hintDismissed(): boolean {
 // a small microphone that opens the board's recent dictations, from every box
 // in every window, each with Copy and Paste into this terminal; recording, a waveform that moves with the
 // voice, which is a flat dotted line while the keys are held in silence. The
-// first visit explains the shortcut once. model is the speech model
+// first visit explains the shortcut once, as a quiet line beside the bubble
+// rather than a card over the terminal's last rows. model is the speech model
 // the supervisor runs on this PC, which the bubble names as what listens; the
 // list's foot says so too and offers the browser's own speech recognition
 // where the browser has one. On a touch screen, where nothing is held down
@@ -34,6 +35,7 @@ export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: 
   const [dismissed, setDismissed] = useState(false);
   const hint = !dismissed && !hintDismissed();
   const bubble = useRef<HTMLButtonElement>(null);
+  const dock = useRef<HTMLDivElement>(null);
   const dismiss = () => {
     setDismissed(true);
     try { localStorage.setItem(VOICE_HINT_KEY, "dismissed"); } catch { /* the hint shows again next visit */ }
@@ -48,13 +50,12 @@ export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: 
   const tip = isTouch ? (listening ? "Listening with " + engine + " · tap to send" : "Tap to dictate")
     : listening ? "Listening with " + engine + " · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
   // Escape closes the list from the bubble or from inside it.
-  return <div className="voice-dock" onKeyDown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }}>
-    {hint && !open && <div className="voice-card voice-hint" role="note">
-      <p className="voice-card-title">Speak into this terminal</p>
-      <p>{isTouch ? "Tap the microphone and speak, then tap it again to send." : "Hold Ctrl+Shift+Space and speak."}</p>
-      <button className="icon-button pixel-icon voice-close" aria-label="Dismiss hint" data-tip="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>
-    </div>}
-      {open && <RecentDictations where="this terminal" model={model} onPaste={(text) => { onPaste(text); setOpen(false); }} onClose={close} onEngine={() => chosen((count) => count + 1)} />}
+  return <div ref={dock} className="voice-dock" onKeyDown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }}>
+    {hint && !open && <p className="voice-dock-hint" role="note">
+      <span><strong>Speak into this terminal.</strong> {isTouch ? "Tap the microphone and speak, then tap it again to send." : "Hold Ctrl+Shift+Space and speak."}</span>
+      <button className="icon-button" aria-label="Dismiss hint" data-tip="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>
+    </p>}
+    {open && <RecentDictations where="this terminal" anchor={dock} model={model} onPaste={(text) => { onPaste(text); setOpen(false); }} onClose={close} onEngine={() => chosen((count) => count + 1)} />}
     {isTouch && tools}
     {isTouch ? <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
       aria-label={listening ? "Stop and send" : "Dictate"} aria-pressed={listening} data-tip={tip}
