@@ -126,8 +126,8 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       await openGoblin(page);
       relay.say({ type: "screen", asking: false, open: false, working: false, submission: "", mode: "auto mode" });
       const model = box(page).getByRole("button", { name: "Change model" });
-      await expect(model).toHaveText("Opus 5.5");
-      await expect(box(page).getByRole("button", { name: /^Mode: / })).toBeVisible();
+      await expect(model.locator(".engine-control-model")).toHaveText("Opus 5.5");
+      await expect(model.locator(".effort-level")).toHaveText("xhigh");
 
       // Act
       const row = await box(page).locator(".composer-input").evaluate((input) => {
@@ -144,7 +144,7 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       });
 
       // Assert
-      expect(row.map((control) => control.name).slice(0, -1)).toEqual(["Add files", "Style: modern", "Mode: auto mode. Shift+Tab changes it", "Change model", "Change effort", isTouch ? "Dictate" : "Hold to dictate"]);
+      expect(row.map((control) => control.name).slice(0, -1)).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate"]);
       expect(["Send", "Stop"], "Send, or Stop while the session works").toContain(row.at(-1)?.name);
       expect(row.filter((control) => !control.isInside).map((control) => control.name), "every control inside the box's border, under the words").toEqual([]);
       expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);

@@ -285,25 +285,32 @@ for (const [label, width, height] of [["desktop", 1440, 960], ["phone", 390, 844
   });
 }
 
-test("the session's permission mode shows under the box, and a press or Shift+Tab cycles it as in the terminal", async ({ page }) => {
+test("the session's permission mode shows in the model's pane, and Shift+Tab in the box cycles it as in the terminal", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
-  const chip = box(page).getByRole("button", { name: /^Mode: / });
+  const control = box(page).getByRole("button", { name: "Change model", exact: true });
+  const modes = box(page).getByRole("group", { name: "Mode", exact: true });
+  const shownMode = async () => {
+    await control.click();
+    const name = await modes.getByRole("menuitemradio", { checked: true }).textContent();
+    await page.keyboard.press("Escape");
+    return name;
+  };
 
   // Act and Assert: the mode the terminal's footer names, then each change.
   relay.say({ ...closed, mode: "auto mode" });
-  await expect(chip).toHaveText("Auto");
-  await chip.click();
+  await expect(control).toBeEnabled();
+  expect(await shownMode()).toBe("Auto");
+  await field(page).press("Shift+Tab");
   await expect.poll(() => typed(relay)).toBe("\x1b[Z");
   await expect(field(page)).toBeFocused();
   relay.say({ ...closed, mode: "plan mode" });
-  await expect(chip).toHaveText("Plan");
-  await field(page).press("Shift+Tab");
-  await expect.poll(() => typed(relay)).toBe("\x1b[Z\x1b[Z");
-  await expect(field(page)).toBeFocused();
+  await expect.poll(shownMode).toBe("Plan");
 
   // A harness whose footer names no mode shows none.
   relay.say(closed);
-  await expect(chip).toHaveCount(0);
+  await control.click();
+  await expect(box(page).getByRole("menu", { name: "Model", exact: true })).toBeVisible();
+  await expect(modes).toHaveCount(0);
 });

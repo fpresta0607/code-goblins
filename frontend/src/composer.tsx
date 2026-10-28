@@ -4,9 +4,9 @@ import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
 import { ComposerAttachments } from "./composer-attachments";
 import { DictationButton } from "./dictation-button";
-import { parseEngineCatalog, type EngineModel } from "./engine-catalog";
+import { parseEngineCatalog, useEngineCatalog, type EngineModel } from "./engine-catalog";
 import { CODEX_NOT_SENT, driveCodexPicker } from "./codex-picker";
-import { effortTone, engineCommand, settingCommand, type EngineSetting } from "./engine-choices";
+import { effortTone, engineCommand, MODES, settingCommand, type EngineSetting } from "./engine-choices";
 import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
@@ -14,24 +14,21 @@ import { Icon } from "./Icon";
 import { filesOf, keptFiles } from "./kept-files";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
+import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
 import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
-import { PANEL_KEYS, panelKey } from "./panel-keys";
+import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
 import { QueuedMessage } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
-import { useTerminalLink } from "./terminal-link";
+import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
 import { isDetachedHold } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
-
-// The permission modes the box names in the fewest words, as the terminal's
-// footer names them in more.
-const MODE_NAMES: Record<string, string> = { "auto mode": "Auto", "plan mode": "Plan", "accept edits": "Accept edits", "bypass permissions": "Bypass", "don't ask": "Don't ask", "manual mode": "Manual" };
 
 // How many of his latest messages to a goblin with no live terminal show
 // above the box.
@@ -40,7 +37,9 @@ const SHOWN = 5;
 // a burst of typing asks once.
 const MENTION_WAIT_MS = 120;
 // How long the box waits for Codex's /model picker to show the choice it
-// set out to pick before it closes the picker and says so.
+// set out to pick before it closes the picker and says so, for the harness to
+// take a model before the box sets that model's effort, and for its footer to
+// name the mode he picked.
 const CODEX_PICKER_WAIT_MS = 8000;
 // What he wrote and has not sent, kept per session for this tab's life, so a
 // switch to another view or session, a reconnect and a reload of the board
@@ -183,7 +182,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // Escape and a pick hand it back to the box.
   const closePane = useCallback(() => setPane(null), []);
   const modelControl = useRef<HTMLButtonElement>(null);
-  const effortControl = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLButtonElement>(null);
   const composerBox = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
@@ -248,6 +246,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const isUnread = !!live?.isUnread;
   const harness = task?.harness || snapshot.cfo_harness;
   const isEngineSupported = ["claude", "codex", "pi"].includes(harness);
+  // The harnesses' catalog is read as a box with a model button shows, so
+  // its pane opens at once.
+  useEngineCatalog(isShown && isEngineSupported);
   const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const recordedModel = model || task?.model || "";
@@ -263,31 +264,64 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // The model by its short, proper name (model-name.ts), never its raw id (the
   // Overlord, 2026-10-28: "claude-opus-5-5 is not proper case").
   const modelName = shortModel(shownModel);
-  // applyEngine sets the session's model or effort in its harness, as Classic
-  // would through the harness's own menu (the Overlord, 2026-10-27: "they
-  // should control the same interfaces. Same session"): one line for Claude
-  // Code and pi, and Codex's own picker, answered here, for Codex. A pick from
-  // the pane, which lists only what the harness offers, shows on its control
-  // at once (shouldShow); a value typed after the command shows once the
-  // session's record says it runs it.
-  const applyEngine = (setting: EngineSetting, value: string, shouldShow: boolean, chosen?: EngineModel) => {
+  // applyEngine sets the session's model, its effort or both in its harness,
+  // as Classic would through the harness's own menu (the Overlord,
+  // 2026-10-27: "they should control the same interfaces. Same session"): a
+  // line each for Claude Code and pi, the effort's once the harness has taken
+  // the model's, and Codex's own picker, answered here, for Codex. A pick
+  // from the pane, which lists only what the harness offers, shows on its
+  // control at once (shouldShow); a value typed after the command shows once
+  // the session's record says it runs it.
+  const applyEngine = (target: { model?: string; effort?: string }, shouldShow: boolean, chosen?: EngineModel) => {
     setPane(null);
-    if (!canChangeEngine || !value) return;
-    const command = engineCommand(harness, setting, value);
-    const nextEffort = setting === "effort" ? value : chosen?.efforts.includes(shownEffort) ? shownEffort : chosen?.default_effort ?? "";
-    if (command ? !link.send(command) : !link.send("/model")) { setUnsent(unsentWhy); return; }
-    if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: { value, over: recordedModel } } : { ...prior, effort: { value, over: recordedEffort } });
-    if (!command) {
+    if (!canChangeEngine || !target.model && !target.effort) return;
+    const show = (isPicked: boolean) => setChosenEngine((prior) => ({
+      model: target.model ? isPicked ? { value: target.model, over: recordedModel } : undefined : prior.model,
+      effort: target.effort ? isPicked ? { value: target.effort, over: recordedEffort } : undefined : prior.effort,
+    }));
+    const modelCommand = target.model ? engineCommand(harness, "model", target.model) : "";
+    const effortCommand = target.effort ? engineCommand(harness, "effort", target.effort) : "";
+    const sent = modelCommand === null || effortCommand === null ? link.send("/model") : link.send(modelCommand || effortCommand);
+    if (!sent) { setUnsent(unsentWhy); return; }
+    if (shouldShow) show(true);
+    const drive = (stop: () => void) => {
       stopDriving.current?.();
       setDriving(true);
-      stopDriving.current = driveCodexPicker(terminal, { model: setting === "model" ? value : shownModel, name: setting === "model" ? chosen?.name ?? "" : "", effort: nextEffort }, CODEX_PICKER_WAIT_MS, (failed) => {
-        stopDriving.current = null;
-        setDriving(false);
-        if (!failed) return;
-        setUnsent(failed === CODEX_NOT_SENT ? unsentWhy : failed);
-        if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: undefined } : { ...prior, effort: undefined });
+      stopDriving.current = stop;
+    };
+    const finish = (failed: string) => {
+      stopDriving.current = null;
+      setDriving(false);
+      if (!failed) return;
+      setUnsent(failed);
+      if (shouldShow) show(false);
+    };
+    if (modelCommand === null || effortCommand === null) {
+      const effortAfter = target.effort ?? (chosen?.efforts.includes(shownEffort) ? shownEffort : chosen?.default_effort ?? "");
+      drive(driveCodexPicker(terminal, { model: target.model ?? shownModel, name: target.model ? chosen?.name ?? "" : "", effort: effortAfter }, CODEX_PICKER_WAIT_MS,
+        (failed) => finish(failed === CODEX_NOT_SENT ? unsentWhy : failed)));
+    } else if (modelCommand && effortCommand) {
+      const timer = setTimeout(() => { stop(); finish("The session did not take the model in time, so its effort was not set."); }, CODEX_PICKER_WAIT_MS);
+      const stopWatching = watchLink(terminal, (next) => {
+        if (next?.screen?.submission !== sent || next.screen.isOpen) return;
+        stop();
+        finish(next.send(effortCommand) ? "" : unsentWhy);
       });
+      const stop = () => { clearTimeout(timer); stopWatching(); };
+      drive(stop);
     }
+    requestAnimationFrame(() => field.current?.focus());
+  };
+  // chooseMode sets the session's permission mode, as Shift+Tab cycles it in
+  // its terminal.
+  const chooseMode = (next: string) => {
+    setPane(null);
+    if (!live || next === mode) return;
+    stopDriving.current?.();
+    stopDriving.current = cycleMode(terminal, live, next, MODES.find((each) => each.mode === next)?.name ?? next, CODEX_PICKER_WAIT_MS, (failed) => {
+      stopDriving.current = null;
+      if (failed) setUnsent(failed === MODE_NOT_SENT ? unsentWhy : failed);
+    });
     requestAnimationFrame(() => field.current?.focus());
   };
   // What this box saves as a board action types nothing into the terminal, so
@@ -340,7 +374,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
         (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
         (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
-      applyEngine(asked.setting, asked.value, false, chosen);
+      applyEngine(asked.setting === "model" ? { model: asked.value } : { effort: asked.value }, false, chosen);
       return;
     }
     if (!savesThroughBoard && !sendID.current && !holdsForTurn) {
@@ -663,15 +697,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
             </div>}
           </div>
           <div className="composer-row-end">
-            {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}
-              onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" /><span className="mode-chip-name">{MODE_NAMES[mode] ?? mode}</span></button>}
-            <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={pane === "model"} disabled={!canChangeEngine}
-              data-tip={pane === "model" ? undefined : (modelName || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}
-              onClick={() => setPane((open) => open === "model" ? null : "model")}>{harness && <HarnessMark harness={harness} />}{modelName || "Model"}</button>
-            <button ref={effortControl} type="button" className="composer-control engine-control" aria-label="Change effort" aria-haspopup="menu" aria-expanded={pane === "effort"} disabled={!canChangeEngine}
-              data-tip={pane === "effort" ? undefined : canChangeEngine ? "Effort · Choose the session's reasoning effort" : "Effort controls need a connected, unheld composer"}
-              onClick={() => setPane((open) => open === "effort" ? null : "effort")}>{shownEffort ? <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span> : <Icon name="sparkle" />}</button>
-            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} control={pane === "model" ? modelControl : effortControl} onPick={(setting, value, chosen) => applyEngine(setting, value, true, chosen)} onClose={closePane} />}
+            <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={!!pane} disabled={!canChangeEngine}
+              data-tip={pane ? undefined : (modelName || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}
+              onClick={() => setPane((open) => open ? null : "model")}>{harness && <HarnessMark harness={harness} />}<span className="engine-control-model">{modelName || "Model"}</span>
+              {shownEffort && <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span>}</button>
+            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} mode={mode} control={modelControl}
+              onPick={(pick) => applyEngine({ model: pick.model?.id, effort: pick.effort }, true, pick.model)} onMode={chooseMode} onClose={closePane} />}
             {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
             {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
               : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>

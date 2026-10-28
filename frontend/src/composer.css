@@ -12,8 +12,10 @@
 .composer-sent .icon-button { align-self: center; width: 32px; height: 32px; min-height: 32px; margin-block: -6px; color: var(--muted); }
 .composer-sent .icon-button .icon { width: 18px; height: 18px; }
 .composer-box { position: relative; display: grid; gap: 4px; }
+/* Its edge is the edge every pane of the chat wears (popup.css), whether he
+   writes in it or not (the Overlord, 2026-10-28: "remove the chat input
+   lighter green border so it matches tool tips and models"). */
 .composer-input { display: grid; gap: 4px; min-width: 0; padding: 10px 6px 4px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
-.composer-input:focus-within { border-color: var(--mint); }
 /* The files he added, above his words inside the box's border: a picture as a
    thumbnail, any other file by its name, each with its remove button on its
    corner. A long row scrolls sideways rather than pushing the box taller. */
@@ -53,9 +55,11 @@
 .composer :is(button, input):focus { outline: none; }
 .composer :is(button, input):focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
 /* The row inside the box: adding files and the style menu at its start, then
-   the session's mode, model and effort, the microphone and Send at its end.
-   Every control keeps its full words; a narrow box drops the mode's name for
-   its icon, never the model's. */
+   the session's model with the effort it runs, the microphone and Send at
+   its end. The model's button opens the one pane for the session's settings,
+   its mode among them (engine-pane.tsx), so no other control crowds the row
+   (the Overlord, 2026-10-28: "you don't need an effort button inside the
+   mobile view. It's too crowded"). Every control keeps its full words. */
 .composer-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-width: 0; container-type: inline-size; }
 .composer-row-start { position: relative; display: flex; align-items: center; gap: 2px; flex: none; }
 .composer-row-end { display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: none; margin-left: auto; }
@@ -94,14 +98,6 @@
   .composer-dock { padding-inline: 8px; }
 }
 
-/* The permission mode the session's terminal shows, which a press or
-   Shift+Tab cycles as in the terminal. */
-.composer-control.mode-chip { gap: 6px; height: 28px; min-height: 28px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--mint); font-size: .8125rem; }
-.composer-control.mode-chip .icon { width: 14px; height: 14px; }
-@container (max-width: 420px) {
-  .composer-control.mode-chip { min-width: 28px; padding: 0 6px; }
-  .mode-chip-name { display: none; }
-}
 /* A row narrower still draws its icon buttons a little tighter, so a long
    model name stays whole. */
 @container (max-width: 340px) {

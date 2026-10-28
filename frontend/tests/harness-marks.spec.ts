@@ -35,7 +35,7 @@ for (const session of SESSIONS) {
     expect(await drawing(page, ".messages-view:not([hidden]) .message-reply-actions .mark"), "the row under the last reply").toBe(card);
     await expect(replyMark).toHaveAttribute("aria-label", session.name);
     const model = box(page).getByRole("button", { name: "Change model", exact: true });
-    await expect(model).toHaveText(session.shown);
+    await expect(model.locator(".engine-control-model")).toHaveText(session.shown);
     expect(await model.evaluate((button) => button.querySelector(".mark path")?.getAttribute("d") ?? ""), "the model's button").toBe(card);
   });
 }
