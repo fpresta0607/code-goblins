@@ -193,26 +193,26 @@ test("Back to messages returns to the messages with the keyboard in the box, and
   expect(typed(relay)).toBe("1");
 });
 
-test("Back to messages saves Modern, so the conversation stays after the step out", async ({ page }) => {
+test("Classic's switch to Modern Chat saves Modern, so the conversation stays after the step out", async ({ page }) => {
   // Arrange: this browser draws its conversations as Classic, so the panel
-  // opens on the harness's terminal with its Back to messages bar.
+  // opens on the harness's terminal alone, with no bar over it.
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const relay = await open(page);
   await card(page, NAME).click();
   await expect(page.locator("#panel-title")).toHaveText(NAME);
   await expect(terminal(page)).toBeVisible();
+  await expect(back(page)).toHaveCount(0);
 
   // Act
-  await back(page).click();
+  await page.getByRole("button", { name: "Modern Chat", exact: true }).click();
 
   // Assert: he stands in the conversation, and the board keeps Modern from
   // then on, on the same session, with its history and the box ready.
   await expect(messages(page)).toBeVisible();
   await expect(field(page)).toBeFocused();
   await expect(page.getByText("On it.", { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Back to messages chose Modern").toBe("modern");
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Modern Chat chose Modern").toBe("modern");
   expect(relay.views, "the session is the one the terminal already kept").toBe(1);
-  await expect(back(page)).toHaveCount(0);
 });
 
 test("a phone's tall task panel scrolls, and the conversation returns with its draft", async ({ page }) => {

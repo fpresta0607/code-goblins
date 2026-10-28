@@ -658,7 +658,7 @@ Under it is the message box: **Send** or **Enter** types what you wrote into the
 Along the box's bottom edge are Add files, the style menu (Modern or Classic, Speech history and Open in Windows Terminal), the permission mode, the model and the effort, each of which lists what the session's harness offers, the microphone and Send; `/` lists the session's commands and `@` its files.
 When the harness opens a screen of its own, a question, a permission prompt or a picker such as `/model`, the box draws it above itself as a list you pick from, with **Cancel** and **Show the terminal**, so nothing needs the terminal to be answered.
 **Show the terminal** brings the live terminal into the messages' place, and **Back to messages** returns; the terminal lies in the messages' own box, so no switch and no step resizes it.
-**Classic**, in the style menu, shows the session's native terminal in place of its messages.
+**Classic**, in the style menu, shows the session's native terminal in place of its messages, as it was before Modern, with no box under it; **Modern Chat**, beside its microphone, switches back.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no terminal, so each panel is its task list alone.
 The task list shows **Workspace** with the repository, branch and exact working folder, **Harness** with the harness, model and effort selectors, **Connections** with MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**, each closed until you open it.

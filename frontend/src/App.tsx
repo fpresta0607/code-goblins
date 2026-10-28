@@ -266,18 +266,18 @@ export function App() {
   if (needsQueue && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const [chatStyle, chooseStyle] = useChatStyle();
   const [classicOut, setClassicOut] = useState("");
-  const shouldKeepComposer = needsQueue || chatStyle === "classic" && composerTerminal === terminalKey || composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
+  const shouldKeepComposer = needsQueue || composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
   const keyboardTo = (key: string) => {
     // The keyboard goes to whatever that session will actually show: the box
     // the panel draws for it, or its terminal. Classic draws the terminal in
-    // the conversation's place, so a switch there reaches the terminal unless
-    // the goblin takes messages and has none, or custody holds and its box is
-    // the thing on screen.
+    // the conversation's place with no box, so a switch there reaches the
+    // terminal unless the goblin takes messages and has none.
     const target = key === CFO_KEY ? undefined : snapshot?.tasks.find((each) => each.id === key);
     const hasMessages = !!snapshot && !!messagesQuery(snapshot, target);
     const takes = !!target && takesMessages(target);
-    const isTerminalHere = steppedIn === key || (chatStyle === "classic" && classicOut !== key && !takes);
-    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && key === terminalKey && shouldKeepComposer;
+    const isClassicHere = chatStyle === "classic" && classicOut !== key && !takes;
+    const isTerminalHere = steppedIn === key || isClassicHere;
+    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && !isClassicHere && key === terminalKey && shouldKeepComposer;
     if (showsBox) setBoxFocus((prior) => prior + 1);
     else setSwitchFocus((prior) => prior + 1);
   };
@@ -384,10 +384,11 @@ export function App() {
   // conversation stays mounted under the terminal, so the session, its
   // history, an unsent draft and the place he read are kept.
   const readHistory = () => { if (chatStyle === "classic") setClassicOut(terminalKey); setSteppedIn(""); setBoxFocus((prior) => prior + 1); };
-  // Back to messages is the one step out that also chooses Modern: a board he
-  // steps out of the harness's terminal on is a board he wants drawn as the
-  // conversation from then on (the Overlord, 2026-10-27: "Back to messages
-  // doesn't flip task setting to modern either"), and only it does (#1584).
+  // Back to messages, and Classic's own switch to Modern Chat, are the steps
+  // out that also choose Modern: a board he steps out of the harness's
+  // terminal on is a board he wants drawn as the conversation from then on
+  // (the Overlord, 2026-10-27: "Back to messages doesn't flip task setting to
+  // modern either"), and only they do (#1584).
   const stepOut = () => { readHistory(); chooseStyle("modern"); };
   // Once offered, the composer stays reachable as input becomes ready so an
   // upload, a Send still landing, a failed Send to retry or its own recording
@@ -397,7 +398,10 @@ export function App() {
   // The conversation portals its one mounted composer to the shared footer.
   // The deck owns the box for a paused goblin without a conversation.
   const deckOwnsBox = !!task && !messagesSource && takesMessages(task);
-  const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && shouldKeepComposer;
+  // Classic is the terminal as it was before Modern Chat existed, with no box
+  // under it (the Overlord, 2026-10-28: "Classic mode is exactly the terminal
+  // as it was before Modern existed").
+  const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && !classicInPlace && shouldKeepComposer;
   const boxOnScreen = messagesShown || queuedBox;
   if (boxOnScreen && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const composerDock = queuedBox || !messagesSource ? classicDock : messageDock;
@@ -539,9 +543,9 @@ export function App() {
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
         <div className="panel-main">
-        {/* Classic draws the terminal in the conversation's place too, so its
-            Back bar is the way back to the conversation and its box. */}
-        <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn || classicInPlace} onBack={stepOut}>
+        {/* Classic draws the terminal in the conversation's place with no bar
+            over it; the button beside its microphone switches to Modern. */}
+        <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} harness={panelHarness} model={panelModel} effort={panelEffort} memory={panelMemory}
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending}
@@ -550,7 +554,7 @@ export function App() {
             box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
-            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
+            <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined} onModern={classicInPlace && messagesSource ? stepOut : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
         </PanelStage>

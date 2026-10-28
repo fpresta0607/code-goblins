@@ -32,8 +32,12 @@ const MAX_RETRIES = 5;
 // Messages view's box types through this terminal's own view. hasComposer says
 // the session's message box is the active input surface: its queue note, its
 // microphone and its copy control replace this terminal's own, so no second
-// layer says the same thing.
-export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, hasComposer = false, link, onHistory }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; hasComposer?: boolean; link?: string; onHistory?: () => void }) {
+// layer says the same thing. onModern, set while Classic draws this terminal
+// in its conversation's place, is one button in the terminal's own style
+// beside its microphone that switches to Modern Chat (the Overlord,
+// 2026-10-28: "The bottom holds only the speech button and one
+// terminal-style button that toggles to Modern Chat").
+export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, hasComposer = false, link, onHistory, onModern }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; hasComposer?: boolean; link?: string; onHistory?: () => void; onModern?: () => void }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
   // staged is a connection still replaying out of sight; it is shown and
@@ -221,7 +225,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); current.current?.focus(); }} />}
     {hasComposer && <button type="button" className="icon-button terminal-copy" aria-label="Copy terminal text" data-tip="Copy terminal text" onClick={() => setTextSheet(current.current?.text() ?? "")}><Icon name="copy" /></button>}
     {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }}
-      tools={<TerminalTouchTools events={{ text: (text) => current.current?.paste(text), image: addImage, copy: () => setTextSheet(current.current?.text() ?? ""), problem: showFeedback }} />} />}
+      tools={<TerminalTouchTools events={{ text: (text) => current.current?.paste(text), image: addImage, copy: () => setTextSheet(current.current?.text() ?? ""), problem: showFeedback }} />}
+      lead={onModern && <button type="button" className="pixel-button outline terminal-modern" data-tip="Switch to Modern Chat" onClick={onModern}><Icon name="comment" />Modern Chat</button>} />}
     {!hasComposer && (feedback || dictation.note) && <div className="terminal-float">{feedback ? <ClickFeedback text={feedback} /> : <Notice tone="warning">{dictation.note}</Notice>}</div>}
   </section>;
 }

@@ -951,6 +951,8 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
    never covers the terminal's text. It stays still while idle: only
    recording moves, and only with the microphone's level. */
 .voice-dock { position: relative; flex: none; display: flex; justify-content: flex-end; align-items: center; min-height: 56px; padding: 6px 14px 8px; border-top: 1px solid #14262c; background: #071015; }
+.voice-dock > .terminal-modern { flex: none; margin-right: auto; }
+.voice-dock > .terminal-modern + .voice-dock-hint { margin-left: 12px; }
 /* The voice bubble and its cards wear the goblin alerts' look: the same
    palette, and stepped pixel frames drawn behind them, so their tooltips and
    focus rings show in full. */

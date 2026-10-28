@@ -3,42 +3,39 @@ import { at, box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, 
 
 test.describe("phone speech history", () => {
   test.use({ hasTouch: true });
-  for (const style of ["classic", "modern"]) {
-    for (const width of [360, 390]) {
-      test(`phone ${style} inserts an older speech entry at the selection without reading the clipboard at ${width}px`, async ({ page }) => {
-        await page.setViewportSize({ width, height: 800 });
-        await page.addInitScript((chatStyle) => {
-          localStorage.setItem("cfo-chat-style", chatStyle);
-          let reads = 0;
-          Object.defineProperty(navigator, "clipboard", { configurable: true, value: { read: async () => { reads++; return []; } } });
-          Object.assign(window, { clipboardReads: () => reads });
-        }, style);
-        const relay = await open(page);
-        await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [
-          { text: "newest dictation", at: Date.parse("2026-10-22T09:31:00Z") },
-          { text: "older dictation", at: Date.parse("2026-10-22T09:30:00Z") },
-        ] } }));
-        await card(page, NAME).tap();
-        await expect.poll(() => relay.views).toBeGreaterThan(0);
-        if (style === "classic") relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(field(page)).toBeVisible();
-        await field(page).fill("before replace after");
-        await field(page).evaluate((element) => { const box = element as HTMLTextAreaElement; box.focus(); box.setSelectionRange(7, 14); });
-
-        await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
-        const history = page.getByRole("dialog", { name: "Speech history" });
-        await expect(history).toBeVisible();
-        await history.getByRole("button", { name: "Paste into the message: older dictation", exact: true }).tap();
-
-        await expect(field(page)).toHaveValue("before older dictation after");
-        await expect(field(page)).toBeFocused();
-        await expect.poll(() => field(page).evaluate((element) => (element as HTMLTextAreaElement).selectionStart)).toBe(22);
-        await expect(history).toHaveCount(0);
-        await expect(box(page)).not.toContainText("Nothing to paste");
-        expect(await page.evaluate(() => { const reads: unknown = Reflect.get(window, "clipboardReads"); return typeof reads === "function" ? reads() : -1; })).toBe(0);
-        expect(typed(relay)).toBe("");
+  for (const width of [360, 390]) {
+    test(`phone modern inserts an older speech entry at the selection without reading the clipboard at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.addInitScript(() => {
+        localStorage.setItem("cfo-chat-style", "modern");
+        let reads = 0;
+        Object.defineProperty(navigator, "clipboard", { configurable: true, value: { read: async () => { reads++; return []; } } });
+        Object.assign(window, { clipboardReads: () => reads });
       });
-    }
+      const relay = await open(page);
+      await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [
+        { text: "newest dictation", at: Date.parse("2026-10-22T09:31:00Z") },
+        { text: "older dictation", at: Date.parse("2026-10-22T09:30:00Z") },
+      ] } }));
+      await card(page, NAME).tap();
+      await expect.poll(() => relay.views).toBeGreaterThan(0);
+      await expect(field(page)).toBeVisible();
+      await field(page).fill("before replace after");
+      await field(page).evaluate((element) => { const box = element as HTMLTextAreaElement; box.focus(); box.setSelectionRange(7, 14); });
+
+      await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
+      const history = page.getByRole("dialog", { name: "Speech history" });
+      await expect(history).toBeVisible();
+      await history.getByRole("button", { name: "Paste into the message: older dictation", exact: true }).tap();
+
+      await expect(field(page)).toHaveValue("before older dictation after");
+      await expect(field(page)).toBeFocused();
+      await expect.poll(() => field(page).evaluate((element) => (element as HTMLTextAreaElement).selectionStart)).toBe(22);
+      await expect(history).toHaveCount(0);
+      await expect(box(page)).not.toContainText("Nothing to paste");
+      expect(await page.evaluate(() => { const reads: unknown = Reflect.get(window, "clipboardReads"); return typeof reads === "function" ? reads() : -1; })).toBe(0);
+      expect(typed(relay)).toBe("");
+    });
   }
 });
 

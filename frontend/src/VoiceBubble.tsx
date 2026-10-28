@@ -22,8 +22,9 @@ function hintDismissed(): boolean {
 // with ease, the bubble is the dictation itself: onTap is told of each tap,
 // the first to start listening and the next to stop and send what was said
 // (the Overlord, 2026-10-21, "Can't hold on my phone screen"). There tools,
-// a terminal's touch tools, sit beside it.
-export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: { listening: boolean; level: () => number; model: string; onPaste: (text: string) => void; onTap: (at: number) => void; tools?: ReactNode }) {
+// a terminal's touch tools, sit beside it. lead, such as Classic's switch to
+// Modern Chat, starts the dock.
+export function VoiceBubble({ listening, level, model, onPaste, onTap, tools, lead }: { listening: boolean; level: () => number; model: string; onPaste: (text: string) => void; onTap: (at: number) => void; tools?: ReactNode; lead?: ReactNode }) {
   const [open, setOpen] = useState(false);
   // Read on every render, as the hint is, so a choice made in one pane shows
   // in the others.
@@ -51,6 +52,7 @@ export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: 
     : listening ? "Listening with " + engine + " · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
   // Escape closes the list from the bubble or from inside it.
   return <div ref={dock} className="voice-dock" onKeyDown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }}>
+    {lead}
     {hint && !open && <p className="voice-dock-hint" role="note">
       <span><strong>Speak into this terminal.</strong> {isTouch ? "Tap the microphone and speak, then tap it again to send." : "Hold Ctrl+Shift+Space and speak."}</span>
       <button className="icon-button" aria-label="Dismiss hint" data-tip="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>

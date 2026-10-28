@@ -23,15 +23,15 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await expect(terminal).toBeVisible();
       if (state === "held") {
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        // The board says the hold once, beside the one input it concerns.
-        await expect(page.locator(".context-pane").getByText("Review in progress. Send to queue until it finishes.")).toBeVisible();
+        // Classic says the hold as its terminal always has, with no box.
+        await expect(page.locator(".native-terminal").getByText("Typing is paused.", { exact: true })).toBeVisible();
       } else if (state === "ended") {
         relay.end();
         await expect(page.locator(".terminal-foot.box")).toBeVisible();
       } else relay.drop();
       if (input === "keyboard") await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
-      // The wheel goes over the terminal's top rows: its box also holds the
-      // queue's box under it, and the history is what the wheel asks for.
+      // The wheel goes over the terminal's top rows, and the history is what
+      // the wheel asks for.
       else if (input === "wheel") { const bounds = (await terminal.boundingBox())!; await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + Math.min(60, bounds.height / 4)); await page.mouse.wheel(0, -45); }
       else {
         const touch = await page.context().newCDPSession(page);
@@ -55,7 +55,7 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await expect.poll(() => conversation.evaluate((element) => element.scrollTop)).toBeLessThan(before);
       expect(typed(relay)).toBe("");
       // Reading back opens the conversation and leaves the saved Classic alone:
-      // only Back to messages saves Modern (#1584).
+      // only Back to messages and Classic's Modern Chat save Modern (#1584).
       expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
       await page.screenshot({ path: testInfo.outputPath(`codex-${state}-${input}-history.png`) });
     });
@@ -82,7 +82,7 @@ test("Classic full-screen Codex opens readable history with wheel while ended th
   await page.mouse.wheel(0, -45);
 
   // Assert: the history opens and the saved Classic stays, since only Back
-  // to messages saves Modern (#1584).
+  // to messages and Classic's Modern Chat save Modern (#1584).
   await expect(page.locator(".messages-view:not([hidden]) .conversation")).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
 });
@@ -177,13 +177,15 @@ for (const style of ["classic", "modern"] as const) {
     }
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("generation") === codex.generation)).toBe(true);
     relay.say({ type: "held", reason: "pipeline owns this task" });
-    // Modern keeps its conversation, which lists what waits; Classic keeps the
-    // terminal, so the box beside it lists them.
-    const waits = style === "modern"
-      ? page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })
-      : box(page, NAME).getByText(pending.text, { exact: true });
-    await expect(waits).toBeVisible();
-    await expect(field(page)).toBeInViewport();
+    // Modern keeps its conversation, which lists what waits, and its box;
+    // Classic keeps the terminal alone, which says typing is paused.
+    if (style === "modern") {
+      await expect(page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(field(page)).toBeInViewport();
+    } else {
+      await expect(page.locator(".native-terminal").getByText("Typing is paused.", { exact: true })).toBeVisible();
+      await expect(box(page, NAME)).toBeHidden();
+    }
     await page.screenshot({ path: testInfo.outputPath(`${style}-codex-replaced-pi.png`) });
   });
 }
@@ -232,7 +234,7 @@ for (const phone of [false, true]) {
         relay.write("\r\nThe Codex turn continues\r\n");
         await expect.poll(position).toBe(anchor);
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(field(page)).toBeInViewport();
+        await expect(style === "modern" ? field(page) : page.locator(".native-terminal").getByText("Typing is paused.", { exact: true })).toBeInViewport();
         await scroll(45);
         await expect.poll(position).not.toBe(anchor);
         const beforeKey = await position();
