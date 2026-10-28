@@ -655,16 +655,27 @@ jobs:
           foreach ($file in "$env:RELEASES\server.pid", "$env:FACTS.stand-in.pid") {
             if (Test-Path -LiteralPath $file) { Stop-Process -Id ([int](Get-Content -LiteralPath $file)) -ErrorAction SilentlyContinue }
           }
-      - name: Keep the install's and the updates' logs
+      # One artifact holds files of one drive, and the runner's temporary
+      # folder and the profile are on two.
+      - name: Keep the updates' logs and the facts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: update-logs-${{ matrix.from }}
           path: |
-            ~/AppData/Local/Temp/CodeGoblinsInstall.log
             ${{ runner.temp }}/update-*.log
             ${{ runner.temp }}/fleet-before.json*
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Keep the install's and the board's logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-home-logs-${{ matrix.from }}
+          path: |
+            ~/AppData/Local/Temp/CodeGoblinsInstall.log
             ~/AppData/Local/CodeGoblins/state/serve.log
+            ~/AppData/Local/CodeGoblins/state/update
           if-no-files-found: ignore
           retention-days: 14
 

@@ -31,9 +31,11 @@ $released = (Get-FileHash (Join-Path $Release "cfo.exe") -Algorithm SHA256).Hash
 $terminal = Join-Path $env:RUNNER_TEMP "terminal\WindowsTerminal.exe"
 New-Item -ItemType Directory -Force -Path (Split-Path $terminal) | Out-Null
 Copy-Item -LiteralPath (Join-Path $env:SystemRoot "System32\cmd.exe") -Destination $terminal -Force
+# cmd takes the line whole, so the log's path holds no space to quote.
 $output = Join-Path $env:RUNNER_TEMP "update-$Want.log"
+if ($output.Contains(" ")) { throw "the update's log path '$output' holds a space, which the line cmd runs cannot carry unquoted" }
 $env:CODE_GOBLINS_RELEASE_API = $Api
-& $terminal /d /c "goblins update > `"$output`" 2>&1"
+& $terminal /d /c "goblins update > $output 2>&1"
 $code = $LASTEXITCODE
 Remove-Item Env:CODE_GOBLINS_RELEASE_API
 Get-Content -LiteralPath $output | Write-Host
