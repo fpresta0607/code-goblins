@@ -142,9 +142,9 @@ for (const [name, id, effort] of [["Opus 5.5", "claude-opus-5-5", "xhigh"], ["Ha
 
     // Assert: the model first, its default effort once the harness took it.
     await expect(pane).toHaveCount(0);
-    await expect.poll(() => typed(relay)).toBe(pasted("/model " + id) + "");
+    await expect.poll(() => typed(relay)).toBe(pasted("/model " + id) + "\r");
     relay.say(idle());
-    await expect.poll(() => typed(relay)).toBe(pasted("/model " + id) + "" + pasted("/effort " + effort) + "");
+    await expect.poll(() => typed(relay)).toBe(pasted("/model " + id) + "\r" + pasted("/effort " + effort) + "\r");
     await expect(control).toContainText(name);
     await expect(control.locator(".effort-level")).toHaveText(effort);
   });

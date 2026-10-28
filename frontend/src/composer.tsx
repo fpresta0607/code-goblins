@@ -570,8 +570,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     try {
       await post({ id: "withdraw-" + action.id, kind: "message_withdraw", task_id: action.task_id, generation: "", target: action.id, text: action.text });
       const taken = keptFiles(action.text);
-      setDraft((prior) => prior ? taken.text + "
-" + prior : taken.text);
+      setDraft((prior) => prior ? taken.text + "\n" + prior : taken.text);
       setAttached((prior) => [...taken.paths, ...prior.filter((path) => !taken.paths.includes(path))]);
       setUnsent("");
     } catch (error: unknown) {
