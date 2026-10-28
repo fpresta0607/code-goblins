@@ -62,7 +62,7 @@ test("an idle conversation changes nothing in the page while the board's snapsho
   // Arrange
   await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: "queued while busy", status: "queued", at }] }));
   await openGoblin(page);
-  await expect(log(page)).toContainText("queued while busy");
+  await expect(page.locator(".messages-view:not([hidden]) .conversation-queue")).toContainText("queued while busy");
   await page.waitForTimeout(500);
   await watch(page);
 

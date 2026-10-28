@@ -173,7 +173,7 @@ test("a picture whose upload fails adds no thumbnail and says why", async ({ pag
   await pastePicture(page, "huge.png", false);
 
   // Assert
-  await expect(box(page).locator(".composer-note")).toHaveText("That picture was not added: A pasted file may be at most 10 MiB.");
+  await expect(box(page).getByRole("alert")).toHaveText("That picture was not added: A pasted file may be at most 10 MiB.");
   await expect(attachments(page)).toHaveCount(0);
 });
 
@@ -186,31 +186,36 @@ const PICTURED = { messages: [
 ], more: false };
 
 for (const width of [1440, 390]) {
-  test(`a picture he sent shows in his bubble, loads lazily and opens larger on click at ${width}px`, async ({ page }, testInfo) => {
+  test(`a picture he sent shows above his bubble, loads lazily and opens larger on click at ${width}px`, async ({ page }, testInfo) => {
     // Arrange
     await page.setViewportSize({ width, height: 900 });
     await open(page, undefined, undefined, PICTURED);
     const kept = await keepFiles(page, SCREENSHOT);
     await openGoblin(page);
-    const bubble = page.locator('[data-message="m2"] .message-bubble');
+    const sent = page.locator('[data-message="m2"]');
+    const bubble = sent.locator(".message-bubble");
 
     // Act
     await expect(bubble).toBeVisible();
 
-    // Assert: the picture inside his bubble above his words, and the path not
-    // shown as words.
-    const preview = bubble.locator(".message-picture img");
+    // Assert: the picture above his bubble, as Claude shows one (the
+    // Overlord, 2026-10-28: "see how claude includes pictures when pasted"),
+    // and the path not shown as words.
+    const preview = sent.locator(".message-picture img");
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute("loading", "lazy");
     await expect(preview).toHaveAttribute("decoding", "async");
     await expect(preview).toHaveAttribute("alt", "Picture 1");
     await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBe(1600);
     await expect(bubble).toHaveText("what is wrong here?");
+    const [picture, words] = await Promise.all([preview.boundingBox(), bubble.boundingBox()]);
+    expect(picture && words && picture.y + picture.height <= words.y, "the picture above the bubble").toBeTruthy();
+    await expect(page.getByRole("log")).not.toContainText("composer-files");
     expect(kept.reads).toEqual([KEPT]);
-    await bubble.screenshot({ path: testInfo.outputPath(`bubble-preview-${width}.png`) });
+    await sent.screenshot({ path: testInfo.outputPath(`bubble-preview-${width}.png`) });
 
     // Act
-    await bubble.getByRole("button", { name: "Open picture 1" }).click();
+    await sent.getByRole("button", { name: "Open picture 1" }).click();
 
     // Assert: the picture larger, over the board, and Escape puts it away
     // without opening the message's Copy row.

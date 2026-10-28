@@ -65,12 +65,13 @@ for (const width of [1440, 390]) {
 
     await expect(input).toBeVisible();
     const reply = page.locator(".message-reply");
-    const replyText = await reply.locator(".message-words").boundingBox();
-    const replyActions = await reply.locator(".message-reply-actions").boundingBox();
-    expect(replyText && replyActions && replyActions.y >= replyText.y + replyText.height).toBeTruthy();
-    // The session works, so the reply's end is the dither, not its time.
-    await expect(reply.locator(".message-reply-actions time")).toHaveCount(0);
+    // The session works, so the reply's end is the dither, not its time or
+    // its copy.
     await expect(page.locator(".reply-working")).toBeVisible();
+    const replyText = await reply.locator(".message-words").boundingBox();
+    const dither = await page.locator(".reply-working").boundingBox();
+    expect(replyText && dither && dither.y >= replyText.y + replyText.height).toBeTruthy();
+    await expect(reply.locator(".message-reply-actions")).toHaveCount(0);
     const bounds = await Promise.all([input, add, field(page), microphone, style].map((part) => part.boundingBox()));
     const [bar, plus, prompt, mic, menu] = bounds;
     expect(bar && plus && prompt && mic && menu).toBeTruthy();
@@ -148,9 +149,11 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await expect(send(page)).toBeEnabled();
   await expect(field(page)).toHaveValue("merge it");
   relay.say({ type: "held", reason: "pipeline owns this task" });
-  await expect(note).not.toHaveText("");
   // A message sent while the gate holds the input is queued, so Send stays
-  // usable and the note says why nothing appears yet.
+  // usable, and no note says so: he assumes it (the Overlord, 2026-10-28:
+  // "this text not needed on working goblins resumes are assumed").
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(send(page)).toBeEnabled();
   relay.say({ type: "held", reason: "" });
   await expect(send(page)).toBeEnabled();

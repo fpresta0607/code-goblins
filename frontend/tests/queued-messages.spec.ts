@@ -146,7 +146,7 @@ test("Up in the empty box takes the newest queued message back into the box, its
   // picture are back in the box to edit.
   await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "q2" }]);
   await expect(field(page)).toHaveValue("take this back");
-  await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("pasted-1.png");
+  await expect(box(page).getByRole("list", { name: "Attached files" }).getByRole("img", { name: "Picture 1", exact: true })).toBeVisible();
 
   // Act: the board has taken it back.
   await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })),
