@@ -63,12 +63,15 @@ function storeDraft(key: string, text: string): void {
 // says so once beside the box: a busy program, a view that is reconnecting and
 // typing a gate holds save it through the durable queue; a view that is closed
 // or connecting keeps the draft. A screen of the harness's own open in its
-// terminal, a question, a permission prompt, a picker or a panel, is drawn
-// above the box as a list he picks from (harness-panel.tsx), and while it is
-// open the box answers it with the terminal's own keys: an empty box hands it
-// the arrows, Enter, Escape, Tab, Space and a choice's number, and Send pastes
-// what he wrote into it on one line without pressing Enter, which the list's
-// Enter does; while typing is held the message queues instead. A goblin with
+// terminal that lists choices, a question, a permission prompt or a picker,
+// or one the relay could not read, is drawn above the box as a list he picks
+// from (harness-panel.tsx), and while it is open the box answers it with the
+// terminal's own keys: an empty box hands it the arrows, Enter, Escape, Tab,
+// Space and a choice's number, and Send pastes what he wrote into a list of
+// choices on one line without pressing Enter, which the list's Enter does;
+// while typing is held the message queues instead. At any other open screen,
+// and in Modern Chat while the harness is in a turn, Send holds the message
+// through the board (holdsForTurn). A goblin with
 // no terminal that takes typing now, one paused, resuming or starting, gets
 // what he sends as a message action, delivered once whatever it is doing, and
 // the box lists his latest with where each is, and those a paused goblin's
