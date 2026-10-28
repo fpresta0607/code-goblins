@@ -13,8 +13,9 @@ export const MAX_FONT_SIZE = 28;
 // "the text should be smaller, and it should fit the screen").
 export const PHONE_FONT_SIZE = MIN_FONT_SIZE;
 // Every terminal the board sizes draws at the one text size the Overlord last
-// chose with Ctrl+Plus and Ctrl+Minus, or the right button and the wheel,
-// remembered in this browser, so each device keeps its own.
+// chose with Ctrl+Plus and Ctrl+Minus, the right button and the wheel, or the
+// wheel with Ctrl and Shift, remembered in this browser, so each device keeps
+// its own.
 const FONT_KEY = "cfo-terminal-font-size";
 // The open terminals, which follow a size chosen in any one of them at once.
 const fontFollowers = new Set<(size: number) => void>();

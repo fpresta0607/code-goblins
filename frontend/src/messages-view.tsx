@@ -39,7 +39,8 @@ const UNREAD = "The session's messages cannot be read";
 // Shift with them as in a terminal; reading up, nothing moves it, new
 // messages and older ones read in above alike, and Jump to latest returns to
 // the end, which then follows what arrives. Ctrl+Plus, Ctrl+Minus and Ctrl+0,
-// or the right button with the wheel, size its text, kept in this browser.
+// the right button with the wheel, or the wheel with Ctrl and Shift, size its
+// text, kept in this browser.
 // query names the session as /api/messages takes it (messagesQuery), name is
 // whose replies they are, task is the goblin whose baby goblins its calls
 // open, absent for the CFO, and box is the message box under the

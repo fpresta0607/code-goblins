@@ -198,8 +198,9 @@ export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
 
 // The message text's size, kept in this browser apart from the terminals',
 // since a size the terminals take resizes their programs. Ctrl+Plus and
-// Ctrl+Minus, or the right button and the wheel, step it a pixel between the
-// terminals' bounds, and Ctrl+0 restores it.
+// Ctrl+Minus, the right button and the wheel, or the wheel with Ctrl and
+// Shift, step it a pixel between the terminals' bounds, and Ctrl+0 restores
+// it.
 export const MESSAGE_FONT_KEY = "cfo-message-font-size";
 export const DEFAULT_MESSAGE_FONT = 16;
 export const MIN_MESSAGE_FONT = MIN_FONT_SIZE;

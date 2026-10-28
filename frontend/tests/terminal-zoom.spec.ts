@@ -54,6 +54,14 @@ const watchMenus = (page: Page) => page.evaluate(() => {
   window.addEventListener("contextmenu", (event) => setTimeout(() => menus.push(event.defaultPrevented)), true);
 });
 const menus = (page: Page) => page.evaluate(() => (window as unknown as { menus: boolean[] }).menus);
+// watchWheels records, for each wheel turned with Ctrl and Shift held,
+// whether the board kept the page from zooming with it.
+const watchWheels = (page: Page) => page.evaluate(() => {
+  const wheels: boolean[] = [];
+  Object.assign(window, { wheels });
+  window.addEventListener("wheel", (event) => { if (event.ctrlKey && event.shiftKey) setTimeout(() => wheels.push(event.defaultPrevented)); }, true);
+});
+const wheels = (page: Page) => page.evaluate(() => (window as unknown as { wheels: boolean[] }).wheels);
 const keptSize = (page: Page) => page.evaluate(() => localStorage.getItem("cfo-terminal-font-size"));
 const screenOf = (page: Page, label: string) => page.getByRole("region", { name: label }).locator(".terminal-view > .xterm .xterm-screen");
 
@@ -153,3 +161,28 @@ for (const { name, choose } of CHOOSERS) {
     await expect.poll(async () => (await settled(relays)).second.cols).toBeGreaterThan(before.second.cols);
   });
 }
+
+test("Ctrl+Shift and the wheel zoom the classic terminal's text, refit it and keep the page's own zoom", async ({ page }) => {
+  // Arrange
+  const relays = await openPair(page);
+  const before = await settled(relays);
+  await watchWheels(page);
+
+  // Act: two notches up with Ctrl and Shift held, over the first terminal.
+  await screenOf(page, "First terminal").hover();
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  for (let notch = 0; notch < 2; notch++) await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+
+  // Assert: the text grew two steps and is kept, each terminal refit its
+  // grid to fewer columns, nothing was typed, and the page was kept from
+  // zooming with either notch.
+  await expect.poll(() => keptSize(page)).toBe("22");
+  const after = await settled(relays);
+  expect(after.first.cols).toBeLessThan(before.first.cols);
+  expect(after.second.cols).toBeLessThan(before.second.cols);
+  expect(relays.typed).toEqual({ first: "", second: "" });
+  await expect.poll(() => wheels(page)).toEqual([true, true]);
+});
