@@ -125,13 +125,16 @@ const KeyAlarmSeconds = 600
 const AutoCompactWindow = 400_000
 
 // CFOSettings is the Claude Code settings document the CFO's terminal starts
-// with: the CFO's hooks and its native session hooks, and its auto-compact
-// window. Claude Code adds what `--settings` names to the user's own
-// settings, for that session alone, and its window wins over one theirs set,
-// /autocompact's included; only CLAUDE_CODE_AUTO_COMPACT_WINDOW in the
-// environment beats it.
+// with: the CFO's hooks and its native session hooks, its auto-compact
+// window, and no prompt suggestions. Claude Code adds what `--settings` names
+// to the user's own settings, for that session alone, and its window wins
+// over one theirs set, /autocompact's included; only
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment beats it. A suggestion
+// is drawn on the CFO's empty input line as each turn ends, where the board
+// reads it as words left unsent and so typed none of his messages until the
+// CFO worked again, as a goblin's, started without them, never does.
 func CFOSettings(root, stateDir string) ([]byte, error) {
-	file := &settingsFile{values: map[string]any{"autoCompactWindow": AutoCompactWindow}}
+	file := &settingsFile{values: map[string]any{"autoCompactWindow": AutoCompactWindow, "promptSuggestionEnabled": false}}
 	if err := file.addHooks(append(Hooks(root), NativeHooks(root, stateDir)...)); err != nil {
 		return nil, err
 	}
