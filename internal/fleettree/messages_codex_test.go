@@ -422,3 +422,38 @@ func TestACodexPlanIsReadAsItsChecklist(t *testing.T) {
 		t.Fatalf("MessagePage = %+v, %v; want the call's plan %+v", page.Messages, err, want)
 	}
 }
+
+// An update_plan Codex refused, as it refuses a step missing its words or its
+// state or naming a state it does not know, carries no plan and stays its
+// row.
+func TestACodexPlanCodexRefusedIsNoPlan(t *testing.T) {
+	for _, test := range []struct{ name, arguments, refusal string }{
+		{"an unknown state", `{"plan":[{"step":"Read the touch handlers","status":"completed"},{"step":"Fix the swipe","status":"done"}]}`, "failed to parse function arguments: unknown variant `done`, expected one of `pending`, `in_progress`, `completed` at line 1 column 97"},
+		{"a step missing its state", `{"plan":[{"step":"Fix the swipe"}]}`, "failed to parse function arguments: missing field `status` at line 1 column 34"},
+		{"a step missing its words", `{"plan":[{"status":"pending"}]}`, "failed to parse function arguments: missing field `step` at line 1 column 29"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := codexRollout(t, home, "01a16c37-1768-7270-8f61-76f09c77c962",
+				codexMeta("01a16c37-1768-7270-8f61-76f09c77c962", workDir),
+				codexTurnContext("gpt-6-astra"),
+				codexUserSaid("Fix the swipe."),
+				codexLine("response_item", object{"type": "function_call", "call_id": "call-1", "name": "update_plan", "arguments": test.arguments}),
+				codexLine("response_item", object{"type": "function_call_output", "call_id": "call-1", "output": test.refusal}),
+			)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil || len(page.Messages) != 2 || len(page.Messages[1].Blocks) != 1 {
+				t.Fatalf("MessagePage = %+v, %v; want the call", page.Messages, err)
+			}
+			if call := page.Messages[1].Blocks[0]; call.Tool != "update_plan" || call.Plan != nil {
+				t.Fatalf("call = %+v; want an update_plan row with no plan", call)
+			}
+		})
+	}
+}

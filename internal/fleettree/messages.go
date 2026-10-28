@@ -71,7 +71,8 @@ type Block struct {
 	Edit     Edit      `json:"edit,omitzero"`
 	Agent    AgentLink `json:"agent,omitzero"`
 	// Plan is the checklist a call wrote, as Claude Code's TodoWrite and
-	// Codex's update_plan write the whole of it each time.
+	// Codex's update_plan write the whole of it each time, and none for a
+	// call that failed, was denied or was interrupted, or that Codex refused.
 	Plan []PlanStep `json:"plan,omitempty"`
 }
 
@@ -92,13 +93,13 @@ const (
 
 // callPlan is the plan a call of tool wrote with input, read from Claude
 // Code's TodoWrite todos or Codex's update_plan steps, whose arguments Codex
-// records as a JSON string, and nil for any other call or a plan it cannot
-// read.
+// records as a JSON string and refuses when a step lacks its words or a
+// state it knows, and nil for any other call or a plan it cannot read.
 func callPlan(tool string, input json.RawMessage) []PlanStep {
 	var steps []PlanStep
 	add := func(text, status string) {
 		if text = firstLine(text); text != "" && len(steps) < planStepLimit {
-			steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: planStatus(status)})
+			steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: status})
 		}
 	}
 	switch tool {
@@ -113,27 +114,30 @@ func callPlan(tool string, input json.RawMessage) []PlanStep {
 			return nil
 		}
 		for _, todo := range fields.Todos {
-			add(todo.Content, todo.Status)
+			add(todo.Content, planStatus(todo.Status))
 		}
 	case "update_plan":
 		var arguments string
 		var fields struct {
 			Plan []struct {
-				Step   string `json:"step"`
-				Status string `json:"status"`
+				Step   *string `json:"step"`
+				Status string  `json:"status"`
 			} `json:"plan"`
 		}
 		if json.Unmarshal(input, &arguments) != nil || json.Unmarshal([]byte(arguments), &fields) != nil {
 			return nil
 		}
 		for _, step := range fields.Plan {
-			add(step.Step, step.Status)
+			if step.Step == nil || !slices.Contains([]string{PlanPending, PlanInProgress, PlanCompleted}, step.Status) {
+				return nil
+			}
+			add(*step.Step, step.Status)
 		}
 	}
 	return steps
 }
 
-// planStatus is a step's state, pending for any the harness names that the
+// planStatus is a todo's state, pending for any Claude Code names that the
 // board does not draw.
 func planStatus(status string) string {
 	switch status {
