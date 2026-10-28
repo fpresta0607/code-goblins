@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,52 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
+
+// piDriverBound ends a Node driver that hangs, and only one that hangs: a
+// driver's work takes under a second, but on 2026-10-24 a loaded CI runner
+// took over 30 s to start Node and run it, and 17 s for the next (#1487).
+const piDriverBound = 5 * time.Minute
+
+// runPiDriver runs a driver of the Pi extension in Node and returns what it
+// wrote to standard output and standard error. A driver the bound ended
+// fails with context.DeadlineExceeded, never with the exit status that end
+// gave it, which reads as the extension failing.
+func runPiDriver(bound time.Duration, node string, args ...string) ([]byte, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+	command := execx.CommandContext(ctx, node, args...)
+	var diagnostics bytes.Buffer
+	command.Stderr = &diagnostics
+	output, err := command.Output()
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return output, diagnostics.String(), fmt.Errorf("node did not end within %s, which ended it: %w", bound, ctx.Err())
+	}
+	return output, diagnostics.String(), err
+}
+
+// A driver held past its bound is reported as held, never as an extension
+// that failed: on 2026-10-24 the bound ended a Node child on a loaded CI
+// runner, and the exit status 1 its end gave the child read as "offline
+// extension failed" (#1487).
+func TestAPiDriverHeldPastItsBoundSaysTheBoundEndedIt(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Pi requires Node")
+	}
+	// Arrange
+	driver := filepath.Join(t.TempDir(), "driver.mjs")
+	if err := os.WriteFile(driver, []byte("setInterval(() => {}, 1000);\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	_, _, err = runPiDriver(time.Second, node, driver)
+
+	// Assert
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(fmt.Sprint(err), "node did not end within 1s") {
+		t.Fatalf("err = %v, want that node did not end within 1s", err)
+	}
+}
 
 func TestPiExtensionTransportsOnlyGoblinToolResultsOverStdin(t *testing.T) {
 	node, err := exec.LookPath("node")
@@ -48,16 +96,11 @@ process.stdout.write(JSON.stringify(calls));
 				t.Fatal(err)
 			}
 			t.Setenv("CFO_ROLE", role)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			command := execx.CommandContext(ctx, node, driver, extension)
-			var diagnostics bytes.Buffer
-			command.Stderr = &diagnostics
 
-			output, err := command.Output()
+			output, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension)
 
 			if err != nil {
-				t.Fatalf("offline extension failed: %v: %s", err, diagnostics.String())
+				t.Fatalf("offline extension failed: %v: %s", err, diagnostics)
 			}
 			var calls []struct {
 				Args    []string `json:"args"`
@@ -126,15 +169,13 @@ process.stdout.write(String(calls));
 				t.Fatal(err)
 			}
 			t.Setenv("CFO_ROLE", "goblin")
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			command := execx.CommandContext(ctx, node, driver, extension, failure)
-			var diagnostics bytes.Buffer
-			command.Stderr = &diagnostics
 
-			output, err := command.Output()
+			output, diagnostics, err := runPiDriver(piDriverBound, node, driver, extension, failure)
 
-			if err != nil || diagnostics.Len() == 0 || bytes.Contains(diagnostics.Bytes(), []byte("fixture-output")) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diagnostics == "" || strings.Contains(diagnostics, "fixture-output") {
 				t.Fatal("transport failure was not safely reported")
 			}
 			want := "1"
@@ -202,17 +243,11 @@ handlers.agent_settled({}, ctx);
 				t.Fatal(err)
 			}
 			t.Setenv("CFO_ROLE", "goblin")
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			command := execx.CommandContext(ctx, node, driver, extension, c.failure)
-			var diagnostics bytes.Buffer
-			command.Stderr = &diagnostics
 
 			// Act
-			_, err = command.Output()
+			_, reported, err := runPiDriver(piDriverBound, node, driver, extension, c.failure)
 
 			// Assert
-			reported := diagnostics.String()
 			if err != nil || reported == "" {
 				t.Fatalf("the extension reported nothing of the failure: %v %q", err, reported)
 			}
