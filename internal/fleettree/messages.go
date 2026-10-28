@@ -289,7 +289,7 @@ type messageLog struct {
 	calls    map[string]blockAt
 	pictures map[string]pictureAt
 	// usage is what the conversation says the session spent, and window the
-	// context window of the model it last named, when its catalog is readable.
+	// context window of the model it last named (claudeContextWindow).
 	usage  Usage
 	window int64
 }
@@ -491,6 +491,9 @@ func (l *messageLog) reply(entry messageEntry, id string) {
 		if entry.Message.Model != syntheticModel {
 			usage := entry.Message.Usage
 			l.usage.add(usage.InputTokens+usage.CacheCreationInputTokens, usage.OutputTokens, usage.CacheReadInputTokens, entry.Message.Model)
+			if entry.Message.Model != "" {
+				l.window = claudeContextWindow(entry.Message.Model)
+			}
 		}
 	}
 	reply := &l.messages[index]
