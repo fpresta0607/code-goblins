@@ -891,6 +891,19 @@ func isGitHubHost(host string) bool {
 	return strings.EqualFold(host, "github.com") || strings.EqualFold(host, "ssh.github.com")
 }
 
+// githubRepository reads the owner/name of the GitHub repository remote is,
+// in each form splitRemote reads on each host isGitHubHost serves, so a
+// checkout the CI poll reads as GitHub's is read as the same repository
+// wherever else its origin is read.
+func githubRepository(remote string) (slug string, ok bool) {
+	host, repository, hasRemote := splitRemote(remote)
+	if !hasRemote || !isGitHubHost(host) {
+		return "", false
+	}
+	slug = strings.TrimSuffix(strings.Trim(repository, "/"), ".git")
+	return slug, githubSlug.MatchString(slug)
+}
+
 // reportUnreadable remembers why repo's CI could not be read and raises
 // ci_unreadable once the same failure was met on failingPasses polls in a
 // row: once for as long as it stays the same, and again for a different

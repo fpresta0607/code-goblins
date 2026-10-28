@@ -46,8 +46,8 @@ func TrainRepository(ctx context.Context, runner execx.Runner, dataDir, checkout
 	if err != nil {
 		return train.Repository{}, fmt.Errorf("merge train: read the origin of %s: %w", checkout, err)
 	}
-	remote := githubRemote.FindStringSubmatch(origin)
-	if remote == nil {
+	slug, isGitHub := githubRepository(origin)
+	if !isGitHub {
 		return train.Repository{}, fmt.Errorf("merge train: the origin of %s is not on GitHub", checkout)
 	}
 	base, err := defaultBranch(ctx, runner, checkout)
@@ -58,7 +58,7 @@ func TrainRepository(ctx context.Context, runner execx.Runner, dataDir, checkout
 	if minutes := manifest.Trains.LoneRiderWaitMinutes; minutes > 0 {
 		wait = time.Duration(minutes) * time.Minute
 	}
-	return train.Repository{Slug: remote[1], Checkout: checkout, Base: base, LandsLoneRider: manifest.Trains.LandLoneRiderOnItsRun, LoneRiderWait: wait}, nil
+	return train.Repository{Slug: slug, Checkout: checkout, Base: base, LandsLoneRider: manifest.Trains.LandLoneRiderOnItsRun, LoneRiderWait: wait}, nil
 }
 
 // TrainGoblins reads the live goblins working in checkout and, for each, the
