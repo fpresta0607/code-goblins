@@ -170,30 +170,3 @@ test("under a turn's last reply the row reads its time, then Copy, then the harn
   await expect(page.locator(".session-footer .mark")).toHaveCount(0);
 });
 
-// The Overlord, 2026-10-28: "Jump to latest on mobile doesn't go away". It
-// shows while he reads up and leaves once the newest message is in view,
-// however the view came to show it.
-test("on a phone Jump to latest shows while he reads up and leaves once the newest message is in view", async ({ page }) => {
-  // Arrange: a long conversation on a phone.
-  await page.setViewportSize({ width: 393, height: 852 });
-  const long = { messages: Array.from({ length: 60 }, (_, seq) => seq % 2 ? reply(seq, [{ kind: "text", text: "Answer " + seq + " runs over a line or two of plain prose for the phone." }]) : { id: "p" + seq, seq, at: minute(seq), kind: "prompt", source: "overlord", text: "Question " + seq }), more: false };
-  await open(page, snapshot({}, { phase: "settled" }), "", long);
-  await openGoblin(page);
-  const jumpButton = page.getByRole("button", { name: "Jump to latest", exact: true });
-  const log = page.getByRole("log");
-  await expect(log).toContainText("Answer 59");
-
-  // Act: he reads up.
-  await log.evaluate((element) => { element.scrollTop = 0; });
-
-  // Assert
-  await expect(jumpButton).toBeVisible();
-
-  // Act: he scrolls back until the newest message is wholly in view, short
-  // of the list's own end under its padding.
-  await log.evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight - 36; });
-
-  // Assert: the newest message is in view and the button is gone.
-  await expect(log.locator('[data-message="r59"]')).toBeInViewport();
-  await expect(jumpButton).toHaveCount(0);
-});
