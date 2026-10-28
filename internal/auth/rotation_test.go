@@ -1196,14 +1196,14 @@ func TestARotatedEnvValueReachesTheAliasKeyWhenTheFileCarriesTheDeclaredName(t *
 }
 
 func TestCacheEnvPinsOneSharedStorePerEcosystem(t *testing.T) {
-	for _, name := range []string{"UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache", "CARGO_HOME"} {
+	for _, name := range []string{"UV_CACHE_DIR", "pnpm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache", "CARGO_HOME"} {
 		clearEnv(t, name)
 	}
 	root := filepath.Join(t.TempDir(), "caches")
 	env := CacheEnv(root)
 	want := map[string]string{
 		"UV_CACHE_DIR":             filepath.Join(root, "uv"),
-		"npm_config_store_dir":     filepath.Join(root, "pnpm"),
+		"pnpm_config_store_dir":    filepath.Join(root, "pnpm"),
 		"PLAYWRIGHT_BROWSERS_PATH": filepath.Join(root, "playwright"),
 		"GOMODCACHE":               filepath.Join(root, "go-mod"),
 		"GOCACHE":                  filepath.Join(root, "go-build"),
@@ -1239,7 +1239,7 @@ func TestCacheEnvPinsOneSharedStorePerEcosystem(t *testing.T) {
 }
 
 func TestCacheEnvLeavesALocationTheOperatorAlreadyChose(t *testing.T) {
-	clearEnv(t, "UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache", "CARGO_HOME")
+	clearEnv(t, "UV_CACHE_DIR", "pnpm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache", "CARGO_HOME")
 	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", filepath.Join(t.TempDir(), "ms-playwright"))
 	env := CacheEnv(t.TempDir())
 	if _, redirected := env["PLAYWRIGHT_BROWSERS_PATH"]; redirected {
@@ -1255,7 +1255,7 @@ func TestCacheEnvLeavesALocationTheOperatorAlreadyChose(t *testing.T) {
 // an audit built from it alone is silent about exactly the variable the
 // operator tuned: absent and inherited read the same.
 func TestCacheAuditNamesAnInheritedLocationRatherThanOmittingIt(t *testing.T) {
-	clearEnv(t, "UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache")
+	clearEnv(t, "UV_CACHE_DIR", "pnpm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache")
 	tuned := filepath.Join(t.TempDir(), "ms-playwright")
 	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", tuned)
 	caches := filepath.Join(t.TempDir(), "caches")
@@ -1322,7 +1322,7 @@ func TestAdoptionLineNamesWhatChangedAndNeverAValue(t *testing.T) {
 // value would name a directory nothing uses, for exactly the variable
 // somebody bothered to tune.
 func TestCacheAuditReportsTheProjectsOwnDeclaredLocation(t *testing.T) {
-	clearEnv(t, "UV_CACHE_DIR", "npm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache")
+	clearEnv(t, "UV_CACHE_DIR", "pnpm_config_store_dir", "PLAYWRIGHT_BROWSERS_PATH", "GOMODCACHE", "GOCACHE", "npm_config_cache")
 	caches := filepath.Join(t.TempDir(), "caches")
 	declared := filepath.Join(t.TempDir(), "project-browsers")
 	// The operator's own environment names a third location, so this also

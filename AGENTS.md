@@ -462,7 +462,7 @@ A project can declare how that worktree becomes runnable in `data/projects/<name
 
 ### Share caches, never share materialized environments
 
-Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `npm_config_store_dir` (pnpm's store), `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, `GOMODCACHE`, and `GOCACHE`.
+Every goblin's pane inherits one shared package-cache root at `$CFO_HOME/caches/`, with a subdirectory per ecosystem: `UV_CACHE_DIR`, `pnpm_config_store_dir` (pnpm's store, read by pnpm 11 and later), `npm_config_cache`, `PLAYWRIGHT_BROWSERS_PATH`, `GOMODCACHE`, and `GOCACHE`.
 The janitor keeps the folder under `config/fleet.json`'s `caches_cap_gb`, default 20, with each tool's own prune (see [The janitor](#the-janitor)).
 The goblin runs its dependency install in that pane, against those same redirects, which is where they matter most: the install is both the largest consumer of the store and the thing that fills it.
 It also installs from the store the goblin's later commands use, by construction, which matters because pnpm records the store it installed from and a pane pointed at a different one tears `node_modules` down and reinstalls.
