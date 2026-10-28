@@ -243,7 +243,7 @@ export function App() {
   // or its terminal stepped in.
   const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
   const terminalKey = cfoShown ? CFO_KEY : task?.id || "";
-  // The box pops its session out into a window of its own, but not from a
+  // The panel pops its session out into a window of its own, but not from a
   // window that is one already.
   const poppedOut = popped || !terminalKey ? undefined : () => popOut(terminalKey);
   const live = useTerminalLink(terminalKey);
@@ -485,7 +485,11 @@ export function App() {
     store(MAXIMIZED_KEYS.terminal, choice);
   };
   const controls: PanelControl[] = [];
-  if (shownWindow && !compact && !boxOnScreen) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
+  // The session's own window (the Overlord, 2026-10-28: "maybe terminal
+  // button is better by expand up top as the open icon"), and Windows
+  // Terminal, sit in the row, never in the box under the conversation.
+  if (poppedOut) controls.push({ id: "pop-out", name: "Open in its own window", label: "Open in its own window", icon: "external", importance: PANEL_IMPORTANCE.popOut, onPress: poppedOut });
+  if (shownWindow && !compact) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "terminal", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
   if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
   const row = {
     controls,
@@ -494,7 +498,7 @@ export function App() {
       : backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
       : <button className="icon-button" aria-label="Close panel" data-tip="Close" onClick={close}><Icon name="close" /></button>,
-    notice: !boxOnScreen && windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
+    notice: windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
   return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className={"app-shell" + (fillsPhone ? " fills-phone" : "")} onKeyDown={(event) => {
     if (event.key === "Escape" && paneOpen && !event.defaultPrevented) { event.preventDefault(); if (backShown && !fillsPhone) back(); else close(); }
@@ -560,16 +564,16 @@ export function App() {
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onPopOut={poppedOut} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
-              focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
+            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+              focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
               onOwner={task && snapshot.sessions.some((session) => ownsTaskSession(session, task)) ? () => { setSelected({ task: task.id }); setSelectionEpoch((epoch) => epoch + 1); } : undefined} />
           </Suspense>}
         </PanelStage>
         <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
-        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onPopOut={poppedOut} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
-          focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)}
+        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
+          focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}
         </div>

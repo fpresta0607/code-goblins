@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, pasted, snapshot, typed } from "./session-board";
+import { box, field, GOBLIN, NAME, open, openGoblin, pasted, snapshot, typed } from "./session-board";
 
 for (const who of ["CFO", "goblin"] as const) {
   for (const width of [1440, 390]) {
@@ -31,9 +31,15 @@ for (const who of ["CFO", "goblin"] as const) {
       expect(uploads).toEqual([{ task: who === "CFO" ? "" : GOBLIN.id, name: "example.txt", text: "read this attachment" }]);
       expect(typed(relay)).toBe("");
 
-      // Act: opening a separate terminal preserves the draft and view.
-      await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
-      await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      // Act: opening a separate terminal, from the panel's row, preserves the
+      // draft and view. A small screen offers none, as Windows Terminal opens
+      // on the PC, and the box holds no terminal of its own.
+      const terminalWindow = page.locator(".panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true });
+      if (width === 390) await expect(terminalWindow).toHaveCount(0);
+      else {
+        await terminalWindow.click();
+        await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
+      }
       await expect(field(page, name)).toHaveValue(kept);
 
       // Act: Classic opens the terminal; Back to messages itself chooses Modern

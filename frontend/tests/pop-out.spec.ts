@@ -3,13 +3,14 @@ import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, typed } from "./se
 
 // The Overlord, 2026-10-27: "the terminal button should be like an open link.
 // So it should be something that you can open in its own window. And that can
-// be either the terminal or it can be the modern chat." The box menu's pop-out
-// opens the session in a window of its own, in the view the Modern/Classic
+// be either the terminal or it can be the modern chat." Then, 2026-10-28:
+// "maybe terminal button is better by expand up top as the open icon". The
+// open icon in the panel's top row opens the session in a window of its own, in the view the Modern/Classic
 // switch chose, on the same session: a new window of the goblins-window app
 // inside it, a new browser window elsewhere. The supervisor is played by
 // tests/session-board.ts.
 
-const popOut = (page: Page) => box(page).getByRole("button", { name: "Open in its own window", exact: true });
+const popOut = (page: Page) => page.locator(".panel-top").getByRole("button", { name: "Open in its own window", exact: true });
 
 // recordWindows keeps each window the page asks the browser for, and each
 // message it sends the goblins-window app when it is inside one, instead of
@@ -41,10 +42,12 @@ for (const style of ["modern", "classic"] as const) {
     }
 
     // Act
-    await boxMenu(page);
     await popOut(page).click();
 
-    // Assert: a new browser window for this session's own page.
+    // Assert: a new browser window for this session's own page, and the box
+    // holds no window of its own.
+    await boxMenu(page);
+    await expect(box(page).getByRole("button", { name: /^Open in / })).toHaveCount(0);
     const { opened, posted } = await asked(page);
     expect(posted).toEqual([]);
     expect(opened).toHaveLength(1);
@@ -64,11 +67,8 @@ for (const style of ["modern", "classic"] as const) {
     if (style === "modern") await expect(popped.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
     else await expect(popped.getByRole("region", { name: "Goblin terminal", exact: true })).toBeVisible();
     await expect.poll(() => poppedRelay.addresses.some((each) => new URL(each).searchParams.get("task") === GOBLIN.id)).toBe(true);
-    if (style === "modern") {
-      await boxMenu(popped);
-      await expect(popOut(popped)).toHaveCount(0);
-      await box(popped).getByRole("button", { name: /^Style: / }).click();
-    } else await expect(box(popped), "Classic shows the terminal alone until he uses a box").toHaveCount(0);
+    await expect(popOut(popped)).toHaveCount(0);
+    if (style === "classic") await expect(box(popped), "Classic shows the terminal alone until he uses a box").toHaveCount(0);
 
     // Act: he writes from the popped window, in its box or its terminal.
     if (style === "modern") {
@@ -93,7 +93,6 @@ test("inside the goblins-window app the pop-out asks the app for a window of its
   await openGoblin(page);
 
   // Act
-  await boxMenu(page);
   await popOut(page).click();
 
   // Assert

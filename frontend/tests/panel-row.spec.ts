@@ -147,7 +147,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       await more.focus();
       await page.keyboard.press("Enter");
       const items = row.getByRole("menuitem");
-      await expect(items).toHaveText(["Maximize", "Open in terminal"]);
+      await expect(items).toHaveText(["Maximize", "Open in its own window", "Open in terminal"]);
       await expect(items.first()).toBeFocused();
       await page.keyboard.press("ArrowDown");
       await expect(items.nth(1)).toBeFocused();
@@ -171,6 +171,7 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
       await page.keyboard.press("Enter");
+      await page.keyboard.press("ArrowDown");
       await page.keyboard.press("ArrowDown");
       await expect(row.getByRole("menuitem", { name: "Open in terminal", exact: true })).toBeFocused();
       await page.keyboard.press("Enter");
