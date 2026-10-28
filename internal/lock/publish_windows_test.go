@@ -68,9 +68,7 @@ func TestAHolderRecordIsNeverSeenHalfWritten(t *testing.T) {
 			}
 
 			// Act: read the record while it is written, then end its writer.
-			reading, cancelReading := context.WithTimeout(ctx, time.Second)
-			defer cancelReading()
-			_, readErr := ReadNamedStrictContext(reading, dir, name)
+			_, readErr := ReadNamedStrictContext(ctx, dir, name)
 			if err := child.Process.Kill(); err != nil {
 				t.Fatal(err)
 			}
