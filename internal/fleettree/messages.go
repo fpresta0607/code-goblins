@@ -95,37 +95,40 @@ const (
 // records as a JSON string, and nil for any other call or a plan it cannot
 // read.
 func callPlan(tool string, input json.RawMessage) []PlanStep {
-	if tool != "TodoWrite" && tool != "update_plan" {
-		return nil
-	}
-	var encoded string
-	if json.Unmarshal(input, &encoded) == nil {
-		input = json.RawMessage(encoded)
-	}
-	var fields struct {
-		Todos []struct {
-			Content string `json:"content"`
-			Status  string `json:"status"`
-		} `json:"todos"`
-		Plan []struct {
-			Step   string `json:"step"`
-			Status string `json:"status"`
-		} `json:"plan"`
-	}
-	if json.Unmarshal(input, &fields) != nil {
-		return nil
-	}
 	var steps []PlanStep
 	add := func(text, status string) {
 		if text = firstLine(text); text != "" && len(steps) < planStepLimit {
 			steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: planStatus(status)})
 		}
 	}
-	for _, todo := range fields.Todos {
-		add(todo.Content, todo.Status)
-	}
-	for _, step := range fields.Plan {
-		add(step.Step, step.Status)
+	switch tool {
+	case "TodoWrite":
+		var fields struct {
+			Todos []struct {
+				Content string `json:"content"`
+				Status  string `json:"status"`
+			} `json:"todos"`
+		}
+		if json.Unmarshal(input, &fields) != nil {
+			return nil
+		}
+		for _, todo := range fields.Todos {
+			add(todo.Content, todo.Status)
+		}
+	case "update_plan":
+		var arguments string
+		var fields struct {
+			Plan []struct {
+				Step   string `json:"step"`
+				Status string `json:"status"`
+			} `json:"plan"`
+		}
+		if json.Unmarshal(input, &arguments) != nil || json.Unmarshal([]byte(arguments), &fields) != nil {
+			return nil
+		}
+		for _, step := range fields.Plan {
+			add(step.Step, step.Status)
+		}
 	}
 	return steps
 }
@@ -741,6 +744,8 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 	call.Pictures = pictures
 	if call.State == CallDone {
 		call.Edit = edited(outcome)
+	} else {
+		call.Plan = nil
 	}
 	l.messages[at.message].Blocks[at.block] = call
 	l.touch(at.message)

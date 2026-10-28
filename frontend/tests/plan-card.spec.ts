@@ -40,3 +40,20 @@ for (const [harness, tool] of [["claude", "TodoWrite"], ["codex", "update_plan"]
     await expect(page.getByText("frontend/src/terminalView.ts", { exact: true })).toBeVisible();
   });
 }
+
+test("a plan call that failed is its row with Failed, not a card", async ({ page }) => {
+  // Arrange: the supervisor serves a failed TodoWrite with no plan.
+  await open(page, snapshot({}, { harness: "claude" }), "", { messages: [
+    { id: "m0", seq: 0, at, kind: "prompt", source: "overlord", text: "Fix the swipe." },
+    { id: "m1", seq: 1, at, kind: "reply", blocks: [
+      { kind: "call", tool: "TodoWrite", subject: "", state: "failed", result: "InputValidationError: The required parameter `todos[0].activeForm` is missing" },
+    ] },
+  ], more: false });
+
+  // Act
+  await openGoblin(page);
+
+  // Assert
+  await expect(page.getByRole("region", { name: "Plan", exact: true })).toHaveCount(0);
+  await expect(page.locator(".message-call").filter({ hasText: "Updated the plan" }).locator(".call-end")).toHaveText("Failed");
+});
