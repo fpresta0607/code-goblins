@@ -546,32 +546,20 @@ func (s *Store) queuedMessage(id, task string) (*Action, error) {
 	return nil, errors.New("that message is no longer waiting")
 }
 
-// EditQueuedMessage changes a queued message's words before it is delivered,
-// so the change is what its session receives.
-func (s *Store) EditQueuedMessage(id, task, text string) (Action, error) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return Action{}, errors.New("a message cannot be empty")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	a, err := s.queuedMessage(id, task)
-	if err != nil {
-		return Action{}, err
-	}
-	a.Text, a.UpdatedAt = text, time.Now().UTC()
-	if err := s.save(); err != nil {
-		return Action{}, err
-	}
-	return *a, nil
-}
-
 // SendQueuedMessageNow clears a queued message's wait so the worker types it
 // at its next safe moment, and refuses when its own reason says typing now
 // would break a gate or has nowhere to go.
 func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A second Send now of a message he already sent now is the same ask,
+	// whether it still waits or has gone on its way since, never an error (the
+	// Overlord, 2026-10-28: "lack of indmepotent click on teh queue").
+	if at := slices.IndexFunc(s.db.Actions, func(sent Action) bool {
+		return sent.ID == id && sent.TaskID == task && sent.Kind == "message" && sent.IsSentNow
+	}); at >= 0 {
+		return s.db.Actions[at], nil
+	}
 	a, err := s.queuedMessage(id, task)
 	if err != nil {
 		return Action{}, err

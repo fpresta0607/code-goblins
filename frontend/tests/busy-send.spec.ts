@@ -176,7 +176,7 @@ test("a held message the board looks at again keeps waiting with Edit, Send now 
   }
 });
 
-test("Edit changes a queued message's words before it is sent", async ({ page }) => {
+test("Edit takes a queued message back into the box, off the queue", async ({ page }) => {
   // Arrange
   const { posts } = await sendWhileWorking(page, "pi");
   await field(page).fill("rebase onto main");
@@ -188,12 +188,11 @@ test("Edit changes a queued message's words before it is sent", async ({ page })
   // Act
   const shown = bubble(page, "rebase onto main");
   await shown.getByRole("button", { name: "Edit", exact: true }).click();
-  await shown.getByRole("textbox", { name: "Edit message: rebase onto main" }).fill("rebase onto main, then push");
-  await shown.getByRole("button", { name: "Save", exact: true }).click();
 
   // Assert
-  await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_edit"]);
-  expect(posts[1]).toMatchObject({ target: posts[0].id, text: "rebase onto main, then push" });
+  await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_withdraw"]);
+  expect(posts[1]).toMatchObject({ target: posts[0].id, text: "rebase onto main" });
+  await expect(field(page)).toHaveValue("rebase onto main");
 });
 
 // The Overlord, 2026-10-28: "it's sending and appending messages together

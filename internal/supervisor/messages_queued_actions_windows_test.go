@@ -15,34 +15,6 @@ func queueMessageFor(t *testing.T, store *Store, id, task, text string, canSendN
 	store.db.Actions = append(store.db.Actions, Action{ID: id, Kind: "message", TaskID: task, Generation: "g1", Text: text, Status: "queued", CreatedAt: time.Now().UTC(), CanSendNow: canSendNow, SendNowWhy: why})
 }
 
-func TestAQueuedMessageIsEditedWhereItWaits(t *testing.T) {
-	// Arrange
-	store, _ := testStore(t)
-	queueMessageFor(t, store, "m1", "task-1", "the old words", false, "Its gate holds the branch.")
-
-	// Act
-	edited, err := store.EditQueuedMessage("m1", "task-1", "the new words")
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if edited.Text != "the new words" {
-		t.Fatalf("the message reads %q", edited.Text)
-	}
-	for _, action := range store.db.Actions {
-		if action.ID == "m1" && action.Text != "the new words" {
-			t.Fatalf("the stored message reads %q", action.Text)
-		}
-	}
-	if _, err := store.EditQueuedMessage("m1", "another-task", "no"); err == nil {
-		t.Fatal("another task's message was edited")
-	}
-	if _, err := store.EditQueuedMessage("m1", "task-1", "  "); err == nil {
-		t.Fatal("an empty message was accepted")
-	}
-}
-
 func TestSendNowTakesAQueuedMessageThatCanBeTypedNow(t *testing.T) {
 	// Arrange
 	store, _ := testStore(t)
@@ -75,5 +47,34 @@ func TestSendNowIsRefusedWithTheReasonItCannotBeTyped(t *testing.T) {
 	}
 	if _, err := store.SendQueuedMessageNow("m1", "another-task"); err == nil {
 		t.Fatal("another task's message was sent")
+	}
+}
+
+// The Overlord, 2026-10-28: "lack of indmepotent click on teh queue". A
+// second Send now of a message he already sent now is the same ask, whether
+// it still waits or has gone on its way since, and never an error.
+func TestASecondSendNowOfAMessageAlreadySentNowIsNoError(t *testing.T) {
+	for _, status := range []string{"queued", "running", "succeeded"} {
+		t.Run(status, func(t *testing.T) {
+			// Arrange
+			store, _ := testStore(t)
+			queueMessageFor(t, store, "m1", "task-1", "take this", true, "")
+			if _, err := store.SendQueuedMessageNow("m1", "task-1"); err != nil {
+				t.Fatal(err)
+			}
+			for at := range store.db.Actions {
+				if store.db.Actions[at].ID == "m1" {
+					store.db.Actions[at].Status = status
+				}
+			}
+
+			// Act
+			again, err := store.SendQueuedMessageNow("m1", "task-1")
+
+			// Assert
+			if err != nil || again.ID != "m1" || !again.IsSentNow {
+				t.Errorf("the second Send now came back as %+v, %v; want the same message and no error", again, err)
+			}
+		})
 	}
 }

@@ -144,13 +144,50 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       });
 
       // Assert
-      expect(row.map((control) => control.name).slice(0, -1)).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate"]);
-      expect(["Send", "Stop"], "Send, or Stop while the session works").toContain(row.at(-1)?.name);
+      expect(row.map((control) => control.name)).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate"]);
       expect(row.filter((control) => !control.isInside).map((control) => control.name), "every control inside the box's border, under the words").toEqual([]);
       expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);
       expect(row.filter((control) => control.isCut).map((control) => control.name), "no control's words cut").toEqual([]);
       expect(row.filter((control) => !control.tip).map((control) => control.name), "every control has a hover label").toEqual([]);
       await expect(box(page).locator(".composer-tools")).toHaveCount(0);
+    });
+
+    // The Overlord, 2026-10-28: "place send button in line with message cfo
+    // height in chat input". Send, and Stop in its place while the session
+    // works, sits at the end of the line he writes on, no taller than that
+    // line, and stays beside his last line as the box grows.
+    test("Send sits at the end of the line he writes on, as tall as that line", async ({ page }) => {
+      // Arrange
+      const relay = await open(page);
+      await openGoblin(page);
+      const measure = () => box(page).locator(".composer-input").evaluate((input) => {
+        const shape = (element: Element) => {
+          const bounds = element.getBoundingClientRect();
+          return { top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right, height: bounds.height, middle: bounds.left + bounds.width / 2 };
+        };
+        const words = shape(input.querySelector("textarea")!);
+        const button = input.querySelector(".composer-send")!;
+        const control = shape(button);
+        const above = document.elementFromPoint(control.middle, control.top - 6);
+        return { words, control, name: button.getAttribute("aria-label"), border: shape(input), isReachedAbove: !!above && button.contains(above) };
+      });
+      await field(page).fill("check the phone spec");
+      const line = (await measure()).words.height;
+
+      for (const [text, isWorking] of [["", false], ["check the phone spec", false], ["one\ntwo\nthree", false], ["", true]] as const) {
+        // Act
+        await field(page).fill(text);
+        relay.say({ type: "screen", asking: false, open: false, working: isWorking, submission: "", mode: "auto mode" });
+        await expect(box(page).locator(".composer-send")).toHaveAccessibleName(isWorking ? "Stop" : "Send");
+        const { words, control, border, isReachedAbove } = await measure();
+
+        // Assert
+        expect(Math.abs(control.height - line), `${isWorking ? "Stop" : "Send"} is as tall as one line of words`).toBeLessThanOrEqual(1);
+        expect(Math.abs(control.bottom - words.bottom), "it sits beside his last line").toBeLessThanOrEqual(1);
+        expect(control.left, "it follows the words on their line").toBeGreaterThanOrEqual(words.right - 0.5);
+        expect(control.right, "it stays inside the box's border").toBeLessThanOrEqual(border.right + 0.5);
+        if (isTouch) expect(isReachedAbove, "a finger just above it still presses it").toBe(true);
+      }
     });
   });
 }

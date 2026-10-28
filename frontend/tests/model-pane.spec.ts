@@ -26,10 +26,10 @@ const BACK_TAB = "\x1b[Z";
 // footer naming mode.
 const idle = (mode = "bypass permissions") => ({ type: "screen", asking: false, open: false, working: false, mode });
 
-// setUp opens the goblin's box with the harness idle and its catalog
-// answered, counting the catalog's reads.
-async function setUp(page: Page) {
-  const relay = await open(page, snapshot({}, { phase: "settled" }), "", { ...PAGE, usage: RECORD });
+// setUp opens the goblin's box with the harness idle, running what record
+// says, and its catalog answered, counting the catalog's reads.
+async function setUp(page: Page, record = RECORD) {
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", { ...PAGE, usage: record });
   const reads: number[] = [];
   await page.route("**/api/engines", (route) => {
     reads.push(Date.now());
@@ -52,7 +52,7 @@ for (const [label, width, isTouch] of [["the desktop", 1280, false], ["a phone",
   test.describe(`on ${label}`, () => {
     test.use({ viewport: { width, height: 852 }, hasTouch: isTouch, isMobile: isTouch });
 
-    test("the box holds only +, Style, the model, the microphone and Send, and the model's pane holds the checked model on top, the efforts and the mode", async ({ page }) => {
+    test("the box's row holds only +, Style, the model and the microphone, and the model's pane holds the checked model on top, the efforts and the mode", async ({ page }) => {
       // Arrange
       const { control, pane, flyout } = await setUp(page);
 
@@ -62,7 +62,7 @@ for (const [label, width, isTouch] of [["the desktop", 1280, false], ["a phone",
       else await control.click();
 
       // Assert
-      expect(row).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate", "Send"]);
+      expect(row).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate"]);
       const models = pane.locator("[data-model]");
       await expect(models).toHaveCount(3);
       await expect(models.first()).toHaveAccessibleName("Opus 5.5");
@@ -125,6 +125,28 @@ for (const [label, width, isTouch] of [["the desktop", 1280, false], ["a phone",
       await expect(pane.getByRole("menuitemradio", { name: "Plan", exact: true })).toHaveAttribute("aria-checked", "true");
       expect(typed(relay)).toBe(BACK_TAB.repeat(3));
     });
+  });
+}
+
+// The Overlord, 2026-10-28: "fyi defautl for opus 5 should be xhigh 5.5". A
+// model picked by itself, with no effort from its flyout, goes in at its own
+// default effort: Opus 5.5 at xhigh, whatever the session ran before.
+for (const [name, id, effort] of [["Opus 5.5", "claude-opus-5-5", "xhigh"], ["Haiku 5.5", "claude-haiku-5-5", "medium"]] as const) {
+  test(`${name} picked by itself goes in at its default effort, ${effort}`, async ({ page }) => {
+    // Arrange: the session runs Sonnet 5.5 at high.
+    const { relay, control, pane } = await setUp(page, { ...RECORD, model: "claude-sonnet-5-5", effort: "high" });
+    await control.click();
+
+    // Act
+    await pane.getByRole("menuitemradio", { name, exact: true }).click();
+
+    // Assert: the model first, its default effort once the harness took it.
+    await expect(pane).toHaveCount(0);
+    await expect.poll(() => typed(relay)).toBe(pasted("/model " + id) + "");
+    relay.say(idle());
+    await expect.poll(() => typed(relay)).toBe(pasted("/model " + id) + "" + pasted("/effort " + effort) + "");
+    await expect(control).toContainText(name);
+    await expect(control.locator(".effort-level")).toHaveText(effort);
   });
 }
 

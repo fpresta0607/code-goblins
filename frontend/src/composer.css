@@ -36,8 +36,8 @@
    blinking ... is the same size to fit that font"). */
 .composer textarea { display: block; box-sizing: border-box; min-width: 0; width: 100%; min-height: 1.5em; max-height: max(4.5em, min(12em, 30cqh)); padding: .15em 8px; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: normal; resize: none; field-sizing: content; overflow-wrap: anywhere; }
 /* The box grows with what he writes up to a cap that also shrinks with the
-   chat it sits in, never more than about a third of it, so Send and the
-   controls under it stay on screen however short the panel; past the cap it
+   chat it sits in, never more than about a third of it, so Send beside it and
+   the controls under it stay on screen however short the panel; past the cap it
    scrolls inside itself with a slim pill tucked into its edge (the Overlord,
    2026-10-27: "jsut small little pill embeded into the panel"), and the
    caret's line stays in view (composer.tsx). The page's thin scrollbar is
@@ -77,7 +77,14 @@
 .composer-note { min-width: 0; margin: 0; padding: 0 10px; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
 .composer-note:empty { display: none; }
 .composer-refusal { justify-self: start; }
-.composer-send { display: grid; place-items: center; flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+/* Send, and Stop in its place, sits at the end of the line he writes on, as
+   tall as that line, beside his last line however the box grows (the
+   Overlord, 2026-10-28: "place send button in line with message cfo height in
+   chat input"). A finger reaches it a little past its edge. */
+.composer-line { display: flex; align-items: flex-end; gap: 4px; min-width: 0; }
+.composer-line textarea { flex: 1 1 0; }
+.composer-send { position: relative; display: grid; place-items: center; flex: none; width: 32px; min-width: 32px; height: max(1.5em, calc(1lh + .3em)); min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font: inherit; line-height: normal; }
+.composer-send::after { content: ""; position: absolute; inset: -8px -6px -4px; }
 .composer-send[data-active] { color: var(--accent-green); }
 .composer-send:hover { background: transparent; }
 .composer-send:disabled { cursor: default; }
@@ -85,7 +92,7 @@
 /* A touch screen's controls are taller to tap, and as wide as the row lets
    the whole row fit inside a 360 px phone's box. */
 @media (pointer: coarse) {
-  .composer-control, .composer-input .voice-bubble, .composer-send { min-height: 40px; height: 40px; }
+  .composer-control, .composer-input .voice-bubble { min-height: 40px; height: 40px; }
   .composer-sent .icon-button { width: 44px; min-height: 44px; height: 44px; margin-block: 0; }
 }
 @media (max-width: 480px) {
@@ -101,8 +108,7 @@
 /* A row narrower still draws its icon buttons a little tighter, so a long
    model name stays whole. */
 @container (max-width: 340px) {
-  .composer-row .composer-control, .composer-row .voice-bubble, .composer-row .composer-send { min-width: 32px; padding-inline: 4px; }
-  .composer-row .composer-send { width: 32px; }
+  .composer-row .composer-control, .composer-row .voice-bubble { min-width: 32px; padding-inline: 4px; }
 }
 
 /* The model's button leads with the mark of the session's harness, drawn

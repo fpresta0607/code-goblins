@@ -21,7 +21,7 @@ import { parseCommands, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
-import { QueuedMessage } from "./queued-message";
+import { QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
 import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
@@ -274,9 +274,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // from the pane, which lists only what the harness offers, shows on its
   // control at once (shouldShow); a value typed after the command shows once
   // the session's record says it runs it.
-  const applyEngine = (target: { model?: string; effort?: string }, shouldShow: boolean, chosen?: EngineModel) => {
+  const applyEngine = (picked: { model?: string; effort?: string }, shouldShow: boolean, chosen?: EngineModel) => {
     setPane(null);
-    if (!canChangeEngine || !target.model && !target.effort) return;
+    if (!canChangeEngine || !picked.model && !picked.effort) return;
+    // A Claude Code or pi model picked by itself goes in at its own default
+    // effort, Opus 5.5 at xhigh (the Overlord, 2026-10-28: "defautl for opus 5
+    // should be xhigh 5.5"); Codex's picker keeps the running effort where the
+    // model offers it.
+    const target = picked.model && !picked.effort && harness !== "codex" && chosen?.default_effort ? { ...picked, effort: chosen.default_effort } : picked;
     const show = (isPicked: boolean) => setChosenEngine((prior) => ({
       model: target.model ? isPicked ? { value: target.model, over: recordedModel } : undefined : prior.model,
       effort: target.effort ? isPicked ? { value: target.effort, over: recordedEffort } : undefined : prior.effort,
@@ -553,15 +558,24 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // when there's a queued message, it'll pull that queued message back into
   // my chat composer automatically to then edit and resend it, taking it off
   // the queue"). A message already typed into the turn is the harness's.
+  // Edit on a queued message takes it back the same way, before any words he
+  // has in the box since, and a message is taken back once however often he
+  // presses (the Overlord, 2026-10-28: "lack of indmepotent click on teh
+  // queue"), under the request ID a Cancel of it would use.
+  const takenBack = useRef(new Set<string>());
   const unqueue = async (action: Action) => {
+    if (takenBack.current.has(action.id)) return;
+    takenBack.current.add(action.id);
     setSending(true);
     try {
-      await post({ id: crypto.randomUUID(), kind: "message_withdraw", task_id: action.task_id, generation: "", target: action.id, text: action.text });
+      await post({ id: "withdraw-" + action.id, kind: "message_withdraw", task_id: action.task_id, generation: "", target: action.id, text: action.text });
       const taken = keptFiles(action.text);
-      setDraft(taken.text);
-      setAttached(taken.paths);
+      setDraft((prior) => prior ? taken.text + "
+" + prior : taken.text);
+      setAttached((prior) => [...taken.paths, ...prior.filter((path) => !taken.paths.includes(path))]);
       setUnsent("");
     } catch (error: unknown) {
+      takenBack.current.delete(action.id);
       setUnsent("Not taken back. " + message(error));
       reportToCfo("taking back a message to " + name, message(error));
     } finally {
@@ -569,6 +583,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       requestAnimationFrame(() => field.current?.focus());
     }
   };
+  useEffect(() => {
+    const takeBack = (event: Event) => {
+      const action = event instanceof CustomEvent && queued.find((each) => each.id === event.detail && !each.awaiting);
+      if (action) void unqueue(action);
+    };
+    window.addEventListener(TAKE_BACK_MESSAGE, takeBack);
+    return () => window.removeEventListener(TAKE_BACK_MESSAGE, takeBack);
+  });
   // Up in an empty box, or on the first line of a message it recalled,
   // brings back what he sent before, newest first, as the terminal does, and
   // Down walks forward again to the empty box; any edit ends the recall.
@@ -681,8 +703,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       <div className="composer-input" onDragOver={dragOver} onDrop={drop}>
         {attached.length > 0 && <ComposerAttachments paths={attached} instance={snapshot.instance} task={task?.id}
           onRemove={(path) => { attach((prior) => prior.filter((each) => each !== path)); field.current?.focus(); }} />}
-        <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
-          onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+        <div className="composer-line">
+          <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
+            onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+          {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
+            : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
+              <Icon name={isSending ? "clock" : "send"} />
+            </button>}
+        </div>
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <div className="composer-row">
           <div className="composer-row-start">
@@ -706,10 +734,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
             {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} mode={mode} control={modelControl}
               onPick={(pick) => applyEngine({ model: pick.model?.id, effort: pick.effort }, true, pick.model)} onMode={chooseMode} onClose={closePane} />}
             {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
-            {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
-              : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
-                <Icon name={isSending ? "clock" : "send"} />
-              </button>}
           </div>
         </div>
       </div>

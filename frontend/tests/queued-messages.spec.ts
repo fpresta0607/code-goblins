@@ -53,23 +53,23 @@ test("a queued message shows in the conversation with what it waits on, and its 
   await expect(box(page)).not.toContainText("hold the merge");
 });
 
-test("Edit changes the words that will be sent, in place", async ({ page }) => {
+// The Overlord, 2026-10-28: Edit on a queued message pulls its words back
+// into the box, as Up does, and takes it off the queue, with no little edit
+// window inside the chat. Words he typed in the box since stay after them,
+// and a second press takes nothing twice.
+test("Edit takes a queued message back into the box and off the queue, before the words he has typed since", async ({ page }) => {
   // Arrange
   const posts = await openWith(page, queued());
+  await field(page).fill("and push after");
 
   // Act
-  await entry(page).getByRole("button", { name: "Edit" }).click();
-  const editor = entry(page).getByRole("textbox", { name: /^Edit message: / });
-  await editor.fill("discard this edit");
-  await entry(page).getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(entry(page)).toContainText("hold the merge until the gate lets go");
-  expect(posts).toEqual([]);
-  await entry(page).getByRole("button", { name: "Edit", exact: true }).click();
-  await editor.fill("hold the merge for one more check");
-  await entry(page).getByRole("button", { name: "Save" }).click();
+  await entry(page).getByRole("button", { name: "Edit", exact: true }).dblclick();
 
   // Assert
-  await expect.poll(() => posts).toContainEqual({ kind: "message_edit", target: "q1", text: "hold the merge for one more check" });
+  await expect(field(page)).toHaveValue("hold the merge until the gate lets go
+and push after");
+  await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "q1", text: "hold the merge until the gate lets go" }]);
+  await expect(entry(page).getByRole("textbox")).toHaveCount(0);
 });
 
 test("Send now asks for the message at the next safe moment when it can, and Delete withdraws it", async ({ page }) => {
@@ -85,6 +85,32 @@ test("Send now asks for the message at the next safe moment when it can, and Del
 
   // Assert
   await expect.poll(() => posts).toContainEqual({ kind: "message_withdraw", target: "q1", text: "hold the merge until the gate lets go" });
+});
+
+// The Overlord, 2026-10-28: "lack of indmepotent click on teh queue". The
+// board answers at once while the snapshot still shows the message queued,
+// so each act must go once however often he presses it: Send now stays
+// pressed, and a Cancel taken takes the actions away.
+test("Send now and Cancel each reach the board once, however often he presses them", async ({ page }) => {
+  // Arrange
+  const posts = await openWith(page, queued({ can_send_now: true, send_now_why: "" }));
+  const sendNow = entry(page).getByRole("button", { name: "Send now" });
+  const count = (kind: string) => posts.filter((post) => post.kind === kind).length;
+
+  // Act: Send now pressed, answered, then pressed again twice over.
+  await sendNow.click();
+  await expect.poll(() => count("message_now")).toBe(1);
+  await sendNow.click({ force: true });
+  await sendNow.dblclick({ force: true });
+  // Cancel pressed twice in a row.
+  await entry(page).getByRole("button", { name: "Cancel", exact: true }).dblclick();
+  await expect.poll(() => count("message_withdraw")).toBe(1);
+
+  // Assert
+  await expect(sendNow).toHaveCount(0);
+  await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
+  await expect(entry(page).locator(".queued-problem")).toHaveCount(0);
+  expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
 test("a message already typed says the turn takes it and offers no Send now", async ({ page }) => {

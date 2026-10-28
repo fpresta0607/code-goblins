@@ -477,7 +477,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	// A message goes to whichever CFO or goblin session runs when it is
 	// delivered, and a delete names the message by its goblin and words, so
 	// neither needs a recipient identity.
-	if input.Generation == "" && input.Kind != "message" && input.Kind != "message_withdraw" && input.Kind != "message_edit" && input.Kind != "message_now" {
+	if input.Generation == "" && input.Kind != "message" && input.Kind != "message_withdraw" && input.Kind != "message_now" {
 		apiError(w, 409, "Recipient identity is required; refresh the board")
 		return
 	}
@@ -494,18 +494,9 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// A queued message's own actions change it where it waits, or ask for it
-	// now, and are never queued as deliveries of their own.
-	switch a.Kind {
-	case "message_edit":
-		if _, err := h.Service.Store.EditQueuedMessage(a.Target, a.TaskID, a.Text); err != nil {
-			apiError(w, 409, err.Error())
-			return
-		}
-		h.Service.publish(nil)
-		respond(w, 202, map[string]string{"status": "edited"})
-		return
-	case "message_now":
+	// A queued message's Send now asks for it where it waits, and is never
+	// queued as a delivery of its own.
+	if a.Kind == "message_now" {
 		if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
 			apiError(w, 409, err.Error())
 			return

@@ -172,7 +172,7 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
    newest by the box; a long queue scrolls in its own room. */
 .conversation-queue { display: flex; flex: none; flex-direction: column; gap: .75em; width: 100%; max-width: calc(48em + 44px); max-height: 40cqh; margin-inline: auto; padding: 0 22px 10px; overflow: hidden auto; color: #e3ecef; line-height: 1.55; }
 .queued-message.pane { display: grid; grid-template-columns: auto 1fr; align-self: flex-end; gap: .35em; max-width: min(78%, 46em); }
-.queued-message.pane > :is(.message-pictures, .queued-bubble, .queued-edit, .queued-problem) { grid-column: 1 / -1; }
+.queued-message.pane > :is(.message-pictures, .queued-bubble, .queued-problem) { grid-column: 1 / -1; }
 .queued-message.pane > .message-pictures { justify-content: flex-end; }
 
 .queued-message.pane .queued-actions { justify-content: flex-end; }
@@ -186,11 +186,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .queued-actions .icon { width: 15px; height: 15px; }
 .queued-actions .icon-button { border: 0; background: transparent; }
 .queued-problem { margin: 0; color: var(--amber); font-size: .8125em; }
-.queued-edit { display: grid; gap: .4em; }
-.queued-edit textarea { width: 100%; min-height: 3em; padding: .5em .65em; border: 1px solid var(--glass-border-hover); border-radius: 10px; background: var(--field-bg); color: #edf4f3; resize: vertical; }
 .queued-message.queue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .25em .6em; }
 .queued-message.queue .composer-sent-text { grid-column: 1 / -1; }
-.queued-message.queue .queued-line, .queued-message.queue .queued-actions, .queued-message.queue .queued-problem, .queued-message.queue .queued-edit { grid-column: 1 / -1; }
+.queued-message.queue .queued-line, .queued-message.queue .queued-actions, .queued-message.queue .queued-problem { grid-column: 1 / -1; }
 /* Each of his messages keeps Copy and when it was sent in a small row under
    it, hidden until he taps the message or points at it, and closed when he
    taps away. On a touch screen only the tap opens it. */
