@@ -171,16 +171,15 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 /* His queued messages, pinned under the conversation in its column, the
    newest by the box; a long queue scrolls in its own room. */
 .conversation-queue { display: flex; flex: none; flex-direction: column; gap: .75em; width: 100%; max-width: calc(48em + 44px); max-height: 40cqh; margin-inline: auto; padding: 0 22px 10px; overflow: hidden auto; color: #e3ecef; line-height: 1.55; }
-.queued-message.pane { display: grid; grid-template-columns: auto 1fr; align-self: flex-end; gap: .35em; max-width: min(78%, 46em); }
+.queued-message.pane { display: grid; grid-template-columns: minmax(0, 1fr); align-self: flex-end; gap: .35em; max-width: min(78%, 46em); }
 .queued-message.pane > :is(.message-pictures, .queued-bubble, .queued-problem) { grid-column: 1 / -1; }
 .queued-message.pane > .message-pictures { justify-content: flex-end; }
 
 .queued-message.pane .queued-actions { justify-content: flex-end; }
-.queued-bubble { border-style: dashed; }
+/* A thin, quiet grey dash, not a bright one (the Overlord, 2026-10-28). */
+.queued-bubble { border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
 .queued-line { display: flex; flex-wrap: wrap; gap: .25em .6em; margin: 0; color: var(--muted); font-size: .8125em; }
 .queued-line strong { color: var(--amber); }
-.queued-state { display: grid; place-items: center; width: 22px; height: 22px; margin: 0; color: var(--amber); }
-.queued-state .icon { width: 16px; height: 16px; }
 .queued-actions { display: flex; flex-wrap: wrap; gap: .35em; }
 .queued-actions .labelled-button { min-height: 30px; padding: 2px 10px; font-size: .8125em; }
 .queued-actions .icon { width: 15px; height: 15px; }

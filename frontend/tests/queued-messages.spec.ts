@@ -36,10 +36,22 @@ test("a queued message shows in the conversation with what it waits on, and its 
   // Assert
   await expect(entry(page)).toBeVisible();
   await expect(entry(page)).toContainText("hold the merge until the gate lets go");
-  // The entry says it is queued with its icon and its dotted outline, not a
-  // line of words; the reason is its tip and its accessible name.
-  await expect(entry(page).locator(".queued-state")).toBeVisible();
-  await expect(entry(page).locator(".queued-state")).toHaveAttribute("data-tip", /Its gate holds the branch/);
+  // The entry says it is queued by its outline alone, a thin grey dash, with
+  // no clock and no line of words (the Overlord, 2026-10-28: "You don't need
+  // the waiting clock, the outline already shows that it's queued"); the
+  // reason is its tip and its description.
+  const bubble = entry(page).locator(".queued-bubble");
+  await expect(bubble).toHaveAttribute("data-tip", /Its gate holds the branch/);
+  await expect(bubble).toHaveAccessibleDescription(/Its gate holds the branch/);
+  await expect(entry(page).locator("svg.icon:not(.queued-actions svg)")).toHaveCount(0);
+  const edge = await bubble.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const [red, green, blue, alpha = 1] = (style.borderTopColor.match(/[\d.]+/g) ?? []).map(Number);
+    // A ratio, since a mixed colour reads as color(srgb 0-1) and a plain one as rgb(0-255).
+    return { width: style.borderTopWidth, style: style.borderTopStyle, isGrey: (Math.max(red, green, blue) - Math.min(red, green, blue)) / Math.max(red, green, blue) <= 0.25, alpha };
+  });
+  expect(edge).toMatchObject({ width: "1px", style: "dashed", isGrey: true });
+  expect(edge.alpha, "a quiet edge, not a bright one").toBeLessThanOrEqual(0.6);
   const send = entry(page).getByRole("button", { name: "Send now" });
   await expect(send).toBeVisible();
   await expect(send).toBeDisabled();
@@ -66,8 +78,7 @@ test("Edit takes a queued message back into the box and off the queue, before th
   await entry(page).getByRole("button", { name: "Edit", exact: true }).dblclick();
 
   // Assert
-  await expect(field(page)).toHaveValue("hold the merge until the gate lets go
-and push after");
+  await expect(field(page)).toHaveValue("hold the merge until the gate lets go\nand push after");
   await expect.poll(() => posts).toEqual([{ kind: "message_withdraw", target: "q1", text: "hold the merge until the gate lets go" }]);
   await expect(entry(page).getByRole("textbox")).toHaveCount(0);
 });
@@ -118,7 +129,7 @@ test("a message already typed says the turn takes it and offers no Send now", as
   await openWith(page, queued({ status: "running", awaiting: { task: "cg-touch" }, message: "Typed while it was working; it takes the message at its next tool call, or as its current turn ends." }));
 
   // Assert
-  await expect(entry(page).locator(".queued-state")).toBeVisible();
+  await expect(entry(page).locator(".queued-bubble")).toHaveAttribute("data-tip", /takes the message at its next tool call/);
   await expect(entry(page).getByRole("button", { name: "Send now" })).toHaveCount(0);
   await expect(entry(page).getByRole("button", { name: "Cancel" })).toBeVisible();
 });

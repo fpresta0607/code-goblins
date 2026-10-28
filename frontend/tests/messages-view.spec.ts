@@ -585,7 +585,7 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: posted[0].id, kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
   const queued = page.locator(".queued-message.pane").filter({ hasText: sentText });
   await expect(queued).toBeVisible();
-  await expect(queued.locator(".queued-state")).toBeVisible();
+  await expect(queued.locator(".queued-bubble")).toBeVisible();
   await page.reload();
   await openGoblin(page, who);
   await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toBeVisible();

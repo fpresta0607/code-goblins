@@ -171,7 +171,7 @@ test("a held message the board looks at again keeps waiting with Edit, Send now 
     await show(revision, status);
 
     // Assert
-    await expect(shown.locator(".queued-state")).toHaveAttribute("aria-label", action.message);
+    await expect(shown.locator(".queued-bubble")).toHaveAttribute("data-tip", action.message);
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(shown.getByRole("button", { name, exact: true }), name + " while " + status).toBeEnabled();
   }
 });

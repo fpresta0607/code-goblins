@@ -20,7 +20,10 @@ export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
 // it back unsent, by its own row, so it never reaches the harness. pane draws
 // it under the conversation, the pictures the box kept for it above its
 // bubble in place of their paths as his sent message shows them, queue in the
-// message box's own list, and both offer the same acts.
+// message box's own list, and both offer the same acts. In pane its outline
+// says it is not sent yet, with no clock beside it, and what it waits on is
+// its tip and its description (the Overlord, 2026-10-28: "You don't need the
+// waiting clock, the outline already shows that it's queued").
 export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
   action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void;
 }) {
@@ -55,9 +58,9 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
   const kept = keptPictures(action.text);
   return <div className={"queued-message " + variant} data-queued={action.id}>
     {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
-    {variant === "pane" && kept.text && <div className="message-bubble queued-bubble">{kept.text}</div>}
+    {variant === "pane" && kept.text && <div className="message-bubble queued-bubble" data-tip={reason || state} aria-describedby={"queued-why-" + action.id}>{kept.text}</div>}
     {variant === "queue" && <span className="composer-sent-text">{action.text}</span>}
-    {variant === "pane" ? <p className="queued-state" aria-label={reason || state} data-tip={reason || state}><Icon name="clock" /></p>
+    {variant === "pane" ? <p className="queued-state sr-only" id={"queued-why-" + action.id}>{reason || state}</p>
       : <p className="queued-line" data-tip={reason}><strong>{state}</strong></p>}
     {isPending && asked !== "withdrawn" && <div className="queued-actions">
       {isWaiting && <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now" || !action.can_send_now}
