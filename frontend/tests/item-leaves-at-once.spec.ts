@@ -423,7 +423,7 @@ test("a send the board refuses puts the item back, with a few words of why", asy
   // Assert
   await expect(badge(page)).toHaveAccessibleName("Command Center, 1 waiting on you");
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
-  await expect(card(page).locator(".click-feedback")).toHaveText("The primary CFO changed. Refresh before sending.");
+  await expect(card(page).locator(".notice")).toHaveText("The primary CFO changed. Refresh before sending.");
   await expect(card(page).getByRole("alert")).toHaveCount(0);
 });
 

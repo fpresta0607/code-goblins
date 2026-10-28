@@ -139,7 +139,7 @@ test("a press the supervisor refuses says so beside the button and restarts noth
 
   // Assert
   await expect(dialog).toBeHidden();
-  await expect(header.locator(".click-feedback")).toHaveText("Press Restart PC in the Code Goblins window on this PC.");
+  await expect(header.locator(".notice")).toHaveText("Press Restart PC in the Code Goblins window on this PC.");
   await expect(header.getByRole("button", { name: "Restart the PC" })).toBeEnabled();
   expect(sent).toHaveLength(1);
 });
@@ -152,6 +152,6 @@ test("a restart that stopped short says so beside the button and offers Restart 
   await push({ memory: PAST, pc_restart: { state: "stopped", problem: "not every working goblin paused: second-goblin (failed)", at: "2026-10-18T22:30:00Z" } });
 
   // Assert
-  await expect(header.locator(".click-feedback")).toHaveText("The PC did not restart, and the CFO knows why.");
+  await expect(header.locator(".notice")).toHaveText("The PC did not restart, and the CFO knows why.");
   await expect(header.getByRole("button", { name: "Restart the PC" })).toBeEnabled();
 });

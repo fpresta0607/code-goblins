@@ -7,6 +7,7 @@
 .engine-pane-title .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .engine-pane-title .mark svg, .engine-pane-title .mark .icon { width: 14px; height: 14px; }
 .engine-pane-note { margin: 4px 8px 8px; color: var(--muted); font-size: .875rem; }
+.engine-pane-retry { justify-self: start; margin: 4px 8px 8px; }
 .engine-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; min-height: 36px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: #edf4f3; text-align: left; }
 .engine-choice:hover, .engine-choice:focus-visible { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
 .engine-choice[aria-checked="true"] { background: var(--glass-bg-hover); }

@@ -73,8 +73,8 @@ for (const outcome of ["cancel", "failure"] as const) {
 
     await expect(button).toBeEnabled();
     await expect(page.getByLabel("Projects folder")).toHaveValue("C:\\dev");
-    if (outcome === "failure") await expect(page.locator(".first-run-step .click-feedback")).toHaveText("Folder selection is unavailable.");
-    else await expect(page.locator(".first-run-step .click-feedback")).toHaveCount(0);
+    if (outcome === "failure") await expect(page.locator(".first-run-step .notice")).toHaveText("Folder selection is unavailable.");
+    else await expect(page.locator(".first-run-step .notice")).toHaveCount(0);
   });
 }
 
@@ -246,7 +246,7 @@ test("the projects folder is optional: one he looked at is sent, and one with no
   await page.getByRole("button", { name: "Look" }).click();
 
   // Assert
-  await expect(page.locator(".first-run-step .click-feedback")).toHaveText("No git checkout is in this folder.");
+  await expect(page.locator(".first-run-step .notice")).toHaveText("No git checkout is in this folder.");
   await expect(start).toBeDisabled();
 
   // Act: a folder with one.
@@ -273,7 +273,7 @@ for (const [name, entered] of [["an empty field", ""], ["only spaces", "   "]]) 
     await page.getByRole("button", { name: "Look" }).click();
 
     // Assert
-    await expect(page.locator(".first-run-step .click-feedback")).toHaveText(unreadable);
+    await expect(page.locator(".first-run-step .notice")).toHaveText(unreadable);
     await expect(start).toBeEnabled();
     await start.click();
     await expect(page.getByRole("status", { name: "Outcome" })).toHaveText("The CFO's terminal opens");

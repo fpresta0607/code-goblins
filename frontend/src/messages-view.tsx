@@ -4,6 +4,7 @@ import { copyText } from "./clipboard";
 import { ContextUsage } from "./context-usage";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
+import { Notice } from "./notice";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
@@ -284,10 +285,10 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
       </div>
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
       {!isAtEnd && <button type="button" className="message-jump" onClick={jump}><Icon name="arrow-down" />Jump to latest</button>}
-      {isCopied && <span className="conversation-copied" role="status">Copied</span>}
-      {phase !== "closed" && (isReconnecting || !visible) && <span className="terminal-state terminal-reconnecting" role="status"><span className="status-dot" />Reconnecting</span>}
-      {phase === "closed" && <div className="terminal-closed" role="status"><Icon name="comment" /><p>{closedWhy}</p>
-        <button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button></div>}
+      {isCopied && <Notice className="terminal-corner">Copied</Notice>}
+      {phase !== "closed" && (isReconnecting || !visible) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
+      {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
+        actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>
     {(box || reading.banner) && <div className="composer-dock">
       <SessionFooter harness={harness} ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />

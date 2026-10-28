@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
-import { useResource } from "./api";
+import { reportToCfo, useResource } from "./api";
 import { parseEngineCatalog, type EngineModel } from "./engine-catalog";
 import { effortsInOrder, effortTone, type EngineSetting } from "./engine-choices";
 import { HarnessMark } from "./harness-mark";
@@ -32,6 +32,9 @@ export function EnginePane({ setting, harness, model, effort, control, onPick, o
     ? models.map((listed) => ({ value: listed.id, label: shortModel(listed.name) || listed.name, detail: listed.id === listed.name ? "" : listed.id, isChosen: listed === running, tone: "", chosen: listed }))
     : efforts.map((level) => ({ value: level, label: level, detail: "", isChosen: level === effort, tone: effortTone(level), chosen: undefined }));
   const isReady = choices.length > 0;
+  // A catalog that cannot be read goes to the CFO, as the board's errors do,
+  // and the pane offers Retry.
+  useEffect(() => { if (catalog.error) reportToCfo("the session's " + setting + " choices", catalog.error); }, [catalog.error, setting]);
   useEffect(() => {
     const items = Array.from(pane.current?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ?? []);
     (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0] ?? pane.current)?.focus();
@@ -54,7 +57,7 @@ export function EnginePane({ setting, harness, model, effort, control, onPick, o
   const title = setting === "model" ? "Model" : "Effort";
   return <div ref={pane} className="popup-surface engine-pane" role="menu" aria-label={title} tabIndex={-1} onKeyDown={keys}>
     <p className="engine-pane-title"><HarnessMark harness={harness} />{title}</p>
-    {catalog.error ? <p className="engine-pane-note" role="alert">The session's {setting === "model" ? "models" : "efforts"} could not be read.</p>
+    {catalog.error ? <button type="button" className="labelled-button engine-pane-retry" onClick={catalog.reload}><Icon name="refresh" />Retry</button>
       : !catalog.data ? <p className="engine-pane-note" role="status">Reading the session's {setting === "model" ? "models" : "efforts"}…</p>
       : offered?.reason ? <p className="engine-pane-note" role="status">{offered.reason}</p>
       : !isReady ? <p className="engine-pane-note" role="status">{setting === "model" ? "This harness lists no models." : "This model takes no effort setting."}</p>

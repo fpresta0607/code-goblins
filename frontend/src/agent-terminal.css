@@ -4,5 +4,4 @@
 .agent-output { position: relative; flex: 1; min-height: 0; min-width: 0; }
 .agent-output .xterm { height: 100%; box-sizing: border-box; }
 .agent-output, .agent-output .xterm-viewport { background: #071015 !important; }
-.agent-status { padding: 8px 18px; color: #8fa5b5; font-family: var(--font-mono); font-size: .875rem; }
-.agent-status button { margin-left: 12px; }
+.agent-terminal > .notice { flex: none; margin: 8px 18px; }

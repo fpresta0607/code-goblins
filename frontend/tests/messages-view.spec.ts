@@ -481,7 +481,7 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
 
   await send(page, "unavailable", "The CFO runs in another terminal now. Open the CFO again.");
 
-  const closed = page.locator(".messages-view .terminal-closed");
+  const closed = page.locator(".messages-view .terminal-foot.box");
   await expect(closed).toContainText("The CFO runs in another terminal now. Open the CFO again.");
   await closed.getByRole("button", { name: "Reconnect" }).click();
   await expect(closed).toHaveCount(0);

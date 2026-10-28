@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { knowInstance } from "../../src/api";
+import { Notice } from "../../src/notice";
 import { useDictation } from "../../src/useDictation";
 import { VoiceBubble } from "../../src/VoiceBubble";
 import "../../src/styles.css";
@@ -20,7 +21,7 @@ function Pane({ label, shown }: { label: string; shown: boolean }) {
     <SteppedIn><section className="native-terminal host-terminal" aria-label={label} style={{ flex: 1 }}>
       <textarea className="terminal-surface" aria-label="Terminal input" onKeyDown={(event) => dictation.key(event.nativeEvent)} onKeyUp={(event) => dictation.key(event.nativeEvent)} />
       <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => setTyped((prior) => [...prior, "pasted: " + text])} />
-      {dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
+      {dictation.note && <div className="terminal-float"><Notice tone="warning">{dictation.note}</Notice></div>}
     </section></SteppedIn>
     <output aria-label="Typed">{typed.join("\n")}</output>
   </main>;

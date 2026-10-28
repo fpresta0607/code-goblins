@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { Notice } from "./notice";
 import type { SessionStats, UsageReading } from "./session-usage";
 import "./context-usage.css";
 
@@ -32,7 +33,7 @@ export function ContextUsage({ stats, reading }: { stats: SessionStats; reading:
         {stats.details.map((stat) => <div key={stat.key}><dt>{stat.label}</dt><dd>{stat.text}</dd></div>)}
         {stats.missing.map((missing) => <div key={missing}><dt>Not read</dt><dd>{missing}</dd></div>)}
       </dl>
-      {reading.banner ? <p>{reading.banner.text}: {reading.banner.detail}</p> : reading.why && <p>{reading.why}</p>}
+      {reading.banner ? <Notice>{reading.banner.text}: {reading.banner.detail}</Notice> : reading.why && <Notice>{reading.why}</Notice>}
     </div>}
   </div>;
 }

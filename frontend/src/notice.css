@@ -1,0 +1,24 @@
+/* The board's one notice (notice.tsx), in the message board's look: the
+   board's text on its darkest surface inside a hairline edge. The tone shows
+   only in the mark and the edge, so no notice is coloured words. Nothing in
+   it animates. Its parent places it; nothing here does. */
+.notice { display: inline-flex; align-items: flex-start; gap: 8px; box-sizing: border-box; max-width: 100%; min-width: 0; padding: 4px 12px; border: 1px solid var(--glass-border); border-radius: 14px; background: var(--hero-surface); color: #e3ecef; font-size: .9375rem; font-weight: 500; line-height: 1.45; text-align: left; overflow-wrap: anywhere; }
+.notice.box { display: flex; gap: 10px; padding: 10px 14px; border-radius: var(--radius); }
+.notice.warning { border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.notice.error { border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+/* The mark: an icon when the notice names one, otherwise a dot, centred on
+   the first line of its words. */
+.notice-dot { flex: none; width: 8px; height: 8px; margin-top: calc(.725em - 4px); border-radius: 50%; background: var(--muted); }
+.notice > svg.icon { flex: none; width: 16px; height: 16px; margin-top: calc(.725em - 8px); color: var(--muted); }
+.notice.warning > .notice-dot { background: var(--amber); }
+.notice.warning > svg.icon { color: var(--amber); }
+.notice.error > .notice-dot { background: var(--red); }
+.notice.error > svg.icon { color: var(--red); }
+.notice-words { flex: 1; min-width: 0; }
+.notice.box > .notice-words { display: grid; gap: 4px; }
+.notice-words p { margin: 0; }
+.notice-words strong { color: #fff; font-weight: 800; }
+.notice-actions { display: flex; flex: none; align-items: center; gap: 8px; align-self: center; margin: -2px -4px -2px 0; }
+.notice-actions button { min-height: 32px; padding: 4px 14px; }
+.notice-actions .icon-button { width: 30px; height: 30px; min-height: 30px; padding: 0; }
+.notice-actions .icon-button .icon { width: 18px; height: 18px; }

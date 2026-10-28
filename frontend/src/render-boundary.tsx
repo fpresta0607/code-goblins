@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { message, reportToCfo } from "./api";
 import { Icon } from "./Icon";
+import { Notice } from "./notice";
 
 // A card or a list that could not be drawn: the CFO hears why, and the board
 // shows only a Retry in its place.
@@ -17,8 +18,6 @@ export class RenderBoundary extends Component<{ scope: "card" | "list"; children
 
   render() {
     if (!this.state.hasFailure) return this.props.children;
-    return <div className="render-error">
-      <button className="icon-button raised" aria-label={"Show this " + this.props.scope + " again"} data-tip="Retry" onClick={() => this.setState({ hasFailure: false })}><Icon name="refresh" /></button>
-    </div>;
+    return <Notice tone="error" actions={<button className="icon-button raised" aria-label={"Show this " + this.props.scope + " again"} data-tip="Retry" onClick={() => this.setState({ hasFailure: false })}><Icon name="refresh" /></button>} />;
   }
 }

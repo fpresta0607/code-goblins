@@ -5,6 +5,7 @@ import { Avatar } from "./Avatar";
 import { HarnessMark } from "./harness-mark";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
+import { Notice } from "./notice";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
 import { ALREADY_FINISHED, harnessName, harnessTip, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
@@ -135,6 +136,6 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
       {!compact && actions}
     </div>
     {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />}
-    {cfo && snapshot.cfo_update?.pending && <p className="cfo-update-line" role="status"><Icon name="clock" />Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</p>}
+    {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
   </header>;
 }
