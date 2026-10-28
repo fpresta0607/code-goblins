@@ -27,7 +27,7 @@ test("the tooltip shows every stat the conversation records", () => {
   const parts = stats.details.map((part) => part.text);
   assert.deepEqual(parts.slice(0, 5), ["1.4M", "289k", "208M", "$3.209", "593k of 1.0M"]);
   assert.equal(parts[5], "208M", "the memory its processes hold");
-  assert.equal(parts[6], usage.model + " high", "the session record's model takes precedence over startup settings");
+  assert.equal(parts[6], "Deepseek V4.1 Flash high", "the session record's model takes precedence over startup settings, by its short name");
   assert.equal(stats.details.find((part) => part.key === "engine")?.label, "Model / configured effort");
   assert.equal(stats.hasUsage, true);
   assert.deepEqual(stats.missing, []);
@@ -45,7 +45,7 @@ test("a stat the conversation does not record is left out and named", () => {
   assert.ok(stats.missing.includes("its cost"));
   assert.ok(stats.missing.includes("its context window"));
   assert.ok(stats.missing.includes("its memory"));
-  assert.equal(stats.details.find((part) => part.key === "engine")?.text, usage.model);
+  assert.equal(stats.details.find((part) => part.key === "engine")?.text, "Deepseek V4.1 Flash");
 });
 
 test("a session whose usage cannot be read says so and still shows what it can", () => {
@@ -57,7 +57,7 @@ test("a session whose usage cannot be read says so and still shows what it can",
   // Assert
   assert.equal(stats.hasUsage, false);
   assert.ok(stats.missing.includes("its token usage and spend"));
-  assert.deepEqual(stats.details.map((part) => part.text), ["4.0k", "claude-opus-5-5 xhigh"]);
+  assert.deepEqual(stats.details.map((part) => part.text), ["4.0k", "Opus 5.5 xhigh"]);
 });
 
 test("a record that names only the session's model and effort has recorded no usage", () => {
@@ -73,7 +73,7 @@ test("a record that names only the session's model and effort has recorded no us
   assert.ok(stats.missing.includes("its token usage and spend"));
   assert.ok(!stats.missing.includes("its cost"));
   assert.equal(stats.contextPercent, undefined);
-  assert.equal(stats.details.find((part) => part.key === "engine")?.text, engineOnly.model);
+  assert.equal(stats.details.find((part) => part.key === "engine")?.text, "GLM 5.3 Flash");
 });
 
 test("a session that is not working carries the time of the last thing it wrote", () => {

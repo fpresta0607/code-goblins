@@ -3,6 +3,7 @@ import { ownsTaskSession, projectSessions, sessionTitle, tasksWithoutSession } f
 import { goblinName, waitStatus } from "./task-words.ts";
 import { LINE_GAP } from "./fleet-tree.ts";
 import { awaitedTest } from "./pull-request-test.ts";
+import { shortModel } from "./model-name.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
   | "debugger" | "security" | "database" | "designer" | "documentation" | "operations"
@@ -648,7 +649,7 @@ export function harnessName(id: string): string {
 
 // A harness mark's tip: the harness, then the model and effort it runs, when known.
 export function harnessTip(harness: string, model: string, effort: string): string {
-  return [harnessName(harness), model, effort].filter(Boolean).join(" · ");
+  return [harnessName(harness), shortModel(model), effort].filter(Boolean).join(" · ");
 }
 
 // fleetTraffic signs what each live task last reported, its status line and

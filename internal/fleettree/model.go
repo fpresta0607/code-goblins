@@ -16,7 +16,7 @@ func recordedModel(entries [][]byte, harness string) string {
 		if json.Unmarshal(entries[index], &entry) != nil {
 			continue
 		}
-		if harness == "claude" && entry.Type == "assistant" && entry.Message.Model != "" && entry.Message.Model != "<synthetic>" {
+		if harness == "claude" && entry.Type == "assistant" && entry.Message.Model != "" && entry.Message.Model != syntheticModel {
 			return entry.Message.Model
 		}
 		if harness == "codex" && entry.Type == "turn_context" && entry.Payload.Model != "" {

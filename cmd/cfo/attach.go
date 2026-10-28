@@ -359,8 +359,20 @@ func startNativeCFO(h home.Home, project, harness string, args []string, prompt 
 	if err != nil {
 		return err
 	}
-	_, err = host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40})
-	return err
+	if _, err := host.Launch(h.State, []string{self, "host"}, env, host.Spec{ID: supervisor.NativeCFOTerminal, Args: program, Dir: project, Cols: 120, Rows: 40}); err != nil {
+		return err
+	}
+	// The CFO now starts with its saved selection's model and effort, so a
+	// problem an earlier start left on it no longer holds, nor one the board's
+	// apply wrote while this start ran, as it can between a Restart closing the
+	// old terminal and this one launching. It is noted only once the terminal
+	// launched: a start that failed before then started nothing with it.
+	if len(engine) > 0 {
+		if err := supervisor.NoteCFOEngineApplied(h.State, harness); err != nil {
+			return fmt.Errorf("note that the CFO started with its saved engine: %w", err)
+		}
+	}
+	return nil
 }
 
 // cfoSettingsFile is the Claude Code settings file, in the home's state

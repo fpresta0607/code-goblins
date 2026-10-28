@@ -6,7 +6,7 @@ test("goblin cards name their model only in their harness mark's tip", async ({ 
   const card = page.locator(".task-card-shell").filter({ has: page.locator(".card-title", { hasText: /^Let goblins start helpers$/ }) })
   await expect(card).not.toContainText("claude-opus-5-5")
   await expect(card).not.toContainText("strong cross-harness fallback")
-  await expect(card.locator(".card-harness [role=img]")).toHaveAttribute("aria-label", /claude-opus-5-5/)
+  await expect(card.locator(".card-harness [role=img]")).toHaveAttribute("aria-label", /Opus 5\.5/)
   await expect(card.locator("[title]")).toHaveCount(0)
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
