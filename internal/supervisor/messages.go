@@ -131,6 +131,9 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 			if errors.Is(err, spawn.ErrInTurn) {
 				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. Send now types it for the goblin to take at its next tool call.", CanSendNow: true}, ErrDeferred
 			}
+			if errors.Is(err, spawn.ErrUnsentWords) {
+				return Evaluation{Reason: "Queued until " + a.TaskID + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them.", SendNowWhy: "Its prompt line holds words that were never sent."}, ErrDeferred
+			}
 			if errors.Is(err, fleet.ErrNotTyped) {
 				return Evaluation{Reason: "Queued until its terminal can take a message. Nothing was typed.", SendNowWhy: "Its terminal is not ready to take it yet."}, ErrDeferred
 			}
@@ -367,9 +370,10 @@ func keptMessages(note string) (before string, messages []string) {
 // here, under the store lock, so every board shows it gone at once, and
 // under the goblin's lifecycle lock, so a resume either carried it already
 // or starts without it. A message typed into a terminal, carried by a resume
-// or never kept is refused.
+// or never kept is refused. One held for the CFO, which has no goblin, is
+// named by its own identity alone.
 func (s *Store) withdrawMessage(a Action) (Action, error) {
-	if a.TaskID == "" || strings.TrimSpace(a.Text) == "" || a.Generation != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" || a.AnswerKind != "" {
+	if a.TaskID == "" && a.Target == "" || strings.TrimSpace(a.Text) == "" || a.Generation != "" || a.File != "" || a.Head != "" || a.Revision != "" || a.DiffID != "" || a.Line != 0 || a.EndLine != 0 || a.Side != "" || a.Session != "" || a.EventID != "" || a.QuestionID != "" || a.ReviewID != "" || a.AnswerKind != "" {
 		return Action{}, errors.New("a delete names only its goblin and the message's words")
 	}
 	// A message waiting for a gate to let go is withdrawn from the queue it
@@ -380,7 +384,7 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 			return queued.ID == a.Target && queued.Kind == "message" && queued.Status == "queued" && queued.TaskID == a.TaskID
 		})
 		if at < 0 {
-			return Action{}, errors.New("that queued message is no longer waiting for " + a.TaskID + ", so nothing was deleted")
+			return Action{}, errors.New("that queued message is no longer waiting, so nothing was deleted")
 		}
 		delete(s.deferredUntil, s.db.Actions[at].ID)
 		s.db.Actions = slices.Delete(s.db.Actions, at, at+1)

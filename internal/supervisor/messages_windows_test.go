@@ -1827,3 +1827,107 @@ func TestMessagesHeldForAGoblinsTurnAreDeliveredInTheOrderSent(t *testing.T) {
 		t.Fatalf("delivered %q, want the first message and then the second", *received)
 	}
 }
+
+// A message to a goblin whose prompt line holds words that were never sent,
+// such as ones he typed in its terminal, types nothing onto them: it waits in
+// the queue saying why, and is handed over alone once the line is empty (the
+// Overlord, 2026-10-28: "it's sending and appending messages together that
+// were sent previously").
+func TestAMessageWaitsWhileItsGoblinsPromptLineHoldsUnsentWords(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	gitWorktree(t, meta.Worktree)
+	goblin := goblinTerminal(t, h.State, meta.ID)
+	goblin.drawsDraft(t, meta.Harness, "half a thought")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	messageTo(t, store, meta, "message-1", "check the flaky test first")
+
+	// Act
+	err := store.ProcessOne(t.Context(), service.execute)
+
+	// Assert: nothing is typed, and the message waits saying why.
+	held := actionOf(store, "message-1")
+	if !errors.Is(err, ErrDeferred) || held.Status != "queued" || !strings.Contains(held.Message, "never sent") || len(goblin.lines(t)) != 0 {
+		t.Fatalf("delivery = %v, action = %+v, typed %q; want it queued, saying why, with nothing typed", err, held, goblin.lines(t))
+	}
+
+	// Act: the prompt line is emptied.
+	goblin.drawsComposer(t, meta.Harness)
+	store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+	err = store.ProcessOne(t.Context(), service.execute)
+
+	// Assert
+	typed := goblin.waitForLines(t, 1)
+	if err != nil || len(typed) != 1 || !strings.Contains(typed[0], "check the flaky test first") || actionOf(store, "message-1").Status != "succeeded" {
+		t.Fatalf("delivery = %v, typed %q, action = %+v; want the message alone, once the line is empty", err, typed, actionOf(store, "message-1"))
+	}
+}
+
+// Cancel takes a message held for the CFO's turn back by its own identity, so
+// it never reaches the CFO; a cancel that names no message held for the CFO
+// is refused and takes nothing.
+func TestCancelTakesBackAMessageHeldForTheCFO(t *testing.T) {
+	queued := func(store *Store) []string {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		var ids []string
+		for _, action := range store.db.Actions {
+			if action.Kind == "message" && action.Status == "queued" {
+				ids = append(ids, action.ID)
+			}
+		}
+		return ids
+	}
+	newQueue := func(t *testing.T) *Store {
+		t.Helper()
+		store, h := testStore(t)
+		meta, err := state.ReadTaskMeta(h.State, "task-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Queue(Action{ID: "c1", Kind: "message", Text: "stop and wait for me"}); err != nil {
+			t.Fatal(err)
+		}
+		messageTo(t, store, meta, "g1", "stop and wait for me")
+		return store
+	}
+
+	t.Run("the held message is taken back", func(t *testing.T) {
+		// Arrange
+		store := newQueue(t)
+
+		// Act
+		withdrawn, err := store.Queue(Action{ID: "w1", Kind: "message_withdraw", Text: "stop and wait for me", Target: "c1"})
+
+		// Assert
+		if err != nil || withdrawn.Status != "succeeded" {
+			t.Fatalf("the cancel = %+v, %v; want it taken back", withdrawn, err)
+		}
+		if got := queued(store); !slices.Equal(got, []string{"g1"}) {
+			t.Fatalf("queued = %q, want only the goblin's message left", got)
+		}
+	})
+
+	for _, refused := range []struct{ name, target string }{
+		{"a cancel naming no message", ""},
+		{"a cancel naming one already gone", "gone"},
+		{"a cancel naming a goblin's message", "g1"},
+	} {
+		t.Run(refused.name+" is refused", func(t *testing.T) {
+			// Arrange
+			store := newQueue(t)
+
+			// Act
+			_, err := store.Queue(Action{ID: "w1", Kind: "message_withdraw", Text: "stop and wait for me", Target: refused.target})
+
+			// Assert
+			if err == nil {
+				t.Fatal("the cancel was accepted, want it refused")
+			}
+			if got := queued(store); !slices.Equal(got, []string{"c1", "g1"}) {
+				t.Fatalf("queued = %q, want both messages still waiting", got)
+			}
+		})
+	}
+}

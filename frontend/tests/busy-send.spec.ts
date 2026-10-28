@@ -111,6 +111,42 @@ test("Cancel takes a queued message back, so it never reaches the harness", asyn
   expect(typed(relay)).toBe("");
 });
 
+// A message to the CFO names no goblin, so its Cancel names the message by
+// its own identity alone, and the bubble goes once the board takes it back.
+test("Cancel takes a message held for the CFO's turn back, and its bubble goes", async ({ page }) => {
+  // Arrange: the CFO works, and a message he sent it waits for its turn.
+  const posts: (Posted & { task: string })[] = [];
+  const relay = await open(page);
+  await page.route("**/api/actions", (route) => {
+    const body = route.request().postDataJSON() as Partial<Posted> & { task_id?: string };
+    posts.push({ id: body.id ?? "", kind: body.kind ?? "", target: body.target ?? "", text: body.text ?? "", task: body.task_id ?? "" });
+    return route.fulfill({ status: 202, json: { status: body.kind === "message_withdraw" ? "succeeded" : "queued" } });
+  });
+  await page.keyboard.press("Control+Alt+1");
+  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  await expect(page.locator(".reply-working")).toBeVisible();
+  await field(page, "CFO").fill("stop and wait for me");
+  await field(page, "CFO").press("Enter");
+  await expect.poll(() => posts.length).toBe(1);
+  const action = { id: posts[0].id, kind: "message", task_id: "", generation: "", status: "queued", text: "stop and wait for me", message: "Queued until the CFO's turn ends.", can_send_now: true, updated_at: at };
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [action] }));
+  const shown = bubble(page, "stop and wait for me");
+  await expect(shown).toHaveCount(1);
+
+  // Act
+  await shown.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  // Assert: the withdrawal names the CFO's held message, nothing reached its
+  // terminal, and once the board has taken it back the bubble goes.
+  await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_withdraw"]);
+  expect(posts[1]).toMatchObject({ task: "", target: posts[0].id, text: "stop and wait for me" });
+  await expect(shown.locator(".queued-problem")).toHaveCount(0);
+  expect(typed(relay)).toBe("");
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, actions: [] }));
+  await expect(shown).toHaveCount(0);
+});
+
 // The board looks at a held message again about every second, marking it
 // running while it reads the session's screen, and holds it once more: until
 // it awaits the turn it is not typed, so it keeps waiting with its actions.

@@ -80,6 +80,10 @@ var errNativeStartupDialog = errors.New("a startup dialog interrupted instructio
 // just before typing, so nothing was typed.
 var ErrInTurn = errors.New("its harness was in a turn")
 
+// ErrUnsentWords says a delivery found words on its harness's prompt line
+// that were never sent, which what it typed would join, so nothing was typed.
+var ErrUnsentWords = errors.New("its prompt line holds words that were never sent")
+
 // launchNativeHost starts the harness in a native terminal of its own, the
 // task's id, and returns its host's record, the zero record when it launched
 // none. It is the last step of a start's turn: from here the host counts as a
@@ -621,7 +625,9 @@ func pressNativeEnter(record host.Record) error {
 // it settle after the composer shows it, since a dialog that opened meanwhile
 // would take the Enter as its answer. An inline offer shown over a composer
 // that is not proved to hold text is dismissed before anything is typed, and
-// again before the Enter. It returns the screen as the Enter was pressed.
+// again before the Enter. A composer holding words that were never sent takes
+// nothing, since what it typed would join them. It returns the screen as the
+// Enter was pressed.
 func (s Service) submitNative(ctx context.Context, record host.Record, screens harness.Screens, instruction string, settle time.Duration, isRecovering bool) ([]string, error) {
 	offers := screens
 	screens = withoutInlineOffer(screens)
@@ -655,6 +661,9 @@ func (s Service) submitNative(ctx context.Context, record host.Record, screens h
 	}
 	if screens.IsOpen(before) {
 		return nil, fmt.Errorf("%w: native terminal %s is waiting on its own screen", fleet.ErrNotTyped, record.ID)
+	}
+	if !isRecovering && screens.ComposerHoldsText(before) {
+		return nil, fmt.Errorf("spawn: native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, ErrUnsentWords)
 	}
 	shouldType := true
 	if isRecovering && !screens.ComposerEmpty(before) {

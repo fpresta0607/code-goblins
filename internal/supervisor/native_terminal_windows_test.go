@@ -142,6 +142,10 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case strings.HasPrefix(line, "draw "):
 			composer = strings.TrimPrefix(line, "draw ")
 			drawComposer("", false)
+		case strings.HasPrefix(line, "draft "):
+			// Words left on the prompt line unsent, as he types them in the
+			// terminal itself.
+			drawComposer(strings.TrimPrefix(line, "draft "), false)
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
@@ -523,6 +527,27 @@ func (terminal hostedTerminal) drawsComposer(t *testing.T, name string) {
 	t.Helper()
 	terminal.typeLine(t, "draw "+name)
 	terminal.showsComposer(t, name)
+}
+
+// drawsDraft has the terminal's program draw the named harness's composer
+// holding words that were never sent, and waits until that harness's screen
+// reads them there.
+func (terminal hostedTerminal) drawsDraft(t *testing.T, name, words string) {
+	t.Helper()
+	terminal.typeLine(t, "draft "+words)
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Kind(name))
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+		if rows, err := host.ReadScreen(record); err == nil && screens.IsReady(rows) && screens.ComposerHoldsText(rows) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed words on a %s prompt line", name)
+		}
+	}
 }
 
 // showsComposer waits until the terminal's screen, read through its host,

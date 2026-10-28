@@ -158,6 +158,42 @@ func TestNativeDeliveryDoesNotTypeIntoAnOpenCodexPicker(t *testing.T) {
 	}
 }
 
+// A delivery onto a prompt line holding words that were never sent, such as
+// ones he typed in the terminal itself, types nothing: what it typed would
+// join them, and its Enter would send both as one message (the Overlord,
+// 2026-10-28: "it's sending and appending messages together that were sent
+// previously").
+func TestADeliveryTypesNothingOntoAPromptLineHoldingWords(t *testing.T) {
+	for _, text := range []string{"CFO: run the tests", "/compact"} {
+		t.Run(text, func(t *testing.T) {
+			// Arrange: Codex idle at its prompt, an unsent draft on the line.
+			f := newQuickFixture(t)
+			if _, err := f.service.Spawn(t.Context(), f.request); err != nil {
+				t.Fatal(err)
+			}
+			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := len(named(f.events(t), "submitted"))
+			f.service.ReadScreen = func(host.Record) ([]string, error) {
+				return []string{"• ok", "› An unfinished user draft", "100% context left"}, nil
+			}
+
+			// Act
+			err = f.service.SendNative(t.Context(), meta, text)
+
+			// Assert
+			if !errors.Is(err, fleet.ErrNotTyped) || !errors.Is(err, ErrUnsentWords) {
+				t.Fatalf("SendNative = %v, want it refused with nothing typed onto the draft", err)
+			}
+			if after := len(named(f.events(t), "submitted")); after != before {
+				t.Fatalf("submitted %d messages after %d before, want nothing submitted with the draft", after, before)
+			}
+		})
+	}
+}
+
 // Text typed into a harness already in a turn is queued by the harness, so
 // with nothing showing the harness took it the send says it is queued, where
 // it once reported it delivered because the screen already showed the harness
