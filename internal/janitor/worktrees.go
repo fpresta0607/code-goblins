@@ -16,24 +16,24 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
-// worktreeGrace is how old a worktree no task owns must be before the
+// worktreeGrace is how old a fleet worktree no task owns must be before the
 // janitor touches it: a spawn makes the worktree a moment before it writes
 // the task's record, and a sweep between the two must not take it for an
 // orphan.
 const worktreeGrace = time.Hour
 
 // tidyWorktrees removes every worktree in this home's worktree roots that no
-// task owns, its work kept first: one that is clean and on the default branch
-// goes, one with commits of its own is archived as a local tag and then goes,
-// and one with uncommitted work is never touched and is reported. It does the
-// same for a worktree a project registers away from the fleet's folders, which
-// a harness's own tooling left in a checkout or a scratchpad. A folder its
-// project does not register goes only when it is empty. A worktree an older
-// build put in a checkout's .worktrees is never removed here: it is found
-// through the projects root every home on the machine shares, so nothing says
-// it is this home's rather than another's, and cfo cleanup and cfo reap are
-// left to it. Every fleet worktree no task records that is still there
-// afterwards is a stray.
+// task owns and no live session uses, its work kept first: one that is clean
+// and on the default branch goes, one with commits of its own is archived as a
+// local tag and then goes, and one with uncommitted work is never touched and
+// is reported. It does the same for a worktree a project registers away from
+// the fleet's folders, which a harness's own tooling left in a checkout or a
+// scratchpad. A folder its project does not register goes only when it is
+// empty. A worktree an older build put in a checkout's .worktrees is never
+// removed here: it is found through the projects root every home on the
+// machine shares, so nothing says it is this home's rather than another's, and
+// cfo cleanup and cfo reap are left to it. Every fleet worktree no task
+// records that is still there afterwards is a stray.
 func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 	git := worktree.RunnerGit{Commands: cfg.Commands}
 	gone := map[string]bool{}
@@ -74,6 +74,11 @@ func (cfg Config) tidyWorktrees(ctx context.Context, record *Record) {
 	}
 	for _, dir := range cfg.Inventory.Worktrees {
 		if gone[strings.ToLower(dir.Path)] || reap.Recorded(cfg.Inventory, dir.Path) {
+			continue
+		}
+		// A live session's worktree in a checkout is no leftover, so the CFO
+		// is not woken to remove it.
+		if dir.Source == reap.SourceCheckout && dir.InUse != "" {
 			continue
 		}
 		if _, err := os.Stat(dir.Path); err != nil {
@@ -135,10 +140,15 @@ func (cfg Config) tidyCheckoutWorktree(ctx context.Context, git worktree.RunnerG
 }
 
 // notYetOrphaned says why a worktree the inventory found unowned is not
-// treated as an orphan yet, or "" when it is one: it is too new, or a task
-// record read now, after the inventory, owns it.
+// treated as an orphan yet, or "" when it is one: a live session may still be
+// using it, a fleet worktree is too new, or a task record read now, after the
+// inventory, owns it. A checkout's worktree is no spawn's, so only its last
+// change dates it.
 func (cfg Config) notYetOrphaned(dir reap.WorktreeDir) string {
-	if dir.Created.IsZero() || cfg.Now.Sub(dir.Created) < worktreeGrace {
+	if dir.InUse != "" {
+		return dir.InUse
+	}
+	if dir.Source != reap.SourceCheckout && (dir.Created.IsZero() || cfg.Now.Sub(dir.Created) < worktreeGrace) {
 		return "made less than an hour ago, or when cannot be read; a spawn may not have recorded it yet"
 	}
 	owner, known, err := reap.WorktreeOwner(cfg.Home.State, cfg.Home.WorktreeRoots(), dir.Project, dir.Path)

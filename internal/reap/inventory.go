@@ -174,6 +174,7 @@ func (c Collector) Collect(ctx context.Context) (Inventory, []string, error) {
 	} else {
 		notes = append(notes, "no process lister configured; process evidence is missing")
 	}
+	c.markWorktreesInUse(ctx, &inv)
 	c.nativeHosts(&inv, &notes)
 
 	return inv, notes, nil
