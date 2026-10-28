@@ -875,9 +875,16 @@ test.describe("on a phone", () => {
     const talk = list(page, "CFO");
     await expect(talk).toContainText("Answer 99");
     const jump = page.getByRole("button", { name: "Jump to latest" });
+    await page.evaluate(() => {
+      document.body.dataset.clicks = "0";
+      document.addEventListener("click", () => { document.body.dataset.clicks = String(Number(document.body.dataset.clicks) + 1); }, true);
+    });
     const shape = (await talk.boundingBox())!;
+    const x = Math.round(shape.x + shape.width / 2), from = Math.round(shape.y + shape.height / 4);
     const touch = await page.context().newCDPSession(page);
-    await touch.send("Input.synthesizeScrollGesture", { x: Math.round(shape.x + shape.width / 2), y: Math.round(shape.y + shape.height / 3), yDistance: 700, speed: 5000, gestureSourceType: "touch", preventFling: false });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: from }] });
+    for (let step = 1; step <= 5; step++) await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: from + step * 80 }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(jump).toBeVisible();
     const fill = await jump.evaluate((element) => getComputedStyle(element).backgroundColor);
     const button = (await jump.boundingBox())!;
@@ -885,8 +892,10 @@ test.describe("on a phone", () => {
     // Act: a tap at once, while it glides.
     await page.touchscreen.tap(button.x + button.width / 2, button.y + button.height / 2);
 
-    // Assert
+    // Assert: the tap stopped the glide, so the browser gave it no click, and
+    // it still took him to the newest message.
     await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => document.body.dataset.clicks), "the tap that stopped the glide got no click, on the button or wherever it left").toBe("0");
     await expect(talk.locator("[data-message]").last()).toBeInViewport();
     await expect(jump).toHaveCount(0);
     expect(fill).toBe(await page.locator(".messages-view:not([hidden]) .composer-input").evaluate((element) => getComputedStyle(element).backgroundColor));

@@ -625,11 +625,12 @@ test("a delivered message appears once in Modern chat, every pending message is 
       { id: "long", seq: 1, kind: "reply", blocks: [{ kind: "text", text: "Earlier conversation paragraph.\n\n".repeat(80) }] }], more: false,
   });
   await openGoblin(page);
-  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
   const pinned = page.getByRole("group", { name: "Queued messages", exact: true });
   await expect(pinned.locator(".queued-message")).toHaveCount(8);
   await expect(box(page).getByRole("button", { name: /queued message/ })).toHaveCount(0);
+  // At the conversation's start, where the window draws the delivered message.
   await page.getByRole("log", { name: "Messages of " + NAME }).evaluate((list) => { list.scrollTop = 0; });
+  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
   await expect(page.locator('.queued-message[data-queued="q7"]')).toBeInViewport();
 });
 
