@@ -464,6 +464,22 @@ func (s recoverySync) custodyReturned(run recoveryRecord, exactLocal bool) bool 
 	return !exactLocal || s.Local.Head == run.SubmittedHead && s.Local.Head == run.RecordedHead
 }
 
+// released reports whether the native engine says run let go of its branch in
+// state: user_owned at the submitted head, or custody_returned at the recorded
+// head of a run whose record says so. Unlike the recovery checks it reads no
+// local state. The engine derives custody of an unpublished finished run from
+// its record alone, a worktree that is dirty or moved on is still the user's,
+// and a custody read that depended on it could not be kept for the run.
+func (s recoverySync) released(run recoveryRecord, state string) bool {
+	if s.State != state || s.Pipeline.Run != run.RunID || s.Pipeline.SubmittedHead != run.SubmittedHead {
+		return false
+	}
+	if state == "custody_returned" {
+		return run.CustodyReturnedAt != 0 && s.Pipeline.CurrentHead == run.RecordedHead
+	}
+	return s.Pipeline.CurrentHead == run.SubmittedHead
+}
+
 func (s recoverySync) recoverableCustodyReturned(run recoveryRecord) bool {
 	return s.custodyReturned(run, false)
 }

@@ -78,8 +78,9 @@ var (
 )
 
 // CanSteer is a read-only custody check. A failed or cancelled unpublished
-// run remains owned until native branch-sync evidence proves user ownership.
-// It never invokes recovery or repairs a branch as a side effect of feedback.
+// run remains owned until native branch-sync evidence proves user ownership,
+// which r.Custody keeps for each record of the run. It never invokes recovery
+// or repairs a branch as a side effect of feedback.
 func (r Reader) CanSteer(ctx context.Context, project, worktree, branch string) error {
 	p, err := r.latestRun(ctx, project, branch)
 	if errors.Is(err, ErrNoProgress) {
@@ -94,19 +95,21 @@ func (r Reader) CanSteer(ctx context.Context, project, worktree, branch string) 
 	if (p.Status != "failed" && p.Status != "cancelled") || p.PushedHead != "" {
 		return ErrCustodyHeld
 	}
-	status, _, err := r.readRecoverySync(ctx, worktree, nil)
-	if err != nil {
-		return err
-	}
 	run := recoveryRecord{RunID: p.RunID, RepoID: p.RepoID, Branch: branch, Status: p.Status, RecordedHead: p.Head, SubmittedHead: p.SubmittedHead, PushedHead: p.PushedHead, CustodyReturnedAt: p.CustodyReturned}
-	if status.userOwned(run, false) {
-		return nil
-	}
-	if !status.custodyReturned(run, false) {
-		return ErrCustodyNotReturned
-	}
-	bare := filepath.Join(r.Root, "repos", p.RepoID+".git")
-	return r.requireNativeRecoveryHead(ctx, worktree, bare, "refs/no-mistakes/recover/"+p.RunID, p.Head)
+	return r.Custody.read(worktree, run, p.TerminalVerified, func() error {
+		status, _, err := r.readRecoverySync(ctx, worktree, nil)
+		if err != nil {
+			return err
+		}
+		switch {
+		case status.released(run, "user_owned"):
+			return nil
+		case !status.released(run, "custody_returned"):
+			return ErrCustodyNotReturned
+		}
+		bare := filepath.Join(r.Root, "repos", run.RepoID+".git")
+		return r.requireNativeRecoveryHead(ctx, worktree, bare, "refs/no-mistakes/recover/"+run.RunID, run.RecordedHead)
+	})
 }
 
 // IsTerminal reports whether the run has finished, so none of its steps runs

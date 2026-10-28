@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
+import { isLongText, leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -212,4 +212,18 @@ test("a code value that is a whole path keeps its copy and gains the path's icon
   // Assert
   assert.equal(withLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code><a class="icon"></a> or (<a>D:/CodeGoblins/scratch</a>), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
   assert.equal(withoutLinks, String.raw`<p>Keep the notes in <code>C:\Users\fpres\OneDrive - SIQstack\Desktop</code> or (D:/CodeGoblins/scratch), not <a class="message-link" href="https://example.com/C:\x" target="_blank" rel="noreferrer">https://example.com/C:\x</a> or 3:4.</p>`);
+});
+
+test("a text is long past six lines or 600 characters, and a short one is not", () => {
+  const cases: [string, string, boolean][] = [
+    ["empty", "", false],
+    ["one line", "Fix the swipe", false],
+    ["six lines", "1\n2\n3\n4\n5\n6", false],
+    ["seven lines", "1\n2\n3\n4\n5\n6\n7", true],
+    ["seven Windows lines", "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7", true],
+    ["six lines and trailing blank lines", "1\n2\n3\n4\n5\n6\n\n\n", false],
+    ["600 characters", "x".repeat(600), false],
+    ["601 characters", "x".repeat(601), true],
+  ];
+  for (const [name, text, want] of cases) assert.equal(isLongText(text), want, name);
 });

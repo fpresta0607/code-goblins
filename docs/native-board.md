@@ -1349,12 +1349,12 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Modern Chat's working spot, the session line above its box, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
+Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
 The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
 It carries an accessible name, and reduced motion keeps a static helix.
 Working cards, tree rows and panel headers show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
-The CFO's own panel shows the footer indicator while it works, as a goblin's does.
+The CFO's own panel shows the indicator at its reply's end while it works, as a goblin's does.
 
 ### The Messages view
 
@@ -1372,22 +1372,26 @@ What says who spoke is the side and the bubble it already has.
 The conversation is one centred column of a readable width, about 48 times its text size, however wide the panel is, with the message box centred under it.
 A prompt sits on the right in a quiet bubble, and a notice is a quiet line with no bubble.
 An answer he gave on the Command Center or on a session's Scrawl page reads as his own message with one small line under it, Answered on the board or Answered on the page, so it is told apart from one he typed in the chat.
-Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it.
+Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it, a long line of the print scrolling sideways inside its own box.
+A long prompt, more than six lines or 600 characters, and a long print show their first lines fading out over Show more, which opens them whole, and Show less folds them again; a short one shows as it is (`frontend/src/long-text.tsx`, the Overlord, 2026-10-28: "pull with a lot of text need to be cleaned").
 A reply sits on the left as plain prose with no bubble.
-Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written under a quiet header with the language the fence names and Copy (`frontend/src/code-block.tsx`).
+Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written in rounded cards under a quiet header with the language the fence names, Copy and Expand (`frontend/src/code-block.tsx`).
+A card shows its first sixteen lines and scrolls a long line sideways inside itself; Expand opens it whole, every line wrapped.
+A long path or address in prose or in a prompt breaks where it meets the column's edge, so nothing but a code card's own line is ever wider than the conversation, on a phone included.
 Its thinking folds to one quiet line, Thinking and its first words, that opens to the whole of it (the Overlord's review of 27 October 2026, which took the agentic chat's look over the 26 October reading in place).
 A call that writes a plan, Claude Code's TodoWrite or Codex's update_plan, shows as a checklist card instead of a row: each step with its state's mark, the step in progress in full ink, those done struck through, and how many are done at its head (`frontend/src/plan-card.tsx`); the supervisor reads the steps from the call (`internal/fleettree/messages.go`, `Block.Plan`).
 A plan call that failed, was denied or was interrupted stays its row with its outcome, and so does an update_plan Codex refused, one with a step missing its words or its state or with a state other than pending, in_progress or completed.
 Each run of calls made one after another is one quiet stack of rows.
-A call's row has its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
-A running call has a quiet static mark so the conversation's footer remains its one animation.
-Its tool and what it was called on wrap in place rather than being cut with an ellipsis, so a long command never re-truncates as the panel resizes.
-What came back, an edit's diff and its pictures fold under the row.
+A call's row is one line: its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on cut with an ellipsis, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
+A running call has a quiet static mark so the end of the reply in progress remains the conversation's one animation.
+A long command never wraps into a column (the Overlord's phone, 2026-10-28, showed one PowerShell row over 14 lines); a tap, or Enter, opens the row to all it was called on, a command in a code card named by its shell, then what came back in a code card, an edit's diff and its pictures (`frontend/tests/phone-text.spec.ts`).
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
+The last message sent carries a receipt under it, small and always shown: Sent and how long ago, and Replied and how long ago once a reply to it has arrived (the Overlord, 2026-10-27: "this goes under my messages, not above the chat bar").
 A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly; a selection he clears copies nothing.
-A reply with text keeps Copy and its timestamp below the reply; a notice and a compaction keep Copy too, and every message's text can be selected.
+A reply with text keeps Copy below the reply, and only the reply that ends a turn, the last before his next message or an interrupt, shows when it arrived beside it, so a turn of many replies and tool rows prints its time once (`turnEnds` in `frontend/src/session-messages.ts`); a message the harness queued into its turn goes on with that turn.
+A notice and a compaction keep Copy too, and every message's text can be selected.
 Exact fleet wake markers, session-lock and wake-queue digests, and stamped background-run and helper notices draw as service lines.
 A genuine message that merely begins with `cfo`, such as `cfo drain please`, remains the user's message.
 The list scrolls as a page does, with the wheel, the page keys, and Shift with Page Up and Page Down as in a terminal.
@@ -1399,10 +1403,11 @@ Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and tou
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
 While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference; only Back to messages saves Modern (#1584).
 The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
-At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
-The indicator has no icon of its own and takes the harness's colour.
-When the session is not working the line keeps the time facts, and the fuller usage stays in the banner.
-The line ends with the session's context ring, which opens its statistics above itself with one label and its value on each line (`frontend/src/context-usage.tsx`).
+While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour, and its hint says how long it has worked (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
+Pointing at it, or reaching it with Tab, shows Stop on it, and a touch screen always shows it: a press sends Escape through the session's terminal link, as the box's Stop does, and shows no terminal.
+A goblin whose messages queue through the board, or one whose typing is held, shows the indicator without Stop.
+The indicator is drawn only while the conversation reaches its end.
+Under the conversation one compact line carries the harness's mark and the session's context ring, which opens its statistics above itself with one label and its value on each line (`frontend/src/context-usage.tsx`); the fuller usage stays in the banner.
 Above the message box an unboxed usage line opens the full stats in place: recorded session usage, available account quota and shared API-key spend, each labeled for its actual scope.
 Shared key spend is never presented as session cost, and available session usage stays readable when quota is unavailable.
 A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.

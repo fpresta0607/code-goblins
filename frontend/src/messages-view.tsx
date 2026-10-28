@@ -5,12 +5,14 @@ import { ContextUsage } from "./context-usage";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
 import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
+import { takesMessages } from "./messages";
 import { Notice } from "./notice";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
+import { ReplyWorking } from "./reply-working";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { SessionFooter } from "./session-footer";
-import { sessionStats, usageBanner } from "./session-usage";
+import { formatAge, sessionStats, usageBanner } from "./session-usage";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import "./messages-view.css";
@@ -44,10 +46,11 @@ const UNREAD = "The session's messages cannot be read";
 // text, kept in this browser.
 // query names the session as /api/messages takes it (messagesQuery), name is
 // whose replies they are, task is the goblin whose baby goblins its calls
-// open, absent for the CFO, and box is the message box under the
+// open, absent for the CFO, terminal is the key of the session's terminal,
+// whose link stops a turn, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, harness, model, effort, memory, isWorking, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, memory, isWorking, workingSince, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
+  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
   workingSince: string; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
@@ -379,11 +382,16 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   }, []);
   const stats = sessionStats({ usage: held.usage, model, effort, memory });
   const reading = usageBanner(harness, subscriptions, spend);
-  const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt" && message.source !== "notice")?.at ?? "";
   // What he sent the session himself, oldest first, which Up in the box
   // brings back as the terminal's history does.
   const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
-  const lastReplyAt = [...held.messages].reverse().find((message) => message.kind === "reply")?.at ?? "";
+  const ends = turnEnds(held.messages, isWorking);
+  // Under the last message sent, as a receipt: when it was sent (the
+  // Overlord, 2026-10-28: "Reply just now is not needed, you only need the
+  // sent three minutes ago").
+  const lastSent = held.messages.map((message) => message.kind === "prompt" && message.source !== "notice").lastIndexOf(true);
+  const receipt = lastSent < 0 ? "" : "Sent " + formatAge(held.messages[lastSent].at, now);
+  const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -397,10 +405,12 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
               page, its DOM and any selection in it as the window moves. */}
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
-            ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+            ...held.messages.slice(span.start, span.end).map((message, at) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+              harness={harness} isTurnEnd={ends.has(message.id)} receipt={span.start + at === lastSent ? receipt : ""}
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
+          {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} since={workingSince} />}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
@@ -412,7 +422,7 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>
     {(box || reading.banner) && <div className="composer-dock">
-      <SessionFooter harness={harness} ink={harnessInk(harness)} isWorking={isWorking} workingSince={workingSince} lastSentAt={lastSentAt} lastReplyAt={lastReplyAt} now={now} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
+      <SessionFooter hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
       {box?.(held.usage?.model || model, history, held.usage?.effort ?? "")}
     </div>}

@@ -19,20 +19,21 @@ const drawing = (page: Page, selector: string) => page.locator(selector).first()
 
 for (const session of SESSIONS) {
   test(`a ${session.name} session shows its own harness's mark and its own model`, async ({ page }) => {
-    // Arrange
-    await open(page, snapshot({}, { harness: session.harness, model: session.model }));
+    // Arrange: a session at rest, so its last reply ends its turn.
+    await open(page, snapshot({}, { harness: session.harness, model: session.model, phase: "settled" }));
 
     // Act
     await openGoblin(page);
 
-    // Assert: the panel's status line, the session line and the model's
-    // button draw the mark the board's card draws for this harness, named
-    // for it, and the button names the session's own model.
+    // Assert: the panel's status line, the row under the turn's last reply
+    // and the model's button draw the mark the board's card draws for this
+    // harness, named for it, and the button names the session's own model.
     const card = await drawing(page, ".card-harness .mark");
     expect(card, "the card has a mark").not.toBe("");
     expect(await drawing(page, ".panel-status .mark"), "the panel's status line").toBe(card);
-    expect(await drawing(page, ".messages-view:not([hidden]) .session-footer .mark"), "the session line").toBe(card);
-    await expect(page.locator(".messages-view:not([hidden]) .session-footer .mark")).toHaveAttribute("aria-label", session.name);
+    const replyMark = page.locator(".messages-view:not([hidden]) .message-reply-actions .mark");
+    expect(await drawing(page, ".messages-view:not([hidden]) .message-reply-actions .mark"), "the row under the last reply").toBe(card);
+    await expect(replyMark).toHaveAttribute("aria-label", session.name);
     const model = box(page).getByRole("button", { name: "Change model", exact: true });
     await expect(model).toHaveText(session.shown);
     expect(await model.evaluate((button) => button.querySelector(".mark path")?.getAttribute("d") ?? ""), "the model's button").toBe(card);

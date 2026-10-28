@@ -30,8 +30,14 @@
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
 .message-origin { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
 .message-queued { justify-self: end; padding: 0 .5em; border: 1px solid var(--glass-border); border-radius: 999px; font-size: .8125em; }
-.message-output, .call-result { max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-output { justify-self: stretch; }
+/* What a command printed scrolls a long line sideways inside its own box. */
+.message-output { justify-self: stretch; max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre; }
+/* A long message or print shows its first lines, fading out over Show more. */
+.long-text { min-width: 0; justify-self: stretch; }
+.long-text.folded { max-height: 6lh; overflow: hidden; mask-image: linear-gradient(to bottom, #000 55%, transparent); }
+.long-text-more { display: block; margin-top: .25em; font-size: .875em; }
+.message-bubble > .long-text-more { margin-inline-start: auto; }
+@media (pointer: coarse) { .long-text-more { min-height: 44px; } }
 /* A reply is plain prose with no bubble, as the agent wrote it, its inline
    code in Claude Code's blue. */
 .message-reply { gap: .75em; line-height: 1.6; }
@@ -43,34 +49,44 @@
 .message-words .message-table { margin: 0; }
 .message-words .message-table table { font-size: 1em; }
 .message-words .message-table th { font-size: .8125em; }
-/* A code block under a quiet header with its language and Copy. */
-.message-code { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #071015; }
-.message-code > figcaption { display: flex; align-items: center; justify-content: space-between; gap: 1em; min-height: 2em; padding: .15em .35em .15em .85em; border-bottom: 1px solid var(--border); color: var(--muted); font: .75em/1.4 var(--font-mono); }
-.message-code > pre { margin: 0; padding: .625em .875em; overflow-x: auto; color: #d8e9e2; font: .875em/1.55 var(--font-mono); white-space: pre; }
-.message-words .message-code code { padding: 0; background: none; color: inherit; font: inherit; }
-.code-copy { display: inline-flex; align-items: center; gap: .35em; min-height: 1.9em; padding: .1em .55em; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font: 600 1em/1 var(--font-body); }
-.code-copy:hover { background: var(--glass-bg-hover); color: var(--bone); }
-.code-copy .icon { width: 1.1em; height: 1.1em; }
-/* A run of calls as one quiet stack of rows: each its tool's icon, the verb,
-   what it was called on, and its outcome at the end; one that unfolds leads
+/* A code block, a command or what a call printed, in a rounded card under a
+   quiet header with its language, Copy and Expand. It shows its first lines
+   and scrolls a long line sideways inside itself; expanded, it is whole,
+   every line wrapped. */
+.message-code { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: #071015; }
+.message-code > figcaption { display: flex; align-items: center; gap: .25em; min-height: 2em; padding: .15em .35em .15em .85em; border-bottom: 1px solid var(--border); color: var(--muted); font: .75em/1.4 var(--font-mono); }
+.message-code > figcaption > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-code > pre { max-height: 16lh; margin: 0; padding: .625em .875em; overflow: auto; color: #d8e9e2; font: .875em/1.55 var(--font-mono); white-space: pre; }
+.message-code.expanded > pre { max-height: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-code code { padding: 0; background: none; color: inherit; font: inherit; }
+.code-copy, .code-expand { display: inline-flex; align-items: center; justify-content: center; gap: .35em; min-height: 1.9em; padding: .1em .55em; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font: 600 1em/1 var(--font-body); }
+.code-expand { width: 2.2em; height: 1.9em; padding: 0; }
+:is(.code-copy, .code-expand):hover { background: var(--glass-bg-hover); color: var(--bone); }
+:is(.code-copy, .code-expand) .icon { width: 1.1em; height: 1.1em; }
+@media (pointer: coarse) { .code-copy, .code-expand { min-height: 44px; } .code-expand { width: 44px; height: 44px; } }
+/* A run of calls as one quiet stack of rows: each one line of its tool's
+   icon, the verb, what it was called on cut with an ellipsis, and its
+   outcome at the end; one that unfolds leads
    with the Disclosure's caret, and one with nothing to unfold keeps the
    caret's room, so the rows line up. A baby goblin's row stays dashed, as on
    the mockup he chose. */
 .message-steps { display: grid; gap: 1px; min-width: 0; }
 .message-call, .disclosure.message-call { min-width: 0; border-radius: 8px; color: var(--muted); font-size: .9375em; }
-div.message-call, .message-baby, .disclosure.message-call > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .6em; padding: .3em .5em; }
+div.message-call, .message-baby, .disclosure.message-call > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .6em; padding: .3em .5em; }
 .disclosure.message-call > summary { grid-template-columns: auto auto minmax(0, 1fr) auto; font-family: inherit; font-size: inherit; cursor: pointer; border-radius: 8px; }
 .disclosure.message-call > summary:hover, div.message-call:hover { background: #ffffff08; }
 div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-call .icon, .message-baby .icon, .disclosure.message-call > summary > .icon { width: 1.1em; height: 1.1em; }
 .disclosure.message-call > summary > .icon:first-child { opacity: .6; }
-.call-icon { display: grid; padding-top: .2em; color: var(--muted); }
-.call-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .5em; min-width: 0; }
+.call-icon { display: grid; color: var(--muted); }
+/* A long command is cut with an ellipsis on the row's one line, as a phone
+   has no room for a column of it, and the row opens to all of it. */
+.call-what { display: flex; align-items: baseline; gap: 0 .5em; min-width: 0; overflow: hidden; white-space: nowrap; }
 .call-verb, .call-what > strong { flex: none; color: #dbe7ee; font-weight: 700; }
-/* A long command wraps in place rather than being cut with an ellipsis: the
-   row grows to what it ran, so nothing re-truncates as the panel resizes. */
-.call-subject { min-width: 0; color: var(--muted); font: .9em/1.6 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; }
-.call-end { display: flex; align-items: center; gap: .5em; padding-top: .15em; color: var(--muted); white-space: nowrap; }
+.call-what > strong { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.call-subject { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--muted); font: .9em/1.6 var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.call-end { display: flex; align-items: center; gap: .5em; color: var(--muted); white-space: nowrap; }
+.call-full { margin: 0; color: var(--muted); font: .875em/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .call-mark { display: grid; place-items: center; width: 1.1em; color: var(--muted); }
 .call-mark.done { color: rgb(78, 186, 101); }
 .call-mark.running { color: var(--blue); }
@@ -122,15 +138,12 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 @media (max-width: 40rem) {
   .conversation { padding: 12px 12px 10px; }
   .message-prompt { max-width: 88%; }
+  .disclosure.message-call > .disclosure-content { padding-left: .5em; }
 }
 
-/* The conversation's bottom corner: the harness's streaming animation while
-   it works, the stats beside it, and when it last wrote once it rests. Small
-   and quiet, part of the conversation, never a pill over it. */
+/* The conversation's bottom corner: the harness's mark and the session's
+   stats. Small and quiet, part of the conversation, never a pill over it. */
 .session-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .3em .9em; padding: 0 4px .2em; color: var(--muted); font-size: .8125em; }
-.session-working { display: inline-flex; align-items: center; gap: .5em; font-weight: 800; }
-.session-worked { white-space: nowrap; }
-.session-fact { white-space: nowrap; }
 /* Unreadable usage is the board's notice, at the height of the line's other
    facts: the line's own type, no padding above or below, and its edge drawn
    inside it, so saying it never makes the line taller or moves the box. */
@@ -168,6 +181,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-prompt:hover .message-actions, .message-prompt:focus-within .message-actions, .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }
 .message-actions .message-copy { position: static; opacity: 1; }
 .message-actions time { white-space: nowrap; }
+/* The last message sent says when it was sent and replied to, small under
+   it, like a receipt. */
+.message-receipt { margin: 0; color: var(--muted); font-size: .75em; }
 @media (hover: none) {
   .message-prompt .message-actions { visibility: hidden; opacity: 0; }
   .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }

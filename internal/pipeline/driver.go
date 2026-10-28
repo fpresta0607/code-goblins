@@ -26,6 +26,9 @@ var terminalRunStatus = map[string]bool{"completed": true, "failed": true, "canc
 type Reader struct {
 	Commands execx.Runner
 	Root     string
+	// Custody keeps CanSteer's verdicts for a reader that lives as long as
+	// the board; a nil one checks custody on every read.
+	Custody *CustodyCache
 }
 
 func DefaultRoot() (string, error) {

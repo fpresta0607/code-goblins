@@ -1,0 +1,14 @@
+/* The end of the reply in progress (reply-working.tsx), where a finished
+   reply's time sits, with Stop over the dither while he points at it or the
+   keyboard is on it; a touch screen, which cannot point, always shows it. */
+.reply-working { display: flex; align-items: center; margin-top: -.375em; }
+.reply-stop { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; box-shadow: none; }
+.reply-stop .working-indicator { font-size: 20px; transition: opacity .12s ease; }
+.reply-stop > .icon { position: absolute; width: 20px; height: 20px; color: var(--bone); opacity: 0; transition: opacity .12s ease; }
+button.reply-stop:is(:hover, :focus-visible) { background: var(--glass-bg-hover); }
+button.reply-stop:is(:hover, :focus-visible) .working-indicator { opacity: .2; }
+button.reply-stop:is(:hover, :focus-visible) > .icon { opacity: 1; }
+@media (pointer: coarse) {
+  button.reply-stop .working-indicator { opacity: .35; }
+  button.reply-stop > .icon { opacity: 1; }
+}
