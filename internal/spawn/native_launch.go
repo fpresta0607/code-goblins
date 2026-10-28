@@ -76,6 +76,10 @@ const maxDialogMoves = 8
 
 var errNativeStartupDialog = errors.New("a startup dialog interrupted instruction delivery")
 
+// ErrInTurn says a delivery that refuses a harness in a turn found it in one
+// just before typing, so nothing was typed.
+var ErrInTurn = errors.New("its harness was in a turn")
+
 // launchNativeHost starts the harness in a native terminal of its own, the
 // task's id, and returns its host's record, the zero record when it launched
 // none. It is the last step of a start's turn: from here the host counts as a
@@ -512,6 +516,9 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
 		}
 		busy = screens.IsWorking(before)
+		if busy && s.ShouldRefuseTurn {
+			return fmt.Errorf("spawn: native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, ErrInTurn)
+		}
 		submitted = time.Now()
 		atPress, err = s.submitNative(ctx, record, screens, instruction, launchSettle, recoveries > 0)
 		if err == nil {

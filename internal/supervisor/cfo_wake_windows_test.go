@@ -147,6 +147,31 @@ func TestNoWakeIsTypedMidTurnOrOverUnsentText(t *testing.T) {
 	}
 }
 
+// A CFO that starts a turn after the wake's two idle readings, and shows it
+// on the reading its delivery takes just before typing, is typed nothing and
+// keeps its records for the next look: the line was once submitted into the
+// turn, and every such line reached the board as one nothing proves taken
+// (#1468).
+func TestNoWakeIsTypedWhenTheDeliveryFindsTheCFOInATurn(t *testing.T) {
+	inTurn := []string{"• Working (0s • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}
+	s, stateDir, _, _ := typedWakeCFO(t, "codex", idleCodexCFO, idleCodexCFO, inTurn)
+	s.Options.CFO.Deliver = nil
+	queueWake(t, stateDir, "notify", "cg-wakes", "blocked: merge or hold?")
+
+	err := s.wakeCFO(context.Background(), time.Now())
+
+	if err != nil {
+		t.Fatalf("wake = %v, want nothing typed and nothing reported", err)
+	}
+	if covered, _, err := readCFOWoken(stateDir); err != nil || covered != 0 {
+		t.Fatalf("records covered up to %d, %v; want none covered, since nothing was typed", covered, err)
+	}
+	skips, err := fsx.ReadLines(filepath.Join(stateDir, cfoWakeSkipsFile))
+	if err != nil || len(skips) != 1 || !strings.Contains(skips[0], whyInTurn) {
+		t.Fatalf("skips = %q, %v; want the wake recorded as left for the turn's end", skips, err)
+	}
+}
+
 func TestNoPRWakeIsTypedIntoAReplacedNativeRecipient(t *testing.T) {
 	for agent, screen := range map[string][]string{"codex": idleCodexCFO, "pi": idlePiCFO} {
 		t.Run(agent, func(t *testing.T) {
