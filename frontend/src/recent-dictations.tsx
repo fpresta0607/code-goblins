@@ -16,8 +16,8 @@ const MARGIN_PX = 8;
 // is told of a choice of it. It reads the list as it opens, and again as its
 // window takes the focus, with what was dictated in another window meanwhile.
 // It opens in the page's top layer, above anchor and right-aligned with it
-// while the window's edge allows, never past either edge of the window, as
-// tall as the window allows above anchor and scrolling inside itself
+// while the edge allows, never past either side of anchor's terminal or of
+// the window, as tall as the window allows above anchor and scrolling inside itself
 // beyond that, so no panel's edge or overflow clips it at any size (the
 // Overlord, 2026-10-27: "the dictation Copy or history pane doesn't go over
 // the top of the container, it gets clipped at the very top"). Modern Chat's
@@ -36,7 +36,10 @@ export function RecentDictations({ where, anchor, model, look = "card", onPaste,
     shown.showPopover();
     const place = () => {
       const box = under.getBoundingClientRect();
-      shown.style.right = Math.max(MARGIN_PX, Math.min(innerWidth - box.right, innerWidth - shown.offsetWidth - MARGIN_PX)) + "px";
+      const frame = (under.closest(".native-terminal") ?? document.documentElement).getBoundingClientRect();
+      const left = Math.max(0, frame.left) + MARGIN_PX, right = Math.min(innerWidth, frame.right) - MARGIN_PX;
+      shown.style.maxWidth = Math.max(0, right - left) + "px";
+      shown.style.right = innerWidth - Math.max(left + shown.offsetWidth, Math.min(box.right, right)) + "px";
       shown.style.bottom = innerHeight - box.top + MARGIN_PX + "px";
       shown.style.maxHeight = Math.max(0, box.top - 2 * MARGIN_PX) + "px";
     };
