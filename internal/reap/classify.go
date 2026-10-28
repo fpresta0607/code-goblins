@@ -393,6 +393,14 @@ type WorktreeDir struct {
 	// read. It is what tells a live goblin's extra worktree from an older
 	// directory that merely shares the start of its name.
 	Created time.Time
+	// InUse says why a live session may still be using a worktree its
+	// project lists and no task owns, empty when nothing shows one is. A
+	// session the Overlord runs in a worktree a harness's own tooling made
+	// has no record of this home, so a process working there and its last
+	// change are the only evidence of it (Collector.markWorktreesInUse). The
+	// janitor keeps such a worktree and this sweep holds it, both for this
+	// reason.
+	InUse string
 }
 
 // Inventory is the cross-referenced evidence one classification runs over. It
@@ -782,6 +790,7 @@ func classifyWorktrees(inv Inventory, supervised map[int]bool, tasks map[string]
 			Detail:     detail,
 			Action:     action,
 		}
+		finding.refuseAbsolutely(worktree.InUse)
 		finding.refuseUntilEstablished(unplacedAgentHold(inv), unplacedAgentKey(inv))
 		// A goblin whose pane died mid-work leaks its worktree just as surely
 		// as a finished one, so it is reported; it is held because the task
