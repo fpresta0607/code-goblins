@@ -1,0 +1,17 @@
+/* A plan a call wrote, as a quiet card in the reply: a hairline edge on the
+   conversation's surface, a mark for each step's state and nothing that
+   animates. */
+.plan-card { display: grid; gap: .5em; min-width: 0; margin: .25em 0; padding: .7em .9em; border: 1px solid var(--glass-border); border-radius: 12px; background: #ffffff05; }
+.plan-card-head { display: flex; align-items: center; gap: .5em; margin: 0; color: var(--muted); font-size: .875em; }
+.plan-card-head .icon { width: 1.1em; height: 1.1em; }
+.plan-card-title { color: #e3ecef; font-weight: 600; }
+.plan-card-count { margin-left: auto; font-variant-numeric: tabular-nums; }
+.plan-steps { display: grid; gap: .35em; margin: 0; padding: 0; list-style: none; }
+.plan-step { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .6em; color: var(--muted); }
+.plan-mark { display: grid; place-items: center; width: 1.05em; height: 1.05em; margin-top: .2em; border: 1.5px solid var(--muted); border-radius: 50%; }
+.plan-mark .icon { width: .8em; height: .8em; }
+.plan-text { min-width: 0; overflow-wrap: anywhere; }
+.plan-step.in_progress { color: #f4fbff; font-weight: 600; }
+.plan-step.in_progress .plan-mark { border-color: var(--mint); background: radial-gradient(circle, var(--mint) 0 38%, transparent 40%); }
+.plan-step.completed .plan-text { text-decoration: line-through; text-decoration-color: #a3b3c280; }
+.plan-step.completed .plan-mark { border-color: var(--mint); background: var(--mint); color: #071015; }

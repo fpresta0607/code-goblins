@@ -714,3 +714,91 @@ func TestFleetProducerMessagesAreNotOverlordPrompts(t *testing.T) {
 		}
 	}
 }
+
+// A todo list a Claude Code call wrote reads as the call's plan: each
+// step's words on one line and its state, and a state the board does not
+// draw read as pending.
+func TestATodoListACallWroteIsItsPlan(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home,
+		prompted("u1", "Fix the swipe"),
+		answer("a1", "msg_1", useBlock("toolu_1", "TodoWrite", object{"todos": []object{
+			{"content": "Read the touch handlers", "status": "completed", "activeForm": "Reading the touch handlers"},
+			{"content": "Hand the swipe to the history\nand keep Paste", "status": "in_progress", "activeForm": "Handing the swipe over"},
+			{"content": "Run the phone spec", "status": "blocked", "activeForm": "Running the phone spec"},
+		}})),
+	)
+	reader := Reader{Home: home}
+
+	// Act
+	page, _, err := reader.MessagePage(path, -1)
+
+	// Assert
+	want := []PlanStep{{"Read the touch handlers", PlanCompleted}, {"Hand the swipe to the history", PlanInProgress}, {"Run the phone spec", PlanPending}}
+	if err != nil || len(page.Messages) != 2 || !reflect.DeepEqual(page.Messages[1].Blocks[0].Plan, want) {
+		t.Fatalf("MessagePage = %+v, %v; want the call's plan %+v", page.Messages, err, want)
+	}
+}
+
+// A todo list keeps its plan only once Claude Code wrote it: a TodoWrite
+// that failed, was denied or was interrupted is its row with its outcome,
+// as Claude Code stored no list.
+func TestATodoListKeepsItsPlanOnlyOnceWritten(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		result  object
+		state   string
+		hasPlan bool
+	}{
+		{"written", answered("u1", "toolu_1", "Todos have been modified successfully.", object{"oldTodos": []object{}, "newTodos": []object{{"content": "Fix the swipe", "status": "in_progress", "activeForm": "Fixing the swipe"}}}, nil), CallDone, true},
+		{"failed", failedResult("u1", "toolu_1", "<tool_use_error>InputValidationError: TodoWrite failed due to the following issue:\nThe required parameter `todos[0].activeForm` is missing</tool_use_error>"), CallFailed, false},
+		{"denied", answered("u1", "toolu_1", "Permission for this action was denied.", "Error: Permission denied", object{"permissionDecision": object{"decision": "reject", "source": "config"}, "toolDenialKind": "automode-blocked"}), CallDenied, false},
+		{"interrupted", answered("u1", "toolu_1", "The user doesn't want to proceed with this tool use.", object{"interrupted": true}, object{"toolDenialKind": "interrupted"}), CallInterrupted, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := conversation(t, home,
+				answer("a1", "msg_1", useBlock("toolu_1", "TodoWrite", object{"todos": []object{{"content": "Fix the swipe", "status": "in_progress"}}})),
+				test.result,
+			)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil || len(page.Messages) != 1 || len(page.Messages[0].Blocks) != 1 {
+				t.Fatalf("MessagePage = %+v, %v; want one call", page.Messages, err)
+			}
+			call := page.Messages[0].Blocks[0]
+			if call.State != test.state || (len(call.Plan) != 0) != test.hasPlan {
+				t.Fatalf("call = %+v; want state %q and a plan %v", call, test.state, test.hasPlan)
+			}
+		})
+	}
+}
+
+// Each harness's plan is read from its own tool's shape alone: Claude Code's
+// TodoWrite from its todos object, and Codex's update_plan from its plan in
+// the arguments Codex records as a JSON string.
+func TestAPlanIsReadOnlyFromItsOwnToolsShape(t *testing.T) {
+	for _, test := range []struct{ name, tool, input string }{
+		{"a TodoWrite holding a plan", "TodoWrite", `{"plan":[{"step":"Fix the swipe","status":"pending"}]}`},
+		{"a TodoWrite with its todos as a string", "TodoWrite", `"{\"todos\":[{\"content\":\"Fix the swipe\",\"status\":\"pending\"}]}"`},
+		{"an update_plan holding todos", "update_plan", `"{\"todos\":[{\"content\":\"Fix the swipe\",\"status\":\"pending\"}]}"`},
+		{"an update_plan with its arguments as an object", "update_plan", `{"plan":[{"step":"Fix the swipe","status":"pending"}]}`},
+		{"another tool holding todos", "Write", `{"todos":[{"content":"Fix the swipe","status":"pending"}]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			plan := callPlan(test.tool, []byte(test.input))
+
+			// Assert
+			if plan != nil {
+				t.Fatalf("callPlan(%q, %s) = %+v; want no plan", test.tool, test.input, plan)
+			}
+		})
+	}
+}

@@ -174,3 +174,18 @@ test("only the last reply of each turn ends it, and the newest only once the ses
   assert.deepEqual([...working].sort(), ["m5", "m7"]);
   assert.deepEqual([...turnEnds([], false)], []);
 });
+
+test("a call's plan keeps each step's words and state, and a state the board does not draw is refused", () => {
+  // Arrange
+  const call = (status: string) => served(4, { kind: "reply", source: undefined, text: undefined, blocks: [
+    { kind: "call", tool: "TodoWrite", state: "done", plan: [{ text: "Read the touch handlers", status: "completed" }, { text: "Fix the swipe", status }] },
+  ] });
+
+  // Act
+  const [reply] = parseMessages([call("in_progress")]);
+
+  // Assert
+  assert.deepEqual(reply.blocks[0].plan, [{ text: "Read the touch handlers", status: "completed" }, { text: "Fix the swipe", status: "in_progress" }]);
+  assert.deepEqual(parseMessages([served(5, { kind: "reply", source: undefined, blocks: [{ kind: "text", text: "Done." }] })])[0].blocks[0].plan, []);
+  assert.throws(() => parseMessages([call("blocked")]));
+});
