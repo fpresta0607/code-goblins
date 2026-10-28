@@ -277,10 +277,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       applyEngine(asked.setting, asked.value, false, chosen);
       return;
     }
-    if (!savesThroughBoard && !holdsForTurn && !sendID.current) {
+    if (!savesThroughBoard && !sendID.current && (isAsking || !holdsForTurn)) {
       // A screen of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
-      // he chose: the list's Enter confirms.
+      // he chose: the list's Enter confirms. It answers that screen even
+      // while the session works, and is never held as a message.
       if (isAsking) {
         if (live?.paste(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
         return;
