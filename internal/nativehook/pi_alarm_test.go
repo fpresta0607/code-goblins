@@ -54,6 +54,7 @@ func TestAPiDriverHeldPastItsBoundSaysTheBoundEndedIt(t *testing.T) {
 	}
 
 	// Act
+	// stall-accepted: the bound is meant to run out, since the driver never ends.
 	_, _, err = runPiDriver(time.Second, node, driver)
 
 	// Assert
