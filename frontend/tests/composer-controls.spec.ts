@@ -38,8 +38,7 @@ for (const who of ["CFO", "goblin"] as const) {
 
       // Act: Classic opens the terminal; Back to messages itself chooses Modern
       // again, as it saves Modern while it steps out.
-      await composer.getByRole("button", { name: "Style: modern", exact: true }).click();
-      await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).click();
+      await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).click();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
       expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
       await page.getByRole("button", { name: "Back to messages", exact: true }).click();

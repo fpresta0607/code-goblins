@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "./Icon";
 import "./phone-menu.css";
 
@@ -21,18 +21,26 @@ export function PhoneMenu({ children }: { children: ReactNode }) {
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, [isOpen]);
+  // A choice the box draws here through a portal reaches the sheet in the
+  // page, though not through React's tree, so the sheet listens in the page.
+  useEffect(() => {
+    const shown = sheet.current;
+    if (!isOpen || !shown) return;
+    const chosen = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (target.closest("button, a") && !target.closest(".afk-toggle")) setOpen(false);
+    };
+    shown.addEventListener("click", chosen);
+    return () => shown.removeEventListener("click", chosen);
+  }, [isOpen]);
   const keys = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Escape") return;
     event.stopPropagation();
     setOpen(false);
     button.current?.focus();
   };
-  const chosen = (event: MouseEvent<HTMLDivElement>) => {
-    const target = event.target as Element;
-    if (target.closest("button, a") && !target.closest(".afk-toggle")) setOpen(false);
-  };
   return <div className="phone-menu">
     <button ref={button} type="button" className="phone-menu-button" aria-label="More" aria-haspopup="true" aria-expanded={isOpen} onClick={() => setOpen((prior) => !prior)}><Icon name="more" /></button>
-    {isOpen && <div ref={sheet} className="popup-surface phone-menu-sheet" role="group" aria-label="More" onKeyDown={keys} onClick={chosen}>{children}</div>}
+    {isOpen && <div ref={sheet} className="popup-surface phone-menu-sheet" role="group" aria-label="More" onKeyDown={keys}>{children}</div>}
   </div>;
 }

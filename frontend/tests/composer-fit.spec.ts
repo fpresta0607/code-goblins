@@ -127,7 +127,10 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       relay.say({ type: "screen", asking: false, open: false, working: false, submission: "", mode: "auto mode" });
       const model = box(page).getByRole("button", { name: "Change model" });
       await expect(model).toHaveText("Opus 5.5");
-      await expect(box(page).getByRole("button", { name: /^Mode: / })).toBeVisible();
+      // On a phone the chat style and the mode are in the panel's "..." menu
+      // (tests/phone-layout.spec.ts), so the row keeps what a thumb uses.
+      if (isTouch) await expect(box(page).getByRole("button", { name: /^(Mode|Style): / })).toHaveCount(0);
+      else await expect(box(page).getByRole("button", { name: /^Mode: / })).toBeVisible();
 
       // Act
       const row = await box(page).locator(".composer-input").evaluate((input) => {
@@ -144,7 +147,7 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       });
 
       // Assert
-      expect(row.map((control) => control.name).slice(0, -1)).toEqual(["Add files", "Style: modern", "Mode: auto mode. Shift+Tab changes it", "Change model", "Change effort", isTouch ? "Dictate" : "Hold to dictate"]);
+      expect(row.map((control) => control.name).slice(0, -1)).toEqual(isTouch ? ["Add files", "Change model", "Change effort", "Dictate"] : ["Add files", "Style: modern", "Mode: auto mode. Shift+Tab changes it", "Change model", "Change effort", "Hold to dictate"]);
       expect(["Send", "Stop"], "Send, or Stop while the session works").toContain(row.at(-1)?.name);
       expect(row.filter((control) => !control.isInside).map((control) => control.name), "every control inside the box's border, under the words").toEqual([]);
       expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);

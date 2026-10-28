@@ -44,7 +44,7 @@ for (const width of [360, 393, 430]) {
       await more(page).click();
 
       // Assert: the selector, the box's own menu and the mode are there.
-      for (const name of ["Chat", "Task", "Modern", "Classic", "Speech history", "Mode: Auto mode"]) await expect(sheet(page).getByRole("button", { name, exact: true })).toBeVisible();
+      for (const name of ["Chat", "Task", "Modern", "Classic", "Speech history", "Mode: Auto"]) await expect(sheet(page).getByRole("button", { name, exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
 
       // Act: a choice closes it.
