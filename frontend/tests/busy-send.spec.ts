@@ -124,6 +124,7 @@ test("Cancel takes a message held for the CFO's turn back, and its bubble goes",
   });
   await page.keyboard.press("Control+Alt+1");
   await expect(page.locator("#panel-title")).toHaveText("CFO");
+  await expect.poll(() => relay.views).toBeGreaterThan(0);
   relay.say({ type: "screen", asking: false, open: false, working: true });
   await expect(page.locator(".reply-working")).toBeVisible();
   await field(page, "CFO").fill("stop and wait for me");
@@ -240,6 +241,33 @@ test("a screen of the harness's own that is no question, such as a usage limit's
 
   // Assert
   await expect.poll(() => posts.map((post) => post.text)).toEqual(["one", "two"]);
+  expect(typed(relay)).toBe("");
+});
+
+// Words left on the session's prompt line, typed in its terminal or put back
+// when it was stopped, would join anything typed now and go in with it as one
+// message (the Overlord, 2026-10-28: "it's sending and appending messages
+// together that were sent previously"), so the box holds the message in the
+// queue and types nothing onto them.
+test("a prompt line holding words never sent holds a message in the queue and types nothing", async ({ page }) => {
+  // Arrange
+  const posts: Posted[] = [];
+  const relay = await open(page, snapshot({}, { phase: "settled" }));
+  await page.route("**/api/actions", (route) => {
+    const body = route.request().postDataJSON() as Partial<Posted>;
+    posts.push({ id: body.id ?? "", kind: body.kind ?? "", target: body.target ?? "", text: body.text ?? "" });
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false, submission: "", draft: true });
+
+  // Act
+  await field(page).fill("merge the train");
+  await field(page).press("Enter");
+
+  // Assert
+  await expect.poll(() => posts.map((post) => post.text)).toEqual(["merge the train"]);
+  await expect(field(page)).toHaveValue("");
   expect(typed(relay)).toBe("");
 });
 

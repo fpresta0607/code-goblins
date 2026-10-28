@@ -272,10 +272,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // together that were sent previously").
   // It holds on what the harness's own screen says, in a turn or showing a
   // screen of its own, not on the task being under way, which a goblin's is
-  // while its harness waits at an empty prompt. A box with no conversation,
-  // Classic's or the deck's, holds at such a screen too, through the board's
-  // queue it lists, and in a turn types into the harness's own queue.
-  const holdsForTurn = !isAsking && (isScreenOpen || hasConversation && !!live?.screen?.isWorking);
+  // while its harness waits at an empty prompt. A prompt line that holds words
+  // never sent, typed in the terminal itself or put back when the harness was
+  // stopped, holds it too, since typed now it would join them. A box with no
+  // conversation, Classic's or the deck's, holds at such a screen or line too,
+  // through the board's queue it lists, and in a turn types into the
+  // harness's own queue.
+  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && !!live?.screen?.isWorking);
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
   useEffect(() => {

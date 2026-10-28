@@ -133,7 +133,8 @@ export function parseHeld(text: string): string | null {
 // is running. panel is what is open, read by the relay so the board offers it
 // as a list (internal/harness/panel.go), and null while nothing is; mode is
 // the permission mode the composer's footer names, which Shift+Tab cycles,
-// and empty while none shows.
+// and empty while none shows. hasDraft says the prompt line holds words never
+// sent, which anything typed now would join.
 export interface ScreenState {
   isAsking: boolean;
   isOpen: boolean;
@@ -142,6 +143,7 @@ export interface ScreenState {
   submission: string;
   panel: HarnessPanel | null;
   mode: string;
+  hasDraft: boolean;
 }
 
 // What a harness draws in its input line's place: the rows that ask or show,
@@ -173,10 +175,10 @@ export function parseScreen(text: string): ScreenState | null {
   try {
     const value: unknown = JSON.parse(text);
     if (typeof value !== "object" || value === null) return null;
-    const { type, asking, open, working, submission, started, panel, mode } = value as Record<string, unknown>;
+    const { type, asking, open, working, submission, started, panel, mode, draft } = value as Record<string, unknown>;
     const parsedPanel = parsePanel(panel);
-    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") && (mode === undefined || typeof mode === "string") && parsedPanel !== undefined
-      ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true, panel: parsedPanel, mode: mode ?? "" } : null;
+    return type === "screen" && typeof asking === "boolean" && typeof open === "boolean" && typeof working === "boolean" && typeof submission === "string" && (started === undefined || typeof started === "boolean") && (mode === undefined || typeof mode === "string") && (draft === undefined || typeof draft === "boolean") && parsedPanel !== undefined
+      ? { isAsking: asking, isOpen: open, isWorking: working, submission, hasStarted: started === true, panel: parsedPanel, mode: mode ?? "", hasDraft: draft === true } : null;
   } catch {
     return null;
   }
