@@ -23,7 +23,7 @@ test("the conversation's bottom line carries the stats, not a wall of numbers, a
   const line = footer(page);
   await expect(line).toBeVisible();
   await expect(line).not.toContainText(/Sent|Replied|Working/);
-  await expect(page.locator('[data-message="m0"] .message-receipt')).toHaveText(/^Sent .+ · Replied .+$/);
+  await expect(page.locator('[data-message="m0"] .message-receipt')).toHaveText(/^Sent [^·]+$/);
   await expect(page.locator(".reply-working")).toHaveCount(0);
   // The fuller numbers live on in the banner, not on this line.
   await expect(line).not.toContainText("$3.209");

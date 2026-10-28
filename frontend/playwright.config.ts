@@ -13,7 +13,7 @@ const STEPPED_IN = ["terminal-keys", "terminal-input", "terminal-held", "termina
 // shards never install WebKit and the Media Foundation it needs on a Windows
 // runner: that install waited 29 minutes on Windows Update on 2026-10-22, in
 // every shard, though only one shard runs this file (#1406).
-const IPHONE = ["**/iphone-terminal.spec.ts"];
+const IPHONE = ["**/iphone-terminal.spec.ts", "**/iphone-jump.spec.ts"];
 
 export default defineConfig<{ isSteppedIn: boolean }>({
   testDir: "./tests",

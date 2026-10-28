@@ -338,6 +338,25 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     };
   }, [copySelection]);
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  // The newest message wholly in view is the end, though the list's own end
+  // lies further down, under its padding, the working dither and any queued
+  // message, and however the view came to show it (the Overlord,
+  // 2026-10-28: "Jump to latest on mobile doesn't go away"). The mark sits
+  // right after the newest message while the page holds it.
+  const endMark = useRef<HTMLDivElement>(null);
+  const reachesEnd = spans[spans.length - 1].end === held.messages.length;
+  const isEndMarked = reachesEnd && held.messages.length > 0;
+  useEffect(() => {
+    const box = list.current, mark = endMark.current;
+    if (!box || !mark) return;
+    const watch = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return;
+      following.current = true;
+      setAtEnd(true);
+    }, { root: box, rootMargin: "0px 0px " + AT_END_PX + "px 0px" });
+    watch.observe(mark);
+    return () => watch.disconnect();
+  }, [isEndMarked]);
   const jump = () => {
     const box = list.current;
     if (!box) return;
@@ -386,12 +405,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // brings back as the terminal's history does.
   const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
   const ends = turnEnds(held.messages, isWorking);
-  // Under the last message sent, as a receipt: when it was sent, and when
-  // the newest reply after it arrived.
+  // Under the last message sent, as a receipt: when it was sent (the
+  // Overlord, 2026-10-28: "Reply just now is not needed, you only need the
+  // sent three minutes ago").
   const lastSent = held.messages.map((message) => message.kind === "prompt" && message.source !== "notice").lastIndexOf(true);
-  const repliedAt = held.messages.slice(lastSent + 1).reverse().find((message) => message.kind === "reply")?.at ?? "";
-  const receipt = lastSent < 0 ? "" : "Sent " + formatAge(held.messages[lastSent].at, now) + (repliedAt ? " · Replied " + formatAge(repliedAt, now) : "");
-  const reachesEnd = spans[spans.length - 1].end === held.messages.length;
+  const receipt = lastSent < 0 ? "" : "Sent " + formatAge(held.messages[lastSent].at, now);
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -406,9 +424,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
             ...held.messages.slice(span.start, span.end).map((message, at) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-              isTurnEnd={ends.has(message.id)} receipt={span.start + at === lastSent ? receipt : ""}
+              harness={harness} isTurnEnd={ends.has(message.id)} receipt={span.start + at === lastSent ? receipt : ""}
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
           ])}
+          {isEndMarked && <div ref={endMark} className="conversation-end" aria-hidden="true" />}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} since={workingSince} />}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
@@ -422,7 +441,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>
     {(box || reading.banner) && <div className="composer-dock">
-      <SessionFooter harness={harness} hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
+      <SessionFooter hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
       {box?.(held.usage?.model || model, history, held.usage?.effort ?? "")}
     </div>}

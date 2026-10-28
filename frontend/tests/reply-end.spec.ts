@@ -51,7 +51,7 @@ test("a finished turn of many replies shows its time once, at its end, and his l
 
   // The receipt is under his last message only, and the line above the box
   // carries none of it.
-  await expect(row(page, "p4").locator(".message-receipt")).toHaveText(/^Sent .+ · Replied .+$/);
+  await expect(row(page, "p4").locator(".message-receipt")).toHaveText(/^Sent [^·]+$/);
   await expect(row(page, "p0").locator(".message-receipt")).toHaveCount(0);
   await expect(page.locator(".session-footer")).not.toContainText(/Sent|Replied|Working/);
 });
@@ -153,3 +153,47 @@ for (const width of [360, 393, 430]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
   });
 }
+
+// The Overlord, 2026-10-28: "Copy should come after the timestamp. The icon
+// should come after the timestamp", and "Don't need the Claude icon by the
+// dither". Under the last reply of a turn the row reads its time, Copy, then
+// the harness's mark, and the line above the box carries no mark.
+test("under a turn's last reply the row reads its time, then Copy, then the harness's mark, and no mark is above the box", async ({ page }) => {
+  // Arrange and Act
+  await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+
+  // Assert
+  const parts = await row(page, "r5").locator(".message-reply-actions > *").evaluateAll((elements) => elements.map((element) => element.tagName === "TIME" ? "time" : element.classList.contains("message-copy") ? "copy" : element.classList.contains("mark") ? "mark" : element.className));
+  expect(parts).toEqual(["time", "copy", "mark"]);
+  await expect(row(page, "r2").locator(".message-reply-actions .mark")).toHaveCount(0);
+  await expect(page.locator(".session-footer .mark")).toHaveCount(0);
+});
+
+// The Overlord, 2026-10-28: "Jump to latest on mobile doesn't go away". It
+// shows while he reads up and leaves once the newest message is in view,
+// however the view came to show it.
+test("on a phone Jump to latest shows while he reads up and leaves once the newest message is in view", async ({ page }) => {
+  // Arrange: a long conversation on a phone.
+  await page.setViewportSize({ width: 393, height: 852 });
+  const long = { messages: Array.from({ length: 60 }, (_, seq) => seq % 2 ? reply(seq, [{ kind: "text", text: "Answer " + seq + " runs over a line or two of plain prose for the phone." }]) : { id: "p" + seq, seq, at: minute(seq), kind: "prompt", source: "overlord", text: "Question " + seq }), more: false };
+  await open(page, snapshot({}, { phase: "settled" }), "", long);
+  await openGoblin(page);
+  const jumpButton = page.getByRole("button", { name: "Jump to latest", exact: true });
+  const log = page.getByRole("log");
+  await expect(log).toContainText("Answer 59");
+
+  // Act: he reads up.
+  await log.evaluate((element) => { element.scrollTop = 0; });
+
+  // Assert
+  await expect(jumpButton).toBeVisible();
+
+  // Act: he scrolls back until the newest message is wholly in view, short
+  // of the list's own end under its padding.
+  await log.evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight - 36; });
+
+  // Assert: the newest message is in view and the button is gone.
+  await expect(log.locator('[data-message="r59"]')).toBeInViewport();
+  await expect(jumpButton).toHaveCount(0);
+});

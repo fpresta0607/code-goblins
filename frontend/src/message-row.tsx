@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { copyText as copyToClipboard } from "./clipboard";
 import { Disclosure } from "./Disclosure";
+import { HarnessMark } from "./harness-mark";
 import { Icon } from "./Icon";
 import { LongText } from "./long-text";
 import { MessageCall } from "./message-call";
@@ -33,13 +34,15 @@ function sentAt(at: string): { exact: string; text: string } {
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
 // he taps away. Its words stay selectable. A reply shows when it arrived only
-// where it ends its turn (isTurnEnd), and the last message sent carries its
-// receipt under it: when it was sent and replied to.
+// where it ends its turn (isTurnEnd), its time, then Copy, then the mark of
+// the session's harness (the Overlord, 2026-10-28: "Copy should come after
+// the timestamp. The icon should come after the timestamp"), and the last
+// message sent carries its receipt under it, when it was sent.
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
-export const MessageRow = memo(function MessageRow({ message, task, picture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
-  message: SessionMessage; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+export const MessageRow = memo(function MessageRow({ message, task, harness, picture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
+  message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
   openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean; receipt: string;
 }) {
   const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
@@ -70,7 +73,11 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
         : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{inlineElements(part.text.trim().split("\n")[0])}</span></>}>
           <MessageText text={part.text} />
         </Disclosure>)}
-    {(copy || isTurnEnd && when.text) && <div className="message-reply-actions">{copy}{isTurnEnd && when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}</div>}
+    {(copy || isTurnEnd && when.text) && <div className="message-reply-actions">
+      {isTurnEnd && when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}
+      {copy}
+      {isTurnEnd && harness && <HarnessMark harness={harness} />}
+    </div>}
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";
