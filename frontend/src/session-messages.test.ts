@@ -153,3 +153,18 @@ test("the message text steps a pixel at a time between the terminals' bounds and
   assert.equal(messageFontFor("-", MIN_MESSAGE_FONT), MIN_MESSAGE_FONT);
   assert.equal(messageFontFor("a", 16), null);
 });
+
+test("a call's plan keeps each step's words and state, and a state the board does not draw is refused", () => {
+  // Arrange
+  const call = (status: string) => served(4, { kind: "reply", source: undefined, text: undefined, blocks: [
+    { kind: "call", tool: "TodoWrite", state: "done", plan: [{ text: "Read the touch handlers", status: "completed" }, { text: "Fix the swipe", status }] },
+  ] });
+
+  // Act
+  const [reply] = parseMessages([call("in_progress")]);
+
+  // Assert
+  assert.deepEqual(reply.blocks[0].plan, [{ text: "Read the touch handlers", status: "completed" }, { text: "Fix the swipe", status: "in_progress" }]);
+  assert.deepEqual(parseMessages([served(5, { kind: "reply", source: undefined, blocks: [{ kind: "text", text: "Done." }] })])[0].blocks[0].plan, []);
+  assert.throws(() => parseMessages([call("blocked")]));
+});

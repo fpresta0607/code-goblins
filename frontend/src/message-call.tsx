@@ -4,6 +4,7 @@ import { Disclosure } from "./Disclosure";
 import { babyName } from "./fleet-tree";
 import { Icon, type IconName } from "./Icon";
 import { MessagePictures } from "./message-pictures";
+import { PlanCard } from "./plan-card";
 import type { CallState, MessageBlock } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
@@ -18,8 +19,9 @@ const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", do
 // edit's diff and its pictures fold under the row in the board's one
 // Disclosure, which mounts them only while it is open. A call that started a
 // sub-agent is its baby goblin's row instead, whose Open shows that baby
-// goblin's terminal while its goblin's tree holds it. Whether its fold is
-// open is the view's to keep (open, onOpenChange).
+// goblin's terminal while its goblin's tree holds it, and a call that wrote
+// a plan is that plan's checklist card. Whether its fold is open is the
+// view's to keep (open, onOpenChange).
 export function MessageCall({ call, task, picture, onChild, open, onOpenChange }: {
   call: MessageBlock; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
   open: boolean; onOpenChange: (isOpen: boolean) => void;
@@ -34,6 +36,7 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
         {child && <button type="button" className="text-button" onClick={(event) => onChild(child, event.currentTarget)}>Open<Icon name="next" /></button>}</span>
     </div>;
   }
+  if (call.plan.length) return <PlanCard steps={call.plan} />;
   const words = callWords(call.tool, call.state === "running");
   const mark = STATE_MARKS[call.state];
   const head = <>
