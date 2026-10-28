@@ -9,7 +9,7 @@ const EFFORT_RANKS = ["off", "minimal", "low", "medium", "high", "xhigh", "max",
 // effortTone is how a level is coloured in Code Goblins' palette, as Claude
 // Code colours its own (the Overlord, 2026-10-27: "max being rainbow, and as
 // it goes lower it just becomes a more dull color"): the lowest dull, then
-// light, rising through green to purple, and max the brand gradient. A level
+// light, rising through green to purple, and max a rainbow. A level
 // no harness named here, and auto, which picks for itself, stay plain.
 export function effortTone(level: string): string {
   return { off: "dull", minimal: "dull", low: "light", medium: "green", high: "teal", xhigh: "purple", max: "max" }[level] ?? "plain";

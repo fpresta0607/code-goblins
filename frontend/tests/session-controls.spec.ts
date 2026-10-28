@@ -271,7 +271,7 @@ test("each effort level wears its own colour, dull at the least, a gradient at m
   const looks = await pane.locator(".effort-level").evaluateAll((labels) => labels.map((label) => ({ text: label.textContent, color: getComputedStyle(label).color, image: getComputedStyle(label).backgroundImage })));
 
   // Assert: from the least to the most, every level its own colour, and max
-  // the brand gradient through its letters; the row shows the same colour.
+  // a rainbow through its letters; the row shows the same colour.
   expect(looks.map((look) => look.text)).toEqual(["low", "medium", "high", "xhigh", "max"]);
   expect(new Set(looks.slice(0, 4).map((look) => look.color)).size).toBe(4);
   expect(looks[4].image).toContain("linear-gradient");

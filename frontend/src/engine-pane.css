@@ -1,4 +1,4 @@
-/* Modern Chat's own pane for a session's model or effort: it opens above the
+/* Modern Chat's own pane for a session's model and effort: it opens above the
    box's row, right-aligned with it, on the surface every popup of the chat
    wears (popup.css), and scrolls inside itself past a third of the window. */
 .engine-pane { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; display: grid; gap: 2px; width: min(20rem, calc(100cqw - 8px)); max-height: min(22rem, 45dvh); padding: 6px; overflow: auto; overscroll-behavior: contain; }
