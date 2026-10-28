@@ -53,6 +53,7 @@ import { messagesQuery } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { useChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
+import { poppedSession, popOut } from "./pop-out";
 import { taskStatus } from "./task-status";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
@@ -123,7 +124,11 @@ export function App() {
   const [paneOpen, setPaneOpen] = useState(true);
   const [paneSize, setPaneSize] = useState<number | null>(() => Number(stored(PANE_WIDTH_KEY)) || null);
   const [resizing, setResizing] = useState(false);
-  const [maximizedChoice, setMaximizedChoice] = useState(() => ({ task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) }));
+  // A window popped out for one session (pop-out.ts) opens on its panel,
+  // maximized, and keeps its own choices out of this browser's.
+  const [popped] = useState(poppedSession);
+  const [isPoppedOpen, setPoppedOpen] = useState(!popped);
+  const [maximizedChoice, setMaximizedChoice] = useState(() => popped ? { task: "true", terminal: "true" } : { task: stored(MAXIMIZED_KEYS.task), terminal: stored(MAXIMIZED_KEYS.terminal) });
   const [terminalOpened, setTerminalOpened] = useState(false);
   // The session whose Messages view, or the box it holds, was last shown,
   // which stays mounted. A Classic terminal that shows neither loads none.
@@ -238,6 +243,9 @@ export function App() {
   // or its terminal stepped in.
   const cfoShown = !selected && (view === "Orchestration" || cfoOpen);
   const terminalKey = cfoShown ? CFO_KEY : task?.id || "";
+  // The box pops its session out into a window of its own, but not from a
+  // window that is one already.
+  const poppedOut = popped || !terminalKey ? undefined : () => popOut(terminalKey);
   const live = useTerminalLink(terminalKey);
   const needsQueue = !!live?.held || !!live?.isUnread || !!live?.isReconnecting;
   const [composerTarget] = useState(() => {
@@ -291,6 +299,10 @@ export function App() {
   // The CFO's terminal, opened from its bar on the board or its card on the
   // canvas, hands focus back to that button when it closes.
   const openCfo = (source: HTMLElement) => { returnFocus.current = source; switchTo(CFO_KEY); };
+  if (!isPoppedOpen && snapshot) {
+    setPoppedOpen(true);
+    switchTo(popped, false);
+  }
   if (firstRunChoice === "started" && snapshot?.cfo_runs) setFirstRunChoice("");
   // A CFO starting in its terminal has not registered yet and may be asking
   // something there, such as Claude Code's sign-in, so the board opens that
@@ -468,6 +480,7 @@ export function App() {
     // opens on the conversation with no selector to switch.
     if (!maximized) setPanelView("terminal");
     setMaximizedChoice({ task: choice, terminal: choice });
+    if (popped) return;
     store(MAXIMIZED_KEYS.task, choice);
     store(MAXIMIZED_KEYS.terminal, choice);
   };
@@ -547,7 +560,7 @@ export function App() {
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onPopOut={poppedOut} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}
@@ -555,7 +568,7 @@ export function App() {
           </Suspense>}
         </PanelStage>
         <div ref={setClassicDock} className="classic-queue" hidden={!queuedBox} />
-        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
+        {snapshot && !messagesSource && !deckOwnsBox && createPortal(<Composer key={terminalKey} isWorking={isWorking} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} onPopOut={poppedOut} onActive={reportComposerActivity} isShown={boxOnScreen} isTerminalShown={terminalShown}
           focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)}
         </div>
         {panelWide && !child && <div ref={setSide} className="panel-side" />}

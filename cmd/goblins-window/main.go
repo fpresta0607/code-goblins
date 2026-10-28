@@ -136,7 +136,8 @@ func main() {
 		})
 	}
 	page := &Page{}
-	app := application.New(application.Options{
+	var app *application.App
+	app = application.New(application.Options{
 		Name:        "Code Goblins",
 		Description: "The Code Goblins board",
 		Icon:        icon,
@@ -146,7 +147,8 @@ func main() {
 		// fatal one it exits on, go to the window's log.
 		ErrorHandler: func(err error) { log.Print(err) },
 		// What the board's page asks of the window: that it is there, each
-		// link it would open in a new tab, and each notification it raises.
+		// link it would open in a new tab, each of its pages it pops out into
+		// a window of its own, and each notification it raises.
 		RawMessageHandler: func(_ application.Window, message string, sender *application.OriginInfo) {
 			if message == shownMessage && fromBoard(sender.Origin) {
 				page.Shown()
@@ -154,6 +156,8 @@ func main() {
 				if err := openInBrowser(address); err != nil {
 					log.Printf("open %s in the browser: %v", address, err)
 				}
+			} else if address, ok := pageToPopOut(message, sender.Origin); ok {
+				popOut(app, address)
 			} else if note, ok := noteToRaise(message, sender.Origin); ok && notifier != nil {
 				notifier.FromPage(note)
 			}

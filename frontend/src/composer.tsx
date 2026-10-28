@@ -85,7 +85,7 @@ function storeDraft(key: string, text: string): void {
 // and would leave a queued message without its picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, onPopOut, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // model and effort are what the session's own record last says it runs.
@@ -99,6 +99,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // the send button's place interrupts while the box is empty, and history
   // is what he sent the session before, oldest first, which Up recalls.
   isWorking?: boolean; history?: string[];
+  // onPopOut opens the session in a window of its own (pop-out.ts), absent
+  // in a window that is one already.
+  onPopOut?: () => void;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -531,7 +534,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
                 <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}><Icon name="terminal" />Classic</button>
               </div>
               <button type="button" onClick={() => { setStyleOpen(false); setRecentOpen(true); menu.current?.focus(); }}><Icon name="clock" />Speech history</button>
-              {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="external" />Open in Windows Terminal</button>}
+              {onPopOut && <button type="button" onClick={() => { setStyleOpen(false); onPopOut(); }}><Icon name="external" />Open in its own window</button>}
+              {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="terminal" />Open in Windows Terminal</button>}
             </div>}
             {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
           </div>
