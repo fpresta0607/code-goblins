@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { comebackLine } from "./comeback";
+import { Notice } from "./notice";
 import type { Comeback } from "./types";
 
 // Which restart's line this browser dismissed, by the sign-in it began.
@@ -21,8 +22,5 @@ export function ComebackBanner({ comeback }: { comeback?: Comeback }) {
     setHidden(comeback.signed_in);
     try { localStorage.setItem(DISMISSED_KEY, comeback.signed_in); } catch { /* the line comes back on a reload */ }
   };
-  return <div className={"update-banner comeback-banner" + (line.isDone ? "" : " working")} role="status">
-    <span>{line.text}</span>
-    {line.isDone && <button onClick={dismiss}>Dismiss</button>}
-  </div>;
+  return <Notice form="box" actions={line.isDone && <button onClick={dismiss}>Dismiss</button>}>{line.text}</Notice>;
 }

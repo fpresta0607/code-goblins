@@ -190,7 +190,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await page.locator(".panel-content > .disclosure.workspace-details > summary").click();
       const row = page.locator(".dev-drive-setting");
       await row.getByRole("button", { name: "Try again", exact: true }).click();
-      await expect(row.locator(".click-feedback")).toHaveText("Dev Drive setup is busy.");
+      await expect(row.locator(".notice")).toHaveText("Dev Drive setup is busy.");
       await expect(row.getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
     });
 

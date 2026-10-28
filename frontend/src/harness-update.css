@@ -10,9 +10,6 @@
 .harness-update.pending { border-color: var(--amber); box-shadow: 0 0 14px #f3c5782a; }
 .harness-update.pending .icon { color: var(--amber); }
 .harness-update:disabled { opacity: .7; }
-.cfo-update-line { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; margin: 0; color: #e7d3a3; overflow-wrap: anywhere; }
-.cfo-update-line .icon { flex: none; width: 16px; height: 16px; color: var(--amber); }
-.cfo-update-line.problem { display: block; color: var(--amber); }
 @media (prefers-reduced-motion: reduce) { .harness-update { transition: none; } }
 /* Restart PC wears the same pill in amber, the colour of a meter past its
    mark, and its question lists what the restart does in order. */

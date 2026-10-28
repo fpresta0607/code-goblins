@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { appendDictation, useDictation } from "./useDictation";
 import { DictationButton } from "./dictation-button";
+import { Notice } from "./notice";
 import "./dictated-answer.css";
 
 // The box he writes his own answer in, which dictates as the message box under
@@ -41,6 +42,6 @@ export function DictatedAnswer({ label, placeholder, value, instance, disabled, 
         }} />
       <DictationButton dictation={dictation} disabled={disabled} />
     </div>
-    {dictation.note && <p className="message-note" role="status">{dictation.note}</p>}
+    {dictation.note && <Notice form="box" tone="warning">{dictation.note}</Notice>}
   </div>;
 }

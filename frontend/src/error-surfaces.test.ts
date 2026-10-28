@@ -53,7 +53,7 @@ function findingsIn(file: string, code: string): Finding[] {
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText(source), value = node.initializer && ts.isStringLiteral(node.initializer) ? node.initializer.text : node.initializer?.getText(source) || "";
       const keyRefusal = path.basename(file) === KEY_CARD && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === KEY_REFUSAL);
-      const isComposerRefusal = path.basename(file) === "composer.tsx" && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === "composer-note");
+      const isComposerRefusal = path.basename(file) === "composer.tsx" && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === "composer-refusal");
       if (name === "role" && /alert/.test(value) && !keyRefusal && !isComposerRefusal) at(node, 'role="alert"');
       if (name === "className" && ERROR_CLASSES.test(value)) at(node, "className " + value);
     }

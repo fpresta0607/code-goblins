@@ -192,7 +192,7 @@ for (const draft of ["answer", "changed answer", "diff comment"] as const) {
     snapshot.runs = [{ ...updating, state: "succeeded", exit_code: 0, finished_at: new Date(Date.now() - 2000).toISOString() }];
     await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot);
 
-    await expect(page.locator(".update-banner")).toBeVisible();
+    await expect(page.locator(".app-shell > .notice", { hasText: "The board was updated." })).toBeVisible();
     await page.waitForTimeout(1200);
     expect(loads).toBe(1);
     await expect(written).toHaveValue("Please keep my draft");

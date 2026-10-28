@@ -219,9 +219,9 @@ for (const view of [
 
     // Assert
     const live = dialog.locator(".run-live");
-    await expect(live.locator(".terminal-closed")).toBeVisible();
+    await expect(live.locator(".terminal-foot.box")).toBeVisible();
     await expect(live.getByRole("button", { name: "Reconnect" })).toHaveCount(view.isEnded ? 0 : 1);
-    if (view.isEnded) await expect(live.locator(".terminal-closed")).toHaveText(view.close.reason);
+    if (view.isEnded) await expect(live.locator(".terminal-foot.box")).toHaveText(view.close.reason);
   });
 }
 
@@ -248,7 +248,7 @@ for (const size of [{ name: "his window", viewport: { width: 1707, height: 1067 
       await dialog.locator(".run-live").screenshot({ path: testInfo.outputPath(`running-${size.viewport.width}.png`) });
       const microphones = await dialog.locator(".run-live .voice-bubble").count();
       await wire.sockets.at(-1)!.close({ code: 1000, reason: "The terminal ended with exit code 3." });
-      await expect(dialog.locator(".run-live .terminal-closed")).toBeVisible();
+      await expect(dialog.locator(".run-live .terminal-foot.box")).toBeVisible();
       await dialog.locator(".run-live").screenshot({ path: testInfo.outputPath(`ended-${size.viewport.width}.png`) });
 
       // Assert

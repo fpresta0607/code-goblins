@@ -91,16 +91,18 @@ test("a measured subscription draws the usage banner and its reset", () => {
   assert.equal(reading.why, "");
 });
 
-test("a provider the board cannot read draws no banner and says why", () => {
-  // Arrange
+for (const [harness, why] of [["claude", "Claude usage could not be read"], ["codex", "Codex usage could not be read"], ["pi", "OpenRouter key spend could not be read"]]) {
+  test(`a ${harness} session whose provider cannot be read draws no banner and names the provider`, () => {
+    // Arrange
 
-  // Act
-  const reading = usageBanner("claude", [], []);
+    // Act
+    const reading = usageBanner(harness, [], []);
 
-  // Assert
-  assert.equal(reading.banner, null);
-  assert.equal(reading.why, "its Claude usage could not be read");
-});
+    // Assert
+    assert.equal(reading.banner, null);
+    assert.equal(reading.why, why);
+  });
+}
 
 test("the numbers are drawn as the harness draws them", () => {
   assert.deepEqual([formatCount(0), formatCount(999), formatCount(1400), formatCount(1_400_000), formatCount(208_000_000)], ["0", "999", "1.4k", "1.4M", "208M"]);

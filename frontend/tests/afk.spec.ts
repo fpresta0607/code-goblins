@@ -764,7 +764,7 @@ test.describe("a board left open across an update", () => {
     const served = page.waitForResponse("**/assets/TerminalDeck-*");
     await openTerminal(page);
     expect((await served).status()).toBe(200);
-    await expect(page.locator(".update-banner")).toHaveCount(0);
+    await expect(page.locator(".app-shell > .notice", { hasText: "The board was updated." })).toHaveCount(0);
     expect(loads.count).toBe(2);
   });
 
@@ -786,7 +786,7 @@ test.describe("a board left open across an update", () => {
     await missing;
 
     // Assert
-    const banner = page.locator(".update-banner");
+    const banner = page.locator(".app-shell > .notice", { hasText: "The board was updated." });
     await expect(banner.getByRole("button", { name: "Reload" })).toBeVisible();
     await expect(page.locator(".board-column").first()).toBeVisible();
     await bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" }).click();
@@ -809,7 +809,7 @@ test.describe("a board left open across an update", () => {
     await missing;
 
     // Assert
-    await expect(page.locator(".update-banner").getByRole("button", { name: "Reload" })).toBeVisible();
+    await expect(page.locator(".app-shell > .notice", { hasText: "The board was updated." }).getByRole("button", { name: "Reload" })).toBeVisible();
     await expect(page.locator(".board-column").first()).toBeVisible();
     await page.waitForTimeout(300);
     expect(loads.count).toBe(2);
