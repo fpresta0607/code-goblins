@@ -29,13 +29,15 @@ function sentAt(at: string): { exact: string; text: string } {
 // speaker line (the Overlord, 2026-10-26).
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
-// he taps away. Its words stay selectable.
+// he taps away. Its words stay selectable. A reply shows when it arrived only
+// where it ends its turn (isTurnEnd), and the last message sent carries its
+// receipt under it: when it was sent and replied to.
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
-export const MessageRow = memo(function MessageRow({ message, task, picture, onChild, openFolds, onFold }: {
+export const MessageRow = memo(function MessageRow({ message, task, picture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
   message: SessionMessage; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
-  openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void;
+  openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean; receipt: string;
 }) {
   const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
   const [copied, setCopied] = useState(false);
@@ -65,7 +67,7 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
         : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{inlineElements(part.text.trim().split("\n")[0])}</span></>}>
           <MessageText text={part.text} />
         </Disclosure>)}
-    <div className="message-reply-actions">{copy}{when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}</div>
+    {(copy || isTurnEnd && when.text) && <div className="message-reply-actions">{copy}{isTurnEnd && when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}</div>}
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";
@@ -77,6 +79,7 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
     {(message.output || message.errors) && <pre className="message-output">{[message.output, message.errors].filter(Boolean).join("\n")}</pre>}
+    {receipt && <p className="message-receipt">{receipt}</p>}
     {(copy || when.text) && <div className="message-actions" onClick={(event) => event.stopPropagation()}>
       {copy}
       {when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}

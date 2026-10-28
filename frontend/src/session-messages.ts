@@ -198,6 +198,25 @@ export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
   return parts;
 }
 
+// The replies that end a turn, which alone show when they arrived (the
+// Overlord, 2026-10-27: "We don't need to print the date after every
+// response. We only need to print it at the end of a message"): the last
+// reply before his next message or an interrupt, and the newest reply only
+// once the session has stopped working. A message he sent that the harness
+// queued into its turn goes on with that turn.
+export function turnEnds(messages: SessionMessage[], isWorking: boolean): Set<string> {
+  const ends = new Set<string>();
+  let goesOn = isWorking;
+  for (let at = messages.length - 1; at >= 0; at--) {
+    const message = messages[at];
+    if (message.kind === "reply") {
+      if (!goesOn) ends.add(message.id);
+      goesOn = true;
+    } else if (message.kind === "interrupt" || message.kind === "prompt" && message.source !== "notice" && !message.queued) goesOn = false;
+  }
+  return ends;
+}
+
 // The message text's size, kept in this browser apart from the terminals',
 // since a size the terminals take resizes their programs. Ctrl+Plus and
 // Ctrl+Minus, the right button and the wheel, or the wheel with Ctrl and

@@ -68,7 +68,9 @@ for (const width of [1440, 390]) {
     const replyText = await reply.locator(".message-words").boundingBox();
     const replyActions = await reply.locator(".message-reply-actions").boundingBox();
     expect(replyText && replyActions && replyActions.y >= replyText.y + replyText.height).toBeTruthy();
-    await expect(reply.locator(".message-reply-actions time")).toBeVisible();
+    // The session works, so the reply's end is the dither, not its time.
+    await expect(reply.locator(".message-reply-actions time")).toHaveCount(0);
+    await expect(page.locator(".reply-working")).toBeVisible();
     const bounds = await Promise.all([input, add, field(page), microphone, style].map((part) => part.boundingBox()));
     const [bar, plus, prompt, mic, menu] = bounds;
     expect(bar && plus && prompt && mic && menu).toBeTruthy();
@@ -193,7 +195,7 @@ test("while the harness works an empty box's send button is Stop, which presses 
   // Arrange
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "", at } }));
   await openGoblin(page);
-  await expect(page.locator(".session-working")).toContainText("Working");
+  await expect(page.locator(".reply-working")).toBeVisible();
   const stop = box(page).getByRole("button", { name: "Stop", exact: true });
 
   // Act and Assert: the button, then the key.
@@ -202,11 +204,11 @@ test("while the harness works an empty box's send button is Stop, which presses 
   await field(page).press("Escape");
   await expect.poll(() => typed(relay)).toBe("\x1b\x1b");
 
-  // A draft makes it Send again, and the footer has no second Stop.
+  // A draft makes it Send again, and the reply's end keeps its own Stop.
   await field(page).fill("one more thing");
   await expect(stop).toHaveCount(0);
   await expect(send(page)).toBeEnabled();
-  await expect(page.locator(".session-working").getByRole("button")).toHaveCount(0);
+  await expect(page.locator(".reply-working").getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 });
 
 test("Up in an empty box recalls what he sent before, newest first, and Down walks back to the empty box", async ({ page }) => {

@@ -543,7 +543,7 @@ export function App() {
             Back bar is the way back to the conversation and its box. */}
         <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn || classicInPlace} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
-            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} harness={panelHarness} model={panelModel} effort={panelEffort} memory={panelMemory}
+            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort} memory={panelMemory}
             isWorking={isWorking} workingSince={panelWorkingSince} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}

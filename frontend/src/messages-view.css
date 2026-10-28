@@ -124,13 +124,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
   .message-prompt { max-width: 88%; }
 }
 
-/* The conversation's bottom corner: the harness's streaming animation while
-   it works, the stats beside it, and when it last wrote once it rests. Small
-   and quiet, part of the conversation, never a pill over it. */
+/* The conversation's bottom corner: the harness's mark and the session's
+   stats. Small and quiet, part of the conversation, never a pill over it. */
 .session-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .3em .9em; padding: 0 4px .2em; color: var(--muted); font-size: .8125em; }
-.session-working { display: inline-flex; align-items: center; gap: .5em; font-weight: 800; }
-.session-worked { white-space: nowrap; }
-.session-fact { white-space: nowrap; }
 /* Unreadable usage is the board's notice, at the height of the line's other
    facts: the line's own type, no padding above or below, and its edge drawn
    inside it, so saying it never makes the line taller or moves the box. */
@@ -168,6 +164,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-prompt:hover .message-actions, .message-prompt:focus-within .message-actions, .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }
 .message-actions .message-copy { position: static; opacity: 1; }
 .message-actions time { white-space: nowrap; }
+/* The last message sent says when it was sent and replied to, small under
+   it, like a receipt. */
+.message-receipt { margin: 0; color: var(--muted); font-size: .75em; }
 @media (hover: none) {
   .message-prompt .message-actions { visibility: hidden; opacity: 0; }
   .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }

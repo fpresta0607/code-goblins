@@ -137,7 +137,7 @@ test("a picker the box opens despite background work stays in the chat, and goes
   const relay = await open(page, snapshot({}, { runtime: { state: "busy", reason: "Background shell running", at } }));
   await openGoblin(page);
   relay.say(closed);
-  await expect(page.locator(".session-working")).toBeVisible();
+  await expect(page.locator(".reply-working")).toBeVisible();
   await sendFromBox(page, relay, "/resume");
 
   // Act

@@ -4,15 +4,17 @@ import { GOBLIN, open, openGoblin, PAGE, snapshot } from "./session-board";
 // The Overlord, 2026-10-26: "just have a streaming ands stats line in bottom
 // cornern liek this ... where teh time stamp is plus a banner that you can
 // open for usage stats on teh session". The conversation's bottom corner
-// carries the working animation and the stats, and a banner above the
-// composer opens the session's usage in place.
+// carries the stats, and a banner above the composer opens the session's
+// usage in place. Since 2026-10-27 the working animation sits at the end of
+// the reply in progress and the time facts under his message
+// (tests/reply-end.spec.ts).
 
 const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
 const PAGE_WITH_USAGE = { ...PAGE, usage: USAGE };
 const MEMORY = { ...GOBLIN, tree: { task_id: GOBLIN.id, generation: GOBLIN.generation, harness: GOBLIN.harness, memory: 208 * 2 ** 20, own_memory: 208 * 2 ** 20, conversation_at: "", children: [], unread: [], source_updated_at: "", fetched_at: "" } };
 const footer = (page: Page) => page.locator(".session-footer");
 
-test("the conversation's bottom line carries the time facts, not a wall of numbers", async ({ page }) => {
+test("the conversation's bottom line carries the stats, not a wall of numbers, and the time facts sit under his message", async ({ page }) => {
   // Arrange
   await open(page, snapshot({}, { ...MEMORY, phase: "settled" }), "rebase onto main", PAGE_WITH_USAGE);
   await openGoblin(page);
@@ -20,9 +22,9 @@ test("the conversation's bottom line carries the time facts, not a wall of numbe
   // Assert
   const line = footer(page);
   await expect(line).toBeVisible();
-  await expect(line.getByText(/^Sent /)).toBeVisible();
-  await expect(line.getByText(/^Replied /)).toBeVisible();
-  await expect(line.locator(".session-working")).toHaveCount(0);
+  await expect(line).not.toContainText(/Sent|Replied|Working/);
+  await expect(page.locator('[data-message="m0"] .message-receipt')).toHaveText(/^Sent .+ · Replied .+$/);
+  await expect(page.locator(".reply-working")).toHaveCount(0);
   // The fuller numbers live on in the banner, not on this line.
   await expect(line).not.toContainText("$3.209");
   await expect(line).not.toContainText("59.3%");
@@ -30,15 +32,15 @@ test("the conversation's bottom line carries the time facts, not a wall of numbe
   await expect(page.getByRole("tooltip", { name: "Session statistics", exact: true })).toContainText("1.4M");
 });
 
-test("the line shows the harness's working animation while the session works", async ({ page }, testInfo) => {
+test("the reply in progress ends with the harness's working animation while the session works", async ({ page }, testInfo) => {
   // Arrange
   await open(page, snapshot({}, { ...MEMORY, runtime: { state: "working" } }), "rebase onto main", PAGE_WITH_USAGE);
   await openGoblin(page);
 
   // Assert
-  const working = footer(page).locator(".session-working");
+  const working = page.locator(".reply-working .working-indicator");
   await expect(working).toBeVisible();
-  await expect(working).toContainText("Working");
+  await expect(footer(page)).not.toContainText("Working");
   // The indicator takes Claude Code's own ink from the board's mark.
   await expect(working).toHaveCSS("color", "rgb(217, 119, 87)");
   await expect(page.locator(".context-pane .working-indicator:visible")).toHaveCount(1);
@@ -145,10 +147,10 @@ test("a selection he settles copies itself, with the quiet Copied, and a cleared
 });
 
 for (const runtime of [undefined, { state: "idle" }]) {
-  test(`Codex keeps the board's working indicator in the footer when runtime is ${runtime ? "idle" : "unavailable"}`, async ({ page }) => {
+  test(`Codex keeps the board's working indicator at the reply's end when runtime is ${runtime ? "idle" : "unavailable"}`, async ({ page }) => {
     await open(page, snapshot({}, { harness: "codex", phase: "working", runtime }), "", PAGE_WITH_USAGE);
     await openGoblin(page);
-    await expect(footer(page).locator(".session-working")).toBeVisible();
+    await expect(page.locator(".reply-working")).toBeVisible();
     await expect(page.locator(".panel-header .working-indicator")).toHaveCount(0);
     await expect(page.locator(".context-pane .working-indicator:visible")).toHaveCount(1);
   });
