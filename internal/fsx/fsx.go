@@ -117,6 +117,21 @@ func retryTransientContext(ctx context.Context, op func() error) error {
 	}
 }
 
+// CommitNewContext puts the staged file in its place only if nothing is
+// there: an existing file is an error satisfying errors.Is(err, os.ErrExist).
+// A reader finds the file whole or not at all, and a writer ended before the
+// commit leaves nothing in its place, where a file created and then written
+// is left empty. It waits out another process holding the place, a file
+// still being deleted included, while ctx lasts. A commit that fails keeps
+// the staged file for another try, and Discard removes it.
+func (s *Staged) CommitNewContext(ctx context.Context) error {
+	if err := retryTransientContext(ctx, func() error { return renameNew(s.temp, s.path) }); err != nil {
+		return err
+	}
+	s.temp = ""
+	return nil
+}
+
 func (s *Staged) commit(retry func(func() error) error) error {
 	temp := s.temp
 	s.temp = ""
