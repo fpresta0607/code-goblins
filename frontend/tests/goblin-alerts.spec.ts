@@ -152,8 +152,8 @@ test("with reduced motion the boxes just appear", async ({ page }) => {
 test("the CFO's bar wears the mark of the harness the CFO runs, at rest and while something waits, and no goblin's alert does", async ({ page }) => {
   await open(page);
   for (const mark of [waiting(page).locator(".mark"), resting(page).locator(".mark")]) {
-    await expect(mark).toHaveAttribute("aria-label", "Claude Code · claude-opus-5-5");
-    await expect(mark).toHaveAttribute("data-tip", "Claude Code · claude-opus-5-5");
+    await expect(mark).toHaveAttribute("aria-label", "Claude Code · Opus 5.5");
+    await expect(mark).toHaveAttribute("data-tip", "Claude Code · Opus 5.5");
   }
   await expect(page.locator(".toasts .mark")).toHaveCount(0);
 });

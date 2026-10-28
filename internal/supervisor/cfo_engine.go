@@ -234,6 +234,20 @@ func NoteCFOEngineOverridden(stateDir, started string) error {
 	return writeCFOEngine(stateDir, choice)
 }
 
+// NoteCFOEngineApplied records that the CFO started as started with its saved
+// selection's model and effort, so a problem an earlier start or apply left on
+// the selection no longer holds. Whether a change is pending stays as it is,
+// and nothing is written when the selection names another harness, carries no
+// problem, or none is saved.
+func NoteCFOEngineApplied(stateDir, started string) error {
+	choice, err := ReadCFOEngine(stateDir)
+	if err != nil || choice.Harness != started || choice.Problem == "" {
+		return nil
+	}
+	choice.Problem = ""
+	return writeCFOEngine(stateDir, choice)
+}
+
 func (h *HTTP) selectCFOEngine(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Harness string `json:"harness"`

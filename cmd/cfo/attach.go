@@ -330,6 +330,9 @@ func startNativeCFO(h home.Home, project, harness string, args []string, prompt 
 		}
 	}
 	if err == nil && choice.Harness == harness {
+		if noteErr := supervisor.NoteCFOEngineApplied(h.State, harness); noteErr != nil {
+			return fmt.Errorf("note that the CFO started with its saved engine: %w", noteErr)
+		}
 		switch harness {
 		case "codex":
 			engine = []string{"--model", choice.Model, "-c", "model_reasoning_effort=" + choice.Effort}

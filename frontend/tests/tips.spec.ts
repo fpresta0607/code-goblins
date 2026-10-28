@@ -304,7 +304,7 @@ test("a tip's surface is solid, with an edge, and stands out from the card under
   const shell = page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-one", { exact: true }) });
   await shell.locator(".card-harness [role=img]").hover();
   const tip = page.getByRole("tooltip");
-  await expect(tip).toHaveText("Codex · gpt-6-astra · xhigh");
+  await expect(tip).toHaveText("Codex · GPT-6 Astra · xhigh");
   const look = await tip.evaluate((node) => {
     const style = getComputedStyle(node);
     const channels = (color: string) => (color.match(/[\d.]+/g) || []).map(Number);
@@ -344,7 +344,7 @@ test("a tip shows, swaps and goes on the frame the pointer or focus moves, with 
   const center = async (part: typeof mark) => { const box = (await part.boundingBox())!; return [box.x + box.width / 2, box.y + box.height / 2] as const; };
   const [chipX, chipY] = await center(chip), [markX, markY] = await center(mark);
   const lookAfter = (event: string, part: string) => page.evaluate(([event, part]) => (window as unknown as { tipLooks: { event: string; part: string; tips: string[] }[] }).tipLooks.filter((look) => look.event === event && look.part === part).at(-1)?.tips, [event, part]);
-  const MARK = "Codex · gpt-6-astra · xhigh", BRANCH = "code-goblins #198 · fix/done-one";
+  const MARK = "Codex · GPT-6 Astra · xhigh", BRANCH = "code-goblins #198 · fix/done-one";
 
   // Act: the pointer comes to the finished card's pull request, moves
   // straight on to the mark, and leaves.

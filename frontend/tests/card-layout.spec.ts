@@ -275,9 +275,9 @@ test("a keyboard-focused part's tip follows its part when the page scrolls", asy
 test("a tip shows what its part says now", async ({ page }) => {
   await board(page, 1000);
   const mark = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") }).locator(".card-harness [role=img]");
-  expect((await tipsOf(mark)).map((tip) => tip.text)).toEqual(["Codex · gpt-6-astra · xhigh"]);
-  await mark.evaluate((part) => part.setAttribute("data-tip", "Codex · gpt-6-astra · high"));
-  await expect.poll(async () => (await mark.evaluate(shownTips)).map((tip) => tip.text)).toEqual(["Codex · gpt-6-astra · high"]);
+  expect((await tipsOf(mark)).map((tip) => tip.text)).toEqual(["Codex · GPT-6 Astra · xhigh"]);
+  await mark.evaluate((part) => part.setAttribute("data-tip", "Codex · GPT-6 Astra · high"));
+  await expect.poll(async () => (await mark.evaluate(shownTips)).map((tip) => tip.text)).toEqual(["Codex · GPT-6 Astra · high"]);
 });
 
 // A card's status line says which goblin it waits on, and the card does not
@@ -327,8 +327,8 @@ test("closing a card chosen by its harness mark returns focus to the card", asyn
 test("a card shows its harness mark with the harness, model and effort in its tip", async ({ page }) => {
   await board(page, 1000);
   const mark = page.locator(".task-card-shell").filter({ has: page.locator(".card-pr[href$='/205']") }).locator(".card-harness [role=img]");
-  await expect(mark).toHaveAttribute("aria-label", "Codex · gpt-6-astra · xhigh");
-  await expect(mark).toHaveAttribute("data-tip", "Codex · gpt-6-astra · xhigh");
+  await expect(mark).toHaveAttribute("aria-label", "Codex · GPT-6 Astra · xhigh");
+  await expect(mark).toHaveAttribute("data-tip", "Codex · GPT-6 Astra · xhigh");
   await expect(mark.locator("svg path")).toHaveCount(1);
 });
 
