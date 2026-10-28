@@ -70,6 +70,81 @@ type Block struct {
 	Pictures []Picture `json:"pictures,omitempty"`
 	Edit     Edit      `json:"edit,omitzero"`
 	Agent    AgentLink `json:"agent,omitzero"`
+	// Plan is the checklist a call wrote, as Claude Code's TodoWrite and
+	// Codex's update_plan write the whole of it each time, and none for a
+	// call that failed, was denied or was interrupted, or that Codex refused.
+	Plan []PlanStep `json:"plan,omitempty"`
+}
+
+// PlanStep is one step of a plan a call wrote: its words and whether it is
+// pending, in progress or completed.
+type PlanStep struct {
+	Text   string `json:"text"`
+	Status string `json:"status"`
+}
+
+// The states of a plan's step, and the most steps one plan keeps.
+const (
+	PlanPending    = "pending"
+	PlanInProgress = "in_progress"
+	PlanCompleted  = "completed"
+	planStepLimit  = 50
+)
+
+// callPlan is the plan a call of tool wrote with input, read from Claude
+// Code's TodoWrite todos or Codex's update_plan steps, whose arguments Codex
+// records as a JSON string and refuses when a step lacks its words or a
+// state it knows, and nil for any other call or a plan it cannot read.
+func callPlan(tool string, input json.RawMessage) []PlanStep {
+	var steps []PlanStep
+	add := func(text, status string) {
+		if text = firstLine(text); text != "" && len(steps) < planStepLimit {
+			steps = append(steps, PlanStep{Text: bounded(text, agentLineLimit), Status: status})
+		}
+	}
+	switch tool {
+	case "TodoWrite":
+		var fields struct {
+			Todos []struct {
+				Content string `json:"content"`
+				Status  string `json:"status"`
+			} `json:"todos"`
+		}
+		if json.Unmarshal(input, &fields) != nil {
+			return nil
+		}
+		for _, todo := range fields.Todos {
+			add(todo.Content, planStatus(todo.Status))
+		}
+	case "update_plan":
+		var arguments string
+		var fields struct {
+			Plan []struct {
+				Step   *string `json:"step"`
+				Status string  `json:"status"`
+			} `json:"plan"`
+		}
+		if json.Unmarshal(input, &arguments) != nil || json.Unmarshal([]byte(arguments), &fields) != nil {
+			return nil
+		}
+		for _, step := range fields.Plan {
+			if step.Step == nil || !slices.Contains([]string{PlanPending, PlanInProgress, PlanCompleted}, step.Status) {
+				return nil
+			}
+			add(*step.Step, step.Status)
+		}
+	}
+	return steps
+}
+
+// planStatus is a todo's state, pending for any Claude Code names that the
+// board does not draw.
+func planStatus(status string) string {
+	switch status {
+	case PlanInProgress, PlanCompleted:
+		return status
+	}
+	return PlanPending
 }
 
 // Edit is what a call that edited a file changed: how many lines it added
@@ -383,7 +458,7 @@ func (l *messageLog) reply(entry messageEntry, id string) {
 		case block.Type == "thinking" && strings.TrimSpace(block.Thinking) != "":
 			added = append(added, Block{Kind: BlockThinking, Text: bounded(block.Thinking, messageTextLimit)})
 		case block.Type == "tool_use":
-			call := Block{Kind: BlockCall, CallID: block.ID, Tool: block.Name, Subject: bounded(callSubject(block.Input, entry.Cwd), agentLineLimit), State: CallRunning}
+			call := Block{Kind: BlockCall, CallID: block.ID, Tool: block.Name, Subject: bounded(callSubject(block.Input, entry.Cwd), agentLineLimit), State: CallRunning, Plan: callPlan(block.Name, block.Input)}
 			if block.Name == "Agent" || block.Name == "Task" {
 				var input struct {
 					SubagentType string `json:"subagent_type"`
@@ -683,6 +758,8 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 	call.Pictures = pictures
 	if call.State == CallDone {
 		call.Edit = edited(outcome)
+	} else {
+		call.Plan = nil
 	}
 	l.messages[at.message].Blocks[at.block] = call
 	l.touch(at.message)

@@ -1376,6 +1376,8 @@ Beside one Claude Code took while it worked is Queued, under it are its pictures
 A reply sits on the left as plain prose with no bubble.
 Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written under a quiet header with the language the fence names and Copy (`frontend/src/code-block.tsx`).
 Its thinking folds to one quiet line, Thinking and its first words, that opens to the whole of it (the Overlord's review of 27 October 2026, which took the agentic chat's look over the 26 October reading in place).
+A call that writes a plan, Claude Code's TodoWrite or Codex's update_plan, shows as a checklist card instead of a row: each step with its state's mark, the step in progress in full ink, those done struck through, and how many are done at its head (`frontend/src/plan-card.tsx`); the supervisor reads the steps from the call (`internal/fleettree/messages.go`, `Block.Plan`).
+A plan call that failed, was denied or was interrupted stays its row with its outcome, and so does an update_plan Codex refused, one with a step missing its words or its state or with a state other than pending, in_progress or completed.
 Each run of calls made one after another is one quiet stack of rows.
 A call's row has its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
 A running call has a quiet static mark so the conversation's footer remains its one animation.
