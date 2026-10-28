@@ -1,5 +1,6 @@
 import { BabyGoblin } from "./BabyGoblin";
-import { callWords } from "./call-words";
+import { callWords, commandLanguage } from "./call-words";
+import { CodeBlock } from "./code-block";
 import { Disclosure } from "./Disclosure";
 import { babyName } from "./fleet-tree";
 import { Icon, type IconName } from "./Icon";
@@ -10,13 +11,14 @@ import type { Task, TreeNode } from "./types";
 const STATE_WORDS: Record<CallState, string> = { running: "Running", done: "", failed: "Failed", denied: "Denied", interrupted: "Interrupted", "": "" };
 const STATE_MARKS: Partial<Record<CallState, IconName>> = { running: "clock", done: "check", failed: "warning", denied: "lock", interrupted: "pause" };
 
-// A tool call in a reply, as one quiet row: its tool's icon, the verb it is
-// told by (Read, Edited, Ran, Searched), what it was called on, and at its
-// end an edit's added and removed lines and the mark of its outcome, a quiet
-// static one while it runs so the end of the reply in progress stays the
-// conversation's one animation, with its state's word for a reader. What came back, an
-// edit's diff and its pictures fold under the row in the board's one
-// Disclosure, which mounts them only while it is open. A call that started a
+// A tool call in a reply, as one quiet line: its tool's icon, the verb it is
+// told by (Read, Edited, Ran, Searched), what it was called on cut with an
+// ellipsis, and at its end an edit's added and removed lines and the mark of
+// its outcome, a quiet static one while it runs so the end of the reply in
+// progress stays the conversation's one animation, with its state's word for
+// a reader. The line opens in the board's one Disclosure, which mounts what
+// it holds only while it is open: all it was called on, a command in a code
+// card, then what came back in one, an edit's diff and its pictures. A call that started a
 // sub-agent is its baby goblin's row instead, whose Open shows that baby
 // goblin's terminal while its goblin's tree holds it. Whether its fold is
 // open is the view's to keep (open, onOpenChange).
@@ -45,11 +47,13 @@ export function MessageCall({ call, task, picture, onChild, open, onOpenChange }
       {STATE_WORDS[call.state] && <span className="sr-only">{STATE_WORDS[call.state]}</span>}
     </span>
   </>;
-  if (!call.result && !call.edit?.diff.length && !call.pictures.length) return <div className="message-call">{head}</div>;
+  if (!call.subject && !call.result && !call.edit?.diff.length && !call.pictures.length) return <div className="message-call">{head}</div>;
+  const language = commandLanguage(call.tool);
   return <Disclosure kind="disclosure-line message-call" title={head} open={open} onOpenChange={onOpenChange}>
+    {call.subject && (language ? <CodeBlock text={call.subject} language={language} /> : <p className="call-full">{call.subject}</p>)}
     {call.edit?.diff.length
       ? <div className="message-diff">{call.edit.diff.map((line, at) => <div key={at} className={line.startsWith("+") ? "line-added" : line.startsWith("-") ? "line-removed" : undefined}>{line}</div>)}</div>
-      : call.result && <pre className="call-result">{call.result}</pre>}
+      : call.result && <CodeBlock text={call.result} language="output" textClass="call-result" />}
     <MessagePictures pictures={call.pictures} picture={picture} />
   </Disclosure>;
 }

@@ -1372,15 +1372,17 @@ What says who spoke is the side and the bubble it already has.
 The conversation is one centred column of a readable width, about 48 times its text size, however wide the panel is, with the message box centred under it.
 A prompt sits on the right in a quiet bubble, and a notice is a quiet line with no bubble.
 An answer he gave on the Command Center or on a session's Scrawl page reads as his own message with one small line under it, Answered on the board or Answered on the page, so it is told apart from one he typed in the chat.
-Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it.
+Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it, a long line of the print scrolling sideways inside its own box.
+A long prompt, more than six lines or 600 characters, and a long print show their first lines fading out over Show more, which opens them whole, and Show less folds them again; a short one shows as it is (`frontend/src/long-text.tsx`, the Overlord, 2026-10-28: "pull with a lot of text need to be cleaned").
 A reply sits on the left as plain prose with no bubble.
-Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written under a quiet header with the language the fence names and Copy (`frontend/src/code-block.tsx`).
+Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written in rounded cards under a quiet header with the language the fence names, Copy and Expand (`frontend/src/code-block.tsx`).
+A card shows its first sixteen lines and scrolls a long line sideways inside itself; Expand opens it whole, every line wrapped.
+A long path or address in prose or in a prompt breaks where it meets the column's edge, so nothing but a code card's own line is ever wider than the conversation, on a phone included.
 Its thinking folds to one quiet line, Thinking and its first words, that opens to the whole of it (the Overlord's review of 27 October 2026, which took the agentic chat's look over the 26 October reading in place).
 Each run of calls made one after another is one quiet stack of rows.
-A call's row has its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
+A call's row is one line: its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on cut with an ellipsis, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
 A running call has a quiet static mark so the end of the reply in progress remains the conversation's one animation.
-Its tool and what it was called on wrap in place rather than being cut with an ellipsis, so a long command never re-truncates as the panel resizes.
-What came back, an edit's diff and its pictures fold under the row.
+A long command never wraps into a column (the Overlord's phone, 2026-10-28, showed one PowerShell row over 14 lines); a tap, or Enter, opens the row to all it was called on, a command in a code card named by its shell, then what came back in a code card, an edit's diff and its pictures (`frontend/tests/phone-text.spec.ts`).
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.

@@ -2,10 +2,11 @@ import { memo, useEffect, useRef, useState } from "react";
 import { copyText as copyToClipboard } from "./clipboard";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
+import { LongText } from "./long-text";
 import { MessageCall } from "./message-call";
 import { MessagePictures } from "./message-pictures";
 import { MessageText } from "./message-text";
-import { inlineElements } from "./messageText";
+import { inlineElements, isLongText } from "./messageText";
 import { copyText, replyParts, type SessionMessage } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
@@ -27,6 +28,8 @@ function sentAt(at: string): { exact: string; text: string } {
 // opens, and each run of its calls as one quiet stack of rows; a compaction
 // folded to its summary; an interrupt as a plain Interrupted row. What says who spoke is the side and the bubble, never a
 // speaker line (the Overlord, 2026-10-26).
+// A long message of his, and a long print of a command, shows its first
+// lines with Show more (LongText), so a paste never fills a phone's screen.
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
 // he taps away. Its words stay selectable. A reply shows when it arrived only
@@ -71,14 +74,17 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
   const command = message.source === "slash" || message.source === "shell";
+  const printed = [message.output, message.errors].filter(Boolean).join("\n");
   return <article ref={row} className={"message message-prompt " + message.source + (isActionsOpen ? " actions-open" : "")} data-message={message.id}
     onClick={() => { if (!window.getSelection()?.toString()) setActionsOpen((prior) => !prior); }}>
     {message.queued && <span className="message-queued">Queued</span>}
     <MessagePictures pictures={message.pictures} picture={picture} />
-    {message.text && <div className="message-bubble">{command ? <code>{(message.source === "shell" ? "!" : "") + message.text}</code> : <MessageText text={message.text} />}</div>}
+    {message.text && <div className="message-bubble"><LongText isLong={isLongText(message.text)} {...fold("more")}>
+      {command ? <code>{(message.source === "shell" ? "!" : "") + message.text}</code> : <MessageText text={message.text} />}
+    </LongText></div>}
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
-    {(message.output || message.errors) && <pre className="message-output">{[message.output, message.errors].filter(Boolean).join("\n")}</pre>}
+    {printed && <LongText isLong={isLongText(printed)} {...fold("output")}><pre className="message-output">{printed}</pre></LongText>}
     {receipt && <p className="message-receipt">{receipt}</p>}
     {(copy || when.text) && <div className="message-actions" onClick={(event) => event.stopPropagation()}>
       {copy}
