@@ -209,6 +209,27 @@ test("a setting changed in Classic shows in Modern's controls, from the session'
   await expect(effort).toHaveText("low");
 });
 
+test("a pane pick gives way once the session's record says something new, and never comes back", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  const effort = box(page).getByRole("button", { name: "Change effort", exact: true });
+  await effort.click();
+  await box(page).getByRole("menu", { name: "Effort", exact: true }).getByRole("menuitemradio", { name: "max", exact: true }).click();
+  await expect(effort).toHaveText("max");
+  const record = (usage: object) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data } })), usage);
+
+  // Act: the record says the session runs high, then xhigh again.
+  await record(recorded("claude-opus-5-5", "high"));
+  await expect(effort).toHaveText("high");
+  await record(recorded("claude-opus-5-5", "xhigh"));
+
+  // Assert: the control says what the record says, not the old pick.
+  await expect(effort).toHaveText("xhigh");
+});
+
 test("typing /effort or /model in the box opens the board's pane and types nothing into the terminal", async ({ page }) => {
   // Arrange
   const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });

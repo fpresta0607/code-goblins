@@ -156,6 +156,15 @@ func TestASessionReadsTheEffortItsHarnessLastSet(t *testing.T) {
 		{"Claude Code's cancelled /effort", func(t *testing.T, home string) string {
 			return conversation(t, home, prompted("u1", "work"), used, command("c1", ""), prompted("o1", "<local-command-stdout>Cancelled</local-command-stdout>"))
 		}, ""},
+		{"Claude Code's refused /effort, which lists every level", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), used, command("c1", "hgih"), prompted("o1", "<local-command-stdout>Invalid argument: hgih. Valid options are: low, medium, high, xhigh, max, auto</local-command-stdout>"))
+		}, ""},
+		{"Claude Code's /effort auto", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), used, command("c1", "auto"), prompted("o1", "<local-command-stdout>Effort level set to auto</local-command-stdout>"))
+		}, "auto"},
+		{"Claude Code's /effort with its description", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), used, command("c1", "high"), prompted("o1", "<local-command-stdout>Set effort level to high: Deeper reasoning for harder problems</local-command-stdout>"))
+		}, "high"},
 		{"Codex's turn context", func(t *testing.T, home string) string {
 			turn := codexTurnContext("gpt-6-astra")
 			turn["payload"].(object)["effort"] = "xhigh"

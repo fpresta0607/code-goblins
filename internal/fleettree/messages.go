@@ -481,8 +481,11 @@ var (
 	bashInput     = regexp.MustCompile(`(?s)^<bash-input>(.*?)</bash-input>`)
 	commandStdout = regexp.MustCompile(`(?s)<(local-command|bash)-(stdout|stderr)>(.*?)</(?:local-command|bash)-(?:stdout|stderr)>`)
 	// effortSet is the level Claude Code's /effort says it set, from its
-	// picker or from the level typed after it; a cancelled /effort names none.
-	effortSet = regexp.MustCompile(`(?i)\b(low|medium|high|xhigh|max|auto)\b`)
+	// picker or from the level typed after it, read only from the start of its
+	// success line ("Set effort level to xhigh: ..." or "Effort level set to
+	// auto"), so a cancelled /effort, or a refusal that lists every level as
+	// "Invalid argument: hgih. Valid options are: low, ...", sets none.
+	effortSet = regexp.MustCompile(`(?i)^(?:set effort level to|effort level set to) (low|medium|high|xhigh|max|auto)\b`)
 	// boardAnswer begins the words the board types for the Overlord's answer
 	// from the Command Center (internal/supervisor/questions.go and the
 	// items beside it), to a goblin after the CFO's stamp.
@@ -595,8 +598,8 @@ func (l *messageLog) commandOutput(text string) bool {
 		printed := bounded(strings.TrimSpace(ansi.ReplaceAllString(match[3], "")), resultLimit)
 		if match[2] == "stdout" {
 			command.Output = printed
-			if level := effortSet.FindString(printed); level != "" && (command.Text == "/effort" || strings.HasPrefix(command.Text, "/effort ")) {
-				l.usage.Effort = strings.ToLower(level)
+			if level := effortSet.FindStringSubmatch(printed); level != nil && (command.Text == "/effort" || strings.HasPrefix(command.Text, "/effort ")) {
+				l.usage.Effort = strings.ToLower(level[1])
 			}
 		} else {
 			command.Errors = printed

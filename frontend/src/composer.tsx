@@ -206,6 +206,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const recordedModel = model || task?.model || "";
   const recordedEffort = effort || task?.effort || "";
+  // A pick shows until the session's record says something new, and is then
+  // dropped, so a record that later returns to what it said before never
+  // brings the old pick back.
+  if (chosenEngine.model && chosenEngine.model.over !== recordedModel || chosenEngine.effort && chosenEngine.effort.over !== recordedEffort) {
+    setChosenEngine((prior) => ({ model: prior.model?.over === recordedModel ? prior.model : undefined, effort: prior.effort?.over === recordedEffort ? prior.effort : undefined }));
+  }
   const shownModel = chosenEngine.model && chosenEngine.model.over === recordedModel ? chosenEngine.model.value : recordedModel;
   const shownEffort = chosenEngine.effort && chosenEngine.effort.over === recordedEffort ? chosenEngine.effort.value : recordedEffort;
   // applyEngine sets the session's model or effort in its harness, as Classic
