@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,7 +132,8 @@ func echoChild() {
 	}
 }
 
-// screen collects everything a console writes until it ends.
+// screen collects everything a console or a piped process writes until it
+// ends.
 type screen struct {
 	mu    sync.Mutex
 	text  bytes.Buffer
@@ -141,13 +143,13 @@ type screen struct {
 	closed bool
 }
 
-func watch(console *Console) *screen {
+func watch(output io.Reader) *screen {
 	s := &screen{ended: make(chan struct{})}
 	go func() {
 		defer close(s.ended)
 		buffer := make([]byte, 4096)
 		for {
-			n, err := console.Read(buffer)
+			n, err := output.Read(buffer)
 			s.mu.Lock()
 			s.text.Write(buffer[:n])
 			s.mu.Unlock()

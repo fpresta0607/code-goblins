@@ -29,6 +29,9 @@ func Arguments(stateDir string, spec Spec) []string {
 	if spec.ShouldLeaveCoresForApps {
 		args = append(args, "--leave-cores-for-apps")
 	}
+	if spec.IsStream {
+		args = append(args, "--stream")
+	}
 	return append(append(args, "--"), spec.Args...)
 }
 

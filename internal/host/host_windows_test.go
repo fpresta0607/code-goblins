@@ -28,7 +28,8 @@ import (
 )
 
 // The test binary plays every part. As the command in a terminal it answers
-// typed lines ("echo-child") or just waits ("sleep-child"); with hostRole set
+// typed lines ("echo-child") or just waits ("sleep-child"), and as the command
+// of a stream session it answers JSON lines ("stream-child"); with hostRole set
 // it is the host itself, or a launcher that starts a host and exits.
 const hostRole = "HOST_TEST_ROLE"
 
@@ -42,6 +43,8 @@ func TestMain(m *testing.M) {
 		echoChild()
 	case len(os.Args) > 1 && os.Args[1] == "sleep-child":
 		time.Sleep(time.Minute)
+	case len(os.Args) > 1 && os.Args[1] == "stream-child":
+		streamChild()
 	case len(os.Args) > 3 && os.Args[1] == "launch-host":
 		launchFromTerminal(os.Args[2], os.Args[3])
 	case len(os.Args) > 2 && os.Args[1] == "start-child":
