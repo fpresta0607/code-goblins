@@ -124,3 +124,32 @@ test("with no reply yet the dither sits at the reply's place under his message, 
   await expect(working(page).getByRole("button")).toHaveCount(0);
   await expect(working(page).locator(".working-indicator")).toBeVisible();
 });
+
+// The Overlord, 2026-10-28, from his phone: "please clean up all the time
+// stamps". At phone widths too, a turn shows one time, the receipt sits only
+// under his last message, and nothing of either is on a line above the box.
+for (const width of [360, 393, 430]) {
+  test(`at ${width} px the times and the receipt keep their places, finished and working`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 852 });
+    const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+    await openGoblin(page);
+    const dock = page.locator(".composer-dock");
+
+    // Assert: finished.
+    await expect(times(page)).toHaveCount(2);
+    await expect(page.locator(".message-receipt")).toHaveCount(1);
+    await expect(row(page, "p4").locator(".message-receipt")).toBeVisible();
+    await expect(dock).not.toContainText(/Sent|Replied|Working|\d:\d\d/);
+
+    // Act
+    relay.say(screen(true));
+
+    // Assert: working, the dither is in the conversation, not over the box.
+    await expect(working(page)).toBeVisible();
+    await expect(times(page)).toHaveCount(1);
+    await expect(dock.locator(".reply-working, .working-indicator")).toHaveCount(0);
+    await expect(dock).not.toContainText(/Sent|Replied|Working|\d:\d\d/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
+  });
+}
