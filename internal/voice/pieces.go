@@ -3,7 +3,6 @@ package voice
 import (
 	"encoding/binary"
 	"math"
-	"slices"
 )
 
 // A dictation is handed to the model in pieces it hears well. A longer one is
@@ -12,11 +11,12 @@ import (
 // same memory at any length and a Moonshine model, which answers nothing at
 // all for a sound of 9.3 seconds or more, hears it too.
 // Each piece ends half a second after its last loud part, as the model needs
-// to hear its end, and a piece with nothing loud in it is left out when the
+// to hear its end, and a piece with no speech in it is left out when the
 // sound has speech elsewhere, as the model writes words of its own into room
-// noise. A part is loud when it holds speech: at LOUD_RMS, or, for a quiet
-// microphone or a soft word, OVER_QUIET_DB over the sound's own quiet, its
-// quietest QUIET_SPAN_FRAMES, and above QUIET_FLOOR_RMS.
+// noise. A sound holds speech when SPEECH_LEAST_FRAMES of it are loud, and a
+// part is loud at LOUD_RMS, or, for a quiet microphone or a soft word,
+// OVER_QUIET_DB over the sound's own quiet, its quietest QUIET_SPAN_FRAMES,
+// and above QUIET_FLOOR_RMS.
 const (
 	// FRAMES_A_SECOND is how finely a sound's loudness is read: 10 ms frames.
 	FRAMES_A_SECOND = 100
@@ -43,6 +43,12 @@ const (
 	// EDGE_FRAMES is the quiet kept before a piece's first loud part and
 	// after its last, half a second.
 	EDGE_FRAMES = FRAMES_A_SECOND / 2
+	// SPEECH_LEAST_FRAMES is how much of a sound is loud when it holds
+	// speech, a tenth of a second: a short line said 50 dB softer than full
+	// scale, which the model still hears, keeps 15 frames loud, and the 10 ms
+	// click of the keys let go over a microphone that hears nothing else is
+	// no speech (issue #1456).
+	SPEECH_LEAST_FRAMES = FRAMES_A_SECOND / 10
 )
 
 // pieces cuts a sound of samples at rate samples a second into the pieces
@@ -54,13 +60,13 @@ func pieces(samples []float32, rate int) [][]float32 {
 	frame := max(1, rate/FRAMES_A_SECOND)
 	power := framePower(samples, frame)
 	loud := loudPower(power)
-	isAnyLoud := slices.ContainsFunc(power, func(value float64) bool { return value >= loud })
+	isSpeech := holdsSpeech(power, loud)
 	cuts := cutPoints(power)
 	var cut [][]float32
 	for index := range len(cuts) - 1 {
 		from, to := cuts[index], cuts[index+1]
 		piece := samples[from*frame : min(to*frame, len(samples))]
-		if !isAnyLoud {
+		if !isSpeech {
 			cut = append(cut, piece)
 			continue
 		}
@@ -73,15 +79,27 @@ func pieces(samples []float32, rate int) [][]float32 {
 
 // Spoken says whether sound, a WAV file of 16-bit samples in one channel as
 // the board's page writes, holds speech by the rule pieces cuts it by:
-// anything loud in it. Any other sound is not judged and holds none.
+// SPEECH_LEAST_FRAMES loud in it. Any other sound is not judged and holds
+// none.
 func Spoken(sound []byte) bool {
 	samples, rate := pcm16(sound)
 	if len(samples) == 0 {
 		return false
 	}
 	power := framePower(samples, max(1, rate/FRAMES_A_SECOND))
-	loud := loudPower(power)
-	return slices.ContainsFunc(power, func(value float64) bool { return value >= loud })
+	return holdsSpeech(power, loudPower(power))
+}
+
+// holdsSpeech says whether SPEECH_LEAST_FRAMES of frames of power are at
+// loud power.
+func holdsSpeech(power []float64, loud float64) bool {
+	count := 0
+	for _, value := range power {
+		if value >= loud {
+			count++
+		}
+	}
+	return count >= SPEECH_LEAST_FRAMES
 }
 
 // pcm16 reads the samples and the rate of a WAV file of 16-bit samples in one
@@ -179,8 +197,11 @@ func cutPoints(power []float64) []int {
 
 // shape gives a piece EDGE_FRAMES of quiet before its first frame at loud
 // power and after its last, cutting a longer quiet edge and making up a
-// shorter end with silence, or nil when nothing in it is loud.
+// shorter end with silence, or nil when it holds no speech.
 func shape(piece []float32, power []float64, frame int, loud float64) []float32 {
+	if !holdsSpeech(power, loud) {
+		return nil
+	}
 	first, last := -1, -1
 	for index, value := range power {
 		if value >= loud {
@@ -189,9 +210,6 @@ func shape(piece []float32, power []float64, frame int, loud float64) []float32 
 			}
 			last = index
 		}
-	}
-	if first < 0 {
-		return nil
 	}
 	begin := max(0, first-EDGE_FRAMES) * frame
 	end := (last + 1 + EDGE_FRAMES) * frame

@@ -64,10 +64,13 @@ export function downsample(sound: Sound, rate: number): Sound {
 // -40 dB of full scale: above a room's hum, below a voice. For a quiet
 // microphone or a soft word it is enough to stand OVER_QUIET_DB over the
 // sound's own quiet, its quietest QUIET_SPAN_SECONDS, and above QUIET_FLOOR.
-// The engine reads it alike.
+// A sound holds speech when SPEECH_LEAST_SECONDS of it are loud: the click of
+// the keys let go, over a microphone that hears nothing else, is no speech
+// (issue #1456). The engine reads it alike.
 const LOUD = 0.01;
 const OVER_QUIET_DB = 12;
 const QUIET_FLOOR = 0.0003;
+const SPEECH_LEAST_SECONDS = 0.1;
 // A piece is handed on once this much quiet follows speech in it,
 const PAUSE_SECONDS = 0.3;
 // and it is at least this long, a phrase or more.
@@ -105,11 +108,11 @@ function power(samples: Float32Array, rate: number, frames: number[] = []): numb
   return frames;
 }
 
-// isSpoken says whether any 10 ms of a sound is loud.
+// isSpoken says whether SPEECH_LEAST_SECONDS of a sound's 10 ms are loud.
 export function isSpoken(sound: Sound): boolean {
   const frames = power(sound.samples, sound.rate);
   const loud = loudPower(frames);
-  return frames.some((frame) => frame >= loud);
+  return frames.filter((frame) => frame >= loud).length >= Math.round(SPEECH_LEAST_SECONDS * 100);
 }
 
 // Pieces takes a recording as it arrives, at its own rate, and hands on each
@@ -236,8 +239,8 @@ export function localRecognizer(open: (piece: (sound: Sound) => void, since: num
     // When the keys went down, and how long they were held.
     private since = 0;
     private held = 0;
-    // Pieces with nothing loud in them, held back: room noise, which the
-    // model writes words of its own into, once anything loud is said, else
+    // Pieces with no speech in them, held back: room noise, which the
+    // model writes words of its own into, once speech is said, else
     // the whole dictation as it is, as from a quiet microphone.
     private quiet: Sound[] = [];
 

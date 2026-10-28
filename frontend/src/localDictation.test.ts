@@ -107,10 +107,29 @@ test("a recording with no pause, as in a noisy room, is cut at twenty seconds wh
   assert.deepEqual(whole([...handed.map(({ piece }) => piece), rest]), sound.samples);
 });
 
-test("whether any 10 ms of a sound is loud", () => {
+test("a sound holds speech once a tenth of a second of it is loud", () => {
   assert.equal(isSpoken(said(16000, ["quiet", 3])), false, "a room's hiss is not speech");
-  assert.equal(isSpoken(said(16000, ["quiet", 3], ["speech", .02])), true);
+  assert.equal(isSpoken(said(16000, ["quiet", 3], ["speech", .1])), true, "a short word is");
+  assert.equal(isSpoken(said(16000, ["quiet", 3], ["speech", .02])), false, "a click is not");
   assert.equal(isSpoken({ samples: new Float32Array([.9, .9]), rate: 16000 }), false, "less than 10 ms is no part at all");
+});
+
+// heldSilent is a hold of seconds from a microphone that hears nothing: noise
+// of a few of the 16-bit samples' steps, at -87 dB, as from a muted or
+// unplugged input, ended 0.1 s before its end by the 10 ms click of the keys
+// let go at -68 dB. Two holds the board reported to the CFO as speech the
+// engine found no words in, issue #1456, were such sounds.
+function heldSilent(seconds: number): Sound {
+  const samples = new Float32Array(Math.round(seconds * 16000));
+  for (let at = 0; at < samples.length; at++) samples[at] = Math.SQRT2 * 10 ** (-87 / 20) * Math.sin(at * 7.3);
+  const click = samples.length - 1600;
+  for (let at = 0; at < 160; at++) samples[click + at] += Math.SQRT2 * 10 ** (-68 / 20) * Math.sin(at * .9);
+  return { samples, rate: 16000 };
+}
+
+test("a hold whose microphone heard only the keys holds no speech, however quiet it is", () => {
+  for (const seconds of [3.6, 2]) assert.equal(isSpoken(heldSilent(seconds)), false, `a ${seconds} s hold`);
+  assert.equal(isSpoken({ samples: new Float32Array(32000), rate: 16000 }), false, "digital silence");
 });
 
 // A sound said at levels, at rate, in a room: each part is speech whose RMS
@@ -638,6 +657,30 @@ test("a hold let go before the recording ran asks the supervisor nothing and say
   assert.deepEqual(heard, ["open the pull request"]);
   assert.deepEqual(notes.filter(Boolean), []);
 });
+
+for (const seconds of [3.6, 2]) {
+  test(`a ${seconds} s hold whose microphone heard only the keys is sent whole and, answered with no words, says Nothing was heard, never telling the CFO`, async () => {
+    // Arrange
+    const { Recognition, posted, answer } = engine({ sound: heldSilent(seconds), words: "" });
+    const heard: string[] = [], notes: string[] = [], failures: string[] = [];
+    const capture = { track, level: () => 0, close: () => {} };
+    const subject = new Dictation({ heard: (text) => heard.push(text), listening: () => {}, problem: (note) => notes.push(note), failed: (reason) => failures.push(reason) }, () => Recognition, "en-GB", async () => capture);
+
+    // Act
+    subject.start();
+    await settle();
+    subject.stop();
+    await settle();
+    answer();
+    await settle();
+
+    // Assert
+    assert.deepEqual(posted.map(samplesOf), [seconds * 16000]);
+    assert.deepEqual(notes.filter(Boolean), ["Nothing was heard."]);
+    assert.deepEqual(heard, []);
+    assert.deepEqual(failures, []);
+  });
+}
 
 test("a hold with nothing said in it, recorded and answered with no words, says Nothing was heard once", async () => {
   // Arrange
