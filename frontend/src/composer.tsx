@@ -478,7 +478,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // Without a conversation, even a Modern panel needs the queue here.
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
-  const revealQueued = () => document.querySelector<HTMLElement>("[data-queued]")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  // The queued messages sit at the very bottom of the conversation, below the
+  // room of rows not drawn yet, so showing them is going to its end at once:
+  // a smooth scroll toward a place estimated from rows not yet measured would
+  // stop short as they are drawn.
+  const revealQueued = () => {
+    const queued = document.querySelector<HTMLElement>("[data-queued]");
+    const conversation = queued?.closest<HTMLElement>(".conversation");
+    if (conversation) conversation.scrollTop = conversation.scrollHeight;
+    queued?.scrollIntoView({ block: "nearest" });
+  };
   const canSend = !isSending && !adding && !!draft.trim();
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.

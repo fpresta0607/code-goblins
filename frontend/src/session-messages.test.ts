@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, textParts, type SessionMessage } from "./session-messages.ts";
+import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, replyParts, textParts, type SessionMessage } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -99,18 +99,38 @@ test("supported native sessions have messages for the current goblin generation 
   assert.equal(messagesQuery({ cfo_terminal: "t-7", cfo_harness: "" }), "", "a CFO that has not registered its harness");
 });
 
-test("a reply's code blocks, headings and prose are drawn apart, a code block exactly as written", () => {
+test("a reply's code blocks, headings and prose are drawn apart, a code block exactly as written with the language its fence names", () => {
   const text = "## The plan\n\nFirst **read** it:\n\n```go\nfunc a() {\n\n    return\n}\n```\nThen `b`.\n~~~\nopen to the end\n  indented";
   assert.deepEqual(textParts(text), [
     { kind: "heading", text: "The plan" },
     { kind: "prose", text: "\nFirst **read** it:\n" },
-    { kind: "code", text: "func a() {\n\n    return\n}" },
+    { kind: "code", text: "func a() {\n\n    return\n}", language: "go" },
     { kind: "prose", text: "Then `b`." },
-    { kind: "code", text: "open to the end\n  indented" },
+    { kind: "code", text: "open to the end\n  indented", language: "" },
   ]);
-  assert.deepEqual(textParts("````\n```\nstill code\n````"), [{ kind: "code", text: "```\nstill code" }], "a shorter fence inside a longer one is code");
+  assert.deepEqual(textParts("````\n```\nstill code\n````"), [{ kind: "code", text: "```\nstill code", language: "" }], "a shorter fence inside a longer one is code");
+  assert.deepEqual(textParts("``` c++ \nint a;\n```"), [{ kind: "code", text: "int a;", language: "c++" }], "a language with symbols, spaced from its fence");
   assert.deepEqual(textParts(""), []);
   assert.deepEqual(textParts("#hashtag is prose"), [{ kind: "prose", text: "#hashtag is prose" }]);
+});
+
+test("a reply draws each run of calls as one stack between its words, and leaves out blocks with no words", () => {
+  // Arrange
+  const [reply] = parseMessages([served(0, { kind: "reply", blocks: [
+    { kind: "thinking", text: "Plan it" }, { kind: "text", text: "Reading." }, { kind: "call", tool: "Read", state: "done" }, { kind: "call", tool: "Grep", state: "done" },
+    { kind: "thinking", text: "" }, { kind: "text", text: "Found it." }, { kind: "call", tool: "Edit", state: "running" },
+  ] })]);
+  const [read, grep, , , edit] = reply.blocks.slice(2);
+
+  // Act
+  const parts = replyParts(reply.blocks);
+
+  // Assert
+  assert.deepEqual(parts, [
+    { kind: "thinking", at: 0, text: "Plan it" }, { kind: "text", at: 1, text: "Reading." }, { kind: "calls", at: 2, calls: [read, grep] },
+    { kind: "text", at: 5, text: "Found it." }, { kind: "calls", at: 6, calls: [edit] },
+  ]);
+  assert.deepEqual(replyParts([]), []);
 });
 
 test("Copy copies a reply's text blocks, and a command with what it printed", () => {

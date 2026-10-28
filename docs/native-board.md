@@ -1368,12 +1368,15 @@ The view shows the session's conversation as `GET /api/messages` serves it ([A s
 The panel's top selector chooses between this conversation and its task view, for the CFO and a goblin alike: a segmented control of Chat and Task, never a fold or a dropdown (the Overlord, 2026-10-26: "i dont like how you remove the selector at the top between caht and task panel bring that back i dont like the drop down also"). It reads those words at desktop width, between the header and the conversation, and on a phone it shows the two icons alone above the header, each keeping its accessible name. A maximized panel has room for both at once, draws its task list beside the conversation and hides the selector.
 The conversation carries no speaker line: no sender name and no harness icon above a message, for any speaker (the Overlord, 2026-10-26: "you dont need to ahve cfo and You above each of our messages either").
 What says who spoke is the side and the bubble it already has.
-A prompt sits on the right in a bubble, and a notice is a quiet line with no bubble.
+The conversation is one centred column of a readable width, about 48 times its text size, however wide the panel is, with the message box centred under it.
+A prompt sits on the right in a quiet bubble, and a notice is a quiet line with no bubble.
 An answer he gave on the Command Center or on a session's Scrawl page reads as his own message with one small line under it, Answered on the board or Answered on the page, so it is told apart from one he typed in the chat.
 Beside one Claude Code took while it worked is Queued, under it are its pictures, and a slash or `!` command shows as typed with what it printed under it.
-A reply sits on the left.
-Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its code blocks as written and its headings in bold, its thinking as readable quieter text with no chevron and no collapsed state, and each call as one row.
-A call's row has the mark of its outcome, its tool and what it was called on, and at its end Running, Failed, Denied or Interrupted while it is not done, or an edit's added and removed lines.
+A reply sits on the left as plain prose with no bubble.
+Its text has its bold, inline code, lists, tables and links as a question card draws them (`frontend/src/messageText.ts`), its headings in bold, and its code blocks as written under a quiet header with the language the fence names and Copy (`frontend/src/code-block.tsx`).
+Its thinking folds to one quiet line, Thinking and its first words, that opens to the whole of it (the Overlord's review of 27 October 2026, which took the agentic chat's look over the 26 October reading in place).
+Each run of calls made one after another is one quiet stack of rows.
+A call's row has its tool's icon, the verb it is told by, as Read, Edited, Ran, Searched or Updated the plan for Claude Code's, Codex's and pi's tools (`frontend/src/call-words.ts`), what it was called on, and at its end an edit's added and removed lines and the mark of its outcome, with Running, Failed, Denied or Interrupted for a screen reader.
 A running call has a quiet static mark so the conversation's footer remains its one animation.
 Its tool and what it was called on wrap in place rather than being cut with an ellipsis, so a long command never re-truncates as the panel resizes.
 What came back, an edit's diff and its pictures fold under the row.
@@ -1385,6 +1388,8 @@ A reply with text keeps Copy and its timestamp below the reply; a notice and a c
 Exact fleet wake markers, session-lock and wake-queue digests, and stamped background-run and helper notices draw as service lines.
 A genuine message that merely begins with `cfo`, such as `cfo drain please`, remains the user's message.
 The list scrolls as a page does, with the wheel, the page keys, and Shift with Page Up and Page Down as in a terminal.
+The page holds only the messages within 1,200 px of what he reads, each measured as it lays out and the rest kept as room above and below (`frontend/src/message-window.ts`), so a session of thousands of messages costs what a screenful does, a scroll draws again only when it changes which messages the page holds, and a reply that grows as it streams changes its own message and at most the rows its growth pushes off the window's far edge, with the room kept above them, never every line (`frontend/tests/conversation-window.spec.ts`).
+What a call folds under its row, and a thought under its line, is in the page only while it is open.
 At its end it follows what arrives, and while he reads further up nothing moves it: a message that grows above, one that arrives below and an older page read in above all leave the message he reads where it was.
 Jump to latest, at the list's foot while he reads up, returns to the end.
 Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.

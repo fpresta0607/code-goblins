@@ -23,7 +23,8 @@ for (const who of ["CFO", "goblin"] as const) {
       ] },
     ] } })), at);
     await expect(log).toContainText("The latest reply arrived.");
-    await expect(log.locator(".message-thinking-read li")).toHaveText(["Read the file.", "Keep its order."]);
+    await log.locator(".message-thinking summary").click();
+    await expect(log.locator(".message-thinking li")).toHaveText(["Read the file.", "Keep its order."]);
     await log.getByText("src/example.ts", { exact: true }).click();
     await expect(log.locator(".message-diff")).toContainText("+new");
     await expect(field(page, name)).toHaveValue("continue from this draft");

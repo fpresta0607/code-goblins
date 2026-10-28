@@ -5,7 +5,8 @@ import { Icon } from "./Icon";
 import { MessageCall } from "./message-call";
 import { MessagePictures } from "./message-pictures";
 import { MessageText } from "./message-text";
-import { copyText, type SessionMessage } from "./session-messages";
+import { inlineElements } from "./messageText";
+import { copyText, replyParts, type SessionMessage } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
 const COPIED_MS = 1400;
@@ -21,17 +22,22 @@ function sentAt(at: string): { exact: string; text: string } {
 }
 
 // One message of a session as the Messages view draws it: a prompt in a
-// bubble on the right, a slash or ! command as typed with what it printed; a
-// reply on the left with its text, its thinking as readable quieter text and
-// its calls; a compaction folded to its summary; an interrupt as a plain
-// Interrupted row. What says who spoke is the side and the bubble, never a
+// quiet bubble on the right, a slash or ! command as typed with what it
+// printed; a reply as plain prose with its thinking folded to one line that
+// opens, and each run of its calls as one quiet stack of rows; a compaction
+// folded to its summary; an interrupt as a plain Interrupted row. What says who spoke is the side and the bubble, never a
 // speaker line (the Overlord, 2026-10-26).
 // Each of his own messages keeps a small row under it with Copy and when it
 // was sent, hidden until he taps the message or points at it, and closed when
 // he taps away. Its words stay selectable.
-export const MessageRow = memo(function MessageRow({ message, task, picture, onChild }: {
+// openFolds are the folds of this message he opened, kept by the view so
+// they stay open when the row leaves the window and comes back, and onFold is
+// told of each one he opens or closes.
+export const MessageRow = memo(function MessageRow({ message, task, picture, onChild, openFolds, onFold }: {
   message: SessionMessage; task?: Task; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+  openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void;
 }) {
+  const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
   const [copied, setCopied] = useState(false);
   const [isActionsOpen, setActionsOpen] = useState(false);
   const row = useRef<HTMLElement>(null);
@@ -50,12 +56,15 @@ export const MessageRow = memo(function MessageRow({ message, task, picture, onC
   if (message.kind === "interrupt") return <p className="message-interrupt" data-message={message.id}><Icon name="pause" />Interrupted</p>;
   if (message.kind === "compaction") return <div className="message-compaction" data-message={message.id}>
     {copy}
-    <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"}><MessageText text={message.text} /></Disclosure>
+    <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"} {...fold("compaction")}><MessageText text={message.text} /></Disclosure>
   </div>;
   if (message.kind === "reply") return <article className="message message-reply" data-message={message.id}>
-    {message.blocks.map((block, at) => block.kind === "text" ? <MessageText key={at} text={block.text} />
-      : block.kind === "thinking" ? block.text && <div key={at} className="message-thinking-read"><span className="thinking-label">Thinking</span><MessageText text={block.text} /></div>
-        : <MessageCall key={at} call={block} task={task} picture={picture} onChild={onChild} />)}
+    {replyParts(message.blocks).map((part) => part.kind === "calls"
+      ? <div key={part.at} className="message-steps">{part.calls.map((call, at) => <MessageCall key={at} call={call} task={task} picture={picture} onChild={onChild} {...fold("call:" + part.at + ":" + at)} />)}</div>
+      : part.kind === "text" ? <MessageText key={part.at} text={part.text} />
+        : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{inlineElements(part.text.trim().split("\n")[0])}</span></>}>
+          <MessageText text={part.text} />
+        </Disclosure>)}
     <div className="message-reply-actions">{copy}{when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}</div>
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;

@@ -4,6 +4,7 @@ import { copyText } from "./clipboard";
 import { ContextUsage } from "./context-usage";
 import { Icon } from "./Icon";
 import { MessageRow } from "./message-row";
+import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
 import { Notice } from "./notice";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
@@ -27,6 +28,8 @@ const OLDER_RETRY_MS = 5000;
 // Once this many older pages in a row fail to arrive, none is asked for
 // until the stream reconnects.
 const OLDER_TRIES = 3;
+// A row with no folds open, shared so its props stay the same.
+const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
 
 // A Claude Code session's messages, read only: the supervisor's stream of
@@ -70,6 +73,50 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   // how far its top lies below the list's, which stays put.
   const following = useRef(true);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
+  // The page holds only the rows within reach of where he reads
+  // (message-window.ts): rowHeights is each drawn row's measured height with
+  // the gap after it, by its message's id, and view where he reads, kept only
+  // when it moves which rows are drawn: the list's height, and the message at
+  // its top then with how far that message's top lay below the list's, so an
+  // older page read in above it draws the same rows, or the scroll top while
+  // no message is at the top.
+  const [rowHeights, setRowHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const [view, setView] = useState({ top: 0, height: 0, anchor: "", offset: 0 });
+  // The rows the page's selection starts and ends in while it starts in this
+  // list, so the window keeps them drawn and a long selection copies whole. A
+  // caret a press on a control leaves, as on a fold's line or a button, is no
+  // place he reads from, so it keeps no row drawn.
+  const [selected, setSelected] = useState<{ from: string; to: string; isCollapsed: boolean } | null>(null);
+  useEffect(() => {
+    const rowOf = (node: Node | null) => (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>("[data-message]")?.dataset.message ?? "";
+    const read = () => {
+      const box = list.current, selection = document.getSelection();
+      const from = selection?.anchorNode && box?.contains(selection.anchorNode) ? rowOf(selection.anchorNode) : "";
+      const to = selection?.focusNode && box?.contains(selection.focusNode) ? rowOf(selection.focusNode) : "";
+      const isCollapsed = !!selection?.isCollapsed;
+      const anchor = selection?.anchorNode;
+      const isOnControl = !!(anchor instanceof Element ? anchor : anchor?.parentElement)?.closest("summary, button, a, input, textarea");
+      if (isCollapsed && isOnControl) { setSelected(null); return; }
+      setSelected((prior) => !from ? null : prior?.from === from && prior.to === to && prior.isCollapsed === isCollapsed ? prior : { from, to, isCollapsed });
+    };
+    document.addEventListener("selectionchange", read);
+    return () => document.removeEventListener("selectionchange", read);
+  }, []);
+  // The folds he opened, by message and by fold within it, kept here so a
+  // row that leaves the window and comes back opens as he left it, and a row
+  // is drawn again only when its own folds change.
+  const [openFolds, setOpenFolds] = useState<ReadonlyMap<string, ReadonlySet<string>>>(() => new Map());
+  const foldRow = useCallback((message: string, fold: string, isOpen: boolean) => setOpenFolds((prior) => {
+    const folds = new Set(prior.get(message));
+    if (isOpen === folds.has(fold)) return prior;
+    if (isOpen) folds.add(fold); else folds.delete(fold);
+    const next = new Map(prior);
+    if (folds.size) next.set(message, folds); else next.delete(message);
+    return next;
+  }), []);
+  // The message whose row holds the keyboard, so the keyboard goes to the
+  // list when that row leaves the window and the list's keys keep working.
+  const focusedRow = useRef("");
   // Whether an older page is on its way, and how many failed to arrive in a
   // row and when the last did: his next approach to the top asks again once
   // OLDER_RETRY_MS have passed, until OLDER_TRIES have failed, which leaves
@@ -159,8 +206,21 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     });
   }, [address, where]);
 
-  // remember notes where he reads after he scrolls, and reads the older page
-  // once he nears the top.
+  // The rows drawn: those within reach of where he reads, or of the end while
+  // he follows it, each row not measured yet taken at an estimate.
+  const heights = held.messages.map((message) => rowHeights.get(message.id) ?? ESTIMATED_ROW_PX);
+  const windowAt = (place: typeof view, isEnd: boolean) => {
+    const anchorAt = held.messages.findIndex((message) => message.id === place.anchor);
+    const readTop = anchorAt < 0 ? place.top : heights.slice(0, anchorAt).reduce((sum, each) => sum + each, 0) - place.offset;
+    return messageWindow(heights, isEnd ? Infinity : readTop, place.height);
+  };
+  const drawn = windowAt(view, isAtEnd);
+  const rowAt = (id: string) => id ? held.messages.findIndex((message) => message.id === id) : -1;
+  const spans = drawnSpans(drawn, rowAt(selected?.from ?? ""), rowAt(selected?.to ?? ""), selected?.isCollapsed ?? true);
+  const heightOf = (start: number, end: number) => heights.slice(start, end).reduce((sum, each) => sum + each, 0);
+
+  // remember notes where he reads after he scrolls, draws the rows that come
+  // within reach, and reads the older page once he nears the top.
   const remember = () => {
     const box = list.current;
     if (!box || !shownValue.current) return;
@@ -169,9 +229,46 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     setAtEnd(isEnd);
     const top = box.getBoundingClientRect().top;
     const first = [...box.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
-    anchor.current = first ? { id: first.dataset.message || "", offset: first.getBoundingClientRect().top - top } : null;
+    const firstTop = first?.getBoundingClientRect().top ?? Infinity;
+    if (first && firstTop < top + box.clientHeight) anchor.current = { id: first.dataset.message || "", offset: firstTop - top };
+    else {
+      // A jump past the rows drawn finds none of them in view, so the message
+      // at the top is read from the rows' heights, where the window places
+      // each row.
+      let at = (items.current?.getBoundingClientRect().top ?? top) - top, index = 0;
+      while (index < heights.length - 1 && at + heights[index] <= 0) at += heights[index++];
+      const message = held.messages[index];
+      anchor.current = message ? { id: message.id, offset: at } : null;
+    }
+    const place = { top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 };
+    const next = windowAt(place, isEnd);
+    if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView(place);
     if (box.scrollTop < OLDER_WITHIN_PX) readOlder();
   };
+
+  // Each drawn row is measured as it lays out and again whenever it changes,
+  // as a picture loads or a call unfolds; a row the hidden view lays out at
+  // no size keeps the height it had.
+  useLayoutEffect(() => {
+    const box = items.current;
+    if (!box) return;
+    const observer = new ResizeObserver((entries) => {
+      const gap = parseFloat(getComputedStyle(box).rowGap) || 0;
+      setRowHeights((prior) => {
+        let next: Map<string, number> | null = null;
+        for (const entry of entries) {
+          const id = entry.target instanceof HTMLElement ? entry.target.dataset.message : undefined;
+          const size = entry.borderBoxSize[0]?.blockSize ?? 0;
+          if (!id || !size || prior.get(id) === Math.round(size + gap)) continue;
+          next ??= new Map(prior);
+          next.set(id, Math.round(size + gap));
+        }
+        return next ?? prior;
+      });
+    });
+    for (const row of box.querySelectorAll<HTMLElement>(":scope > [data-message]")) observer.observe(row);
+    return () => observer.disconnect();
+  }, [held, drawn.start, drawn.end]);
 
   useLayoutEffect(() => {
     heldValue.current = held;
@@ -188,9 +285,13 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
     settle();
   }, [font, settle]);
   // A picture that loads or a message unfolded above where he reads moves
-  // nothing either.
+  // nothing either, and a view that changes size draws the rows it reaches.
   useEffect(() => {
-    const observer = new ResizeObserver(settle);
+    const observer = new ResizeObserver(() => {
+      settle();
+      const box = list.current;
+      if (box) setView((prior) => prior.height === box.clientHeight ? prior : { ...prior, height: box.clientHeight });
+    });
     for (const box of [list.current, items.current]) if (box) observer.observe(box);
     return () => observer.disconnect();
   }, [settle]);
@@ -264,6 +365,17 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
   const picture = useCallback((id: string) => address({ picture: id }), [address]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
+  useLayoutEffect(() => {
+    const box = list.current;
+    if (!box || !focusedRow.current || document.activeElement !== document.body) return;
+    focusedRow.current = "";
+    box.focus({ preventScroll: true });
+  }, [drawn.start, drawn.end]);
+  useEffect(() => {
+    const away = (event: PointerEvent) => { if (!list.current?.contains(event.target as Node)) focusedRow.current = ""; };
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, []);
   const stats = sessionStats({ usage: held.usage, model, effort, memory });
   const reading = usageBanner(harness, subscriptions, spend);
   const lastSentAt = [...held.messages].reverse().find((message) => message.kind === "prompt" && message.source !== "notice")?.at ?? "";
@@ -276,10 +388,18 @@ export function MessagesView({ query, instance, name, task, harness, model, effo
         the box he types into. */}
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
     <div className="conversation-frame">
-      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}>
-        <div ref={items} className="conversation-items">
-          {held.messages.map((message) => <MessageRow key={message.id} message={message}
-            task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />)}
+      <div ref={list} className="conversation" role="log" aria-label={"Messages of " + name} tabIndex={0} style={{ fontSize: font }} onScroll={remember}
+        onFocus={(event) => { focusedRow.current = event.target.closest<HTMLElement>("[data-message]")?.dataset.message ?? ""; }}
+        onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusedRow.current = ""; }}>
+        <div ref={items} className="conversation-items" style={{ paddingTop: heightOf(0, spans[0].start) }}>
+          {/* One flat list keyed by message, so a row keeps its place in the
+              page, its DOM and any selection in it as the window moves. */}
+          {spans.flatMap((span, at) => [
+            ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
+            ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
+          ])}
+          <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>

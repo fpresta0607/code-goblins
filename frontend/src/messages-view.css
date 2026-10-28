@@ -14,23 +14,28 @@
 .conversation { flex: 1; min-width: 0; min-height: 0; overflow: hidden auto; overflow-anchor: none; scrollbar-gutter: stable; padding: 18px 22px 40px; color: #e3ecef; line-height: 1.55; }
 .conversation:focus-visible { outline-offset: -3px; }
 /* A short conversation sits at the bottom, by the latest, as a chat does,
-   and a wide panel keeps lines a readable length. */
-.conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: .875em; min-height: 100%; }
-.message { position: relative; display: grid; gap: .4em; min-width: 0; }
-/* A prompt on the right in a bubble, with its Copy in the corner the speaker
-   line used to hold. */
-.message-prompt { align-self: flex-end; justify-items: end; max-width: min(78%, 46em); }
+   in one centred column of a readable width however wide the panel is. */
+.conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: 1.125em; width: 100%; max-width: 48em; min-height: 100%; margin-inline: auto; }
+/* The room of the messages after those drawn, above any queued message so
+   it stays at the very bottom; each message's room holds the gap after it,
+   so the gap before the room is taken back. */
+.conversation-room { margin-top: -1.125em; }
+.message { position: relative; display: grid; gap: .5em; min-width: 0; }
+/* His message in a quiet bubble on the right, with its Copy in the corner
+   the speaker line used to hold. */
+.message-prompt { align-self: flex-end; justify-items: end; max-width: min(80%, 40em); }
 .message-prompt > .message-copy { position: absolute; top: 0; right: 100%; margin-right: .25em; z-index: 1; }
-.message-bubble { min-width: 0; max-width: 100%; padding: .625em .875em; border: 1px solid var(--glass-border-hover); border-radius: 14px 14px 4px 14px; background: linear-gradient(135deg, rgba(0, 229, 155, 0.10), rgba(0, 140, 255, 0.06)), var(--hero-surface); overflow-wrap: anywhere; }
-.message-prompt.cfo .message-bubble { border-color: var(--glass-border); background: var(--field-bg); }
+.message-bubble { min-width: 0; max-width: 100%; padding: .55em .95em; border-radius: 1.125em; background: #15232b; overflow-wrap: anywhere; }
+.message-prompt.cfo .message-bubble { background: #101b21; box-shadow: 0 0 0 1px var(--glass-border) inset; }
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
 .message-origin { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
 .message-queued { justify-self: end; padding: 0 .5em; border: 1px solid var(--glass-border); border-radius: 999px; font-size: .8125em; }
 .message-output, .call-result { max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-output { justify-self: stretch; }
-/* What Claude Code wrote, as the question cards draw a message, with its
+/* A reply is plain prose with no bubble, as the agent wrote it, its inline
    code in Claude Code's blue. */
-.message-words { display: grid; gap: .5em; min-width: 0; overflow-wrap: anywhere; }
+.message-reply { gap: .75em; line-height: 1.6; }
+.message-words { display: grid; gap: .6em; min-width: 0; overflow-wrap: anywhere; }
 .message-words p, .message-words ul, .message-words ol { margin: 0; white-space: pre-line; }
 .message-words ul, .message-words ol { display: grid; gap: .25em; padding-left: 1.4em; }
 .message-words strong, .message-heading { color: #fff; font-weight: 800; }
@@ -38,47 +43,61 @@
 .message-words .message-table { margin: 0; }
 .message-words .message-table table { font-size: 1em; }
 .message-words .message-table th { font-size: .8125em; }
-.message-code { margin: 0; padding: .625em .875em; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #d8e9e2; font: .875em/1.5 var(--font-mono); white-space: pre; }
+/* A code block under a quiet header with its language and Copy. */
+.message-code { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; background: #071015; }
+.message-code > figcaption { display: flex; align-items: center; justify-content: space-between; gap: 1em; min-height: 2em; padding: .15em .35em .15em .85em; border-bottom: 1px solid var(--border); color: var(--muted); font: .75em/1.4 var(--font-mono); }
+.message-code > pre { margin: 0; padding: .625em .875em; overflow-x: auto; color: #d8e9e2; font: .875em/1.55 var(--font-mono); white-space: pre; }
 .message-words .message-code code { padding: 0; background: none; color: inherit; font: inherit; }
-/* A call as one row, its outcome's mark first, what came back folded under
-   it; a baby goblin's row dashed, as on the mockup he chose. */
-.message-call, .message-baby, .disclosure.message-call { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: rgba(7, 16, 21, 0.75); font-size: .9375em; }
-div.message-call, .message-baby, .disclosure.message-call > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .625em; padding: .4em .75em; }
-/* A row that unfolds leads with the Disclosure's caret, and one with nothing
-   to unfold keeps the caret's room, so the rows' marks line up. */
-.disclosure.message-call > summary { grid-template-columns: auto auto minmax(0, 1fr) auto; font-family: inherit; font-size: inherit; cursor: pointer; }
-div.message-call { padding-left: calc(1.375em + 1.1em); }
+.code-copy { display: inline-flex; align-items: center; gap: .35em; min-height: 1.9em; padding: .1em .55em; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font: 600 1em/1 var(--font-body); }
+.code-copy:hover { background: var(--glass-bg-hover); color: var(--bone); }
+.code-copy .icon { width: 1.1em; height: 1.1em; }
+/* A run of calls as one quiet stack of rows: each its tool's icon, the verb,
+   what it was called on, and its outcome at the end; one that unfolds leads
+   with the Disclosure's caret, and one with nothing to unfold keeps the
+   caret's room, so the rows line up. A baby goblin's row stays dashed, as on
+   the mockup he chose. */
+.message-steps { display: grid; gap: 1px; min-width: 0; }
+.message-call, .disclosure.message-call { min-width: 0; border-radius: 8px; color: var(--muted); font-size: .9375em; }
+div.message-call, .message-baby, .disclosure.message-call > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .6em; padding: .3em .5em; }
+.disclosure.message-call > summary { grid-template-columns: auto auto minmax(0, 1fr) auto; font-family: inherit; font-size: inherit; cursor: pointer; border-radius: 8px; }
+.disclosure.message-call > summary:hover, div.message-call:hover { background: #ffffff08; }
+div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-call .icon, .message-baby .icon, .disclosure.message-call > summary > .icon { width: 1.1em; height: 1.1em; }
-.call-mark { display: grid; color: var(--muted); }
+.disclosure.message-call > summary > .icon:first-child { opacity: .6; }
+.call-icon { display: grid; padding-top: .2em; color: var(--muted); }
+.call-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .5em; min-width: 0; }
+.call-verb, .call-what > strong { flex: none; color: #dbe7ee; font-weight: 700; }
+/* A long command wraps in place rather than being cut with an ellipsis: the
+   row grows to what it ran, so nothing re-truncates as the panel resizes. */
+.call-subject { min-width: 0; color: var(--muted); font: .9em/1.6 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; }
+.call-end { display: flex; align-items: center; gap: .5em; padding-top: .15em; color: var(--muted); white-space: nowrap; }
+.call-mark { display: grid; place-items: center; width: 1.1em; color: var(--muted); }
 .call-mark.done { color: rgb(78, 186, 101); }
 .call-mark.running { color: var(--blue); }
 .call-mark.failed { color: rgb(255, 107, 128); }
 .call-mark.denied { color: var(--amber); }
-.call-what { display: flex; align-items: baseline; gap: .5em; min-width: 0; }
-.call-what > strong { flex: none; color: #dbe7ee; font-weight: 800; }
-/* A long command wraps in place rather than being cut with an ellipsis: the
-   row grows to what it ran, so nothing re-truncates as the panel resizes. */
-.call-subject { min-width: 0; color: var(--muted); font: .9375em/1.5 var(--font-mono); overflow-wrap: anywhere; white-space: pre-wrap; }
-.call-end { display: flex; align-items: start; gap: .5em; color: var(--muted); white-space: nowrap; }
-div.message-call, .message-baby, .disclosure.message-call > summary { align-items: start; }
 .call-added { color: rgb(78, 186, 101); font-weight: 800; }
 .call-removed { color: rgb(255, 107, 128); font-weight: 800; }
-.disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: 0 .75em .75em; }
+.disclosure.message-call > .disclosure-content { display: grid; gap: .5em; padding: .25em .5em .6em calc(.5em + 2.2em + 1.2em); }
 .message-diff { max-height: 24em; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #071015; color: #8fa3ad; font: .8125em/1.5 var(--font-mono); }
 .message-diff > div { min-width: max-content; padding: 0 .75em; white-space: pre; }
 .message-diff > .line-added { background: rgba(78, 186, 101, 0.12); color: #bfe9c9; }
 .message-diff > .line-removed { background: rgba(255, 107, 128, 0.10); color: #f3c0c8; }
-.message-baby { border-style: dashed; border-color: var(--glass-border-hover); }
+.message-baby { min-width: 0; border: 1px dashed var(--glass-border-hover); border-radius: 8px; font-size: .9375em; }
 .message-baby .text-button { display: inline-flex; align-items: center; gap: .25em; font-size: 1em; }
-/* Thinking and a compaction's summary, folded, in muted words. */
-.message-thinking, .message-compaction { color: var(--muted); }
+/* Thinking folds to one quiet line with its first words, and opens to read
+   (the Overlord's review, 2026-10-27); a compaction's summary folds too. */
+.message-compaction { color: var(--muted); }
 .message-compaction > .disclosure > summary { width: max-content; max-width: 100%; cursor: pointer; font-size: .9375em; font-style: italic; }
 .message-compaction > .disclosure > summary > .icon { width: 1.1em; height: 1.1em; }
 .message-compaction > .disclosure > .disclosure-content { margin-top: .375em; padding: 0 0 0 1em; border-left: 2px solid var(--border); font-size: .9375em; }
-/* Thinking is text he can read: quieter than the reply, with no chevron and
-   no state to open (the Overlord, 2026-10-26). */
-.message-thinking-read { display: grid; gap: .3em; padding: .1em 0; color: #9fb0ba; font-size: .9375em; }
-.thinking-label { color: #7f95a2; font: 700 .75em/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.disclosure.message-thinking { min-width: 0; color: var(--muted); font-size: .9375em; }
+.disclosure.message-thinking > summary { display: flex; align-items: center; gap: .5em; max-width: 100%; cursor: pointer; font-family: inherit; font-size: inherit; }
+.disclosure.message-thinking > summary > .icon { flex: none; width: 1.1em; height: 1.1em; opacity: .6; }
+.thinking-preview { min-width: 0; overflow: hidden; color: #7f95a2; font-style: italic; text-overflow: ellipsis; white-space: nowrap; }
+.disclosure.message-thinking[open] .thinking-preview { display: none; }
+.disclosure.message-thinking > .disclosure-content { margin: .35em 0 0 .5em; padding-left: 1em; border-left: 2px solid var(--border); color: #9fb0ba; font-style: italic; }
+.thinking-label { flex: none; color: #9fb0ba; font-weight: 700; }
 .message-compaction { position: relative; align-self: stretch; padding: 0 40px; }
 .message-compaction > .disclosure > summary { margin: 0 auto; }
 .message-notice, .message-interrupt { align-self: center; max-width: 46em; margin: 0; color: var(--muted); font-size: .9375em; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
@@ -117,8 +136,9 @@ div.message-call, .message-baby, .disclosure.message-call > summary { align-item
    inside it, so saying it never makes the line taller or moves the box. */
 .session-footer .notice { padding: 0 8px; border: 0; box-shadow: inset 0 0 0 1px var(--glass-border); font-size: inherit; line-height: inherit; }
 .session-footer .notice-dot { margin-top: calc(.5lh - 4px); }
-/* The input floats above the conversation with its controls outside the bar. */
-.composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; gap: 8px; padding: 0 16px 16px; }
+/* The input floats above the conversation, centred under its column, with
+   its controls outside the bar. */
+.composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; align-self: center; gap: 8px; width: min(100%, 51rem); padding: 0 16px 16px; }
 .composer-dock .composer { padding: 0; border-top: 0; background: transparent; }
 .composer-dock .composer-input { background: #0b171cf2; backdrop-filter: blur(14px); }
 .composer-dock .composer-sent { max-height: 10rem; overflow: auto; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: 14px; background: #0b171ce6; }
