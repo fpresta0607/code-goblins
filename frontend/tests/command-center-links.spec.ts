@@ -4,27 +4,29 @@ import { expect, openItem, servePages, test } from "./site";
 // there's a link, I like the copy button, but I should be able to click it as
 // a hyperlink to navigate to it." Every http or https address in a Command
 // Center card and in History is a link that opens in a new tab, which the
-// desktop window hands to his default browser; a value keeps its copy button
-// beside it, and any other scheme stays text.
+// desktop window hands to his default browser, and any other scheme stays
+// text. Since 2026-10-28 a link has no copy button beside it ("why is copy
+// icon showing up"); a value that is not a link keeps its own.
 test.use({ locale: "en-US", timezoneId: "America/Chicago" });
 
-test("a card's links open in a new tab, the value's copy button beside it, and other schemes stay text", async ({ page, context }, testInfo) => {
+test("a card's links open in a new tab with no copy button beside them, and other schemes stay text", async ({ page, context }, testInfo) => {
   // Arrange
   await context.route(/^https:\/\/(github|docs\.github)\.com\//, (route) => route.fulfill({ contentType: "text/html", body: "<title>GitHub</title>" }));
   await page.goto("/tests/fixtures/command-center-links.html");
   await openItem(page, "Roll the GitHub token");
   const card = page.getByRole("dialog").locator(".question-card");
-  const value = card.locator(".copy-value").filter({ hasText: "https://github.com/settings/tokens" });
+  const value = card.getByRole("link", { name: "https://github.com/settings/tokens" });
   await card.screenshot({ path: testInfo.outputPath("card-links.png") });
 
   // Act
   const opened = page.waitForEvent("popup");
-  await value.getByRole("link", { name: "https://github.com/settings/tokens" }).click();
+  await value.click();
   const tab = await opened;
 
   // Assert
   expect(tab.url()).toBe("https://github.com/settings/tokens");
-  await expect(value.getByRole("button", { name: "Copy https://github.com/settings/tokens" })).toBeVisible();
+  await expect(card.getByRole("button", { name: /^Copy https?:/ })).toHaveCount(0);
+  await expect(card.locator(".copy-value")).toHaveCount(0);
   const prose = card.getByRole("link", { name: "https://docs.github.com/en/authentication" });
   await expect(prose).toHaveAttribute("href", "https://docs.github.com/en/authentication");
   await expect(prose).toHaveAttribute("target", "_blank");
@@ -51,7 +53,7 @@ test("a History row's link opens in a new tab once the row unfolds", async ({ pa
   await expect(row.locator(".inbox-summary")).toHaveText("Pick a store layout on the page (page https://example.com/session/f26e)");
 });
 
-test("phone links in prose, copied values and History open the private Scrawl route", async ({ page, context }) => {
+test("phone links in prose, link values and History open the private Scrawl route", async ({ page, context }) => {
   const origin = "https://pc.example.ts.net:4311";
   const review = "http://127.0.0.1:4387/session/private-review?mode=notes#answer";
   const privateLink = "/api/remote/scrawl-link?url=" + encodeURIComponent(review);
@@ -70,11 +72,7 @@ test("phone links in prose, copied values and History open the private Scrawl ro
     expect(tab.url()).toBe(origin + privateLink);
     await tab.close();
   }
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { document.documentElement.dataset.copied = text; } } });
-  });
-  await card.getByRole("button", { name: "Copy " + review }).click();
-  await expect(page.locator("html")).toHaveAttribute("data-copied", review);
+  await expect(card.getByRole("button", { name: "Copy " + review })).toHaveCount(0);
 
   await page.keyboard.press("Escape");
   await page.locator(".command-center-menu > summary").click();

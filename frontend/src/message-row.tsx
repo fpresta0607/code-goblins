@@ -32,24 +32,27 @@ function sentAt(at: string): { exact: string; text: string } {
 // speaker line (the Overlord, 2026-10-26).
 // A long message of his, and a long print of a command, shows its first
 // lines with Show more (LongText), so a paste never fills a phone's screen.
-// Each of his own messages keeps a small row under it with Copy and when it
-// was sent, hidden until he taps the message or points at it, and closed when
-// he taps away. Its words stay selectable. The pictures he sent show above
+// Under each of his own messages nothing shows until he taps the message or
+// points at it: then when he sent it and Copy show in that spot, which closes
+// when he taps away (the Overlord, 2026-10-28: "Only when you hover in that
+// position where it says 'Sent just now', that's where the timestamp and copy
+// icon come"). Its words stay selectable. The pictures he sent show above
 // his bubble, on his side, at a size he can read, as Claude's app draws them
 // (the Overlord, 2026-10-28: "see how claude includes pictures when pasted"):
 // those the transcript holds, read back by id (picture), and those the
 // message box kept and named by path, which show in place of the path
-// (keptPicture), never the path itself. A reply shows when it arrived only
-// where it ends its turn (isTurnEnd), its time, then Copy, then the mark of
-// the session's harness (the Overlord, 2026-10-28: "Copy should come after
-// the timestamp. The icon should come after the timestamp"), and the last
-// message sent carries its receipt under it, when it was sent.
+// (keptPicture), never the path itself. A reply shows when it arrived and
+// Copy only where it ends its turn (isTurnEnd), once the turn has ended, its
+// time, then Copy, then the mark of the session's harness (the Overlord,
+// 2026-10-28: "Copy should come after the timestamp. The icon should come
+// after the timestamp", and "why the stray copy button in our chat?"): a
+// short text between tool calls is not a finished message.
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
-export const MessageRow = memo(function MessageRow({ message, task, harness, picture, keptPicture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
+export const MessageRow = memo(function MessageRow({ message, task, harness, picture, keptPicture, onChild, openFolds, onFold, isTurnEnd }: {
   message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; keptPicture: (path: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
-  openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean; receipt: string;
+  openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean;
 }) {
   const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
   const [copied, setCopied] = useState(false);
@@ -79,10 +82,10 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
         : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{inlineElements(part.text.trim().split("\n")[0])}</span></>}>
           <MessageText text={part.text} />
         </Disclosure>)}
-    {(copy || isTurnEnd && when.text) && <div className="message-reply-actions">
-      {isTurnEnd && when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}
+    {isTurnEnd && (copy || when.text) && <div className="message-reply-actions">
+      {when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}
       {copy}
-      {isTurnEnd && harness && <HarnessMark harness={harness} />}
+      {harness && <HarnessMark harness={harness} />}
     </div>}
   </article>;
   if (message.source === "notice") return <p className="message-notice" data-message={message.id}>{copy}{message.text}</p>;
@@ -100,10 +103,9 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
     {printed && <LongText isLong={isLongText(printed)} {...fold("output")}><pre className="message-output">{printed}</pre></LongText>}
-    {receipt && <p className="message-receipt">{receipt}</p>}
     {(copy || when.text) && <div className="message-actions" onClick={(event) => event.stopPropagation()}>
-      {copy}
       {when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}
+      {copy}
     </div>}
   </article>;
 });

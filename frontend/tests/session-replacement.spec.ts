@@ -23,8 +23,9 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await expect(terminal).toBeVisible();
       if (state === "held") {
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        // The board says the hold once, beside the one input it concerns.
-        await expect(page.locator(".context-pane").getByText("Review in progress. Send to queue until it finishes.")).toBeVisible();
+        // The box queues what he sends, and no note says so.
+        await expect(page.locator(".context-pane .composer[data-queues]")).toHaveCount(1);
+        await expect(page.locator(".context-pane")).not.toContainText("Review in progress");
       } else if (state === "ended") {
         relay.end();
         await expect(page.locator(".terminal-foot.box")).toBeVisible();

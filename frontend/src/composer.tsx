@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import type { Snapshot, Task } from "./types";
+import type { Action, Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
 import { ComposerAttachments } from "./composer-attachments";
@@ -11,7 +11,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
-import { filesOf } from "./kept-files";
+import { filesOf, keptFiles } from "./kept-files";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { shortModel } from "./model-name";
@@ -25,7 +25,7 @@ import { RecentDictations } from "./recent-dictations";
 import { useTerminalLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
-import { GATE_CUSTODY, isDetachedHold } from "./terminalInput";
+import { isDetachedHold } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
@@ -500,11 +500,46 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setCaret(chosen.caret);
     requestAnimationFrame(() => { box?.focus(); box?.setSelectionRange(chosen.caret, chosen.caret); });
   };
+  // What the board has kept for this goblin is what the board's own record of
+  // it says, so it survives a reload and a remount, and it stays on screen
+  // after a gate lets go so the action can be read and withdrawn.
+  const sent = messagesTo(snapshot, task?.id || "");
+  // A message the board still holds is under the conversation as its own
+  // entry, and the box keeps no second copy of its words.
+  const queued = sent.filter(isPendingMessage);
+  // Up in an empty box while the board holds a message of his to this session
+  // takes the newest back off the queue and into the box, his words and the
+  // files it named, to edit and send again; taken back, it never reaches the
+  // harness from the queue (the Overlord, 2026-10-28: "if I hit the up arrow
+  // when there's a queued message, it'll pull that queued message back into
+  // my chat composer automatically to then edit and resend it, taking it off
+  // the queue"). A message already typed into the turn is the harness's.
+  const unqueue = async (action: Action) => {
+    setSending(true);
+    try {
+      await post({ id: crypto.randomUUID(), kind: "message_withdraw", task_id: action.task_id, generation: "", target: action.id, text: action.text });
+      const taken = keptFiles(action.text);
+      setDraft(taken.text);
+      setAttached(taken.paths);
+      setUnsent("");
+    } catch (error: unknown) {
+      setUnsent("Not taken back. " + message(error));
+      reportToCfo("taking back a message to " + name, message(error));
+    } finally {
+      setSending(false);
+      requestAnimationFrame(() => field.current?.focus());
+    }
+  };
   // Up in an empty box, or on the first line of a message it recalled,
   // brings back what he sent before, newest first, as the terminal does, and
   // Down walks forward again to the empty box; any edit ends the recall.
   const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const box = event.currentTarget;
+    const newest = queued.filter((action) => !action.awaiting).at(-1);
+    if (event.key === "ArrowUp" && hasConversation && !draft && !attached.length && newest) {
+      if (!isSending) void unqueue(newest);
+      return true;
+    }
     const shown = recalled !== null && draft === history[recalled] ? recalled : null;
     if (event.key === "ArrowUp" && (!draft || shown !== null && !box.value.slice(0, box.selectionStart).includes("\n")) && history.length) {
       const at = Math.max(0, (shown ?? history.length) - 1);
@@ -565,35 +600,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
-  const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready."
-    : live?.held && GATE_CUSTODY.test(live.held) ? "Review in progress. Send to queue until it finishes."
-      : savesThroughBoard ? "Messages will be queued." : "";
+  // A message sent while the session works, or while a review holds it, is
+  // queued, and he assumes it, so no note says so (the Overlord, 2026-10-28:
+  // "this text not needed on working goblins resumes are assumed"); a goblin
+  // with no branch to work on says why its messages wait.
+  const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready." : "";
   const note = terminalFeedback || (adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : live?.feedback || dictation.note || queueNote);
-  // What the board has kept for this goblin is what the board's own record of
-  // it says, so it survives a reload and a remount, and it stays on screen
-  // after a gate lets go so the action can be read and withdrawn.
-  const sent = messagesTo(snapshot, task?.id || "");
-  // A message the board still holds is in the conversation as its own entry;
-  // the box keeps a quiet count of them and no second copy of their words.
-  const queued = sent.filter(isPendingMessage);
   // Without a conversation, even a Modern panel needs the queue here.
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
-  // The queued messages sit at the very bottom of the conversation, below the
-  // room of rows not drawn yet, so showing them is going to its end at once:
-  // a smooth scroll toward a place estimated from rows not yet measured would
-  // stop short as they are drawn.
-  const revealQueued = () => {
-    const queued = document.querySelector<HTMLElement>("[data-queued]");
-    const conversation = queued?.closest<HTMLElement>(".conversation");
-    if (conversation) conversation.scrollTop = conversation.scrollHeight;
-    queued?.scrollIntoView({ block: "nearest" });
-  };
   const canSend = !isSending && !adding && !!outgoing;
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
   const canStop = isWorking && !outgoing && !isSending && !!live && !isHeld;
-  return <section className="composer" aria-label={"Messages to " + name}>
+  // data-queues says a Send now goes to the board's queue rather than into the
+  // terminal, which no note tells him (queueNote).
+  return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
     {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
@@ -636,7 +658,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
               <button type="button" onClick={() => { setStyleOpen(false); setRecentOpen(true); menu.current?.focus(); }}><Icon name="clock" />Speech history</button>
               {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="external" />Open in Windows Terminal</button>}
             </div>}
-            {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
           </div>
           <div className="composer-row-end">
             {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}

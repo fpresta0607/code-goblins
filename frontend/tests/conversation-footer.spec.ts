@@ -14,7 +14,7 @@ const PAGE_WITH_USAGE = { ...PAGE, usage: USAGE };
 const MEMORY = { ...GOBLIN, tree: { task_id: GOBLIN.id, generation: GOBLIN.generation, harness: GOBLIN.harness, memory: 208 * 2 ** 20, own_memory: 208 * 2 ** 20, conversation_at: "", children: [], unread: [], source_updated_at: "", fetched_at: "" } };
 const footer = (page: Page) => page.locator(".session-footer");
 
-test("the conversation's bottom line carries the stats, not a wall of numbers, and the time facts sit under his message", async ({ page }) => {
+test("the conversation's bottom line carries the stats, not a wall of numbers, and no time fact shows under his message", async ({ page }) => {
   // Arrange
   await open(page, snapshot({}, { ...MEMORY, phase: "settled" }), "rebase onto main", PAGE_WITH_USAGE);
   await openGoblin(page);
@@ -23,7 +23,7 @@ test("the conversation's bottom line carries the stats, not a wall of numbers, a
   const line = footer(page);
   await expect(line).toBeVisible();
   await expect(line).not.toContainText(/Sent|Replied|Working/);
-  await expect(page.locator('[data-message="m0"] .message-receipt')).toHaveText(/^Sent [^·]+$/);
+  await expect(page.locator('[data-message="m0"] .message-actions')).toBeHidden();
   await expect(page.locator(".reply-working")).toHaveCount(0);
   // The fuller numbers live on in the banner, not on this line.
   await expect(line).not.toContainText("$3.209");

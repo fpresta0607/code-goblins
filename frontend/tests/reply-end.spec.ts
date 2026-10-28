@@ -8,9 +8,12 @@ import { open, openGoblin, snapshot, typed } from "./session-board";
 // agent", and of "Sent just now / Replied just now": "this goes under my
 // messages, not above the chat bar". A turn's replies show one time, at the
 // turn's end; while the session works the dither takes that place, with Stop
-// on it that stops the turn through Modern Chat's own interrupt; and when he
-// sent and it replied is a receipt under his last message. The supervisor is
-// played by tests/session-board.ts.
+// on it that stops the turn through Modern Chat's own interrupt. Since
+// 2026-10-28 nothing shows under his message until he points at it ("It
+// shouldn't be static ... Only when you hover in that position where it says
+// 'Sent just now', that's where the timestamp and copy icon come"), and Copy
+// shows only under a finished turn's last reply ("why the stray copy button in
+// our chat?"). The supervisor is played by tests/session-board.ts.
 
 const minute = (count: number) => new Date(Date.parse("2026-10-22T09:00:00Z") + count * 60_000).toISOString();
 const reply = (seq: number, blocks: object[]) => ({ id: "r" + seq, seq, at: minute(seq), kind: "reply", blocks });
@@ -37,7 +40,7 @@ const follows = (page: Page, before: string, after: string) => page.evaluate(([b
   return !!first && !!second && !!(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 }, [before, after]);
 
-test("a finished turn of many replies shows its time once, at its end, and his last message carries its receipt", async ({ page }) => {
+test("a finished turn of many replies shows its time once, at its end, and nothing shows under his message", async ({ page }) => {
   // Arrange and Act
   await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
@@ -49,11 +52,61 @@ test("a finished turn of many replies shows its time once, at its end, and his l
   for (const id of ["r1", "r2"]) await expect(row(page, id).locator("time")).toHaveCount(0);
   await expect(working(page)).toHaveCount(0);
 
-  // The receipt is under his last message only, and the line above the box
-  // carries none of it.
-  await expect(row(page, "p4").locator(".message-receipt")).toHaveText(/^Sent [^·]+$/);
-  await expect(row(page, "p0").locator(".message-receipt")).toHaveCount(0);
+  // Nothing under his messages, and the line above the box carries none of it.
+  for (const id of ["p0", "p4"]) await expect(row(page, id).locator(".message-actions")).toBeHidden();
+  await expect(page.getByRole("log")).not.toContainText(/Sent|Replied/);
   await expect(page.locator(".session-footer")).not.toContainText(/Sent|Replied|Working/);
+});
+
+test("pointing at his message shows when he sent it and Copy in the spot under it, and nothing moves", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+  const sent = row(page, "p4");
+  const actions = sent.locator(".message-actions");
+  await expect(actions).toBeHidden();
+  const before = await sent.boundingBox();
+
+  // Act
+  await sent.hover();
+
+  // Assert: the real time he sent it, as the transcript holds it, then Copy.
+  await expect(actions).toBeVisible();
+  await expect(actions.locator("time")).toHaveAttribute("datetime", minute(4));
+  await expect(actions.locator("time")).not.toHaveText(/ago|just now/);
+  await expect(actions.getByRole("button", { name: "Copy", exact: true })).toBeVisible();
+  const parts = await actions.locator("> *").evaluateAll((elements) => elements.map((element) => element.tagName === "TIME" ? "time" : element.classList.contains("message-copy") ? "copy" : element.className));
+  expect(parts).toEqual(["time", "copy"]);
+  expect(await sent.boundingBox(), "the spot is kept, so nothing moves").toEqual(before);
+});
+
+test("a turn in progress shows no Copy, not even beside a short text between its tool calls, and once it ends exactly one under its last reply", async ({ page }) => {
+  // Arrange: the second turn goes on with a short text between two calls.
+  const going = { messages: [...TALK.messages,
+    reply(6, [{ kind: "call", tool: "Bash", subject: "npx playwright test phone", state: "done" }, { kind: "text", text: "One more." }, { kind: "call", tool: "Read", subject: "tests/phone.spec.ts", state: "done" }]),
+    reply(7, [{ kind: "text", text: "The phone spec passes." }]),
+  ], more: false };
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", going);
+  await openGoblin(page);
+  const copies = page.getByRole("log").locator(".message-reply .message-copy");
+
+  // Act
+  relay.say(screen(true));
+
+  // Assert: only the first, finished turn has its Copy.
+  await expect(working(page)).toHaveCount(1);
+  await expect(copies).toHaveCount(1);
+  await expect(row(page, "r3").locator(".message-copy")).toHaveCount(1);
+  for (const id of ["r5", "r6", "r7"]) await expect(row(page, id).locator(".message-copy")).toHaveCount(0);
+
+  // Act: the turn ends.
+  relay.say(screen(false));
+
+  // Assert: one Copy per finished turn, under its last reply.
+  await expect(working(page)).toHaveCount(0);
+  await expect(copies).toHaveCount(2);
+  await expect(row(page, "r7").locator(".message-copy")).toHaveCount(1);
+  for (const id of ["r1", "r2", "r5", "r6"]) await expect(row(page, id).locator(".message-copy")).toHaveCount(0);
 });
 
 test("while the session works the dither takes the time's place at the reply in progress, and Stop on it stops the turn with no terminal shown", async ({ page }) => {
@@ -114,7 +167,6 @@ test("with no reply yet the dither sits at the reply's place under his message, 
   // Assert
   await expect(working(page)).toHaveCount(1);
   expect(await follows(page, '[data-message="p6"]', ".reply-working"), "the dither follows his message").toBe(true);
-  await expect(row(page, "p6").locator(".message-receipt")).toHaveText(/^Sent [^·]+$/);
   await expect(working(page).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
 
   // Act: a review holds his typing.
@@ -126,10 +178,10 @@ test("with no reply yet the dither sits at the reply's place under his message, 
 });
 
 // The Overlord, 2026-10-28, from his phone: "please clean up all the time
-// stamps". At phone widths too, a turn shows one time, the receipt sits only
-// under his last message, and nothing of either is on a line above the box.
+// stamps". At phone widths too, a turn shows one time, nothing shows under
+// his message, and no time is on a line above the box.
 for (const width of [360, 393, 430]) {
-  test(`at ${width} px the times and the receipt keep their places, finished and working`, async ({ page }) => {
+  test(`at ${width} px the times keep their places and nothing shows under his message, finished and working`, async ({ page }) => {
     // Arrange
     await page.setViewportSize({ width, height: 852 });
     const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
@@ -138,8 +190,7 @@ for (const width of [360, 393, 430]) {
 
     // Assert: finished.
     await expect(times(page)).toHaveCount(2);
-    await expect(page.locator(".message-receipt")).toHaveCount(1);
-    await expect(row(page, "p4").locator(".message-receipt")).toBeVisible();
+    await expect(row(page, "p4").locator(".message-actions")).toBeHidden();
     await expect(dock).not.toContainText(/Sent|Replied|Working|\d:\d\d/);
 
     // Act

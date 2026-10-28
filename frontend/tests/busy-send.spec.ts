@@ -217,6 +217,10 @@ for (const harness of ["claude", "codex", "pi"]) {
     await expect.poll(() => posts.map((post) => post.kind + ":" + post.text)).toEqual(["message:first, check the train", "message:second, merge it", "message:third, tell me"]);
     expect(new Set(posts.map((post) => post.id)).size, "each its own message").toBe(3);
     expect(typed(relay), "nothing typed onto the prompt line").toBe("");
+    // He assumes it queues, so no note says so (2026-10-28: "this text not
+    // needed on working goblins resumes are assumed").
+    await expect(box(page).locator(".composer-note")).toHaveText("");
+    await expect(page.locator(".context-pane")).not.toContainText(/Send to queue|will be queued/);
   });
 }
 

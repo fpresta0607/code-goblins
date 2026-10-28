@@ -38,7 +38,8 @@ for (const style of ["classic", "modern"]) {
 
         // Act and Assert: routine waiting is shown once, beside its one input.
         await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("Review in progress. Send to queue until it finishes.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
         await expect(send(page)).toBeInViewport();
         expect(await box(page).locator(".composer-note").evaluate((note) => getComputedStyle(note).color)).toBe(await box(page).locator(".composer-control").first().evaluate((control) => getComputedStyle(control).color));
@@ -67,7 +68,7 @@ for (const style of ["classic", "modern"]) {
         expect(requests[1]).toEqual(requests[0]);
         expect(requests[0]).toMatchObject({ text: sentText });
         await expect(box(page).getByRole("alert")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         expect(typed(relay)).toBe(before);
 
         // Act: the durable entry remains after the hold changes.
@@ -94,7 +95,7 @@ for (const style of ["classic", "modern"]) {
         await card(page, NAME).click();
         await expect.poll(() => relay.views).toBeGreaterThan(0);
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(box(page).locator(".composer-note")).toHaveText("Review in progress. Send to queue until it finishes.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
         await field(page).fill("Preserve this failed message");
         await page.route("**/api/actions", (route) => route.fulfill({ status: 503, json: { error: "The message could not be queued. Try again." } }));
 
@@ -128,7 +129,8 @@ for (const style of ["classic", "modern"]) {
         await expect(field(page)).toBeVisible();
         await field(page).fill("Read this after the current turn");
         await expect(page.locator(".host-terminal > .terminal-corner-left[data-tip]:visible")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(1);
@@ -143,7 +145,8 @@ for (const style of ["classic", "modern"]) {
         await expect(page.locator(".terminal-corner.warning")).toHaveCount(1);
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
-        await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(2);
@@ -186,7 +189,7 @@ for (const style of ["classic", "modern"]) {
           relay.say({ type: "held", reason: "pipeline owns this task" });
           const draft = "Keep this pending message " + status;
           await field(page).fill(draft);
-          await expect(box(page).locator(".composer-note")).toHaveText("Review in progress. Send to queue until it finishes.");
+          await expect(box(page)).toHaveAttribute("data-queues", "");
           let isPending = false;
           let submission: unknown;
           let complete: () => Promise<void> = async () => { throw new Error("No pending send"); };
@@ -588,7 +591,8 @@ for (const style of ["classic", "modern"]) {
       await field(page).focus();
       await page.keyboard.type("recovery");
       relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
-      await expect(note).toHaveText("Review in progress. Send to queue until it finishes.");
+      await expect(box(page)).toHaveAttribute("data-queues", "");
+      await expect(note).toHaveText("");
       relay.say({ type: "held", reason: "" });
       await expect(field(page)).toHaveValue("Keep this until recovery");
       expect(typed(relay)).toBe("");

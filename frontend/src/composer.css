@@ -78,7 +78,6 @@
 .composer-send:hover { background: transparent; }
 .composer-send:disabled { cursor: default; }
 .composer-send .icon { width: 18px; height: 18px; }
-.queued-control > span { font-variant-numeric: tabular-nums; }
 /* A touch screen's controls are taller to tap, and as wide as the row lets
    the whole row fit inside a 360 px phone's box. */
 @media (pointer: coarse) {

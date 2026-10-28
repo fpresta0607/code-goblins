@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { message, reportToCfo, request } from "./api";
 import { Icon } from "./Icon";
+import { keptFileAddress, keptPictures } from "./kept-files";
+import { MessagePictures } from "./message-pictures";
 import { messageState } from "./messages";
 import type { Action } from "./types";
 
@@ -10,9 +12,10 @@ import type { Action } from "./types";
 // like send now or edit the cue messages either or delete them?").
 // Send now clears its wait so the next safe moment types it; Edit changes
 // what will be sent; Cancel takes it back unsent, by its own row, so it never
-// reaches the harness. pane draws it in the
-// conversation, queue in the message box's own list, and both offer the same
-// acts.
+// reaches the harness. pane draws it under the
+// conversation, the pictures the box kept for it above its bubble in place
+// of their paths as his sent message shows them, queue in the message box's
+// own list, and both offer the same acts.
 export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
   action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void;
 }) {
@@ -38,6 +41,7 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
   const isPending = isWaiting || isTyped;
   const state = isWaiting ? (variant === "queue" ? "Queued" : "Waiting") : isTyped ? "Typed, awaiting the turn" : messageState(action);
   const reason = isPending ? action.message : "";
+  const kept = keptPictures(action.text);
   return <div className={"queued-message " + variant} data-queued={action.id}>
     {isEditing ? <div className="queued-edit">
       <textarea aria-label={"Edit message: " + action.text} value={draft} rows={2} onChange={(event) => setDraft(event.target.value)} />
@@ -46,7 +50,8 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
         <button type="button" className="labelled-button" disabled={isSending} onClick={() => { setEditing(false); setDraft(action.text); }}>Cancel</button>
       </div>
     </div> : <>
-      {variant === "pane" && <div className="message-bubble queued-bubble">{action.text}</div>}
+      {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
+      {variant === "pane" && kept.text && <div className="message-bubble queued-bubble">{kept.text}</div>}
       {variant === "queue" && <span className="composer-sent-text">{action.text}</span>}
       {variant === "pane" ? <p className="queued-state" aria-label={reason || state} data-tip={reason || state}><Icon name="clock" /></p>
         : <p className="queued-line" data-tip={reason}><strong>{state}</strong></p>}

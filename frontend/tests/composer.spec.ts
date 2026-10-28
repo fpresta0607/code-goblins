@@ -135,7 +135,8 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
 
   relay.say({ type: "unread", unread: true });
-  await expect(note).toHaveText("Messages will be queued.");
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(send(page)).toBeEnabled();
   await field(page).press("Enter");
   await expect.poll(() => actions.length).toBe(1);
@@ -163,7 +164,8 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
 
-  await expect(note).toHaveText("Messages will be queued.");
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(field(page)).toHaveValue("");
   expect(actions).toHaveLength(2);
   expect(actions[1]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "merge it" });
@@ -397,7 +399,8 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // Assert: no pill over the thread, the plain copy beside the box, and Send
   // usable so the message is queued.
   await expect(page.locator(".terminal-held")).toHaveCount(0);
-  await expect(note).toHaveText("Messages will be queued.");
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(field(page)).toBeVisible();
   await field(page).fill("send this while the check fails");
   await expect(send(page)).toBeEnabled();
@@ -612,7 +615,7 @@ test("a leading ! command is typed into the session as the harness's own shell c
   await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
 });
 
-test("a delivered message appears once in Modern chat and the queue count includes every pending message", async ({ page }) => {
+test("a delivered message appears once in Modern chat, every pending message is pinned above the box, and the box has no queue control", async ({ page }) => {
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
   await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
     messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" },
@@ -620,16 +623,14 @@ test("a delivered message appears once in Modern chat and the queue count includ
   });
   await openGoblin(page);
   await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
-  const queue = page.getByRole("button", { name: "8 queued messages", exact: true });
-  await expect(queue).toBeVisible();
+  const pinned = page.getByRole("group", { name: "Queued messages", exact: true });
+  await expect(pinned.locator(".queued-message")).toHaveCount(8);
+  await expect(box(page).getByRole("button", { name: /queued message/ })).toHaveCount(0);
   await page.getByRole("log", { name: "Messages of " + NAME }).evaluate((list) => { list.scrollTop = 0; });
-  const firstQueued = page.locator('.queued-message[data-queued="q0"]');
-  await expect(firstQueued).not.toBeInViewport();
-  await queue.click();
-  await expect(firstQueued).toBeInViewport();
+  await expect(page.locator('.queued-message[data-queued="q7"]')).toBeInViewport();
 });
 
-test("the queue control shows a queued message at the bottom of a long conversation read far up", async ({ page }) => {
+test("a queued message stays in view above the box while he reads far up a long conversation", async ({ page }) => {
   // Arrange: a long conversation, read about 3,000 px up from its end.
   const reply = (seq: number) => ({ id: "m" + seq, seq, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\n" + "A reply that runs over a few lines. ".repeat(12) }] });
   const messages = Array.from({ length: 200 }, (_, seq) => seq % 2 ? reply(seq) : { id: "m" + seq, seq, kind: "prompt", source: "overlord", text: "Question " + seq });
@@ -639,13 +640,10 @@ test("the queue control shows a queued message at the bottom of a long conversat
   await expect(conversation).toContainText("Answer 199");
   await conversation.evaluate((list) => { list.scrollTop = list.scrollHeight - list.clientHeight - 3000; });
   const queued = page.locator('.queued-message[data-queued="q1"]');
-  await expect(queued).not.toBeInViewport();
 
-  // Act
-  await page.getByRole("button", { name: "1 queued message", exact: true }).click();
-
-  // Assert
+  // Assert: no click needed, and it is not in the list that scrolls.
   await expect(queued).toBeInViewport();
   await expect(queued).toContainText("queued while it works");
+  await expect(conversation.locator(".queued-message")).toHaveCount(0);
 });
 

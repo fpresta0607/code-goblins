@@ -3,6 +3,8 @@
 // composer_files.go), and the message names by path, one to a line.
 
 const PICTURE = /\.(?:png|jpe?g|gif|webp)$/i;
+// A line of his words that is only the path of any file the box kept.
+const KEPT_FILE = /^(?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/][^\\/]+$/i;
 // A line of his words that is only the path of a picture the box kept.
 const KEPT_PICTURE = /^(?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/]pasted-[^\\/]+\.(?:png|jpe?g|gif|webp)$/i;
 
@@ -13,10 +15,20 @@ export function isPicturePath(path: string): boolean {
 // keptPictures splits his words from the pictures the box kept for them, so
 // his bubble shows each picture rather than its path.
 export function keptPictures(text: string): { text: string; paths: string[] } {
+  return keptLines(text, KEPT_PICTURE);
+}
+
+// keptFiles splits his words from every file the box kept for them, so a
+// queued message taken back into the box shows its files as it did.
+export function keptFiles(text: string): { text: string; paths: string[] } {
+  return keptLines(text, KEPT_FILE);
+}
+
+function keptLines(text: string, kept: RegExp): { text: string; paths: string[] } {
   const paths: string[] = [];
   const words = text.split("\n").filter((line) => {
     const path = line.trim();
-    if (!KEPT_PICTURE.test(path)) return true;
+    if (!kept.test(path)) return true;
     paths.push(path);
     return false;
   });
