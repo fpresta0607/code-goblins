@@ -16,8 +16,20 @@ import (
 type custodyProgressRunner struct {
 	progress Progress
 	native   string
+	isDirty  bool
 	requests []execx.Request
 	recovery *recoveryRunner
+}
+
+// checks is how many native custody checks the runner was asked to start.
+func (r *custodyProgressRunner) checks() int {
+	checks := 0
+	for _, req := range r.requests {
+		if req.Name == "no-mistakes" {
+			checks++
+		}
+	}
+	return checks
 }
 
 func (r *custodyProgressRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -33,7 +45,7 @@ func (r *custodyProgressRunner) Run(ctx context.Context, req execx.Request) (exe
 		if strings.Join(req.Args, " ") != "axi sync --check" {
 			return execx.Result{}, fmt.Errorf("unexpected mutation %v", req.Args)
 		}
-		return execx.Result{Stdout: []byte(fmt.Sprintf("branch_sync:\n  state: %s\n  safety: %s\n  local: {head: %s, clean: true}\n  pipeline: {run: %s, submitted_head: %s, current_head: %s}\n", r.native, r.native, r.progress.Head, r.progress.RunID, r.progress.SubmittedHead, r.progress.Head))}, nil
+		return execx.Result{Stdout: []byte(fmt.Sprintf("branch_sync:\n  state: %s\n  safety: %s\n  local: {head: %s, clean: %t}\n  pipeline: {run: %s, submitted_head: %s, current_head: %s}\n", r.native, r.native, r.progress.Head, !r.isDirty, r.progress.RunID, r.progress.SubmittedHead, r.progress.Head))}, nil
 	}
 	return r.recovery.Run(ctx, req)
 }
@@ -79,6 +91,117 @@ func TestCanSteerReadsOnlyTheLatestRun(t *testing.T) {
 				t.Fatalf("requests=%+v, want one query of the latest run", runner.requests)
 			}
 		})
+	}
+}
+
+// An open board terminal view asks for custody every five seconds, and each
+// ask started the native check and its update check while nothing changed
+// (#1678). The check runs once for each record of the branch's newest run.
+func TestRepeatedCustodyReadsCheckOncePerRecordOfTheNewestRun(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		native    string
+		submitted string
+		returned  int64
+		isClear   bool
+	}{
+		{"the gate still holds an unrecovered run", "pipeline_owned", recoveryPreserved, 0, false},
+		{"the run released its unmoved head", "user_owned", recoveryRecorded, 0, true},
+		{"the run returned custody", "custody_returned", recoveryPreserved, 1, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runner := &custodyProgressRunner{progress: Progress{RunID: recoveryRun, RepoID: recoveryRepo, Status: "cancelled", Head: recoveryRecorded, SubmittedHead: test.submitted, CustodyReturned: test.returned}, native: test.native, recovery: &recoveryRunner{nativeAnchor: true, nativeAnchorHead: recoveryRecorded, nativeAnchorWorktree: true, nativeWorktreeHead: recoveryRecorded}}
+			r := newRecoveryReader(t, runner)
+			r.Custody = NewCustodyCache()
+
+			// Act
+			var verdicts []error
+			for range 5 {
+				verdicts = append(verdicts, r.CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch))
+			}
+
+			// Assert
+			for _, err := range verdicts {
+				if (err == nil) != test.isClear || err != nil && !errors.Is(err, ErrCustodyNotReturned) {
+					t.Fatalf("verdicts=%v, want clear=%t each time", verdicts, test.isClear)
+				}
+			}
+			if checks := runner.checks(); checks != 1 {
+				t.Fatalf("five reads of one record started %d native checks, want 1", checks)
+			}
+		})
+	}
+}
+
+// A goblin that recovers custody changes its run's record, and the next read
+// checks again and lets it type.
+func TestACustodyReadChecksAgainWhenTheNewestRunChanges(t *testing.T) {
+	// Arrange
+	runner := &custodyProgressRunner{progress: Progress{RunID: recoveryRun, RepoID: recoveryRepo, Status: "cancelled", Head: recoveryRecorded, SubmittedHead: recoveryPreserved}, native: "pipeline_owned", recovery: &recoveryRunner{nativeAnchor: true, nativeAnchorHead: recoveryRecorded, nativeAnchorWorktree: true, nativeWorktreeHead: recoveryRecorded}}
+	r := newRecoveryReader(t, runner)
+	r.Custody = NewCustodyCache()
+	held := r.CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+
+	// Act
+	runner.progress.CustodyReturned = 1
+	runner.native = "custody_returned"
+	returned := r.CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+	again := r.CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+
+	// Assert
+	if !errors.Is(held, ErrCustodyNotReturned) || returned != nil || again != nil {
+		t.Fatalf("held=%v returned=%v again=%v, want a hold and then clear", held, returned, again)
+	}
+	if checks := runner.checks(); checks != 2 {
+		t.Fatalf("two records started %d native checks, want 2", checks)
+	}
+}
+
+// Custody is the native engine's for the run, so a goblin's uncommitted work
+// after its gate let go does not hand the branch back to the gate.
+func TestAReleasedBranchStaysTheGoblinsWhileItsWorktreeIsDirty(t *testing.T) {
+	for _, test := range []struct {
+		native    string
+		submitted string
+		returned  int64
+	}{
+		{"user_owned", recoveryRecorded, 0},
+		{"custody_returned", recoveryPreserved, 1},
+	} {
+		t.Run(test.native, func(t *testing.T) {
+			// Arrange
+			runner := &custodyProgressRunner{progress: Progress{RunID: recoveryRun, RepoID: recoveryRepo, Status: "failed", Head: recoveryRecorded, SubmittedHead: test.submitted, CustodyReturned: test.returned}, native: test.native, isDirty: true, recovery: &recoveryRunner{nativeAnchor: true, nativeAnchorHead: recoveryRecorded, nativeAnchorWorktree: true, nativeWorktreeHead: recoveryRecorded}}
+
+			// Act
+			err := newRecoveryReader(t, runner).CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+
+			// Assert
+			if err != nil {
+				t.Fatalf("a released branch with a dirty worktree read as %v, want clear", err)
+			}
+		})
+	}
+}
+
+// A check that said nothing about custody is no answer to keep, so the next
+// read asks again.
+func TestAnUnreadableCustodyCheckIsAskedAgain(t *testing.T) {
+	// Arrange
+	runner := &finishedCheckRunner{progress: Progress{RunID: recoveryRun, RepoID: recoveryRepo, Status: "cancelled", Head: recoveryRecorded, SubmittedHead: recoveryPreserved}, err: context.DeadlineExceeded}
+	r := newRecoveryReader(t, runner)
+	r.Custody = NewCustodyCache()
+
+	// Act
+	first := r.CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+	second := r.CanSteer(context.Background(), "C:/project", "C:/work", recoveryBranch)
+
+	// Assert
+	if !errors.Is(first, ErrCustodyCheckUnreadable) || !errors.Is(second, ErrCustodyCheckUnreadable) {
+		t.Fatalf("first=%v second=%v, want both unreadable", first, second)
+	}
+	if runner.checks != 2 {
+		t.Fatalf("two reads started %d checks, want 2", runner.checks)
 	}
 }
 
@@ -286,6 +409,7 @@ type finishedCheckRunner struct {
 	progress Progress
 	result   execx.Result
 	err      error
+	checks   int
 }
 
 func (r *finishedCheckRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
@@ -297,6 +421,7 @@ func (r *finishedCheckRunner) Run(ctx context.Context, req execx.Request) (execx
 		return execx.Result{Stdout: data}, nil
 	}
 	if req.Name == "no-mistakes" {
+		r.checks++
 		return r.result, r.err
 	}
 	return execx.Result{}, fmt.Errorf("unexpected program %s", req.Name)

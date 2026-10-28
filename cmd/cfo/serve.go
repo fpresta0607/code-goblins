@@ -223,10 +223,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	// The board reads the same heads, refs and gate runs every minute: one
 	// cache answers each read while the files it reads are unchanged, so a
-	// refresh over work nobody changed starts no git and no sqlite3.
+	// refresh over work nobody changed starts no git and no sqlite3, and a
+	// goblin's gate custody is checked once per change of its newest run.
 	reads := readcache.New()
 	cached := readcache.Runner{Cache: reads, Next: execx.OSRunner{}}
-	gate := pipeline.Reader{Root: root, Commands: cached}
+	gate := pipeline.Reader{Root: root, Commands: cached, Custody: pipeline.NewCustodyCache()}
 	// The board's family tree and the monitor's progress evidence read
 	// through one reader, so they never disagree about what a goblin does.
 	// An example board shows made-up goblins, so it reads no harness's
