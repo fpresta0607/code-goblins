@@ -114,6 +114,9 @@ type Action struct {
 	// and SendNowWhy says why not, in plain words.
 	CanSendNow bool   `json:"can_send_now,omitempty"`
 	SendNowWhy string `json:"send_now_why,omitempty"`
+	// IsSentNow says he asked for a queued message now, so its delivery types
+	// it even into a turn, for the harness to take at its next tool call.
+	IsSentNow bool `json:"sent_now,omitempty"`
 	// Advice is what the Overlord should do about a delivery that never
 	// arrived, in his words; the board shows it as written.
 	Advice string `json:"advice,omitempty"`
@@ -581,6 +584,7 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 		return Action{}, errors.New(why)
 	}
 	delete(s.deferredUntil, a.ID)
+	a.IsSentNow = true
 	a.UpdatedAt = time.Now().UTC()
 	if err := s.save(); err != nil {
 		return Action{}, err
@@ -789,6 +793,11 @@ func (s *Store) queue(a Action) (Action, error) {
 		a.Status, a.Message = "succeeded", "That is already the answer, so nothing was sent."
 	}
 	s.db.Actions = append(s.db.Actions, a)
+	if message {
+		s.waitBehind(slices.IndexFunc(s.db.Actions, func(queued Action) bool {
+			return queued.Kind == "message" && queued.TaskID == a.TaskID && queued.Status == "queued"
+		}))
+	}
 	if answer {
 		for i := range s.db.Questions {
 			if s.db.Questions[i].ID == a.QuestionID {
@@ -988,6 +997,9 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 				completed.Message = bounded(result.Reason, 1200)
 			}
 			completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
+			if a.Kind == "message" {
+				s.waitBehind(i)
+			}
 			if s.deferredUntil == nil {
 				s.deferredUntil = make(map[string]time.Time)
 			}

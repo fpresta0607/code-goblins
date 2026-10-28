@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -82,7 +83,11 @@ type nativeRelay struct {
 // its own is open in its input line's place or a turn is running. Panel is
 // what is open, read so the board can offer it as a list he picks from, and
 // Mode the permission mode its composer's footer names, which Shift+Tab
-// cycles.
+// cycles. HasDraft says its prompt line holds words never sent, as he types
+// them in the terminal itself or as a harness puts them back when stopped,
+// which anything typed now would join, read as a delivery reads them
+// (spawn.WithoutInlineOffer), so the board's box holds a message rather than
+// typing it onto them.
 type screenState struct {
 	Asking     bool           `json:"asking"`
 	Open       bool           `json:"open"`
@@ -91,6 +96,7 @@ type screenState struct {
 	HasStarted bool           `json:"started,omitempty"`
 	Panel      *harness.Panel `json:"panel,omitempty"`
 	Mode       string         `json:"mode,omitempty"`
+	HasDraft   bool           `json:"draft,omitempty"`
 }
 
 // relaySize is a size to tell the view once the output before it is sent.
@@ -297,6 +303,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			state.Panel = &panel
 		}
 		state.Mode = screens.Mode(rows)
+		state.HasDraft = spawn.WithoutInlineOffer(screens).ComposerHoldsText(rows)
 		message, _ := json.Marshal(struct {
 			Type string `json:"type"`
 			screenState

@@ -224,7 +224,7 @@ export class TerminalView {
   }
 
   submit(text: string): string | null {
-    if (!this.isReady || this.heldReason || this.isUnread || this.screenState?.isOpen || !this.isSendable()) return null
+    if (!this.isReady || this.heldReason || this.isUnread || this.screenState?.isOpen || this.screenState?.hasDraft || !this.isSendable()) return null
     const submission = crypto.randomUUID()
     this.send(JSON.stringify({ type: "submit", submission }))
     if (!this.paste(text) || !this.enter()) return null

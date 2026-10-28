@@ -195,7 +195,7 @@ func (s *Store) nextQueued(cfoLive bool) int {
 	now := time.Now()
 	isHeld := s.answersWait(now) > 0
 	for i, a := range s.db.Actions {
-		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer") && !s.followsEarlierAnswer(i) {
+		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer") && !s.followsEarlierAnswer(i) && !s.followsEarlierMessage(i) {
 			return i
 		}
 	}
@@ -212,6 +212,29 @@ func (s *Store) followsEarlierAnswer(i int) bool {
 		return earlier.QuestionID == a.QuestionID && (earlier.Kind == "cfo_answer" || earlier.Kind == "goblin_answer" || earlier.Kind == "answer_change") &&
 			(earlier.Status == "queued" || earlier.Status == "running" && earlier.Awaiting == nil)
 	})
+}
+
+// followsEarlierMessage reports whether action i is a message that waits for
+// an earlier message to the same session, one still queued or running and
+// not yet handed over, so its harness takes each alone and in the order he
+// sent them, unless he asked for this one now. The caller holds s.mu.
+func (s *Store) followsEarlierMessage(i int) bool {
+	a := s.db.Actions[i]
+	return a.Kind == "message" && !a.IsSentNow && slices.ContainsFunc(s.db.Actions[:i], func(earlier Action) bool {
+		return earlier.Kind == "message" && earlier.TaskID == a.TaskID && (earlier.Status == "queued" || earlier.Status == "running" && earlier.Awaiting == nil)
+	})
+}
+
+// waitBehind gives each queued message to action i's session after it, which
+// waits behind it, what it waits on and whether he may send it now, unless he
+// asked for one now already. The caller holds s.mu.
+func (s *Store) waitBehind(i int) {
+	held := s.db.Actions[i]
+	for j := i + 1; j < len(s.db.Actions); j++ {
+		if later := &s.db.Actions[j]; later.Kind == "message" && later.TaskID == held.TaskID && later.Status == "queued" && !later.IsSentNow {
+			later.Message, later.CanSendNow, later.SendNowWhy = held.Message, held.CanSendNow, held.SendNowWhy
+		}
+	}
 }
 
 // HasRunnable reports whether a queued action can run now.

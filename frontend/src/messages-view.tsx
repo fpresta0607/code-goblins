@@ -10,11 +10,12 @@ import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
-import { string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
+import { parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { SessionFooter } from "./session-footer";
 import { formatAge, sessionStats, usageBanner } from "./session-usage";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
+import { usePendingSends } from "./pending-sends";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
@@ -56,6 +57,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
+  // What he sent that the board has not shown yet, drawn at once as queued.
+  const sending = usePendingSends();
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
   const [held, setHeld] = useState<MessagePage>({ messages: [], more: false });
@@ -412,6 +415,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} since={workingSince} />}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
+          {sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) => <QueuedMessage key={"queued-" + send.id} instance={instance} name={name} variant="pane"
+            action={parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "queued", message: "Reaching the board.", send_now_why: "It is still reaching the board." })} />)}
         </div>
       </div>
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}

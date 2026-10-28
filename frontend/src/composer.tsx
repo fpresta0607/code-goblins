@@ -15,6 +15,7 @@ import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { shortModel } from "./model-name";
 import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
+import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { PANEL_KEYS, panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
 import { QueuedMessage } from "./queued-message";
@@ -62,12 +63,15 @@ function storeDraft(key: string, text: string): void {
 // says so once beside the box: a busy program, a view that is reconnecting and
 // typing a gate holds save it through the durable queue; a view that is closed
 // or connecting keeps the draft. A screen of the harness's own open in its
-// terminal, a question, a permission prompt, a picker or a panel, is drawn
-// above the box as a list he picks from (harness-panel.tsx), and while it is
-// open the box answers it with the terminal's own keys: an empty box hands it
-// the arrows, Enter, Escape, Tab, Space and a choice's number, and Send pastes
-// what he wrote into it on one line without pressing Enter, which the list's
-// Enter does; while typing is held the message queues instead. A goblin with
+// terminal that lists choices, a question, a permission prompt or a picker,
+// or one the relay could not read, is drawn above the box as a list he picks
+// from (harness-panel.tsx), and while it is open the box answers it with the
+// terminal's own keys: an empty box hands it the arrows, Enter, Escape, Tab,
+// Space and a choice's number, and Send pastes what he wrote into a list of
+// choices on one line without pressing Enter, which the list's Enter does;
+// while typing is held the message queues instead. At any other open screen,
+// and in Modern Chat while the harness is in a turn, Send holds the message
+// through the board (holdsForTurn). A goblin with
 // no terminal that takes typing now, one paused, resuming or starting, gets
 // what he sends as a message action, delivered once whatever it is doing, and
 // the box lists his latest with where each is, and those a paused goblin's
@@ -196,8 +200,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   }, [terminal, isActive, onActive]);
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
-  const isAsking = !!live?.screen?.isOpen;
-  const panel = live?.screen?.panel ?? null;
+  // A real question of the harness's own, a list to choose from, is drawn
+  // and answered here, and a screen the relay could not read offers its way
+  // out; a screen of words with nothing to choose, such as the prompt line
+  // with his message on it or the harness's words for a usage limit, is
+  // never mirrored (the Overlord, 2026-10-28: "What is that window above the
+  // chat input ... remove it"). Only a real question takes what he writes as
+  // its answer.
+  const isScreenOpen = !!live?.screen?.isOpen;
+  const screenPanel = isScreenOpen ? live?.screen?.panel ?? null : null;
+  const panel = screenPanel && (screenPanel.choices.length > 0 || screenPanel.rows.length === 0) ? screenPanel : null;
+  const isAsking = !!panel && panel.choices.length > 0;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;
@@ -249,6 +262,31 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // a harness picker or a busy program does not stop it: those guard direct
   // typing, which is the path they were written for.
   const savesThroughBoard = queues || isHeld || isUnread || !!live?.isReconnecting;
+  // While the harness is in a turn, or a screen of its own is open that
+  // is no question to answer, such as its words for a usage limit, Modern
+  // Chat's box types nothing into its terminal: the board holds the message
+  // as his queued bubble at the bottom of the conversation, where he can
+  // edit, send now or cancel it, and hands each over alone, in order, once
+  // the harness's input is empty and takes it (the Overlord, 2026-10-27:
+  // "queued should exist at the bottom of the conversation until sent").
+  // Typed into such a screen it stayed on the prompt line unsent, and the
+  // next one joined it there, so his messages reached the harness run
+  // together as one (2026-10-28: "it's sending and appending messages
+  // together that were sent previously").
+  // It holds on what the harness's own screen says, in a turn or showing a
+  // screen of its own, not on the task being under way, which a goblin's is
+  // while its harness waits at an empty prompt. A prompt line that holds words
+  // never sent, typed in the terminal itself or put back when the harness was
+  // stopped, holds it too, since typed now it would join them. A box with no
+  // conversation, Classic's or the deck's, holds at such a screen or line too,
+  // through the board's queue it lists, and in a turn types into the
+  // harness's own queue.
+  const holdsForTurn = !isAsking && (isScreenOpen || !!live?.screen?.hasDraft || hasConversation && !!live?.screen?.isWorking);
+  // A send the board has shown as its own action is no longer drawn from here.
+  const sending = usePendingSends();
+  useEffect(() => {
+    for (const send of sending) if (snapshot.actions.some((action) => action.id === send.id)) removePendingSend(send.id);
+  }, [sending, snapshot.actions]);
   const send = async () => {
     const text = draft.trim();
     if (!text || isSending || adding) return;
@@ -268,10 +306,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       applyEngine(asked.setting, asked.value, false, chosen);
       return;
     }
-    if (!savesThroughBoard && !sendID.current) {
-      // A screen of the harness's own takes what he wrote as one paste, on
+    if (!savesThroughBoard && !sendID.current && !holdsForTurn) {
+      // A question of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
-      // he chose: the list's Enter confirms.
+      // he chose: the list's Enter confirms. It answers that question even
+      // while the session works, and is never held as a message.
       if (isAsking) {
         if (live?.paste(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
         return;
@@ -280,14 +319,25 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       return;
     }
     sendID.current ||= crypto.randomUUID();
+    const id = sendID.current;
+    // The conversation shows it at once as his queued bubble, and the box
+    // empties, before the board has answered; a refusal takes the bubble
+    // back and returns his words to the box as he wrote them.
+    const written = draft;
+    if (hasConversation) {
+      addPendingSend({ id, task: task?.id || "", text });
+      setDraft("");
+    }
     setSending(true);
     try {
-      await post({ id: sendID.current, kind: "message", task_id: task?.id || "", generation: "", text });
+      await post({ id, kind: "message", task_id: task?.id || "", generation: "", text });
       sendID.current = "";
       storeDraft(draftKey, "");
       setDraft("");
       setUnsent("");
     } catch (error: unknown) {
+      removePendingSend(id);
+      setDraft((prior) => prior || written);
       setUnsent("Not sent. " + message(error));
       reportToCfo("a message to " + name, message(error));
     } finally {

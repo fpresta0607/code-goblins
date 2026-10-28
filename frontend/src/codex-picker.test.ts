@@ -17,7 +17,7 @@ function terminal(key: string) {
     send: () => "s1", paste: () => true, escape: () => { escapes++; return true; }, control: (keys) => { sent.push(keys); return true; },
   };
   const show = (panel: HarnessPanel | null) => {
-    const screen: ScreenState = { isAsking: !!panel, isOpen: !!panel, isWorking: false, hasStarted: false, submission: "", panel, mode: "" };
+    const screen: ScreenState = { isAsking: !!panel, isOpen: !!panel, isWorking: false, hasStarted: false, submission: "", panel, mode: "", hasDraft: false };
     offerLink(key, { ...link, screen });
   };
   return { sent, show, escapes: () => escapes };

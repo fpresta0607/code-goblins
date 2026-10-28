@@ -101,10 +101,21 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// footer is a line Claude Code's footer adds under its mode, such as the
 	// one saying an update of it waits for a restart.
 	footer := ""
+	// said is the last line the harness took, which it shows in its
+	// conversation above the composer, as Claude Code does, never on the
+	// prompt line it empties for the turn.
+	said := ""
+	// keep leaves each line taken on the prompt line while the turn it starts
+	// runs, as a screen that turns to work without clearing its input does,
+	// such as one where Enter chose a dialog's option behind it.
+	keep := false
 	// A screen is drawn in one write, so a read never finds it half drawn. The
 	// turn's line reads as a turn to both Claude Code's and Codex's screens.
 	drawComposer := func(text string, isWorking bool) {
 		rows := []string{}
+		if said != "" {
+			rows = append(rows, "> "+said)
+		}
 		if isWorking {
 			rows = append(rows, "✽ Pondering… (esc to interrupt)")
 		}
@@ -139,9 +150,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 		case line == "hooked":
 			hooked = true
 			drawComposer("", false)
+		case line == "keep":
+			keep = true
+			drawComposer("", false)
 		case strings.HasPrefix(line, "draw "):
 			composer = strings.TrimPrefix(line, "draw ")
 			drawComposer("", false)
+		case strings.HasPrefix(line, "draft "):
+			// Words left on the prompt line unsent, as he types them in the
+			// terminal itself.
+			drawComposer(strings.TrimPrefix(line, "draft "), false)
 		case line == "turn":
 			harness, hooked = true, false
 			drawComposer("", true)
@@ -276,12 +294,13 @@ func TestNativeTerminalProgram(t *testing.T) {
 			os.Exit(code)
 		default:
 			record(line)
-			if harness {
-				text := line
-				if line == "busy" {
-					text = ""
+			if harness && keep {
+				drawComposer(line, true)
+			} else if harness {
+				if line != "busy" {
+					said = line
 				}
-				drawComposer(text, true)
+				drawComposer("", true)
 			} else if hooked {
 				drawComposer("", false)
 			}
@@ -523,6 +542,27 @@ func (terminal hostedTerminal) drawsComposer(t *testing.T, name string) {
 	t.Helper()
 	terminal.typeLine(t, "draw "+name)
 	terminal.showsComposer(t, name)
+}
+
+// drawsDraft has the terminal's program draw the named harness's composer
+// holding words that were never sent, and waits until that harness's screen
+// reads them there.
+func (terminal hostedTerminal) drawsDraft(t *testing.T, name, words string) {
+	t.Helper()
+	terminal.typeLine(t, "draft "+words)
+	record, err := host.ReadRecord(terminal.stateDir, terminal.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	screens, _ := harness.NativeScreens(harness.Kind(name))
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+		if rows, err := host.ReadScreen(record); err == nil && screens.IsReady(rows) && screens.ComposerHoldsText(rows) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never showed words on a %s prompt line", name)
+		}
+	}
 }
 
 // showsComposer waits until the terminal's screen, read through its host,
@@ -2052,4 +2092,40 @@ func TestANativeTerminalClosesWhenItsGenerationIsReplaced(t *testing.T) {
 	if !strings.Contains(closed.Reason, "restarted or was replaced") {
 		t.Fatalf("the view closed with %q, want the replaced session named", closed.Reason)
 	}
+}
+
+// A view is told when its harness's prompt line holds words never sent, as he
+// types them in the terminal itself, which anything typed now would join, and
+// told again once the line is empty, so the board's box holds a message
+// rather than typing it onto them (the Overlord, 2026-10-28: "it's sending and
+// appending messages together that were sent previously").
+func TestANativeViewIsToldWhileItsPromptLineHoldsUnsentWords(t *testing.T) {
+	// Arrange
+	h, server := nativeBoard(t, "direct")
+	meta, err := state.ReadTaskMeta(h.Service.Store.Home.State, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.Service.Store.Home.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	hostTask(t, h)
+	v := openNativeView(t, server, viewQuery)
+	v.waitFor(t, "program ready")
+	v.send(t, websocket.MessageBinary, "harness\r")
+	empty := `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions"}`
+	v.waitFor(t, empty)
+
+	// Act
+	v.send(t, websocket.MessageBinary, "draft half a thought\r")
+
+	// Assert
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":false,"submission":"","mode":"bypass permissions","draft":true}`)
+
+	// Act: the line is empty again.
+	v.send(t, websocket.MessageBinary, "harness\r")
+
+	// Assert
+	v.waitFor(t, empty)
 }

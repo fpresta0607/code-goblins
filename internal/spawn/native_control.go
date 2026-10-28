@@ -29,6 +29,15 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 	if !fleet.IsCommand(text) {
 		return s.deliverNativeInstruction(ctx, record, screens, meta, "", text, false)
 	}
+	if s.ShouldRefuseTurn {
+		screen, err := s.readNativeScreen(ctx, record)
+		if err != nil {
+			return fmt.Errorf("%w: %w", fleet.ErrNotTyped, err)
+		}
+		if screens.IsWorking(screen) {
+			return fmt.Errorf("spawn: native terminal %s: %w: %w", record.ID, fleet.ErrNotTyped, ErrInTurn)
+		}
+	}
 	if _, err := s.submitNative(ctx, record, screens, text, fleet.TypeSettleFor(text), false); err != nil {
 		return err
 	}

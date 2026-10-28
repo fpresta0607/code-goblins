@@ -270,7 +270,7 @@ func TestAQueuedCFOAnswerBindsToTheRecipientItWasSentTo(t *testing.T) {
 			delivery := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = delivery })
 			sends := 0
-			typeIntoGoblin = func(_ context.Context, directory string, task state.TaskMeta, _ string) error {
+			typeIntoGoblin = func(_ context.Context, directory string, task state.TaskMeta, _ string, _ bool) error {
 				sends++
 				c.during(t, directory, task)
 				return fleet.ErrQueuedForToolCall
@@ -347,7 +347,7 @@ func TestACFOAnswerWithNoValidRecipientEvidenceSendsNothing(t *testing.T) {
 			sends := 0
 			delivery := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = delivery })
-			typeIntoGoblin = func(context.Context, string, state.TaskMeta, string) error {
+			typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool) error {
 				sends++
 				return fleet.ErrQueuedForToolCall
 			}
