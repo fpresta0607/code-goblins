@@ -114,6 +114,9 @@ type Action struct {
 	// and SendNowWhy says why not, in plain words.
 	CanSendNow bool   `json:"can_send_now,omitempty"`
 	SendNowWhy string `json:"send_now_why,omitempty"`
+	// IsSentNow says he asked for a queued message now, so its delivery types
+	// it even into a turn, for the harness to take at its next tool call.
+	IsSentNow bool `json:"sent_now,omitempty"`
 	// Advice is what the Overlord should do about a delivery that never
 	// arrived, in his words; the board shows it as written.
 	Advice string `json:"advice,omitempty"`
@@ -581,6 +584,7 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 		return Action{}, errors.New(why)
 	}
 	delete(s.deferredUntil, a.ID)
+	a.IsSentNow = true
 	a.UpdatedAt = time.Now().UTC()
 	if err := s.save(); err != nil {
 		return Action{}, err

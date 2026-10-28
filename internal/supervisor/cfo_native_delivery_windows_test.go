@@ -400,3 +400,40 @@ func TestNativeCFOCannotCallAnAnswerSentWhileItRemainsInTheIdleComposer(t *testi
 		t.Errorf("idle input = %q; want no accepted or queued prompt", input)
 	}
 }
+
+// A message the board holds for the CFO's turn types nothing while the CFO
+// works, and stays where he can send it now (the Overlord, 2026-10-27:
+// "queued should exist at the bottom of the conversation until sent").
+func TestNativeCFOHoldsAMessageWhileItWorks(t *testing.T) {
+	for _, scenario := range []struct {
+		harness string
+		screen  []string
+	}{
+		{"claude", []string{"✽ Reticulating… (3s · esc to interrupt)", "❯ ", "⏵⏵ bypass permissions on (shift+tab to cycle)"}},
+		{"codex", []string{"• Working (3s • esc to interrupt)", "› Ask Codex to do anything", "80% context left"}},
+	} {
+		t.Run(scenario.harness, func(t *testing.T) {
+			// Arrange
+			stateDir := t.TempDir()
+			terminal, _ := shimTerminal(t, stateDir, scenario.harness)
+			terminal.typeLine(t, "register by program")
+			if lines := terminal.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+				t.Fatalf("registration = %q", lines)
+			}
+			connection := &CFOConnection{State: stateDir, ReadScreen: func(host.Record) ([]string, error) { return scenario.screen, nil }}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			// Act
+			result, err := connection.SendUnlessWorking(ctx, registrationIdentity(t, stateDir), "Check the flaky test first")
+
+			// Assert
+			if !errors.Is(err, ErrDeferred) || !result.CanSendNow || result.Awaiting != nil {
+				t.Errorf("SendUnlessWorking = %+v, %v; want held, sendable now, nothing typed", result, err)
+			}
+			if lines := terminal.lines(t); len(lines) != 1 {
+				t.Errorf("terminal input = %q; want only registration", lines)
+			}
+		})
+	}
+}
