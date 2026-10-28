@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, replyParts, textParts, type SessionMessage } from "./session-messages.ts";
+import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, replyParts, textParts, turnEnds, type SessionMessage } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -152,6 +152,27 @@ test("the message text steps a pixel at a time between the terminals' bounds and
   assert.equal(messageFontFor("=", MAX_MESSAGE_FONT), MAX_MESSAGE_FONT);
   assert.equal(messageFontFor("-", MIN_MESSAGE_FONT), MIN_MESSAGE_FONT);
   assert.equal(messageFontFor("a", 16), null);
+});
+
+test("only the last reply of each turn ends it, and the newest only once the session stops working", () => {
+  // Arrange: two turns, the first of three replies with a compaction and a
+  // notice inside it, then an interrupted turn, then one he queued into the
+  // last turn.
+  const reply = (seq: number) => served(seq, { kind: "reply", source: undefined, text: undefined, blocks: [{ kind: "text", text: "reply " + seq }] });
+  const messages = parseMessages([
+    served(0), reply(1), served(2, { kind: "compaction", source: undefined, text: "summary" }), reply(3), served(4, { source: "notice" }), reply(5),
+    served(6), reply(7), served(8, { kind: "interrupt", source: undefined, text: undefined }),
+    served(9), reply(10), served(11, { queued: true }), reply(12),
+  ]);
+
+  // Act
+  const finished = turnEnds(messages, false);
+  const working = turnEnds(messages, true);
+
+  // Assert
+  assert.deepEqual([...finished].sort(), ["m12", "m5", "m7"]);
+  assert.deepEqual([...working].sort(), ["m5", "m7"]);
+  assert.deepEqual([...turnEnds([], false)], []);
 });
 
 test("a call's plan keeps each step's words and state, and a state the board does not draw is refused", () => {

@@ -220,3 +220,10 @@ export function plainMessage(text: string): string {
     ? [block.spans.map((span) => span.text).join("").replace(/\s*\n\s*/g, " ")]
     : block.kind === "list" ? block.items.map((item) => sentence(item.map((span) => span.text).join("").trim())) : []).join(" ");
 }
+
+// A text too long to show whole on a phone, more than about six lines or 600
+// characters, which shows its first lines until it is opened.
+const LONG_TEXT_LINES = 6;
+const LONG_TEXT_CHARS = 600;
+
+export const isLongText = (text: string): boolean => text.length > LONG_TEXT_CHARS || text.replace(/\r\n?/g, "\n").trim().split("\n").length > LONG_TEXT_LINES;
