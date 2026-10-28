@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -65,9 +66,21 @@ func TestOSRunnerHelper(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 		time.Sleep(200 * time.Millisecond)
+		if err := os.WriteFile(marker+".pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(9)
+		}
 		if err := os.WriteFile(marker, []byte("alive"), 0o600); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(9)
+		}
+		// Live on after answering, as a helper on a loaded machine does, until
+		// the test has opened this process by its pid, so the pid it waits on
+		// cannot be another's.
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(marker + ".release"); err == nil {
+				break
+			}
 		}
 		return
 	}
@@ -291,9 +304,29 @@ func TestOSRunnerStartSurvivesRequestContextCancellation(t *testing.T) {
 		if data, err := os.ReadFile(marker); err == nil {
 			switch string(data) {
 			case "alive":
-				// Let the helper return and its asynchronous reaper finish before
-				// go test removes the Windows test executable.
-				time.Sleep(100 * time.Millisecond)
+				// The helper's working directory, which t.TempDir removes, and
+				// the test executable, which go test removes, stay in use until
+				// the helper has ended, and Start reports no end. The helper is
+				// opened before it is released, so the pid waited on is still
+				// the helper's.
+				data, err := os.ReadFile(marker + ".pid")
+				if err != nil {
+					t.Fatal(err)
+				}
+				pid, err := strconv.Atoi(string(data))
+				if err != nil {
+					t.Fatalf("helper pid = %q: %v", data, err)
+				}
+				helper, err := os.FindProcess(pid)
+				if err != nil {
+					t.Fatalf("FindProcess(%d): %v", pid, err)
+				}
+				if err := os.WriteFile(marker+".release", nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := helper.Wait(); err != nil {
+					t.Fatalf("waiting for helper %d to end: %v", pid, err)
+				}
 				return
 			case "":
 				// os.WriteFile creates the marker before writing its contents.
