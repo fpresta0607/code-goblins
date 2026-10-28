@@ -519,7 +519,7 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
-      board.say({ type: "screen", asking: false, open: true, working: false, submission: "", panel: {} });
+      board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
       await page.getByRole("button", { name: "Show the terminal" }).click();
       await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();

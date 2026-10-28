@@ -231,16 +231,18 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
   // A real question of the harness's own, a list to choose from, is drawn
-  // and answered here, and a screen the relay could not read offers its way
-  // out; a screen of words with nothing to choose, such as the prompt line
-  // with his message on it or the harness's words for a usage limit, is
-  // never mirrored (the Overlord, 2026-10-28: "What is that window above the
-  // chat input ... remove it"). Only a real question takes what he writes as
-  // its answer.
+  // and answered here, and takes what he writes as its answer. Any other
+  // screen, words with nothing to choose, such as the prompt line with his
+  // message on it, an error or the harness's words for a usage limit, or one
+  // the relay could not read, is never mirrored above the box, whether a turn
+  // finished, failed or the view reconnected (the Overlord, 2026-10-28: "the
+  // terminal window that appears above chat input on mobile randomly I
+  // thought we got rid of that"); his messages wait for it, and the style
+  // menu's Classic and Windows Terminal show it.
   const isScreenOpen = !!live?.screen?.isOpen;
   const screenPanel = isScreenOpen ? live?.screen?.panel ?? null : null;
-  const panel = screenPanel && (screenPanel.choices.length > 0 || screenPanel.rows.length === 0) ? screenPanel : null;
-  const isAsking = !!panel && panel.choices.length > 0;
+  const panel = screenPanel && screenPanel.choices.length > 0 ? screenPanel : null;
+  const isAsking = !!panel;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;
