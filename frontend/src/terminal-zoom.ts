@@ -38,7 +38,7 @@ export function attachZoomGesture(element: EventTarget, view: EventTarget, size:
     if (isHeld) hasZoomed = true;
     // Shift turns a wheel sideways in Chromium on Windows, so a turn made
     // with Shift held can arrive as deltaX.
-    const delta = deltaY || deltaX || 0;
+    const delta = isChord ? deltaY || deltaX : deltaY;
     const turn = deltaMode === PIXEL_MODE ? delta : Math.sign(delta) * STEP_PX;
     rest = Math.sign(rest) === -Math.sign(turn) ? turn : rest + turn;
     if (Math.abs(rest) < STEP_PX) return;

@@ -21,6 +21,7 @@ function gestureAt(start: number) {
     press: (button = 2) => dispatch(element, "mousedown", { button }),
     release: (button = 2) => dispatch(view, "mouseup", { button }),
     wheel: (deltaY: number, deltaMode = 0) => dispatch(element, "wheel", { deltaY, deltaMode }),
+    sideways: (deltaX: number) => dispatch(element, "wheel", { deltaX, deltaY: 0, deltaMode: 0 }),
     chord: (fields: Record<string, number>) => dispatch(element, "wheel", { ctrlKey: 1, shiftKey: 1, deltaMode: 0, ...fields }),
     menu: () => dispatch(element, "contextmenu"),
     blur: () => dispatch(view, "blur"),
@@ -125,6 +126,19 @@ test("a right click that never turned the wheel does what it did before", () => 
   assert.equal(menu.defaultPrevented, false);
   assert.equal(menu.cancelBubble, false);
   assert.deepEqual(gesture.zooms, [21]);
+});
+
+test("a sideways turn with the right button held zooms nothing", () => {
+  // Arrange
+  const gesture = gestureAt(20);
+  gesture.press();
+
+  // Act
+  gesture.sideways(-100);
+  gesture.sideways(-100);
+
+  // Assert
+  assert.deepEqual(gesture.zooms, []);
 });
 
 test("the wheel without the right button scrolls as before", () => {

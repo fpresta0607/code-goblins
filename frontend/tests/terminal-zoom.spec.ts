@@ -54,6 +54,14 @@ const watchMenus = (page: Page) => page.evaluate(() => {
   window.addEventListener("contextmenu", (event) => setTimeout(() => menus.push(event.defaultPrevented)), true);
 });
 const menus = (page: Page) => page.evaluate(() => (window as unknown as { menus: boolean[] }).menus);
+// watchWheels records, for each wheel turned with Ctrl and Shift held,
+// whether the board kept the page from zooming with it.
+const watchWheels = (page: Page) => page.evaluate(() => {
+  const wheels: boolean[] = [];
+  Object.assign(window, { wheels });
+  window.addEventListener("wheel", (event) => { if (event.ctrlKey && event.shiftKey) setTimeout(() => wheels.push(event.defaultPrevented)); }, true);
+});
+const wheels = (page: Page) => page.evaluate(() => (window as unknown as { wheels: boolean[] }).wheels);
 const keptSize = (page: Page) => page.evaluate(() => localStorage.getItem("cfo-terminal-font-size"));
 const screenOf = (page: Page, label: string) => page.getByRole("region", { name: label }).locator(".terminal-view > .xterm .xterm-screen");
 
@@ -158,8 +166,7 @@ test("Ctrl+Shift and the wheel zoom the classic terminal's text, refit it and ke
   // Arrange
   const relays = await openPair(page);
   const before = await settled(relays);
-  const pageZoom = () => page.evaluate(() => ({ ratio: devicePixelRatio, scale: visualViewport?.scale ?? 1 }));
-  const zoomBefore = await pageZoom();
+  await watchWheels(page);
 
   // Act: two notches up with Ctrl and Shift held, over the first terminal.
   await screenOf(page, "First terminal").hover();
@@ -170,11 +177,12 @@ test("Ctrl+Shift and the wheel zoom the classic terminal's text, refit it and ke
   await page.keyboard.up("Control");
 
   // Assert: the text grew two steps and is kept, each terminal refit its
-  // grid to fewer columns, nothing was typed, and the page did not zoom.
+  // grid to fewer columns, nothing was typed, and the page was kept from
+  // zooming with either notch.
   await expect.poll(() => keptSize(page)).toBe("22");
   const after = await settled(relays);
   expect(after.first.cols).toBeLessThan(before.first.cols);
   expect(after.second.cols).toBeLessThan(before.second.cols);
   expect(relays.typed).toEqual({ first: "", second: "" });
-  expect(await pageZoom()).toEqual(zoomBefore);
+  await expect.poll(() => wheels(page)).toEqual([true, true]);
 });
