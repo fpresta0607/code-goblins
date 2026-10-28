@@ -154,15 +154,19 @@ for (const runtime of [undefined, { state: "idle" }]) {
   });
 }
 
-test("thinking keeps its paragraphs, lists and code readable without a drawer", async ({ page }) => {
+test("thinking folds to its first line and opens to its paragraphs, lists and code, never wider than the column", async ({ page }) => {
   const thought = "First **read** the change.\n\n1. Check `input`.\n2. Keep the draft.\n\n```sh\ngit status --short\n```\n\n" + "https://example.test/" + "long".repeat(80);
   await open(page, snapshot(), "", { messages: [{ id: "thought", seq: 0, at: "2026-10-26T10:00:00Z", kind: "reply", blocks: [{ kind: "thinking", text: thought }] }], more: false });
   await openGoblin(page);
-  const thinking = page.locator(".message-thinking-read");
-  await expect(thinking).toBeVisible();
+  const thinking = page.locator(".message-thinking");
+  // Its first line reads as words, its markdown drawn, as Codex's reasoning
+  // summaries open with a bold header.
+  await expect(thinking.locator(".thinking-preview")).toHaveText("First read the change.");
+  await expect(thinking.locator(".thinking-preview strong")).toHaveText("read");
+  await expect(thinking.locator("li"), "folded thinking mounts nothing under its line").toHaveCount(0);
+  await thinking.locator("summary").click();
   await expect(thinking.locator("strong")).toHaveText("read");
   await expect(thinking.locator("li")).toHaveCount(2);
   await expect(thinking.locator("pre code")).toHaveText("git status --short");
-  await expect(thinking.locator("details, summary")).toHaveCount(0);
   await expect.poll(() => thinking.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 });
