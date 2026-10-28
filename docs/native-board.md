@@ -900,6 +900,7 @@ The spare width is split between left and right, the bottom keeps the same space
 xterm draws with its WebGL renderer, and with its DOM renderer in WebKit, the engine of every browser on an iPhone and of Safari, where that renderer drew nothing (in Playwright's WebKit; the Overlord's iPhone showed black terminals), and where WebGL is unavailable or its context is lost.
 The font starts at 20 px, and at 12 px on a small screen (40rem or less), where a phone 390 px wide holds about 50 columns of a harness's screen; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores the size it starts at, saved in the browser, and a new font size resizes the pseudo console, so the terminal gains or loses columns instead of shrinking its text.
 Holding the right mouse button and turning the wheel steps it the same way, up to grow and down to shrink, a step a notch, with a smooth wheel's small turns adding up to one.
+The wheel turned with Ctrl and Shift held steps it the same way, and the page itself does not zoom with it; Shift turns a wheel sideways in Chromium on Windows, so that sideways turn counts too.
 The wheel then neither scrolls the terminal nor reaches its program, and the menu that would open when the button comes up does not, so its Paste is never offered, while a right click that never turned the wheel does what it always did.
 The size is one for every terminal on the board: a size chosen in any one, by either gesture, applies at once to every open terminal, shown or not, and to every one opened later, each refitting its grid to its panel once in sight, and it is kept in the browser's storage for the board's address, which an update keeps, so a reload or an update keeps it and each device, such as a phone, keeps its own.
 The terminal keeps 5,000 lines of scrollback and the wheel scrolls it; the panel around it never scrolls.
@@ -1401,7 +1402,7 @@ A session whose usage cannot be read says so once at the line's end, in one plai
 A session with no recorded usage and a readable provider says Usage unavailable on the same notice.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
-Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
+Ctrl+Plus, Ctrl+Minus and Ctrl+0, the right button held with the wheel, or the wheel with Ctrl and Shift held, size the message text a pixel at a time between 12 and 28 px from 16 px.
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
 Shift+Escape leaves the messages for the panel's top row, as it leaves a terminal, and Escape does what the corner button does.
 The messages lie where the terminal deck lies, under the panel's compact header, beside its task list, in the same flex and under the same rule (`frontend/src/panel-stage.tsx`), so their box is the terminal's.

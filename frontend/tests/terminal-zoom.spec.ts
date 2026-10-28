@@ -153,3 +153,28 @@ for (const { name, choose } of CHOOSERS) {
     await expect.poll(async () => (await settled(relays)).second.cols).toBeGreaterThan(before.second.cols);
   });
 }
+
+test("Ctrl+Shift and the wheel zoom the classic terminal's text, refit it and keep the page's own zoom", async ({ page }) => {
+  // Arrange
+  const relays = await openPair(page);
+  const before = await settled(relays);
+  const pageZoom = () => page.evaluate(() => ({ ratio: devicePixelRatio, scale: visualViewport?.scale ?? 1 }));
+  const zoomBefore = await pageZoom();
+
+  // Act: two notches up with Ctrl and Shift held, over the first terminal.
+  await screenOf(page, "First terminal").hover();
+  await page.keyboard.down("Control");
+  await page.keyboard.down("Shift");
+  for (let notch = 0; notch < 2; notch++) await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Shift");
+  await page.keyboard.up("Control");
+
+  // Assert: the text grew two steps and is kept, each terminal refit its
+  // grid to fewer columns, nothing was typed, and the page did not zoom.
+  await expect.poll(() => keptSize(page)).toBe("22");
+  const after = await settled(relays);
+  expect(after.first.cols).toBeLessThan(before.first.cols);
+  expect(after.second.cols).toBeLessThan(before.second.cols);
+  expect(relays.typed).toEqual({ first: "", second: "" });
+  expect(await pageZoom()).toEqual(zoomBefore);
+});
