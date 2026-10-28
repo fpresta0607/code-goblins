@@ -1566,7 +1566,7 @@ If `goblins` exits 0 without naming both the board and state folder, as an older
 Sixteen lines hold all that `goblins` says about a supervisor that did not start: what to do, where `serve.log` is, and the end of that log.
 For installation from source with `.\install.cmd -Dev`, see [To work on it](install.md#to-work-on-it).
 The one-line install puts it in the home from a release whose `SHA256SUMS` lists it, as releases from v0.4.0 on do, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
-It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/snapshot`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
+It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/waiting`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
 It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
 It follows the supervisor to a new address, loads the board again when a supervisor that was down answers, and opens the board's new-tab links in the default browser.
 While it is shown, it asks its page at every look whether it is the board's and has drawn a frame, since a page can stop drawing with nothing else changing: on 2026-10-14 WebView2's GPU process was slow to start, and the window showed only its dark ground while its page stayed loaded.
@@ -1574,7 +1574,8 @@ A page silent for three looks in a row is loaded again, then, still silent, the 
 Meanwhile Windows itself draws "The board stopped drawing. Loading it again." in place of the page, and `window.log` records each step.
 It raises the board's alerts as Windows notifications only while it is minimized or hidden to the tray; on the screen the board's Open Command Center is the signal, and nothing is claimed.
 Its notifications are the board's: only a new Command Center item that asks the Overlord something, never a goblin blocked, failed or done.
-Its own look at the board, every 3 seconds, finds those items in `/api/snapshot`, so a notification does not wait on the hidden page, which Windows runs at its lowest priority.
+Its own look at the board, every 3 seconds, finds those items in `/api/waiting`, so a notification does not wait on the hidden page, which Windows runs at its lowest priority.
+That route answers the items alone, read from the supervisor's memory with each goblin named as the newest snapshot names it, and builds no snapshot: on 2026-10-28 the look read the whole snapshot, 984 KB, every 3 seconds (#1716).
 Each is titled with who asks, a goblin by its title without its harness or the CFO, and says the item on one plain line as the page does: a question's lead, a wait's reason without its queue prefix or page link, without Markdown marks or a table of values.
 It claims each under the key the board's page uses, `alert:` and the item's key with its `created_at`, after the 1.5 seconds a hidden tab waits, and notifies only what the supervisor hands it, so nothing in AFK mode; a supervisor that cannot be asked lets it notify, as it lets the page.
 A click on any of its notifications brings the window to the front and opens that item in the Command Center, one it raised from its own look as well as one the page raised: the page hears of the first as the `code-goblins-notification-click` event.
@@ -2552,7 +2553,7 @@ It claims none even when the record cannot be saved, as on a full disk: the boar
 What a page asked about then stays recorded, so it is not announced once he is back either.
 The page holds the same line by itself: while its snapshot says AFK mode is on, a claim it could not ask for hands its alerts and its Command Center nothing, where with AFK mode off it falls back on what the browser remembers.
 A page that was not looking while he was away, such as a tab the browser put to sleep, asks about what it missed when it wakes, and gets it if AFK mode is off by then: he is back, and those items wait on him.
-[The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/snapshot` finds it claims here before it notifies, as the page does, and it is handed nothing.
+[The desktop window](#the-desktop-window) is silenced the same way: what its own reading of `/api/waiting` finds it claims here before it notifies, as the page does, and it is handed nothing.
 Each cycle the supervisor records every item that waits on the Overlord as held, once in a stretch: a pending question the CFO asked him before it turned on, with the choice it recommended, an open review item or wait, a run item nobody ran, and an open credential request.
 A goblin's question waits on the CFO, which answers it, so it is never held for him, even once the CFO has left it ten minutes and his Command Center shows it (`forOverlord`).
 A goblin's Scrawl page filed while it is on is such a question: `cfo notify --waiting-on overlord --lavish` records its wait as `blocked: <why> (page <link>) options: <choices>` in the goblin's status and the CFO's wake queue, and `cfo review --task --lavish` puts the same notify in the queue once for each item ID, with the item's title, and writes no status line.

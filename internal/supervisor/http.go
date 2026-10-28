@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
 
 type cachedResponse struct {
@@ -136,6 +137,13 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		snapshot.Build = h.build
 		respond(w, 200, snapshot)
+	case r.URL.Path == "/api/waiting" && r.Method == "GET":
+		instance, items, err := h.Service.Waiting()
+		if err != nil {
+			apiError(w, 503, err.Error())
+			return
+		}
+		respond(w, 200, waiting.Look{Instance: instance, Items: items})
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		h.stream(w, r)
 	case r.URL.Path == "/api/terminal/stream" && r.Method == "POST":
