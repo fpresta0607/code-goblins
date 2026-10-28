@@ -376,7 +376,59 @@ test("a Codex model typed after /model keeps the session's effort when its catal
   // Assert
   await expect.poll(() => typed(relay)).toBe(pasted("/model") + "\r23");
   relay.say({ type: "screen", asking: false, open: false, working: false });
-  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toContainText("GPT-6.1 Sol");
+  const control = box(page).getByRole("button", { name: "Change model", exact: true });
+  await expect(control, "a typed value waits for the session's record").toContainText("GPT-6 Astra");
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded("gpt-6.1-sol", "high"));
+  await expect(control).toContainText("GPT-6.1 Sol");
+});
+
+test("a value typed after the command shows on its control only once the session's record says it runs it", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  const effort = box(page).getByRole("button", { name: "Change effort", exact: true });
+  await expect(effort).toBeEnabled();
+
+  // Act: a level Claude Code does not take.
+  await field(page).fill("/effort hgih");
+  await field(page).press("Enter");
+
+  // Assert: it is sent, and the control keeps what the record says.
+  await expect.poll(() => typed(relay)).toBe(pasted("/effort hgih") + "\r");
+  await expect(effort).toHaveText("xhigh");
+
+  // A level it takes shows once its record says so.
+  await field(page).fill("/effort high");
+  await field(page).press("Enter");
+  await expect.poll(() => typed(relay)).toBe(pasted("/effort hgih") + "\r" + pasted("/effort high") + "\r");
+  await expect(effort).toHaveText("xhigh");
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded("claude-opus-5-5", "high"));
+  await expect(effort).toHaveText("high");
+});
+
+test("a /model or /effort typed while the controls cannot change the session stays in the box and is never queued", async ({ page }) => {
+  // Arrange: a review holds the goblin's typing, under which a message queues.
+  const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
+  const actions: unknown[] = [];
+  await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+  relay.say({ type: "held", reason: "pipeline owns this task" });
+  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toBeDisabled();
+
+  for (const command of ["/model", "/effort high"]) {
+    // Act
+    await field(page).fill(command);
+    await field(page).press("Enter");
+
+    // Assert
+    await expect(box(page).locator(".composer-note")).toHaveText("The model and effort controls need a connected, unheld session.");
+    await expect(field(page)).toHaveValue(command);
+  }
+  await expect(box(page).getByRole("menu")).toHaveCount(0);
+  expect(actions).toEqual([]);
+  expect(typed(relay)).toBe("");
 });
 
 test("a narrow desktop panel keeps all session controls inside the composer", async ({ page }) => {

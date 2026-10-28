@@ -211,14 +211,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // applyEngine sets the session's model or effort in its harness, as Classic
   // would through the harness's own menu (the Overlord, 2026-10-27: "they
   // should control the same interfaces. Same session"): one line for Claude
-  // Code and pi, and Codex's own picker, answered here, for Codex.
-  const applyEngine = (setting: EngineSetting, value: string, chosen?: EngineModel) => {
+  // Code and pi, and Codex's own picker, answered here, for Codex. A pick from
+  // the pane, which lists only what the harness offers, shows on its control
+  // at once (shouldShow); a value typed after the command shows once the
+  // session's record says it runs it.
+  const applyEngine = (setting: EngineSetting, value: string, shouldShow: boolean, chosen?: EngineModel) => {
     setPane(null);
     if (!canChangeEngine || !value) return;
     const command = engineCommand(harness, setting, value);
     const nextEffort = setting === "effort" ? value : chosen?.efforts.includes(shownEffort) ? shownEffort : chosen?.default_effort ?? "";
     if (command ? !link.send(command) : !link.send("/model")) { setUnsent(unsentWhy); return; }
-    setChosenEngine((prior) => setting === "model" ? { ...prior, model: { value, over: recordedModel } } : { ...prior, effort: { value, over: recordedEffort } });
+    if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: { value, over: recordedModel } } : { ...prior, effort: { value, over: recordedEffort } });
     if (!command) {
       stopDriving.current?.();
       setDriving(true);
@@ -227,7 +230,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         setDriving(false);
         if (!failed) return;
         setUnsent(failed === CODEX_NOT_SENT ? unsentWhy : failed);
-        setChosenEngine((prior) => setting === "model" ? { ...prior, model: undefined } : { ...prior, effort: undefined });
+        if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: undefined } : { ...prior, effort: undefined });
       });
     }
     requestAnimationFrame(() => field.current?.focus());
@@ -240,17 +243,19 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     const text = draft.trim();
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
-    // set at once with the value typed after it, never the terminal's menu.
-    // A Codex model typed by its id keeps the effort a pick of it in the pane
-    // would, when the harness's catalog lists it.
-    const asked = canChangeEngine ? settingCommand(harness, text) : null;
+    // set at once with the value typed after it, never the terminal's menu;
+    // while those controls cannot change the session it stays in the box and
+    // is never queued. A Codex model typed by its id keeps the effort a pick
+    // of it in the pane would, when the harness's catalog lists it.
+    const asked = settingCommand(harness, text);
+    if (asked && !canChangeEngine) { setUnsent("The model and effort controls need a connected, unheld session."); return; }
     if (asked) {
       setDraft("");
       if (!asked.value) { setPane(asked.setting); return; }
       const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
         (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
         (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
-      applyEngine(asked.setting, asked.value, chosen);
+      applyEngine(asked.setting, asked.value, false, chosen);
       return;
     }
     if (!savesThroughBoard && !sendID.current) {
@@ -523,7 +528,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
             <button ref={effortControl} type="button" className="composer-control engine-control" aria-label="Change effort" aria-haspopup="menu" aria-expanded={pane === "effort"} disabled={!canChangeEngine}
               data-tip={pane === "effort" ? undefined : canChangeEngine ? "Effort · Choose the session's reasoning effort" : "Effort controls need a connected, unheld composer"}
               onClick={() => setPane((open) => open === "effort" ? null : "effort")}>{shownEffort ? <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span> : <Icon name="sparkle" />}</button>
-            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} control={pane === "model" ? modelControl : effortControl} onPick={(value, chosen) => applyEngine(pane, value, chosen)} onClose={closePane} />}
+            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} control={pane === "model" ? modelControl : effortControl} onPick={(value, chosen) => applyEngine(pane, value, true, chosen)} onClose={closePane} />}
             {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
             {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
               : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>

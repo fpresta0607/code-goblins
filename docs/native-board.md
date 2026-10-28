@@ -1348,10 +1348,10 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Every session's working state uses the same indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
+Modern Chat's working spot, the session line above its box, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
 The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
 It carries an accessible name, and reduced motion keeps a static helix.
-The indicator appears on working cards, tree nodes and headers, but a Modern conversation draws it once in the footer and omits the header animation.
+Working cards, tree rows and panel headers show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
 The CFO's own panel shows the footer indicator while it works, as a goblin's does.
 
@@ -1416,7 +1416,7 @@ What the board could not parse goes to the CFO.
 Under the conversation is the session's message box, in place of its terminal's input, which shows only stepped in.
 The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
-While the harness works the footer says so with Stop, which presses Escape in its terminal.
+While the harness works and the box is empty, the send button is Stop, which presses Escape in its terminal, as Esc in the box does; with the box's own pane, Speech history or style menu open, Escape closes that instead and reaches neither the harness nor its screen.
 Busy, held or reconnecting sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
 Routine queueing has one neutral note beside the input, naming a review hold or a detached worktree waiting for a branch and never a message queued before it is accepted, and a failed Send takes priority, keeps the draft and retries with the same submission identity.
 The same composer stays mounted across Classic and Modern surfaces, keeping pending sends, attachment uploads and recordings through release or reconnect.
@@ -1443,8 +1443,8 @@ The model label prefers the session record over startup settings, and the toolti
 The effort the session last set is read back from its own record (`internal/fleettree`): Claude Code's `/effort` result, Codex's turn context and pi's thinking level change; the box's Effort control shows it, so a change made in Classic through the harness's own menu shows in Modern.
 Model and Effort, and `/model`, Claude Code's `/effort` and pi's `/thinking` typed in the box, open the board's own pane (`frontend/src/engine-pane.tsx`), which lists what the session's harness offers from `GET /api/engines` while it is open, the running choice checked; a value typed after the command sets it at once.
 A pick goes in as the harness's own command with the value after it for Claude Code and pi; Codex's `/model` takes no value, so the box sends `/model` and answers Codex's model list and then its reasoning list by their digits, or with Enter for its focused level when no effort was chosen, the harness's list hidden and the terminal never shown, and gives up after 8 s with Escape and says so.
-These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command.
-The board does not invent a model catalog; a pick shows on its control until the session's record says something new, and a Codex pick its picker did not take leaves its control.
+These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command, and a `/model`, `/effort` or `/thinking` typed meanwhile stays in the box, never queued, with a note that the model and effort controls need a connected, unheld session.
+The board does not invent a model catalog; a pick from the pane shows on its control until the session's record says something new, a Codex pick its picker did not take leaves its control, and a value typed after the command shows only once the session's record says the session runs it.
 The terminal icon opens the current session in its own Windows Terminal window through the same action as the former panel-header opener, which is absent while this composer is visible.
 A Classic view that shows only the native terminal keeps its header opener.
 An authenticated phone can request that window on the board's Windows PC; it does not open a terminal on the phone.
@@ -1457,7 +1457,7 @@ It becomes an ordinary message in its place once the session takes it, and the q
 A terminal's Alt+V starts no browser paste event, so the board reads the clipboard itself and puts a picture on this PC's clipboard before pressing the harness's own image key.
 His draft is kept per session in this tab (`cfo-draft:` and the task's id, or `cfo`, in its session storage), so a switch of view or session, a reconnect and a reload, as an update makes, all find it.
 Shift+Escape leaves the box for the panel's top row, as it leaves the messages.
-Escape closes Recent messages while it is open, from its button or from inside it, and puts the keyboard back on its button.
+Escape closes Speech history while it is open, from the box or from inside it, and puts the keyboard back on the Style button, whose menu opens it.
 
 #### The terminal stepping in
 
