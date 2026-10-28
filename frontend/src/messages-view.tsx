@@ -8,7 +8,8 @@ import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
 import { takesMessages } from "./messages";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
+import { LimitStrip } from "./limit-strip";
+import { changeMessages, currentLimit, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
 import { SessionFooter } from "./session-footer";
@@ -388,7 +389,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // What he sent the session himself, oldest first, which Up in the box
   // brings back as the terminal's history does.
   const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
-  const ends = turnEnds(held.messages, isWorking);
+  // At a usage limit the session does not work, whatever its screen shows,
+  // and the limit is Modern's own card and strip, never the harness's words
+  // (the Overlord, 2026-10-28: "the dither is stuck on Working").
+  const limit = currentLimit(held.messages);
+  const isTurning = isWorking && !limit;
+  const stopsThrough = task && takesMessages(task) ? "" : terminal;
+  const ends = turnEnds(held.messages, isTurning);
   // Under the last message sent, as a receipt: when it was sent (the
   // Overlord, 2026-10-28: "Reply just now is not needed, you only need the
   // sent three minutes ago").
@@ -409,11 +416,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
             ...held.messages.slice(span.start, span.end).map((message, at) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-              harness={harness} isTurnEnd={ends.has(message.id)} receipt={span.start + at === lastSent ? receipt : ""}
+              harness={harness} limitTerminal={message.id === limit?.id ? stopsThrough : ""} isTurnEnd={ends.has(message.id)} receipt={span.start + at === lastSent ? receipt : ""}
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
-          {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} since={workingSince} />}
+          {isTurning && reachesEnd && <ReplyWorking terminal={stopsThrough} ink={harnessInk(harness)} since={workingSince} />}
           {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
           {sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) => <QueuedMessage key={"queued-" + send.id} instance={instance} name={name} variant="pane"
             action={parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "queued", message: "Reaching the board.", send_now_why: "It is still reaching the board." })} />)}
@@ -429,6 +436,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     {(box || reading.banner) && <div className="composer-dock">
       <SessionFooter hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
+      {limit && <LimitStrip resets={limit.resets} terminal={stopsThrough} />}
       {box?.(held.usage?.model || model, history, held.usage?.effort ?? "")}
     </div>}
   </section>;

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, replyParts, textParts, turnEnds, type SessionMessage } from "./session-messages.ts";
+import { changeMessages, copyText, DEFAULT_MESSAGE_FONT, MAX_MESSAGE_FONT, messageFontFor, messagesQuery, MIN_MESSAGE_FONT, olderMessages, pageMessages, parseMessages, parsePage, replyParts, textParts, turnEnds, currentLimit, limitNotice, type SessionMessage } from "./session-messages.ts";
 import type { Task } from "./types.ts";
 
 // A message as the supervisor serves it (internal/fleettree/messages.go).
@@ -188,4 +188,22 @@ test("a call's plan keeps each step's words and state, and a state the board doe
   assert.deepEqual(reply.blocks[0].plan, [{ text: "Read the touch handlers", status: "completed" }, { text: "Fix the swipe", status: "in_progress" }]);
   assert.deepEqual(parseMessages([served(5, { kind: "reply", source: undefined, blocks: [{ kind: "text", text: "Done." }] })])[0].blocks[0].plan, []);
   assert.throws(() => parseMessages([call("blocked")]));
+});
+
+test("Claude Code's own limit notice is read with when it resets, and the session is at it until a reply comes after", () => {
+  // Arrange
+  const notice = (seq: number, text: string, model = "<synthetic>") => served(seq, { kind: "reply", source: undefined, text: undefined, model, blocks: [{ kind: "text", text }] });
+  const said = notice(1, "You've hit your 5-hour limit · resets 10pm (America/Chicago)");
+
+  // Act
+  const [limit, real, other] = parseMessages([said, notice(2, "The limit is fine.", "claude-opus-5-5"), notice(3, "Interrupted")]);
+
+  // Assert
+  assert.deepEqual(limitNotice(limit), { resets: "10pm" });
+  assert.equal(limitNotice(real), null, "a model's own words about a limit are no notice");
+  assert.equal(limitNotice(other), null);
+  assert.deepEqual(currentLimit(parseMessages([served(0), said])), { id: "m1", resets: "10pm" });
+  assert.deepEqual(currentLimit(parseMessages([served(0), said, served(2)])), { id: "m1", resets: "10pm" }, "a message he sends at the limit leaves the session at it");
+  assert.equal(currentLimit(parseMessages([served(0), said, served(2), notice(3, "Back to work.", "claude-opus-5-5")])), null);
+  assert.equal(currentLimit([]), null);
 });

@@ -27,6 +27,8 @@ export interface SessionMessage {
   id: string; seq: number; kind: "prompt" | "reply" | "compaction" | "interrupt"; at: string;
   source: PromptSource; queued: boolean; text: string; output: string; errors: string; trigger: string;
   blocks: MessageBlock[]; pictures: MessagePicture[];
+  // model is the model that wrote a reply.
+  model: string;
 }
 export type PromptSource = "overlord" | "cfo" | "answer" | "page" | "notice" | "slash" | "shell" | "";
 
@@ -70,7 +72,7 @@ export function parseMessages(value: unknown): SessionMessage[] {
       id: string(each.id), seq: number(each.seq), kind: choice(each.kind, KINDS, "message"), at: string(each.at),
       source: each.source == null ? "" : choice(each.source, SOURCES, "prompt source"), queued: each.queued == null ? false : boolean(each.queued),
       text: string(each.text), output: string(each.output), errors: string(each.errors), trigger: string(each.trigger),
-      blocks: array(each.blocks).map(block), pictures: pictures(each.pictures),
+      blocks: array(each.blocks).map(block), pictures: pictures(each.pictures), model: string(each.model),
     };
   });
 }
@@ -250,5 +252,33 @@ export function messageFontFor(key: string, current: number): number | null {
   if (key === "=" || key === "+") return Math.min(MAX_MESSAGE_FONT, current + 1);
   if (key === "-") return Math.max(MIN_MESSAGE_FONT, current - 1);
   if (key === "0") return DEFAULT_MESSAGE_FONT;
+  return null;
+}
+
+// What Claude Code names as the model of a reply it writes itself, such as
+// a usage limit's notice (internal/fleettree/messages.go).
+const SYNTHETIC_MODEL = "<synthetic>";
+
+// limitNotice is the usage limit a reply is the notice of, as Claude Code
+// writes one itself ("You've hit your 5-hour limit · resets 10pm
+// (America/Chicago)"): when it resets, in its own words, or null for any
+// other reply.
+export function limitNotice(message: SessionMessage): { resets: string } | null {
+  if (message.kind !== "reply" || message.model !== SYNTHETIC_MODEL) return null;
+  const words = message.blocks.map((part) => part.kind === "text" ? part.text : "").join(" ");
+  if (!/\blimit\b/i.test(words)) return null;
+  return { resets: /\bresets\s+(?:at\s+)?([^·(\n]+?)\s*(?:\(|·|$)/i.exec(words)?.[1] ?? "" };
+}
+
+// currentLimit is the usage limit the session is at: the newest reply or
+// interrupt, past any message sent since, when it is a limit's notice, and
+// null otherwise.
+export function currentLimit(messages: SessionMessage[]): { id: string; resets: string } | null {
+  for (let at = messages.length - 1; at >= 0; at--) {
+    const message = messages[at];
+    if (message.kind === "compaction" || message.kind === "prompt") continue;
+    const limit = limitNotice(message);
+    return limit && { id: message.id, ...limit };
+  }
   return null;
 }

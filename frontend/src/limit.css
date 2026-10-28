@@ -1,0 +1,17 @@
+/* A usage limit, as Claude's own app draws one: a card in the conversation
+   (limit-card.tsx) and one compact strip on the box's top (limit-strip.tsx),
+   in the board's own surfaces and its warning red for the gauge. */
+.limit-card { overflow: hidden; border: 1px solid var(--glass-border); border-radius: 12px; background: #0b171c; }
+.limit-card-head { display: flex; align-items: center; gap: 10px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--glass-border); background: #101e24; color: #edf4f3; font-weight: 600; }
+.limit-card .icon, .limit-strip .icon { width: 18px; height: 18px; color: #ff9292; }
+.limit-card-body { display: grid; gap: 10px; padding: 12px 14px; }
+.limit-card-when { margin: 0; color: var(--muted); }
+.limit-card-continue { display: flex; align-items: center; gap: 8px; color: #edf4f3; }
+.limit-card-continue input { width: 16px; height: 16px; accent-color: var(--mint); }
+.limit-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.limit-card-actions .icon { color: currentColor; }
+.limit-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 10px; border: 1px solid var(--glass-border); border-bottom: 0; border-radius: 12px 12px 0 0; background: #101e24; font-size: .875rem; }
+.limit-strip strong { color: #ff9292; font-weight: 600; }
+.limit-strip-when { color: var(--muted); }
+.limit-strip button { min-height: 30px; margin-left: auto; padding: 2px 12px; font-size: .8125rem; }
+@media (pointer: coarse) { .limit-strip button, .limit-card-actions > * { min-height: 44px; } }

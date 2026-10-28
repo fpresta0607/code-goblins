@@ -3,12 +3,13 @@ import { copyText as copyToClipboard } from "./clipboard";
 import { Disclosure } from "./Disclosure";
 import { HarnessMark } from "./harness-mark";
 import { Icon } from "./Icon";
+import { LimitCard } from "./limit-card";
 import { LongText } from "./long-text";
 import { MessageCall } from "./message-call";
 import { MessagePictures } from "./message-pictures";
 import { MessageText } from "./message-text";
 import { inlineElements, isLongText } from "./messageText";
-import { copyText, replyParts, type SessionMessage } from "./session-messages";
+import { copyText, limitNotice, replyParts, type SessionMessage } from "./session-messages";
 import type { Task, TreeNode } from "./types";
 
 const COPIED_MS = 1400;
@@ -41,8 +42,8 @@ function sentAt(at: string): { exact: string; text: string } {
 // openFolds are the folds of this message he opened, kept by the view so
 // they stay open when the row leaves the window and comes back, and onFold is
 // told of each one he opens or closes.
-export const MessageRow = memo(function MessageRow({ message, task, harness, picture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
-  message: SessionMessage; task?: Task; harness: string; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
+export const MessageRow = memo(function MessageRow({ message, task, harness, limitTerminal = "", picture, onChild, openFolds, onFold, isTurnEnd, receipt }: {
+  message: SessionMessage; task?: Task; harness: string; limitTerminal?: string; picture: (id: string) => string; onChild: (child: TreeNode, source: HTMLElement) => void;
   openFolds: ReadonlySet<string>; onFold: (message: string, fold: string, isOpen: boolean) => void; isTurnEnd: boolean; receipt: string;
 }) {
   const fold = (key: string) => ({ open: openFolds.has(key), onOpenChange: (isOpen: boolean) => onFold(message.id, key, isOpen) });
@@ -66,6 +67,13 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     {copy}
     <Disclosure kind="disclosure-line" title={message.trigger === "auto" ? "Compacted automatically" : "Compacted"} {...fold("compaction")}><MessageText text={message.text} /></Disclosure>
   </div>;
+  // A usage limit's notice is Modern's own limit card, with the actions of
+  // the limit the session is at now when limitTerminal names its terminal.
+  const limit = limitNotice(message);
+  if (limit) return <article className="message message-reply" data-message={message.id}>
+    <LimitCard resets={limit.resets} terminal={limitTerminal} />
+    {when.text && <div className="message-reply-actions"><time dateTime={message.at} data-tip={when.exact}>{when.text}</time></div>}
+  </article>;
   if (message.kind === "reply") return <article className="message message-reply" data-message={message.id}>
     {replyParts(message.blocks).map((part) => part.kind === "calls"
       ? <div key={part.at} className="message-steps">{part.calls.map((call, at) => <MessageCall key={at} call={call} task={task} picture={picture} onChild={onChild} {...fold("call:" + part.at + ":" + at)} />)}</div>
