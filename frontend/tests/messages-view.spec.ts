@@ -545,13 +545,13 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
 // Classic. Nothing is typed into the held terminal.
 test("a held pi goblin's send is queued, survives a reload, and can be withdrawn", async ({ page }) => {
   // Arrange: the board is watching what it is asked to keep.
-  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    const body = route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string; target?: string };
     posted.push(body);
     if (body.kind === "message") {
-      await keepActions(page, [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
+      await keepActions(page, [{ id: body.id, kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
     } else {
       await keepActions(page, []);
     }
@@ -576,7 +576,7 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   expect(typedBefore).toBe(board.say);
 
   // Act and Assert: the queue shows now, and again after a reload.
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: posted[0].id, kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
   const queued = page.locator(".queued-message.pane").filter({ hasText: sentText });
   await expect(queued).toBeVisible();
   await expect(queued.locator(".queued-state")).toBeVisible();
@@ -595,7 +595,7 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   // Assert: the withdrawal names the goblin, the words and the queued action
   // its row draws, so two messages with the same words are told apart.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
-  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
+  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: posted[0].id });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
   await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toHaveCount(0);
 });
@@ -605,10 +605,10 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
 // messages asks the board to delete the second one.
 test("a queued withdrawal names the row he picked, not just its words", async ({ page }) => {
   // Arrange: the queue holds A, B, A.
-  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    const body = route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string; target?: string };
     posted.push(body);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
@@ -637,13 +637,13 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
 // the terminal, and a clear custody leaves the terminal's own input to it.
 test("a held send in Classic is queued through the board, and its box remains usable after release", async ({ page }) => {
   // Arrange
-  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    const body = route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string; target?: string };
     posted.push(body);
-    await keepActions(page, body.kind === "message" ? [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }] : []);
+    await keepActions(page, body.kind === "message" ? [{ id: body.id, kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }] : []);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await openGoblin(page, "Pia - Pi Pilot");
@@ -663,7 +663,7 @@ test("a held send in Classic is queued through the board, and its box remains us
   // Assert: the board kept it, and the queue shows and survives a reload.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
   expect(posted[0].task_id).toBe("cg-pi");
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: posted[0].id, kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
   await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
   await page.reload();
   await openGoblin(page, who);
@@ -729,10 +729,10 @@ test("a keyboard switch in Classic puts the keys in the terminal it shows", asyn
 // on it. The message he saved before it opened is the board's own and stays.
 test("a held goblin keeps its queued message past a picker, and what he types at the picker goes into it", async ({ page }) => {
   // Arrange
-  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    posted.push(route.request().postDataJSON() as { kind: string; task_id: string; text: string });
+    posted.push(route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string });
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
   await openGoblin(page, "Pia - Pi Pilot");
@@ -770,13 +770,13 @@ test("a held goblin keeps its queued message past a picker, and what he types at
 // the proof is that the box and its queue stay reachable at every size.
 test("Modern: a held chat opens at the bottom, stays where he reads, and keeps its queue", async ({ page }) => {
   // Arrange
-  const posted: { kind: string; task_id: string; text: string; target?: string }[] = [];
+  const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
   const board = await open(page);
   await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { kind: string; task_id: string; text: string; target?: string };
+    const body = route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string; target?: string };
     posted.push(body);
-    if (body.kind === "message") await keepActions(page, [{ id: "a1", kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
+    if (body.kind === "message") await keepActions(page, [{ id: body.id, kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }]);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await openGoblin(page, "Pia - Pi Pilot");
@@ -816,7 +816,7 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   await boxSend(page, who).click();
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
   expect(posted[0].task_id).toBe("cg-pi");
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: "a1", kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: posted[0].id, kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
   await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toBeVisible();
   await page.reload();
   await openGoblin(page, who);
@@ -830,7 +830,7 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   // Assert: the withdrawal names the goblin, the words and the queued action
   // its row draws, and the row goes as the board answers.
   await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message", "message_withdraw"]);
-  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: "a1" });
+  expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: posted[0].id });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
   await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toHaveCount(0);
 });
