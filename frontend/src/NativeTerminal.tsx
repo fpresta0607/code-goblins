@@ -6,6 +6,7 @@ import { copyText } from "./clipboard";
 import { attachDictatedInput } from "./dictated-input";
 import { object, string, type Session, type Task } from "./types";
 import { Icon } from "./Icon";
+import { Notice } from "./notice";
 import { TerminalEmpty } from "./TerminalEmpty";
 import { bracketedPaste, clickJumper, clickJumps, endStep, ESTIMATED_CELL, fittedFontSize, gridToAsk, PANEL_RESIZED, previewScale, HISTORY_LINES, historyText, isDetachedHold, JUMP_TO_BOTTOM, judgeLines, liveWheel, panelGrid, queueInput, queueScroll, scrollAction, scrolledUp, scrollHeldReason, scrollsItself, sizeStep, typingHeldReason, wheelLines, wheelScroll, wheelTurn, type PaneCommand, type SizeEvent } from "./terminalInput";
 import { fontSizeFor, storedFontSize, storeFontSize } from "./terminalStream";
@@ -692,14 +693,14 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     <div className="terminal-overlay">
       {/* A live pane shows nothing over the screen; only a change of state or
           a copy needs saying, and the cover says it is connecting. */}
-      {(live || status !== "Connecting") && <span className={"terminal-state" + (live ? " live" : "") + (live && !copied && !inHistory ? " quiet" : "")} role="status">
-        <span className="status-dot" />{copied ? "Copied" : live && inHistory ? "History: scroll down or press Esc for live" : status}
-      </span>}
+      {(live || status !== "Connecting") && <Notice tone={live ? "info" : "warning"} className={live && !copied && !inHistory ? "sr-only" : undefined}>
+        {copied ? "Copied" : live && inHistory ? "History: scroll down or press Esc for live" : status}
+      </Notice>}
       {!live && status !== "Connecting" && <button className="icon-button raised" disabled={!visible} aria-label="Reconnect" data-tip="Reconnect" onClick={() => setAttempt((prior) => prior + 1)}><Icon name="refresh" /></button>}
     </div>
     {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); (inHistory ? history : terminal).current?.focus(); }} />}
     <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { pasteText.current?.(text); terminal.current?.focus(); }}
       tools={<TerminalTouchTools events={{ text: (text) => pasteText.current?.(text), image: addImage, copy: () => { const shown = (inHistory ? history : terminal).current; setTextSheet(shown ? terminalText(shown) : ""); }, problem: showFeedback }} />} />
-    {feedback ? <p className="terminal-note"><ClickFeedback text={feedback} /></p> : dictation.note && <p className="terminal-note" role="status">{dictation.note}</p>}
+    {(feedback || dictation.note) && <div className="terminal-float">{feedback ? <ClickFeedback text={feedback} /> : <Notice tone="warning">{dictation.note}</Notice>}</div>}
   </section>;
 }

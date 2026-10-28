@@ -124,7 +124,7 @@ test("a card the supervisor will not bring back says why on its row", async ({ p
   await row.locator(".history-change").click();
 
   // Assert
-  await expect(row.locator(".click-feedback")).toHaveText("This card is withdrawn, so it does not come back.");
+  await expect(row.locator(".notice")).toHaveText("This card is withdrawn, so it does not come back.");
   await expect(page.getByRole("dialog")).toBeHidden();
 });
 
@@ -227,7 +227,7 @@ test("Something else? on a card whose values are stored sends his words to its a
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ kind: "message", task_id: "push-settings", generation: "", text: "About your card cred-4444444444444444 (The push key for the gateways), whose values are stored: Use the key from the team account instead" });
   await expect(note).toBeHidden();
-  await expect(row.locator(".history-stored .click-feedback")).toHaveText("Sent to Hank - Key Keeper.");
+  await expect(row.locator(".history-stored .notice")).toHaveText("Sent to Hank - Key Keeper.");
   await expect(row.locator(".history-detail")).toBeVisible();
 });
 
@@ -255,7 +255,7 @@ test("Something else? on a stored card whose goblin has ended sends his words to
   // Assert
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0]).toMatchObject({ kind: "message", task_id: "", generation: "", text: "About the card cred-7777777777777777 of task cg-push-retired (The key ID for the gateways), whose values are stored: File the key ID again under the team account" });
-  await expect(row.locator(".history-stored .click-feedback")).toHaveText("Sent to the CFO.");
+  await expect(row.locator(".history-stored .notice")).toHaveText("Sent to the CFO.");
 });
 
 test("Something else? resent after a lost answer keeps its ID only for the same words", async ({ page }) => {

@@ -186,7 +186,7 @@ for (const [outcome, after, isMended] of [
     if (isMended) await expect(play).toHaveCount(0);
     else {
       await expect(play).toBeEnabled();
-      await expect(panel.locator(".click-feedback")).toHaveText(/^Failed/);
+      await expect(panel.locator(".notice")).toHaveText(/^Failed/);
     }
   });
 }
@@ -204,7 +204,7 @@ test("a row's command that fails as it starts, before the board saw it run, stil
 
   // Assert
   await expect.poll(() => reads.count).toBeGreaterThan(readsBefore);
-  await expect(panel.locator(".click-feedback")).toHaveText(/^Failed/);
+  await expect(panel.locator(".notice")).toHaveText(/^Failed/);
 });
 
 // The Overlord, 2026-10-18: "with tailscale connection should we be able to
@@ -431,7 +431,7 @@ test("a switch that cannot turn on stays off and says why for a moment", async (
   await tailscale.click();
 
   // Assert
-  await expect(panel.locator(".click-feedback")).toHaveText("Tailscale is not running on this PC.");
+  await expect(panel.locator(".notice")).toHaveText("Tailscale is not running on this PC.");
   await expect(tailscale).toHaveAttribute("aria-checked", "false");
   await expect(tailscale).toBeVisible();
   await expect(panel.getByRole("button", { name: "Copy " + URL })).toHaveCount(0);
@@ -499,7 +499,7 @@ test("an app whose notifications he refuses keeps the badge off and says where t
   await badge.click();
 
   // Assert
-  await expect(page.locator(".app-badge-setting .click-feedback")).toHaveText("Allow notifications for Code Goblins in Settings.");
+  await expect(page.locator(".app-badge-setting .notice")).toHaveText("Allow notifications for Code Goblins in Settings.");
   await expect(badge).toHaveAttribute("aria-checked", "false");
   expect(pushes).toEqual([]);
   expect(await badgeCalls(page)).toEqual(["ask"]);

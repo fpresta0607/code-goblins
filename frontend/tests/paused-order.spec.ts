@@ -128,7 +128,7 @@ test("a drop the resume order undoes puts the card back, says why and saves noth
   await drag(page, section.locator("[data-sort-id='wanda']"), section.locator("[data-sort-id='greta']"));
 
   // Assert
-  await expect(page.locator(".click-feedback")).toHaveText("Paused goblins stay in the order they resume.");
+  await expect(page.locator(".workspace .notice")).toHaveText("Paused goblins stay in the order they resume.");
   expect(await order(section)).toEqual(RESUME_ORDER);
   expect(posted).toEqual([]);
 });

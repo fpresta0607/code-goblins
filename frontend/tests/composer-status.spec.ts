@@ -35,7 +35,7 @@ for (const style of ["classic", "modern"]) {
         await testInfo.attach("review-queue-surface", { path: surface, contentType: "image/png" });
 
         // Act and Assert: routine waiting is shown once, beside its one input.
-        await expect(page.locator(".terminal-held-line:visible")).toHaveCount(0);
+        await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
         await expect(box(page).locator(".composer-note")).toHaveText("Review in progress. Send to queue until it finishes.");
         await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
         await expect(send(page)).toBeInViewport();
@@ -122,7 +122,7 @@ for (const style of ["classic", "modern"]) {
         relay.say({ type: "unread", unread: true });
         await expect(field(page)).toBeVisible();
         await field(page).fill("Read this after the current turn");
-        await expect(page.locator(".terminal-unread:visible")).toHaveCount(0);
+        await expect(page.locator(".host-terminal > .terminal-corner-left[data-tip]:visible")).toHaveCount(0);
         await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
         await send(page).click();
         await expect(field(page)).toHaveValue("");
@@ -135,7 +135,7 @@ for (const style of ["classic", "modern"]) {
         relay.say({ type: "unread", unread: false });
         relay.refuse();
         relay.drop();
-        await expect(page.locator(".terminal-reconnecting")).toHaveCount(1);
+        await expect(page.locator(".terminal-corner.warning")).toHaveCount(1);
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
         await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
@@ -147,10 +147,10 @@ for (const style of ["classic", "modern"]) {
         // Act: the relay comes back, and after reconnecting an ended session
         // keeps an unsent draft.
         relay.accept();
-        const reconnect = page.locator(".terminal-closed").getByRole("button", { name: "Reconnect", exact: true });
+        const reconnect = page.locator(".terminal-foot.box").getByRole("button", { name: "Reconnect", exact: true });
         if (await reconnect.count()) await reconnect.click();
         await field(page).focus();
-        await expect(page.locator(".terminal-reconnecting")).toHaveCount(0);
+        await expect(page.locator(".terminal-corner.warning")).toHaveCount(0);
         await expect(field(page)).toBeFocused();
         await page.keyboard.type("still in the draft");
         await expect(field(page)).toHaveValue("still in the draft");
@@ -158,7 +158,7 @@ for (const style of ["classic", "modern"]) {
         if (style === "classic") await page.getByRole("button", { name: "Back to messages", exact: true }).click();
         await field(page).fill("Keep this when the terminal ends");
         relay.end();
-        await expect(page.locator(".terminal-closed")).toHaveCount(1);
+        await expect(page.locator(".terminal-foot.box")).toHaveCount(1);
         await send(page).click();
 
         // Assert
@@ -287,10 +287,9 @@ for (const style of ["classic", "modern"]) {
         await field(page).fill("Keep this while inspecting usage");
         const footer = page.locator(".session-footer:visible");
 
-        // Assert: one concise state without a second explanation in the footer.
-        await expect(footer.locator(".session-fact").filter({ hasText: /usage/i })).toHaveCount(1);
-        await expect(footer).toContainText("Usage unavailable");
-        await expect(footer).not.toContainText("its Claude usage could not be read");
+        // Assert: one plain sentence on the notice, said once in the footer.
+        await expect(footer.locator(".notice")).toHaveText("Claude usage could not be read.");
+        await expect(footer.getByText(/usage/i)).toHaveCount(1);
         const surface = testInfo.outputPath("usage-unavailable-surface.png");
         await page.screenshot({ path: surface });
         await testInfo.attach("usage-unavailable-surface", { path: surface, contentType: "image/png" });
@@ -302,7 +301,7 @@ for (const style of ["classic", "modern"]) {
         const details = page.getByRole("tooltip", { name: "Session statistics", exact: true });
 
         // Assert
-        await expect(details).toContainText("its Claude usage could not be read");
+        await expect(details).toContainText("Claude usage could not be read");
         await usage.press("Escape");
         await expect(details).toHaveCount(0);
         await expect(field(page)).toHaveValue("Keep this while inspecting usage");
@@ -364,7 +363,7 @@ for (const style of ["classic", "modern"]) {
 
         // Assert: the active surface says what failed once and retains the draft.
         await expect(box(page).locator(".composer-note")).toHaveText("No microphone was found.");
-        await expect(page.locator(".terminal-note:visible")).toHaveCount(0);
+        await expect(page.locator(".terminal-float:visible")).toHaveCount(0);
         await expect(field(page)).toHaveValue("Keep this draft");
         expect(typed(relay)).toBe("");
 
@@ -556,7 +555,7 @@ for (const style of ["classic", "modern"]) {
       expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport);
       expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.visualBottom);
       await expect(note).toHaveText("Detached worktree. Send to queue until a branch is ready.");
-      await expect(page.locator(".terminal-held-line:visible")).toHaveCount(0);
+      await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
       await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
       await expect(send(page)).toBeInViewport();
       await expect(field(page)).toBeVisible();

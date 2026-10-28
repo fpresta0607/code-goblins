@@ -189,7 +189,7 @@ for (const mouse of [false, true]) {
 
     relay.typed.length = 0;
     relay.send(JSON.stringify({ type: "held", reason: "pipeline owns this task" }));
-    await expect(page.locator(".terminal-held-line")).toBeVisible();
+    await expect(page.locator(".terminal-foot.line")).toBeVisible();
     await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageDown");
     await page.waitForTimeout(100);
     expect(relay.typed).toEqual([]);

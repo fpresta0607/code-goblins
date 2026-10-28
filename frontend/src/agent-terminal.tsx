@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css"
 import { reportToCfo } from "./api"
 import { object, strings, type Task, type TreeNode } from "./types"
 import { babyName } from "./fleet-tree"
+import { Notice } from "./notice"
 import { terminalDocument } from "./terminalDocument"
 import { FALLBACK_FONT, LINE_HEIGHT, PADDING, THEME } from "./terminalView"
 import { followFontSize, panelFit, storedFontSize } from "./terminalStream"
@@ -148,6 +149,6 @@ export function AgentTerminal({ task, child, visible }: { task: Task; child: Tre
   }, [task.id, child.id, visible, attempt])
   return <section className="agent-terminal" role="log" aria-label={"Terminal of " + babyName(task, child)}>
     <div ref={surface} className="agent-output" />
-    {status && <div className="agent-status" role="status">{status}{isClosed && <button type="button" onClick={() => { setClosed(false); setStatus("Connecting to the terminal"); setAttempt(value => value + 1) }}>Reconnect</button>}</div>}
+    {status && <Notice tone={isClosed ? "warning" : "info"} actions={isClosed && <button type="button" onClick={() => { setClosed(false); setStatus("Connecting to the terminal"); setAttempt(value => value + 1) }}>Reconnect</button>}>{status}</Notice>}
   </section>
 }

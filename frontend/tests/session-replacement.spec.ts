@@ -27,7 +27,7 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
         await expect(page.locator(".context-pane").getByText("Review in progress. Send to queue until it finishes.")).toBeVisible();
       } else if (state === "ended") {
         relay.end();
-        await expect(page.locator(".terminal-closed")).toBeVisible();
+        await expect(page.locator(".terminal-foot.box")).toBeVisible();
       } else relay.drop();
       if (input === "keyboard") await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
       // The wheel goes over the terminal's top rows: its box also holds the
@@ -74,7 +74,7 @@ test("Classic full-screen Codex opens readable history with wheel while ended th
   const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
   await expect(terminal).toBeVisible();
   relay.end();
-  await expect(page.locator(".terminal-closed")).toBeVisible();
+  await expect(page.locator(".terminal-foot.box")).toBeVisible();
   await page.locator(".terminal-view:not(.staged) .xterm-scrollable-element").evaluate((scrollbar) => scrollbar.addEventListener("wheel", (event) => { event.preventDefault(); event.stopPropagation(); }));
 
   // Act
@@ -97,7 +97,7 @@ test("Classic full-screen Codex zooms on a right-button wheel up while ended and
   const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
   await expect(terminal).toBeVisible();
   relay.end();
-  await expect(page.locator(".terminal-closed")).toBeVisible();
+  await expect(page.locator(".terminal-foot.box")).toBeVisible();
   const keptSize = () => page.evaluate(() => localStorage.getItem("cfo-terminal-font-size"));
   const before = await keptSize();
 
@@ -129,7 +129,7 @@ for (const style of ["classic", "modern"] as const) {
     await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal_since: newSince, actions: [cfoPending] }));
 
     await expect.poll(() => relay.addresses.some((address) => new URL(address).searchParams.get("since") === newSince)).toBe(true);
-    await expect(page.locator(".terminal-closed")).toHaveCount(0);
+    await expect(page.locator(".terminal-foot.box")).toHaveCount(0);
     if (style === "modern") {
       await expect(field(page, "CFO")).toHaveValue("keep the CFO draft");
       await expect(page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })).toBeVisible();
@@ -162,7 +162,7 @@ for (const style of ["classic", "modern"] as const) {
     await page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail })), next);
 
     await expect.poll(() => relay.addresses.some((address) => new URL(address).searchParams.get("generation") === codex.generation)).toBe(true);
-    await expect(page.locator(".terminal-closed")).toHaveCount(0);
+    await expect(page.locator(".terminal-foot.box")).toHaveCount(0);
     await expect(page.getByText("No terminal is running for this task.", { exact: true })).toHaveCount(0);
     relay.write("\r\nCodex is still progressing\r\n");
     if (style === "modern") {

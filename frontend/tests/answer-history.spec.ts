@@ -195,7 +195,7 @@ test("a change the supervisor refuses puts the answer back as it stood and says 
   await dialog.getByRole("button", { name: "Change answer" }).click();
 
   // Assert
-  await expect(dialog.locator(".click-feedback")).toHaveText("This question is no longer on the board. Refresh the board.");
+  await expect(dialog.locator(".notice")).toHaveText("This question is no longer on the board. Refresh the board.");
   await expect(dialog.locator(".answered-by")).toHaveText("You chose this · 40m ago");
 });
 
