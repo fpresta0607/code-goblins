@@ -1,8 +1,7 @@
 import { memo, useRef, useState, type SyntheticEvent } from "react";
 import type { BoardActivity, Snapshot, Task } from "./types";
 import { Avatar } from "./Avatar";
-import { ConnectorMark } from "./ConnectorMark";
-import { harnessMark } from "./connectors";
+import { HarnessMark } from "./harness-mark";
 import type { NextUp } from "./start";
 import { harnessTip, personaFor, pullRequestIcon } from "./workflow";
 import { goblinName, taskName } from "./task-words";
@@ -13,8 +12,6 @@ import { CardClock } from "./card-clock";
 import { CardPullRequest } from "./card-pull-request";
 import { BrandGlyph } from "./brand-glyph";
 import { safeGitHubLink } from "./people";
-import { WorkingIndicator } from "./working-indicator";
-import { harnessInk } from "./harness-ink";
 
 // A task's card on the board is one row, like a conversation in a list (the
 // Overlord, 2026-10-17: "minimal cards are better like an imessage history
@@ -62,7 +59,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
     <Avatar persona={personaFor(task)} />
     <span className="card-copy"><span className="card-head">{isPresenting && <span className="browser-indicator">Browser active</span>}{nextText && <span className={"next-chip" + (nextTone ? " " + nextTone : "")}>{nextText}</span>}<strong className={"card-title" + (isNamed ? "" : " card-task-title")}>{name}</strong></span>
       {rank && <span className="sr-only">, {rank}</span>}
-      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}>{["busy", "working", "active"].includes(phase) ? <WorkingIndicator ink={harnessInk(task.harness)} compact /> : <span className="status-dot" />}<span className="card-status-text">{status}</span></span>
+      <span className={"plain-status phase-" + phase + (task.archived && task.phase !== "stopped" ? " pr-" + icon : "")}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
     </span>
   </>;
   return <div className={"task-card-shell" + (selected ? " selected" : "")}>
@@ -74,7 +71,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
       {task.ticket && <TicketLink ticket={task.ticket} className="card-ticket" isIconOnly />}
       <CardPullRequest task={task} isIconOnly />
       <SameAreaAvatars overlaps={task.overlaps} />
-      {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><ConnectorMark mark={harnessMark(task.harness)} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
+      {task.harness && <span className="card-harness" onClick={() => onSelect(task, card.current!)}><HarnessMark harness={task.harness} label={harnessTip(task.harness, task.model, task.effort)} /></span>}
     </div>
   </div>;
 });

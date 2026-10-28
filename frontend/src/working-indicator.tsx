@@ -9,10 +9,12 @@ const ROWS = 7;
 
 // WorkingIndicator is one session's working state in its harness's colour: the
 // helix fading smoothly into sixteen cells lighting in Bayer order and back.
-// Reduced motion keeps the helix still. It carries an accessible name, and
-// compact draws it small enough for a header, a card or a call row.
-export function WorkingIndicator({ ink, label = "Working", compact = false }: { ink: string; label?: string; compact?: boolean }) {
-  return <span className={"working-indicator" + (compact ? " compact" : "")} role="status" aria-label={label} style={{ color: ink }}>
+// Reduced motion keeps the helix still. It carries an accessible name. It is
+// drawn only in Modern Chat's working spot; the board's cards, panel headers
+// and tree rows show a plain blue dot for working (the Overlord, 2026-10-27:
+// "can just be blue dot as before").
+export function WorkingIndicator({ ink, label = "Working" }: { ink: string; label?: string }) {
+  return <span className="working-indicator" role="status" aria-label={label} style={{ color: ink }}>
     <span className="working-helix" aria-hidden="true">
       {Array.from({ length: ROWS }, (_, row) => <span className="working-helix-row" key={row} style={{ top: `${(row / (ROWS - 1)) * 75}%`, animationDelay: `${(row / ROWS) * 1.4}s` }}>
         <i /><i className="b" />

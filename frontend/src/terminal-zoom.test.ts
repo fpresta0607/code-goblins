@@ -21,6 +21,8 @@ function gestureAt(start: number) {
     press: (button = 2) => dispatch(element, "mousedown", { button }),
     release: (button = 2) => dispatch(view, "mouseup", { button }),
     wheel: (deltaY: number, deltaMode = 0) => dispatch(element, "wheel", { deltaY, deltaMode }),
+    sideways: (deltaX: number) => dispatch(element, "wheel", { deltaX, deltaY: 0, deltaMode: 0 }),
+    chord: (fields: Record<string, number>) => dispatch(element, "wheel", { ctrlKey: 1, shiftKey: 1, deltaMode: 0, ...fields }),
     menu: () => dispatch(element, "contextmenu"),
     blur: () => dispatch(view, "blur"),
   };
@@ -126,6 +128,19 @@ test("a right click that never turned the wheel does what it did before", () => 
   assert.deepEqual(gesture.zooms, [21]);
 });
 
+test("a sideways turn with the right button held zooms nothing", () => {
+  // Arrange
+  const gesture = gestureAt(20);
+  gesture.press();
+
+  // Act
+  gesture.sideways(-100);
+  gesture.sideways(-100);
+
+  // Assert
+  assert.deepEqual(gesture.zooms, []);
+});
+
 test("the wheel without the right button scrolls as before", () => {
   const cases: [string, (gesture: ReturnType<typeof gestureAt>) => void][] = [
     ["never pressed", () => {}],
@@ -159,4 +174,33 @@ test("a detached gesture zooms nothing", () => {
   // Assert
   assert.equal(turn.defaultPrevented, false);
   assert.deepEqual(gesture.zooms, []);
+});
+
+test("Ctrl+Shift and the wheel step the text size, even when Shift turns the wheel sideways", () => {
+  // Arrange
+  const gesture = gestureAt(20);
+
+  // Act
+  const up = gesture.chord({ deltaY: -100 });
+  gesture.chord({ deltaX: -100 });
+  const down = gesture.chord({ deltaY: 100 });
+
+  // Assert: the page's own zoom and the terminal's scroll never see it.
+  assert.deepEqual(gesture.zooms, [21, 22, 21]);
+  assert.equal(up.defaultPrevented, true);
+  assert.equal(down.defaultPrevented, true);
+});
+
+test("the wheel with Ctrl alone, or with Alt as well, is left to the page", () => {
+  // Arrange
+  const gesture = gestureAt(20);
+
+  // Act
+  const ctrl = gesture.chord({ shiftKey: 0, deltaY: -100 });
+  const alt = gesture.chord({ altKey: 1, deltaY: -100 });
+
+  // Assert
+  assert.deepEqual(gesture.zooms, []);
+  assert.equal(ctrl.defaultPrevented, false);
+  assert.equal(alt.defaultPrevented, false);
 });

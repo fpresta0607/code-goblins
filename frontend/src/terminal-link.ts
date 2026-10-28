@@ -45,6 +45,12 @@ const subscribe = (listener: () => void) => {
   return () => { listeners.delete(listener); };
 };
 
+// watchLink tells onChange the link of key, or undefined while none is
+// offered, each time a link changes from now on, and returns what stops it.
+export function watchLink(key: string, onChange: (link: TerminalLink | undefined) => void): () => void {
+  return subscribe(() => onChange(links.get(key)));
+}
+
 // useTerminalLink is the link of the terminal the deck keeps as key, while
 // one is offered.
 export function useTerminalLink(key: string): TerminalLink | undefined {

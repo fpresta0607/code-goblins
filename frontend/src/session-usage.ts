@@ -88,24 +88,27 @@ export function elapsedText(since: string, now: number): string {
 }
 
 // sessionStats reads every stat the fleet can back, and names each it cannot.
+// A usage that names only the session's model or effort, as a record does
+// before its first reply, has recorded no spend.
 export function sessionStats({ usage, model, effort, memory }: SessionFacts): SessionStats {
   model = usage?.model || model;
+  const spent = usage && (usage.input_tokens > 0 || usage.output_tokens > 0 || usage.cache_read_tokens > 0 || usage.cost_usd > 0 || usage.context_tokens > 0) ? usage : undefined;
   const details: Stat[] = [];
   const missing: string[] = [];
   const add = (key: string, label: string, value: string) => {
     details.push({ key, text: value, label });
   };
-  if (usage) {
-    if (usage.input_tokens > 0) add("input", "Input tokens", formatCount(usage.input_tokens));
-    if (usage.output_tokens > 0) add("output", "Output tokens", formatCount(usage.output_tokens));
-    if (usage.cache_read_tokens > 0) add("cache", "Cache read", formatCount(usage.cache_read_tokens));
-    if (usage.cost_usd > 0) add("cost", "Cost", formatUSD(usage.cost_usd));
+  if (spent) {
+    if (spent.input_tokens > 0) add("input", "Input tokens", formatCount(spent.input_tokens));
+    if (spent.output_tokens > 0) add("output", "Output tokens", formatCount(spent.output_tokens));
+    if (spent.cache_read_tokens > 0) add("cache", "Cache read", formatCount(spent.cache_read_tokens));
+    if (spent.cost_usd > 0) add("cost", "Cost", formatUSD(spent.cost_usd));
     else missing.push("its cost");
-    if (usage.context_tokens > 0 || usage.context_window > 0) {
-      if (usage.context_window > 0) {
-        add("context", "Context", formatCount(usage.context_tokens) + " of " + formatCount(usage.context_window));
+    if (spent.context_tokens > 0 || spent.context_window > 0) {
+      if (spent.context_window > 0) {
+        add("context", "Context", formatCount(spent.context_tokens) + " of " + formatCount(spent.context_window));
       } else {
-        add("context", "Context", formatCount(usage.context_tokens));
+        add("context", "Context", formatCount(spent.context_tokens));
         missing.push("its context window");
       }
     } else missing.push("its context");
@@ -116,8 +119,8 @@ export function sessionStats({ usage, model, effort, memory }: SessionFacts): Se
   else missing.push("its memory");
   if (model || effort) add("engine", effort ? "Model / configured effort" : "Model", [model, effort].filter(Boolean).join(" "));
   else missing.push("its model and effort");
-  const contextPercent = usage && usage.context_window > 0 ? Math.max(0, Math.min(100, usage.context_tokens / usage.context_window * 100)) : undefined;
-  return { details, missing, hasUsage: !!usage, contextPercent };
+  const contextPercent = spent && spent.context_window > 0 ? Math.max(0, Math.min(100, spent.context_tokens / spent.context_window * 100)) : undefined;
+  return { details, missing, hasUsage: !!spent, contextPercent };
 }
 
 // What a session's provider says about its allowance, for the banner above

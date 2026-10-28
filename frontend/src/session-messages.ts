@@ -74,6 +74,8 @@ export function parseMessages(value: unknown): SessionMessage[] {
 export interface SessionUsage {
   input_tokens: number; output_tokens: number; cache_read_tokens: number;
   cost_usd: number; context_tokens: number; context_window: number; model: string;
+  // effort is the reasoning effort the session last set, as its record says.
+  effort: string;
 }
 
 export interface MessagePage { messages: SessionMessage[]; more: boolean; usage?: SessionUsage }
@@ -82,7 +84,7 @@ export function parseUsage(value: unknown): SessionUsage | undefined {
   if (value == null) return undefined;
   const each = object(value);
   return { input_tokens: number(each.input_tokens), output_tokens: number(each.output_tokens), cache_read_tokens: number(each.cache_read_tokens),
-    cost_usd: number(each.cost_usd), context_tokens: number(each.context_tokens), context_window: number(each.context_window), model: string(each.model) };
+    cost_usd: number(each.cost_usd), context_tokens: number(each.context_tokens), context_window: number(each.context_window), model: string(each.model), effort: string(each.effort) };
 }
 
 export function parsePage(value: unknown): MessagePage {
@@ -198,8 +200,9 @@ export function replyParts(blocks: MessageBlock[]): ReplyPart[] {
 
 // The message text's size, kept in this browser apart from the terminals',
 // since a size the terminals take resizes their programs. Ctrl+Plus and
-// Ctrl+Minus, or the right button and the wheel, step it a pixel between the
-// terminals' bounds, and Ctrl+0 restores it.
+// Ctrl+Minus, the right button and the wheel, or the wheel with Ctrl and
+// Shift, step it a pixel between the terminals' bounds, and Ctrl+0 restores
+// it.
 export const MESSAGE_FONT_KEY = "cfo-message-font-size";
 export const DEFAULT_MESSAGE_FONT = 16;
 export const MIN_MESSAGE_FONT = MIN_FONT_SIZE;

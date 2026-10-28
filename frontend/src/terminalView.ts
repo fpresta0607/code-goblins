@@ -174,8 +174,8 @@ export class TerminalView {
     this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); this.repin(); });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
-    // A size chosen in any terminal, by the keys or the right button and the
-    // wheel, is this one's too.
+    // A size chosen in any terminal, by the keys, the right button and the
+    // wheel, or the wheel with Ctrl and Shift, is this one's too.
     this.stopFollowing = followFontSize((size) => this.setFont(size));
     this.stopZooming = attachZoomGesture(this.element, window, () => this.term.options.fontSize ?? DEFAULT_FONT_SIZE, (size) => { this.setFont(size); this.events.font(size); });
     this.stopSwiping = attachTouchScroll(this.element, () => this.cell().height, (lines, at) => this.swipe(lines, at));
@@ -548,8 +548,8 @@ export class TerminalView {
   // xterm's element ahead of xterm: xterm's scrollbar takes a wheel first
   // whenever it has room to scroll, as for a moment after the terminal's box
   // changes size, and xterm then never asks its wheel handler. The zoom
-  // gesture, on the view's element above it, takes a right-button wheel
-  // before it.
+  // gesture, on the view's element above it, takes a right-button wheel, and
+  // a wheel with Ctrl and Shift held, before it.
   private readonly wheelHistory = (event: WheelEvent): void => {
     if (this.term.buffer.active.type === "normal" || !this.heldReason && this.socket.readyState === WebSocket.OPEN) return;
     if (event.deltaY < 0) this.events.history?.();

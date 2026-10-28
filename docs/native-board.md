@@ -901,7 +901,8 @@ xterm draws with its WebGL renderer, and with its DOM renderer in WebKit, the en
 The font starts at 20 px, and at 12 px on a small screen (40rem or less), where a phone 390 px wide holds about 50 columns of a harness's screen; Ctrl+Plus and Ctrl+Minus step it between 12 and 28 px and Ctrl+0 restores the size it starts at, saved in the browser, and a new font size resizes the pseudo console, so the terminal gains or loses columns instead of shrinking its text.
 Holding the right mouse button and turning the wheel steps it the same way, up to grow and down to shrink, a step a notch, with a smooth wheel's small turns adding up to one.
 The wheel then neither scrolls the terminal nor reaches its program, and the menu that would open when the button comes up does not, so its Paste is never offered, while a right click that never turned the wheel does what it always did.
-The size is one for every terminal on the board: a size chosen in any one, by either gesture, applies at once to every open terminal, shown or not, and to every one opened later, each refitting its grid to its panel once in sight, and it is kept in the browser's storage for the board's address, which an update keeps, so a reload or an update keeps it and each device, such as a phone, keeps its own.
+The wheel turned with Ctrl and Shift held steps it the same way, and then neither scrolls the terminal, reaches its program nor zooms the page; Shift turns a wheel sideways in Chromium on Windows, so that sideways turn counts too.
+The size is one for every terminal on the board: a size chosen in any one, by any of the three ways, applies at once to every open terminal, shown or not, and to every one opened later, each refitting its grid to its panel once in sight, and it is kept in the browser's storage for the board's address, which an update keeps, so a reload or an update keeps it and each device, such as a phone, keeps its own.
 The terminal keeps 5,000 lines of scrollback and the wheel scrolls it; the panel around it never scrolls.
 On a touch screen one finger swiped over the terminal scrolls it as the wheel does, by the lines it moved over, and the page never moves: the history scrolls, or a program that takes the wheel, by the mouse or on the alternate screen, gets a turn of the wheel a line.
 While the wheel has the history up, the line the program waits on, the cursor's row, stays pinned over the panel's last row in its own colors, with a thin rule above it and the history scrolling over it, and a Jump to bottom button sits above it in the middle.
@@ -1348,10 +1349,10 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Every session's working state uses the same indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
+Modern Chat's working spot, the session line above its box, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
 The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
 It carries an accessible name, and reduced motion keeps a static helix.
-The indicator appears on working cards, tree nodes and headers, but a Modern conversation draws it once in the footer and omits the header animation.
+Working cards, tree rows and panel headers show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
 The CFO's own panel shows the footer indicator while it works, as a goblin's does.
 
@@ -1399,6 +1400,7 @@ The terminal decides that before xterm sees the wheel, since xterm's own scroll 
 At the conversation's bottom corner, where a message's timestamp sits, one compact line carries the harness's working indicator while it works and the time facts, not a wall of numbers: how long the session has been working, when he last sent a message, and when the last reply arrived.
 The indicator has no icon of its own and takes the harness's colour.
 When the session is not working the line keeps the time facts, and the fuller usage stays in the banner.
+The line ends with the session's context ring, which opens its statistics above itself with one label and its value on each line (`frontend/src/context-usage.tsx`).
 Above the message box an unboxed usage line opens the full stats in place: recorded session usage, available account quota and shared API-key spend, each labeled for its actual scope.
 Shared key spend is never presented as session cost, and available session usage stays readable when quota is unavailable.
 A disclosure inside the panel, never a floating overlay, its own box scrolls so the message box stays in reach.
@@ -1406,7 +1408,7 @@ A session whose usage cannot be read says so once at the line's end, in one plai
 A session with no recorded usage and a readable provider says Usage unavailable on the same notice.
 The page of 50 before the first message held is read once he reads within 600 px of the top, until none is older.
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
-Ctrl+Plus, Ctrl+Minus and Ctrl+0, or the right button held with the wheel, size the message text a pixel at a time between 12 and 28 px from 16 px.
+Ctrl+Plus, Ctrl+Minus and Ctrl+0, the right button held with the wheel, or the wheel with Ctrl and Shift held, size the message text a pixel at a time between 12 and 28 px from 16 px.
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
 Shift+Escape leaves the messages for the panel's top row, as it leaves a terminal, and Escape does what the corner button does.
 The messages lie where the terminal deck lies, under the panel's compact header, beside its task list, in the same flex and under the same rule (`frontend/src/panel-stage.tsx`), so their box is the terminal's.
@@ -1421,7 +1423,7 @@ What the board could not parse goes to the CFO.
 Under the conversation is the session's message box, in place of its terminal's input, which shows only stepped in.
 The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
-While the harness works the footer says so with Stop, which presses Escape in its terminal.
+While the harness works and the box is empty, the send button is Stop, which presses Escape in its terminal, as Esc in the box does; with the box's own pane, Speech history or style menu open, Escape closes that instead and reaches neither the harness nor its screen.
 Busy, held or reconnecting sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
 Routine queueing has one neutral note beside the input, naming a review hold or a detached worktree waiting for a branch and never a message queued before it is accepted, and a failed Send takes priority, keeps the draft and retries with the same submission identity.
 The same composer stays mounted across Classic and Modern surfaces, keeping pending sends, attachment uploads and recordings through release or reconnect.
@@ -1434,19 +1436,22 @@ There is no amber card and nothing steps the terminal in by itself (the Overlord
 The list is not drawn while that terminal is stepped in, which shows the screen itself, or while typing is held, when Send queues what he wrote as it does under any hold.
 A goblin paused, resuming or starting has no terminal that takes typing, and its box sends a `message` action as the box under a terminal does, listing his latest messages to it and those its resume will carry, each with a delete.
 While no CFO runs the CFO has no messages, and so no box, as its terminal has none.
-Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history opens the board's recent dictations, each with Copy and Paste into the message.
+Its microphone, held or tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it, and Speech history, in the box's style menu, opens the board's recent dictations, each with Copy and Paste into the message.
 The active composer owns the microphone and queue note, while a phone terminal keeps Copy terminal text independently available.
 An already-running terminal recording keeps one Stop control, on the active composer when a box is shown and on the terminal's own bubble when none is, and a live terminal takes the words its own microphone heard, which Speech history still lists, and holds for pasting back, only where held input refused them.
-The latest reference uses one slim input bar with Add files on the left and the microphone on the right.
-Plain style, model, effort, speech-history, terminal and send controls sit underneath without pills, beside the current session's context ring.
-While the session's terminal names a permission mode, as Claude Code's composer footer does, the mode shows as a chip beside Style, and a press of it, like Shift+Tab in the box, sends the terminal Shift+Tab, which cycles the mode, and leaves the keyboard in the box; it is disabled while typing is held.
+The box is one bordered field with what he writes on top and its controls in one row along its bottom edge, inside the border, as the Claude desktop app draws its box (the CFO's review of step 3, 2026-10-27): Add files and the style menu at its start, then the permission mode, the model by its short name (Opus 5.5), the effort, the microphone and Send, which is Stop while the session works.
+The style menu holds Modern and Classic, Speech history and Open in Windows Terminal; every control in the row has a hover label, and a box narrower than 420 px shows the mode by its icon alone so the whole row fits a 360 px phone without cutting the model's name.
+While the session's terminal names a permission mode, as Claude Code's composer footer does, the mode shows in the box's row, and a press of it, like Shift+Tab in the box, sends the terminal Shift+Tab, which cycles the mode, and leaves the keyboard in the box; it is disabled while typing is held.
 A `/` at the start of the box lists the session's commands from `/api/commands` as he types the command word, the one named exactly that first, then by name and then by description, and an `@` lists the session's files from `/api/files`, read 120 ms after he stops typing, with the last list for that same `@` kept meanwhile; the arrows move through the one list, Enter or Tab takes the picked entry, and Escape closes it until the draft changes.
+Wherever Modern Chat names a session's harness, the panel's status line, the session line above the box and the model's button, it shows that harness's own mark, Claude Code's, Codex's or Pi's, the one the board draws on its cards (`frontend/src/harness-mark.tsx`), and a harness with no mark of its own its name; the model's button names the session's own model.
 Style opens the Modern and Classic choice in place, and Send lights up when there is something to send.
 The ring uses the recorded context tokens and window, and opens available session statistics by hover, keyboard focus or touch; an unknown window is named as unavailable rather than drawn as zero use.
-The model label prefers the session record over startup settings, and the tooltip identifies task effort as configured effort because the record does not publish a live effort value.
-Model opens the actual harness's `/model` picker; Effort opens Codex's `/model`, Claude Code's `/effort` or Pi's `/thinking`, where the harness supplies its supported choices.
-These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command.
-The native picker opens above the box as a list when the relay reads it; the board does not invent a model catalog or claim that a selected setting changed before the harness records it.
+The model label prefers the session record over startup settings, and the tooltip identifies the task's effort as configured effort.
+The effort the session last set is read back from its own record (`internal/fleettree`): Claude Code's `/effort` result, Codex's turn context and pi's thinking level change; the box's Effort control shows it, so a change made in Classic through the harness's own menu shows in Modern.
+Model and Effort, and `/model`, Claude Code's `/effort` and pi's `/thinking` typed in the box, open the board's own pane (`frontend/src/engine-pane.tsx`), which lists what the session's harness offers from `GET /api/engines` while it is open, the running choice checked; a value typed after the command sets it at once.
+A pick goes in as the harness's own command with the value after it for Claude Code and pi; Codex's `/model` takes no value, so the box sends `/model` and answers Codex's model list and then its reasoning list by their digits, or with Enter for its focused level when no effort was chosen, the harness's list hidden and the terminal never shown, and gives up after 8 s with Escape and says so.
+These actions preserve the draft and use the existing native input guards: a missing, reconnecting, closed, unread or held terminal, or a native prompt already open, takes no command, and a `/model`, `/effort` or `/thinking` typed meanwhile stays in the box, never queued, with a note that the model and effort controls need a connected, unheld session.
+The board does not invent a model catalog; a pick from the pane shows on its control until the session's record says something new, a Codex pick its picker did not take leaves its control, and a value typed after the command shows only once the session's record says the session runs it.
 The terminal icon opens the current session in its own Windows Terminal window through the same action as the former panel-header opener, which is absent while this composer is visible.
 A Classic view that shows only the native terminal keeps its header opener.
 An authenticated phone can request that window on the board's Windows PC; it does not open a terminal on the phone.
@@ -1459,7 +1464,7 @@ It becomes an ordinary message in its place once the session takes it, and the q
 A terminal's Alt+V starts no browser paste event, so the board reads the clipboard itself and puts a picture on this PC's clipboard before pressing the harness's own image key.
 His draft is kept per session in this tab (`cfo-draft:` and the task's id, or `cfo`, in its session storage), so a switch of view or session, a reconnect and a reload, as an update makes, all find it.
 Shift+Escape leaves the box for the panel's top row, as it leaves the messages.
-Escape closes Recent messages while it is open, from its button or from inside it, and puts the keyboard back on its button.
+Escape closes Speech history while it is open, from the box or from inside it, and puts the keyboard back on the Style button, whose menu opens it.
 
 #### The terminal stepping in
 

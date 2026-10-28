@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
@@ -295,7 +295,7 @@ for (const style of ["classic", "modern"]) {
         await testInfo.attach("usage-unavailable-surface", { path: surface, contentType: "image/png" });
 
         // Act: keyboard and touch both open useful details in the existing control.
-        const usage = box(page).getByRole("button", { name: "Context usage unavailable", exact: true });
+        const usage = page.getByRole("button", { name: "Context usage unavailable", exact: true });
         if (width === 390) await usage.tap();
         else await usage.focus();
         const details = page.getByRole("tooltip", { name: "Session statistics", exact: true });
@@ -327,7 +327,7 @@ for (const style of ["classic", "modern"]) {
         // Assert: no held input was typed, and speech remains recoverable in history.
         await expect(box(page).getByRole("button", { name: "Dictate", exact: true })).toBeVisible();
         expect(typed(relay)).toBe("");
-        await box(page).getByRole("button", { name: "Speech history", exact: true }).tap();
+        await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
         await page.getByRole("button", { name: "Paste into the message: rebase onto main", exact: true }).tap();
         await expect(field(page)).toHaveValue("rebase onto main");
       });
@@ -412,9 +412,9 @@ test("a live Classic terminal keeps its own dictation after the hold that showed
   await expect(box(page).locator(".composer-note")).toHaveText("");
 
   // Assert: Speech history holds the one dictation, and it types nothing more.
-  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Recent messages", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
-  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
+  await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Speech history", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
+  await page.getByRole("button", { name: "Close speech history", exact: true }).click();
   expect(typed(relay)).toBe(before + pasted("rebase onto main"));
   await expect(field(page)).toHaveValue("");
 });
@@ -427,10 +427,10 @@ test("a recording started in the terminal never pulls its box into the stepped-i
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
   const relay = await open(page);
   await openGoblin(page);
-  await field(page).fill("/model");
+  await field(page).fill("/resume");
   await field(page).press("Enter");
   await expect.poll(() => relay.submissions.length).toBe(1);
-  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Select model"], choices: [{ text: "Default", number: 1, focused: true }] } });
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
   await box(page).getByRole("button", { name: "Show the terminal", exact: true }).click();
   await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toBeVisible();
   await expect(box(page)).toBeHidden();

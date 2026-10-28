@@ -13,7 +13,10 @@ const RIGHT_BUTTON = 2;
 // it, the steps Ctrl+Plus and Ctrl+Minus take, and the wheel then neither
 // scrolls the terminal nor reaches its program. A press that zoomed opens no
 // menu when it ends, so the menu's Paste is never offered, and a right click
-// that never met the wheel is left exactly as it was. The press listens on the
+// that never met the wheel is left exactly as it was. The wheel turned with
+// Ctrl and Shift held zooms the same way (the Overlord, 2026-10-27: "Maybe if
+// you control shift and then scroll ... you can adjust it to your field of
+// view"), and the page itself never zooms with it. The press listens on the
 // terminal's element ahead of xterm, and its release on the window, since the
 // button can come up anywhere. It returns what detaches it.
 export function attachZoomGesture(element: EventTarget, view: EventTarget, size: () => number, zoom: (size: number) => void): () => void {
@@ -27,12 +30,16 @@ export function attachZoomGesture(element: EventTarget, view: EventTarget, size:
   const release = (event: Event) => { if ((event as MouseEvent).button === RIGHT_BUTTON) isHeld = false; };
   const leave = () => { isHeld = false; };
   const wheel = (event: Event) => {
-    if (!isHeld) return;
+    const { ctrlKey, shiftKey, altKey, metaKey, deltaX, deltaY, deltaMode } = event as WheelEvent;
+    const isChord = !!ctrlKey && !!shiftKey && !altKey && !metaKey;
+    if (!isHeld && !isChord) return;
     event.preventDefault();
     event.stopPropagation();
-    hasZoomed = true;
-    const { deltaY, deltaMode } = event as WheelEvent;
-    const turn = deltaMode === PIXEL_MODE ? deltaY : Math.sign(deltaY) * STEP_PX;
+    if (isHeld) hasZoomed = true;
+    // Shift turns a wheel sideways in Chromium on Windows, so a turn made
+    // with Shift held can arrive as deltaX.
+    const delta = isChord ? deltaY || deltaX : deltaY;
+    const turn = deltaMode === PIXEL_MODE ? delta : Math.sign(delta) * STEP_PX;
     rest = Math.sign(rest) === -Math.sign(turn) ? turn : rest + turn;
     if (Math.abs(rest) < STEP_PX) return;
     const current = size();

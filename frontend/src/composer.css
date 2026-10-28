@@ -1,4 +1,6 @@
-/* One input bar with plain controls beneath it, shared by both chat views. */
+/* One bordered box, shared by both chat views: what he writes on top and its
+   controls in one row along its bottom edge, inside the border, as the
+   Claude desktop app draws its box (the CFO's review of step 3, 2026-10-27). */
 .composer { position: relative; display: grid; align-content: start; gap: 8px; padding: 10px 14px 12px; }
 .composer-slot { display: contents; }
 .deck-slot.with-messages { flex-direction: column; }
@@ -10,38 +12,50 @@
 .composer-sent .icon-button { align-self: center; width: 32px; height: 32px; min-height: 32px; margin-block: -6px; color: var(--muted); }
 .composer-sent .icon-button .icon { width: 18px; height: 18px; }
 .composer-box { position: relative; display: grid; gap: 4px; }
-.composer-input { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 5px 7px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
+.composer-input { display: grid; gap: 4px; min-width: 0; padding: 10px 6px 4px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
 .composer-input:focus-within { border-color: var(--mint); }
-.composer textarea { display: block; flex: 1; min-width: 0; width: 100%; min-height: 1.5em; max-height: 12em; padding: 0; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: 1.5; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+/* The caret is as tall as the line, so the line is the text's own height
+   (line-height normal) and the room around it is padding: the caret is the
+   height of the letters he types (the Overlord, 2026-10-27: "the cursor
+   blinking ... is the same size to fit that font"). */
+.composer textarea { display: block; box-sizing: border-box; min-width: 0; width: 100%; min-height: 1.5em; max-height: max(4.5em, min(12em, 30cqh)); padding: .15em 8px; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: normal; resize: none; field-sizing: content; overflow-wrap: anywhere; }
+/* The box grows with what he writes up to a cap that also shrinks with the
+   chat it sits in, never more than about a third of it, so Send and the
+   controls under it stay on screen however short the panel; past the cap it
+   scrolls inside itself with a slim pill tucked into its edge (the Overlord,
+   2026-10-27: "jsut small little pill embeded into the panel"), and the
+   caret's line stays in view (composer.tsx). The page's thin scrollbar is
+   set aside here so the pill's own shape applies. The conversation is one
+   such chat (harness-panel.css), and Classic's panel is the other. */
+.panel-main { container-type: size; }
+.composer textarea { scrollbar-width: auto; scrollbar-color: auto; }
+.composer textarea::-webkit-scrollbar { width: 10px; }
+.composer textarea::-webkit-scrollbar-track, .composer textarea::-webkit-scrollbar-corner { background: transparent; }
+.composer textarea::-webkit-scrollbar-button { display: none; }
+.composer textarea::-webkit-scrollbar-thumb { min-height: 28px; border: 3px solid transparent; border-radius: 999px; background: #a3b3c252 padding-box; }
+.composer textarea::-webkit-scrollbar-thumb:hover { background-color: #a3b3c280; }
 .composer textarea::placeholder { color: var(--muted); opacity: .9; }
 .composer textarea:focus-visible { outline: none; }
 .composer :is(button, input):focus { outline: none; }
 .composer :is(button, input):focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
-.composer-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; min-width: 0; padding: 0 5px; }
-.composer-controls { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
-.composer-control, .composer-input .voice-bubble { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 5px; height: 36px; min-height: 36px; min-width: 36px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font-size: .875rem; }
+/* The row inside the box: adding files and the style menu at its start, then
+   the session's mode, model and effort, the microphone and Send at its end.
+   Every control keeps its full words; a narrow box drops the mode's name for
+   its icon, never the model's. */
+.composer-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-width: 0; container-type: inline-size; }
+.composer-row-start { position: relative; display: flex; align-items: center; gap: 2px; flex: none; }
+.composer-row-end { display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: none; margin-left: auto; }
+.composer-control, .composer-input .voice-bubble { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 5px; height: 36px; min-height: 36px; min-width: 36px; padding: 0 6px; white-space: nowrap; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font-size: .875rem; }
 .composer-control::before, .composer-input .voice-bubble::before { content: none; }
 .composer-control:hover, .composer-input .voice-bubble:hover { color: var(--bone); background: transparent; }
 .composer-control .icon, .composer-input .voice-bubble .icon { width: 18px; height: 18px; }
-.composer-controls:last-child { position: static; justify-content: flex-end; max-width: 100%; margin-left: auto; }
-.engine-control { display: block; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-controls .engine-control:first-child { flex: 0 1 auto; min-width: 0; }
-.context-usage { display: flex; }
-.context-ring svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; transform: rotate(-90deg); }
-.context-track { opacity: .25; }
-.context-used { stroke: var(--mint); }
-.context-tooltip { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 4; width: min(22rem, calc(100vw - 48px)); max-height: min(50dvh, 24rem); overflow: auto; padding: 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); color: var(--bone); font-size: .875rem; }
-.context-tooltip strong { font-weight: 500; }
-.context-tooltip p { margin: 8px 0 0; color: var(--muted); }
-.usage-stats { display: grid; gap: 4px; margin: 8px 0 0; }
-.usage-stats > div { display: flex; gap: 12px; }
-.usage-stats dt { flex: 0 0 8em; color: var(--muted); }
-.usage-stats dd { margin: 0; overflow-wrap: anywhere; }
 .composer-input .voice-bubble.recording { color: var(--amber); }
 .composer-file-input { display: none; }
-.composer-style-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 9rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
-.composer-style-popover > button { justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
-.composer-style-popover > button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
+.composer-style-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 13rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
+.composer-style-choices { display: grid; gap: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--glass-border); }
+.composer-style-popover button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
+.composer-style-popover button .icon { width: 16px; height: 16px; color: var(--muted); }
+.composer-style-popover button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
 .composer-note { min-width: 0; margin: 0; padding: 0 10px; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
 .composer-note:empty { display: none; }
 .composer-refusal { justify-self: start; }
@@ -51,19 +65,38 @@
 .composer-send:disabled { cursor: default; }
 .composer-send .icon { width: 18px; height: 18px; }
 .queued-control > span { font-variant-numeric: tabular-nums; }
-.composer-box > .voice-recent { right: 0; bottom: calc(100% + 8px); }
+/* A touch screen's controls are taller to tap, and as wide as the row lets
+   the whole row fit inside a 360 px phone's box. */
 @media (pointer: coarse) {
-  .composer-control, .composer-input .voice-bubble, .composer-send { min-width: 44px; min-height: 44px; height: 44px; }
+  .composer-control, .composer-input .voice-bubble, .composer-send { min-height: 40px; height: 40px; }
   .composer-sent .icon-button { width: 44px; min-height: 44px; height: 44px; margin-block: 0; }
 }
 @media (max-width: 480px) {
   .fills-phone .composer textarea { max-height: 4.5em; }
   .fills-phone .composer-sent { max-height: 5rem; }
-  .composer-controls:last-child { width: 100%; gap: 4px; }
-  .composer-controls .engine-control:first-child { flex: 1; min-width: 0; max-width: none; text-align: left; }
+}
+/* A narrow chat, a phone's or a narrow side panel's, gives the box the room
+   its edge would take, so the whole row fits inside its border. */
+@container (max-width: 480px) {
+  .composer-dock { padding-inline: 8px; }
 }
 
 /* The permission mode the session's terminal shows, which a press or
    Shift+Tab cycles as in the terminal. */
-.composer-control.mode-chip { gap: 6px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--mint); font-size: .8125rem; white-space: nowrap; }
+.composer-control.mode-chip { gap: 6px; height: 28px; min-height: 28px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--mint); font-size: .8125rem; }
 .composer-control.mode-chip .icon { width: 14px; height: 14px; }
+@container (max-width: 420px) {
+  .composer-control.mode-chip { min-width: 28px; padding: 0 6px; }
+  .mode-chip-name { display: none; }
+}
+/* A row narrower still draws its icon buttons a little tighter, so a long
+   model name stays whole. */
+@container (max-width: 340px) {
+  .composer-row .composer-control, .composer-row .voice-bubble, .composer-row .composer-send { min-width: 32px; padding-inline: 4px; }
+  .composer-row .composer-send { width: 32px; }
+}
+
+/* The model's button leads with the mark of the session's harness, drawn
+   small and without its tile (harness-mark.tsx). */
+.engine-control .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.engine-control .mark svg, .engine-control .mark .icon { width: 15px; height: 15px; }
