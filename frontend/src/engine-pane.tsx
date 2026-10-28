@@ -21,10 +21,12 @@ import "./engine-pane.css";
 // it (onClose); Escape is the box's. The pane takes the keyboard as it opens,
 // on the model it runs, or with setting effort on that model's efforts; the
 // arrows move through the choices, and right and left into a model's efforts
-// and back. A model whose flyout is out takes a press as its pick, so a tap,
-// which cannot point, first brings out its efforts; only a mouse on a screen
-// that can point brings one out by passing over a model, never the pointer a
-// phone's browser moves under a tap as the page changes.
+// and back. A mouse's press on a model, or one on a model whose flyout is
+// out, is its pick, so a tap, which cannot point, first brings out its
+// efforts; only a mouse on a screen that can point brings one out by passing
+// over a model, never the pointer a phone's browser moves under a tap as the
+// page changes. The press reads the pointer, not the flyout, as a mouse's
+// pass and press come too close together for the flyout to be drawn.
 export function EnginePane({ setting, harness, model, effort, mode, control, onPick, onMode, onClose }: {
   setting: EngineSetting; harness: string; model: string; effort: string; mode: string;
   control: RefObject<HTMLButtonElement | null>;
@@ -109,7 +111,7 @@ export function EnginePane({ setting, harness, model, effort, mode, control, onP
           return <button key={each.id} data-model={each.id} type="button" role="menuitemradio" aria-checked={each === running}
             aria-haspopup={hasEfforts ? "menu" : undefined} aria-expanded={hasEfforts ? flyout === each.id : undefined} className="engine-choice"
             onPointerEnter={(event) => { if (event.pointerType === "mouse" && matchMedia("(hover: hover)").matches) setFlyout(hasEfforts ? each.id : null); }}
-            onPointerDown={() => { pressed.current = flyout === each.id ? each.id : ""; }}
+            onPointerDown={(event) => { pressed.current = event.pointerType === "mouse" || flyout === each.id ? each.id : ""; }}
             onFocus={() => setFlyout(hasEfforts ? each.id : null)}
             onClick={(event) => {
               if (hasEfforts && (event.detail ? pressed.current !== each.id : flyout !== each.id)) setFlyout(each.id);
