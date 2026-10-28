@@ -26,12 +26,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // The test binary plays every part of a native spawn: with nativeSpawnHost
-// first it is the terminal's host, and copied onto PATH as codex.exe,
+// first it is the terminal's host, and linked onto PATH as codex.exe,
 // claude.exe or pi.exe it is the harness, which cmd /c or the spawn finds
 // there. With sleepChild first it is a process that only waits, a minute at
 // most.
@@ -775,8 +776,19 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
+	// Go's own removal refuses a name of the running test binary, which
+	// fsx's takes while the test binary's own name keeps the file.
+	standin.RemoveAtCleanup(t, bin)
 	fake := filepath.Join(bin, string(kind)+".exe")
-	copyFile(t, program, fake)
+	// A link, never a copy: the host and its console's input waker start
+	// from this test binary within the launch's 15 s bound, and a start just
+	// after a copy of it was written waits while Microsoft Defender judges
+	// that new program. On 2026-10-28 such a start took 2.3 to 3.2 s in 12 of
+	// 16 tries, and none of 16 took 0.3 s just after a link, which writes no
+	// new program (#1472).
+	if err := os.Link(program, fake); err != nil {
+		t.Fatalf("link the test binary as the fake %s: %v", kind, err)
+	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	// The premise: the harness this spawn starts is the fake, never the real
 	// one on this machine.
@@ -840,6 +852,40 @@ func newNativeFixture(t *testing.T, kind harness.Kind, mode string) *nativeFixtu
 		}
 	})
 	return native
+}
+
+// The fake harness a native fixture puts on PATH is the test binary itself,
+// never a new program: a copy written just before the spawn held the start
+// of its host and input waker, which run from the test binary, while
+// Microsoft Defender judged the copy, and under load past the launch's 15 s
+// bound (#1472).
+func TestANativeFixturesFakeHarnessIsTheTestBinaryItself(t *testing.T) {
+	for _, kind := range []harness.Kind{harness.Codex, harness.Claude, harness.Pi} {
+		t.Run(string(kind), func(t *testing.T) {
+			// Arrange
+			newNativeFixture(t, kind, "ready")
+			program, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			fake, err := exec.LookPath(string(kind))
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			fakeInfo, fakeErr := os.Stat(fake)
+			programInfo, programErr := os.Stat(program)
+			if fakeErr != nil || programErr != nil {
+				t.Fatalf("stat the fake %s (%v) and the test binary %s (%v)", fake, fakeErr, program, programErr)
+			}
+			if !os.SameFile(fakeInfo, programInfo) {
+				t.Errorf("the fake %s is a file of its own, want the test binary %s itself", fake, program)
+			}
+		})
+	}
 }
 
 // newQuickFixture readies a native spawn of task-7 whose fake codex shows its

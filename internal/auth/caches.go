@@ -30,9 +30,10 @@ var cacheVars = []struct {
 	dir  string
 }{
 	{name: "UV_CACHE_DIR", dir: "uv"},
-	// pnpm reads its store location from the npm config environment rather
-	// than from a variable of its own.
-	{name: "npm_config_store_dir", dir: "pnpm"},
+	// pnpm 11 reads its settings only from pnpm_config_ variables. pnpm 10
+	// read them from npm_config_ ones, but npm reads those too and refuses a
+	// setting it does not know, so a pnpm 10 store keeps its own default.
+	{name: "pnpm_config_store_dir", dir: "pnpm"},
 	{name: "PLAYWRIGHT_BROWSERS_PATH", dir: "playwright"},
 	{name: "GOMODCACHE", dir: "go-mod"},
 	// Go's build cache and npm's cache are the two largest a goblin fills;

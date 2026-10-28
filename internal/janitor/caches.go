@@ -28,7 +28,7 @@ type cacheTool struct {
 // no prune of their own, so they are measured and never deleted.
 var cacheTools = []cacheTool{
 	{dir: "uv", variable: "UV_CACHE_DIR", prune: []string{"uv", "cache", "prune"}},
-	{dir: "pnpm", variable: "npm_config_store_dir", prune: []string{"pnpm", "store", "prune"}},
+	{dir: "pnpm", variable: "pnpm_config_store_dir", prune: []string{"pnpm", "store", "prune"}},
 	{dir: "npm", variable: "npm_config_cache", prune: []string{"npm", "cache", "verify"}},
 	{dir: "go-build", variable: "GOCACHE", prune: []string{"go", "clean", "-cache"}},
 	{dir: "go-mod", variable: "GOMODCACHE", prune: []string{"go", "clean", "-modcache"}},

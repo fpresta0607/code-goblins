@@ -439,7 +439,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     {(box || reading.banner) && <div className="composer-dock">
       <SessionFooter hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
-      {box?.(held.usage?.model || model, history, held.usage?.effort ?? "")}
+      {box?.(held.usage?.model || model, history, held.usage?.effort || effort)}
     </div>}
   </section>;
 }

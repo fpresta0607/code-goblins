@@ -163,44 +163,64 @@ func TestAtomicWriteFileGivesUpOnAReaderThatNeverLetsGo(t *testing.T) {
 // two tries doubled to 320 ms and then to half a second, so the write slept
 // through the moment the reader let go. No pause is longer than longestPause,
 // so a hold costs a write its own length and one pause at most.
+//
+// The hold is the time from the write's start to the moment the reader let
+// go, read from the clock: a busy machine lets go late, and a write that
+// waited 770 ms on a hold asked to last 700 ms had waited out a hold that
+// lasted longer (#1486).
 func TestAHeldFileCostsAWriteItsHoldAndOnePauseAtMost(t *testing.T) {
-	// Arrange
-	path := filepath.Join(t.TempDir(), ".wake-queue")
-	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name   string
+		lateBy time.Duration
+	}{
+		{"a hold that ends on time", 0},
+		{"a hold a busy machine ends late", 100 * time.Millisecond},
 	}
-	reader, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const hold = 700 * time.Millisecond
-	released := make(chan struct{})
-	go func() {
-		time.Sleep(hold)
-		reader.Close()
-		close(released)
-	}()
-	var waited, longest time.Duration
-	sleep = func(wait time.Duration) {
-		waited += wait
-		longest = max(longest, wait)
-		time.Sleep(wait)
-	}
-	t.Cleanup(func() { sleep = time.Sleep })
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			path := filepath.Join(t.TempDir(), ".wake-queue")
+			if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reader, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const hold = 700 * time.Millisecond
+			var releasedAt time.Time
+			released := make(chan struct{})
+			go func() {
+				time.Sleep(hold + tc.lateBy)
+				reader.Close()
+				releasedAt = time.Now()
+				close(released)
+			}()
+			var waited, longest time.Duration
+			sleep = func(wait time.Duration) {
+				waited += wait
+				longest = max(longest, wait)
+				time.Sleep(wait)
+			}
+			t.Cleanup(func() { sleep = time.Sleep })
 
-	// Act
-	err = AtomicWriteFile(path, []byte("new"))
-	<-released
+			// Act
+			started := time.Now()
+			err = AtomicWriteFile(path, []byte("new"))
+			<-released
+			held := releasedAt.Sub(started)
 
-	// Assert
-	if err != nil {
-		t.Fatalf("AtomicWriteFile while a reader held the file for %s: %v", hold, err)
-	}
-	if longest > 50*time.Millisecond {
-		t.Errorf("the longest pause between two tries was %s, want 50 ms at most", longest)
-	}
-	if waited > hold+50*time.Millisecond {
-		t.Errorf("the write waited %s on a hold of %s, want the hold and one pause of 50 ms at most", waited, hold)
+			// Assert
+			if err != nil {
+				t.Fatalf("AtomicWriteFile while a reader held the file for %s: %v", held, err)
+			}
+			if longest > 50*time.Millisecond {
+				t.Errorf("the longest pause between two tries was %s, want 50 ms at most", longest)
+			}
+			if waited > held+50*time.Millisecond {
+				t.Errorf("the write waited %s on a hold of %s, want the hold and one pause of 50 ms at most", waited, held)
+			}
+		})
 	}
 }
 

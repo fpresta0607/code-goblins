@@ -132,6 +132,46 @@ func TestAnExplicitHarnessStartsWithoutTheSavedEnginesFlags(t *testing.T) {
 	t.Fatal("the CFO did not start")
 }
 
+// A saved selection's problem from an earlier start no longer holds once the
+// CFO starts as the harness it names, with its model and effort, which the
+// board then shows as what the CFO runs; a start as another harness keeps a
+// problem on it.
+func TestACFOStartAsTheSavedEnginesHarnessClearsItsProblem(t *testing.T) {
+	for _, test := range []struct {
+		started           string
+		shouldKeepProblem bool
+	}{
+		{started: "pi"},
+		{started: "codex", shouldKeepProblem: true},
+	} {
+		t.Run(test.started, func(t *testing.T) {
+			// Arrange
+			h := home.Home{Root: t.TempDir()}
+			h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
+			switchStandIns(t, h)
+			if err := os.MkdirAll(h.State, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			selection := `{"harness":"pi","model":"selected-model","effort":"xhigh","problem":"The CFO started as codex, not as the pi its saved engine names; the selection is used when the CFO runs as pi again"}`
+			if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(selection), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			if err := startNativeCFO(h, h.Root, test.started, nil, ""); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+
+			// Assert
+			choice, err := supervisor.ReadCFOEngine(h.State)
+			if err != nil || choice.Harness != "pi" || choice.Model != "selected-model" || choice.Effort != "xhigh" || choice.Pending || (choice.Problem != "") != test.shouldKeepProblem {
+				t.Fatalf("saved selection = %+v, %v; want its problem kept %v", choice, err, test.shouldKeepProblem)
+			}
+		})
+	}
+}
+
 func TestCFOSwitchRoundTripStartsFreshAndDeliversWakes(t *testing.T) {
 	// Arrange
 	h := home.Home{Root: t.TempDir()}
@@ -435,5 +475,84 @@ func TestCFORestartWithTheSameHarnessResumesItsConversationThroughHTTP(t *testin
 				t.Fatalf("arguments = %q, want the running conversation, told why it started again", arguments)
 			}
 		})
+	}
+}
+
+// A Restart while an engine change is pending closes the old CFO before the
+// new one launches, and the board's apply can land in that gap and write that
+// the session changed. The new CFO starts with the selection all the same, so
+// the problem is cleared once it has launched. The harness's help probe runs
+// in that gap, so the stand-in for it writes what the apply would.
+func TestACFOLaunchedWithItsPendingEngineClearsAProblemWrittenWhileItStarted(t *testing.T) {
+	// Arrange
+	h := home.Home{Root: t.TempDir()}
+	h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
+	switchStandIns(t, h)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	saved := filepath.Join(h.State, "cfo-engine.json")
+	if err := os.WriteFile(saved, []byte(`{"harness":"codex","model":"selected-model","effort":"xhigh","pending":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gap := filepath.Join(h.Root, "engine-in-the-gap.json")
+	if err := os.WriteFile(gap, []byte(`{"harness":"codex","model":"selected-model","effort":"xhigh","problem":"The CFO session changed; the selection is saved for its next start"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(h.Root, "codex.cmd")
+	script, err := os.ReadFile(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := "@echo off\r\nif \"%~1\"==\"--help\" copy /y \"" + gap + "\" \"" + saved + "\" >nul\r\n"
+	if err := os.WriteFile(wrapper, []byte(strings.Replace(string(script), "@echo off\r\n", probe, 1)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := startNativeCFO(h, h.Root, "codex", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal) })
+
+	// Assert
+	record, err := os.ReadFile(filepath.Join(h.Root, "switch-arguments.txt"))
+	if err != nil || !strings.Contains(string(record), "--help") {
+		t.Fatalf("the help probe did not run in the gap: %q, %v", record, err)
+	}
+	choice, err := supervisor.ReadCFOEngine(h.State)
+	if err != nil || choice.Model != "selected-model" || choice.Effort != "xhigh" || choice.Problem != "" {
+		t.Fatalf("saved selection = %+v, %v; want it with no problem once the CFO launched with it", choice, err)
+	}
+}
+
+// A start that fails before its terminal launches started nothing with the
+// saved selection, so a problem on it stays.
+func TestAFailedCFOStartKeepsItsSavedEnginesProblem(t *testing.T) {
+	// Arrange: the selection names Claude Code, whose claude.exe is not on
+	// this PATH, so the start fails before it launches.
+	h := home.Home{Root: t.TempDir()}
+	h.State, h.Data = filepath.Join(h.Root, "state"), filepath.Join(h.Root, "data")
+	switchStandIns(t, h)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	problem := "The CFO started as codex, not as the claude its saved engine names; the selection is used when the CFO runs as claude again"
+	selection := `{"harness":"claude","model":"claude-opus-5-5","effort":"high","problem":"` + problem + `"}`
+	if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(selection), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	err := startNativeCFO(h, h.Root, "claude", nil, "")
+
+	// Assert
+	if err == nil {
+		closeNativeTerminal(t, h.State, supervisor.NativeCFOTerminal)
+		t.Fatal("the CFO started with no claude.exe on PATH")
+	}
+	choice, readErr := supervisor.ReadCFOEngine(h.State)
+	if readErr != nil || choice.Problem != problem {
+		t.Fatalf("saved selection = %+v, %v; want its problem kept after a failed start", choice, readErr)
 	}
 }

@@ -42,7 +42,7 @@ for (const width of [1440, 390]) {
       const name = who === "CFO" ? "CFO" : NAME;
       const composer = box(page, name);
       await field(page, name).fill("preserve this draft");
-      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText(USAGE.model);
+      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("Recorded Model");
       await expect(composer.getByRole("button", { name: "Change effort", exact: true }), "the effort control shows the session's effort, or its icon where none is known").toHaveText(who === "CFO" ? "" : "xhigh");
 
       const ring = page.getByRole("button", { name: "Context: 24% used", exact: true });
@@ -72,7 +72,7 @@ for (const width of [1440, 390]) {
       expect(typed(relay)).toBe("");
       await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
       await expect(page.getByRole("button", { name: "Context: 72% used", exact: true })).toBeVisible();
-      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("changed-model");
+      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("Changed Model");
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal: "new-cfo" }, { harness: "codex", generation: "replacement" }));
       await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
       await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CFO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
@@ -80,7 +80,7 @@ for (const width of [1440, 390]) {
       await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
       await expect.poll(() => posted[1]).toEqual(who === "CFO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
-      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText(USAGE.model);
+      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("Recorded Model");
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
       const controls = await composer.locator(".composer-row button").evaluateAll((buttons) => buttons.map((button) => {
         const bounds = button.getBoundingClientRect();
@@ -118,7 +118,7 @@ const CATALOG = { harnesses: [
 const SESSIONS = {
   claude: { model: "claude-opus-5-5", effort: "xhigh", picks: { model: ["claude-sonnet-5-5", /^Sonnet 5\.5/, "Sonnet 5.5"], effort: ["max", "max", "max"] } },
   codex: { model: "gpt-6-astra", effort: "medium", picks: { model: ["gpt-6.1-sol", /^GPT-6\.1 Sol/, "GPT-6.1 Sol"], effort: ["high", "high", "high"] } },
-  pi: { model: "openrouter/z-ai/glm-5.3-flash", effort: "medium", picks: { model: ["openrouter/deepseek/deepseek-v4.1-flash", /^DeepSeek V4\.1 Flash/, "deepseek-v4.1-flash"], effort: ["high", "high", "high"] } },
+  pi: { model: "openrouter/z-ai/glm-5.3-flash", effort: "medium", picks: { model: ["openrouter/deepseek/deepseek-v4.1-flash", /^DeepSeek V4\.1 Flash/, "Deepseek V4.1 Flash"], effort: ["high", "high", "high"] } },
 } as const;
 const CODEX_MODELS = { rows: ["Select Model and Effort"], choices: [{ text: "gpt-6-astra (current)", number: 1, focused: true }, { text: "gpt-6.1-sol", number: 2 }], hints: ["Press enter to confirm or esc to go back"] };
 const CODEX_EFFORTS = { rows: ["Select Reasoning Level"], choices: [{ text: "Low", number: 1 }, { text: "Medium (default)", number: 2, focused: true }, { text: "High", number: 3 }, { text: "Extra high", number: 4 }], hints: ["Press enter to confirm or esc to go back"] };
@@ -271,7 +271,7 @@ test("each effort level wears its own colour, dull at the least, a gradient at m
   const looks = await pane.locator(".effort-level").evaluateAll((labels) => labels.map((label) => ({ text: label.textContent, color: getComputedStyle(label).color, image: getComputedStyle(label).backgroundImage })));
 
   // Assert: from the least to the most, every level its own colour, and max
-  // the brand gradient through its letters; the row shows the same colour.
+  // a rainbow through its letters; the row shows the same colour.
   expect(looks.map((look) => look.text)).toEqual(["low", "medium", "high", "xhigh", "max"]);
   expect(new Set(looks.slice(0, 4).map((look) => look.color)).size).toBe(4);
   expect(looks[4].image).toContain("linear-gradient");
@@ -314,7 +314,7 @@ test("a second press on its control closes the pane, and a press outside closes 
   // Act: a press on the conversation.
   await control.click();
   await expect(pane.getByRole("menuitemradio", { checked: true })).toBeFocused();
-  await page.locator(".message-reply .message-words").click();
+  await page.getByRole("log").click({ position: { x: 8, y: 8 } });
 
   // Assert
   await expect(pane).toHaveCount(0);

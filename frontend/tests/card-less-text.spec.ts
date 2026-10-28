@@ -42,7 +42,7 @@ test("a goblin's card and canvas node show no model or route line, and its harne
   // Assert
   await expect(working).not.toContainText("claude-opus-5-5");
   await expect(working).not.toContainText("explicit choice");
-  await expect(page.getByRole("tooltip")).toHaveText("Claude Code · claude-opus-5-5 · xhigh");
+  await expect(page.getByRole("tooltip")).toHaveText("Claude Code · Opus 5.5 · xhigh");
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   const node = page.locator(".flow-node").filter({ has: page.locator("strong").getByText("working-one", { exact: true }) });
   await expect(node).toBeVisible();
