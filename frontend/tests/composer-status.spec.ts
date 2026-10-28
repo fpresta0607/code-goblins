@@ -1,9 +1,9 @@
 import { expect, test } from "./site";
-import { box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
-for (const style of ["classic", "modern"]) {
+for (const style of ["modern"]) {
   for (const width of [1440, 390]) {
     test.describe(`${style} at ${width}px`, () => {
       test.use({ viewport: { width, height: 900 }, hasTouch: width === 390 });
@@ -79,7 +79,6 @@ for (const style of ["classic", "modern"]) {
         await expect(field(page)).toBeInViewport();
         await field(page).fill("another draft");
         relay.say({ type: "held", reason: "" });
-        if (style === "classic") await page.getByRole("button", { name: "Back to messages", exact: true }).click();
         await expect(field(page)).toHaveValue("another draft");
         await expect(page.locator(".queued-message:visible")).toHaveCount(1);
         expect(typed(relay)).toBe(before);
@@ -157,7 +156,6 @@ for (const style of ["classic", "modern"]) {
         await page.keyboard.type("still in the draft");
         await expect(field(page)).toHaveValue("still in the draft");
         expect(typed(relay)).toBe(before);
-        if (style === "classic") await page.getByRole("button", { name: "Back to messages", exact: true }).click();
         await field(page).fill("Keep this when the terminal ends");
         relay.end();
         await expect(page.locator(".terminal-foot.box")).toHaveCount(1);
@@ -198,7 +196,6 @@ for (const style of ["classic", "modern"]) {
           await expect.poll(() => isPending).toBe(true);
           relay.say({ type: "held", reason: "" });
           await expect(field(page)).toBeVisible();
-          if (style === "classic" && await page.getByRole("button", { name: "Back to messages", exact: true }).isVisible()) await page.getByRole("button", { name: "Back to messages", exact: true }).click();
           await complete();
 
           // Assert: the same input owns the response after changing surfaces.
@@ -259,7 +256,7 @@ for (const style of ["classic", "modern"]) {
         await expect(recording).toBeVisible();
         relay.say({ type: "held", reason: "" });
         await expect(recording).toBeVisible();
-        if (style === "modern" && width === 390) {
+        if (width === 390) {
           await box(page).getByRole("button", { name: "Style: modern", exact: true }).tap();
           await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
           await expect(recording).toBeVisible();
@@ -272,20 +269,12 @@ for (const style of ["classic", "modern"]) {
         // Assert: recording finished into the same draft without sending.
         await expect(field(page)).toHaveValue("please rebase onto main");
         expect(typed(relay)).toBe("");
-        if (style === "classic" && width === 390) {
-          await page.getByRole("button", { name: "Copy terminal text", exact: true }).tap();
-          const text = page.getByRole("dialog", { name: "Terminal text", exact: true });
-          await expect(text).toContainText("> ready");
-          await text.getByRole("button", { name: "Done", exact: true }).tap();
-          await expect(field(page)).toHaveValue("please rebase onto main");
-        }
       });
       test(`${style} shows usage unavailability once with accessible details at ${width}px`, async ({ page }, testInfo) => {
         // Arrange
         await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
         const relay = await open(page);
         await card(page, NAME).click();
-        if (style === "classic") await page.getByRole("button", { name: "Back to messages", exact: true }).click();
         await field(page).fill("Keep this while inspecting usage");
         const footer = page.locator(".session-footer:visible");
 
@@ -309,117 +298,9 @@ for (const style of ["classic", "modern"]) {
         await expect(field(page)).toHaveValue("Keep this while inspecting usage");
         expect(typed(relay)).toBe("");
       });
-      if (style === "classic" && width === 390) test("a terminal recording stays stoppable after opening the composer and messages", async ({ page }) => {
-        // Arrange: record in the ready Classic terminal before it has a composer.
-        await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
-        const relay = await open(page);
-        await card(page, NAME).tap();
-        await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-        await page.getByRole("button", { name: "Dictate", exact: true }).tap();
-        await expect(page.getByRole("button", { name: "Stop and send", exact: true })).toBeVisible();
-
-        // Act: custody changes and the active surface moves to messages.
-        relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(box(page).getByRole("button", { name: "Stop terminal dictation", exact: true })).toBeVisible();
-        await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
-        await page.getByRole("button", { name: "Back to messages", exact: true }).tap();
-        await page.waitForTimeout(1200);
-        await box(page).getByRole("button", { name: "Stop terminal dictation", exact: true }).tap();
-
-        // Assert: no held input was typed, and speech remains recoverable in history.
-        await expect(box(page).getByRole("button", { name: "Dictate", exact: true })).toBeVisible();
-        expect(typed(relay)).toBe("");
-        await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).tap();
-        await page.getByRole("button", { name: "Paste into the message: rebase onto main", exact: true }).tap();
-        await expect(field(page)).toHaveValue("rebase onto main");
-      });
-      if (style === "classic" && width === 390) test("a terminal microphone failure remains visible and recoverable after the composer opens", async ({ page }) => {
-        // Arrange: the terminal's microphone request remains pending until the composer appears.
-        await page.addInitScript(() => {
-          localStorage.setItem("cfo-chat-style", "classic");
-          const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-          let isFirst = true;
-          navigator.mediaDevices.getUserMedia = (constraints) => {
-            if (!isFirst) return original(constraints);
-            isFirst = false;
-            return new Promise<MediaStream>((_resolve, reject) => {
-              Object.defineProperty(window, "failFixtureMicrophone", { value: () => reject(new DOMException("No microphone", "NotFoundError")) });
-            });
-          };
-        });
-        const relay = await open(page);
-        await card(page, NAME).tap();
-        await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-        await page.getByRole("button", { name: "Dictate", exact: true }).tap();
-        await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "failFixtureMicrophone"))).toBe("function");
-        relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(field(page)).toBeVisible();
-        await field(page).fill("Keep this draft");
-
-        // Act: the terminal-owned request fails after the composer takes over.
-        await page.evaluate(() => {
-          const fail: unknown = Reflect.get(window, "failFixtureMicrophone");
-          if (typeof fail !== "function") throw new Error("The microphone request did not start");
-          fail();
-        });
-
-        // Assert: the active surface says what failed once and retains the draft.
-        await expect(box(page).locator(".composer-note")).toHaveText("No microphone was found.");
-        await expect(page.locator(".terminal-float:visible")).toHaveCount(0);
-        await expect(field(page)).toHaveValue("Keep this draft");
-        expect(typed(relay)).toBe("");
-
-        // Act and assert: a second tap-to-record attempt succeeds into the same draft.
-        await box(page).getByRole("button", { name: "Dictate", exact: true }).tap();
-        const stop = box(page).getByRole("button", { name: "Stop dictating", exact: true });
-        await expect(stop).toBeVisible();
-        await page.waitForTimeout(1200);
-        await stop.tap();
-        await expect(field(page)).toHaveValue("Keep this draft rebase onto main");
-        expect(typed(relay)).toBe("");
-      });
     });
   }
 }
-
-test("a live Classic terminal keeps its own dictation after the hold that showed the box clears", async ({ page }) => {
-  // Arrange: a hold shows the box beside Zeke's terminal, and letting go leaves
-  // the box there while the terminal takes typing again.
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
-  const relay = await open(page);
-  await card(page, NAME).click();
-  await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-  relay.say({ type: "held", reason: "pipeline owns this task" });
-  await expect(field(page)).toBeVisible();
-  relay.say({ type: "held", reason: "" });
-  await expect(box(page).locator(".composer-note")).toHaveText("");
-  const before = typed(relay);
-
-  // Act: he clicks the terminal, holds the shortcut and speaks.
-  await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
-  await page.keyboard.down("Control");
-  await page.keyboard.down("Shift");
-  await page.keyboard.down("Space");
-  await expect(box(page).getByRole("button", { name: "Stop terminal dictation", exact: true })).toBeVisible();
-  await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
-  await page.waitForTimeout(1200);
-  await page.keyboard.up("Space");
-  await page.keyboard.up("Shift");
-  await page.keyboard.up("Control");
-
-  // Assert: the words reached the terminal it heard them for, once, not a draft.
-  await expect.poll(() => typed(relay)).toBe(before + pasted("rebase onto main"));
-  await expect(field(page)).toHaveValue("");
-  await expect(box(page).locator(".composer-note")).toHaveText("");
-
-  // Assert: Speech history holds the one dictation, and it types nothing more.
-  await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Speech history", exact: true }).locator(".voice-text")).toHaveText(["rebase onto main"]);
-  await page.getByRole("button", { name: "Close speech history", exact: true }).click();
-  expect(typed(relay)).toBe(before + pasted("rebase onto main"));
-  await expect(field(page)).toHaveValue("");
-});
 
 test("a recording started in the terminal never pulls its box into the stepped-in Modern terminal", async ({ page }) => {
   // Arrange: a message opens a harness screen, whose list's Show the terminal
@@ -467,46 +348,7 @@ test("a recording started in the terminal never pulls its box into the stepped-i
   await expect(box(page)).toBeHidden();
 });
 
-test("a Classic box already shown keeps one control when the terminal starts its own recording", async ({ page }) => {
-  // Arrange: a hold shows Zeke's Classic box; letting go leaves it there while
-  // the terminal takes typing again.
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
-  const relay = await open(page);
-  await card(page, NAME).click();
-  await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-  relay.say({ type: "held", reason: "pipeline owns this task" });
-  await expect(field(page)).toBeVisible();
-  relay.say({ type: "held", reason: "" });
-  await expect(box(page).locator(".composer-note")).toHaveText("");
-  await expect(box(page).getByRole("button", { name: "Hold to dictate", exact: true })).toBeVisible();
-  const before = typed(relay);
-
-  // Act: with the box already shown, he focuses the terminal and records.
-  await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
-  await page.keyboard.down("Control");
-  await page.keyboard.down("Shift");
-  await page.keyboard.down("Space");
-
-  // Assert: one control is on screen for the recording, the terminal's own
-  // layer stays hidden beneath the shown box, and the box does not change.
-  await expect(box(page).getByRole("button", { name: "Stop terminal dictation", exact: true })).toBeVisible();
-  await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
-  await expect(page.locator(".host-terminal .voice-dock .voice-bubble:visible")).toHaveCount(0);
-  await expect(field(page)).toBeVisible();
-  await page.waitForTimeout(1200);
-  await page.keyboard.up("Space");
-  await page.keyboard.up("Shift");
-  await page.keyboard.up("Control");
-
-  // Assert: the words reached the terminal, and the box kept its one control.
-  await expect.poll(() => typed(relay)).toBe(before + pasted("rebase onto main"));
-  await expect(field(page)).toHaveValue("");
-  await expect(box(page).locator(".composer-note")).toHaveText("");
-  await expect(box(page).getByRole("button", { name: "Hold to dictate", exact: true })).toBeVisible();
-});
-
-for (const style of ["classic", "modern"]) {
+for (const style of ["modern"]) {
   for (const width of [1440, 390]) {
     test(`a detached ${style} session keeps its input and recovery usable at ${width}px`, async ({ page }, testInfo) => {
       test.slow();

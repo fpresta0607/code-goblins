@@ -1367,6 +1367,11 @@ The CFO's own panel shows the indicator at its reply's end while it works, as a 
 ### The Messages view
 
 A Claude Code, Codex or pi session's panel offers Modern messages and the Classic native terminal in the same conversation area.
+Classic is what a browser that saved no choice draws, for the CFO and every goblin, until Modern Chat is ready to be the default (the Overlord, 2026-10-28: "the classic terminal worked well ... It should be the default for now"); a saved choice of either is kept in this browser as `cfo-chat-style` (`frontend/src/chat-style.ts`).
+Classic draws the session's terminal alone, as the board drew it before Modern Chat: no message box under it, while it is held, busy or reconnecting included, no Back to messages bar over it and no Copy terminal text beside it, so a held terminal says Typing is paused and the terminal's own microphone shows.
+A box with work of its own in flight when he chooses Classic, a recording, an upload, a Send landing or a failed Send to retry, stays under the terminal until that work ends.
+The panel's top row carries Modern chat in Classic, which saves Modern and shows the conversation with the keyboard in its box.
+A choice of style, in the box's Style menu, the panel's row or the Workspace setting, redraws the open panel at once, the CFO's included: it ends a read back out of Classic and a terminal Modern stepped in, and Classic chosen in the box hands the keyboard to the terminal.
 The CFO and goblins have Modern while their harness runs in a native terminal, from the start of its generation to its end, paused included (`messagesQuery` in `frontend/src/session-messages.ts`).
 A session in Herdr and a stopped or retired goblin keep their existing terminal or ended-session view, and a baby goblin its terminal alone.
 A CFO starting before its harness registers shows its terminal, which may ask for a sign-in.
@@ -1409,7 +1414,7 @@ At its end it follows what arrives, and while he reads further up nothing moves 
 Jump to latest, at the list's foot while he reads up, returns to the end.
 Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
-While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference; only Back to messages saves Modern (#1584).
+While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference (#1584), and Classic in its box's Style menu returns the terminal.
 The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
 While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour, and its hint says how long it has worked (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
 Pointing at it, or reaching it with Tab, shows Stop on it, and a touch screen always shows it: a press sends Escape through the session's terminal link, as the box's Stop does, and shows no terminal.
@@ -1442,10 +1447,10 @@ While the harness works and the box is empty, the send button is Stop, which pre
 Busy, held or reconnecting sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
 While the harness's own screen says it is in a turn, or a screen of its own is open that is no list to choose from, such as its words for a usage limit, Send types nothing into the terminal and sends a `message` action, which the board holds as his queued entry until the harness's input is empty; it holds on what the screen says, not on the task being under way, which a goblin's is while its harness waits at an empty prompt.
 Typed into such a screen, a message stayed on the prompt line unsent and the next one joined it, so his messages reached the harness as one (the Overlord, 2026-10-28: "it's sending and appending messages together that were sent previously").
-A box with no conversation, Classic's or the deck's, holds at such a screen too, and in a turn types into the harness's own queue.
+A box with no conversation, beside a terminal or the deck's, holds at such a screen too, and in a turn types into the harness's own queue.
 Routine queueing has one neutral note beside the input, naming a review hold or a detached worktree waiting for a branch and never a message queued before it is accepted, and a failed Send takes priority, keeps the draft and retries with the same submission identity.
 The same composer stays mounted across Classic and Modern surfaces, keeping pending sends, attachment uploads and recordings through release or reconnect.
-The box a terminal's hold, busy program or reconnect shows beside it stays in Classic once the terminal takes typing again, and Modern keeps it then only for the box's own work, a file adding, a Send landing, a failed Send to retry or its own recording; a recording started in the terminal brings it in for neither, and a box that stays sends directly again.
+The box a terminal's hold, busy program or reconnect shows beside it in Modern stays once the terminal takes typing again only for the box's own work, a file adding, a Send landing, a failed Send to retry or its own recording; a recording started in the terminal does not bring it in, and a box that stays sends directly again.
 An unqueued draft stays in the box while its terminal first connects or is closed.
 While a screen of the harness's own that lists choices is open in its terminal, as the relay reads it, a question, a permission prompt or a picker, or one the relay could not read, the box draws it above itself as a list he picks from (`frontend/src/harness-panel.tsx`): what it asks or shows, each choice as a button with the harness's focus marked, one plain Cancel, which presses Escape, where the footer names Esc or cancel or where nothing is listed, and Show the terminal, with no row of key chips (the CFO's review, 2026-10-27).
 A choice with a number sends its digit alone, which Claude Code's and Codex's numbered lists take as that choice at once wherever their focus is, and one without a number, as in pi's lists, sends the arrows from the harness's focus to it and then Enter (`frontend/src/panel-keys.ts`); a press on a choice or on Cancel leaves the keyboard in the box.

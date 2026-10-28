@@ -631,80 +631,6 @@ test("a queued withdrawal names the row he picked, not just its words", async ({
   expect(posted[0]).toMatchObject({ task_id: "cg-pi", text: "same words", target: "a2" });
 });
 
-// Classic draws the harness's own terminal in the conversation's place, and
-// while custody holds the input the board's own box comes back under it, with
-// the same queue: a message is kept and reloaded there, nothing is typed into
-// the terminal, and a clear custody leaves the terminal's own input to it.
-test("a held send in Classic is queued through the board, and its box remains usable after release", async ({ page }) => {
-  // Arrange
-  const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
-  const board = await open(page);
-  await page.route("**/api/actions", async (route) => {
-    const body = route.request().postDataJSON() as { id: string; kind: string; task_id: string; text: string; target?: string };
-    posted.push(body);
-    await keepActions(page, body.kind === "message" ? [{ id: body.id, kind: "message", task_id: body.task_id, text: body.text, status: "queued", message: "", awaiting: "" }] : []);
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
-  });
-  await openGoblin(page, "Pia - Pi Pilot");
-  const who = "Pia - Pi Pilot";
-  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
-
-  // Assert: the terminal is in place, the pill is gone, and the box is there.
-  await expect(page.locator(".native-terminal")).toBeVisible();
-  await expect(page.locator(".terminal-held")).toHaveCount(0);
-  await expect(boxField(page, who)).toBeVisible();
-
-  // Act: he sends while custody holds.
-  const sentText = "queued in classic";
-  await boxField(page, who).fill(sentText);
-  await boxSend(page, who).click();
-
-  // Assert: the board kept it, and the queue shows and survives a reload.
-  await expect.poll(() => posted.map((each) => each.kind)).toEqual(["message"]);
-  expect(posted[0].task_id).toBe("cg-pi");
-  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: posted[0].id, kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
-  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
-  await page.reload();
-  await openGoblin(page, who);
-  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
-  await expect(messageBox(page, who).locator(".composer-sent").filter({ hasText: sentText })).toContainText("Queued");
-
-  // Act: the hold clears.
-  await board.sayTo("cg-pi", { type: "held", reason: "" });
-
-  // Assert: release keeps the input and its queue reachable.
-  await expect(boxField(page, who)).toBeVisible();
-  await expect(messageBox(page, who).locator(".composer-note")).toHaveText("");
-  await expect(page.locator(".native-terminal")).toBeVisible();
-});
-
-// One session has one box, wherever the panel draws it: in Classic while
-// custody holds it sits under the terminal, and his draft is still there when
-// the hold clears and the box returns under the conversation.
-test("a draft typed in Classic's held box survives the hold clearing", async ({ page }) => {
-  // Arrange: Classic, a held goblin, and a draft typed into the held box.
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
-  const board = await open(page);
-  await openGoblin(page, "Pia - Pi Pilot");
-  const who = "Pia - Pi Pilot";
-  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
-  await expect(page.locator(".classic-queue")).toHaveCount(1);
-  // One box, not two: the conversation's own box is not drawn beside this one.
-  await expect(page.locator("section.composer")).toHaveCount(1);
-  await boxField(page, who).fill("half a thought");
-
-  // Act: the hold clears, so Classic goes back to the terminal, and he takes
-  // its Back to messages to read the conversation and write to it.
-  await board.sayTo("cg-pi", { type: "held", reason: "" });
-  await expect(boxField(page, who)).toHaveValue("half a thought");
-  await page.getByRole("button", { name: "Back to messages" }).click();
-
-  // Assert: still one box, holding the very words he typed into the held one.
-  await expect(page.locator("section.composer")).toHaveCount(1);
-  await expect(boxField(page, who)).toHaveValue("half a thought");
-});
-
 // A keyboard switch in Classic reaches the terminal, since Classic draws it in
 // the conversation's place and its box is not on screen while custody is clear.
 test("a keyboard switch in Classic puts the keys in the terminal it shows", async ({ page }) => {
@@ -766,8 +692,7 @@ test("a held goblin keeps its queued message past a picker, and what he types at
 // A held session's chat opens at its latest message and stays where he reads:
 // new output never snaps it back, his input stays reachable through a resize,
 // a maximize and a phone, and the queue persists across a reload and a
-// withdrawal. Classic's conversation is the harness's own terminal, so there
-// the proof is that the box and its queue stay reachable at every size.
+// withdrawal.
 test("Modern: a held chat opens at the bottom, stays where he reads, and keeps its queue", async ({ page }) => {
   // Arrange
   const posted: { id: string; kind: string; task_id: string; text: string; target?: string }[] = [];
@@ -833,24 +758,4 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: posted[0].id });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
   await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toHaveCount(0);
-});
-
-test("Classic: the held box and its queue stay reachable through resize, maximize and a phone", async ({ page }) => {
-  // Arrange
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
-  const board = await open(page);
-  await openGoblin(page, "Pia - Pi Pilot");
-  const who = "Pia - Pi Pilot";
-  await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
-
-  // Assert: beside the board, maximized, and at phone width, the terminal keeps
-  // its place and the box under it stays reachable.
-  await expect(boxField(page, who)).toBeVisible();
-  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
-  await expect(boxField(page, who)).toBeVisible();
-  await expect(page.locator(".native-terminal")).toBeVisible();
-  await page.getByRole("button", { name: "Restore the panel", exact: true }).click();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(boxField(page, who)).toBeVisible();
-  await expect(page.locator(".terminal-held")).toHaveCount(0);
 });
