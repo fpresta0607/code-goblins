@@ -266,7 +266,13 @@ for (const style of ["modern"]) {
         if (width === 390) await recording.tap();
         else await page.mouse.up();
 
-        // Assert: recording finished into the same draft without sending.
+        // Assert: recording finished into the same draft without sending. On
+        // the phone, Classic, chosen while it recorded, puts the box away once
+        // the recording ends, and Modern shows the words in its draft.
+        if (width === 390) {
+          await expect(box(page)).toBeHidden();
+          await page.locator(".context-pane").getByRole("button", { name: "Switch to Modern chat", exact: true }).tap();
+        }
         await expect(field(page)).toHaveValue("please rebase onto main");
         expect(typed(relay)).toBe("");
       });

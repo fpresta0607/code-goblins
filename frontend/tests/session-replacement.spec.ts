@@ -261,8 +261,18 @@ for (const phone of [false, true]) {
         await expect.poll(position).toBe(anchor);
         relay.say({ type: "held", reason: "pipeline owns this task" });
         if (style === "modern") await expect(field(page)).toBeInViewport();
+        else await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
+        // Classic's note takes a row or two from the terminal, which keeps its
+        // last line and moves its first, so the swipe counts from where the
+        // hold left the history once it settles.
+        let held: unknown;
+        await expect.poll(async () => {
+          const prior = held;
+          held = await position();
+          return held === prior;
+        }).toBe(true);
         await scroll(45);
-        await expect.poll(position).not.toBe(anchor);
+        await expect.poll(position).not.toBe(held);
         const beforeKey = await position();
         if (style === "modern") await surface.focus();
         else await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
