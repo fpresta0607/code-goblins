@@ -3,7 +3,6 @@ import { Avatar } from "./Avatar";
 import { DialogueBox } from "./DialogueBox";
 import { Icon } from "./Icon";
 import { cfoSummary } from "./cfoSummary";
-import { CfoHarnessMark } from "./cfo-harness-mark";
 import { SubscriptionDials } from "./subscription-dials";
 import "./cfo-pin.css";
 import { ReopenCfoButton } from "./reopen-cfo-button";
@@ -23,10 +22,11 @@ import { ReopenCfoButton } from "./reopen-cfo-button";
 // its SessionStart hook after onboarding and sign-in, and a Codex or pi CFO
 // when its first prompt runs cfo register. While the board cannot reach the
 // CFO the bar says so, with why and the fix in its tip.
-// The mark of the harness the registered CFO runs sits beside its portrait,
-// with the model of its newest session in that harness in its tip, and the
-// weekly allowance of each subscription in use is a dial beside the bar's
-// buttons, as on the CFO's card on the canvas. While AFK mode is on nothing
+// The weekly allowance of each subscription in use is a dial beside the bar's
+// buttons, as on the CFO's card on the canvas, and the bar draws no mark of
+// the harness the CFO runs beside it (the Overlord, 2026-10-28: "remove the
+// redundant claude or codex or pi icons in cfo banner in top left of board,
+// only need usage"). While AFK mode is on nothing
 // prompts him and nothing is held for him: the bar stays at rest, says since
 // when and how much was decided, and an outline Open Command Center with how
 // many wait is its one way to whatever is there.
@@ -45,12 +45,11 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
   const terminal = "Open the CFO's terminal";
   const command = "Open Command Center";
   const away = snapshot.afk.state === "on";
-  const mark = snapshot.cfo_harness && !absent ? <CfoHarnessMark snapshot={snapshot} /> : undefined;
   const status = <p {...unreachable ? { "data-tip": snapshot.registration } : {}}>{shown}</p>;
   const dials = !absent && <SubscriptionDials snapshot={snapshot} now={now} />;
   const waits = command + ": " + waiting + " waiting on you";
   if (!absent && waiting > 0 && !away) return <div className="cfo-pin">
-    <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: terminal, onClick: onOpen }} badge={mark}
+    <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: terminal, onClick: onOpen }}
       actions={<>
         {dials}
         <button className="pixel-button cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>
@@ -64,7 +63,6 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
       {absent
         ? <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
         : <button className="cfo-rest-portrait" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>}
-      {mark}
       {status}
       {dials}
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}

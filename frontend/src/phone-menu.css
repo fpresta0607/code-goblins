@@ -1,14 +1,12 @@
 /* The "..." of a panel's one-row header on a phone (phone-menu.tsx), and what
-   it holds: the panel's selector, its controls, the CFO's switches and the
-   box's own menu, each a row a thumb can take. */
+   it holds: the panel's controls, the CFO's switches and the box's own
+   menu, each a row a thumb can take. */
 .phone-menu { position: relative; flex: none; }
 .phone-menu-button { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 999px; }
 .phone-menu-sheet { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: grid; gap: 4px; width: min(18rem, calc(100vw - 24px)); max-height: 70vh; overflow: auto; padding: 6px; }
-.phone-menu-sheet > button, .phone-menu-sheet .composer-menu-items button, .phone-menu-sheet .panel-view-switch button { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-height: 44px; padding: 8px 10px; border-color: transparent; border-radius: 8px; background: transparent; text-align: left; }
+.phone-menu-sheet > button, .phone-menu-sheet .composer-menu-items button { display: flex; align-items: center; justify-content: flex-start; gap: 10px; min-height: 44px; padding: 8px 10px; border-color: transparent; border-radius: 8px; background: transparent; text-align: left; }
 .phone-menu-sheet button .icon { width: 16px; height: 16px; color: var(--muted); }
 .phone-menu-sheet button[aria-pressed="true"] { border-color: var(--glass-border); background: var(--glass-bg-hover); color: #f4fbff; }
-.phone-menu-sheet .panel-view-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0; padding: 0 0 4px; border: 0; border-bottom: 1px solid var(--glass-border); border-radius: 0; background: none; box-shadow: none; }
-.phone-menu-sheet .view-switch-label { display: inline; }
 .phone-menu-sheet .composer-menu-items, .phone-menu-sheet .composer-style-choices { display: grid; gap: 4px; }
 .phone-menu-sheet .composer-menu-items { padding-top: 4px; border-top: 1px solid var(--glass-border); }
 .phone-menu-slot:empty { display: none; }

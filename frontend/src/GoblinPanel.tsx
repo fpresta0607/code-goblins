@@ -90,9 +90,8 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
   if (isPhone) return <section className={"goblin-panel phone" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <div className="phone-header">
       {row.corner}
-      {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact hasAfk={false} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
+      {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact hasAfk={false} switcher={<PanelViewSwitch view={view} views={views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
       <PhoneMenu>
-        {!child && <PanelViewSwitch view={view} views={views} onView={onView} />}
         {row.controls.map((control) => <button key={control.id} type="button" onClick={control.onPress}><Icon name={control.icon} />{control.label}</button>)}
         {!task && !node && <CfoSwitches snapshot={snapshot} />}
         <div ref={onMenuSlot} className="phone-menu-slot" />
@@ -103,8 +102,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
   </section>;
   return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow {...row} />
-    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={maximized || view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
-    {!child && !maximized && <PanelViewSwitch view={view} views={views} onView={onView} />}
+    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={maximized || view === "terminal"} switcher={!maximized && <PanelViewSwitch view={view} views={views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     {list}
   </section>;
 }

@@ -13,6 +13,7 @@
 .panel-header:has(> .afk-header) > .goblin-avatar { flex: none; }
 .panel-header:has(> .afk-header) > .panel-heading { flex: 1 1 0; min-width: min-content; }
 .afk-header { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.panel-header > .panel-view-switch + .afk-header { margin-left: 0; }
 .afk-header .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .afk-header .icon-button .icon { width: 18px; height: 18px; }
 .afk-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px 4px 12px; border-radius: 999px; background: var(--field-bg); color: var(--muted); font-family: var(--font-display); font-size: 1rem; white-space: nowrap; }

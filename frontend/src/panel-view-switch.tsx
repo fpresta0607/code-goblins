@@ -7,13 +7,17 @@ import { Icon, type IconName } from "./Icon";
 // between caht and task panel bring that back i dont like the drop down
 // also"). Each button keeps the panel's one view, and the group names itself
 // so a screen reader reads what it chooses. The buttons are native, so the
-// keyboard reaches and presses them at every width.
+// keyboard reaches and presses them at every width. Each is an icon, named
+// and with a tip, in the panel header's own row beside the CFO's and AFK's
+// controls, never a row of its own (the Overlord, 2026-10-28: "The Chat and
+// Task switch in the header is a full-width row of its own today. Make it two
+// icon buttons in the same row").
 const LABELS: Record<PanelView, string> = { terminal: "Chat", task: "Task" };
 const ICONS: Record<PanelView, IconName> = { terminal: "comment", task: "task" };
 
 export function PanelViewSwitch({ view, views, onView }: { view: PanelView; views: PanelView[]; onView: (view: PanelView) => void }) {
   if (views.length < 2) return null;
   return <div className="panel-view-switch" role="group" aria-label="Panel view">
-    {(["terminal", "task"] as const).filter((each) => views.includes(each)).map((each) => <button key={each} type="button" aria-label={LABELS[each]} aria-pressed={view === each} data-tip={LABELS[each]} onClick={() => onView(each)}><Icon name={ICONS[each]} /><span className="view-switch-label">{LABELS[each]}</span></button>)}
+    {(["terminal", "task"] as const).filter((each) => views.includes(each)).map((each) => <button key={each} type="button" aria-label={LABELS[each]} aria-pressed={view === each} data-tip={LABELS[each]} onClick={() => onView(each)}><Icon name={ICONS[each]} /></button>)}
   </div>;
 }

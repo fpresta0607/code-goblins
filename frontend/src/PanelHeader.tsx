@@ -1,4 +1,4 @@
-import { useId, useState, type PointerEvent } from "react";
+import { useId, useState, type PointerEvent, type ReactNode } from "react";
 import { message, request } from "./api";
 import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
@@ -41,7 +41,7 @@ import { TaskAdjustment } from "./task-adjustment";
 // while an update of the CFO's harness waits and Restart PC before that while
 // the kernel's pools are past their line, and under them what a press of
 // Update waits for or why it did not restart the CFO.
-export function PanelHeader({ task, node, snapshot, compact, isDetails = false, hasAfk = true, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; hasAfk?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, compact, isDetails = false, hasAfk = true, switcher, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; hasAfk?: boolean; switcher?: ReactNode; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -133,6 +133,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
           a small screen, since VS Code and the folder open on the PC. */}
       {!compact && actions}
     </div>
+    {switcher}
     {cfo && hasAfk && <CfoSwitches snapshot={snapshot} />}
     {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
   </header>;
