@@ -4,7 +4,9 @@ name: install
 # runner is by construction: the one-line install, with this commit's own
 # build served as the release and installed exactly as `irm ... | iex` would,
 # the setup program's install of that same release, and `.\install.cmd -Dev`
-# from this checkout. Each ends with dictation ready.
+# from this checkout. Each ends with dictation ready. It also proves the
+# update a person who installed a published release makes to this commit's
+# build with goblins update.
 on:
   # A draft runs nothing but the draft job, and marking it ready runs both
   # installs on its head, as the go workflow does.
@@ -34,6 +36,11 @@ on:
       - cmd/cfo/uninstall.go
       - tools/leftovers/**
       - tests/uninstall/**
+      - tests/update/**
+      - cmd/cfo/update.go
+      - cmd/cfo/update_release.go
+      - internal/release/**
+      - internal/update/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   push:
@@ -62,6 +69,11 @@ on:
       - cmd/cfo/uninstall.go
       - tools/leftovers/**
       - tests/uninstall/**
+      - tests/update/**
+      - cmd/cfo/update.go
+      - cmd/cfo/update_release.go
+      - internal/release/**
+      - internal/update/**
       - .github/workflows/install.yml
       - .github/workflows/release.yml
   # A merge queue run checks both installs too. GitHub applies no path
@@ -568,6 +580,94 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # A person who installed a published release, with its own install script
+  # as its notes say, updates with goblins update while the CFO and a goblin
+  # work. This commit's build is served as the newest release, and so is a
+  # build of it whose board exits as it starts: the update to that one rolls
+  # back, the update to this commit installs it, and each keeps the home, the
+  # running terminals, the person's settings, project, credential and work,
+  # and dictation ready.
+  update:
+    name: update from ${{ matrix.from }}
+    needs: [draft, reuse]
+    if: ${{ !cancelled() && needs.draft.outputs.draft != 'true' && needs.reuse.outputs.run == '' && !inputs.release }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The latest release, and the newest pre-release.
+        from: [v0.5.15, v0.5.16]
+    runs-on: windows-latest
+    # The published install runs the same third-party installers as the
+    # one-line install, and the update to a newer dictation model fetches it.
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Name the staged releases' folder and the facts' file
+        run: |
+          "RELEASES=$env:RUNNER_TEMP\releases" >> $env:GITHUB_ENV
+          "FACTS=$env:RUNNER_TEMP\fleet-before.json" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Serve this commit as the newest release, and a build of it that does not start
+        run: |
+          # cfo.exe embeds the board, which a release builds first.
+          npm --prefix frontend ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix frontend run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tests/update/stage_releases.ps1 -Version v0.5.99 -Folder $env:RELEASES -Port 8765
+      - name: Install ${{ matrix.from }} from its published release
+        shell: powershell
+        env:
+          FROM: ${{ matrix.from }}
+        run: |
+          # The person's own checkout, a clone of a repository beside it, as
+          # the install jobs make it.
+          $origin = Join-Path $env:USERPROFILE "source\demo-origin.git"
+          $seed = Join-Path $env:RUNNER_TEMP "demo-seed"
+          git init -q --bare -b main $origin
+          git init -q -b main $seed
+          Set-Content -LiteralPath (Join-Path $seed "README.md") -Value "demo"
+          git -C $seed add README.md
+          git -C $seed -c user.name=Person -c user.email=person@example.invalid commit -q -m "first"
+          git -C $seed push -q $origin main
+          git clone -q $origin (Join-Path $env:USERPROFILE "source\demo")
+          irm "https://github.com/fpresta0607/code-goblins/releases/download/$env:FROM/install.ps1" | iex
+          $global:LASTEXITCODE = 0
+      - name: Put the CFO and a goblin to work
+        run: ./tests/update/fleet_at_work.ps1 -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
+      - name: Update to a build whose board does not start, which rolls back
+        run: ./tests/update/update_and_check.ps1 -Api http://127.0.0.1:8765/broken/latest -Release "$env:RELEASES\broken" -Want rolled-back -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
+      - name: Update to this commit
+        run: ./tests/update/update_and_check.ps1 -Api http://127.0.0.1:8765/good/latest -Release "$env:RELEASES\good" -Want installed -Project (Join-Path $env:USERPROFILE "source\demo") -Facts $env:FACTS
+      - name: End the release server and the stand-in model
+        if: always()
+        run: |
+          foreach ($file in "$env:RELEASES\server.pid", "$env:FACTS.stand-in.pid") {
+            if (Test-Path -LiteralPath $file) { Stop-Process -Id ([int](Get-Content -LiteralPath $file)) -ErrorAction SilentlyContinue }
+          }
+      - name: Keep the install's and the updates' logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-logs-${{ matrix.from }}
+          path: |
+            ~/AppData/Local/Temp/CodeGoblinsInstall.log
+            ${{ runner.temp }}/update-*.log
+            ${{ runner.temp }}/fleet-before.json*
+            ~/AppData/Local/CodeGoblins/state/serve.log
+          if-no-files-found: ignore
+          retention-days: 14
+
   # A pull request run whose installs both passed leaves a record named for
   # the tree and first parent it tested, which a push to main with the same
   # pair reads instead of installing again (tools/pushreuse). A record that
@@ -576,8 +676,8 @@ jobs:
   # skips every job after it unless the condition says otherwise, so this
   # one reads the installs' own results.
   passed:
-    needs: [one-line, dev]
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.one-line.result == 'success' && needs.dev.result == 'success' }}
+    needs: [one-line, dev, update]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.one-line.result == 'success' && needs.dev.result == 'success' && needs.update.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
