@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { open, openGoblin, snapshot, typed } from "./session-board";
+import { holdMessages, open, openGoblin, releaseMessages, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "We don't need to print the date after every
 // response. We only need to print it at the end of a message, and the dither
@@ -31,8 +31,9 @@ const TALK = { messages: [
 const row = (page: Page, id: string) => page.locator(`[data-message="${id}"]`);
 const times = (page: Page) => page.getByRole("log").locator(".message-reply time");
 const working = (page: Page) => page.locator(".reply-working");
-// screen tells the board's view of the terminal whether the harness works.
-const screen = (isWorking: boolean) => ({ type: "screen", asking: false, open: false, working: isWorking });
+// screen tells the board's view of the terminal whether the harness works,
+// and what its turn row says it is doing.
+const screen = (isWorking: boolean, doing = "") => ({ type: "screen", asking: false, open: false, working: isWorking, ...doing ? { doing } : {} });
 // follows says whether what after matches comes after what before matches,
 // in the page's order.
 const follows = (page: Page, before: string, after: string) => page.evaluate(([before, after]) => {
@@ -221,3 +222,96 @@ test("under a turn's last reply the row reads its time, then Copy, then the harn
   await expect(page.locator(".session-footer .mark")).toHaveCount(0);
 });
 
+// The Overlord, 2026-10-28: "also have words that appear next to dither all
+// the whimsical verbs claude whilst working uses". Beside the dither are the
+// words the harness's own turn row says, or Working when it says none, and an
+// idle session shows neither.
+test("a working session's dither carries the harness's own words for what it does, and an idle session shows neither", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+
+  // Act
+  relay.say(screen(true, "Cogitating"));
+
+  // Assert
+  await expect(working(page)).toHaveCount(1);
+  await expect(working(page).locator(".reply-doing")).toHaveText("Cogitating");
+  await expect(working(page).getByRole("status", { name: "Cogitating" })).toBeVisible();
+
+  // Act: the harness names another.
+  relay.say(screen(true, "Sautéing"));
+
+  // Assert
+  await expect(working(page).locator(".reply-doing")).toHaveText("Sautéing");
+
+  // Act: a turn row with no words of its own.
+  relay.say(screen(true));
+
+  // Assert
+  await expect(working(page).locator(".reply-doing")).toHaveText("Working");
+
+  // Act: the turn ends.
+  relay.say(screen(false));
+
+  // Assert
+  await expect(working(page)).toHaveCount(0);
+  await expect(page.getByRole("log")).not.toContainText(/Cogitating|Sautéing/);
+});
+
+// The Overlord, 2026-10-28, from his phone: "dither stream on mobile stop icon
+// is automatically displayed however on mobile put the button on the end of
+// it". On a touch screen Stop shows at the end of the dither's row, after its
+// words, and a tap stops the turn.
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+
+  test("Stop sits at the end of the dither's row, after its words, and a tap stops the turn", async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+    await openGoblin(page);
+
+    // Act
+    relay.say(screen(true, "Cogitating"));
+
+    // Assert
+    const stop = working(page).getByRole("button", { name: "Stop", exact: true });
+    await expect(stop).toBeVisible();
+    await expect(stop.locator(".icon")).toHaveCSS("opacity", "1");
+    const [dither, words, button] = await Promise.all([".working-indicator", ".reply-doing", ".reply-stop"].map((selector) => working(page).locator(selector).boundingBox()));
+    expect(dither && words && button, "all three drawn").toBeTruthy();
+    if (!dither || !words || !button) return;
+    expect(words.x).toBeGreaterThanOrEqual(dither.x + dither.width);
+    expect(button.x, "Stop after the words").toBeGreaterThanOrEqual(words.x + words.width);
+    for (const part of [dither, words]) expect(Math.abs(part.y + part.height / 2 - (button.y + button.height / 2)), "one row").toBeLessThan(6);
+
+    // Act
+    await stop.tap();
+
+    // Assert
+    await expect.poll(() => typed(relay)).toBe("\x1b");
+  });
+});
+
+// The Overlord, 2026-10-28: "connecting screens don't need to display the
+// dither or usage unavailable it's just messy when clicking into a goblin
+// task". While the view connects no dither shows, and once it is live it does.
+test("a working goblin's dither shows only once its view has connected", async ({ page }) => {
+  // Arrange
+  await holdMessages(page);
+  await open(page, snapshot({}, { runtime: { state: "working" } }), "", TALK);
+
+  // Act
+  await openGoblin(page);
+
+  // Assert: connecting, and no dither.
+  await expect(page.locator(".terminal-connecting")).toBeVisible();
+  await expect(working(page)).toHaveCount(0);
+
+  // Act
+  await releaseMessages(page);
+
+  // Assert
+  await expect(row(page, "r5")).toBeVisible();
+  await expect(working(page)).toHaveCount(1);
+});

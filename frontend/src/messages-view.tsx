@@ -51,9 +51,9 @@ const UNREAD = "The session's messages cannot be read";
 // open, absent for the CFO, terminal is the key of the session's terminal,
 // whose link stops a turn, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, memory, isWorking, workingSince, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, memory, isWorking, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
-  workingSince: string; pending: Action[];
+  pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
@@ -413,7 +413,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
-          {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} since={workingSince} />}
+          {/* While the view connects it shows nothing that waits on the
+              session's reading, the dither included (the Overlord,
+              2026-10-28: "connecting screens don't need to display the dither
+              or usage unavailable"). */}
+          {phase === "live" && isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
         </div>
       </div>
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
