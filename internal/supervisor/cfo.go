@@ -473,17 +473,11 @@ func oneLine(text string) string {
 }
 
 func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evaluation, error) {
-	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
-	if err != nil {
-		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, errNotRegistered)
-	}
-	defer file.Close()
-	primary, current, err := decodePrimary(file)
-	if err != nil || current != identity {
-		return Evaluation{}, fmt.Errorf("%w: the primary CFO changed; refresh before sending", ErrRejected)
-	}
-	return c.sendNative(ctx, primary, text)
+	return c.sendNative(ctx, identity, text, false)
 }
+
+// cfoWorkingReason is what a message held while the CFO is in a turn says.
+const cfoWorkingReason = "Queued until the CFO's turn ends. Send now types it for the CFO to take at its next tool call."
 
 // nativeSubmitSettle lets the CFO's harness take typed text before its submit
 // key.
@@ -498,11 +492,25 @@ const (
 	nativeConfirmPoll = 250 * time.Millisecond
 )
 
-// sendNative waits for an empty composer, types once and confirms the text
-// before Enter. A prompt hook or a new working turn proves acceptance by an
-// idle CFO; input submitted during a turn is taken at the CFO's next tool
-// call, and only the CFO's own record of its conversation proves it.
-func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistration, text string) (Evaluation, error) {
+// sendNative sends text to the primary CFO identity names. It waits for an
+// empty composer, types once and confirms the text before Enter. A prompt
+// hook or a new working turn proves acceptance by an idle CFO; input
+// submitted during a turn is taken at the CFO's next tool call, and only the
+// CFO's own record of its conversation proves it. A send that holds types
+// nothing into a turn and defers instead, so the board keeps the message
+// queued where he can edit, send now or cancel it until the turn ends (the
+// Overlord, 2026-10-27: "queued should exist at the bottom of the
+// conversation until sent").
+func (c *CFOConnection) sendNative(ctx context.Context, identity, text string, holds bool) (Evaluation, error) {
+	file, err := openPrimary(filepath.Join(c.State, "primary.json"))
+	if err != nil {
+		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, errNotRegistered)
+	}
+	defer file.Close()
+	primary, current, err := decodePrimary(file)
+	if err != nil || current != identity {
+		return Evaluation{}, fmt.Errorf("%w: the primary CFO changed; refresh before sending", ErrRejected)
+	}
 	if err := c.verify(primary); err != nil {
 		return Evaluation{}, fmt.Errorf("%w: %v", ErrRejected, err)
 	}
@@ -531,6 +539,9 @@ func (c *CFOConnection) sendNative(ctx context.Context, primary primaryRegistrat
 	before, err := read(record)
 	if err != nil {
 		return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
+	}
+	if holds && screens.IsWorking(before) {
+		return Evaluation{Reason: cfoWorkingReason, CanSendNow: true}, ErrDeferred
 	}
 	if dialog, shown := screens.Dialog(before); shown {
 		if dialog.EscapeHint == "" {

@@ -608,13 +608,15 @@ func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 }
 
 // A delivery to a native CFO whose screen turns to work but whose prompt hook
-// has not reported taking it is sent, not delivered, since Enter may have
-// chosen a dialog's option instead: it waits for the hook's report.
+// has not reported taking it, its input still showing the message, is sent,
+// not delivered, since Enter may have chosen a dialog's option instead: it
+// waits for the hook's report.
 func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
 	stateDir := t.TempDir()
 	cfo := hostTerminal(t, stateDir, "cfo")
 	cfo.typeLine(t, "register")
 	cfo.typeLine(t, "harness")
+	cfo.typeLine(t, "keep")
 	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
 		t.Fatalf("the program recorded %q, want its registration", lines)
 	}

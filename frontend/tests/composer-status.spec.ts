@@ -68,7 +68,9 @@ for (const style of ["classic", "modern"]) {
         expect(typed(relay)).toBe(before);
 
         // Act: the durable entry remains after the hold changes.
-        await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })), snapshot({ revision: 2, actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: draft, status: "queued", message: "Waiting until the session takes input", can_send_now: false }] }));
+        // The board carries it under the id the box sent it with.
+        const sent = (requests[0] as { id: string }).id;
+        await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })), snapshot({ revision: 2, actions: [{ id: sent, kind: "message", task_id: GOBLIN.id, text: draft, status: "queued", message: "Waiting until the session takes input", can_send_now: false }] }));
         await expect(page.locator(".queued-message:visible")).toHaveCount(1);
         const queueSurface = testInfo.outputPath("queue-with-long-message.png");
         await page.screenshot({ path: queueSurface });
