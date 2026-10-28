@@ -32,6 +32,7 @@ func TestSweepKeepsACheckoutWorktreeALiveSessionUses(t *testing.T) {
 	}{
 		{name: "a live process works in it", holder: "worktree", isKept: true, reason: "works in"},
 		{name: "a live process works in the checkout that holds it", holder: "checkout", isKept: true, reason: "works in"},
+		{name: "a live process works in a subfolder of the checkout that holds it", holder: "subfolder", isKept: true, reason: "works in"},
 		{name: "a commit made ten minutes ago", isCommitted: true, isKept: true, reason: "changed"},
 		{name: "a live process works outside its repository", holder: "outside", isKept: false},
 	}
@@ -59,6 +60,12 @@ func TestSweepKeepsACheckoutWorktreeALiveSessionUses(t *testing.T) {
 				rows = listed{startSession(t, worktree)}
 			case "checkout":
 				rows = listed{startSession(t, f.project)}
+			case "subfolder":
+				subfolder := filepath.Join(f.project, "src")
+				if err := os.Mkdir(subfolder, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				rows = listed{startSession(t, subfolder)}
 			case "outside":
 				rows = listed{startSession(t, filepath.Dir(f.project))}
 			}

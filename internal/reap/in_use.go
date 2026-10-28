@@ -21,9 +21,9 @@ const activityGrace = time.Hour
 
 // markWorktreesInUse sets InUse on every worktree its project lists and no
 // task owns: why a live session may still be using it, or empty when nothing
-// shows one is. A process works in it, or works in a folder of its repository
-// that holds it, as a session does whose subagents each work in a worktree
-// made under the session's own folder; or its HEAD, its index, its HEAD's
+// shows one is. A process works in it, or anywhere in a folder of its
+// repository that holds it, as a session does whose subagents each work in a
+// worktree made under the session's checkout; or its HEAD, its index, its HEAD's
 // reflog or a file git sees in it changed within activityGrace. What cannot be
 // read keeps it. A task's own worktree is returned through cfo cleanup, which
 // first ends what the task left running there.
@@ -102,9 +102,7 @@ func (c Collector) inUse(ctx context.Context, dir WorktreeDir, worktrees []Workt
 		}
 	}
 	for _, process := range working {
-		inside := holds(process.chain, chain[0])
-		above := holds(chain, process.chain[0]) && slices.ContainsFunc(repository, func(root os.FileInfo) bool { return holds(process.chain, root) })
-		if inside || above {
+		if slices.ContainsFunc(repository, func(root os.FileInfo) bool { return holds(process.chain, root) && holds(chain, root) }) {
 			return fmt.Sprintf("pid %d %s works in %s, so a live session may still be using it", process.PID, process.Name, process.folder)
 		}
 	}
@@ -123,7 +121,8 @@ func (c Collector) inUse(ctx context.Context, dir WorktreeDir, worktrees []Workt
 // git add writes, or a file in it git sees, tracked or untracked. An ignored
 // file is left out: it is a build's output or a dependency, which a process
 // working in the worktree writes, and walking a node_modules every sweep is
-// what reading it would cost.
+// what reading it would cost. It stops at the first change within
+// activityGrace, which is all inUse asks of it.
 func (c Collector) lastChange(ctx context.Context, path string) (time.Time, error) {
 	gitDir, err := c.gitOutput(ctx, path, "rev-parse", "--absolute-git-dir")
 	if err != nil {
@@ -138,6 +137,9 @@ func (c Collector) lastChange(ctx context.Context, path string) (time.Time, erro
 		}
 		if err != nil {
 			return time.Time{}, err
+		}
+		if time.Since(info.ModTime()) < activityGrace {
+			return info.ModTime(), nil
 		}
 		latest = later(latest, info.ModTime())
 	}
@@ -155,6 +157,9 @@ func (c Collector) lastChange(ctx context.Context, path string) (time.Time, erro
 		}
 		if err != nil {
 			return time.Time{}, err
+		}
+		if time.Since(info.ModTime()) < activityGrace {
+			return info.ModTime(), nil
 		}
 		latest = later(latest, info.ModTime())
 	}
