@@ -167,7 +167,9 @@ test("thinking folds to its first line and opens to its paragraphs, lists and co
   await expect(thinking.locator(".thinking-preview strong")).toHaveText("read");
   await expect(thinking.locator("li"), "folded thinking mounts nothing under its line").toHaveCount(0);
   await thinking.locator("summary").click();
-  await expect(thinking.locator("strong")).toHaveText("read");
+  // The opened thought's own words, not the folded line, which keeps its
+  // own bold "read" in the summary.
+  await expect(thinking.locator(".message-words strong")).toHaveText("read");
   await expect(thinking.locator("li")).toHaveCount(2);
   await expect(thinking.locator("pre code")).toHaveText("git status --short");
   await expect.poll(() => thinking.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
