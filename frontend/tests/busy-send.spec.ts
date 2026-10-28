@@ -24,7 +24,7 @@ async function sendWhileWorking(page: Page, harness: string) {
   });
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: true });
-  await expect(page.locator(".session-working")).toBeVisible();
+  await expect(page.locator(".reply-working")).toBeVisible();
   return { relay, posts };
 }
 
@@ -129,4 +129,52 @@ test("Edit changes a queued message's words before it is sent", async ({ page })
   // Assert
   await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_edit"]);
   expect(posts[1]).toMatchObject({ target: posts[0].id, text: "rebase onto main, then push" });
+});
+
+// The Overlord, 2026-10-28: "it's sending and appending messages together
+// that were sent previously". A message typed into a busy harness stayed on
+// its prompt line unsent, and the next one joined it there. Each message he
+// sends while the session works, or while a screen of its own is open that
+// is no question, is its own queued message, in order, and nothing is typed.
+for (const harness of ["claude", "codex", "pi"]) {
+  test(`${harness}: three messages sent while it works are three queued messages, in order, with nothing typed`, async ({ page }) => {
+    // Arrange
+    const { relay, posts } = await sendWhileWorking(page, harness);
+
+    // Act
+    for (const text of ["first, check the train", "second, merge it", "third, tell me"]) {
+      await field(page).fill(text);
+      await field(page).press("Enter");
+      await expect(field(page)).toHaveValue("");
+    }
+
+    // Assert
+    await expect.poll(() => posts.map((post) => post.kind + ":" + post.text)).toEqual(["message:first, check the train", "message:second, merge it", "message:third, tell me"]);
+    expect(new Set(posts.map((post) => post.id)).size, "each its own message").toBe(3);
+    expect(typed(relay), "nothing typed onto the prompt line").toBe("");
+  });
+}
+
+test("a screen of the harness's own that is no question, such as a usage limit's, holds a message in the queue and types nothing", async ({ page }) => {
+  // Arrange: Claude Code's own screen at its limit, its words and a way out.
+  const posts: Posted[] = [];
+  const relay = await open(page, snapshot({}, { phase: "settled" }));
+  await page.route("**/api/actions", (route) => {
+    const body = route.request().postDataJSON() as Partial<Posted>;
+    posts.push({ id: body.id ?? "", kind: body.kind ?? "", target: body.target ?? "", text: body.text ?? "" });
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: true, working: false, panel: { rows: ["⚠ Usage limit reached · limit resets 10pm"], choices: [], hints: ["Continuing automatically at 10pm · Esc"] } });
+
+  // Act
+  for (const text of ["one", "two"]) {
+    await field(page).fill(text);
+    await field(page).press("Enter");
+    await expect(field(page)).toHaveValue("");
+  }
+
+  // Assert
+  await expect.poll(() => posts.map((post) => post.text)).toEqual(["one", "two"]);
+  expect(typed(relay)).toBe("");
 });
