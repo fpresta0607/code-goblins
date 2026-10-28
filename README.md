@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with Open Command Center and the one item waiting on you, two queued tasks under the memory and disk meters, and beside them the selected goblin's panel with the diff of its change" width="900" />
+  <img src="docs/images/hero.webp" alt="The Code Goblins board: the CFO's bar with its two weekly allowance dials and Open Command Center with the one item waiting on you, two queued tasks under the memory and disk meters, and beside them the selected goblin's task panel with the diff of its change" width="900" />
   <br />
   <sub>Screenshots show an example workspace: example goblins in example repositories, never a real fleet.</sub>
 </p>
@@ -127,11 +127,12 @@ A test that failed once inside a check that still ended green is named in the tr
 When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
-The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, and the board shows each batch as one card with each of its pull requests and where it stands, folding a train that landed nothing into the train that retried it.
+The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, or one has waited alone for 10 minutes, and the board shows each batch as one card with each of its pull requests and where it stands, folding a train that landed nothing into the train that retried it.
 Completed holds only finished trains that landed at least one pull request.
 Stopped or failed trains that landed nothing stay accessible under Train history, with their recorded reason.
 A click on that card opens the train's panel: one row per pull request with its goblin and current run state, with attempt history folded below for retries, failures and shared runs.
 `cfo pr train <project>` starts one by hand, or joins the one running, and waits until it is over.
+A project's manifest can let a train of one pull request land on that pull request's own green CI run instead of testing the same tree again, and can make one alone wait longer for a second to share a run with.
 See [Merge trains](AGENTS.md#merge-trains).
 
 ### Project-scoped credentials
@@ -172,10 +173,12 @@ Each says the same four steps as it goes (download, check, install, open) and ke
 Run either again at any time to update: it never asks you to run anything first.
 An update keeps the speech model it finds and downloads one again only when the new build pins a different one, which then replaces the old, and `goblins uninstall` removes it.
 Once Code Goblins runs, a newer release comes to you as its own item in the board's Command Center, **Update Code Goblins**, with what is new and one **Update** button ([Update Code Goblins](docs/native-board.md#update-code-goblins)).
+Only a published release is offered: the item and `goblins update` read GitHub's newest release, which is never a pre-release or a draft, and a build newer than it, such as a pre-release, is told there is nothing to update.
 
 <img src="docs/images/update-item.webp" alt="The Update Code Goblins item in the Command Center: v0.5.1 to v0.6.0, what is new, the unsigned-release line with the SHA-256 it checks, and the Update button" width="732" />
 
 Or run `goblins update` in a terminal of your own: it downloads the newest release, installs it only when each program matches the release's `SHA256SUMS`, restarts only the board on it, rolls back a build that does not start, and leaves your goblins and the CFO running ([Updating](docs/install.md#updating) says each step).
+Either way an update keeps your home with its state, data and worktrees, your settings, your projects folder, the dictation model, and every running goblin and the CFO ([What an update keeps](docs/install.md#what-an-update-keeps)).
 Where Code Goblins already runs from another folder that `CFO_HOME` names, such as a clone an older build made the home, the install updates it there and leaves your goblins and their work as they are; moving it to the standard folder is `cfo home move`, whenever you choose.
 [Which home it installs](docs/install.md#which-home-it-installs) lists every case.
 
@@ -333,7 +336,7 @@ When it needs you, it asks on the board: a decision, a page to review, or a comm
 ## Using the board
 
 <p align="center">
-  <img src="docs/images/board-review.webp" alt="Board view: the CFO's bar above the Tasks, In progress and Completed columns, two numbered queued tasks under the memory and disk meters, each with start, adjust and remove buttons, goblins in progress, merged and closed work, and the selected goblin's panel in its review gate, with its pull request, local tests, running checks, Workspace and Connections" width="900" />
+  <img src="docs/images/board-review.webp" alt="Board view: the CFO's bar above the Tasks, In progress and Completed columns, two numbered queued tasks under the memory and disk meters, goblins in progress each with its harness's mark, merged and closed work, and the selected Codex goblin's panel in its review gate, with its pull request, local tests, running checks, Pause and Stop, its gate run under What's working, and Workspace" width="900" />
 </p>
 
 `cfo serve` runs the native supervisor and serves its board, which is compiled into `cfo.exe`, at `http://127.0.0.1:4310`.
@@ -348,6 +351,7 @@ cfo serve   # listens on CFO_BOARD_ADDRESS, or 127.0.0.1:4310; --listen 127.0.0.
 The board is a view, not the engine: tasks keep progressing with every browser closed, and restarting `cfo serve` with the same CFO home recovers its events, actions and lineage.
 An open board draws nothing while nothing changes: nothing on it animates forever, so a tab left open costs the machine almost nothing between updates.
 In Chrome or Edge, **Install Code Goblins** in the address bar opens the board as its own app, in a window with the goblin icon and no browser bar; its title, like the tab's, counts what waits on you, such as (2) Code Goblins.
+On an iPhone or iPad, Safari's **Add to Home Screen** makes the board, opened over [remote access](docs/remote-access.md), an app named Code Goblins with no Safari bars, and its **App badge** switch, under Remote access, puts the count of what waits on you on its icon.
 A tab left open across an install notices the newer board: a hidden tab reloads itself unless it holds an answer you have not sent, and otherwise it shows one line, **The board was updated**, with **Reload**, so it never reloads while you answer.
 `cfo serve` takes over from `cfo watch` as the fleet's single supervisor: a running watcher, the one the CFO's Stop hook hosts included, hands it the lock at once rather than holding it off ([docs/native-board.md](docs/native-board.md) has the details).
 It listens on loopback only, and Ctrl-C in its terminal, or `goblins stop` from any terminal, stops it.
@@ -497,6 +501,7 @@ Nothing is written under any of the four bars.
 Beside the meter, a ring around the Claude or OpenAI mark shows that subscription's weekly allowance remaining as `quota-axi` last read it, and turns amber within five points of its reserve, the weekly floor the home keeps for that provider.
 A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time, the reading's age and the reserve.
 Under a floor of 0 the reserve reads **No reserve, runs to 0%**.
+While a pi goblin runs on an OpenRouter key, a dial with OpenRouter's mark beside them shows that key's spend in dollars, with its ring what is left of the key's own limit and its tip the limit and the window it resets over; the spend is the whole key's, shared by everything that uses it, never a sum of what the goblins used.
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the paused goblin highest in your In progress order whose condition has cleared, then for the queue in the Overlord's order.
 Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
@@ -634,11 +639,14 @@ A goblin reporting a delivered pull request can keep working; that report alone 
 While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
 After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in its task list retries, and the terminal connects once the resumed session is live, or once its goblin reports from the session the failed resume started, which finishes that resume.
 A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence in the header.
-A goblin's panel, and the CFO's, is one view with no tabs: its messages or its terminal, with its task list beside them on a wide panel, or folded under the header as **Task** on a narrow one or a phone.
-A Claude Code or pi session's panel shows its conversation as messages, filling the panel, with each tool call as one row that unfolds, **Copy** on each message, **Jump to latest**, and its own text size on **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**.
-Under it is the message box, which types what you send into the session's terminal, keeps your draft, offers **Stop** while it works, and says **Answer in the terminal** when Claude Code asks something only its terminal shows.
-When what you send opens one of the harness's own screens, a picker such as `/model` or a panel such as `/permissions`, its terminal steps into the messages' place with the keyboard in it, and steps out by itself once the harness is back at its input line, or at once with **Back to messages**, which also chooses Modern for the board.
-The terminal lies in the messages' own box, so no switch and no step resizes it.
+A goblin's panel, and the CFO's, shows its conversation or its task list, chosen with **Chat** and **Task** at the top of the panel; a maximized panel shows both side by side, and a phone shows the two choices as icons above the header.
+Modern Chat shows a Claude Code, Codex or pi session's conversation as messages while its harness runs in a native terminal: your prompts on the right, its replies as plain prose on the left with their code blocks and **Copy**, its thinking folded to one line, and each run of tool calls as a quiet stack of rows that unfold to what came back and an edit's diff.
+**Jump to latest** returns to the end, and **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**, or the wheel turned with **Ctrl+Shift** or the right button held, size its text.
+Under it is the message box: **Send** or **Enter** types what you wrote into the session's terminal, **Shift+Enter** starts a new line, your draft is kept, and Send becomes **Stop** while the session works.
+Along the box's bottom edge are Add files, the style menu (Modern or Classic, Speech history and Open in Windows Terminal), the permission mode, the model and the effort, each of which lists what the session's harness offers, the microphone and Send; `/` lists the session's commands and `@` its files.
+When the harness opens a screen of its own, a question, a permission prompt or a picker such as `/model`, the box draws it above itself as a list you pick from, with **Cancel** and **Show the terminal**, so nothing needs the terminal to be answered.
+**Show the terminal** brings the live terminal into the messages' place, and **Back to messages** returns; the terminal lies in the messages' own box, so no switch and no step resizes it.
+**Classic**, in the style menu, shows the session's native terminal in place of its messages.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no terminal, so each panel is its task list alone.
 The task list shows **Workspace** with the repository, branch and exact working folder, **Harness** with the harness, model and effort selectors, **Connections** with MCP servers, repository services and goblin credentials, then **Changes**, **Activity** and **History**, each closed until you open it.
@@ -698,7 +706,7 @@ What you say is recognised by a speech model the supervisor runs on this PC, so 
 The model starts loading as you press the keys and stays loaded for 30 minutes after you dictate, so a line comes back in a blink, and then gives its memory back.
 The bubble names the model while it listens.
 A browser that has a speech recognition of its own can use that instead, which sends your voice to the browser's maker: tick **Use this browser's speech recognition instead** under the bubble's recent dictations. It is off until you turn it on, and the desktop app has none to offer.
-Click the bubble for the board's recent dictations, newest first, each with **Copy** and **Paste into this terminal**, or **Recent messages** beside a message box's microphone for the same list with **Paste into the message**; they are kept on this PC only.
+Click the bubble for the board's recent dictations, newest first, each with **Copy** and **Paste into this terminal**, or **Speech history** in a message box's style menu for the same list with **Paste into the message**; they are kept on this PC only.
 When the model answers no words for something you said, the CFO is told, and the sound is kept on this PC in the home's `state\dictation-no-words.wav` until the next such sound, so it can be played back to find out why.
 In both, drag to select and the selection is copied, and **Shift+Escape** moves the keyboard back out.
 Hold **Shift** while selecting if the running program has taken the mouse.

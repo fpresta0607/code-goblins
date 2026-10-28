@@ -153,7 +153,9 @@ So when a Code Goblins release moves the pin forward, rerunning the install is h
 
 ## Updating
 
-The board looks for a newer release when it starts and every six hours, and brings one to you as its own item in the Command Center, **Update Code Goblins**: the version you run and the new one, what is new, what the update checks, and one **Update** button, with a slim banner at the top that points to it.
+The board looks for a newer release when it starts and every six hours, and brings one to you as its own item in the Command Center, **Update Code Goblins**: the version you run and the new one, what is new, what the update checks, and one **Update** button.
+The Command Center is its one signal: no banner points to it.
+It reads the newest release from GitHub's `/releases/latest`, which never names a pre-release or a draft, so neither is ever offered.
 **Update** runs `goblins update` for that release out of sight, and the card shows each of the steps below as it goes, then how it ended in one sentence.
 The board is away for under a minute and reloads on the new version.
 An update that did not install offers one **Try again**, which starts the next update at once, and that update puts right whatever the last one left: the card never asks you to paste or run anything.
@@ -163,7 +165,7 @@ Only you press it, from a board of your own; `"check_for_updates": false` in the
 `goblins update`, run in a terminal of your own, does the same: it updates the home to the newest published release without touching your goblins or the CFO.
 It runs only as the home's own `goblins` or `cfo`, and it says four steps as it goes:
 
-1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub and downloads its `cfo.exe`, its desktop window `goblins-window.exe` and its hook program `cfo-hook.exe` where the release ships them, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
+1. `[1/4] Download Code Goblins <version>`: it reads the newest release from GitHub's `/releases/latest`, refuses a pre-release or a draft, and downloads its `cfo.exe`, its desktop window `goblins-window.exe` and its hook program `cfo-hook.exe` where the release ships them, its `SHA256SUMS` and its `install.ps1` into the home's `state\update`.
 2. `[2/4] Check the download`: it keeps a program only when it matches the release's `SHA256SUMS`, and, for a release whose `install.ps1` names a publisher, only when Windows reports it validly signed by that publisher, the same checks the one-line install makes.
    It names each program's SHA-256, and says when the release is unsigned, which every release is until Code Goblins has a signing identity.
    A program that fails a check is never run, and nothing in the home changes.
@@ -184,9 +186,23 @@ When the new build serves but its install cannot refresh the home, or the machin
 Updating another home deliberately skips that refresh and exits 0.
 The download is removed afterwards.
 `goblins update --check` says how your build stands against the newest release and what is new in it, and changes nothing.
+A build that already runs the newest release, or one newer than it, such as a pre-release, is told so, and neither command changes anything until a newer release is published.
 A build made from a clone has no release version, so it says to run `git pull` and then `.\install.cmd -Dev` in the clone instead.
 The update is yours alone: it refuses to run under the CFO, in a goblin's or a gate's terminal, under an agent harness, and where its parents cannot be followed to the desktop, as in Git Bash; run it in PowerShell or cmd.
 Rerunning the install still updates the tools it pins, such as no-mistakes, which an update leaves as they are.
+
+### What an update keeps
+
+An update replaces the programs and brings the home's contract, skills and hooks up to date, and keeps everything else as it was:
+
+- Your home, `%LOCALAPPDATA%\CodeGoblins` or the folder `CFO_HOME` names, with its state, data and worktrees, which it never moves, deletes or rewrites.
+- Your settings: the policy files in the home's `config` folder stay as you tuned them, and Start at login stays as you set it.
+  The one exception is a setting this build no longer reads, such as `max_live_goblins` in `config\fleet.json`, which it takes out and says so.
+- Your projects folder, `CFO_PROJECTS_ROOT`.
+- The dictation model, unless the new build pins a different one, which then replaces it.
+- Your running goblins and the CFO: only the board restarts, and no goblin's or the CFO's terminal is touched.
+
+A build whose board does not start is rolled back: the previous build is put back and serves the board again, and the update ends on `Rolled back:`.
 
 ## On a fresh PC
 
