@@ -197,8 +197,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   }, [terminal, isActive, onActive]);
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
-  const isAsking = !!live?.screen?.isOpen;
-  const panel = live?.screen?.panel ?? null;
+  // A real question of the harness's own, a list to choose from, is drawn
+  // and answered here, and a screen the relay could not read offers its way
+  // out; a screen of words with nothing to choose, such as the prompt line
+  // with his message on it or the harness's words for a usage limit, is
+  // never mirrored (the Overlord, 2026-10-28: "What is that window above the
+  // chat input ... remove it"). Only a real question takes what he writes as
+  // its answer.
+  const isScreenOpen = !!live?.screen?.isOpen;
+  const screenPanel = isScreenOpen ? live?.screen?.panel ?? null : null;
+  const panel = screenPanel && (screenPanel.choices.length > 0 || screenPanel.rows.length === 0) ? screenPanel : null;
+  const isAsking = !!panel && panel.choices.length > 0;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;
@@ -247,12 +256,21 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // a harness picker or a busy program does not stop it: those guard direct
   // typing, which is the path they were written for.
   const savesThroughBoard = queues || isHeld || isUnread || !!live?.isReconnecting;
-  // While the session works, Modern Chat's box types nothing into its turn:
-  // the board holds the message as his queued bubble at the bottom of the
-  // conversation, where he can edit, send now or cancel it, and delivers it
-  // when the turn ends (the Overlord, 2026-10-27: "queued should exist at the
-  // bottom of the conversation until sent").
-  const holdsForTurn = isWorking && hasConversation;
+  // While the harness is in a turn, or a screen of its own is open that
+  // is no question to answer, such as its words for a usage limit, Modern
+  // Chat's box types nothing into its terminal: the board holds the message
+  // as his queued bubble at the bottom of the conversation, where he can
+  // edit, send now or cancel it, and hands each over alone, in order, once
+  // the harness's input is empty and takes it (the Overlord, 2026-10-27:
+  // "queued should exist at the bottom of the conversation until sent").
+  // Typed into such a screen it stayed on the prompt line unsent, and the
+  // next one joined it there, so his messages reached the harness run
+  // together as one (2026-10-28: "it's sending and appending messages
+  // together that were sent previously").
+  // It holds on what the harness's own screen says, in a turn or showing a
+  // screen of its own, not on the task being under way, which a goblin's is
+  // while its harness waits at an empty prompt.
+  const holdsForTurn = hasConversation && !isAsking && (!!live?.screen?.isWorking || isScreenOpen);
   // A send the board has shown as its own action is no longer drawn from here.
   const sending = usePendingSends();
   useEffect(() => {
@@ -278,9 +296,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       return;
     }
     if (!savesThroughBoard && !sendID.current && (isAsking || !holdsForTurn)) {
-      // A screen of the harness's own takes what he wrote as one paste, on
+      // A question of the harness's own takes what he wrote as one paste, on
       // one line and with no Enter, so no key a list binds acts on it before
-      // he chose: the list's Enter confirms. It answers that screen even
+      // he chose: the list's Enter confirms. It answers that question even
       // while the session works, and is never held as a message.
       if (isAsking) {
         if (live?.paste(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
@@ -293,7 +311,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     const id = sendID.current;
     // The conversation shows it at once as his queued bubble, and the box
     // empties, before the board has answered; a refusal takes the bubble
-    // back and returns his words to the box.
+    // back and returns his words to the box as he wrote them.
+    const written = draft;
     if (hasConversation) {
       addPendingSend({ id, task: task?.id || "", text });
       setDraft("");
@@ -307,7 +326,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       setUnsent("");
     } catch (error: unknown) {
       removePendingSend(id);
-      setDraft((prior) => prior || text);
+      setDraft((prior) => prior || written);
       setUnsent("Not sent. " + message(error));
       reportToCfo("a message to " + name, message(error));
     } finally {
