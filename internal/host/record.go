@@ -36,6 +36,9 @@ type Record struct {
 	// ProofSum is the SHA-256 of the proof value the host put in its
 	// terminal's environment; the value itself is recorded nowhere.
 	ProofSum string `json:"proof_sum,omitempty"`
+	// Stream is set for a host that runs its program on pipes, speaking
+	// lines (WatchStream, DialStreamWriter), rather than in a terminal.
+	Stream bool `json:"stream,omitempty"`
 	// Contained is what Launch knows and no record keeps: its launcher's job
 	// forbids breaking away, so the host runs inside that job and ends when
 	// the job closes.
