@@ -130,13 +130,22 @@ func TestTheRealGitRunsHooksAndCredentialHelpersAsTheLauncherDoes(t *testing.T) 
 		{
 			name: "shell credential helper",
 			setup: func(t *testing.T, dir string, env []string) {
+				// The empty helper clears the ones the system and user
+				// configs name, such as Git Credential Manager, whose provider
+				// probe prints a warning that depends on how fast DNS answers.
+				runGit(t, launcher, dir, env, "", "config", "credential.helper", "")
 				// The helper answers what the environment holds, so no value
 				// shaped like a credential is in the source.
-				runGit(t, launcher, dir, env, "", "config", "credential.helper", "!f() { echo username=$STAND_IN_ACCOUNT; echo password=$STAND_IN_ANSWER; }; f")
+				runGit(t, launcher, dir, env, "", "config", "--add", "credential.helper", "!f() { echo username=$STAND_IN_ACCOUNT; echo password=$STAND_IN_ANSWER; }; f")
 			},
 			stdin: "protocol=https\nhost=example.invalid\n\n",
 			args:  []string{"credential", "fill"},
-			want:  func(_ *testing.T, _, out string) string { return out },
+			want: func(t *testing.T, _, out string) string {
+				if want := "protocol=https\nhost=example.invalid\nusername=fleet\npassword=not-a-secret\n"; out != want {
+					t.Fatalf("git credential fill gave %q, want only the shell helper's answer %q", out, want)
+				}
+				return out
+			},
 		},
 		{
 			name: "Git Credential Manager",
