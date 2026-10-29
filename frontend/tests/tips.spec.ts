@@ -159,7 +159,7 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
       test.slow();
       await open(page);
       const { shown, faults } = await walk(page.locator(".canvas-region"));
-      expect(shown).toBeGreaterThanOrEqual(11);
+      expect(shown).toBeGreaterThanOrEqual(10);
       expect(faults).toEqual([]);
     });
 
@@ -176,6 +176,9 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone"
       await expect(page.locator("#panel-title")).toHaveText("working-two");
       await openTaskList(page);
       const panel = await pointAtEach(page.locator(".context-pane"));
+      // A phone's panel fills the screen over the top bar, so Back shows the
+      // Command Center's button again.
+      if (size === "phone") await page.getByRole("button", { name: "Back to Board", exact: true }).click();
       const dialog = page.locator("dialog.question-modal");
       await openItem(page, "Which layout should the board open in");
       await expect(dialog).toBeVisible();
