@@ -811,10 +811,6 @@ function parseAfk(value: unknown): Afk {
   if (state !== "off" && state !== "on" && state !== "unreadable") throw new Error("Invalid AFK state");
   return { state, since: string(a.since), from: string(a.from), asked: string(a.asked), decided: number(a.decided), held: array(a.held).map(parseAfkHeld), page: string(a.page) };
 }
-// The Command Center's items as the supervisor's stream sends them between
-// snapshots: its questions, review items, runs, credential requests and
-// actions, with the supervisor they are from and its revision.
-export interface Items { instance: string; revision: number; questions: Question[]; reviews: Review[]; runs: Run[]; credentials: CredentialRequest[]; browser_signins: BrowserSignIn[]; actions: Action[] }
 function itemLists(v: Record<string, unknown>) {
   return {
     questions: array(v.questions).map((value) => {
@@ -851,10 +847,6 @@ function itemLists(v: Record<string, unknown>) {
     }),
     actions: array(v.actions).map(parseAction),
   };
-}
-export function parseItems(value: unknown): Items {
-  const v = object(value);
-  return { instance: string(v.instance), revision: number(v.revision), ...itemLists(v) };
 }
 function parsePerson(p: Record<string, unknown>): Person {
   return { login: string(p.login), name: string(p.name), avatar_url: string(p.avatar_url) };
