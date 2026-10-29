@@ -87,6 +87,33 @@ test("the CFO's picture in its header goes back to the board, maximized or not, 
   await expect(home).toHaveCount(0);
 });
 
+// The header's identity cuts what overflows it, so Home's focus ring, its
+// outline grown out by its width and offset, must lie inside the identity.
+test("the CFO's Home draws its whole focus ring inside the header's identity", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await page.keyboard.press("Control+Alt+1");
+  await expect(title(page)).toHaveText("CFO");
+  const home = page.locator(".goblin-panel > .panel-header").getByRole("button", { name: "Home", exact: true });
+
+  // Act
+  await home.focus();
+
+  // Assert
+  const ring = await home.evaluate((button) => {
+    const style = getComputedStyle(button);
+    const grown = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+    const box = button.getBoundingClientRect(), identity = button.closest(".panel-identity")!.getBoundingClientRect();
+    return {
+      isFocusVisible: button.matches(":focus-visible"), outline: style.outlineStyle,
+      past: Math.max(identity.left - (box.left - grown), identity.top - (box.top - grown), box.right + grown - identity.right, box.bottom + grown - identity.bottom),
+    };
+  });
+  expect(ring.isFocusVisible).toBe(true);
+  expect(ring.outline).toBe("solid");
+  expect(ring.past).toBeLessThanOrEqual(0);
+});
+
 for (const id of ["working-one", "paused-one"]) {
   test(`a card opens the panel of ${id} beside the board, one view with no pill`, async ({ page }) => {
     await open(page);
