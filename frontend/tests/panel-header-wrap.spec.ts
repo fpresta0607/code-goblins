@@ -53,12 +53,13 @@ function headerReport() {
     for (const rect of range.getClientRects()) if (rect.width > 0 && rect.top < box.bottom - 1) tops.add(Math.round(rect.top));
     return tops.size;
   };
-  // The words of an element drawn over more than one line.
+  // The words of an element drawn over more than one line. A task id's parts,
+  // joined by hyphens, wrap at a hyphen as words wrap at a space.
   const broken = (element: HTMLElement) => {
     const split: string[] = [];
     const words = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     for (let text = words.nextNode(); text; text = words.nextNode()) {
-      for (const word of text.textContent!.matchAll(/\S+/g)) {
+      for (const word of text.textContent!.matchAll(/[^\s-]+-*/g)) {
         const range = document.createRange();
         range.setStart(text, word.index);
         range.setEnd(text, word.index + word[0].length);

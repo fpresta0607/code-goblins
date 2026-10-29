@@ -14,8 +14,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
-// Close ends the native terminal whose host launched is, the
-// harness and everything it started, and waits for its host to end. It closes
+// Close ends the native terminal or stream session whose host launched is,
+// the harness and everything it started, and waits for its host to end. A
+// stream session's harness is given streamCloseWait to end by itself first,
+// within closeEndWait. It closes
 // only that host: a terminal its id names that another host runs is left
 // alone. A zero record launched nothing, and a host that has ended has
 // nothing left to close; a running host that does not answer, as one under
@@ -38,7 +40,7 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 	}
 	answering, cancelAnswering := awake.WithTimeout(context.Background(), answerWait)
 	defer cancelAnswering()
-	client, err := Dial(launched)
+	client, err := reach(launched)
 	for err != nil {
 		if !Running(launched) {
 			return nil
@@ -50,7 +52,7 @@ func Close(stateDir string, launched Record, answerWait time.Duration) error {
 			return fmt.Errorf("the host of native terminal %s, pid %d, does not answer, so its harness may still be running: %w", launched.ID, launched.HostPID, err)
 		}
 		time.Sleep(100 * time.Millisecond)
-		client, err = Dial(launched)
+		client, err = reach(launched)
 	}
 	closeErr := closeTerminal(client)
 	_ = client.Close()

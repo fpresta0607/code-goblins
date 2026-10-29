@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { message, reportToCfo, request } from "./api";
 import { Icon } from "./Icon";
 import { keptFileAddress, keptPictures } from "./kept-files";
@@ -28,9 +28,7 @@ export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
 // "send now should be an option with all queued messages"): one that cannot
 // go now says why under it when pressed, and one already typed has it
 // pressed already.
-export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
-  action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void;
-}) {
+export const QueuedMessage = memo(function QueuedMessage({ action, instance, name, variant, onDeleted }: QueuedProps) {
   const [problem, setProblem] = useState("");
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
@@ -78,4 +76,16 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
     </div>}
     {problem && <p className="queued-problem" role="status">{problem}</p>}
   </div>;
+}, isSameQueued);
+
+type QueuedProps = { action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void };
+
+// Each snapshot parses every action anew, so a comparison by identity drew
+// every queued message again on every snapshot, 315 times in 120 s of a live
+// board. It is drawn again only when what it shows or sends changes.
+function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
+  const [was, is] = [prior.action, next.action];
+  return was.id === is.id && was.task_id === is.task_id && was.text === is.text && was.status === is.status && was.message === is.message
+    && !!was.awaiting === !!is.awaiting && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why
+    && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.onDeleted === next.onDeleted;
 }

@@ -61,6 +61,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const sending = usePendingSends();
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
+  const queue = useRef<HTMLDivElement>(null);
   const [held, setHeld] = useState<MessagePage>({ messages: [], more: false });
   const heldValue = useRef(held);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
@@ -393,6 +394,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   const queued = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
     parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "queued", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
+  // A queue taller than its room scrolls, and shows its newest message, the
+  // one nearest the box, as each one joins it.
+  const newestQueued = queued[queued.length - 1]?.id;
+  useLayoutEffect(() => {
+    if (queue.current) queue.current.scrollTop = queue.current.scrollHeight;
+  }, [newestQueued]);
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -436,7 +443,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
         now, Edit and Cancel (the Overlord, 2026-10-28: "it should always stay
         at the bottom between the agent's chat response and the chat box, so I
         could always see it and control it"). */}
-    {queued.length > 0 && <div className="conversation-queue" role="group" aria-label="Queued messages" style={{ fontSize: font }}>
+    {queued.length > 0 && <div ref={queue} className="conversation-queue" role="group" aria-label="Queued messages" style={{ fontSize: font }}>
       {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
     </div>}
     {box && <div className="composer-dock">

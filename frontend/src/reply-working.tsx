@@ -19,7 +19,8 @@ import "./reply-working.css";
 // touch screen, which cannot point (2026-10-28: "on mobile put the button on
 // the end of it"). With no Stop of its own (canStop false, as for a goblin
 // whose messages queue through the board) or while typing is held, it only
-// says the session works.
+// says the session works. It reads no clock: a hint that counted how long it
+// had worked drew it again every second, 83 times in 20 s on an idle panel.
 export function ReplyWorking({ terminal, ink, canStop }: { terminal: string; ink: string; canStop: boolean }) {
   const link = useTerminalLink(terminal);
   const doing = link?.screen?.isWorking && link.screen.doing || "Working";

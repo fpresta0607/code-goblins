@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -112,7 +113,7 @@ func (h *HTTP) composerPicture(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusForbidden, "Only a picture kept for a message is shown.")
 		return
 	}
-	file, err := os.Open(path)
+	file, err := fsx.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		apiError(w, http.StatusNotFound, "That picture is no longer kept.")
 		return

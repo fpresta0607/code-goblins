@@ -57,6 +57,17 @@ type claudeLog struct {
 	// records are each child's own output, by its node's id, as the last
 	// read of the children found them.
 	records map[string]childRecord
+	// tails are each sub-agent transcript's last reading, by its path.
+	tails map[string]subagentTail
+}
+
+// subagentTail is what claudeTail read of a sub-agent's transcript, and the
+// size and write time the transcript had when it was read.
+type subagentTail struct {
+	size        int64
+	modified    time.Time
+	written     time.Time
+	line, model string
 }
 
 type pendingCall struct {
@@ -89,7 +100,7 @@ type claudeBlock struct {
 }
 
 func newClaudeLog(path string) *claudeLog {
-	return &claudeLog{path: path, children: map[string]*Node{}, tasks: map[string]string{}, pending: map[string]pendingCall{}, agents: map[string]string{}, outputs: map[string]string{}, events: map[string][]string{}, commands: map[string]string{}, records: map[string]childRecord{}}
+	return &claudeLog{path: path, children: map[string]*Node{}, tasks: map[string]string{}, pending: map[string]pendingCall{}, agents: map[string]string{}, outputs: map[string]string{}, events: map[string][]string{}, commands: map[string]string{}, records: map[string]childRecord{}, tails: map[string]subagentTail{}}
 }
 
 // claudeReadChunk bounds one read of new entries.
@@ -417,7 +428,7 @@ func (l *claudeLog) nodes(now time.Time) []Node {
 			if sessionID.MatchString(agent) {
 				transcript := filepath.Join(session, "subagents", "agent-"+agent+".jsonl")
 				l.records[node.ID] = childRecord{transcript: transcript}
-				written, line, model := claudeTail(transcript)
+				written, line, model := l.subagentTail(transcript)
 				node.Model = model
 				if !written.IsZero() {
 					node.SourceUpdatedAt = written
@@ -477,6 +488,23 @@ func (l *claudeLog) agentFiles(session string) map[string]string {
 		}
 	}
 	return byCall
+}
+
+// subagentTail is claudeTail for a sub-agent's transcript, read again only
+// once its size or write time changed. The tree is read every 15 seconds,
+// and each read of a transcript took up to 4 MiB, for every sub-agent the
+// conversation ever started (#1716).
+func (l *claudeLog) subagentTail(path string) (time.Time, string, string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}, "", ""
+	}
+	if kept, isKept := l.tails[path]; isKept && kept.size == info.Size() && kept.modified.Equal(info.ModTime()) {
+		return kept.written, kept.line, kept.model
+	}
+	written, line, model := claudeTail(path)
+	l.tails[path] = subagentTail{size: info.Size(), modified: info.ModTime(), written: written, line: line, model: model}
+	return written, line, model
 }
 
 // claudeTail reads when a Claude Code transcript was last written and the

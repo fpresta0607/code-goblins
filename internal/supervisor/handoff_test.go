@@ -21,7 +21,7 @@ func TestFinishedTaskKeepsItsReportBeforeTheCleanupRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tasks := finishedTasks(home, time.Now())
+	tasks := finishedTasks(home, &keptReads{}, time.Now())
 	data, err := json.Marshal(tasks)
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +270,7 @@ func TestFinishedTaskKeepsItsSummaryThroughLifecycleHistory(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			tasks := finishedTasks(home, time.Now())
+			tasks := finishedTasks(home, &keptReads{}, time.Now())
 			if len(tasks) != 1 || tasks[0].LastReport != "working: final checks passed" || tasks[0].RetiredAt.IsZero() {
 				t.Fatalf("%s lost last report or retirement evidence: %+v", kind, tasks)
 			}
@@ -289,7 +289,7 @@ func TestFinishedTaskDoesNotBorrowThePreviousGenerationsReport(t *testing.T) {
 	if err := state.WriteOutcome(home.State, state.Outcome{ID: id, Generation: fmt.Sprintf("s%d", now.Add(-time.Hour).UnixNano()), Phase: "stopped", At: now}); err != nil {
 		t.Fatal(err)
 	}
-	tasks := finishedTasks(home, now)
+	tasks := finishedTasks(home, &keptReads{}, now)
 	if len(tasks) != 1 || tasks[0].LastReport != "" || tasks[0].RetiredAt.IsZero() {
 		t.Fatalf("reused task borrowed a report: %+v", tasks)
 	}

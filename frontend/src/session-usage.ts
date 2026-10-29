@@ -53,18 +53,6 @@ export function formatAge(at: string, now: number): string {
   return months < 12 ? months + " months ago" : Math.floor(months / 12) + " years ago";
 }
 
-// elapsedText draws how long a session has been working, short: seconds under
-// a minute, minutes and seconds under an hour, and hours and minutes after.
-export function elapsedText(since: string, now: number): string {
-  const from = since && !since.startsWith("0001") ? Date.parse(since) : NaN;
-  if (!Number.isFinite(from)) return "";
-  const seconds = Math.max(0, Math.floor((now - from) / 1000));
-  if (seconds < 60) return seconds + "s";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return minutes + "m " + (seconds % 60) + "s";
-  return Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
-}
-
 // usageReadings is every reading the session backs: the context its last
 // request carried against its model's window, the week its Claude or Codex
 // subscription has used, and, for any other harness, the spend of the

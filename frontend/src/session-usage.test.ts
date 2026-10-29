@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { KeySpend, SubscriptionUsage } from "./types.ts";
-import { elapsedText, formatAge, formatCount, formatUSD, usageReadings } from "./session-usage.ts";
+import { formatAge, formatCount, formatUSD, usageReadings } from "./session-usage.ts";
 
 const usage = {
   input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000,
@@ -76,13 +76,6 @@ test("a session that is not working carries the time of the last thing it wrote"
 
   // Assert
   assert.equal(age, "3h ago");
-});
-
-test("how long a session has been working reads short", () => {
-  const from = "2026-10-26T11:58:48Z";
-  assert.equal(elapsedText(from, Date.parse("2026-10-26T11:58:53Z")), "5s");
-  assert.equal(elapsedText(from, Date.parse("2026-10-26T12:00:00Z")), "1m 12s");
-  assert.equal(elapsedText(from, Date.parse("2026-10-26T13:02:00Z")), "1h 3m");
 });
 
 test("the numbers are drawn as the harness draws them", () => {

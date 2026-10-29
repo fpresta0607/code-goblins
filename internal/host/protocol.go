@@ -53,6 +53,11 @@ const (
 	frameUnread byte = 'u'
 	// frameSubmission arms turn evidence for this viewer before its input.
 	frameSubmission byte = 't'
+	// frameLine carries one line of a stream session: to a viewer, a
+	// StreamLine as JSON, the kept ones first; from a writer, one JSON object
+	// for the host to write to the program, which it acknowledges as it does
+	// a delivery's input.
+	frameLine byte = 'l'
 )
 
 // maxFrame bounds one frame's payload.
@@ -88,7 +93,13 @@ type hello struct {
 	// in the terminal's input, as a busy program leaves them, and when they
 	// were read. The host's answer carries it back when it tells; a host that
 	// does not know it tells nothing.
-	Unread bool   `json:"unread,omitempty"`
+	Unread bool `json:"unread,omitempty"`
+	// Stream, from a client, asks for a stream session's lines rather than a
+	// terminal's output, or with Deliver to write lines into it. A stream
+	// host refuses a client that does not ask, a terminal host one that does,
+	// and a host from before stream sessions answers as to a viewer, without
+	// it, which the client refuses.
+	Stream bool   `json:"stream,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
 

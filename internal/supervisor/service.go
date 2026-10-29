@@ -392,8 +392,11 @@ type Service struct {
 	// readers, and buildSnapshot stands in for Snapshot in a test of that.
 	snapshots     sharedSnapshots
 	buildSnapshot func() (Snapshot, error)
-	// reads is what the snapshot remembers of the fleet's files.
+	// reads is what the snapshot remembers of the fleet's files, and
+	// historyReads what the Completed column's rebuild remembers of each
+	// finished task's, kept apart so neither crowds the other past keptLimit.
 	reads                keptReads
+	historyReads         keptReads
 	subscriptionReadings map[string]quota.WeeklyReading
 	// quotaReadAt is when the supervisor last began a quota-axi read.
 	quotaReadAt time.Time
@@ -778,11 +781,16 @@ func (s *Service) letGoOfWatchLock() {
 }
 
 func (s *Service) cycle(ctx context.Context, recover bool) {
-	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
+	// A cycle runs on each hook event and each save, many a minute, and the
+	// fleet wakes change about once a minute, so they are read again only
+	// once their file changed (#1716).
+	watched, fleetReadErr := kept(&s.reads, "fleet wakes", []string{fleetWakesPath(s.Store.Home.State)}, func() (fleetWakes, error) {
+		return readFleetWakes(s.Store.Home.State)
+	})
+	localReports, localReadErr := s.readLocalReports()
 	s.mu.Lock()
 	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
 	s.hostedChecks, s.deploys = watched.Hosted, watched.Deploys
-	localReports, localReadErr := s.readLocalReports()
 	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
@@ -985,7 +993,7 @@ func deliveredPR(lines []string, generation string) string {
 // requests merged into fleet repositories, and what GitHub says of the
 // finished tasks' other pull requests.
 func (s *Service) refreshHistory(ctx context.Context, now time.Time) error {
-	history := finishedTasks(s.Store.Home, now)
+	history := finishedTasks(s.Store.Home, &s.historyReads, now)
 	for id, evaluation := range s.Store.Snapshot().Tasks {
 		reported := s.reportedDone(id)
 		if evaluation.Phase != "done" && evaluation.Phase != "merged" && reported == "" {
