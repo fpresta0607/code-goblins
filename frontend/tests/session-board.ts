@@ -59,11 +59,15 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       readyState = 1;
       private publish = (event: Event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) })); };
       private update = (event: Event) => { if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent(event.detail.type, { data: JSON.stringify(event.detail.data) })); };
+      alive: ReturnType<typeof setInterval> | undefined;
       constructor(address: string | URL) {
         super();
         const url = new URL(address, location.href);
         if (url.pathname === "/api/messages") {
           window.addEventListener("fixture-messages", this.update);
+          // A message stream says alive every five seconds, as the
+          // supervisor's does while it has nothing to send.
+          this.alive = setInterval(() => this.dispatchEvent(new MessageEvent("alive", { data: "{}" })), 5000);
           // A test that holds the session's messages back (holdMessages)
           // lets them through with a fixture-release-messages event.
           const first = () => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify(messages) }));
@@ -74,7 +78,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
         window.addEventListener("fixture-snapshot", this.publish);
         setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(data) })));
       }
-      close() { this.readyState = 2; window.removeEventListener("fixture-snapshot", this.publish); window.removeEventListener("fixture-messages", this.update); }
+      close() { this.readyState = 2; window.removeEventListener("fixture-snapshot", this.publish); window.removeEventListener("fixture-messages", this.update); clearInterval(this.alive); }
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
   }, { data: first, messages });
