@@ -86,11 +86,20 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   await page.route("**/api/dictation/warm", (route) => route.fulfill({ status: 202 }));
   await page.route("**/api/dictation", (route) => route.request().method() === "GET" ? route.fulfill({ json: { engine: "test-model", state: "ready" } }) : route.fulfill({ json: { text: heard, engine: "test-model" } }));
   const holds = new Map<string, object>();
+  // What each terminal printed, by its address, which a view that connects to
+  // it again replays as its history before the repaint, as the supervisor's
+  // relay does.
+  const histories = new Map<string, Buffer>();
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     relay.views++;
     relay.addresses.push(socket.url());
     const isGoblin = new URL(socket.url()).searchParams.get("task") === GOBLIN.id;
     let submission = ""
+    const print = (text: string) => {
+      const bytes = Buffer.from(text);
+      histories.set(socket.url(), Buffer.concat([histories.get(socket.url()) ?? Buffer.alloc(0), bytes]));
+      socket.send(bytes);
+    };
     const spoke = {
       say: (message: object) => {
         if ("type" in message && message.type === "held") holds.set(socket.url(), message);
@@ -98,14 +107,16 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       },
       drop: () => socket.close({ code: 1001 }),
       end: () => socket.close({ code: 1000, reason: "No terminal is running for this task." }),
-      write: (text: string) => socket.send(Buffer.from(text)),
+      write: print,
     };
     // The relay speaks for the goblin's terminal, whichever view of it
     // connected last, and for another's only while its own has not connected.
     if (isGoblin || !goblinSpoke) Object.assign(relay, spoke);
     if (isGoblin) goblinSpoke = true;
     const whole = () => {
-      socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+      const history = histories.get(socket.url()) ?? Buffer.alloc(0);
+      socket.send(JSON.stringify({ type: "history", bytes: history.length }));
+      if (history.length) socket.send(history);
       if (holds.has(socket.url())) socket.send(JSON.stringify(holds.get(socket.url())));
     };
     relay.refuse = () => { isRefused = true; };
@@ -125,7 +136,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       relay.resizes.push(size);
       socket.send(JSON.stringify({ type: "size", ...size }));
       // A program that turned bracketed paste on, as Claude Code does.
-      socket.send(Buffer.from("\x1b[?2004h" + output));
+      print("\x1b[?2004h" + output);
     });
   });
   await page.goto("/");
