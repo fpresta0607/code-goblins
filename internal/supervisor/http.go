@@ -574,6 +574,10 @@ func (h *HTTP) task(w http.ResponseWriter, r *http.Request) {
 		h.agentOutput(w, r, meta, r.URL.Query().Get("node"))
 		return
 	}
+	if parts[1] == "actions" {
+		respond(w, 200, h.Service.Store.taskActions(meta.ID))
+		return
+	}
 	if parts[1] == "activity" {
 		lines, err := statusTail(h.Service.Store.Home.State, meta.ID)
 		if err != nil {

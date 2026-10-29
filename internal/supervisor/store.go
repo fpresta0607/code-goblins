@@ -288,6 +288,20 @@ func (s *Store) Snapshot() Database {
 	return cloneDatabase(s.committed)
 }
 
+// taskActions are the newest 20 actions of task id, oldest first, which its
+// Details lists when it opens.
+func (s *Store) taskActions(id string) []Action {
+	s.readers.RLock()
+	defer s.readers.RUnlock()
+	actions := []Action{}
+	for _, action := range s.committed.Actions {
+		if action.TaskID == id {
+			actions = append(actions, action)
+		}
+	}
+	return actions[max(0, len(actions)-20):]
+}
+
 // taskSession is the session the store last committed for the task's goblin.
 func (s *Store) taskSession(id string) Session {
 	s.readers.RLock()
@@ -938,7 +952,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 	}
 	a := s.db.Actions[i]
 	if a.EventID != "" && s.db.Sessions[a.Session].LastEventID != a.EventID {
-		s.db.Actions[i].Status = "succeeded"
+		s.db.Actions[i].Status, s.db.Actions[i].UpdatedAt = "succeeded", time.Now().UTC()
 		s.db.Actions[i].Message = "Superseded by newer session activity"
 		err := s.save()
 		s.mu.Unlock()

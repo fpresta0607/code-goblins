@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { Snapshot, Task } from "./types";
 import {
+  array,
+  parseAction,
   parseDiff,
   parseFiles,
   parseHistory,
@@ -129,15 +131,22 @@ function History({
 }
 
 
+const parseActions = (value: unknown) => array(value).map(parseAction);
+
 function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
   const activity = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/activity" : null, strings);
-  const actions = snapshot.actions.filter((action) => action.task_id === task?.id).slice(-20).reverse();
+  // The task's newest 20 actions are read when Activity opens, and again when
+  // the newest of them changes: the snapshot carries none of its progress
+  // checks, and its own copy of each other action is the newest.
+  const read = useResource(task?.generation ? "/api/tasks/" + encodeURIComponent(task.id) + "/actions" : null, parseActions, task?.actions_at);
+  const actions = (read.data || []).map((action) => snapshot.actions.find((each) => each.id === action.id) || action).reverse();
   const actionLabel = (kind: string) => ({ review: "Review comment", feedback: "Task instruction", evaluate: "Progress check", cfo_message: "CFO message", cfo_answer: "Question answer", goblin_answer: "Question answer" })[kind] || "Action";
   return <>
     {activity.error ? <RetryRead retry={activity.reload} /> :
       activity.data?.length ? <ol className="activity-list">
         {activity.data.slice().reverse().map((line, i) => <li key={i}>{line}</li>)}
       </ol> : task?.generation && !activity.data ? <p className="loading" role="status">Loading activity…</p> : <p className="muted">No activity yet.</p>}
+    {read.error && <RetryRead retry={read.reload} />}
     {actions.length > 0 && <section className="action-history">
       <h3>Action delivery</h3>
       <ol className="action-list">{actions.map((action) => {

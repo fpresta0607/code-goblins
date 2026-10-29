@@ -55,9 +55,12 @@ export function reportToCfo(where: string, text: string): void {
 export function message(error: unknown): string {
   return error instanceof Error ? error.message : "Request failed";
 }
+// useResource reads path, and reads it again whenever refresh changes, showing
+// what it read until the new read arrives.
 export function useResource<T>(
   path: string | null,
   parse: (value: unknown) => T,
+  refresh = "",
 ) {
   const [result, setResult] = useState<{
     path: string;
@@ -79,7 +82,7 @@ export function useResource<T>(
         setResult({ path, error: message(error) });
       });
     return () => controller.abort();
-  }, [path, parse, version]);
+  }, [path, parse, version, refresh]);
   return {
     data: path === result.path ? result.data : undefined,
     error: path === result.path ? result.error : undefined,
