@@ -111,7 +111,11 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		}
 	})
 	t.Run("a picture a message holds", func(t *testing.T) {
-		response := get(task + "&picture=1")
+		var page fleettree.MessagePage
+		if response := get(task); json.Unmarshal(response.Body.Bytes(), &page) != nil || len(page.Messages) != 3 || len(page.Messages[1].Pictures) != 1 {
+			t.Fatalf("GET %s = %d %s", task, response.Code, response.Body)
+		}
+		response := get(task + "&picture=" + page.Messages[1].Pictures[0].ID)
 		if response.Code != 200 || response.Header().Get("Content-Type") != "image/png" || response.Body.String() != "a screenshot" {
 			t.Errorf("picture = %d %s %q; want the screenshot", response.Code, response.Header().Get("Content-Type"), response.Body)
 		}

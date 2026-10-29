@@ -508,7 +508,7 @@ export function App() {
       ? <button className="labelled-button" aria-label={"Back to " + view} onClick={close}><Icon name="back" /><span>Back</span></button>
       : backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
-      : <button className="icon-button" aria-label="Close panel" data-tip="Close" onClick={close}><Icon name="close" /></button>,
+      : <button className="icon-button" aria-label="Close panel" onClick={close}><Icon name="close" /></button>,
     notice: !boxOnScreen && windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
   return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className={"app-shell" + (fillsPhone ? " fills-phone" : "")} onKeyDown={(event) => {
@@ -525,13 +525,14 @@ export function App() {
       <div className="topbar-controls">
         {/* A small screen has no room for the tour's button, nor for the
             layout's, since a board that narrow is always stacked. */}
-        {snapshot && !firstRun && !compact && <button className="icon-button" aria-label="Replay the tour" data-tip="Replay the tour" onClick={startTour}><Icon name="question" /></button>}
+        {snapshot && !firstRun && !compact && <button className="icon-button" aria-label="Replay the tour" onClick={startTour}><Icon name="question" /></button>}
         {/* A kanban board too narrow for columns side by side is stacked, so
-            there the button changes nothing and says why; a board stacked by
-            choice keeps its way back, since the panel yields to a kanban. */}
+            there the button changes nothing and its name says why; a board
+            stacked by choice keeps its way back, since the panel yields to a
+            kanban. */}
         {!firstRun && view === "Board" && !compact && (boardNarrow && boardLayout === "kanban"
-          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window."><Icon name="stacked" /></button>
-          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
+          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side. Close or narrow the panel, or widen the window."><Icon name="stacked" /></button>
+          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
         {/* The connection's pill sits right before the Command Center's
             button, so the two read as one group. The desktop window shows it

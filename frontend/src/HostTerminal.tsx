@@ -216,10 +216,10 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
     {copied && <Notice className="terminal-corner">Copied</Notice>}
     {phase !== "connecting" && isUnsent && <Notice tone="warning" className="terminal-corner-left">{phase === "live" ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is closed."}</Notice>}
     {phase === "live" && heldWhy && !hasComposer && <Notice className="terminal-foot">Typing is paused.</Notice>}
-    {phase === "live" && isUnread && !hasComposer && !isUnsent && !heldWhy && <Notice tone="warning" className="terminal-corner-left" tip="The program is busy. It takes what was typed when it is free, so there is no need to press again.">Program busy. Typed keys are waiting.</Notice>}
-    {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" data-tip="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
+    {phase === "live" && isUnread && !hasComposer && !isUnsent && !heldWhy && <Notice tone="warning" className="terminal-corner-left">Program busy. Typed keys are waiting.</Notice>}
+    {phase === "live" && historyEnd !== null && <button type="button" className="icon-button raised terminal-jump" aria-label="Jump to bottom" style={{ top: historyEnd - 8 }} onClick={() => current.current?.jumpToBottom()}><Icon name="arrow-down" /></button>}
     {textSheet !== null && <TerminalTextSheet text={textSheet} onClose={() => { setTextSheet(null); current.current?.focus(); }} />}
-    {hasComposer && <button type="button" className="icon-button terminal-copy" aria-label="Copy terminal text" data-tip="Copy terminal text" onClick={() => setTextSheet(current.current?.text() ?? "")}><Icon name="copy" /></button>}
+    {hasComposer && <button type="button" className="icon-button terminal-copy" aria-label="Copy terminal text" onClick={() => setTextSheet(current.current?.text() ?? "")}><Icon name="copy" /></button>}
     {(hasMicrophone || dictation.listening) && <VoiceBubble listening={dictation.listening} level={dictation.level} model={dictation.model} onTap={dictation.toggle} onPaste={(text) => { current.current?.paste(text); current.current?.focus(); }}
       tools={<TerminalTouchTools events={{ text: (text) => current.current?.paste(text), image: addImage, copy: () => setTextSheet(current.current?.text() ?? ""), problem: showFeedback }} />} />}
     {!hasComposer && (feedback || dictation.note) && <div className="terminal-float">{feedback ? <ClickFeedback text={feedback} /> : <Notice tone="warning">{dictation.note}</Notice>}</div>}

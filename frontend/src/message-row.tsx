@@ -14,14 +14,11 @@ import type { Task, TreeNode } from "./types";
 
 const COPIED_MS = 1400;
 
-// When a message was sent, short and whole: its date and time of day.
-function sentAt(at: string): { exact: string; text: string } {
+// When a message was sent, short: its date and time of day.
+function sentAt(at: string): string {
   const time = at && !at.startsWith("0001") ? new Date(at) : null;
-  if (!time || Number.isNaN(time.getTime())) return { exact: "", text: "" };
-  return {
-    exact: time.toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
-    text: time.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
-  };
+  if (!time || Number.isNaN(time.getTime())) return "";
+  return time.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 // One message of a session as the Messages view draws it: a prompt in a
@@ -68,7 +65,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
   }, [isActionsOpen]);
   const words = copyText(message);
   const when = sentAt(message.at);
-  const copy = words && <button type="button" className="icon-button message-copy" aria-label="Copy" data-tip={copied ? "Copied" : "Copy"}
+  const copy = words && <button type="button" className="icon-button message-copy" aria-label="Copy"
     onClick={(event) => { event.stopPropagation(); copyToClipboard(words).then(() => { setCopied(true); setTimeout(() => setCopied(false), COPIED_MS); }, () => {}); }}><Icon name={copied ? "check" : "copy"} /></button>;
   if (message.kind === "interrupt") return <p className="message-interrupt" data-message={message.id}><Icon name="pause" />Interrupted</p>;
   if (message.kind === "compaction") return <div className="message-compaction" data-message={message.id}>
@@ -82,8 +79,8 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
         : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{inlineElements(part.text.trim().split("\n")[0])}</span></>}>
           <MessageText text={part.text} />
         </Disclosure>)}
-    {isTurnEnd && (copy || when.text) && <div className="message-reply-actions">
-      {when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}
+    {isTurnEnd && (copy || when) && <div className="message-reply-actions">
+      {when && <time dateTime={message.at}>{when}</time>}
       {copy}
       {harness && <HarnessMark harness={harness} />}
     </div>}
@@ -102,8 +99,8 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
     {printed && <LongText isLong={isLongText(printed)} {...fold("output")}><pre className="message-output">{printed}</pre></LongText>}
-    {(copy || when.text) && <div className="message-actions" onClick={(event) => event.stopPropagation()}>
-      {when.text && <time dateTime={message.at} data-tip={when.exact}>{when.text}</time>}
+    {(copy || when) && <div className="message-actions" onClick={(event) => event.stopPropagation()}>
+      {when && <time dateTime={message.at}>{when}</time>}
       {copy}
     </div>}
   </article>;

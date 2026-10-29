@@ -78,8 +78,7 @@ test("a CFO engine the CFO cannot take yet shows as pending with its reason", as
   const engine = harness(page).getByRole("group", { name: "CFO engine" });
   await expect(engine.getByRole("combobox", { name: "Model" })).toHaveValue("next-model");
   await expect(engine.getByRole("combobox", { name: "Effort" })).toHaveValue("low");
-  const pending = engine.getByText("Pending: next-model low");
-  await expect(pending).toHaveAttribute("data-tip", waiting);
+  await expect(engine.locator(".engine-pending")).toHaveText("Pending: next-model low · " + waiting);
 });
 
 for (const who of ["goblin", "CFO"] as const) {

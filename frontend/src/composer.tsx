@@ -700,7 +700,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         return <li key={key}>
           <span className="composer-sent-text">{text}</span>
           <span className="composer-sent-state">Kept for resume</span>
-          <button type="button" className="icon-button" aria-label={"Delete: " + text} data-tip="Delete before its resume"
+          <button type="button" className="icon-button" aria-label={"Delete: " + text}
             disabled={deleting === key} onClick={() => void withdraw(text, key)}><Icon name="trash" /></button>
         </li>;
       })}
@@ -721,23 +721,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         <div className="composer-line">
           <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
             onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
-          {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
-            : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
+          {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" aria-keyshortcuts="Escape" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
+            : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} aria-keyshortcuts="Enter" data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
               <Icon name={isSending ? "clock" : "send"} />
             </button>}
         </div>
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <div className="composer-row">
           <div className="composer-row-start">
-            <button type="button" className="composer-control" aria-label="Add files" aria-haspopup={isTouch ? "true" : undefined} aria-expanded={isTouch ? isAddOpen : undefined}
-              data-tip={isAddOpen ? undefined : "Add files"} disabled={adding > 0}
+            <button type="button" className="composer-control" aria-label="Add files" aria-haspopup={isTouch ? "true" : undefined} aria-expanded={isTouch ? isAddOpen : undefined} disabled={adding > 0}
               onClick={() => { if (!isTouch) { files.current?.click(); return; } setStyleOpen(false); setAddOpen((prior) => !prior); }}><Icon name="plus" /></button>
             {/* It wears the style menu's look. */}
             {isAddOpen && <div className="composer-style-popover">
               <button type="button" onClick={() => { setAddOpen(false); void pastePicture(); }}><Icon name="paste" />Paste a picture</button>
               <button type="button" onClick={() => { setAddOpen(false); files.current?.click(); }}><Icon name="images" />Photos or files</button>
             </div>}
-            <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip={isStyleOpen ? undefined : "Chat style and speech history"}
+            <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style}
               onClick={() => { setAddOpen(false); setStyleOpen((prior) => !prior); }}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
             {isStyleOpen && <div className="composer-style-popover">
               <div className="composer-style-choices" role="group" aria-label="Chat style">
@@ -750,12 +749,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
           </div>
           <div className="composer-row-end">
             <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={!!pane} disabled={!canChangeEngine}
-              data-tip={pane ? undefined : (modelName || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}
               onClick={() => setPane((open) => open ? null : "model")}>{harness && <HarnessMark harness={harness} />}<span className="engine-control-model">{modelName || "Model"}</span>
               {shownEffort && <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span>}</button>
             {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} mode={mode} control={modelControl}
               onPick={(pick) => applyEngine({ model: pick.model?.id, effort: pick.effort }, true, pick.model)} onMode={chooseMode} onClose={closePane} />}
-            {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} onClick={() => setRecentOpen((prior) => !prior)} />}
+            {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} onClick={() => setRecentOpen((prior) => !prior)} />}
             {usage}
           </div>
         </div>

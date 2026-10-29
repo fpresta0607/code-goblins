@@ -42,7 +42,7 @@ export function RestartPcButton({ snapshot }: { snapshot: Snapshot }) {
     }
   };
   return <>
-    <button className="harness-update pc-restart" aria-label="Restart the PC" data-tip="The kernel's pools are past the line where free memory can no longer hold the fleet. Restart the PC safely to free them." onClick={() => { showFeedback(""); setAsking(true); }}><Icon name="refresh" />Restart PC</button>
+    <button className="harness-update pc-restart" aria-label="Restart the PC" onClick={() => { showFeedback(""); setAsking(true); }}><Icon name="refresh" />Restart PC</button>
     <ClickFeedback text={feedback} />
     {isAsking && <RestartPcDialog pools={gigabytes(kernelPools(memory))} line={gigabytes(memory.pool_line)} isPending={isPending} onRestart={() => void press()} onClose={() => setAsking(false)} />}
   </>;

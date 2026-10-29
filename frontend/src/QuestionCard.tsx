@@ -78,7 +78,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
     <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" data-tip={question.task ? "Skip: " + asker + " goes on without it" : "Skip: answered elsewhere or no longer needed"} onClick={onDismiss}><Icon name="close" /></button>}
+      {pending && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" onClick={onDismiss}><Icon name="close" /></button>}
       {pending && <button className="primary send-decision" type="submit" disabled={!canSend}><Icon name={draft.sending ? "clock" : "send"} />{draft.sending ? "Sending" : draft.error ? "Retry" : "Send decision"}</button>}
     </div>
   </form>;

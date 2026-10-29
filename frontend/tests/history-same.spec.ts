@@ -98,7 +98,7 @@ for (const [text, id, generation] of [
     const posted = await reopens(page);
     const { rows } = await history(page);
     const pencil = rows.filter({ hasText: text }).locator(".history-change");
-    await expect(pencil).toHaveAttribute("data-tip", "Bring back");
+    await expect(pencil).toHaveAccessibleName(/^Bring back: /);
 
     // Act
     await pencil.click();
@@ -168,7 +168,8 @@ for (const [text, why] of [
 
     // Assert
     await expect(pencil).toHaveAttribute("aria-disabled", "true");
-    await expect(pencil).toHaveAttribute("data-tip", why);
+    await expect(pencil).toHaveAccessibleDescription(why);
+    await expect(rows.filter({ hasText: text }).locator(".history-detail")).toContainText(why);
     await expect(pencil).toHaveAccessibleName(new RegExp("^Nothing to change: .*" + text.replace(/[?.]/g, "\\$&")));
     await expect(page.getByRole("dialog")).toBeHidden();
     expect(posted).toHaveLength(0);
@@ -243,7 +244,6 @@ test("Something else? on a stored card whose goblin has ended sends his words to
   const row = rows.filter({ hasText: "Paste APNS_KEY_ID for sample-app" });
   await row.locator(".history-open").click();
   const button = row.getByRole("button", { name: "Something else?" });
-  await expect(button).toHaveAttribute("data-tip", "Write to the CFO about this card");
 
   // Act
   await button.click();

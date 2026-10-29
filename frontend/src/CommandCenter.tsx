@@ -396,7 +396,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   return <>
     <details ref={menu} className="command-center-menu" open={inbox} onToggle={(event) => setInbox(event.currentTarget.open)}>
-      <summary className="icon-button" data-tip="Command Center" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
+      <summary className="icon-button" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
       <div className="command-center-updates">
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label="Waiting on you">
@@ -408,12 +408,12 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             <Avatar persona={release(candidate) ? "releases" : taskOf(candidate) ? personaFor(snapshot.tasks.find((task) => task.id === taskOf(candidate))) : "cfo"} small />
             <span className="inbox-text"><strong>{askerOf(candidate)}</strong><span className="inbox-summary">{textOf(candidate)}</span></span>
             <time>{age(created(candidate))}</time>
-            <button type="button" className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)} data-tip="Answer"><Icon name={iconOf(candidate)} /></button>
+            <button type="button" className="icon-button raised" aria-label={"Answer " + askerOf(candidate) + ": " + textOf(candidate)}><Icon name={iconOf(candidate)} /></button>
           </li>)}{watching.map((event) => <li key={"watch:" + event.id}>
             <Avatar persona={event.cfo_identity ? "cfo" : personaFor(snapshot.tasks.find((task) => task.id === event.task_id))} small />
             <span className="inbox-text"><strong>{presenter(event)}</strong><span className="inbox-summary">{event.watch}</span></span>
             <time>{age(event.at)}</time>
-            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch} data-tip="Watch"><Icon name="watch" /></a>
+            <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch}><Icon name="watch" /></a>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
         {settled.length > 0 && <Disclosure kind="inbox-history" title={<>History <span className="column-count">{settled.length}</span></>}>
@@ -433,6 +433,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             const reopenError = candidate.kind === "credential" && reopenAttempt?.request.id === candidate.request.id ? reopenFeedback : "";
             const isUnfolded = unfolded.has(candidate.key);
             const detail = "history-detail-" + candidate.key;
+            const why = "history-why-" + candidate.key;
             // A folded row names a goblin by its first name alone, which leaves
             // the line to what it was about.
             const goblin = snapshot.tasks.find((task) => task.id === taskOf(candidate));
@@ -446,16 +447,16 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
               <HistoryMark icon={who === "you" ? "crown" : who === "away" ? "moon" : who === "cfo" || candidate.kind === "credential" && candidate.request.state === "answered" ? "comment" : mark.icon} tone={mark.tone} label={label} />
               <span className="inbox-text">
                 <span className="history-head"><strong>{asker}</strong><span className="inbox-summary">{linkedText(textOf(candidate))}</span></span>
-                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{linkedText(settledLabel(candidate, snapshot.actions))}</small>{reason && <small className="answer-reason">{linkedText(reason)}</small>}
+                <span className="history-detail" id={detail} hidden={!isUnfolded}><small>{linkedText(settledLabel(candidate, snapshot.actions))}</small>{reason && <small className="answer-reason">{linkedText(reason)}</small>}{changeBlock && <small id={why} className="answer-reason">{changeBlock}</small>}
                   {candidate.kind === "credential" && candidate.request.state === "saved" && <HistoryStoredCard request={candidate.request} asker={candidate.request.task ? askerOf(candidate) : "the CFO"} to={goblin ? goblin.id : ""} connected={connected} instance={snapshot.instance} />}</span>
                 <ClickFeedback text={reopenError} />
               </span>
               <time>{age(closedAt(candidate))}</time>
               <span className="history-actions">
-                <button className="icon-button history-open" aria-expanded={isUnfolded} aria-controls={detail} aria-label={"Open: " + askerOf(candidate) + ": " + textOf(candidate)} data-tip={isUnfolded ? "Fold" : "Open"} onClick={unfold}><Chevron collapsed={!isUnfolded} /></button>
+                <button className="icon-button history-open" aria-expanded={isUnfolded} aria-controls={detail} aria-label={"Open: " + askerOf(candidate) + ": " + textOf(candidate)} onClick={unfold}><Chevron collapsed={!isUnfolded} /></button>
                 <button className="icon-button raised history-change" aria-disabled={!!changeBlock || candidate.kind === "credential" && (!connected || !!reopenAttempt?.isPending)}
                   aria-label={(changeBlock ? "Nothing to change: " : candidate.kind === "question" ? "Change the answer to " : "Bring back: ") + askerOf(candidate) + ": " + textOf(candidate)}
-                  data-tip={changeBlock || (candidate.kind === "question" ? "Change answer" : reopenAttempt?.isPending && candidate.kind === "credential" && reopenAttempt.request.id === candidate.request.id ? "Bringing back" : "Bring back")} onClick={() => {
+                  aria-describedby={changeBlock ? why : undefined} onClick={() => {
                     if (changeBlock) return;
                     if (candidate.kind === "question") { setInbox(false); setChanging(candidate.question.id); }
                     else if (candidate.kind === "credential") void bringBack(candidate.request);
@@ -477,7 +478,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
         <header className="command-center-heading">
           <Avatar persona="cfo" />
           <h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2>
-          <button type="button" className="icon-button question-close" aria-label="Close the Command Center" data-tip="Close" onClick={close}><Icon name="close" /></button>
+          <button type="button" className="icon-button question-close" aria-label="Close the Command Center" onClick={close}><Icon name="close" /></button>
         </header>
         {changeQuestion
           ? <div className="card-stage">

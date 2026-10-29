@@ -34,13 +34,13 @@ export function DictationButton({ dictation, disabled, onClick }: { dictation: R
   };
   if (matchMedia(TOUCH_SCREEN).matches) {
     return <button type="button" className={"voice-bubble" + (dictation.listening ? " recording" : "")} aria-label={dictation.listening ? "Stop dictating" : "Dictate"}
-      aria-pressed={dictation.listening} data-tip={dictation.listening ? "Tap to add what you said" : "Tap to dictate"} disabled={disabled}
+      aria-pressed={dictation.listening} disabled={disabled}
       onPointerDown={(event) => event.preventDefault()} onClick={(event) => dictation.toggle(event.timeStamp)}>
       {dictation.listening ? <VoiceBars level={dictation.level} /> : <Icon name="mic" />}
     </button>;
   }
   return <button type="button" className={"voice-bubble" + (dictation.listening ? " recording" : "")} aria-label={dictation.listening ? "Listening" : "Hold to dictate"}
-    data-tip={dictation.listening ? "Release to add what you said" : "Hold to dictate"} disabled={disabled}
+    disabled={disabled}
     onPointerDown={hold} onPointerUp={release} onPointerCancel={dictation.stop}
     onKeyDown={(event) => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); dictation.start(event.timeStamp); } }}
     onKeyUp={(event) => { if (event.key === " " || event.key === "Enter") dictation.stop(); }}>

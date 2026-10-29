@@ -43,21 +43,25 @@ function isMoving(part: HTMLElement): boolean {
   return document.getAnimations().some(({ pending, playState, effect }) => (pending || playState === "running") && effect instanceof KeyframeEffect && !effect.pseudoElement && !!effect.target?.contains(part));
 }
 
-// Shows the board's tips until the function it returns is called. Every part
-// that carries data-tip shows that text in one tip floating over the whole
-// page, on the frame the pointer or the keyboard's focus comes to the part,
-// for as long as either stays, so no scrolling box clips a tip and every tip
-// can be kept on the screen beside its part (see place). While a part is
-// pointed at, its tip says what its part's data-tip says now and follows its
-// part: it is drawn again when the page scrolls, resizes or changes, and on
-// every frame for as long as the part itself moves or something runs that
-// can move it, as a card lifting under the pointer does. A tip beside a part
-// at rest asks for no frames. It goes
-// on the frame the part is left, has no tip or has left the page, and at any
-// press. A task card gains its tip, its shortened title in full, only once it
-// is pointed at, so it counts as a part from the start. A part inside a modal
-// dialog shows its tip inside the dialog, which is drawn over the rest of the
-// page. A card being dragged shows no tip.
+// Shows the board's tips until the function it returns is called. Only the
+// Board and Orchestration views show tips, where a card's or a node's details
+// come up on hover; the chat, its box, the top bar, the panel, the panes and
+// the Command Center show none, each control naming itself to assistive
+// technology alone (the Overlord, 2026-10-28: "Only need tool tips in board
+// and orchestration"). Every part there that carries data-tip shows that text
+// in one tip floating over the whole page, on the frame the pointer or the
+// keyboard's focus comes to the part, for as long as either stays, so no
+// scrolling box clips a tip and every tip can be kept on the screen beside
+// its part (see place). While a part is pointed at, its tip says what its
+// part's data-tip says now and follows its part: it is drawn again when the
+// page scrolls, resizes or changes, and on every frame for as long as the
+// part itself moves or something runs that can move it, as a card lifting
+// under the pointer does. A tip beside a part at rest asks for no frames. It
+// goes on the frame the part is left, has no tip or has left the page, and at
+// any press. A task card gains its tip, its shortened title in full, only
+// once it is pointed at, so it counts as a part from the start. A part inside
+// a modal dialog shows its tip inside the dialog, which is drawn over the rest
+// of the page. A card being dragged shows no tip.
 export function watchTips(): () => void {
   let part: HTMLElement | null = null, node: HTMLElement | null = null, frame = 0, stood = "";
   // Draws the tip against its part as both are now, and again on the next
@@ -97,7 +101,7 @@ export function watchTips(): () => void {
   // size, as it does when its font arrives after its text.
   const changes = new MutationObserver((records) => { if (records.some((record) => record.target !== node)) show(); });
   const sized = new ResizeObserver(show);
-  const partOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>("[data-tip], .task-card") : null;
+  const partOf = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>(".canvas-region :is([data-tip], .task-card)") : null;
   const point = (next: HTMLElement | null) => {
     if (next === part) return;
     part = next;

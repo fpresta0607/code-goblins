@@ -52,7 +52,7 @@ for (const viewport of [{ width: 1280, height: 1400 }, { width: 390, height: 844
     await context7.getByRole("button", { name: "Sign in to Context7" }).click();
     await expect(page).toHaveTitle("run:connections-login-fixture");
     await page.clock.runFor(5 * 60 * 1000);
-    await expect(context7.locator(".connector-trouble")).toHaveAttribute("data-tip", "Sign in: Sign-in required.");
+    await expect(context7.getByText("Sign in: Sign-in required.", { exact: true })).toBeVisible();
     expect(checks).toBe(1);
     await page.evaluate(() => (window as unknown as { finishRepair: (id: string) => void }).finishRepair("connections-login-fixture"));
     await expect(context7.locator(".connector-trouble")).toHaveCount(0);

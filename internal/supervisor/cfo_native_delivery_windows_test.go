@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -70,6 +71,77 @@ func TestBoardCommandsReachTheCFOWithoutAProsePrefix(t *testing.T) {
 				t.Fatalf("terminal input = %q; want the exact command once", lines)
 			}
 		})
+	}
+}
+
+// longMultiLineMessage is a message like the one #1740 lost the head of: a
+// pasted reply of 1,583 bytes over 24 lines, longer than one read of the
+// Claude Code that took it.
+func longMultiLineMessage() string {
+	lines := make([]string, 24)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("Line %02d of a reply the Overlord pasted, which doesn’t end here.", i+1)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestHisLongMultiLineMessageStartsAnIdleClaudeCFOsTurnWholeAndOnce(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "claude-ready")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	message := longMultiLineMessage()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, err := service.deliverMessage(ctx, Action{Kind: "message", Text: message})
+
+	// Assert
+	if err != nil || result.Awaiting != nil {
+		t.Fatalf("deliverMessage = %+v, %v; want it taken at once by the idle CFO", result, err)
+	}
+	lines := terminal.lines(t)
+	if len(lines) != 2 || lines[1] != "accepted "+oneLine(message) {
+		t.Errorf("terminal input = %q; want one submitted turn holding the whole message", lines)
+	}
+}
+
+func TestHisLongMultiLineMessageToAClaudeCFOInATurnIsTakenWholeOnce(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	message := longMultiLineMessage()
+	if _, err := store.Queue(Action{ID: "long-message", Kind: "message", Text: message}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	sent := store.Snapshot().Actions[0]
+	if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lines := terminal.waitForLines(t, 3)
+	takenInRecord(t, records, "claude", "session-1", "", strings.TrimPrefix(lines[1], "queued "))
+	if err := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
+		t.Fatal(err)
+	}
+	delivered := store.Snapshot().Actions[0]
+
+	// Assert
+	if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
+		t.Fatalf("send during the turn = %+v; want it sent and awaiting the CFO's next tool call", sent)
+	}
+	if want := []string{"queued " + oneLine(message), "accepted " + oneLine(message)}; len(lines) != 3 || lines[1] != want[0] || lines[2] != want[1] {
+		t.Errorf("terminal input = %q; want the whole message queued once and taken once", lines)
+	}
+	if delivered.Status != "succeeded" || delivered.Awaiting != nil {
+		t.Errorf("once the CFO's record shows it taken = %+v; want it delivered with its queued mark gone", delivered)
 	}
 }
 

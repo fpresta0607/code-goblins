@@ -56,7 +56,7 @@ for (const width of [1707, 390]) {
     await expect(accent.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
     await expect(tenants.getByRole("img", { name: "The CFO answered while you were away" })).toBeVisible();
     await expect(rows.getByRole("button", { name: /^Change the answer to / })).toHaveCount(4);
-    await expect(merge.getByRole("button", { name: "Change the answer to The CFO: Merge PocketPiggies 125? CI is green on current main." })).toHaveAttribute("data-tip", "Change answer");
+    await expect(merge.getByRole("button", { name: "Change the answer to The CFO: Merge PocketPiggies 125? CI is green on current main." })).toBeVisible();
     const overflow = await page.locator(".command-center-updates").evaluate((element) => element.scrollWidth - element.clientWidth);
     expect(overflow).toBe(0);
     await page.locator(".command-center-updates").screenshot({ path: testInfo.outputPath(`history-${width}.png`) });
