@@ -11,7 +11,9 @@ const FADE_MS = 400;
 // box moves (the Overlord, 2026-10-29: "a little banner right above the chat
 // input that is only temporary, goes away slightly and doesn't move the
 // screen up"). Its box keys it by each notice, so each shows anew; isRefusal
-// says it is a refusal, read out at once.
+// says it is a refusal, read out at once. Any other notice is the box's note,
+// which a screen reader hears from the box's own status line, so the banner
+// does not read it a second time.
 export function ComposerBanner({ text, isRefusal }: { text: string; isRefusal: boolean }) {
   const [stage, setStage] = useState<"shown" | "leaving" | "gone">("shown");
   useEffect(() => {
@@ -21,5 +23,5 @@ export function ComposerBanner({ text, isRefusal }: { text: string; isRefusal: b
     return () => { clearTimeout(leave); clearTimeout(gone); };
   }, [text]);
   if (!text || stage === "gone") return null;
-  return <p className={"composer-banner" + (isRefusal ? " refusal" : "") + (stage === "leaving" ? " leaving" : "")} role={isRefusal ? "alert" : "status"}>{text}</p>;
+  return <p className={"composer-banner" + (isRefusal ? " refusal" : "") + (stage === "leaving" ? " leaving" : "")} role={isRefusal ? "alert" : undefined} aria-hidden={isRefusal ? undefined : true}>{text}</p>;
 }

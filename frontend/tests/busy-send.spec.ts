@@ -142,7 +142,8 @@ test("Cancel takes a message held for the CFO's turn back, and its bubble goes",
   // terminal, and once the board has taken it back the bubble goes.
   await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_withdraw"]);
   expect(posts[1]).toMatchObject({ task: "", target: posts[0].id, text: "stop and wait for me" });
-  await expect(page.locator(".composer-banner")).toHaveCount(0);
+  await expect(shown.locator(".queued-actions")).toHaveCount(0);
+  expect(await page.locator(".composer-banner").count()).toBe(0);
   expect(typed(relay)).toBe("");
   await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, actions: [] }));
   await expect(shown).toHaveCount(0);
@@ -218,7 +219,8 @@ for (const harness of ["claude", "codex", "pi"]) {
     expect(typed(relay), "nothing typed onto the prompt line").toBe("");
     // He assumes it queues, so no note says so (2026-10-28: "this text not
     // needed on working goblins resumes are assumed").
-    await expect(box(page).locator(".composer-banner")).toHaveCount(0);
+    await expect(field(page)).toBeEnabled();
+    expect(await box(page).locator(".composer-banner").count()).toBe(0);
     await expect(page.locator(".context-pane")).not.toContainText(/Send to queue|will be queued/);
   });
 }

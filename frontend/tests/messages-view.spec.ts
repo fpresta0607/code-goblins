@@ -698,7 +698,7 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   const who = "Pia - Pi Pilot";
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
   await expect(messageBox(page, who)).toHaveAttribute("data-queues", "");
-  await expect(messageBox(page, who).locator(".composer-banner")).toHaveCount(0);
+  expect(await messageBox(page, who).locator(".composer-banner").count()).toBe(0);
 
   // Act: he sends while the input is held.
   const typedBefore = board.say;

@@ -136,7 +136,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
 
   relay.say({ type: "unread", unread: true });
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveCount(0);
+  expect(await note.count()).toBe(0);
   await expect(send(page)).toBeEnabled();
   await field(page).press("Enter");
   await expect.poll(() => actions.length).toBe(1);
@@ -144,7 +144,8 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await expect(field(page)).toHaveValue("");
   await field(page).fill("merge it");
   relay.say({ type: "unread", unread: false });
-  await expect(note).toHaveCount(0);
+  await expect(box(page)).not.toHaveAttribute("data-queues", "");
+  expect(await note.count()).toBe(0);
   await expect(send(page)).toBeEnabled();
   await expect(field(page)).toHaveValue("merge it");
   relay.say({ type: "held", reason: "pipeline owns this task" });
@@ -152,7 +153,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   // usable, and no note says so: he assumes it (the Overlord, 2026-10-28:
   // "this text not needed on working goblins resumes are assumed").
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveCount(0);
+  expect(await note.count()).toBe(0);
   await expect(send(page)).toBeEnabled();
   relay.say({ type: "held", reason: "" });
   await expect(send(page)).toBeEnabled();
@@ -167,8 +168,9 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await send(page).click();
 
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveCount(0);
   await expect(field(page)).toHaveValue("");
+  await expect(field(page)).toBeEnabled();
+  expect(await note.count()).toBe(0);
   expect(actions).toHaveLength(2);
   expect(actions[1]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "merge it" });
   await page.waitForTimeout(1500);
@@ -402,7 +404,7 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // usable so the message is queued.
   await expect(page.locator(".terminal-held")).toHaveCount(0);
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveCount(0);
+  expect(await note.count()).toBe(0);
   await expect(field(page)).toBeVisible();
   await field(page).fill("send this while the check fails");
   await expect(send(page)).toBeEnabled();
@@ -428,7 +430,8 @@ test("a failing custody check shows no banner over the conversation and keeps th
   relay.say({ type: "held", reason: "" });
 
   // Assert: the note is clear again and the message has not been typed twice.
-  await expect(note).toHaveCount(0);
+  await expect(box(page)).not.toHaveAttribute("data-queues", "");
+  expect(await note.count()).toBe(0);
   expect(typed(relay), "a queued message is not typed on release by this path").toEqual(before);
 });
 

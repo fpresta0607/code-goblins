@@ -39,7 +39,7 @@ for (const style of ["modern"]) {
         // Act and Assert: routine waiting is shown once, beside its one input.
         await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
         await expect(send(page)).toBeInViewport();
 
@@ -63,11 +63,12 @@ for (const style of ["modern"]) {
 
         // Assert
         await expect(field(page)).toHaveValue("");
+        await expect(field(page)).toBeEnabled();
         expect(requests).toHaveLength(2);
         expect(requests[1]).toEqual(requests[0]);
         expect(requests[0]).toMatchObject({ text: sentText });
-        await expect(box(page).getByRole("alert")).toHaveCount(0);
-        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
+        expect(await box(page).getByRole("alert").count()).toBe(0);
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         expect(typed(relay)).toBe(before);
 
         // Act: the durable entry remains after the hold changes.
@@ -128,7 +129,7 @@ for (const style of ["modern"]) {
         await field(page).fill("Read this after the current turn");
         await expect(page.getByText("Program busy. Typed keys are waiting.").filter({ visible: true })).toHaveCount(0);
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(1);
@@ -144,7 +145,7 @@ for (const style of ["modern"]) {
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(2);
@@ -217,7 +218,8 @@ for (const style of ["modern"]) {
             expect(retry).toEqual(submission);
           } else {
             await expect(field(page)).toHaveValue("");
-            await expect(box(page).getByRole("alert")).toHaveCount(0);
+            await expect(field(page)).toBeEnabled();
+            expect(await box(page).getByRole("alert").count()).toBe(0);
           }
           expect(typed(relay)).toBe(before);
         }
@@ -433,7 +435,8 @@ for (const style of ["modern"]) {
       await page.keyboard.type("recovery");
       relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
       await expect(box(page)).toHaveAttribute("data-queues", "");
-      await expect(note).toHaveCount(0);
+      await expect(box(page).getByRole("status")).toHaveText("");
+      expect(await note.count()).toBe(0);
       relay.say({ type: "held", reason: "" });
       await expect(field(page)).toHaveValue("Keep this until recovery");
       expect(typed(relay)).toBe("");

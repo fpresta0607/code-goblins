@@ -348,7 +348,7 @@ test("Send now and Cancel each reach the board once, however often he presses th
   // Assert
   await expect(sendNow).toHaveCount(0);
   await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
-  await expect(page.locator(".composer-banner")).toHaveCount(0);
+  expect(await page.locator(".composer-banner").count()).toBe(0);
   expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
@@ -410,6 +410,37 @@ for (const [press, said] of [["Send now", "Its gate holds the branch."], ["Cance
     await expect(banner).toHaveText(said);
   });
 }
+
+// What a press on a queued message could not do is said over the box and
+// nowhere else: it is no work of the box's own, so the box a hold showed
+// beside its terminal goes with the hold, as it would had he pressed nothing.
+test("a refused Cancel in the box beside a held terminal does not keep the box once its banner has gone and the hold ends", async ({ page }) => {
+  // Arrange: Zeke's terminal stepped into the Modern conversation's place, as
+  // a harness screen's Show the terminal does, and held, so the box shows
+  // beside it with his waiting message; the board refuses its Cancel.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  const relay = await open(page, snapshot({ actions: [queued()] }));
+  await openGoblin(page);
+  await field(page).fill("/resume");
+  await field(page).press("Enter");
+  await expect.poll(() => relay.submissions.length).toBe(1);
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
+  await box(page).getByRole("button", { name: "Show the terminal", exact: true }).click();
+  await expect(box(page)).toBeHidden();
+  relay.say({ type: "held", reason: "pipeline owns this task" });
+  await page.route("**/api/actions", (route) => route.fulfill({ status: 409, json: { error: NOT_WAITING } }));
+  const banner = box(page).locator(".composer-banner");
+  await box(page).locator(".queued-message.queue").getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(banner).toHaveText(NOT_WAITING);
+  await expect(banner).toHaveCount(0, { timeout: 8000 });
+
+  // Act
+  relay.say({ type: "held", reason: "" });
+
+  // Assert
+  await expect(box(page)).toBeHidden();
+});
 
 const KEPT = "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.png";
 // controls reads a queued entry's buttons as they are drawn: name, look and

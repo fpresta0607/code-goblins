@@ -138,13 +138,9 @@ test("holding the microphone dictates into the box for a paused goblin, through 
   expect(posted, "dictating sends nothing by itself").toEqual([]);
 });
 
-// The Overlord, 2026-10-29, of "Nothing was heard." as a line under the box:
-// it should be "a little banner right above the chat input that is only
-// temporary, goes away slightly and doesn't move the screen up".
-test("a hold with nothing said in it says Nothing was heard over the box, for a moment, and moves nothing", async ({ page }) => {
-  // Arrange: the microphone hears silence, in which the speech model hears no
-  // words.
-  const { box } = await openBernie(page, bernie(["i can message?"]));
+// hearSilence has the microphone hear silence, in which the speech model
+// hears no words.
+async function hearSilence(page: Page) {
   await page.route("**/api/dictation", (route) => route.request().method() === "GET"
     ? route.fulfill({ json: { engine: "test-model", state: "ready" } })
     : route.fulfill({ json: { text: "", engine: "test-model" } }));
@@ -155,25 +151,72 @@ test("a hold with nothing said in it says Nothing was heard over the box, for a 
       return context.createMediaStreamDestination().stream;
     };
   });
-  const draft = box.getByRole("textbox", { name: "Message Bernie - Merge Maestro" });
-  await draft.fill("please");
-  const before = await draft.boundingBox();
+}
 
-  // Act
+// holdMicrophone holds the box's microphone for a moment and lets it go.
+async function holdMicrophone(page: Page, box: ReturnType<Page["locator"]>) {
   await box.getByRole("button", { name: "Hold to dictate" }).hover();
   await page.mouse.down();
   await expect(box.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
   await page.waitForTimeout(1200);
   await page.mouse.up();
+}
 
-  // Assert: the banner says it over the box, the box stays where it was, and
-  // the banner goes by itself.
+// The Overlord, 2026-10-29, of "Nothing was heard." as a line under the box:
+// it should be "a little banner right above the chat input that is only
+// temporary, goes away slightly and doesn't move the screen up".
+test("a hold with nothing said in it says Nothing was heard over the box, for a moment, and moves nothing", async ({ page }) => {
+  // Arrange: the microphone hears silence, and a screen reader listens to the
+  // box's status line, there before anything is said in it.
+  const { box } = await openBernie(page, bernie(["i can message?"]));
+  await hearSilence(page);
+  const draft = box.getByRole("textbox", { name: "Message Bernie - Merge Maestro" });
+  await draft.fill("please");
+  const before = await draft.boundingBox();
+  await expect(box.getByRole("status")).toHaveText("");
+  const spoken = await box.getByRole("status").elementHandle();
+
+  // Act
+  await holdMicrophone(page, box);
+
+  // Assert: the banner says it over the box, the same status line says it to
+  // a screen reader, the box stays where it was, and the banner goes by
+  // itself.
   const banner = box.locator(".composer-banner");
   await expect(banner).toHaveText("Nothing was heard.");
+  expect(await spoken.evaluate((line) => line.isConnected && line.textContent)).toBe("Nothing was heard.");
   expect(await draft.boundingBox()).toEqual(before);
   await expect(draft).toHaveValue("please");
   await expect(banner).toHaveCount(0, { timeout: 8000 });
 });
+
+// A refusal shows over the box until its banner goes, and leaves no trace
+// there to hide the next notice behind.
+for (const press of ["Send", "Cancel"] as const) {
+  test(`after a refused ${press} has gone from over the box, a hold with nothing said in it still says Nothing was heard there`, async ({ page }) => {
+    // Arrange: a message of his waits for Bernie, the board refuses whatever
+    // he asks of it, and the microphone hears silence.
+    const first = bernie(["i can message?"]);
+    first.actions.push({ id: "waiting", kind: "message", task_id: "bernie", generation: "s1", status: "queued", message: "Kept until Bernie resumes.", text: "wait for me", updated_at: PAUSED_AT });
+    const { box } = await openBernie(page, first);
+    await page.route("**/api/actions", (route) => route.fulfill({ status: 503, json: { error: "The board is restarting." } }));
+    await hearSilence(page);
+    const draft = box.getByRole("textbox", { name: "Message Bernie - Merge Maestro" });
+    const banner = box.locator(".composer-banner");
+    await draft.fill("please");
+    if (press === "Send") await box.getByRole("button", { name: "Send", exact: true }).click();
+    else await page.locator(".queued-message.pane").filter({ hasText: "wait for me" }).getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(banner).toContainText("The board is restarting.");
+    await expect(banner).toHaveCount(0, { timeout: 8000 });
+
+    // Act
+    await holdMicrophone(page, box);
+
+    // Assert
+    await expect(banner).toHaveText("Nothing was heard.");
+    await expect(draft).toHaveValue("please");
+  });
+}
 
 for (const style of ["classic", "modern"]) {
   for (const hasHistory of [false, true]) {

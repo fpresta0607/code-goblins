@@ -32,7 +32,7 @@ for (const width of [393, 1280]) {
     // Assert: the box queues, and nothing moved.
     await expect(box(page)).toHaveAttribute("data-queues", "");
     expect(await places(page)).toEqual(before);
-    await expect(box(page).locator(".composer-banner")).toHaveCount(0);
+    expect(await box(page).locator(".composer-banner").count()).toBe(0);
 
     // Act: it comes back.
     const views = relay.views;

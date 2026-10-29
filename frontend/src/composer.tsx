@@ -148,11 +148,18 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
   // Why the last Send found no terminal to type into, or why a paste could
-  // not be kept, until the draft changes. Each refusal is counted, so the
-  // banner over the box shows the same words again for a second press.
-  const [refusal, setRefusal] = useState({ text: "", count: 0 });
-  const unsent = refusal.text;
-  const setUnsent = useCallback((text: string) => setRefusal((prior) => text ? { text, count: prior.count + 1 } : prior.text ? { text, count: prior.count } : prior), []);
+  // not be kept, until the draft changes.
+  const [unsent, setUnsentText] = useState("");
+  // What the banner over the box says, and whose it is: a refusal of the
+  // box's own, which goes once the draft changes, a refusal of a press on one
+  // of its queued messages, or its note. The latest shows, and each is
+  // counted, so the same words show again for a second press.
+  const [notice, setNotice] = useState<{ text: string; from: "box" | "queued" | "note"; count: number }>({ text: "", from: "note", count: 0 });
+  const [noticedNote, setNoticedNote] = useState("");
+  const setUnsent = (text: string) => {
+    setUnsentText(text);
+    setNotice((prior) => text ? { text, from: "box", count: prior.count + 1 } : prior.from === "box" && prior.text ? { ...prior, text: "" } : prior);
+  };
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [isStyleOpen, setStyleOpen] = useState(false);
   // A touch screen's + opens a menu of its two ways to add a picture.
@@ -608,14 +615,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     return () => window.removeEventListener(TAKE_BACK_MESSAGE, takeBack);
   });
   // What a press on one of this session's queued messages could not do says
-  // so over the box, as the box's own refusals do.
+  // so over the box, as the box's own refusals do, but only there: it is no
+  // refusal of the draft, so it never keeps the box.
   useEffect(() => {
     const refused = (event: Event) => {
-      if (event instanceof CustomEvent && event.detail.task === (task?.id ?? "")) setUnsent(event.detail.text);
+      if (event instanceof CustomEvent && event.detail.task === (task?.id ?? "")) setNotice((prior) => ({ text: event.detail.text, from: "queued", count: prior.count + 1 }));
     };
     window.addEventListener(QUEUED_NOTICE, refused);
     return () => window.removeEventListener(QUEUED_NOTICE, refused);
-  }, [task?.id, setUnsent]);
+  }, [task?.id]);
   // Up in an empty box, or on the first line of a message it recalled,
   // brings back what he sent before, newest first, as the terminal does, and
   // Down walks forward again to the empty box; any edit ends the recall.
@@ -692,6 +700,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // with no branch to work on says why its messages wait.
   const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready." : "";
   const note = terminalFeedback || (adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : live?.feedback || dictation.note || queueNote);
+  // A note that changes shows over the box in place of whatever showed there,
+  // and one that ends takes its own banner with it.
+  if (note !== noticedNote) {
+    setNoticedNote(note);
+    setNotice((prior) => note ? { text: note, from: "note", count: prior.count + 1 } : prior.from === "note" ? { ...prior, text: "" } : prior);
+  }
   // Without a conversation, even a Modern panel needs the queue here.
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
@@ -703,7 +717,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
   return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
-    <ComposerBanner key={refusal.count + ":" + (unsent || note)} text={unsent || note} isRefusal={!!unsent} />
+    {/* A screen reader hears the note from this line, which stays as its
+        words change, and a refusal from its banner at once. */}
+    <p className="sr-only" role="status">{note}</p>
+    <ComposerBanner key={notice.count} text={notice.text} isRefusal={notice.from !== "note"} />
     {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
