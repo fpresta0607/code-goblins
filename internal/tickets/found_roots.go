@@ -52,7 +52,17 @@ var (
 	errorQuoted = regexp.MustCompile(`"[^"]*"|'[^']*'`)
 	errorHex    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 	errorNumber = regexp.MustCompile(`\d+`)
+	// lostConnection is how gh, git and Go say a host could not be reached
+	// at all: a lost connection to the internet, not a defect in this code.
+	lostConnection = regexp.MustCompile(`(?i)error connecting to [a-z0-9-]+(?:\.[a-z0-9-]+)+|check your internet connection|could not resolve host|failed to connect to \S+ port|no such host|network is unreachable|temporary failure in name resolution`)
 )
+
+// IsLostConnection says a line of the supervisor's errors means the network
+// could not be reached, which clears when the machine is online again and is
+// no root to file.
+func IsLostConnection(line string) bool {
+	return lostConnection.MatchString(line)
+}
 
 // ErrorClass is a line of the supervisor's errors with what changes from one
 // sighting to the next taken out: paths, quoted text, hashes and numbers. Two
