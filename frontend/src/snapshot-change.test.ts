@@ -11,6 +11,9 @@ const cases: { name: string; held: unknown; change: unknown; next: unknown }[] =
   { name: "an item that changed, by its id", held: [{ id: "x", n: 1 }, { id: "y", n: 1 }], change: { items: { y: { keys: { n: { value: 2 } } } } }, next: [{ id: "x", n: 1 }, { id: "y", n: 2 }] },
   { name: "an item that came, with every id in order", held: [{ id: "x" }], change: { order: ["y", "x"], items: { y: { value: { id: "y", n: 1 } } } }, next: [{ id: "y", n: 1 }, { id: "x" }] },
   { name: "an item that went", held: [{ id: "x" }, { id: "y" }], change: { order: ["y"] }, next: [{ id: "y" }] },
+  { name: "an item that went, named alone", held: [{ id: "x" }, { id: "y" }, { id: "z" }], change: { removed: ["y"] }, next: [{ id: "x" }, { id: "z" }] },
+  { name: "an item that came at the end, named alone", held: [{ id: "x" }, { id: "y" }], change: { appended: ["z"], items: { z: { value: { id: "z", n: 1 } } } }, next: [{ id: "x" }, { id: "y" }, { id: "z", n: 1 }] },
+  { name: "the oldest item that went and one that came at the end, named alone", held: [{ id: "w" }, { id: "x" }, { id: "y" }], change: { removed: ["w"], appended: ["z"], items: { z: { value: { id: "z" } } } }, next: [{ id: "x" }, { id: "y" }, { id: "z" }] },
   { name: "items that moved", held: [{ id: "x" }, { id: "y" }], change: { order: ["y", "x"] }, next: [{ id: "y" }, { id: "x" }] },
   { name: "a list sent whole", held: [1, 2], change: { value: [1, 3] }, next: [1, 3] },
   { name: "a value of another kind", held: { a: { b: 1 } }, change: { keys: { a: { value: null } } }, next: { a: null } },
@@ -47,6 +50,7 @@ const misfits: { name: string; held: unknown; change: unknown }[] = [
   { name: "keys for a value that is no object", held: [1], change: { keys: { a: { value: 1 } } } },
   { name: "items for a value that is no list", held: { a: 1 }, change: { order: ["x"] } },
   { name: "an id the board does not hold", held: [{ id: "x" }], change: { order: ["x", "y"] } },
+  { name: "an appended id with no item", held: [{ id: "x" }], change: { appended: ["y"] } },
   { name: "a change that is no object", held: { a: 1 }, change: 3 },
 ];
 
