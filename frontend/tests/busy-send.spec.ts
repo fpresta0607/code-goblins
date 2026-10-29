@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, field, GOBLIN, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
+import { at, box, field, GOBLIN, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "im not seeing queued messages appear in the
 // modern chat right away, it lags", "there's no edit or send now function
