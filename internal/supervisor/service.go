@@ -778,11 +778,16 @@ func (s *Service) letGoOfWatchLock() {
 }
 
 func (s *Service) cycle(ctx context.Context, recover bool) {
-	watched, fleetReadErr := readFleetWakes(s.Store.Home.State)
+	// A cycle runs on each hook event and each save, many a minute, and the
+	// fleet wakes change about once a minute, so they are read again only
+	// once their file changed (#1716).
+	watched, fleetReadErr := kept(&s.reads, "fleet wakes", []string{fleetWakesPath(s.Store.Home.State)}, func() (fleetWakes, error) {
+		return readFleetWakes(s.Store.Home.State)
+	})
+	localReports, localReadErr := s.readLocalReports()
 	s.mu.Lock()
 	s.workProgress, s.ciDurations, s.sameArea, s.progressReadErr = watched.Progress, watched.Durations, watched.SameArea, fleetReadErr
 	s.hostedChecks, s.deploys = watched.Hosted, watched.Deploys
-	localReports, localReadErr := s.readLocalReports()
 	s.localReports, s.localReadErr = localReports, localReadErr
 	s.mu.Unlock()
 	before := s.Store.Snapshot().Revision
