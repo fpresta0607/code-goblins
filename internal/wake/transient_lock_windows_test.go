@@ -13,9 +13,9 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
-// holdOpen opens path with share and closes it after hold, as another
-// process reading or replacing the queue would.
-func holdOpen(t *testing.T, path string, share uint32, hold time.Duration) <-chan struct{} {
+// openHeld opens path with share, as another process reading or replacing
+// the queue would, and returns the handle that holds it until closed.
+func openHeld(t *testing.T, path string, share uint32) windows.Handle {
 	t.Helper()
 	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
@@ -25,6 +25,13 @@ func holdOpen(t *testing.T, path string, share uint32, hold time.Duration) <-cha
 	if err != nil {
 		t.Fatal(err)
 	}
+	return handle
+}
+
+// holdOpen opens path with share and closes it after hold.
+func holdOpen(t *testing.T, path string, share uint32, hold time.Duration) <-chan struct{} {
+	t.Helper()
+	handle := openHeld(t, path, share)
 	released := make(chan struct{})
 	go func() {
 		time.Sleep(hold)
@@ -185,6 +192,10 @@ func TestAppendWaitsOutAReleasedLockRecordStillBeingDeleted(t *testing.T) {
 // its five seconds and raised a supervisor error. An acknowledgement keeps
 // its notices before it takes the lock, so a slow notice costs the
 // acknowledgement a wait and every other writer nothing.
+//
+// The notices are held until the notify returns, not for a set time: held for
+// 3 s, they were let go first in CI run 40162498208, where a loaded runner
+// slowed the notify alone past them (#1498).
 func TestANotifyLandsWhileAnAcknowledgementWaitsOnANotice(t *testing.T) {
 	// Arrange
 	dir := t.TempDir()
@@ -198,27 +209,28 @@ func TestANotifyLandsWhileAnAcknowledgementWaitsOnANotice(t *testing.T) {
 	if err := keepNoticed(dir, []Record{done}); err != nil {
 		t.Fatal(err)
 	}
-	released := holdOpen(t, filepath.Join(dir, noticedFile), 0, 3*time.Second)
+	notices := openHeld(t, filepath.Join(dir, noticedFile), 0)
 	acknowledged := make(chan error, 1)
 
 	// Act
 	go func() { acknowledged <- AckThrough(dir, done.Seq) }()
 	time.Sleep(300 * time.Millisecond)
 	_, err = Append(dir, "notify", "g2", "working: g2")
-	isLate := false
+	var ackErr error
+	isAcknowledged := false
 	select {
-	case <-released:
-		isLate = true
+	case ackErr = <-acknowledged:
+		isAcknowledged = true
 	default:
 	}
+	windows.CloseHandle(notices)
 
 	// Assert
-	if err != nil || isLate {
-		t.Errorf("a notify during the acknowledgement: %v, landed only after the notice was let go = %t, want it landed while the acknowledgement still waited", err, isLate)
+	if err != nil || isAcknowledged {
+		t.Fatalf("a notify while the acknowledgement waited on its notice: %v, the acknowledgement ended first = %t (%v), want the notify landed while it still waited", err, isAcknowledged, ackErr)
 	}
-	<-released
 	if err := <-acknowledged; err != nil {
-		t.Fatalf("AckThrough while its notice was held for 3 s: %v", err)
+		t.Fatalf("AckThrough while its notice was held through a notify: %v", err)
 	}
 	records, err := Pending(dir)
 	if err != nil || len(records) != 1 || records[0].Key != "g2" {
