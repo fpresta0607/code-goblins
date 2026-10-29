@@ -573,25 +573,36 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
 // alive while it has nothing to send, so a stream silent for 15 s stalled.
 test("a message stream that falls silent says Reconnecting and opens again with the newest messages", async ({ page }) => {
   // Arrange: the CFO's chat reads Answer 99, and the conversation goes on to
-  // Answer 101 while its stream is silent.
+  // Answer 101 while its stream is silent. Reconnecting shows only until the
+  // stream opened again sends its page, which the clock can fire in the same
+  // run, so a watch on the view records it.
   await page.clock.install();
   await open(page);
   await openCfo(page);
   const talk = list(page, "CFO");
   await expect(talk).toContainText("Answer 99");
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
-  await page.evaluate((newest) => Object.assign(window, { fixtureSilent: true, fixtureCfoPage: newest }), { messages: range(52, 102), more: true });
-  const reconnecting = page.locator(".messages-view").getByRole("status").filter({ hasText: "Reconnecting" });
+  await page.evaluate((newest) => {
+    Object.assign(window, { fixtureSilent: true, fixtureCfoPage: newest });
+    const view = document.querySelector(".messages-view:not([hidden])")!;
+    const watch = new MutationObserver(() => {
+      if (view.querySelector(".terminal-corner")?.textContent !== "Reconnecting") return;
+      Object.assign(window, { saidReconnecting: true });
+      watch.disconnect();
+    });
+    watch.observe(view, { subtree: true, childList: true, characterData: true });
+  }, { messages: range(52, 102), more: true });
 
-  // Act
+  // Act: 15 s pass with no word from the stream, and the stream opened again
+  // sends its page.
   await page.clock.runFor(15_000);
+  await expect.poll(() => streams(page)).toBe(2);
+  await page.clock.runFor(100);
 
   // Assert
-  await expect(reconnecting).toBeVisible();
-  await page.clock.runFor(100);
   await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
-  await expect(reconnecting).toHaveCount(0);
-  expect(await streams(page)).toBe(2);
+  await expect(page.locator(".messages-view").getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(0);
+  expect(await page.evaluate(() => "saidReconnecting" in window), "it said Reconnecting while it opened the stream again").toBe(true);
 });
 
 test("a message stream that says it is alive stays open while nothing happens", async ({ page }) => {
