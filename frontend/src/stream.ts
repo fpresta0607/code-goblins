@@ -5,9 +5,10 @@
 // client-driven task progression.
 // After its first snapshot the supervisor sends only changes to it, the
 // Command Center's items the moment one changes among them, which the board
-// applies to the snapshot it holds.
+// applies to the snapshot it holds, and each build's time, revision and meters
+// apart.
 import { useEffect, useState } from "react";
-import { parseSnapshot, type Snapshot } from "./types";
+import { object, parseReadings, parseSnapshot, type Snapshot } from "./types";
 import { knowInstance, message, reportToCfo } from "./api";
 import { applyChange } from "./snapshot-change";
 import { shared } from "./shared";
@@ -73,6 +74,22 @@ export function useRuntimeStream() {
         } catch (error: unknown) {
           // What the board holds no longer matches what the stream goes on
           // from, so it opens the stream again for a whole snapshot.
+          reportToCfo("the board's snapshot stream", message(error));
+          reconnect();
+        }
+      });
+      // A reading, the snapshot's time, revision and meters, is laid over the
+      // snapshot the board shows without parsing the fleet it holds again. It
+      // comes after the change of its build, so a click waiting for that
+      // revision sees the change first.
+      source.addEventListener("meters", (event: MessageEvent<string>) => {
+        if (cancelled) return;
+        try {
+          held = applyChange(held, JSON.parse(event.data));
+          const readings = parseReadings(object(held));
+          setSnapshot((current) => current && shared(current, { ...current, ...readings }));
+          setReceivedAt(Date.now());
+        } catch (error: unknown) {
           reportToCfo("the board's snapshot stream", message(error));
           reconnect();
         }

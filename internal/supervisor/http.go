@@ -145,6 +145,15 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, waiting.Look{Instance: instance, Items: items})
+	case r.URL.Path == "/api/items/closed" && r.Method == "GET":
+		// History when it opens, or the question the Overlord opened a
+		// Change answer on from elsewhere, such as his AFK report.
+		items := boardItems(h.Service.Store.Snapshot())
+		if id := r.URL.Query().Get("question"); id != "" {
+			respond(w, 200, Items{Questions: slices.DeleteFunc(items.Questions, func(question Question) bool { return question.ID != id })})
+		} else {
+			respond(w, 200, history(items))
+		}
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		h.stream(w, r)
 	case r.URL.Path == "/api/terminal/stream" && r.Method == "POST":
@@ -393,12 +402,14 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 	// view is what the board holds, key by key, as this stream last sent it,
 	// and nil before its first snapshot: every event after that one is a
 	// change to it, so the board receives only what changed. sent is the
-	// items the board has, as they were last sent to it.
-	var view map[string]json.RawMessage
+	// items the board has, as they were last sent to it. readings are the
+	// snapshot's time, revision and meters as the board was last sent them,
+	// which go after each change in an event of their own (see takeReadings).
+	var view, readings map[string]json.RawMessage
 	var sent []byte
-	sendChange := func(next map[string]json.RawMessage) error {
-		changed, isChanged := changeOfKeys(view, next)
-		view = next
+	sendChange := func(event string, held *map[string]json.RawMessage, next map[string]json.RawMessage) error {
+		changed, isChanged := changeOfKeys(*held, next)
+		*held = next
 		if !isChanged {
 			return nil
 		}
@@ -406,7 +417,7 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		return send("event: change\ndata: %s\n\n", data)
+		return send("event: %s\ndata: %s\n\n", event, data)
 	}
 	begin(h.Service.Revision())
 	for {
@@ -435,12 +446,13 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			next := keysOf(data)
+			read := takeReadings(next)
 			if view == nil {
 				if send("id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data) != nil {
 					return
 				}
-				view = next
-			} else if sendChange(next) != nil {
+				view, readings = next, read
+			} else if sendChange("change", &view, next) != nil || sendChange("meters", &readings, read) != nil {
 				return
 			}
 			if stale {
@@ -459,7 +471,9 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 				}
 				next := maps.Clone(view)
 				maps.Copy(next, keysOf(data))
-				if sendChange(next) != nil {
+				read := maps.Clone(readings)
+				maps.Copy(read, takeReadings(next))
+				if sendChange("change", &view, next) != nil || sendChange("meters", &readings, read) != nil {
 					return
 				}
 				sent = body

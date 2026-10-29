@@ -182,7 +182,7 @@ func decidedForHim() Entry {
 // hisStep is a step only the Overlord can take: his own sign-in, which the
 // CFO cannot give, with why and its backlog row.
 func hisStep() Entry {
-	return Entry{Kind: KindHis, What: "Sign in to Vercel for pd-auth", Link: "https://vercel.com/login", Evidence: "Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export"}
+	return Entry{Kind: KindHis, What: "Sign in to Vercel for pd-auth", Link: "https://vercel.com/login", Evidence: "Vercel asks for his own sign-in in a browser. Backlog row pd-auth-vercel-sign-in, pd-auth moved to the invoice export", Options: []string{"I signed in", "Park pd-auth"}, Recommendation: "I signed in"}
 }
 
 // Under AFK mode the CFO answers a decision itself and acts on its answer:

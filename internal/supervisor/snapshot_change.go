@@ -10,14 +10,18 @@ import (
 // sent next: the new value whole, or for an object the keys whose values
 // changed and the keys it lost, or for a list whose items each carry an id of
 // their own the items that changed by id, and every id in order when items
-// came, went or moved. Between two snapshots a few live goblins' clocks and the
-// meters move, and each snapshot was the whole fleet, a megabyte (#1611).
+// came, went or moved, or only the ids that went and those that came at its
+// end when that names fewer. Between two snapshots a few live goblins' clocks
+// and the meters move, and each snapshot was the whole fleet, a megabyte
+// (#1611).
 type boardChange struct {
-	Value json.RawMessage        `json:"value,omitempty"`
-	Keys  map[string]boardChange `json:"keys,omitempty"`
-	Gone  []string               `json:"gone,omitempty"`
-	Order []string               `json:"order,omitempty"`
-	Items map[string]boardChange `json:"items,omitempty"`
+	Value    json.RawMessage        `json:"value,omitempty"`
+	Keys     map[string]boardChange `json:"keys,omitempty"`
+	Gone     []string               `json:"gone,omitempty"`
+	Order    []string               `json:"order,omitempty"`
+	Removed  []string               `json:"removed,omitempty"`
+	Appended []string               `json:"appended,omitempty"`
+	Items    map[string]boardChange `json:"items,omitempty"`
 }
 
 // changeOf is the change from held to next, and false when they are the
@@ -136,6 +140,24 @@ func changeOfKeys(held, next map[string]json.RawMessage) (boardChange, bool) {
 	return out, out.Keys != nil || out.Gone != nil
 }
 
+// readingKeys are what every build moves, the snapshot's time and revision,
+// and what nearly every build moves, its meters, which a stream sends as a
+// change of their own, so a board takes a reading without parsing the fleet it
+// holds again (#1611).
+var readingKeys = []string{"at", "revision", "memory", "disk", "processors", "gpu"}
+
+// takeReadings takes the readings out of a snapshot's keys.
+func takeReadings(keys map[string]json.RawMessage) map[string]json.RawMessage {
+	readings := map[string]json.RawMessage{}
+	for _, key := range readingKeys {
+		if value, isRead := keys[key]; isRead {
+			readings[key] = value
+			delete(keys, key)
+		}
+	}
+	return readings
+}
+
 // changeOfItems is the change from one list of items with ids to another.
 func changeOfItems(held []json.RawMessage, heldIDs []string, next []json.RawMessage, nextIDs []string) boardChange {
 	var out boardChange
@@ -156,6 +178,29 @@ func changeOfItems(held []json.RawMessage, heldIDs []string, next []json.RawMess
 	}
 	if !slices.Equal(heldIDs, nextIDs) {
 		out.Order = nextIDs
+		// A list that keeps its newest, as the actions do, drops its oldest
+		// and adds at its end: those few ids say it, where the order names
+		// every id (#1611).
+		isListed := make(map[string]bool, len(nextIDs))
+		for _, id := range nextIDs {
+			isListed[id] = true
+		}
+		var removed []string
+		kept := 0
+		isKeptInOrder := true
+		for _, id := range heldIDs {
+			switch {
+			case !isListed[id]:
+				removed = append(removed, id)
+			case nextIDs[kept] != id:
+				isKeptInOrder = false
+			default:
+				kept++
+			}
+		}
+		if appended := nextIDs[kept:]; isKeptInOrder && len(removed)+len(appended) < len(nextIDs) {
+			out.Order, out.Removed, out.Appended = nil, removed, appended
+		}
 	}
 	return out
 }
