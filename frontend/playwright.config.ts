@@ -9,11 +9,11 @@ import { ORIGIN } from "./tests/site.ts";
 const STEPPED_IN = ["terminal-keys", "terminal-input", "terminal-held", "terminal-harness-screens", "terminal-scroll", "terminal-zoom", "terminal-geometry", "voice-bubble",
   "dictated-input", "touch-dictation", "phone-paste", "terminal-swipe", "phone-terminal-tools"].map((name) => `**/${name}.spec.ts`);
 
-// The WebKit spec is a project of its own, so the browser job's Chromium
+// The WebKit specs are a project of their own, so the browser job's Chromium
 // shards never install WebKit and the Media Foundation it needs on a Windows
 // runner: that install waited 29 minutes on Windows Update on 2026-10-22, in
-// every shard, though only one shard runs this file (#1406).
-const IPHONE = ["**/iphone-terminal.spec.ts"];
+// every shard, though only one shard runs these files (#1406).
+const IPHONE = ["**/iphone-*.spec.ts"];
 
 export default defineConfig<{ isSteppedIn: boolean }>({
   testDir: "./tests",

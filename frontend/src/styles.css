@@ -669,7 +669,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    above the keyboard and take the room back when it closes; the viewport's
    height and top come from use-visual-viewport.ts. */
 .app-shell.fills-phone { position: fixed; inset: var(--visual-top, 0px) 0 auto; height: var(--visual-height, 100dvh); min-height: 0; padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); gap: 6px; }
-.fills-phone .context-pane { flex: 1; min-height: 0; max-height: none; }
+.fills-phone .context-pane { flex: 1; min-height: 0; max-height: none; container: phone-panel / size; }
 /* There the Terminal view's header keeps its picture, name, task and status
    at smaller sizes, so the terminal keeps the room above the keyboard. */
 .fills-phone .panel-header.compact { gap: 2px 12px; padding: 6px 14px 8px; }
@@ -677,6 +677,13 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .fills-phone .panel-header.compact h2 { font-size: 1.125rem; }
 .fills-phone .panel-header.compact .panel-identity { gap: 0; }
 .fills-phone .panel-header.compact :is(.panel-goblin-task, .panel-status) { font-size: .9375rem; line-height: 1.35; }
+/* An iPhone's keyboard leaves the panel about 320 px, too little for the name
+   block over the box or the terminal, so a panel under 30rem puts it away
+   until the keyboard closes and the line being written stays above the
+   keyboard as the message grows. Back and the view switch stay. */
+@container phone-panel (max-height: 30rem) {
+  .goblin-panel > .panel-header { display: none; }
+}
 /* VS Code and a task's folder open on the PC, so a small screen has neither,
    and a row of the panel's buttons left with nothing in it takes no room. */
 @media (max-width: 40rem) {
@@ -870,7 +877,9 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
    scrolled into view inside it, such as xterm's input while a grid refits,
    can move the screen within it. */
 .terminal-surface { flex: 1; min-width: 0; min-height: 200px; overflow: clip; background: #071015; }
-.fills-phone .host-terminal.has-composer .terminal-surface { min-height: 0; }
+/* A phone's terminal takes only the room above the keyboard, so its grid,
+   sized to the screen it is drawn on, never puts rows under it. */
+.fills-phone .terminal-surface { min-height: 0; }
 /* A Herdr pane's screen is fitted whole to the panel and sits at its bottom,
    so the input line stays at the bottom of the panel; nothing scrolls. */
 .native-terminal:not(.host-terminal) .terminal-surface { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 8px 14px; }
