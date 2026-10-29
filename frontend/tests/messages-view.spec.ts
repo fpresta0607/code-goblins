@@ -896,21 +896,21 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
 // The Overlord, 2026-10-28, from his phone: "Jump to latest button mobile
 // doesn't work again match fill color of chat input box". A flick up the
 // conversation shows the button while the conversation still glides, and the
-// tap that stops the glide is one the browser gives no click.
+// tap that stops the glide is one the browser gives no click. Whether a
+// headless browser gives such a tap a click depends on when it lands (CI gave
+// one on 2026-10-29), so here the page takes every click away, as the glide
+// does on his phone, and the touch's lift alone must jump.
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
 
   test("a tap on Jump to latest while the conversation glides takes him to the newest message, the button leaves, and it wears the box's fill", async ({ page }) => {
-    // Arrange: a flick up the conversation.
+    // Arrange: a flick up the conversation, on a page no click reaches.
     await open(page);
     await openCfo(page);
     const talk = list(page, "CFO");
     await expect(talk).toContainText("Answer 99");
     const jump = page.getByRole("button", { name: "Jump to latest" });
-    await page.evaluate(() => {
-      document.body.dataset.clicks = "0";
-      document.addEventListener("click", () => { document.body.dataset.clicks = String(Number(document.body.dataset.clicks) + 1); }, true);
-    });
+    await page.evaluate(() => window.addEventListener("click", (event) => { event.stopImmediatePropagation(); event.preventDefault(); }, true));
     const shape = (await talk.boundingBox())!;
     const x = Math.round(shape.x + shape.width / 2), from = Math.round(shape.y + shape.height / 4);
     const touch = await page.context().newCDPSession(page);
@@ -924,10 +924,8 @@ test.describe("on a phone", () => {
     // Act: a tap at once, while it glides.
     await page.touchscreen.tap(button.x + button.width / 2, button.y + button.height / 2);
 
-    // Assert: the tap stopped the glide, so the browser gave it no click, and
-    // it still took him to the newest message.
+    // Assert: with no click, the lift alone took him to the newest message.
     await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
-    expect(await page.evaluate(() => document.body.dataset.clicks), "the tap that stopped the glide got no click, on the button or wherever it left").toBe("0");
     await expect(talk.locator("[data-message]").last()).toBeInViewport();
     await expect(jump).toHaveCount(0);
     expect(fill).toBe(await page.locator(".messages-view:not([hidden]) .composer-input").evaluate((element) => getComputedStyle(element).backgroundColor));
