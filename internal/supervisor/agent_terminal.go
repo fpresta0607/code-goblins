@@ -153,7 +153,8 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 			if harness == "" {
 				harness = "claude"
 			}
-			return fleettree.SessionTranscript(home, harness, session), nil
+			// The CFO is started in the fleet's home.
+			return fleettree.HeldTranscript(home, harness, h.Service.Store.Home.Root, session), nil
 		}, nil
 	}
 	task, generation := query.Get("task"), query.Get("generation")
@@ -185,7 +186,7 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 				return "", err
 			}
 		}
-		return fleettree.SessionTranscript(home, meta.Harness, session), nil
+		return fleettree.HeldTranscript(home, meta.Harness, meta.Worktree, session), nil
 	}, nil
 }
 
