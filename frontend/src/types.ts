@@ -1024,6 +1024,9 @@ export function parseSnapshot(value: unknown): Snapshot {
         at: string(t.at),
       };
     }),
+    // The supervisor lists the sessions by id, so one that reports keeps its
+    // place in what it sends (#1611); the board holds them oldest update
+    // first, so the newest CFO session is the last.
     sessions: array(v.sessions).map((value) => {
       const s = object(value);
       return {
@@ -1045,7 +1048,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         last_event_id: string(s.last_event_id),
         updated_at: string(s.updated_at),
       };
-    }),
+    }).sort((one, other) => (Date.parse(one.updated_at) || 0) - (Date.parse(other.updated_at) || 0)),
     decisions: array(v.decisions).map((value) => {
       const d = object(value);
       return {

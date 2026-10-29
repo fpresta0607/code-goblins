@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1716,7 +1715,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 		out.Sessions = append(out.Sessions, node)
 	}
-	sort.Slice(out.Sessions, func(i, j int) bool { return out.Sessions[i].UpdatedAt.Before(out.Sessions[j].UpdatedAt) })
+	// The sessions are listed by id, so one that reports keeps its place: they
+	// were listed oldest update first, and each report moved its session to
+	// the end, so a board was sent every id again whenever one moved (#1611).
+	// Whoever wants the newest asks for it by its update.
+	slices.SortFunc(out.Sessions, func(one, other Session) int { return strings.Compare(one.ID, other.ID) })
 	var err error
 	out.Decisions, err = wake.Pending(s.Store.Home.State)
 	if err != nil {

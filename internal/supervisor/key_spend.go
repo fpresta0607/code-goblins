@@ -262,19 +262,16 @@ func modelProvider(model string) string {
 }
 
 // cfoModel is the model the registered CFO's session in its harness reported,
+// or while the registration names no session, the newest Pi CFO session's,
 // which is where a Pi CFO's provider is read from.
 func cfoModel(cfo cfoState, snapshot Snapshot) string {
-	for index := len(snapshot.Sessions) - 1; index >= 0; index-- {
-		session := snapshot.Sessions[index]
-		if session.Role != "cfo" || session.Harness != "pi" {
-			continue
+	var newest Session
+	for _, session := range snapshot.Sessions {
+		if session.Role == "cfo" && session.Harness == "pi" && (cfo.session == "" || session.ID == cfo.session) && !session.UpdatedAt.Before(newest.UpdatedAt) {
+			newest = session
 		}
-		if cfo.session != "" && session.ID != cfo.session {
-			continue
-		}
-		return session.Model
 	}
-	return ""
+	return newest.Model
 }
 
 // piProfileDefault is the folder Pi reads when nothing names another: the
