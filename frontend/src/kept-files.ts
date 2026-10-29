@@ -55,3 +55,21 @@ export function filesOf(data: DataTransfer | null): File[] {
     return file ? [file] : [];
   });
 }
+
+// clipboardPicture reads the picture the clipboard holds, for a phone's
+// Paste a picture: an iPhone offers its own Paste in a plain text box only
+// for text (WebKit's supportedPasteboardTypesForCurrentSelection), so a
+// copied photo or screenshot never reaches the box's paste. Safari asks with
+// its own Paste button before it hands the picture over.
+export async function clipboardPicture(): Promise<{ picture: File } | { error: string }> {
+  if (!navigator.clipboard?.read) return { error: "This browser cannot read a picture from the clipboard." };
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find((each) => each.startsWith("image/"));
+      if (type) return { picture: new File([await item.getType(type)], "pasted.png", { type }) };
+    }
+    return { error: "The clipboard holds no picture. Copy one, then paste it here." };
+  } catch {
+    return { error: "The clipboard was not read, so no picture was added." };
+  }
+}

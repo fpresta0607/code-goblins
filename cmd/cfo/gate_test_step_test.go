@@ -292,9 +292,9 @@ func TestGateTestRecordsTheSourceEachCheckRanOn(t *testing.T) {
 	}
 }
 
-// A check whose source changed while it ran keeps its own result, and the run
-// says that it tested no one source.
-func TestGateTestSaysWhenACheckSourceChangedWhileItRan(t *testing.T) {
+// A check whose source changed while it ran tested no one source, so it fails
+// though its command exited 0.
+func TestGateTestFailsACheckWhoseSourceChangedWhileItRan(t *testing.T) {
 	// Arrange
 	dir := testStepModule(t, nil, map[string]string{"a/a.go": "package a\n\nfunc A() int { return 2 }\n"})
 	t.Chdir(dir)
@@ -313,10 +313,10 @@ func TestGateTestSaysWhenACheckSourceChangedWhileItRan(t *testing.T) {
 
 	// Assert
 	report, _ := lastReport(t)
-	if exit != 0 || len(report.Checks) != 2 || report.Checks[0].Status != "passed" {
-		t.Fatalf("exit = %d, checks = %+v; want go vet's own pass", exit, report.Checks)
+	if exit == 0 || report.Status != "failed" || len(report.Checks) != 2 || report.Checks[0].Status != "failed" || report.Checks[0].ExitCode != 0 {
+		t.Fatalf("exit = %d, report = %+v; want go vet to fail on its exit 0", exit, report)
 	}
-	if want := "cfo gate test: go vet tested no one source: verify: the source differed between the reads as the run started and once it ended"; !strings.Contains(stderr.String(), want) {
+	if want := "cfo gate test: go vet: exit 0: verify: the source differed between the reads as the run started and once it ended"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr = %q; want %q", stderr.String(), want)
 	}
 	if _, err := report.Checks[0].Source.Tested(); err == nil {
