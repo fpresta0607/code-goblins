@@ -1,13 +1,12 @@
-import { useId, useState, type PointerEvent } from "react";
+import { useId, useState, type PointerEvent, type ReactNode } from "react";
 import { message, request } from "./api";
 import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
-import { HarnessMark } from "./harness-mark";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { ALREADY_FINISHED, harnessName, harnessTip, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { ALREADY_FINISHED, harnessName, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
@@ -42,8 +41,11 @@ import { TaskAdjustment } from "./task-adjustment";
 // its Task view, the AFK toggle beside its status, with Update before it
 // while an update of the CFO's harness waits and Restart PC before that while
 // the kernel's pools are past their line, and under them what a press of
-// Update waits for or why it did not restart the CFO.
-export function PanelHeader({ task, node, snapshot, compact, isDetails = false, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+// Update waits for or why it did not restart the CFO. switcher, the panel's
+// Chat and Task icons, sits in the same row, before the CFO's controls, and
+// the status line carries no mark of the session's harness (the Overlord,
+// 2026-10-28: "We already know it's running Claude because of the chat").
+export function PanelHeader({ task, node, snapshot, compact, isDetails = false, switcher, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; switcher?: ReactNode; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -56,8 +58,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
-  const harness = (task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : "");
-  const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
+ const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
   const helped = owner && task.parent ? snapshot.tasks.find((other) => other.id === task.parent) : undefined;
@@ -124,7 +125,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
         {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task" data-tip={cut.task ? goblinTask : ""}>{goblinTask}</p>}
         {!compact && projectLine}
         {!compact && helper}
-        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}>{harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}<span className="status-dot" />{status}{!compact && awaitedLink}</p>
+        <p className={"panel-status plain-status phase-" + phase} {...(evidence ? { "data-tip": evidence, tabIndex: 0, "aria-describedby": evidenceId } : {})}><span className="status-dot" />{status}{!compact && awaitedLink}</p>
         {evidence && <span id={evidenceId} className="sr-only">{evidence}</span>}
         {!compact && partOf}
         {!compact && activity}
@@ -135,6 +136,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
           a small screen, since VS Code and the folder open on the PC. */}
       {!compact && actions}
     </div>
+    {switcher}
     {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />}
     {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
   </header>;

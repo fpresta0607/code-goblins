@@ -56,7 +56,7 @@ test("a finished turn of many replies shows its time once, at its end, and nothi
   // Nothing under his messages, and the line above the box carries none of it.
   for (const id of ["p0", "p4"]) await expect(row(page, id).locator(".message-actions")).toBeHidden();
   await expect(page.getByRole("log")).not.toContainText(/Sent|Replied/);
-  await expect(page.locator(".session-footer")).not.toContainText(/Sent|Replied|Working/);
+  await expect(page.locator(".composer-dock")).not.toContainText(/Sent|Replied/);
 });
 
 test("pointing at his message shows when he sent it and Copy in the spot under it, and nothing moves", async ({ page }) => {
@@ -122,7 +122,7 @@ test("while the session works the dither takes the time's place at the reply in 
   await expect(times(page)).toHaveCount(1);
   await expect(row(page, "r5").locator("time")).toHaveCount(0);
   expect(await follows(page, '[data-message="r5"]', ".reply-working"), "the dither follows the reply in progress").toBe(true);
-  await expect(page.locator(".session-footer")).not.toContainText(/Sent|Replied|Working/);
+  await expect(page.locator(".composer-dock")).not.toContainText(/Sent|Replied/);
   const stop = working(page).getByRole("button", { name: "Stop", exact: true });
   const mark = stop.locator(".icon");
   await expect(mark).toHaveCSS("opacity", "0");
@@ -219,7 +219,7 @@ test("under a turn's last reply the row reads its time, then Copy, then the harn
   const parts = await row(page, "r5").locator(".message-reply-actions > *").evaluateAll((elements) => elements.map((element) => element.tagName === "TIME" ? "time" : element.classList.contains("message-copy") ? "copy" : element.classList.contains("mark") ? "mark" : element.className));
   expect(parts).toEqual(["time", "copy", "mark"]);
   await expect(row(page, "r2").locator(".message-reply-actions .mark")).toHaveCount(0);
-  await expect(page.locator(".session-footer .mark")).toHaveCount(0);
+  await expect(page.locator(".composer-dock > .usage-bar .mark")).toHaveCount(0);
 });
 
 // The Overlord, 2026-10-28: "also have words that appear next to dither all

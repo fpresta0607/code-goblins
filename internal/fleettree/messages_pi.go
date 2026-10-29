@@ -736,27 +736,44 @@ func (l *piMessageLog) page(before int) MessagePage {
 	return page
 }
 
-// piContextWindow reads the context window pi's own model catalog names for
-// model, whose recorded name is provider/model, and 0 when the catalog or the
-// model is not there. It reads nothing else and changes nothing.
+// piCatalog is the providers of one of pi's model catalogs, each with the
+// models it lists.
+type piCatalog map[string]struct {
+	Models []struct {
+		ID            string `json:"id"`
+		ContextWindow int64  `json:"contextWindow"`
+	} `json:"models"`
+}
+
+// piContextWindow reads the context window pi names for model, whose
+// recorded name is provider/model: from the models the Overlord defines in
+// models.json first, as pi takes them over its own, then from pi's own
+// catalog, and 0 when neither lists it. It reads nothing else and changes
+// nothing.
 func piContextWindow(home, model string) int64 {
-	data, err := fsx.ReadFile(filepath.Join(home, ".pi", "agent", "models-store.json"))
-	if err != nil {
-		return 0
-	}
-	var catalog map[string]struct {
-		Models []struct {
-			ID            string `json:"id"`
-			ContextWindow int64  `json:"contextWindow"`
-		} `json:"models"`
-	}
-	if json.Unmarshal(data, &catalog) != nil {
-		return 0
-	}
 	provider, id, hasProvider := strings.Cut(model, "/")
 	if !hasProvider {
 		return 0
 	}
+	dir := filepath.Join(home, ".pi", "agent")
+	var custom struct {
+		Providers piCatalog `json:"providers"`
+	}
+	var store piCatalog
+	if data, err := fsx.ReadFile(filepath.Join(dir, "models.json")); err == nil && json.Unmarshal(data, &custom) == nil {
+		if window := custom.Providers.window(provider, id); window > 0 {
+			return window
+		}
+	}
+	if data, err := fsx.ReadFile(filepath.Join(dir, "models-store.json")); err == nil && json.Unmarshal(data, &store) == nil {
+		return store.window(provider, id)
+	}
+	return 0
+}
+
+// window is the context window the catalog lists for provider's model id,
+// and 0 when it lists none.
+func (catalog piCatalog) window(provider, id string) int64 {
 	for _, listed := range catalog[provider].Models {
 		if listed.ID == id {
 			return listed.ContextWindow

@@ -153,14 +153,10 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
   .disclosure.message-call > .disclosure-content { padding-left: .5em; }
 }
 
-/* The conversation's bottom corner: the harness's mark and the session's
-   stats. Small and quiet, part of the conversation, never a pill over it. */
-.session-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .3em .9em; padding: 0 4px .2em; color: var(--muted); font-size: .8125em; }
-/* Unreadable usage is the board's notice, at the height of the line's other
-   facts: the line's own type, no padding above or below, and its edge drawn
-   inside it, so saying it never makes the line taller or moves the box. */
-.session-footer .notice { padding: 0 8px; border: 0; box-shadow: inset 0 0 0 1px var(--glass-border); font-size: inherit; line-height: inherit; }
-.session-footer .notice-dot { margin-top: calc(.5lh - 4px); }
+/* The usage pies sit just above the box's right end, out of the dock's flow,
+   so their arrival once the view is live never moves the box or the
+   conversation. */
+.composer-dock > .usage-bar { position: absolute; right: 16px; bottom: calc(100% + 4px); }
 /* The input floats above the conversation, centred under its column, with
    its controls outside the bar. */
 .composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; align-self: center; gap: 8px; width: min(100%, 51rem); padding: 0 16px 16px; }
@@ -199,8 +195,3 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
   .message-prompt .message-actions { visibility: hidden; opacity: 0; }
   .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }
 }
-
-/* A settled selection copies itself, and says so quietly in the corner. */
-/* The session line starts with the mark of the session's harness. */
-.session-footer .mark { width: 22px; height: 22px; }
-.session-footer .mark svg, .session-footer .mark .icon { width: 13px; height: 13px; }

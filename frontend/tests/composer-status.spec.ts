@@ -287,33 +287,26 @@ for (const style of ["classic", "modern"]) {
           await expect(field(page)).toHaveValue("please rebase onto main");
         }
       });
-      test(`${style} shows usage unavailability once with accessible details at ${width}px`, async ({ page }, testInfo) => {
+      // A session whose usage cannot be read shows nothing of it, never
+      // words for why (the Overlord, 2026-10-28).
+      test(`${style} shows no usage and no words for it when the session's usage cannot be read at ${width}px`, async ({ page }, testInfo) => {
         // Arrange
         await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
         const relay = await open(page);
+
+        // Act
         await card(page, NAME).click();
         if (style === "classic") await page.getByRole("button", { name: "Back to messages", exact: true }).click();
-        await field(page).fill("Keep this while inspecting usage");
-        const footer = page.locator(".session-footer:visible");
-
-        // Assert: one plain sentence on the notice, said once in the footer.
-        await expect(footer.locator(".notice")).toHaveText("Claude usage could not be read.");
-        await expect(footer.getByText(/usage/i)).toHaveCount(1);
-        const surface = testInfo.outputPath("usage-unavailable-surface.png");
-        await page.screenshot({ path: surface });
-        await testInfo.attach("usage-unavailable-surface", { path: surface, contentType: "image/png" });
-
-        // Act: keyboard and touch both open useful details in the existing control.
-        const usage = page.getByRole("button", { name: "Context usage unavailable", exact: true });
-        if (width === 390) await usage.tap();
-        else await usage.focus();
-        const details = page.getByRole("tooltip", { name: "Session statistics", exact: true });
+        await field(page).fill("Keep this draft");
 
         // Assert
-        await expect(details).toContainText("Claude usage could not be read");
-        await usage.press("Escape");
-        await expect(details).toHaveCount(0);
-        await expect(field(page)).toHaveValue("Keep this while inspecting usage");
+        await expect(page.locator(".usage-bar:visible")).toHaveCount(0);
+        await expect(box(page)).not.toContainText(/usage|unavailable|could not be read/i);
+        await expect(page.getByText(/usage unavailable|usage could not be read/i)).toHaveCount(0);
+        const surface = testInfo.outputPath("usage-unread-surface.png");
+        await page.screenshot({ path: surface });
+        await testInfo.attach("usage-unread-surface", { path: surface, contentType: "image/png" });
+        await expect(field(page)).toHaveValue("Keep this draft");
         expect(typed(relay)).toBe("");
       });
       if (style === "classic" && width === 390) test("a terminal recording stays stoppable after opening the composer and messages", async ({ page }) => {

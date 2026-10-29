@@ -1,24 +1,21 @@
-import { expect, test } from "./site";
+import { expect, test, type Page } from "./site";
 import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
 
 const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000, model: "recorded-model" };
+const context = (page: Page) => page.getByRole("meter", { name: "Context", exact: true });
 
 for (const width of [1440, 390]) {
-  test(`a branch reset drops abandoned context statistics at ${width}px`, async ({ page }) => {
+  test(`a branch reset drops abandoned context usage at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await open(page, snapshot({}, { harness: "pi" }), "", { ...PAGE, usage: USAGE });
     await openGoblin(page);
     await field(page).fill("keep this draft");
-    await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
+    await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
 
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), more: false });
 
-    const ring = page.getByRole("button", { name: "Context usage unavailable", exact: true });
-    await expect(ring).toBeVisible();
-    await ring.focus();
-    const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
-    await expect(stats).not.toContainText("24k of 100k");
-    await expect(stats).not.toContainText("recorded-model");
+    await expect(context(page)).toHaveCount(0);
+    await expect(box(page)).not.toContainText(/24k|recorded-model|unavailable/);
     await expect(field(page)).toHaveValue("keep this draft");
   });
 }
@@ -45,19 +42,9 @@ for (const width of [1440, 390]) {
       await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
       await expect(composer.locator(".engine-control .effort-level"), "the model's button shows the session's effort where one is known").toHaveText(who === "CFO" ? [] : ["xhigh"]);
 
-      const ring = page.getByRole("button", { name: "Context: 24% used", exact: true });
-      await ring.focus();
-      const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
-      await expect(stats).toContainText("24k of 100k");
-      await expect(stats).toContainText("12k");
-      await ring.press("Escape");
-      await expect(stats).toHaveCount(0);
-      if (width === 390) await ring.tap();
-      else await ring.hover();
-      await expect(stats).toBeVisible();
-      await expect(stats).toBeInViewport();
-      await field(page, name).click();
-      await expect(stats).toHaveCount(0);
+      await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
+      await expect(context(page)).toHaveAttribute("aria-valuetext", "24% used, 24k of 100k tokens");
+      await expect(context(page)).toBeInViewport();
       // Choosing a dictation puts it where the caret is, so it is put at the
       // end of the draft first, as a tap on its last word does.
       await page.keyboard.press("End");
@@ -71,10 +58,10 @@ for (const width of [1440, 390]) {
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
       await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
-      await expect(page.getByRole("button", { name: "Context: 72% used", exact: true })).toBeVisible();
+      await expect(context(page)).toHaveAttribute("aria-valuenow", "72");
       await expect(composer.locator(".engine-control-model")).toHaveText("Changed Model");
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal: "new-cfo" }, { harness: "codex", generation: "replacement" }));
-      await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
+      await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
       await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CFO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
       await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
@@ -90,8 +77,6 @@ for (const width of [1440, 390]) {
       expect(controls.every((control) => control.right <= width)).toBe(true);
       await page.mouse.move(0, 0);
       await page.screenshot({ path: testInfo.outputPath(`session-controls-${who}-${width}.png`) });
-      await ring.focus();
-      await page.screenshot({ path: testInfo.outputPath(`session-stats-${who}-${width}.png`) });
     });
   }
   });

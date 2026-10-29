@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
-import { ContextUsage } from "./context-usage";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
@@ -12,8 +11,8 @@ import { ReplyWorking } from "./reply-working";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
-import { SessionFooter } from "./session-footer";
-import { sessionStats, usageBanner } from "./session-usage";
+import { usageReadings } from "./session-usage";
+import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import { usePendingSends } from "./pending-sends";
@@ -51,8 +50,8 @@ const UNREAD = "The session's messages cannot be read";
 // open, absent for the CFO, terminal is the key of the session's terminal,
 // whose link stops a turn, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, memory, isWorking, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean;
   pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
@@ -386,8 +385,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, []);
-  const stats = sessionStats({ usage: held.usage, model, effort, memory });
-  const reading = usageBanner(harness, subscriptions, spend);
+  const readings = usageReadings(harness, held.usage, subscriptions, spend);
   // What he sent the session himself, oldest first, which Up in the box
   // brings back as the terminal's history does.
   const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
@@ -441,8 +439,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     {queued.length > 0 && <div className="conversation-queue" role="group" aria-label="Queued messages" style={{ fontSize: font }}>
       {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
     </div>}
-    {(box || reading.banner) && <div className="composer-dock">
-      <SessionFooter hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
+    {box && <div className="composer-dock">
+      {/* The usage shows only once the view is live and holds a real
+          reading, never while it connects (the Overlord, 2026-10-28:
+          "connecting screens don't need to display the dither or usage
+          unavailable"). */}
+      {phase === "live" && <UsageBar readings={readings} />}
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
       {box?.(held.usage?.model || model, history, held.usage?.effort || effort)}
     </div>}

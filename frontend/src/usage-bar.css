@@ -1,0 +1,17 @@
+/* The session's usage pies (usage-bar.tsx), in the message box's own dress:
+   the border, fill and corner radius of .composer-input (composer.css), and
+   in a conversation the same --box-fill and blur its box takes
+   (messages-view.css), with the spacing condensed. A pie is a disc of the
+   slice's colour, a stroke as wide as its radius drawn around half that
+   radius, over a faint full disc. */
+.usage-bar { display: inline-flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; padding: 3px 10px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--box-fill, var(--field-bg)); backdrop-filter: blur(14px); color: var(--muted); font-size: .75rem; line-height: 1.25; white-space: nowrap; }
+.usage-reading { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-variant-numeric: tabular-nums; }
+.usage-context { --usage-ink: var(--mint); }
+.usage-week { --usage-ink: var(--blue); }
+.usage-spend { --usage-ink: var(--purple); }
+.usage-reading[data-level="high"] { --usage-ink: var(--amber); }
+.usage-reading[data-level="full"] { --usage-ink: var(--red); }
+.usage-pie { flex: none; width: 14px; height: 14px; transform: rotate(-90deg); }
+.usage-pie-track { fill: rgba(163, 179, 194, .2); }
+.usage-pie-slice { fill: none; stroke: var(--usage-ink); stroke-width: 9; }
+.usage-percent { color: var(--bone); }
