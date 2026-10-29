@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -53,6 +54,59 @@ func TestAFKLogRefusesACommandThatCannotBeRunByHim(t *testing.T) {
 		"a file of another kind": {[]string{"--kind", "his", "--what", "Do it", "--evidence", "his own", "--run", write("a.cmd", "x")}, "--run takes a .ps1 file"},
 		"an empty file":          {[]string{"--kind", "his", "--what", "Do it", "--evidence", "his own", "--run", write("empty.ps1", " \n")}, "is empty"},
 		"a file that is missing": {[]string{"--kind", "his", "--what", "Do it", "--evidence", "his own", "--run", filepath.Join(dir, "none.ps1")}, "--run"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			runtime, _ := afkRuntime(t)
+			sent := 0
+			runtime.logAFK = func(home.Home, afk.Entry) error { sent++; return nil }
+
+			// Act
+			exit, _, stderr := afkCommand(runtime, append([]string{"log"}, tc.args...)...)
+
+			// Assert
+			if exit == 0 || sent != 0 || !strings.Contains(stderr, tc.said) {
+				t.Errorf("exit=%d sent=%d stderr=%q, want it refused with %q before anything is logged", exit, sent, stderr, tc.said)
+			}
+		})
+	}
+}
+
+// A his line that is a decision of his takes the --option and --recommend of
+// cfo question, so its card offers those choices in place of Done and Later.
+func TestAFKLogSendsTheChoicesOfADecisionOfHis(t *testing.T) {
+	// Arrange
+	runtime, _ := afkRuntime(t)
+	var sent afk.Entry
+	runtime.logAFK = func(_ home.Home, entry afk.Entry) error { sent = entry; return nil }
+	choices := []string{"Approve the repair", "Dry-run it again first", "Leave it as it is"}
+
+	// Act
+	exit, _, stderr := afkCommand(runtime, "log", "--kind", "his", "--what", "Approve the production repair of Georgetown", "--evidence", "a production repair is his", "--option", choices[0], "--option", choices[1], "--option", choices[2], "--recommend", choices[1])
+
+	// Assert
+	if exit != 0 || sent.Kind != afk.KindHis || !slices.Equal(sent.Options, choices) || sent.Recommendation != choices[1] {
+		t.Errorf("exit=%d stderr=%q sent=%+v, want his decision with its three choices and its recommendation", exit, stderr, sent)
+	}
+}
+
+func TestAFKLogRefusesChoicesItsCardCouldNotOffer(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "a.ps1")
+	if err := os.WriteFile(script, []byte("gh auth refresh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	his := []string{"--kind", "his", "--what", "Approve it", "--evidence", "his", "--link", "https://example.com"}
+	for name, tc := range map[string]struct {
+		args []string
+		said string
+	}{
+		"on a deploy":                     {[]string{"--kind", "deploy", "--what", "acme", "--evidence", "read", "--option", "Ship", "--option", "Wait"}, "--option and --recommend go with --kind left, or with --kind his"},
+		"with a command he runs":          {append(slices.Clone(his), "--run", script, "--option", "Run", "--option", "Wait"), "never both"},
+		"one choice":                      {append(slices.Clone(his), "--option", "Approve"), "two or more --option"},
+		"a recommendation and no choices": {append(slices.Clone(his), "--recommend", "Approve"), "two or more --option"},
+		"a bare letter":                   {append(slices.Clone(his), "--option", "a", "--option", "b"), "only a letter or number"},
+		"an answer":                       {append(slices.Clone(his), "--option", "Approve", "--option", "Wait", "--answer", "Approve"), "--answer go with --kind left"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

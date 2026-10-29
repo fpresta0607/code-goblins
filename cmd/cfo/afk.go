@@ -17,13 +17,13 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 )
 
-const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] | strike --at <when> --reason "<why>" | settle --at <when> --how "<what became of it>"
+const afkUsage = `usage: cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report | log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] [--option "<choice>"]... [--recommend "<choice>"] | strike --at <when> --reason "<why>" | settle --at <when> --how "<what became of it>"
 
   on      turn AFK mode on: the Supreme Overlord's switch, made from a terminal of his own; the registered CFO makes it only at his ask, with --asked and his words quoted exactly, and a goblin never
   off     turn it off and print the report of the stretch; the same switch, made the same way
   status  whether it is on, since when and from where, what was decided so far and what is held for him
   report  print the report of the last stretch that ended
-  log     the registered CFO logs a decision it made under the authority, with its evidence. Kind is one of left, his, merge, deploy, migration, install, answer, other. A left line is a decision you would have asked him, answered yourself with your recommendation and acted on: it takes --answer "<your choice>", --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>", with an optional --recommend "<choice>", and is settled in his History with your answer once he is back, where he can change it. A his line is a step only he can take, such as his own sign-in or a step a tool refuses: one card in his Command Center when he is back
+  log     the registered CFO logs a decision it made under the authority, with its evidence. Kind is one of left, his, merge, deploy, migration, install, answer, other. A left line is a decision you would have asked him, answered yourself with your recommendation and acted on: it takes --answer "<your choice>", --diagnosis "<what is wrong, found to its cause>", --tried "<what you already tried>" and two or more --option "<choice>", with an optional --recommend "<choice>", and is settled in his History with your answer once he is back, where he can change it. A his line is a step only he can take, such as his own sign-in or a step a tool refuses: one card in his Command Center when he is back, with the choices Done and Later; a his line that is a decision of his, such as approving a production repair, a spend or closing a pull request, gives its choices with two or more --option "<choice>" and an optional --recommend "<choice>", which its card offers in place of Done and Later, and his answer reaches you as an answer to cfo question does
   strike  the registered CFO strikes through a line it logged by mistake, named by its at in state/afk.audit, with its reason. The line stays, and the report shows it struck
   settle  the registered CFO settles a his line it saw to later in the stretch that is on, named by its at in state/afk.audit, with what became of it. The line stays, and his page of the stretch shows what became of it`
 
@@ -181,14 +181,14 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	diagnosis := fs.String("diagnosis", "", "for a left line: what is wrong, found to its cause")
 	tried := fs.String("tried", "", "for a left line: what you already tried")
 	var options []string
-	fs.Func("option", "for a left line: one choice its question in his History offers, given once for each", func(value string) error { options = append(options, value); return nil })
+	fs.Func("option", "for a left line: one choice its question in his History offers; for a his line that is a decision of his: one choice its card offers in place of Done and Later; given once for each", func(value string) error { options = append(options, value); return nil })
 	run := fs.String("run", "", "for a his line that is a command he runs: the .ps1 or .sh file that holds it, which his Command Center shows as a run item with one click")
-	recommend := fs.String("recommend", "", "for a left line: the choice you recommend, exactly as one --option")
+	recommend := fs.String("recommend", "", "for a left line or a his line with choices: the choice you recommend, exactly as one --option")
 	answer := fs.String("answer", "", "for a left line: the choice you made with your recommendation and acted on, exactly as one --option, settled in his History once he is back, where he can change it")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	left := *kind == afk.KindLeft
+	left, his := *kind == afk.KindLeft, *kind == afk.KindHis
 	switch {
 	case fs.NArg() != 0:
 		fmt.Fprintf(stderr, "cfo afk log: unexpected argument %q; quote what was decided and its evidence\n", fs.Arg(0))
@@ -196,8 +196,17 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 	case *run != "" && *kind != afk.KindHis:
 		fmt.Fprintln(stderr, "cfo afk log: --run goes with --kind his: it names a command the Overlord runs")
 		return 2
-	case !left && (*diagnosis != "" || *tried != "" || len(options) > 0 || *recommend != "" || *answer != ""):
-		fmt.Fprintln(stderr, "cfo afk log: --diagnosis, --tried, --option, --recommend and --answer go with --kind left")
+	case !left && (*diagnosis != "" || *tried != "" || *answer != ""):
+		fmt.Fprintln(stderr, "cfo afk log: --diagnosis, --tried and --answer go with --kind left")
+		return 2
+	case !left && !his && (len(options) > 0 || *recommend != ""):
+		fmt.Fprintln(stderr, "cfo afk log: --option and --recommend go with --kind left, or with --kind his for a decision of his")
+		return 2
+	case his && *run != "" && (len(options) > 0 || *recommend != ""):
+		fmt.Fprintln(stderr, "cfo afk log: a his line is a command he runs with --run, or a decision of his with --option choices, never both")
+		return 2
+	case his && (len(options) == 1 || *recommend != "" && len(options) == 0):
+		fmt.Fprintln(stderr, "cfo afk log: a his line that is a decision of his offers two or more --option choices, and --recommend names one of them")
 		return 2
 	case left && *answer == "":
 		fmt.Fprintln(stderr, "cfo afk log: "+afk.ErrUnanswered.Error())
@@ -213,6 +222,10 @@ func runAFKLog(h home.Home, args []string, stdout, stderr io.Writer, runtime com
 		return 2
 	case strings.TrimSpace(*evidence) == "":
 		fmt.Fprintln(stderr, "cfo afk log: --evidence says what the decision stands on; a decision is logged with its evidence")
+		return 2
+	}
+	if err := choicesAreAnswers(options); his && err != nil {
+		fmt.Fprintln(stderr, "cfo afk log: "+err.Error())
 		return 2
 	}
 	entry := afk.Entry{Kind: *kind, What: strings.TrimSpace(*what), Evidence: strings.TrimSpace(*evidence), Link: strings.TrimSpace(*link), Diagnosis: strings.TrimSpace(*diagnosis), Tried: strings.TrimSpace(*tried), Options: options, Recommendation: *recommend, Answer: *answer}

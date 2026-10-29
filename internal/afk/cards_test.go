@@ -1,6 +1,7 @@
 package afk
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -153,6 +154,50 @@ func TestAStepIsLoggedOnlyWithWhatItsCardDoesItWith(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), tc.refusal) || check == nil {
 				t.Errorf("Log = %v, CheckStep = %v, want it refused naming %q", err, check, tc.refusal)
+			}
+		})
+	}
+}
+
+// A step only he can take that is a decision of his offers its own choices,
+// as cfo question does, and its card offers them in place of Done and Later:
+// his answer goes to the CFO, which acts on it, so it needs no page and may
+// name the command the CFO runs on his yes. It is never also a command he
+// runs, and it offers real choices, one of them recommended or none.
+func TestAStepOnlyHeCanTakeOffersChoicesOnlyAsADecisionOfHis(t *testing.T) {
+	choices := []string{"Approve the repair", "Dry-run it again first", "Leave it as it is"}
+	for name, tc := range map[string]struct {
+		entry   Entry
+		refusal string
+	}{
+		"three choices and a recommendation": {Entry{Kind: KindHis, What: "Approve the production repair of Georgetown", Link: "https://github.com/acme/app/issues/2012", Evidence: "a production repair is his", Options: choices, Recommendation: choices[1]}, ""},
+		"choices and no page":                {Entry{Kind: KindHis, What: "Spend 40 credits on the corpus rebuild", Evidence: "a spend is his", Options: choices[:2]}, ""},
+		"choices and a command in its words": {Entry{Kind: KindHis, What: "Close PR 140 with gh pr close 140", Evidence: "a teammate's pull request", Options: []string{"Close it", "Keep it open"}}, ""},
+		"one choice":                         {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: choices[:1]}, "2 to 8 choices"},
+		"the same choice twice":              {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: []string{"Approve", "Approve"}}, "distinct"},
+		"a recommendation not among them":    {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: choices, Recommendation: "Approve"}, "one of its choices"},
+		"a recommendation and no choices":    {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Recommendation: "Approve"}, "2 to 8 choices"},
+		"choices and a command he runs":      {Entry{Kind: KindHis, What: "Restart the daemon", Evidence: "refused", Command: "no-mistakes daemon start", Shell: "powershell", Options: choices}, "--run or --option"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			if _, _, err := TurnOn(dir, "the board", nil, night); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			logged, err := Log(dir, tc.entry, night.Add(time.Minute))
+
+			// Assert
+			if tc.refusal == "" {
+				if err != nil || !slices.Equal(logged.Options, tc.entry.Options) || logged.Recommendation != tc.entry.Recommendation || CheckStep(logged) != nil {
+					t.Errorf("Log = %+v, %v, want the step logged with its choices", logged, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.refusal) {
+				t.Errorf("Log = %v, want it refused naming %q", err, tc.refusal)
 			}
 		})
 	}
