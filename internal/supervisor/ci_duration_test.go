@@ -80,17 +80,11 @@ func TestCIFinishedRecordsMeasuredDurationsAndOmitsUnknownTimes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{`"repository":"owner/repo"`, `"duration_seconds":780`, `"duration_seconds":630`, `"kind":"deploy"`, `"kind":"ci"`} {
-		if !strings.Contains(string(data), want) {
-			t.Fatalf("snapshot missing %s: %s", want, data)
-		}
-	}
-	if strings.Contains(string(data), `"name":"unknown"`) {
-		t.Fatal("missing start was presented as a measured duration")
+
+	// A run without a start, measured, would move the usual CI time off 780 s.
+	want := []CIUsual{{Repository: "owner/repo", Kind: "ci", Seconds: 780}, {Repository: "owner/repo", Kind: "deploy", Seconds: 630}}
+	if !slices.Equal(snapshot.CIUsual, want) {
+		t.Fatalf("usual CI times %+v, want %+v", snapshot.CIUsual, want)
 	}
 }
 
