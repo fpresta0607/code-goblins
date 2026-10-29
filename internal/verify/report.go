@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -136,9 +137,28 @@ func Begin(project string, start time.Time, commit, level string) (*os.File, str
 	return log, strings.TrimSuffix(log.Name(), ".log") + ".json", nil
 }
 
+// readReports are the reports Reports last read in each folder, by file
+// name. The supervisor reads every live project's reports on each of its
+// cycles, many a minute, and a report changes only when its run finishes
+// (#1716). Every report is written whole beside the others and renamed into
+// place, so a change shows in its size or its write time.
+var readReports = struct {
+	sync.Mutex
+	folders map[string]map[string]readReport
+}{folders: map[string]map[string]readReport{}}
+
+// readReport is a report as read, and the size and write time its file had.
+type readReport struct {
+	size     int64
+	modified time.Time
+	report   Report
+}
+
 // Reports reads the reports the store holds for project, the run that
 // started last first. A run still going has no report yet, and a report that
-// a finishing run removes while they are read is left out.
+// a finishing run removes while they are read is left out. A report whose
+// size and write time are what they were is not read again. What it returns
+// is shared with later callers, who must not change it.
 func Reports(project string) ([]Report, error) {
 	store, err := StoreDir()
 	if err != nil {
@@ -152,9 +172,25 @@ func Reports(project string) ([]Report, error) {
 	if err != nil {
 		return nil, err
 	}
+	readReports.Lock()
+	kept := readReports.folders[dir]
+	readReports.Unlock()
+	read := map[string]readReport{}
 	var reports []Report
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		info, err := entry.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if prior, isKept := kept[entry.Name()]; isKept && prior.size == info.Size() && prior.modified.Equal(info.ModTime()) {
+			read[entry.Name()] = prior
+			reports = append(reports, prior.report)
 			continue
 		}
 		data, err := fsx.ReadFile(filepath.Join(dir, entry.Name()))
@@ -168,8 +204,12 @@ func Reports(project string) ([]Report, error) {
 		if err := json.Unmarshal(data, &report); err != nil {
 			return nil, fmt.Errorf("verify: read the report %s: %w", entry.Name(), err)
 		}
+		read[entry.Name()] = readReport{size: info.Size(), modified: info.ModTime(), report: report}
 		reports = append(reports, report)
 	}
+	readReports.Lock()
+	readReports.folders[dir] = read
+	readReports.Unlock()
 	slices.SortFunc(reports, func(a, b Report) int { return b.Start.Compare(a.Start) })
 	return reports, nil
 }
