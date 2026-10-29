@@ -562,7 +562,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // it says, so it survives a reload and a remount, and it stays on screen
   // after a gate lets go so the action can be read and withdrawn.
   const sent = messagesTo(snapshot, task?.id || "");
-  // A message the board still holds is under the conversation as its own
+  // A message that still waits is at the conversation's end as its own
   // entry, and the box keeps no second copy of its words.
   const queued = sent.filter(isPendingMessage);
   // Up in an empty box while the board holds a message of his to this session

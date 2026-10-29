@@ -322,6 +322,28 @@ func TestAnAnswerSaysWhetherItCameFromTheBoardOrItsPage(t *testing.T) {
 	}
 }
 
+// A message he typed to a goblin on the board reaches its terminal behind the
+// CFO's stamp and the board's, and reads back as his own words, so the board
+// can show it as his and as read. The CFO's own steer stays the CFO's, and a
+// command he typed stays as he typed it.
+func TestABoardMessageToAGoblinReadsAsHisOwnWords(t *testing.T) {
+	for _, tc := range []struct{ name, text, source, words string }{
+		{"his message from the board", routing.SteerPrefix + routing.BoardMessagePrefix + "check the deploy before you merge", FromOverlord, "check the deploy before you merge"},
+		{"the CFO's steer", routing.SteerPrefix + "rebase on main", FromCFO, "rebase on main"},
+		{"his command", "/compact", FromOverlord, "/compact"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			source, words := promptSource(tc.text)
+
+			// Assert
+			if source != tc.source || words != tc.words {
+				t.Errorf("promptSource(%q) = %q, %q; want %q, %q", tc.text, source, words, tc.source, tc.words)
+			}
+		})
+	}
+}
+
 func TestMessagesReadEachKindOfEntry(t *testing.T) {
 	session := func(home string) string {
 		return filepath.Join(home, ".claude", "projects", "C--work-repo", "session-1")

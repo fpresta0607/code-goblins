@@ -85,6 +85,12 @@ const (
 	OverlordPrefix = "Overlord: "
 )
 
+// BoardMessagePrefix opens each message the Overlord types to a goblin on the
+// board where it is delivered, behind SteerPrefix, so the goblin knows the
+// words are his. The supervisor stamps with it and the goblin's record is read
+// back through it, so his words show as his again.
+const BoardMessagePrefix = "Message from the Overlord, typed on the board: "
+
 // Detect reports the provider fault a pane's tail shows, if any. It reads the
 // tail the watcher already captured rather than probing anything. Operator
 // lines are blanked first, then third-party platform failures (GitHub and

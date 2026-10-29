@@ -12,6 +12,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -32,9 +33,6 @@ import (
 // the CFO is given it instead.
 const messageWait = 10 * time.Minute
 
-// overlordWords open each message where it is delivered.
-const overlordWords = "Message from the Overlord, typed on the board: "
-
 // fromOverlord is how a message reads where it is delivered. A line that
 // starts with / or ! is a command for the harness itself, so it goes as it
 // was typed rather than behind the Overlord's stamp, which would make it
@@ -44,7 +42,7 @@ func fromOverlord(text string) string {
 	if strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "!") {
 		return trimmed
 	}
-	return overlordWords + trimmed
+	return routing.BoardMessagePrefix + trimmed
 }
 
 func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, error) {
@@ -351,11 +349,11 @@ func isCurrentRecord(record state.Lifecycle, meta state.TaskMeta) bool {
 // keptMessages reads a resume note as what came before the board's first
 // message in it, such as an answer given while paused, and the board's
 // messages after that, each as the Overlord wrote it: a message starts a line
-// with overlordWords and runs to the next.
+// with routing.BoardMessagePrefix and runs to the next.
 func keptMessages(note string) (before string, messages []string) {
 	var lines []string
 	for _, line := range strings.Split(note, "\n") {
-		text, isMessage := strings.CutPrefix(line, overlordWords)
+		text, isMessage := strings.CutPrefix(line, routing.BoardMessagePrefix)
 		switch {
 		case isMessage:
 			messages = append(messages, text)

@@ -202,7 +202,7 @@ test.describe("on a phone", () => {
     await expect(box(page).locator(".harness-panel")).toHaveCount(0);
     expect(await page.evaluate(() => document.body.dataset.terminalBox)).toBeUndefined();
     expect(typed(relay)).toBe("");
-    await expect(page.locator(".messages-view:not([hidden]) .conversation-queue")).toContainText("after the screen");
+    await expect(page.locator(".messages-view:not([hidden]) [role=log] .queued-message")).toContainText("after the screen");
   });
 });
 

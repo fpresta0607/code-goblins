@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { messageState, messagesTo, takesMessages } from "./messages.ts";
+import { isPendingMessage, messageState, messagesTo, takesMessages } from "./messages.ts";
 import { parseSnapshot, type Snapshot, type Task } from "./types.ts";
 
 const action = (fields: Record<string, unknown>) => ({ id: "m1", kind: "message", task_id: "goblin-one", generation: "", status: "queued", message: "", text: "use staging", updated_at: "2026-10-08T12:00:00Z", ...fields });
@@ -16,6 +16,22 @@ test("a message says where it is: queued, sent or with the CFO", () => {
   assert.equal(messageState(snapshot([action({ status: "succeeded", message: "Accepted by the goblin in its native terminal." })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "running", awaiting: { task: "goblin-one" } })]).actions[0]), "Sent");
   assert.equal(messageState(snapshot([action({ status: "failed", message: "goblin-one was stopped before it could take it; the CFO has it" })]).actions[0]), "With the CFO");
+});
+
+// The Overlord, 2026-10-29: a message he typed for the CFO the day before
+// still showed as queued, and its Cancel said "that queued message is no
+// longer waiting, so nothing was deleted". A delivery the board typed and
+// still watches for a late take, whatever its outcome, waits nowhere: only
+// one the board holds, or is typing, or that the harness holds untaken does.
+test("a message waits only while the board or its harness holds it", () => {
+  const waits = (fields: Record<string, unknown>) => isPendingMessage(snapshot([action(fields)]).actions[0]);
+  const awaiting = { host: "cfo", since: "2026-10-28T03:04:16Z" };
+  assert.equal(waits({ status: "queued" }), true);
+  assert.equal(waits({ status: "running" }), true);
+  assert.equal(waits({ status: "running", awaiting }), true);
+  assert.equal(waits({ status: "uncertain", awaiting }), false);
+  assert.equal(waits({ status: "succeeded" }), false);
+  assert.equal(waits({ status: "failed" }), false);
 });
 
 test("a goblin's messages are its own, never one that names no goblin", () => {
