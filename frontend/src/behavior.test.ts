@@ -555,6 +555,22 @@ test("the CFO's status comes from the registered CFO's session, never an older o
   assert.deepEqual(workflowNodes(leftBehind).map((node) => [node.id, node.parent]), [["session:claude/live-cfo", undefined], ["session:codex/a-session", "session:claude/live-cfo"]]);
 });
 
+// #1611: the supervisor lists the sessions by id, so one that reports keeps its
+// place in what it sends, and the board still takes the CFO session it heard
+// from last as the CFO while no registration names one.
+test("the board holds the sessions oldest update first, though the supervisor lists them by id", () => {
+  // Arrange: by id the newest comes first, and its time sorts last as text.
+  const newest = { id: "pi/a-cfo", native_id: "a-cfo", harness: "pi", role: "cfo", phase: "active", updated_at: "2026-10-29T06:00:00.25Z" };
+  const older = { id: "pi/b-cfo", native_id: "b-cfo", harness: "pi", role: "cfo", phase: "active", updated_at: "2026-10-29T06:00:00.2Z" };
+
+  // Act
+  const snapshot = parseSnapshot({ healthy: true, cfo_runs: true, cfo_session: "", sessions: [newest, older] });
+
+  // Assert
+  assert.deepEqual(snapshot.sessions.map((session) => session.id), ["pi/b-cfo", "pi/a-cfo"]);
+  assert.equal(liveCfoSession(snapshot)?.id, "pi/a-cfo");
+});
+
 // A goblin hung under a CFO session the board heard from after it is drawn a
 // row below that CFO, not beside it at the top of the canvas.
 test("a goblin hung under a later CFO session is drawn below it", () => {
