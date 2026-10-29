@@ -5,7 +5,44 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
+
+// The newest page of a long conversation waits for no more than a read of
+// its tail: it comes while the start of the conversation cannot be read, and
+// the older pages come once it can.
+func TestTheNewestPageOfALongConversationReadsOnlyItsTail(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home, longConversation()...)
+	head, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer head.Close()
+	const locked = 512 << 10
+	start := new(windows.Overlapped)
+	if err := windows.LockFileEx(windows.Handle(head.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, locked, 0, start); err != nil {
+		t.Fatal(err)
+	}
+	reader := Reader{Home: home}
+
+	// Act
+	newest, _, newestErr := reader.MessagePage(path, -1)
+	if err := windows.UnlockFileEx(windows.Handle(head.Fd()), 0, locked, 0, start); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	if newestErr != nil || len(newest.Messages) != MessagesPerPage || newest.Messages[0].Text != "prompt 11" || !newest.More {
+		t.Fatalf("MessagePage while the conversation's start is locked = %d messages, more %t, %v; want the newest page from prompt 11, and more", len(newest.Messages), newest.More, newestErr)
+	}
+	older, _, olderErr := reader.MessagePage(path, newest.Messages[0].Seq)
+	if olderErr != nil || len(older.Messages) != 13 || older.Messages[0].Text != "the first words" || older.More {
+		t.Errorf("the page before it once the start is unlocked = %d messages, more %t, %v; want the first words to prompt 10", len(older.Messages), older.More, olderErr)
+	}
+}
 
 // A spilled result is read only from a regular file directly in its own
 // conversation's tool-results folder, reached through no junction; a result
