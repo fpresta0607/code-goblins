@@ -1405,7 +1405,10 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    past its picture, and cuts the name and the mark at its own edge, so
    neither is drawn under the selector. */
 .panel-header.one-row { display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
-.panel-header.one-row .panel-identity > .goblin-avatar { flex: none; width: 32px; height: 32px; }
+.panel-header.one-row .panel-identity > .goblin-avatar, .panel-header.one-row .panel-home > .goblin-avatar { flex: none; width: 32px; height: 32px; }
+/* The CFO's picture is Home (see PanelHeader): a button no bigger than the
+   picture, so the row keeps its room. */
+.panel-home { display: grid; place-items: center; flex: none; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: none; }
 .one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
 .one-row h2 { flex: 0 1 auto; min-width: 0; font-size: 1.25rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .one-row .panel-identity > .mark { flex: none; width: 26px; height: 26px; }
