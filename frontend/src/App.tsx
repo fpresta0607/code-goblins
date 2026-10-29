@@ -52,7 +52,7 @@ import { useTerminalLink } from "./terminal-link";
 import { liveCfoSession } from "./workflow";
 import { messagesQuery } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
-import { useChatStyle } from "./chat-style";
+import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
 import { taskStatus } from "./task-status";
 
@@ -267,18 +267,35 @@ export function App() {
   if (needsQueue && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const [chatStyle, chooseStyle] = useChatStyle();
   const [classicOut, setClassicOut] = useState("");
-  const shouldKeepComposer = needsQueue || chatStyle === "classic" && composerTerminal === terminalKey || composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
+  const isBoxWorking = composerActivity.terminal === terminalKey && composerActivity.isActive && composerTerminal === terminalKey;
+  // A choice of style, from the box's Style menu, the panel's row or the
+  // Workspace setting, redraws the open panel in that style at once. It ends
+  // a step out of Classic to read back and a step of the terminal into
+  // Modern, either of which outlasted the choice and kept the view as it was
+  // (the Overlord, 2026-10-28: "speech bubble doesnt chagne the screen"). A
+  // Classic chosen from the box, which Classic puts away unless work of its
+  // own keeps it, hands the keyboard to the terminal it draws.
+  useEffect(() => {
+    const follow = (event: Event) => {
+      setClassicOut("");
+      setSteppedIn("");
+      if ((event as CustomEvent<ChatStyle>).detail === "classic" && !isBoxWorking && composerTarget.contains(document.activeElement)) setSwitchFocus((prior) => prior + 1);
+    };
+    window.addEventListener(CHAT_STYLE_CHANGED, follow);
+    return () => window.removeEventListener(CHAT_STYLE_CHANGED, follow);
+  }, [composerTarget, isBoxWorking]);
+  const shouldKeepComposer = needsQueue || isBoxWorking;
   const keyboardTo = (key: string) => {
     // The keyboard goes to whatever that session will actually show: the box
-    // the panel draws for it, or its terminal. Classic draws the terminal in
-    // the conversation's place, so a switch there reaches the terminal unless
-    // the goblin takes messages and has none, or custody holds and its box is
-    // the thing on screen.
+    // the panel draws for it, or its terminal. Classic draws the terminal
+    // alone in the conversation's place, so a switch there reaches the
+    // terminal unless the goblin takes messages and has none.
     const target = key === CFO_KEY ? undefined : snapshot?.tasks.find((each) => each.id === key);
     const hasMessages = !!snapshot && !!messagesQuery(snapshot, target);
     const takes = !!target && takesMessages(target);
-    const isTerminalHere = steppedIn === key || (chatStyle === "classic" && classicOut !== key && !takes);
-    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && key === terminalKey && shouldKeepComposer;
+    const isClassicHere = chatStyle === "classic" && classicOut !== key && !takes;
+    const isTerminalHere = steppedIn === key || isClassicHere;
+    const showsBox = hasMessages && !isTerminalHere || takes && !isTerminalHere || (isTerminalHere || !hasMessages) && key === terminalKey && (isClassicHere ? isBoxWorking : shouldKeepComposer);
     if (showsBox) setBoxFocus((prior) => prior + 1);
     else setSwitchFocus((prior) => prior + 1);
   };
@@ -372,11 +389,18 @@ export function App() {
   // stays mounted under the terminal either way, so a change of style keeps
   // the session, its history, an unsent draft and the place he read.
   // Classic keeps the harness's own terminal in the conversation's place
-  // until he steps out of it for this session, and Modern shows the
+  // until he reads back out of it for this session, and Modern shows the
   // conversation, a screen of the harness's own drawn in it as a list, until
   // Show the terminal steps the terminal in. The saved
   // choice is the only thing that decides it, so a change of style carries
   // the session, its history, an unsent draft and the place he read.
+  // Classic draws the terminal alone, as the board drew it before Modern
+  // Chat: no box under it, held, busy or reconnecting, and no Back to
+  // messages over it, with Modern one press away in the panel's row (the
+  // Overlord, 2026-10-28: "I shouldn't have to add these extra controls to
+  // the terminal. The terminal was working great before"). A box with work
+  // of its own when he chooses Classic, a recording, an upload, a Send
+  // landing or a failed Send to retry, stays until that work ends.
   const takesTyping = !!task && takesMessages(task);
   const classicInPlace = chatStyle === "classic" && !!terminalKey && classicOut !== terminalKey && !takesTyping;
   const terminalInPlace = isSteppedIn || classicInPlace;
@@ -400,7 +424,7 @@ export function App() {
   // The conversation portals its one mounted composer to the shared footer.
   // The deck owns the box for a paused goblin without a conversation.
   const deckOwnsBox = !!task && !messagesSource && takesMessages(task);
-  const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && shouldKeepComposer;
+  const queuedBox = terminalShown && !messagesShown && !deckOwnsBox && (classicInPlace ? isBoxWorking : shouldKeepComposer);
   const boxOnScreen = messagesShown || queuedBox;
   if (boxOnScreen && composerTerminal !== terminalKey) setComposerTerminal(terminalKey);
   const composerDock = queuedBox || !messagesSource ? classicDock : messageDock;
@@ -475,6 +499,7 @@ export function App() {
     store(MAXIMIZED_KEYS.terminal, choice);
   };
   const controls: PanelControl[] = [];
+  if (classicInPlace && messagesSource && terminalShown) controls.push({ id: "style", name: "Modern chat", label: "Switch to Modern chat", icon: "comment", importance: PANEL_IMPORTANCE.style, onPress: () => { chooseStyle("modern"); setBoxFocus((prior) => prior + 1); } });
   if (shownWindow && !compact && !boxOnScreen) controls.push({ id: "window", name: "Open in terminal", label: "Open in Windows Terminal", icon: "external", importance: PANEL_IMPORTANCE.window, onPress: () => void openWindow() });
   if (!compact) controls.push({ id: "maximize", name: maximized ? "Restore" : "Maximize", label: maximized ? "Restore the panel" : "Maximize the panel", icon: maximized ? "restore" : "maximize", importance: PANEL_IMPORTANCE.maximize, onPress: toggleMaximized });
   const row = {
@@ -546,9 +571,9 @@ export function App() {
             beside the column the panel's task list is drawn into. */}
         <div className="panel-body" hidden={!terminalShown && !messagesShown}>
         <div className="panel-main">
-        {/* Classic draws the terminal in the conversation's place too, so its
-            Back bar is the way back to the conversation and its box. */}
-        <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn || classicInPlace} onBack={stepOut}>
+        {/* A terminal Modern stepped in has its Back bar, the way back to
+            the conversation and its box; Classic's terminal has none. */}
+        <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn && !classicInPlace} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
             isWorking={isWorking} pending={panelPending}

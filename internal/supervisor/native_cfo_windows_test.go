@@ -659,6 +659,65 @@ func TestADeliveryToANativeCFOInATurnWaitsBehindIt(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-10-28: "It should just be a direct message that gets
+// queued up and sent with the clawed code session. The terminal already
+// handles this." His board message to a CFO in a turn is typed into it at
+// once, exactly as he wrote it, for its harness to take at its next tool
+// call: never held on the board until the turn ends, and never stamped.
+func TestHisMessageToANativeCFOInATurnIsTypedAtOnceAsHeWroteIt(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	if err := os.WriteFile(filepath.Join(h.State, NATIVE_EXIT_PHASES_FILE), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	cfo.typeLine(t, "harness")
+	cfo.typeLine(t, "busy")
+	if lines := cfo.waitForLines(t, 2); len(lines) != 2 || lines[1] != "busy" {
+		t.Fatalf("the program recorded %q, want its registration and then a turn under way", lines)
+	}
+	cfo.showsTurn(t)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+
+	// Act
+	result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: " unpause all work and complete!! "})
+
+	// Assert
+	if err != nil || result.Awaiting == nil || result.Reason != sentToCFO {
+		t.Errorf("deliverMessage = %+v, %v; want it typed into the turn and awaiting the CFO's next tool call", result, err)
+	}
+	if typed := cfo.exit(t); len(typed) != 3 || typed[2] != "unpause all work and complete!!" {
+		t.Errorf("the terminal received %q, want his words once, as he wrote them", typed)
+	}
+}
+
+// His board message to an idle CFO goes in as he wrote it too, with no
+// stamp before it.
+func TestHisMessageToAnIdleNativeCFOIsTypedAsHeWroteIt(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	cfo := hostTerminal(t, h.State, "cfo")
+	cfo.typeLine(t, "register")
+	if lines := cfo.waitForLines(t, 1); len(lines) != 1 || !strings.HasPrefix(lines[0], "registered ") {
+		t.Fatalf("the program recorded %q, want its registration", lines)
+	}
+	cfo.typeLine(t, "hooked")
+	cfo.showsComposer(t, "claude")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}}}
+
+	// Act
+	result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "continue and complete all goblins"})
+
+	// Assert
+	if err != nil || !strings.Contains(result.Reason, "its hook reported") {
+		t.Errorf("deliverMessage = %+v, %v; want it delivered once the CFO's hook reported taking it", result, err)
+	}
+	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "continue and complete all goblins" {
+		t.Errorf("the terminal received %q, want its registration and then his words as he wrote them", typed)
+	}
+}
+
 // The Overlord, 2026-10-01: "Delivery unconfirmed ... I get these command
 // center blips and errors, fix". A CFO that takes a typed answer later than
 // the confirmation window is not an error: the delivery is typed and

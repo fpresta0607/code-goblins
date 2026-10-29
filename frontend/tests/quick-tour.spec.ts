@@ -205,9 +205,11 @@ test.describe("in the desktop window", () => {
     // Act
     await open(page);
 
-    // Assert: the first open's layout, with no tour over it.
+    // Assert: the first open's layout, with no tour over it. A browser that
+    // keeps nothing has no saved style either, so the CFO opens in Classic,
+    // the default, with the keyboard in the CFO's terminal.
     await expect(page.locator("#panel-title")).toHaveText("CFO");
-    await expect(cfoBox(page)).toBeFocused();
+    await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
     await expect(tour(page)).toHaveCount(0);
 
     // Act

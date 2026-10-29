@@ -341,6 +341,10 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 		if err := validLeft(entry); err != nil {
 			return Entry{}, err
 		}
+	case entry.Kind == KindHis && (len(entry.Options) > 0 || entry.Recommendation != ""):
+		if err := validHisChoices(entry); err != nil {
+			return Entry{}, err
+		}
 	case entry.Command != "" || entry.Shell != "":
 		if err := validCommand(entry); err != nil {
 			return Entry{}, err
@@ -359,14 +363,15 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 // script file.
 var stepCommand = regexp.MustCompile(`\b(?:cfo|gh|goblins|git|npm|npx|pnpm|winget|no-mistakes)\s+[a-z][a-z-]*\b|\b(?:powershell|pwsh)(?:\.exe)?\s+-|\b[\w.-]+\.(?:ps1|sh|cmd|bat)\b`)
 
-// CheckStep refuses a step only he can take, with no command to run, whose
-// card would give him nothing that does it: one that names a command in its
-// words, and one with no page to take it on. Its card is a question with
-// Done and Later, and Done runs nothing: on 2026-10-18 the Overlord pressed
-// Done on install and merge steps and nothing ran. A command is a run item
-// he runs with one click.
+// CheckStep refuses a step only he can take, with no command to run and no
+// choices of its own, whose card would give him nothing that does it: one
+// that names a command in its words, and one with no page to take it on. Its
+// card is a question with Done and Later, and Done runs nothing: on
+// 2026-10-18 the Overlord pressed Done on install and merge steps and nothing
+// ran. A command is a run item he runs with one click, and a decision offers
+// its own choices, whose answer the CFO acts on.
 func CheckStep(step Entry) error {
-	if step.Kind != KindHis || step.Command != "" {
+	if step.Kind != KindHis || step.Command != "" || len(step.Options) > 0 {
 		return nil
 	}
 	if command := stepCommand.FindString(step.What); command != "" {
@@ -394,21 +399,42 @@ func validLeft(entry Entry) error {
 		return fmt.Errorf("a decision answered in his place says what is wrong, found to its cause, in at most %d characters", maxEvidence)
 	case strings.TrimSpace(entry.Tried) == "" || len(entry.Tried) > maxEvidence:
 		return fmt.Errorf("a decision answered in his place says what was already tried, in at most %d characters", maxEvidence)
-	case len(entry.Options) < minLeftOptions || len(entry.Options) > maxLeftOptions:
-		return fmt.Errorf("a decision answered in his place offers %d to %d choices, which its question in his History offers him", minLeftOptions, maxLeftOptions)
+	}
+	if err := validChoices(entry, "a decision answered in his place", "its question in his History"); err != nil {
+		return err
+	}
+	if !slices.Contains(entry.Options, entry.Answer) {
+		return errors.New("the CFO's answer to a decision answered in his place is one of its choices, exactly")
+	}
+	return nil
+}
+
+// validHisChoices refuses a step only he can take that offers choices its
+// card could not: it is a decision of his, so its card is a question with
+// those choices in place of Done and Later, never a command he runs.
+func validHisChoices(entry Entry) error {
+	if entry.Command != "" || entry.Shell != "" {
+		return errors.New("a command he runs is a run item he runs with one click, which offers no choices: give either --run or --option")
+	}
+	return validChoices(entry, "a step only he can take", "its card in his Command Center")
+}
+
+// validChoices refuses choices that what, a decision, could not offer him
+// where offered: real choices, distinct and bounded as the Command Center
+// bounds a question's, one of them recommended or none.
+func validChoices(entry Entry, what, offered string) error {
+	if len(entry.Options) < minLeftOptions || len(entry.Options) > maxLeftOptions {
+		return fmt.Errorf("%s offers %d to %d choices, which %s offers him", what, minLeftOptions, maxLeftOptions, offered)
 	}
 	seen := map[string]bool{}
 	for _, option := range entry.Options {
 		if strings.TrimSpace(option) == "" || len(option) > maxOption || seen[option] {
-			return fmt.Errorf("the choices of a decision answered in his place are distinct, and each is text of at most %d characters", maxOption)
+			return fmt.Errorf("the choices of %s are distinct, and each is text of at most %d characters", what, maxOption)
 		}
 		seen[option] = true
 	}
 	if entry.Recommendation != "" && !seen[entry.Recommendation] {
-		return errors.New("the recommended choice of a decision answered in his place is one of its choices, exactly")
-	}
-	if !seen[entry.Answer] {
-		return errors.New("the CFO's answer to a decision answered in his place is one of its choices, exactly")
+		return fmt.Errorf("the recommended choice of %s is one of its choices, exactly", what)
 	}
 	return nil
 }

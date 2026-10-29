@@ -1,5 +1,12 @@
 package supervisor
 
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/waiting"
+)
+
 // Items is the Command Center's part of a snapshot: every question, review
 // item, run and credential request, and what the Overlord sent for them. It
 // lives in the store's memory, so it is read at once, while the rest of a
@@ -70,4 +77,35 @@ func (s *Service) Items() (Items, uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return items, s.revision
+}
+
+// Waiting lists what waits on the Overlord as the board's page counts it,
+// read from the store's memory, with each goblin named as the newest snapshot
+// built names it, so a look builds none. The desktop window looks every three
+// seconds, and it read the whole snapshot, a megabyte, at each look (#1716).
+func (s *Service) Waiting() (string, []waiting.Item, error) {
+	snapshot, err := s.SnapshotSince(0)
+	if err != nil {
+		return "", nil, err
+	}
+	type title struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	titles := make([]title, len(snapshot.Tasks))
+	for i, task := range snapshot.Tasks {
+		titles[i] = title{task.ID, task.Title}
+	}
+	items, _ := s.Items()
+	items.Actions = nil
+	data, err := json.Marshal(struct {
+		Instance string    `json:"instance"`
+		At       time.Time `json:"at"`
+		Tasks    []title   `json:"tasks"`
+		Items
+	}{s.Instance, time.Now().UTC(), titles, items})
+	if err != nil {
+		return "", nil, err
+	}
+	return waiting.Items(data)
 }

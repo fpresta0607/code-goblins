@@ -99,18 +99,27 @@ func ownerInfo(pid int, session string) (*Info, processStatus) {
 	return &Info{PID: pid, OwnerPID: pid, Session: session, Start: start, Hostname: hostname, Acquired: time.Now().UTC()}, status
 }
 
+// writeInfo puts info at path as its holder record only if none is there.
+// The record is written whole beside path and renamed into place, so no
+// reader finds it part written, and a writer ended while it writes leaves no
+// empty record that every later acquisition refuses as unreadable (#1665).
 func writeInfo(ctx context.Context, path string, info *Info) error {
 	data, err := json.Marshal(info)
 	if err != nil {
 		return err
 	}
-	f, err := fsx.CreateNewContext(ctx, path, 0o644)
+	staged, err := fsx.Stage(path, data)
 	if err != nil {
 		return err
 	}
-	_, werr := f.Write(data)
-	return errors.Join(werr, f.Close())
+	defer staged.Discard()
+	publishing()
+	return staged.CommitNewContext(ctx)
 }
+
+// publishing runs as a holder record is about to be put in place, for a test
+// that stops or ends its writer there.
+var publishing = func() {}
 
 // AcquireNamedOwner takes dir/name for ownerPID, the long-lived process (the
 // harness ancestor, or a subsystem such as the wake queue) taking custody of

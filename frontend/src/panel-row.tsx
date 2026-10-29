@@ -14,7 +14,7 @@ export interface PanelControl { id: string; name: string; label: string; icon: I
 // The importance of every control of the row, written once. The corner
 // button, Close or Back, always shows. A control that joins the row takes
 // its place here.
-export const PANEL_IMPORTANCE = { maximize: 20, window: 10 } as const;
+export const PANEL_IMPORTANCE = { style: 30, maximize: 20, window: 10 } as const;
 
 // A control's width, an icon button's in styles.css, and the row's gap there.
 const CONTROL = 44;

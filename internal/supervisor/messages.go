@@ -51,14 +51,20 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	if s.Options.CFO == nil {
 		return Evaluation{}, fmt.Errorf("%w: message transport is unavailable", ErrRejected)
 	}
-	text := fromOverlord(a.Text)
 	if a.TaskID == "" {
 		identity, isLive := s.Store.liveCFO()
 		if !isLive {
 			return Evaluation{Reason: "Waits for the CFO.", SendNowWhy: "No CFO is running."}, ErrDeferred
 		}
-		return s.Options.CFO.sendNative(ctx, identity, text, !a.IsSentNow)
+		// His message goes to the CFO exactly as he typed it, at once, a turn
+		// under way or not: the CFO's harness takes a line typed during a turn
+		// at its next step, as it takes one typed into its terminal (the
+		// Overlord, 2026-10-28: "It should just be a direct message that gets
+		// queued up and sent with the clawed code session. The terminal
+		// already handles this.").
+		return s.Options.CFO.sendNative(ctx, identity, strings.TrimSpace(a.Text))
 	}
+	text := fromOverlord(a.Text)
 	stateDir := s.Store.Home.State
 	s.starts.Lock()
 	isStarting := s.starting == a.TaskID || s.isAsked(a.TaskID)

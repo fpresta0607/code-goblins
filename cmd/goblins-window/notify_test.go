@@ -162,12 +162,11 @@ func TestOnlyAQuestionTheCFOAsksIsNotifiedFromTheTray(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var mu sync.Mutex
 			questions := ""
-			snapshots := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			snapshots := standInLook(t, func() string {
 				mu.Lock()
 				defer mu.Unlock()
-				_, _ = w.Write([]byte(`{"instance":"` + standInInstance + `","questions":[` + questions + `]}`))
-			}))
-			defer snapshots.Close()
+				return `{"instance":"` + standInInstance + `","questions":[` + questions + `]}`
+			})
 			board := newStandIn(t)
 			notifier := notifierAt(inTheTray, board)
 			watcher := &Watcher{}

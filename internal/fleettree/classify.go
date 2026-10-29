@@ -231,20 +231,38 @@ func linkOpened(commandLine string) bool {
 	return slices.ContainsFunc(arguments, func(argument string) bool { return argument == "--single-argument" || argument == "-osint" })
 }
 
-// withoutLinkBrowsers is harness without each browser a link opened in one of
-// its jobs and everything under it, its tabs and the native messaging hosts
-// it starts among them, in its jobs and in all, so no memory of it counts,
-// and without a job left with no process: on 2026-10-16 a sign-in link the
-// CFO's harness opened started the Overlord's browser under its terminal,
-// and the start watch blamed it on the terminal (#1007). A job's members
-// come parents first.
-func (r *Reader) withoutLinkBrowsers(harness harnessProcesses) harnessProcesses {
+// supervisors are the programs the fleet's supervisor runs as: cfo or
+// goblins, or an update's verified copy of either.
+var supervisors = []string{"cfo", "goblins", "previous-cfo", "previous-goblins"}
+
+// isSupervisor says a process is the fleet's supervisor, by its program and
+// its command line, which runs serve.
+func isSupervisor(process Process, commandLine string) bool {
+	arguments, _ := proc.SplitCommandLine(commandLine)
+	return slices.Contains(supervisors, executableName(process.Exe)) && len(arguments) > 1 && arguments[1] == "serve"
+}
+
+// withoutOthers is harness without what is nobody's work in its jobs, in
+// its jobs and in all, so no memory of it counts, and without a job left
+// with no process. A job's members come parents first.
+//
+// Each browser a link opened is left with everything under it, its tabs and
+// the native messaging hosts it starts among them: on 2026-10-16 a sign-in
+// link the CFO's harness opened started the Overlord's browser under its
+// terminal, and the start watch blamed it on the terminal (#1007).
+//
+// The supervisor is left with everything it runs, as the fleet's own
+// service: on 2026-10-25 a supervisor that an update in the CFO's terminal
+// had started read as that terminal's, by the mark its console host was
+// given as it started, and the start watch blamed its own gate-status reads
+// on the terminal (#1499).
+func (r *Reader) withoutOthers(harness harnessProcesses) harnessProcesses {
 	isLeft := map[int]bool{}
 	var kept []job
 	for _, job := range harness.jobs {
 		var members []Process
 		for _, member := range job.members {
-			if command, _ := r.command(member); isLeft[member.ParentPID] || linkOpened(command) {
+			if command, _ := r.command(member); isLeft[member.ParentPID] || linkOpened(command) || isSupervisor(member, command) {
 				isLeft[member.PID] = true
 				continue
 			}

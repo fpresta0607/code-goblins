@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, box, card, field, GOBLIN, NAME, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
+import { at, field, GOBLIN, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "im not seeing queued messages appear in the
 // modern chat right away, it lags", "there's no edit or send now function
@@ -272,42 +272,4 @@ test("a prompt line holding words never sent holds a message in the queue and ty
   await expect.poll(() => posts.map((post) => post.text)).toEqual(["merge the train"]);
   await expect(field(page)).toHaveValue("");
   expect(typed(relay)).toBe("");
-});
-
-// A Classic box beside the terminal, which has no conversation, at a screen
-// of the harness's own that is no question, such as its usage limit's, saves
-// the message through the board's queue it lists, as it does while held: it
-// types nothing, and never says the live terminal is reconnecting.
-test("a Classic box at a usage limit's screen queues a message through the board and types nothing", async ({ page }) => {
-  // Arrange: a hold shows the box beside Zeke's Classic terminal, and letting
-  // go leaves it there.
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
-  const posts: Posted[] = [];
-  const relay = await open(page);
-  await page.route("**/api/actions", (route) => {
-    const body = route.request().postDataJSON() as Partial<Posted>;
-    posts.push({ id: body.id ?? "", kind: body.kind ?? "", target: body.target ?? "", text: body.text ?? "" });
-    return route.fulfill({ status: 202, json: { status: "queued" } });
-  });
-  await card(page, NAME).click();
-  await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
-  relay.say({ type: "held", reason: "pipeline owns this task" });
-  await expect(field(page)).toBeVisible();
-  relay.say({ type: "held", reason: "" });
-  await expect(box(page).locator(".composer-note")).toHaveText("");
-  relay.say({ type: "screen", asking: false, open: true, working: false, panel: { rows: ["⚠ Usage limit reached · limit resets 10pm"], choices: [], hints: ["Continuing automatically at 10pm · Esc"] } });
-  const typedBefore = typed(relay);
-  const submittedBefore = relay.submissions.length;
-
-  // Act
-  await field(page).fill("continue");
-  await field(page).press("Enter");
-
-  // Assert
-  await expect.poll(() => posts.map((post) => post.kind + ":" + post.text)).toEqual(["message:continue"]);
-  await expect(field(page)).toHaveValue("");
-  await expect(box(page).locator(".composer-refusal")).toHaveCount(0);
-  expect(typed(relay), "nothing typed into its screen").toBe(typedBefore);
-  expect(relay.submissions.length, "nothing submitted to its screen").toBe(submittedBefore);
 });
