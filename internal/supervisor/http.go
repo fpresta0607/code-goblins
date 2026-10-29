@@ -145,6 +145,15 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, waiting.Look{Instance: instance, Items: items})
+	case r.URL.Path == "/api/items/closed" && r.Method == "GET":
+		// History when it opens, or the question the Overlord opened a
+		// Change answer on from elsewhere, such as his AFK report.
+		items := boardItems(h.Service.Store.Snapshot())
+		if id := r.URL.Query().Get("question"); id != "" {
+			respond(w, 200, Items{Questions: slices.DeleteFunc(items.Questions, func(question Question) bool { return question.ID != id })})
+		} else {
+			respond(w, 200, history(items))
+		}
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		h.stream(w, r)
 	case r.URL.Path == "/api/terminal/stream" && r.Method == "POST":
