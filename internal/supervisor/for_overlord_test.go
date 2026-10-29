@@ -3,6 +3,7 @@ package supervisor
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestOnlyAQuestionTheCFOAsksIsTheOverlordsToAnswer(t *testing.T) {
@@ -17,6 +18,8 @@ func TestOnlyAQuestionTheCFOAsksIsTheOverlordsToAnswer(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, _ := testStore(t)
+			// The board is sent a closed question only for an hour after it closed.
+			c.question.CreatedAt = time.Now().UTC()
 			store.db.Questions = []Question{c.question}
 			if err := store.save(); err != nil {
 				t.Fatal(err)

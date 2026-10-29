@@ -1,5 +1,5 @@
 import type { IconName } from "./Icon.tsx";
-import { object, string, type Action, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types.ts";
+import { object, string, type Action, type BoardActivity, type BrowserSignIn, type ClosedItems, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types.ts";
 import { deliveryMark, runMark, type Submission } from "./feedback.ts";
 import { credentialSettled } from "./credentials.ts";
 import { signInOutcome } from "./browser-signins.ts";
@@ -206,6 +206,17 @@ export function questionPage(presentations: BoardActivity[], question: Question)
 
 export function settledItems(snapshot: Snapshot): Item[] {
   return asItems(snapshot).filter((item) => !isOpen(item)).sort((a, b) => closed(b) - closed(a));
+}
+
+// The snapshot carries the items open or closed in the last hour, and History
+// reads the ones closed before when it opens (#1611): withClosed is the
+// snapshot with what was read, where the snapshot's own copy of an item, the
+// newer, stands.
+export function withClosed(snapshot: Snapshot, read: ClosedItems | undefined): Snapshot {
+  if (!read) return snapshot;
+  const add = <T extends { id: string }>(own: T[] = [], older: T[]) => [...own, ...older.filter((item) => !own.some((each) => each.id === item.id))];
+  return { ...snapshot, questions: add(snapshot.questions, read.questions), reviews: add(snapshot.reviews, read.reviews), runs: add(snapshot.runs, read.runs),
+    credentials: add(snapshot.credentials, read.credentials), browser_signins: add(snapshot.browser_signins, read.browser_signins) };
 }
 
 export type QuestionOutcome = "pending" | "answered" | "superseded" | "cleared" | "failed" | "uncertain";

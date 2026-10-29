@@ -445,6 +445,10 @@ export interface Snapshot {
   runs?: Run[];
   credentials?: CredentialRequest[];
   browser_signins?: BrowserSignIn[];
+  // history_count is how many closed items History lists: the snapshot
+  // carries those closed in the last hour, and History reads the rest when it
+  // opens.
+  history_count: number;
   // memory is absent on a board that cannot start goblins or read it.
   memory: Memory | null;
   // pc_restart is absent until the Overlord's Restart PC began one.
@@ -852,6 +856,12 @@ function itemLists(v: Record<string, unknown>) {
     actions: array(v.actions).map(parseAction),
   };
 }
+// ClosedItems are the closed items History reads when it opens.
+export type ClosedItems = Required<Pick<Snapshot, "questions" | "reviews" | "runs" | "credentials" | "browser_signins">>;
+export function parseClosedItems(value: unknown): ClosedItems {
+  const { questions, reviews, runs, credentials, browser_signins } = itemLists(object(value));
+  return { questions, reviews, runs, credentials, browser_signins };
+}
 function parsePerson(p: Record<string, unknown>): Person {
   return { login: string(p.login), name: string(p.name), avatar_url: string(p.avatar_url) };
 }
@@ -964,6 +974,7 @@ export function parseSnapshot(value: unknown): Snapshot {
     retired: strings(v.retired),
     issues: strings(v.issues),
     attention: strings(v.attention),
+    history_count: v.history_count === undefined ? 0 : number(v.history_count),
     activity: array(v.activity).map(value=>{const a=object(value);return {id:string(a.id),kind:string(a.kind),task_id:string(a.task_id),generation:string(a.generation),cfo_identity:string(a.cfo_identity),live:a.live===undefined?false:boolean(a.live),source:string(a.source),target:string(a.target),state:string(a.state),url:string(a.url),at:string(a.at),until:string(a.until),watch:string(a.watch)};}),
     ...itemLists(v),
     tasks: array(v.tasks).map((value) => {
