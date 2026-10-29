@@ -117,25 +117,11 @@ func TestSnapshotNamesEachTasksTerminalBackend(t *testing.T) {
 // every session again, 512 of them, whenever one moved.
 func TestASessionThatReportsKeepsItsPlaceInTheSnapshot(t *testing.T) {
 	// Arrange: two CFO sessions, the first by id the older.
-	store, h := testStore(t)
+	store, _ := testStore(t)
 	s := &Service{Store: store}
-	report := func(name, session, turn string, at time.Time) {
-		t.Helper()
-		payload, err := json.Marshal(map[string]string{"hook_event_name": name, "session_id": session, "turn_id": turn, "cwd": h.Root})
-		if err != nil {
-			t.Fatal(err)
-		}
-		event, err := nativehook.Normalize(strings.NewReader(string(payload)), nativehook.Context{Harness: "codex", Role: "cfo", Now: at})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := store.Accept(event); err != nil {
-			t.Fatal(err)
-		}
-	}
 	started := time.Now().UTC().Add(-time.Minute)
-	report("SessionStart", "session-a", "", started)
-	report("SessionStart", "session-b", "", started.Add(time.Second))
+	reportAsCFO(t, store, "SessionStart", "session-a", "", started)
+	reportAsCFO(t, store, "SessionStart", "session-b", "", started.Add(time.Second))
 	listed := func() []string {
 		t.Helper()
 		view, err := s.Snapshot()
@@ -151,11 +137,27 @@ func TestASessionThatReportsKeepsItsPlaceInTheSnapshot(t *testing.T) {
 	before := listed()
 
 	// Act: the first reports, so it is now the newest.
-	report("UserPromptSubmit", "session-a", "turn-1", started.Add(10*time.Second))
+	reportAsCFO(t, store, "UserPromptSubmit", "session-a", "turn-1", started.Add(10*time.Second))
 
 	// Assert
 	if after := listed(); !slices.Equal(after, before) || !slices.Equal(after, []string{"session-a", "session-b"}) {
 		t.Fatalf("the snapshot lists the sessions %v and then %v, want both times session-a, session-b", before, after)
+	}
+}
+
+// reportAsCFO has the store take a hook event from a Codex CFO session.
+func reportAsCFO(t *testing.T, store *Store, name, session, turn string, at time.Time) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{"hook_event_name": name, "session_id": session, "turn_id": turn, "cwd": store.Home.Root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := nativehook.Normalize(strings.NewReader(string(payload)), nativehook.Context{Harness: "codex", Role: "cfo", Now: at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Accept(event); err != nil {
+		t.Fatal(err)
 	}
 }
 

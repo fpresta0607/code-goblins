@@ -286,3 +286,38 @@ func TestAnAnsweredItemReachesTheBoardAsThatItemAlone(t *testing.T) {
 		t.Errorf("the board holds the actions %+v, want the dismiss he sent", answered.data.Actions)
 	}
 }
+
+// The snapshot listed its sessions oldest update first, so a session that
+// reported moved to the end of the list, and the board was sent the id of
+// every session again, 512 of them on the live fleet (#1611).
+func TestASessionThatReportsReachesTheBoardWithoutEverySessionsID(t *testing.T) {
+	// Arrange: a board open with its first snapshot, a hundred CFO sessions
+	// reporting, the first by id the oldest.
+	s, store, url := boardFixture(t, 0)
+	started := time.Now().UTC().Add(-time.Hour)
+	for i := range 100 {
+		reportAsCFO(t, store, "SessionStart", fmt.Sprintf("session-%03d", i), "", started.Add(time.Duration(i)*time.Second))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := openBoard(t, ctx, url)
+	opened := nextEvent(t, events, "its first snapshot")
+	ids := 0
+	for _, session := range opened.data.Sessions {
+		ids += len(session.ID)
+	}
+
+	// Act: the oldest session reports.
+	reportAsCFO(t, store, "UserPromptSubmit", "session-000", "turn-1", time.Now().UTC())
+	s.publish(nil)
+
+	// Assert
+	reported := nextEvent(t, events, "the session's report")
+	if reported.name != "change" || reported.size >= ids {
+		t.Fatalf("the stream sent a %s of %d bytes for one session's report, want a change smaller than the %d bytes of the %d sessions' ids", reported.name, reported.size, ids, len(opened.data.Sessions))
+	}
+	newest := slices.MaxFunc(reported.data.Sessions, func(one, other Session) int { return one.UpdatedAt.Compare(other.UpdatedAt) })
+	if len(reported.data.Sessions) != 100 || newest.NativeID != "session-000" || newest.TurnID != "turn-1" {
+		t.Errorf("the board holds %d sessions, the newest %s on turn %q, want 100 with session-000 the newest on turn-1", len(reported.data.Sessions), newest.NativeID, newest.TurnID)
+	}
+}
