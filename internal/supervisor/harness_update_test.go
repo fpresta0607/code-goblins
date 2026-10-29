@@ -1,6 +1,8 @@
 package supervisor
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -76,5 +78,36 @@ func TestAHarnessIsAtAStoppingPointOnlyOnceItsTurnHasEnded(t *testing.T) {
 				t.Errorf("atStoppingPoint(%q, hook %v) = %v, want %v", test.screen, test.isHookWaiting, got, test.want)
 			}
 		})
+	}
+}
+
+// Codex draws its optional Daybreak offer above its composer, and the rows
+// of an offer an earlier redraw dismissed stay on screen: they are history, so
+// a Codex idle at the empty composer under them is at a stopping point, and
+// one with text left unsent there is not (#1556).
+func TestAnInlineOffersRowsLeaveACodexAtItsStoppingPoint(t *testing.T) {
+	screens, _ := harness.NativeScreens(harness.Codex)
+	offer := []string{"Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", ""}
+	for name, test := range map[string]struct {
+		composer string
+		want     bool
+	}{
+		"an empty composer": {"› Ask Codex to do anything", true},
+		"text left unsent":  {"› one more thing", false},
+	} {
+		for _, isHookWaiting := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, hook %v", name, isHookWaiting), func(t *testing.T) {
+				// Arrange
+				screen := append(slices.Clone(offer), test.composer, "", "100% context left")
+
+				// Act
+				got := atStoppingPoint(screens, screen, isHookWaiting)
+
+				// Assert
+				if got != test.want {
+					t.Errorf("atStoppingPoint(%q, hook %v) = %v, want %v", screen, isHookWaiting, got, test.want)
+				}
+			})
+		}
 	}
 }

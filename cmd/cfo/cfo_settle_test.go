@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,19 +141,30 @@ func TestTheWatchEndsOnceTheScreenSettles(t *testing.T) {
 	}
 }
 
-func TestTheCFOStartupWatchDismissesTheOptionalDaybreakOffer(t *testing.T) {
-	terminal := &scriptedCFO{t: t, clock: time.Unix(0, 0), screens: []scriptedScreen{
-		{rows: []string{"Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}},
-		{rows: []string{"› Ask Codex to do anything"}},
-	}}
+// Codex draws its optional Daybreak offer above its composer, never in its
+// place, and its rows can outlive the Escape that dismissed it. It is no
+// startup dialog: the watch neither answers nor waits on it, and ends once the
+// screen settles with its rows still shown, leaving a live offer to the
+// delivery that dismisses it before it types (#1556).
+func TestTheCFOStartupWatchLeavesAnInlineOfferToItsDeliveries(t *testing.T) {
+	// Arrange
+	offer := []string{"Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything", "100% context left"}
+	// The rows show again after an answer, as they outlive an Escape.
+	terminal := &scriptedCFO{t: t, clock: time.Unix(0, 0), screens: []scriptedScreen{{rows: offer}, {rows: offer}, {rows: []string{"› Ask Codex to do anything", "100% context left"}}}}
 
+	// Act
 	notes := settleCFO("codex", settleScreen(t, harness.Codex), terminal.terminal())
 
-	if len(terminal.answered) != 1 {
-		t.Errorf("answered %q, want exactly one dismissal", terminal.answered)
+	// Assert
+	if len(terminal.answered) != 0 {
+		t.Errorf("answered %q, want the offer left alone", terminal.answered)
 	}
-	if !slices.Contains(notes, "Dismissed the optional Daybreak security setup offer in the CFO's terminal with Escape.") {
-		t.Errorf("notes %q, want the Escape dismissal reported", notes)
+	if slices.ContainsFunc(notes, func(note string) bool { return strings.Contains(note, "Daybreak") }) {
+		t.Errorf("notes %q, want none about the offer", notes)
+	}
+	// stall-accepted: a fake clock, not the runner's.
+	if took := terminal.clock.Sub(time.Unix(0, 0)); took > cfoSettleQuiet+time.Second {
+		t.Errorf("the watch took %s on the offer's rows, want about %s", took, cfoSettleQuiet)
 	}
 }
 

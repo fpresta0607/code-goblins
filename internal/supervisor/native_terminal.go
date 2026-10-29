@@ -18,7 +18,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
-	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -85,9 +84,8 @@ type nativeRelay struct {
 // Mode the permission mode its composer's footer names, which Shift+Tab
 // cycles. HasDraft says its prompt line holds words never sent, as he types
 // them in the terminal itself or as a harness puts them back when stopped,
-// which anything typed now would join, read as a delivery reads them
-// (spawn.WithoutInlineOffer), so the board's box holds a message rather than
-// typing it onto them. Doing is what its turn row says it is doing, as
+// which anything typed now would join, read as a delivery reads them, so the
+// board's box holds a message rather than typing it onto them. Doing is what its turn row says it is doing, as
 // Claude Code's whimsical verb, which the board shows beside its dither.
 type screenState struct {
 	Asking     bool           `json:"asking"`
@@ -305,7 +303,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 			state.Panel = &panel
 		}
 		state.Mode = screens.Mode(rows)
-		state.HasDraft = spawn.WithoutInlineOffer(screens).ComposerHoldsText(rows)
+		state.HasDraft = screens.ComposerHoldsText(rows)
 		state.Doing = screens.WorkingWords(rows)
 		message, _ := json.Marshal(struct {
 			Type string `json:"type"`
