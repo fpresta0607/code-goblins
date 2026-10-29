@@ -41,3 +41,20 @@ for (const session of SESSIONS) {
     expect(await model.evaluate((button) => button.querySelector(".mark path")?.getAttribute("d") ?? ""), "the model's button").toBe(card);
   });
 }
+
+// The CFO's panel has no task, so the mark in its header names the model of
+// the CFO's live session, the one its conversation under the header shows.
+test("the CFO's header names its live session's model in its harness mark's tip", async ({ page }) => {
+  // Arrange
+  const [claude] = SESSIONS;
+  await open(page, snapshot({ sessions: [{ id: "cfo-1", harness: claude.harness, role: "cfo", model: claude.model }] }));
+
+  // Act
+  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await expect(page.locator("#panel-title")).toHaveText("CFO");
+
+  // Assert
+  const mark = page.locator(".goblin-panel > .panel-header .panel-identity > .mark");
+  await expect(mark).toHaveAttribute("data-tip", claude.name + " · " + claude.shown);
+  await expect(mark).toHaveAccessibleName(claude.name + " · " + claude.shown);
+});

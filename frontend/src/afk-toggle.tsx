@@ -7,7 +7,8 @@ import type { Afk } from "./types";
 import "./afk.css";
 
 // The AFK toggle in the CFO panel's one header row: a small
-// switch with its label, which spins while the supervisor answers. Only the
+// switch with its label, whose track spins in place of its thumb while the
+// supervisor answers, so the switch keeps its width in the row. Only the
 // Overlord turns it, which the supervisor proves of the program that asks,
 // and a refusal is one short sentence under the row's end, over the
 // conversation, until he closes it. Turning it on asks first. Turning it off
@@ -30,8 +31,7 @@ export function AfkToggle({ afk, instance }: { afk: Afk; instance: string }) {
     <div className="afk-header">
       <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" aria-busy={pending} disabled={pending || (afk.state === "off" && !canTurnOn)} onClick={press}>
         <span className="afk-toggle-label">AFK</span>
-        {pending && <span className="card-start-spinner" aria-hidden="true" />}
-        <span className="afk-toggle-track" aria-hidden="true"><span className="afk-toggle-thumb" /></span>
+        <span className="afk-toggle-track" aria-hidden="true">{pending ? <span className="card-start-spinner" /> : <span className="afk-toggle-thumb" />}</span>
       </button>
     </div>
     {!asking && <AfkRefusal on={pressedOn} problem={problem} onClose={clear} />}

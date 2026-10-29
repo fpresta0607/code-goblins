@@ -124,7 +124,7 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
       <div className="panel-identity">
         <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
         <h2 id="panel-title">{title}</h2>
-        {harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}
+        {harness && <HarnessMark harness={harness} label={harnessTip(harness, cfo ? cfoSession?.model || "" : task?.model || node?.model || "", task?.effort || "")} />}
         {goblinTask && <p className="panel-goblin-task">{goblinTask}</p>}
       </div>
       {switcher}

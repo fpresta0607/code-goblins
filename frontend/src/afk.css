@@ -17,7 +17,8 @@
 .afk-toggle[aria-checked="true"] .afk-toggle-track { border-color: var(--accent-green); background: var(--accent-green); }
 .afk-toggle[aria-checked="true"] .afk-toggle-thumb { transform: translateX(14px); background: #03130c; }
 @media (prefers-reduced-motion: reduce) { .afk-toggle-track, .afk-toggle-thumb { transition: none; } }
-.afk-toggle .card-start-spinner { flex: none; }
+.afk-toggle-track > .card-start-spinner { position: absolute; top: 2px; left: 2px; }
+.afk-toggle[aria-checked="true"] .afk-toggle-track > .card-start-spinner { left: 16px; }
 /* In a dialog a refusal of his switch sits under its words. */
 .afk-dialog > .notice { margin: 16px 0 0; }
 
