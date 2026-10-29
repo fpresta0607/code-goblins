@@ -12,10 +12,12 @@ export const CHAT_STYLE_KEY = "cfo-chat-style";
 // The name the board tells every open panel a choice changed under.
 export const CHAT_STYLE_CHANGED = "cfo-chat-style-changed";
 
-// chatStyle reads the saved choice, Modern where none was saved: a session the
-// board reads as messages opens on its conversation until he says otherwise.
+// chatStyle reads the saved choice, Classic where none was saved: every
+// conversation opens on the harness's own terminal until Modern Chat is ready
+// to be the default (the Overlord, 2026-10-28: "the classic terminal worked
+// well ... It should be the default for now").
 export function chatStyle(saved?: string | null): ChatStyle {
-  return saved === "classic" ? "classic" : "modern";
+  return saved === "modern" ? "modern" : "classic";
 }
 
 // storedChatStyle is the choice this browser holds.
@@ -23,7 +25,7 @@ export function storedChatStyle(): ChatStyle {
   try {
     return chatStyle(localStorage.getItem(CHAT_STYLE_KEY));
   } catch {
-    return "modern";
+    return "classic";
   }
 }
 

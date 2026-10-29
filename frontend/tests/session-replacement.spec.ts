@@ -23,15 +23,15 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       await expect(terminal).toBeVisible();
       if (state === "held") {
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        // The board says the hold once, beside the one input it concerns.
-        await expect(page.locator(".context-pane").getByText("Review in progress. Send to queue until it finishes.")).toBeVisible();
+        // Classic's terminal says the hold itself, with no box beside it.
+        await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
       } else if (state === "ended") {
         relay.end();
         await expect(page.locator(".terminal-foot.box")).toBeVisible();
       } else relay.drop();
       if (input === "keyboard") await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
-      // The wheel goes over the terminal's top rows: its box also holds the
-      // queue's box under it, and the history is what the wheel asks for.
+      // The wheel goes over the terminal's top rows, and the history is what
+      // the wheel asks for.
       else if (input === "wheel") { const bounds = (await terminal.boundingBox())!; await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + Math.min(60, bounds.height / 4)); await page.mouse.wheel(0, -45); }
       else {
         const touch = await page.context().newCDPSession(page);
@@ -84,6 +84,35 @@ test("Classic full-screen Codex opens readable history with wheel while ended th
   // Assert: the history opens and the saved Classic stays, since only Back
   // to messages saves Modern (#1584).
   await expect(page.locator(".messages-view:not([hidden]) .conversation")).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
+});
+
+// Reading back out of Classic shows the conversation and its box while the
+// saved style stays Classic, so Classic chosen in that box must bring the
+// terminal back: the read-back outlived the choice, and the view stayed as it
+// was (the Overlord, 2026-10-28: "speech bubble doesnt chagne the screen").
+test("Classic chosen in the box while reading back out of Classic returns the terminal at once", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "[?1049h" + HISTORY);
+  await card(page, NAME).click();
+  const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
+  await expect(terminal).toBeVisible();
+  relay.end();
+  await expect(page.locator(".terminal-foot.box")).toBeVisible();
+  await terminal.hover();
+  await page.mouse.wheel(0, -45);
+  const conversation = page.locator(".messages-view:not([hidden]) .conversation");
+  await expect(conversation).toBeVisible();
+
+  // Act
+  await box(page, NAME).getByRole("button", { name: "Style: classic", exact: true }).click();
+  await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).click();
+
+  // Assert
+  await expect(terminal).toBeVisible();
+  await expect(conversation).toHaveCount(0);
+  await expect(box(page, NAME)).toBeHidden();
   expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
 });
 
@@ -178,12 +207,11 @@ for (const style of ["classic", "modern"] as const) {
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("generation") === codex.generation)).toBe(true);
     relay.say({ type: "held", reason: "pipeline owns this task" });
     // Modern keeps its conversation, which lists what waits; Classic keeps the
-    // terminal, so the box beside it lists them.
-    const waits = style === "modern"
-      ? page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })
-      : box(page, NAME).getByText(pending.text, { exact: true });
-    await expect(waits).toBeVisible();
-    await expect(field(page)).toBeInViewport();
+    // terminal alone, which says typing is paused.
+    if (style === "modern") {
+      await expect(page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(field(page)).toBeInViewport();
+    } else await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`${style}-codex-replaced-pi.png`) });
   });
 }
@@ -231,10 +259,25 @@ for (const phone of [false, true]) {
         relay.say({ type: "unread", unread: true });
         relay.write("\r\nThe Codex turn continues\r\n");
         await expect.poll(position).toBe(anchor);
+        const asked = relay.resizes.length;
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(field(page)).toBeInViewport();
+        if (style === "modern") await expect(field(page)).toBeInViewport();
+        else {
+          // Classic's note takes a row or two from the terminal, which asks
+          // the pane for the rows left and keeps its last line, moving its
+          // first by as much as a short swipe; the swipe counts from where
+          // that leaves the history.
+          await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
+          await expect.poll(() => relay.resizes.length).toBeGreaterThan(asked);
+        }
+        let held: unknown;
+        await expect.poll(async () => {
+          const prior = held;
+          held = await position();
+          return held === prior;
+        }).toBe(true);
         await scroll(45);
-        await expect.poll(position).not.toBe(anchor);
+        await expect.poll(position).not.toBe(held);
         const beforeKey = await position();
         if (style === "modern") await surface.focus();
         else await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
