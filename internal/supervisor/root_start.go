@@ -106,6 +106,18 @@ func (s *Service) rootStartRefusal(root rootStart) string {
 		s.tellRootStart(root, "identity", reason)
 		return reason
 	}
+	filers, err := liveRootFilers(s.Store.Home)
+	if err != nil {
+		root.problem = "the live tasks' filed root issues cannot be read: " + err.Error()
+		reason := root.refusal()
+		s.tellRootStart(root, "identity", reason)
+		return reason
+	}
+	if filer := filers[strings.ToLower(fmt.Sprintf("https://github.com/%s/issues/%d", root.repository, root.number))]; filer != "" {
+		reason := fmt.Sprintf("Root issue %s#%d belongs to %s, the live task that filed it; nothing starts while it runs. Reconcile the root with %s or queue new work under a new id", root.repository, root.number, filer, filer)
+		s.tellRootStart(root, "owned", reason)
+		return reason
+	}
 	now := time.Now().UTC()
 	s.mu.Lock()
 	read, isRead := s.rootStarts[root]
@@ -125,6 +137,10 @@ func (s *Service) readRootStart(root rootStart) {
 	ctx, cancel := context.WithTimeout(context.Background(), ghCallTimeout)
 	defer cancel()
 	state, err := s.rootState(ctx, root)
+	var closing []string
+	if err == nil && state == "open" {
+		closing, err = s.Options.RootIssues.ClosingPullRequests(ctx, root.repository, root.number)
+	}
 	reason, kind := "", state
 	switch {
 	case err != nil:
@@ -136,6 +152,9 @@ func (s *Service) readRootStart(root rootStart) {
 	case state != "open":
 		root.problem = fmt.Sprintf("%s#%d is %s, not a verified open issue", root.repository, root.number, state)
 		reason = root.refusal()
+	case len(closing) > 0:
+		kind = "owned"
+		reason = fmt.Sprintf("Root issue %s#%d is closed by the open pull request %s, whose task owns it; nothing starts while it is open. Reconcile the root with that task or queue new work under a new id", root.repository, root.number, strings.Join(closing, ", "))
 	}
 	// The cache key describes local evidence, not the result of the read.
 	root.problem = ""
@@ -155,7 +174,7 @@ func (s *Service) rootState(ctx context.Context, root rootStart) (string, error)
 
 func (s *Service) rootRepository(ctx context.Context, root rootStart) error {
 	reader := s.Options.RootIssues
-	if reader == nil || reader.Checkout == nil || reader.Repository == nil || reader.IssueState == nil {
+	if reader == nil || reader.Checkout == nil || reader.Repository == nil || reader.IssueState == nil || reader.ClosingPullRequests == nil {
 		return errors.New("the root issue reader is unavailable")
 	}
 	checkout, err := reader.Checkout(root.project)

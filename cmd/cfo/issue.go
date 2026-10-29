@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -71,7 +72,38 @@ func runIssue(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 0
 	}
 	fmt.Fprintf(stdout, "filed #%d %s with the %s label\n", filed.Number, filed.URL, tickets.RootLabel)
+	if err := recordFilingTask(runtime, filed.URL); err != nil {
+		fmt.Fprintf(stderr, "cfo issue file: the issue is filed, but the task that filed it is not on record, so the supervisor may pick it up as its own task: %v\n", err)
+		return 1
+	}
 	return 0
+}
+
+// recordFilingTask notes a new root issue in the temporary directory of the
+// goblin's task whose pane runs the command, so the supervisor does not hand
+// the issue to another goblin while the task that filed it runs. A command
+// the CFO, the supervisor or a gate's step runs names no task, and a task the
+// home has no record of is not running here; neither notes anything.
+func recordFilingTask(runtime commandRuntime, url string) error {
+	task := taskID(os.Getenv)
+	if task == "" {
+		return nil
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return err
+	}
+	meta, err := state.ReadTaskMeta(h.State, task)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if meta.TaskTmp == "" {
+		return fmt.Errorf("task %s has no temporary directory", task)
+	}
+	return tickets.RecordFiledRoot(meta.TaskTmp, url)
 }
 
 // fileRoot files root on the issue repository of the project projectArg names,
