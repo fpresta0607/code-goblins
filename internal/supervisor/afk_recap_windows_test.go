@@ -21,8 +21,10 @@ import (
 func hisStep() afk.Entry {
 	return afk.Entry{
 		Kind: afk.KindHis, What: "Merge code-goblins #800: it is a teammate's pull request, which only you merge",
-		Evidence: "cfo pr merge refused it: merging a teammate's pull request stays the Overlord's alone. Backlog row cg-teammate-800",
-		Link:     "https://github.com/fpresta0607/code-goblins/pull/800",
+		Evidence:       "cfo pr merge refused it: merging a teammate's pull request stays the Overlord's alone. Backlog row cg-teammate-800",
+		Link:           "https://github.com/fpresta0607/code-goblins/pull/800",
+		Options:        []string{"I merged it", "Leave it open"},
+		Recommendation: "I merged it",
 	}
 }
 

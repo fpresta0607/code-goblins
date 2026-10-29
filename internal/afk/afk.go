@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -161,9 +160,12 @@ type Entry struct {
 	Noted string `json:"noted,omitempty"`
 	// Command and Shell are the command a step only he can take asks him to
 	// run, with the shell that runs it: when AFK mode turns off the step is a
-	// run item on his Command Center, in place of a question.
+	// run item on his Command Center, in place of a question. Admin runs it
+	// as administrator, after Windows asks him, as cfo run-request --admin
+	// does.
 	Command string `json:"command,omitempty"`
 	Shell   string `json:"shell,omitempty"`
+	Admin   bool   `json:"admin,omitempty"`
 }
 
 // ErrNotOn refuses what only happens while AFK mode is on.
@@ -341,44 +343,37 @@ func Log(stateDir string, entry Entry, now time.Time) (Entry, error) {
 		if err := validLeft(entry); err != nil {
 			return Entry{}, err
 		}
-	case entry.Kind == KindHis && (len(entry.Options) > 0 || entry.Recommendation != ""):
-		if err := validHisChoices(entry); err != nil {
-			return Entry{}, err
-		}
-	case entry.Command != "" || entry.Shell != "":
-		if err := validCommand(entry); err != nil {
-			return Entry{}, err
-		}
 	case entry.Kind == KindHis:
 		if err := CheckStep(entry); err != nil {
 			return Entry{}, err
 		}
+	case entry.Command != "" || entry.Shell != "" || entry.Admin:
+		return Entry{}, errors.New("only a step only he can take, --kind his, carries a command for him to run")
 	}
 	entry.Struck, entry.Settled, entry.Noted = "", "", ""
 	return record(stateDir, entry, now)
 }
 
-// stepCommand finds a command written into a step: a fleet, GitHub or
-// package command with its subcommand, a PowerShell call with its flags, or a
-// script file.
-var stepCommand = regexp.MustCompile(`\b(?:cfo|gh|goblins|git|npm|npx|pnpm|winget|no-mistakes)\s+[a-z][a-z-]*\b|\b(?:powershell|pwsh)(?:\.exe)?\s+-|\b[\w.-]+\.(?:ps1|sh|cmd|bat)\b`)
-
-// CheckStep refuses a step only he can take, with no command to run and no
-// choices of its own, whose card would give him nothing that does it: one
-// that names a command in its words, and one with no page to take it on. Its
-// card is a question with Done and Later, and Done runs nothing: on
-// 2026-10-18 the Overlord pressed Done on install and merge steps and nothing
-// ran. A command is a run item he runs with one click, and a decision offers
-// its own choices, whose answer the CFO acts on.
+// CheckStep refuses a step only he can take whose card would not be one the
+// CFO's own cfo run-request or cfo question makes: a command he runs with one
+// click, as administrator or not, or a decision of his with its own choices,
+// one of them recommended. On 2026-10-29 he cleared two cards whose only
+// choices said he had done the step or would later, and neither had happened.
 func CheckStep(step Entry) error {
-	if step.Kind != KindHis || step.Command != "" || len(step.Options) > 0 {
-		return nil
+	if step.Command != "" || step.Shell != "" {
+		if len(step.Options) > 0 || step.Recommendation != "" {
+			return errors.New("a command he runs is a run item he runs with one click, which offers no choices: give either --run or --option")
+		}
+		return validCommand(step)
 	}
-	if command := stepCommand.FindString(step.What); command != "" {
-		return fmt.Errorf("the step names a command (%s), and Done on its card runs nothing: give the command with --run <command.ps1|command.sh>, so his card runs it with one click", command)
+	if step.Admin {
+		return errors.New("only a command he runs, given with --run, runs as administrator")
 	}
-	if strings.TrimSpace(step.Link) == "" {
-		return errors.New("a step with no command names with --link the page he takes it on, so its card opens that page beside Done: a card with neither has nothing that does the step. A command he runs goes with --run <command.ps1|command.sh>")
+	if err := validChoices(step, "a step only he can take", "its card in his Command Center"); err != nil {
+		return err
+	}
+	if step.Recommendation == "" {
+		return errors.New("a step only he can take recommends one of its choices with --recommend, as its card marks it")
 	}
 	return nil
 }
@@ -409,16 +404,6 @@ func validLeft(entry Entry) error {
 	return nil
 }
 
-// validHisChoices refuses a step only he can take that offers choices its
-// card could not: it is a decision of his, so its card is a question with
-// those choices in place of Done and Later, never a command he runs.
-func validHisChoices(entry Entry) error {
-	if entry.Command != "" || entry.Shell != "" {
-		return errors.New("a command he runs is a run item he runs with one click, which offers no choices: give either --run or --option")
-	}
-	return validChoices(entry, "a step only he can take", "its card in his Command Center")
-}
-
 // validChoices refuses choices that what, a decision, could not offer him
 // where offered: real choices, distinct and bounded as the Command Center
 // bounds a question's, one of them recommended or none.
@@ -443,12 +428,9 @@ func validChoices(entry Entry, what, offered string) error {
 // item's command is bounded.
 const maxCommand = 64 << 10
 
-// validCommand refuses a command on any line but a step only he can take, and
-// a step whose command has no shell or no text.
+// validCommand refuses a step whose command has no shell or no text.
 func validCommand(entry Entry) error {
 	switch {
-	case entry.Kind != KindHis:
-		return errors.New("only a step only he can take, --kind his, carries a command for him to run")
 	case entry.Shell != "powershell" && entry.Shell != "bash":
 		return errors.New("a command for him to run names its shell, powershell or bash")
 	case strings.TrimSpace(entry.Command) == "" || len(entry.Command) > maxCommand:

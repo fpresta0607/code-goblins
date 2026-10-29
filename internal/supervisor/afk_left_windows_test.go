@@ -58,7 +58,7 @@ func stepsAndSettle(t *testing.T, h home.Home, what []string, settled map[int]st
 		t.Fatal(err)
 	}
 	for _, one := range what {
-		if err := LogAFKDecision(h, afk.Entry{Kind: afk.KindHis, What: one, Link: "https://fly.io/app/sign-in", Evidence: "his own sign-in. Backlog row cg-fly-token-durable"}); err != nil {
+		if err := LogAFKDecision(h, afk.Entry{Kind: afk.KindHis, What: one, Link: "https://fly.io/app/sign-in", Evidence: "his own sign-in. Backlog row cg-fly-token-durable", Options: []string{"I signed in", "Park the Fly deploys"}, Recommendation: "I signed in"}); err != nil {
 			t.Fatal(err)
 		}
 	}

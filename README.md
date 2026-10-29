@@ -911,7 +911,7 @@ Under it, three tiles count what merged, what the CFO decided for you and the go
 **Spent** draws each allowance used and free disk as the board's bars: gray before AFK, green what AFK used.
 **Record** keeps the rest of the report: who switched AFK on and off, what waited on you and was settled, goblins paused at a floor, lines the CFO settled or struck, and anything the report could not read.
 Tap any row and it opens a card with what it stood on: the goblin's own notes, the evidence and the pull request links.
-Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, and any other step is a question with its plain steps, its link and the choices **Done** and **Later**, either of which settles the step.
+Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, run as administrator after Windows asks you when it needs to, and any other step is a question with the CFO's choices, its recommended one marked, and Other, as any question of the CFO's is; your answer settles the step.
 A click anywhere on a row still waiting in your Command Center closes the report and opens the Command Center on that item, with its usual controls to answer or clear it.
 Its green **Go through what needs you** button opens the decision modal, moving to the next pending item after each answer until you are all done.
 The button beside the toggle opens your last report again.

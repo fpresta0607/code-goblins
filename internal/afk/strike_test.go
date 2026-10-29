@@ -81,7 +81,7 @@ func TestAStruckLineIsShownStruckInTheReportAndLeavesNothingForHim(t *testing.T)
 func TestAStrikeOfAnEarlierStretchsLineIsShownInTheNextReport(t *testing.T) {
 	// Arrange
 	dir, first := turnedOn(t)
-	bogus, err := Log(dir, Entry{Kind: KindHis, What: "nothing: CFO note", Link: "https://example.com/note", Evidence: "test"}, night.Add(time.Hour))
+	bogus, err := Log(dir, Entry{Kind: KindHis, What: "nothing: CFO note", Link: "https://example.com/note", Evidence: "test", Options: []string{"Keep it", "Drop it"}, Recommendation: "Drop it"}, night.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
