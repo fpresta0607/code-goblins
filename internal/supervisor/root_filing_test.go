@@ -75,6 +75,25 @@ func TestARepeatingSupervisorErrorIsFiledOnceOnTheHomesRepository(t *testing.T) 
 	}
 }
 
+func TestALostConnectionMetAgainLaterIsNoRoot(t *testing.T) {
+	// Arrange: what gh says when this machine is offline, as issues #1549
+	// and #1550 carried it.
+	service, filings := filingBoard(t, nil)
+	first := time.Date(2026, 10, 26, 15, 42, 0, 0, time.UTC)
+	offline := errors.New("root issues of code-goblins: gh api GET repos/acme/code-goblins/issues?labels=ops-root&state=open&per_page=100&page=1: error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com")
+
+	// Act
+	service.fileRepeatedErrors(offline, first)
+	service.fileRepeatedErrors(offline, time.Date(2026, 10, 26, 20, 57, 0, 0, time.UTC))
+
+	// Assert
+	select {
+	case filing := <-filings:
+		t.Fatalf("filed %q, want no root for a lost connection", filing.root.Title)
+	case <-time.After(100 * time.Millisecond): // stall-accepted: no filing is meant to arrive, so a stall only makes the wait longer.
+	}
+}
+
 func TestAFilingThatFailsTellsTheCFOAndIsNoErrorOfTheSupervisors(t *testing.T) {
 	// Arrange
 	service, filings := filingBoard(t, errors.New("refused: the issue would go on acme/widgets, which is public, and it names a path on this machine"))

@@ -38,13 +38,18 @@ for (const who of ["CFO", "goblin"] as const) {
       await expect.poll(() => windows).toEqual([who === "CFO" ? { native: "cfo=cfo-term" } : { native: `task=${GOBLIN.id}&generation=${GOBLIN.generation}` }]);
       await expect(attached).toContainText("example.txt");
 
-      // Act: Classic opens the terminal alone; Modern chat in the panel's row
-      // chooses Modern again.
+      // Act: Classic opens the terminal alone; Modern chat in the panel's row,
+      // or in its More beside the CFO's AFK switch at the panel's default
+      // width, chooses Modern again.
       await composer.getByRole("button", { name: "Style: modern", exact: true }).click();
       await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).click();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeVisible();
       expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
-      await page.getByRole("button", { name: "Switch to Modern chat", exact: true }).click();
+      if (who === "CFO" && width === 1440) {
+        const row = page.locator(".context-pane .panel-top");
+        await row.getByRole("button", { name: "More", exact: true }).click();
+        await row.getByRole("menuitem", { name: "Modern chat", exact: true }).click();
+      } else await page.getByRole("button", { name: "Switch to Modern chat", exact: true }).click();
       await expect(composer.getByRole("button", { name: "Style: modern", exact: true })).toBeVisible();
       expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style")), "Modern chat chose Modern").toBe("modern");
 

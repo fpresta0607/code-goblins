@@ -293,14 +293,14 @@ It leaves the CFO running only when it could not start it again, such as when th
 Run inside the CFO's own terminal, it would end itself with that terminal, so it leaves the CFO running there and says to run it in another terminal or from the board.
 A restarted CFO whose agent ends within three seconds, as one that cannot resume the conversation does, starts again there on a new one, and `goblins resume` names the conversation it could not resume; one that ends while its startup questions are answered is reported as ended, and `goblins` brings it back.
 A CFO that `goblins` or `goblins resume` starts on a new conversation that way leaves the board saying which conversation could not be resumed and the command that opens it by hand, until the CFO next comes back on its conversation.
-`cfo resume` with no task named is the same command, and the board offers it as **Restart** in the header of the CFO's task panel, right below its name.
+`cfo resume` with no task named is the same command, and the board offers it as **Restart** in the Harness section of the CFO's task panel.
 Beside Restart, a dropdown shows the selected harness's name and icon and offers Claude Code, Codex and pi, starting on the CFO's current harness.
 Selecting a harness sends nothing until Restart is pressed, which immediately interrupts the CFO's current response and restarts it in that harness.
 Keeping that harness resumes its conversation where it can, while choosing another starts a new conversation with the home's digest and remembers the choice for later starts.
 `goblins resume --harness claude|codex|pi` makes the same choice from another terminal.
 Below Restart, an engine selector chooses the harness, model and effort the CFO runs; saving it restarts nothing, since the CFO takes it at its next safe turn ([the native board guide](docs/native-board.md) has the details).
 A restart that started the CFO on a new conversation says so in one line beside it.
-When Claude Code, Codex or pi was updated while the CFO or a goblin runs, as Claude Code's "Update installed · Restart to update" says, the board shows **Update** beside the AFK switch on the CFO's header, and on that goblin's card: your press restarts it onto the update on its own conversation once its turn ends, and nothing restarts until you press it ([Harness updates](docs/native-board.md#harness-updates)).
+When Claude Code, Codex or pi was updated while the CFO or a goblin runs, as Claude Code's "Update installed · Restart to update" says, the board shows **Update** on a line under the CFO's header row, and on that goblin's card: your press restarts it onto the update on its own conversation once its turn ends, and nothing restarts until you press it ([Harness updates](docs/native-board.md#harness-updates)).
 With no CFO running in a native terminal it does what `goblins` does, and brings a closed one back.
 Then it brings back every goblin whose terminal ended, as a reboot or sign-out ends them all: each in place, with its worktree, uncommitted work, harness, model and effort, on its own conversation where the board's record proves it is the task's and from a handoff where it does not, and it lists which came back and which need a hand.
 A goblin paused or stopped on purpose, one whose latest report is `done` with a pull request and that took no prompt since, which waits on its merge, or one still running, is left as it is, and one the machine has no room for yet waits, with the reason, rather than starting.
@@ -620,7 +620,7 @@ Branches stay, and dirty or unpushed work keeps its worktree with the reason sho
 Remove opens a confirmation offering **Remove from queue** and **Cancel**: the task leaves the queue and its brief is kept.
 The board uses the same paths as `cfo pause <id>`, `cfo resume <id>` and `cfo kill <id>`; `cfo stop` still stops the supervisor.
 
-A queued task is edited in its panel's header: the small pencil beside its task, or a click on the task's text, opens a box with its title on the first line and its detail below; a queued card's **Adjust** pencil icon opens that panel.
+A queued task is edited at the top of its panel's Task view: the small pencil beside its task, or a click on the task's text, opens a box with its title on the first line and its detail below; a queued card's **Adjust** pencil icon opens that panel.
 Enter or the check saves it, which updates the task and any existing brief with an adjustment record, and Escape or the cross puts the task back unchanged.
 Titles show without the harness a backlog row names after a semicolon, such as "; Claude Code", since the card's harness mark shows it.
 
@@ -650,8 +650,8 @@ An open terminal follows its task into retired history instead of losing the pan
 A goblin reporting a delivered pull request can keep working; that report alone never closes its terminal.
 While a session is resuming or stopping, its terminal slot reads **Resuming session...** or **Stopping session...** and opens no connection; a resumed session connects only once its new session is live.
 After a failed resume it reads **Resume failed.** and still opens no connection; **Resume** in its task list retries, and the terminal connects once the resumed session is live, or once its goblin reports from the session the failed resume started, which finishes that resume.
-A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence in the header.
-A goblin's panel, and the CFO's, shows its conversation or its task list, chosen with **Chat** and **Task** at the top of the panel; a maximized panel shows both side by side, and a phone shows the two choices as icons above the header.
+A pause, resume or stop lists what it kept under **What’s preserved**, such as the worktree and the task session and branch, and what it ended under **Stopped resources**; why it happened is the status and sentence at the top of its Task view.
+A goblin's panel, and the CFO's, shows its conversation or its task list, chosen with the **Chat** and **Task** icons in the middle of the panel's one-row header; a maximized panel shows both side by side.
 Modern Chat shows a Claude Code, Codex or pi session's conversation as messages while its harness runs in a native terminal: your prompts on the right, its replies as plain prose on the left with their code blocks and **Copy**, its thinking folded to one line, and each run of tool calls as a quiet stack of rows that unfold to what came back and an edit's diff.
 **Jump to latest** returns to the end, and **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**, or the wheel turned with **Ctrl+Shift** or the right button held, size its text.
 Under it is the message box: **Send** or **Enter** types what you wrote into the session's terminal, **Shift+Enter** starts a new line, your draft is kept, and Send becomes **Stop** while the session works.
@@ -703,7 +703,7 @@ A panel opens beside the board, **Maximize** gives the panel the whole window an
 Drag the divider between the board and the panel to size the panel; the width, and whether each view is maximized, are remembered in this browser.
 A task's panel has **Back** in its corner, which returns the panel to the CFO's on the view it last showed, and the CFO's own panel has Close; **Escape** does the same as the button.
 On a phone a panel you open, a goblin's terminal or the CFO's among them, fills the screen, and the top bar is put away while it does, so the terminal or the conversation keeps the room; **Back** returns to the board and its top bar. Its terminal stays above the on-screen keyboard while you type, and the buttons that act on the PC (Open in terminal, Open in VS Code and Open folder) are left off.
-The panel's top row stays on one line however narrow you drag the panel: what it has no room for goes into a **More** menu, and at its narrowest the switch between its views shows its icons alone.
+The panel's header stays one row however narrow you drag the panel: the name is cut short first, then what the row has no room for goes into a **More** menu.
 A goblin still in Herdr stays live and sized to the panel while its view is open, focused or not, at 20 px or the size **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0** choose, with an even inset and the input line at the bottom, and follows the panel as it changes size; a Herdr window shows it at the board's size, and closing the view hands the pane back its Herdr size; the live screen always follows the pane's bottom, the wheel or **Shift+PageUp** opens its history over it, and scrolling down to the history's bottom, **Escape**, or typing returns to the live screen.
 A Claude Code pane with no scrollback of its own, such as Claude Code's fullscreen interface, scrolls its own transcript with the wheel instead, from the first turn and without piling up turns after the wheel stops, unless a review gate owns the goblin, when the board says to scroll it in Herdr; once it is scrolled up, a click on it jumps back to the bottom, as **Ctrl+End** does.
 **Open in terminal** at the panel's top right, on the PC, opens the terminal it shows in a Windows Terminal window beside the board, attached to the same goblin: in Herdr with its pane in front, or through `cfo attach` for a native terminal.
@@ -861,7 +861,7 @@ A fetch that stops wakes the CFO with why, and the card shows **Fetch stopped** 
 ### AFK mode
 
 AFK mode runs the fleet while you are away.
-Turn it on with the **AFK** toggle in the header of the board's CFO panel, beside the CFO's status, or with `cfo afk on` in a terminal of your own, and off the same two ways.
+Turn it on with the **AFK** toggle in the header of the board's CFO panel, or with `cfo afk on` in a terminal of your own, and off the same two ways.
 You can also ask the CFO in your own words, such as "I'm stepping away, turn AFK on": it makes the switch for you and says so, and your own switch still turns it either way at any time.
 It is your switch: the supervisor reads the program that asks, and refuses a goblin's terminal, a browser an agent opened, and the CFO's terminal unless the CFO passes the words you asked it with.
 Those words are kept with the switch, in the log, on the board and in the report, so you see what it was switched for.
@@ -914,7 +914,7 @@ Tap any row and it opens a card with what it stood on: the goblin's own notes, t
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, run as administrator after Windows asks you when it needs to, and any other step is a question with the CFO's choices, its recommended one marked, and Other, as any question of the CFO's is; your answer settles the step.
 A click anywhere on a row still waiting in your Command Center closes the report and opens the Command Center on that item, with its usual controls to answer or clear it.
 Its green **Go through what needs you** button opens the decision modal, moving to the next pending item after each answer until you are all done.
-The button beside the toggle opens your last report again.
+**Open your last AFK report** in the CFO's Task view opens your last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 The text report reads Done, Decided for you and Needs you in order, with each item's current disposition and the allowance and free disk readings at both ends, as in the example below.

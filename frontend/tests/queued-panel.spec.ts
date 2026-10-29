@@ -210,9 +210,9 @@ for (const [size, viewport] of [["wide", { width: 1440, height: 1200 }], ["phone
       expect(await page.evaluate(crowded), id).toEqual([]);
       expect(await clearance(page), id).toBeGreaterThanOrEqual(16);
       if (!id.startsWith("queued-")) continue;
-      // A queued task's pencil opens its edit box in the header.
-      await panel(page).locator(".panel-header").getByRole("button", { name: "Edit task", exact: true }).click();
-      await expect(panel(page).locator(".panel-header").getByRole("textbox")).toBeVisible();
+      // A queued task's pencil opens its edit box at the top of its Task view.
+      await header(page).getByRole("button", { name: "Edit task", exact: true }).click();
+      await expect(header(page).getByRole("textbox")).toBeVisible();
       expect(await page.evaluate(crowded), id + " editing").toEqual([]);
       expect(await clearance(page), id + " editing").toBeGreaterThanOrEqual(16);
     }
@@ -236,7 +236,10 @@ async function openNamed(page: Page, posted: Posted[] = []) {
   await expect(page.locator("#panel-title")).toHaveText("Jerry - Sync Fixer");
 }
 
-const header = (page: Page) => panel(page).locator(".panel-header");
+// What heads a task's Task view: what the panel's one-row header has no room
+// for, under it (the Overlord, 2026-10-29: "Minimize height and maximize the
+// space").
+const header = (page: Page) => panel(page).locator(".panel-header-details");
 const taskLine = (page: Page) => header(page).locator(".task-line");
 const pencil = (page: Page) => header(page).getByRole("button", { name: "Edit task", exact: true });
 const editor = (page: Page) => header(page).getByRole("group", { name: "Edit the task" });
@@ -261,10 +264,10 @@ function isYellow(color: string): boolean {
   return hue >= 30 && hue <= 75;
 }
 
-test("a queued task's panel has no section to adjust it, and its box opens in the header", async ({ page }) => {
+test("a queued task's panel has no section to adjust it, and its box opens at the top of its Task view", async ({ page }) => {
   // Arrange
   await openNamed(page);
-  const below = taskList(page);
+  const below = taskList(page).locator(".lifecycle-panel");
 
   // Act
   await pencil(page).click();

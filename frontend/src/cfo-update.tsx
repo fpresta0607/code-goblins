@@ -6,12 +6,12 @@ import { harnessName } from "./workflow";
 import "./harness-update.css";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
-// The CFO's Update button, before the AFK switch in its panel's header, shown
+// The CFO's Update button, on the line under its panel's header row, shown
 // only while an update of the harness the CFO runs waits for a restart. His
 // press restarts the CFO onto it, on its own conversation, once its turn has
 // ended; pressed again before then it takes the press back. Nothing presses
 // it but him. What a press could not do, his request refused or the restart
-// it asked for, says so in a few words beside it for a moment.
+// it asked for, says so in a few words under it for a moment.
 export function CfoUpdate({ snapshot }: { snapshot: Snapshot }) {
   const [isSending, setSending] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();

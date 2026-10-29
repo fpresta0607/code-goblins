@@ -112,7 +112,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await expect(page.getByRole("dialog")).toHaveCount(0);
     });
 
-    test("the compact terminal header has no restart controls", async ({ page }) => {
+    test("the one-row header has no restart controls", async ({ page }) => {
       // Arrange
       await open(page, snapshot());
 
@@ -120,7 +120,7 @@ for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["pho
       await openChat(page);
 
       // Assert
-      await expect(page.locator(".panel-header")).toHaveClass(/compact/);
+      await expect(page.locator(".panel-header")).toHaveClass(/one-row/);
       await expect(page.getByRole("button", { name: "Restart the CFO" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^Harness:/ })).toHaveCount(0);
     });

@@ -6,8 +6,10 @@ import { expect, holdStream, openTaskList, type Page, test } from "./site";
 // long." The buttons kept their one row, so the name and the title were
 // pressed into a column about 110 px wide, words broke in the middle and the
 // header was about 400 px tall. Here is his goblin as it was: its name, its
-// title and every button his header showed. The supervisor is played by one
-// held snapshot.
+// title and every button his header showed. Since 2026-10-29 the header is
+// one short row ("Minimize height and maximize the space"), so a name or
+// title too long for it ends in an ellipsis there and shows whole in the
+// panel's Task view. The supervisor is played by one held snapshot.
 const REPO = "https://github.com/fpresta0607/PrecisionDocs-AI";
 const at = "2026-10-09T02:11:00Z";
 const BERNIE = {
@@ -70,24 +72,20 @@ function headerReport() {
     return split;
   };
   const titleBox = title.getBoundingClientRect(), nameBox = name.getBoundingClientRect();
-  const boxes = actions.map((action) => action.getBoundingClientRect());
+  const isCut = (element: HTMLElement) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1;
+  const isEllipsis = (element: HTMLElement) => getComputedStyle(element).textOverflow === "ellipsis";
   return {
     buttons: actions.map((action) => action.getAttribute("aria-label") || action.textContent!.trim()),
     nameLines: lines(name),
     titleLines: lines(title),
     broken: [...broken(name), ...broken(title)],
-    // The name or the title drawn cut short, past its box.
-    cut: [name, title].filter((element) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1).map((element) => element.id || element.className),
+    // The name or the title drawn cut short past its box with no ellipsis,
+    // and those an ellipsis ends.
+    cut: [name, title].filter((element) => isCut(element) && !isEllipsis(element)).map((element) => element.id || element.className),
+    shortened: [name, title].filter((element) => isCut(element) && isEllipsis(element)).map((element) => element.id || element.className),
     textWidth: Math.round(Math.max(nameBox.width, titleBox.width)),
     headerWidth: Math.round(header.clientWidth),
     headerHeight: Math.round(header.getBoundingClientRect().height),
-    // Every button lies beside the title's lines or wholly under them.
-    besideOrUnder: boxes.every((box) => box.left >= titleBox.right - 1 || box.top >= titleBox.bottom - 1),
-    // The first button under the title starts where the title starts.
-    underAt: (() => {
-      const under = boxes.filter((box) => box.top >= titleBox.bottom - 1);
-      return under.length ? Math.round(Math.min(...under.map((box) => box.left)) - titleBox.left) : 0;
-    })(),
     pageScroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
   };
 }
@@ -103,7 +101,7 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
     // across its screen.
     const widths = where === "a phone" ? ["maximized"] as const : [360, 685, 1000, "maximized"] as const;
     for (const pane of widths) {
-      test(`at ${pane === "maximized" ? "full" : pane + " px"} width the panel keeps a long name and title readable, with the buttons beside or under the title`, async ({ page }, testInfo) => {
+      test(`at ${pane === "maximized" ? "full" : pane + " px"} width the panel keeps its name and title on its header's one row and its buttons in its task list`, async ({ page }, testInfo) => {
         // Arrange
         await open(page, pane);
 
@@ -118,21 +116,21 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
         const listed = await detailsHeader.evaluate((details) => [...details.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility()).map((action) => action.getAttribute("aria-label") || action.textContent!.trim()));
         expect(listed).toEqual(where === "a phone" ? PHONE_BUTTONS : BUTTONS);
         expect(report.broken).toEqual([]);
-        expect(report.nameLines).toBeLessThanOrEqual(2);
-        expect(report.titleLines).toBeLessThanOrEqual(2);
+        expect(report.nameLines).toBe(1);
+        expect(report.titleLines).toBe(1);
         expect(report.cut).toEqual([]);
-        expect(report.besideOrUnder).toBe(true);
-        expect(report.underAt).toBe(0);
+        await expect(detailsHeader.locator(".panel-whole-name")).toHaveText("Bernie - Merge Maestro · pd-whats-new-connectors");
         expect(report.pageScroll).toBe(0);
       });
     }
   });
 }
 
-// A name or task id too long for its line wraps whole onto the page, with no
-// tip to read it in (decision 1013298: "No panel tips, those texts move onto
-// the page").
-test("a long name and task id show whole on the page, with no tip", async ({ page }) => {
+// A name or task id too long for the header's row ends in an ellipsis there,
+// the task id giving way first, and shows whole in the Task view, with no tip
+// to read it in (decision 1013298: "No panel tips, those texts move onto the
+// page").
+test("a long name and task id are cut short in the header and show whole in the Task view, with no tip", async ({ page }) => {
   // Arrange
   const name = "Merge Maestro of the Connector Release Notes";
   const id = "pd-whats-new-connectors-release-notes-for-every-connector-shipped-this-week";
@@ -142,12 +140,14 @@ test("a long name and task id show whole on the page, with no tip", async ({ pag
   // Act
   const report = await page.evaluate(headerReport);
   await header.locator("#panel-title").hover();
-  await header.locator(".panel-goblin-task").hover();
 
-  // Assert: both wrap rather than fit one line, and neither is cut.
+  // Assert: both keep to the row, an ellipsis ends what it cuts short, and
+  // the Task view has them whole.
   await expect(header.locator(".panel-goblin-task")).toHaveText(id);
-  expect(report.nameLines).toBeGreaterThan(1);
-  expect(report.titleLines).toBeGreaterThan(1);
+  expect(report.nameLines).toBe(1);
+  expect(report.titleLines).toBe(1);
   expect(report.cut).toEqual([]);
+  expect(report.shortened).toEqual(["panel-title", "panel-goblin-task"]);
   await expect(page.getByRole("tooltip")).toHaveCount(0);
+  await expect((await openTaskList(page)).locator(".panel-whole-name")).toHaveText("Bernie - " + name + " · " + id);
 });

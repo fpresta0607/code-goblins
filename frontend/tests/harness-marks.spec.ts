@@ -5,9 +5,9 @@ import { box, open, openGoblin, snapshot } from "./session-board";
 // mark, the one the board draws on its card, from one shared component (the
 // Overlord, 2026-10-27: "make sure that whatever harness is being used inside
 // the modern chat, that it is using the right icon"), and the row under the
-// message shows the session's own model. The panel's header draws no mark
-// (the Overlord, 2026-10-28: "We already know it's running Claude because of
-// the chat"). The supervisor is played by tests/session-board.ts.
+// message shows the session's own model. The panel's header draws it beside
+// the session's name (the Overlord, 2026-10-29, of the one-row header: "I like
+// the avatar and the icon"). The supervisor is played by tests/session-board.ts.
 
 const SESSIONS = [
   { harness: "claude", name: "Claude Code", model: "claude-opus-5-5", shown: "Opus 5.5" },
@@ -26,13 +26,13 @@ for (const session of SESSIONS) {
     // Act
     await openGoblin(page);
 
-    // Assert: the row under the turn's last reply and the model's button
-    // draw the mark the board's card draws for this harness, named for it,
-    // the button names the session's own model, and the panel's header draws
-    // no mark at all.
+    // Assert: the panel's header, the row under the turn's last reply and
+    // the model's button draw the mark the board's card draws for this
+    // harness, the row's named for it, and the button names the session's
+    // own model.
     const card = await drawing(page, ".card-harness .mark");
     expect(card, "the card has a mark").not.toBe("");
-    await expect(page.locator(".goblin-panel > .panel-header .mark")).toHaveCount(0);
+    expect(await drawing(page, ".goblin-panel > .panel-header .mark"), "the panel's header").toBe(card);
     const replyMark = page.locator(".messages-view:not([hidden]) .message-reply-actions .mark");
     expect(await drawing(page, ".messages-view:not([hidden]) .message-reply-actions .mark"), "the row under the last reply").toBe(card);
     await expect(replyMark).toHaveAttribute("aria-label", session.name);
@@ -41,3 +41,20 @@ for (const session of SESSIONS) {
     expect(await model.evaluate((button) => button.querySelector(".mark path")?.getAttribute("d") ?? ""), "the model's button").toBe(card);
   });
 }
+
+// The CFO's panel has no task, so the mark in its header names the model of
+// the CFO's live session, the one its conversation under the header shows.
+test("the CFO's header names its live session's model in its harness mark's tip", async ({ page }) => {
+  // Arrange
+  const [claude] = SESSIONS;
+  await open(page, snapshot({ sessions: [{ id: "cfo-1", harness: claude.harness, role: "cfo", model: claude.model }] }));
+
+  // Act
+  await page.locator(".cfo-pin").getByRole("button", { name: "Open the CFO's terminal" }).last().click();
+  await expect(page.locator("#panel-title")).toHaveText("CFO");
+
+  // Assert
+  const mark = page.locator(".goblin-panel > .panel-header .panel-identity > .mark");
+  await expect(mark).toHaveAttribute("data-tip", claude.name + " · " + claude.shown);
+  await expect(mark).toHaveAccessibleName(claude.name + " · " + claude.shown);
+});

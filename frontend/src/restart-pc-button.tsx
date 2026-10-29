@@ -8,14 +8,14 @@ import { isPastPoolLine, kernelPools } from "./start";
 import type { Snapshot } from "./types";
 import "./harness-update.css";
 
-// Restart PC, before the AFK switch in the CFO panel's header (the Overlord,
+// Restart PC, on the line under the CFO panel's header row (the Overlord,
 // 2026-10-18: "the header shows the restart button in terminal cfo for safe
 // pc restart"). It shows only on the board on this PC, never on his private
 // board, as AFK mode's on, and only while the kernel's pools are past the
 // line, or while the restart it began stops the fleet, when it says so and
 // takes no press. His press asks once; the supervisor proves the board his
 // and does the rest. What a press could not do, the supervisor's refusal or
-// a restart that stopped short, says so in a few words beside it for a
+// a restart that stopped short, says so in a few words under it for a
 // moment, as Update does, and the CFO is told why.
 export function RestartPcButton({ snapshot }: { snapshot: Snapshot }) {
   const [isAsking, setAsking] = useState(false);
