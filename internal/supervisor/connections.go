@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/connections"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/remoteaccess"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -183,7 +184,16 @@ func (h *HTTP) grantConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s := h.Service
-	from, err := s.overlordsBoard(r, h.Host, asked, grantingBoard)
+	// A service grant card's Grant is his from his private board too: his
+	// decision of 2026-10-29 ("Allow it as is"), knowing the gate proves that
+	// board his only by headers a program on this PC can forge. Every other
+	// press here stays on a board on the PC.
+	var from string
+	if remoteaccess.Admitted(r) && kind == "service" && isGrant && input.Request != "" {
+		from = privateBoard
+	} else {
+		from, err = s.overlordsBoard(r, h.Host, asked, grantingBoard)
+	}
 	if err != nil {
 		h.refuse(w, http.StatusForbidden, "connections", "A press of a connector card on a board was refused", "", err)
 		return
