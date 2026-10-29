@@ -1,11 +1,9 @@
 package supervisor
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -171,30 +169,8 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	request, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	reader := bufio.NewReader(response.Body)
-	read := func() Snapshot {
-		t.Helper()
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				t.Fatalf("board stream closed: %v", err)
-			}
-			if strings.HasPrefix(line, "data: ") {
-				var snapshot Snapshot
-				if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &snapshot); err != nil {
-					t.Fatal(err)
-				}
-				return snapshot
-			}
-		}
-	}
-	initial := read()
+	events := openBoard(t, ctx, server.URL)
+	initial := nextEvent(t, events, "the first snapshot").data
 	directory := nativehook.SpoolDir(home.State)
 	if err := os.Remove(directory); err != nil {
 		t.Fatal(err)
@@ -203,7 +179,7 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.notify()
-	problem := read()
+	problem := nextEvent(t, events, "the folder problem").data
 	if problem.Revision <= initial.Revision || !strings.Contains(problem.Error, "native-inbox") {
 		t.Fatalf("stream omitted folder problem: %+v", problem)
 	}
@@ -214,7 +190,7 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.notify()
-	recovered := read()
+	recovered := nextEvent(t, events, "the recovery").data
 	if recovered.Error != "" || recovered.Revision <= problem.Revision || recovered.Instance != initial.Instance {
 		t.Fatalf("stream did not recover in place: %+v", recovered)
 	}

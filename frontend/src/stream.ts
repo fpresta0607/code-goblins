@@ -1,14 +1,15 @@
 // Adapted from Cline Kanban use-runtime-state-stream.ts, Apache-2.0.
 // Copyright 2026 Cline Bot Inc. See public/assets/NOTICE.txt.
-// CFO changes: SSE full snapshots, instance/revision fencing, strict parsing,
-// bounded retries, errors given to the CFO, and no client-driven task
-// progression.
-// Between snapshots the supervisor sends the Command Center's items alone, the
-// moment one changes, which the board lays over its last snapshot.
+// CFO changes: SSE snapshots and their changes, instance/revision fencing,
+// strict parsing, bounded retries, errors given to the CFO, and no
+// client-driven task progression.
+// After its first snapshot the supervisor sends only changes to it, the
+// Command Center's items the moment one changes among them, which the board
+// applies to the snapshot it holds.
 import { useEffect, useState } from "react";
-import { parseItems, parseSnapshot, type Snapshot } from "./types";
+import { parseSnapshot, type Snapshot } from "./types";
 import { knowInstance, message, reportToCfo } from "./api";
-import { withItems } from "./item-state";
+import { applyChange } from "./snapshot-change";
 import { shared } from "./shared";
 
 const STREAM_RECONNECT_BASE_DELAY_MS = 500;
@@ -30,45 +31,53 @@ export function useRuntimeStream() {
     let source: EventSource | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let retry = STREAM_RECONNECT_BASE_DELAY_MS;
+    const reconnect = () => {
+      source?.close();
+      if (cancelled) return;
+      setConnection("Reconnecting");
+      timer = setTimeout(connect, retry);
+      retry = Math.min(retry * 2, STREAM_RECONNECT_MAX_DELAY_MS);
+    };
     const connect = () => {
       if (cancelled) return;
+      // held is this connection's snapshot as the supervisor sent it, with
+      // each change since applied, which the next change goes on.
+      let held: unknown;
+      const take = (value: unknown) => {
+        const next = parseSnapshot(value);
+        knowInstance(next.instance);
+        setSnapshot((current) => {
+          const newer = newerSnapshot(current, next);
+          return newer === next ? shared(current, next) : newer;
+        });
+        setReceivedAt(Date.now());
+        setConnection("Live");
+        retry = STREAM_RECONNECT_BASE_DELAY_MS;
+      };
       source = new EventSource("/api/events");
       source.addEventListener("snapshot", (event: MessageEvent<string>) => {
         if (cancelled) return;
         try {
-          const value: unknown = JSON.parse(event.data);
-          const next = parseSnapshot(value);
-          knowInstance(next.instance);
-          setSnapshot((current) => {
-            const newer = newerSnapshot(current, next);
-            return newer === next ? shared(current, next) : newer;
-          });
-          setReceivedAt(Date.now());
-          setConnection("Live");
-          retry = STREAM_RECONNECT_BASE_DELAY_MS;
+          held = JSON.parse(event.data);
+          take(held);
         } catch (error: unknown) {
           reportToCfo("the board's snapshot stream", message(error));
           setConnection("Invalid stream");
         }
       });
-      source.addEventListener("items", (event: MessageEvent<string>) => {
+      source.addEventListener("change", (event: MessageEvent<string>) => {
         if (cancelled) return;
         try {
-          const items = parseItems(JSON.parse(event.data));
-          setSnapshot((current) => withItems(current, items));
-          setReceivedAt(Date.now());
+          held = applyChange(held, JSON.parse(event.data));
+          take(held);
         } catch (error: unknown) {
+          // What the board holds no longer matches what the stream goes on
+          // from, so it opens the stream again for a whole snapshot.
           reportToCfo("the board's snapshot stream", message(error));
-          setConnection("Invalid stream");
+          reconnect();
         }
       });
-      source.onerror = () => {
-        source?.close();
-        if (cancelled) return;
-        setConnection("Reconnecting");
-        timer = setTimeout(connect, retry);
-        retry = Math.min(retry * 2, STREAM_RECONNECT_MAX_DELAY_MS);
-      };
+      source.onerror = reconnect;
     };
     connect();
     return () => {

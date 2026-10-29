@@ -1,51 +1,13 @@
 package supervisor
 
 import (
-	"bufio"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 )
-
-// openStream opens one board's event stream and reports each snapshot event
-// it receives on the channel it returns.
-func openStream(t *testing.T, ctx context.Context, url string) <-chan struct{} {
-	t.Helper()
-	request, _ := http.NewRequestWithContext(ctx, "GET", url+"/api/events", nil)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { response.Body.Close() })
-	snapshots := make(chan struct{}, 64)
-	go func() {
-		reader := bufio.NewReader(response.Body)
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-			if strings.TrimRight(line, "\n") == "event: snapshot" {
-				snapshots <- struct{}{}
-			}
-		}
-	}()
-	return snapshots
-}
-
-// awaitSnapshot waits for a stream's next snapshot event.
-func awaitSnapshot(t *testing.T, snapshots <-chan struct{}, what string) {
-	t.Helper()
-	select {
-	case <-snapshots:
-	case <-time.After(time.Minute):
-		t.Fatalf("no snapshot reached %s", what)
-	}
-}
 
 // On 2026-10-02 the live board took 3 to 13 seconds to build one snapshot,
 // which reads the fleet from several hundred files, and every open board
@@ -67,16 +29,16 @@ func TestOneChangeCostsOneSnapshotBuildHoweverManyBoardsAreOpen(t *testing.T) {
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	boards := []<-chan struct{}{openStream(t, ctx, server.URL), openStream(t, ctx, server.URL), openStream(t, ctx, server.URL)}
+	boards := []<-chan streamEvent{openBoard(t, ctx, server.URL), openBoard(t, ctx, server.URL), openBoard(t, ctx, server.URL)}
 	for _, board := range boards {
-		awaitSnapshot(t, board, "a board as it opened")
+		nextEvent(t, board, "a board's first snapshot")
 	}
 	builds.Store(0)
 
 	// Act: one change, then the desktop app reads the snapshot twice.
 	s.publish(nil)
 	for _, board := range boards {
-		awaitSnapshot(t, board, "a board after the change")
+		nextEvent(t, board, "a board's change")
 	}
 	for range 2 {
 		response, err := http.Get(server.URL + "/api/snapshot")

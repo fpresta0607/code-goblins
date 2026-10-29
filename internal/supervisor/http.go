@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -387,9 +388,24 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 			built <- build{snapshot, err}
 		}()
 	}
-	// sent is the items the board has, as they were last sent to it; nil
-	// before its first snapshot, which the items go on.
+	// view is what the board holds, key by key, as this stream last sent it,
+	// and nil before its first snapshot: every event after that one is a
+	// change to it, so the board receives only what changed. sent is the
+	// items the board has, as they were last sent to it.
+	var view map[string]json.RawMessage
 	var sent []byte
+	sendChange := func(next map[string]json.RawMessage) error {
+		changed, isChanged := changeOfKeys(view, next)
+		view = next
+		if !isChanged {
+			return nil
+		}
+		data, err := json.Marshal(changed)
+		if err != nil {
+			return err
+		}
+		return send("event: change\ndata: %s\n\n", data)
+	}
 	begin(h.Service.Revision())
 	for {
 		select {
@@ -416,7 +432,13 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 			if sent, err = json.Marshal(items); err != nil {
 				return
 			}
-			if send("id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data) != nil {
+			next := keysOf(data)
+			if view == nil {
+				if send("id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data) != nil {
+					return
+				}
+				view = next
+			} else if sendChange(next) != nil {
 				return
 			}
 			if stale {
@@ -428,9 +450,14 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
-			if sent != nil && !bytes.Equal(body, sent) {
+			if view != nil && !bytes.Equal(body, sent) {
 				data, err := json.Marshal(itemsEvent{h.Service.Instance, revision, items})
-				if err != nil || send("event: items\ndata: %s\n\n", data) != nil {
+				if err != nil {
+					return
+				}
+				next := maps.Clone(view)
+				maps.Copy(next, keysOf(data))
+				if sendChange(next) != nil {
 					return
 				}
 				sent = body

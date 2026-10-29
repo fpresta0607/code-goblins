@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
-import { withItems } from "../../src/item-state";
-import { parseItems, parseSnapshot } from "../../src/types";
+import { parseSnapshot } from "../../src/types";
 import { useItemState } from "../../src/use-item-state";
 import "../../src/styles.css";
 
@@ -22,7 +21,7 @@ function SignInFixture() {
   const [isConnected, setConnected] = useState(true);
   const { snapshot } = useItemState(received);
   window.signInFixture = {
-    items: (changes) => setReceived((prior) => withItems(prior, parseItems({ ...prior, revision: prior.revision + 1, browser_signins: [{ ...prior.browser_signins?.[0], ...changes }] }))!),
+    items: (changes) => setReceived((prior) => parseSnapshot({ ...prior, revision: prior.revision + 1, browser_signins: [{ ...prior.browser_signins?.[0], ...changes }] })),
     connection: setConnected,
   };
   return <main>

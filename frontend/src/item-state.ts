@@ -1,12 +1,12 @@
 import { asItems, isOpen, type Item } from "./commandQueue.ts";
-import type { Items, Snapshot } from "./types.ts";
+import type { Snapshot } from "./types.ts";
 
 // What the board knows of the Command Center's items beyond its last
-// snapshot. A snapshot carries the whole fleet and can take seconds to reach
-// the board, so three things do not wait for one: the supervisor sends the
-// items alone the moment one changes, what the Overlord sends closes its item
-// in the frame he sends it, and an item that closed stays closed, whatever
-// arrives late.
+// snapshot. A snapshot is built from the fleet's files and can take seconds
+// to reach the board, so three things do not wait for one: the supervisor
+// sends the items' change the moment one changes, what the Overlord sends
+// closes its item in the frame he sends it, and an item that closed stays
+// closed, whatever arrives late.
 
 // Sent is what he sent for an item: the action's kind and request ID, an
 // answer's text and kind, and the created_at of the item it was sent for.
@@ -20,14 +20,6 @@ export const publishedAt = (item: Item): string => (item.kind === "question" ? i
 
 // A reopened step card keeps its filing date but starts a fresh generation.
 export const publicationKey = (item: Item): string => publishedAt(item) + (item.kind === "credential" ? ":" + item.request.generation : "");
-
-// withItems is the last snapshot with the Command Center's items the
-// supervisor sent after it. Items from another supervisor, or older than the
-// snapshot, change nothing, and neither do items with no snapshot to go on.
-export function withItems(current: Snapshot | null, items: Items): Snapshot | null {
-  if (!current || current.instance !== items.instance || current.revision > items.revision) return current;
-  return { ...current, revision: items.revision, questions: items.questions, reviews: items.reviews, runs: items.runs, credentials: items.credentials, browser_signins: items.browser_signins, actions: items.actions };
-}
 
 // How many closed items the board remembers, newest last.
 const LIMIT = 500;
