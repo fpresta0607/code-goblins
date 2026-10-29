@@ -5,7 +5,7 @@ import { box, card, holdMessages, NAME, open, openGoblin, PAGE, releaseMessages,
 // smaller little circle pie graphs, pie slices, percentages, relevant to the
 // context of the actual conversation". A goblin's box shows its session's
 // usage as small pies, one per reading the session backs, each with its
-// percentage, in the dress of the box he writes in, and nothing at all when
+// percentage, at the end of the box's controls row, and nothing at all when
 // there is no reading: never "unavailable". While the conversation still
 // connects it shows no usage. The supervisor is played by
 // tests/session-board.ts; every reading is made up.
@@ -48,19 +48,32 @@ for (const session of SESSIONS) {
   });
 }
 
-test("the usage bar wears the dress of the box he writes in", async ({ page }) => {
-  // Arrange
-  await open(page, snapshot(), "rebase onto main", { ...PAGE, usage: usage() });
+// The Overlord, 2026-10-28: "The usage circle goes in place of the arrow in
+// the box", the end of the controls row, where Send sat before it moved onto
+// the line he writes on.
+for (const [label, width, isNamed] of [["a desktop panel", 1440, true], ["a phone", 390, false]] as const) {
+  test(`the usage pies end the box's controls row after the microphone, inside its border, on ${label}`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 844 });
+    await open(page, snapshot(), "rebase onto main", { ...PAGE, usage: usage() });
 
-  // Act
-  await openGoblin(page);
+    // Act
+    await openGoblin(page);
 
-  // Assert
-  await expect(bar(page)).toBeVisible();
-  const dress = (element: Element) => { const style = getComputedStyle(element); return [style.borderTopColor, style.borderTopWidth, style.borderTopLeftRadius, style.backgroundColor]; };
-  const input = await box(page).locator(".composer-input").evaluate(dress);
-  expect(await bar(page).evaluate(dress)).toEqual(input);
-});
+    // Assert
+    await expect(bar(page)).toBeVisible();
+    expect(await bar(page).evaluate((element) => ({
+      row: element.parentElement?.className,
+      before: element.previousElementSibling?.getAttribute("aria-label"),
+      isLast: element.nextElementSibling === null,
+      border: getComputedStyle(element).borderTopStyle,
+    }))).toEqual({ row: "composer-row-end", before: "Hold to dictate", isLast: true, border: "none" });
+    const [input, pies] = await Promise.all([box(page).locator(".composer-input").boundingBox(), bar(page).boundingBox()]);
+    expect(input && pies && pies.x >= input.x && pies.x + pies.width <= input.x + input.width + 0.5, "inside the box's border").toBe(true);
+    await expect(meter(page, "Context").locator(".usage-percent")).toBeVisible();
+    await expect(meter(page, "Context").locator(".usage-label")).toBeVisible({ visible: isNamed });
+  });
+}
 
 for (const [label, fields] of [["no window", { context_window: 0 }], ["no tokens yet", { context_tokens: 0 }]] as const) {
   test(`a session with ${label} and no allowance shows no usage, and no words for why`, async ({ page }) => {

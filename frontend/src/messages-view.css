@@ -31,7 +31,7 @@
 .message-prompt.cfo .message-bubble { background: #101b21; box-shadow: 0 0 0 1px var(--glass-border) inset; }
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
 .message-origin { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
-.message-queued { justify-self: end; padding: 0 .5em; border: 1px solid var(--glass-border); border-radius: 999px; font-size: .8125em; }
+.message-queued { justify-self: end; color: var(--muted); font-size: .8125em; }
 /* What a command printed scrolls a long line sideways inside its own box. */
 .message-output { justify-self: stretch; max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre; }
 /* A long message or print shows its first lines, fading out over Show more. */
@@ -153,10 +153,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
   .disclosure.message-call > .disclosure-content { padding-left: .5em; }
 }
 
-/* The usage pies sit just above the box's right end, out of the dock's flow,
-   so their arrival once the view is live never moves the box or the
-   conversation. */
-.composer-dock > .usage-bar { position: absolute; right: 16px; bottom: calc(100% + 4px); }
 /* The input floats above the conversation, centred under its column, with
    its controls outside the bar. */
 .composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; align-self: center; gap: 8px; width: min(100%, 51rem); padding: 0 16px 16px; }
@@ -172,8 +168,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .queued-message.pane > .message-pictures { justify-content: flex-end; }
 
 .queued-message.pane .queued-actions { justify-content: flex-end; }
-/* A thin, quiet grey dash, not a bright one (the Overlord, 2026-10-28). */
-.queued-bubble { border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
 .queued-line { display: flex; flex-wrap: wrap; gap: .25em .6em; margin: 0; color: var(--muted); font-size: .8125em; }
 .queued-line strong { color: var(--amber); }
 .queued-actions { display: flex; flex-wrap: wrap; gap: .35em; }

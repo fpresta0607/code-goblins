@@ -95,7 +95,6 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
   const pictures = [...message.pictures.map((each) => picture(each.id)), ...kept.paths.map(keptPicture)];
   return <article ref={row} className={"message message-prompt " + message.source + (isActionsOpen ? " actions-open" : "")} data-message={message.id}
     onClick={() => { if (!window.getSelection()?.toString()) setActionsOpen((prior) => !prior); }}>
-    {message.queued && <span className="message-queued">Queued</span>}
     <MessagePictures sources={pictures} />
     {kept.text && <div className="message-bubble"><LongText isLong={isLongText(kept.text)} {...fold("more")}>
       {command ? <code>{(message.source === "shell" ? "!" : "") + kept.text}</code> : <MessageText text={kept.text} />}

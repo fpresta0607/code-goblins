@@ -7,9 +7,9 @@ const HIGH_PERCENT = 85;
 const FULL_PERCENT = 95;
 
 // The session's usage as small pies, one for each reading the session backs,
-// each in a colour of its own with its percentage beside it, in the message
-// box's own dress (the Overlord, 2026-10-28: "Claude uses a bunch of
-// different colors to show smaller little circle pie graphs, pie slices,
+// each in a colour of its own with its percentage beside it, at the end of the
+// message box's controls row (the Overlord, 2026-10-28: "Claude uses a bunch
+// of different colors to show smaller little circle pie graphs, pie slices,
 // percentages, relevant to the context of the actual conversation"). With no
 // reading it draws nothing at all: never an empty pie, never "unavailable".
 // Each pie is a meter, so a screen reader reads its name, its share and the

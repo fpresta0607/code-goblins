@@ -54,7 +54,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean;
   pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once as queued.
@@ -440,13 +440,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
     </div>}
     {box && <div className="composer-dock">
-      {/* The usage shows only once the view is live and holds a real
-          reading, never while it connects (the Overlord, 2026-10-28:
-          "connecting screens don't need to display the dither or usage
-          unavailable"). */}
-      {phase === "live" && <UsageBar readings={readings} />}
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
-      {box?.(held.usage?.model || model, history, held.usage?.effort || effort)}
+      {/* The box draws the usage where its send arrow was (the Overlord,
+          2026-10-28: "The usage circle goes in place of the arrow in the
+          box"), only once the view is live and holds a real reading, never
+          while it connects ("connecting screens don't need to display the
+          dither or usage unavailable"). */}
+      {box?.(held.usage?.model || model, history, held.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
     </div>}
   </section>;
 }

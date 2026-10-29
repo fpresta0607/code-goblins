@@ -15,6 +15,20 @@ async function expectInsideTheScreen(page: Page, part: Locator, name: string) {
   expect(box.x + box.width, name + " ends inside the screen").toBeLessThanOrEqual(page.viewportSize()!.width);
 }
 
+// The Overlord, 2026-10-28: "dont need live status pill in top right corner
+// of desktop".
+test("the desktop window shows no Live pill while the board is live", async ({ page }) => {
+  // Arrange: WebView2 puts chrome.webview in the desktop window's page.
+  await page.addInitScript(() => { (window as unknown as { chrome: Record<string, unknown> }).chrome = { ...(window as unknown as { chrome?: Record<string, unknown> }).chrome, webview: {} }; });
+
+  // Act
+  await open(page);
+
+  // Assert
+  await expect(commandCenter(page).locator("summary")).toBeVisible();
+  await expect(page.locator(".topbar-controls .notice")).toHaveCount(0);
+});
+
 for (const width of [360, 393, 430, 1440]) {
   test(`at ${width}px the Live pill sits right before the Command Center's button, on its row`, async ({ page }) => {
     // Arrange

@@ -20,10 +20,14 @@ export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
 // it back unsent, by its own row, so it never reaches the harness. pane draws
 // it under the conversation, the pictures the box kept for it above its
 // bubble in place of their paths as his sent message shows them, queue in the
-// message box's own list, and both offer the same acts. In pane its outline
-// says it is not sent yet, with no clock beside it, and what it waits on is
-// its tip and its description (the Overlord, 2026-10-28: "You don't need the
-// waiting clock, the outline already shows that it's queued").
+// message box's own list, and both offer the same acts. In pane the word
+// Queued above its bubble says it is not sent yet, with no outline and no
+// clock, and what it waits on is its description for a screen reader (the
+// Overlord, 2026-10-28: "remove the dotted lines, just have queued above
+// it"). Every message that waits offers Send now (the Overlord, 2026-10-28:
+// "send now should be an option with all queued messages"): one that cannot
+// go now says why under it when pressed, and one already typed has it
+// pressed already.
 export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
   action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void;
 }) {
@@ -56,19 +60,20 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
   const state = isWaiting ? (variant === "queue" ? "Queued" : "Waiting") : isTyped ? "Typed, awaiting the turn" : messageState(action);
   const reason = isPending ? action.message : "";
   const kept = keptPictures(action.text);
+  const why = "queued-why-" + action.id;
   return <div className={"queued-message " + variant} data-queued={action.id}>
+    {variant === "pane" && <span className="message-queued">Queued</span>}
     {variant === "pane" && <MessagePictures sources={kept.paths.map((path) => keptFileAddress(instance, action.task_id || undefined, path))} />}
-    {variant === "pane" && kept.text && <div className="message-bubble queued-bubble" data-tip={reason || state} aria-describedby={"queued-why-" + action.id}>{kept.text}</div>}
-    {variant === "queue" && <span className="composer-sent-text">{action.text}</span>}
-    {variant === "pane" ? <p className="queued-state sr-only" id={"queued-why-" + action.id}>{reason || state}</p>
-      : <p className="queued-line" data-tip={reason}><strong>{state}</strong></p>}
+    {variant === "pane" && kept.text && <div className="message-bubble queued-bubble" aria-describedby={why}>{kept.text}</div>}
+    {variant === "queue" && <span className="composer-sent-text" aria-describedby={why}>{action.text}</span>}
+    {variant === "queue" && <p className="queued-line"><strong>{state}</strong></p>}
+    <p className="sr-only" id={why}>{reason || state}</p>
     {isPending && asked !== "withdrawn" && <div className="queued-actions">
-      {isWaiting && <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now" || !action.can_send_now}
-        data-tip={asked === "now" ? "Sending now" : action.can_send_now ? "Send now · type it at the next safe moment" : "Send now · " + (action.send_now_why || "It cannot be typed into its session now.")}
-        onClick={() => void act({ kind: "message_now" }, () => setAsked("now"))}><Icon name="arrow-up" /></button>}
-      {isWaiting && <button type="button" className="icon-button" aria-label="Edit" data-tip="Edit · take it back into the box" disabled={isSending}
+      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || isTyped || asked === "now"}
+        onClick={() => action.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : setProblem(action.send_now_why || "It cannot be typed into its session now.")}><Icon name="arrow-up" /></button>
+      {isWaiting && <button type="button" className="icon-button" aria-label="Edit" disabled={isSending}
         onClick={() => window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id }))}><Icon name="edit" /></button>}
-      <button type="button" className="icon-button" aria-label="Cancel" data-tip="Cancel · take it back unsent" disabled={isSending}
+      <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
         onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
     </div>}
     {problem && <p className="queued-problem" role="status">{problem}</p>}

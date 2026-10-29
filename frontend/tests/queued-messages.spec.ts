@@ -29,33 +29,29 @@ async function openWith(page: Page, action: object) {
 
 const entry = (page: Page) => page.locator(".queued-message.pane");
 
-test("a queued message shows in the conversation with what it waits on, and its actions are icons", async ({ page }) => {
+test("a queued message shows the word Queued above its bubble, with what it waits on as its description, and its actions as icons", async ({ page }) => {
   // Arrange
   await openWith(page, queued());
 
   // Assert
   await expect(entry(page)).toBeVisible();
   await expect(entry(page)).toContainText("hold the merge until the gate lets go");
-  // The entry says it is queued by its outline alone, a thin grey dash, with
-  // no clock and no line of words (the Overlord, 2026-10-28: "You don't need
-  // the waiting clock, the outline already shows that it's queued"); the
-  // reason is its tip and its description.
+  // The entry says it is queued by the word Queued above its bubble alone,
+  // with no outline, no clock and no tip (the Overlord, 2026-10-28: "remove
+  // the dotted lines, just have queued above it"); the reason is its
+  // description.
+  const label = entry(page).locator(".message-queued");
   const bubble = entry(page).locator(".queued-bubble");
-  await expect(bubble).toHaveAttribute("data-tip", /Its gate holds the branch/);
+  await expect(label).toHaveText("Queued");
+  const [above, under] = await Promise.all([label.boundingBox(), bubble.boundingBox()]);
+  expect(above && under && above.y + above.height <= under.y + 1, "Queued above its bubble").toBe(true);
   await expect(bubble).toHaveAccessibleDescription(/Its gate holds the branch/);
+  for (const part of [label, bubble]) expect(await part.evaluate((element) => getComputedStyle(element).borderTopStyle)).toBe("none");
   await expect(entry(page).locator("svg.icon:not(.queued-actions svg)")).toHaveCount(0);
-  const edge = await bubble.evaluate((element) => {
-    const style = getComputedStyle(element);
-    const [red, green, blue, alpha = 1] = (style.borderTopColor.match(/[\d.]+/g) ?? []).map(Number);
-    // A ratio, since a mixed colour reads as color(srgb 0-1) and a plain one as rgb(0-255).
-    return { width: style.borderTopWidth, style: style.borderTopStyle, isGrey: (Math.max(red, green, blue) - Math.min(red, green, blue)) / Math.max(red, green, blue) <= 0.25, alpha };
-  });
-  expect(edge).toMatchObject({ width: "1px", style: "dashed", isGrey: true });
-  expect(edge.alpha, "a quiet edge, not a bright one").toBeLessThanOrEqual(0.6);
+  await expect(entry(page).locator("[data-tip]")).toHaveCount(0);
   const send = entry(page).getByRole("button", { name: "Send now" });
   await expect(send).toBeVisible();
-  await expect(send).toBeDisabled();
-  await expect(send).toHaveAttribute("data-tip", /Its gate holds the branch/);
+  await expect(send).toBeEnabled();
   await expect(entry(page).getByRole("button", { name: "Edit" })).toBeVisible();
   await expect(entry(page).getByRole("button", { name: "Cancel" })).toBeVisible();
   // Icon-only: none of the three carries words of its own.
@@ -124,14 +120,30 @@ test("Send now and Cancel each reach the board once, however often he presses th
   expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
-test("a message already typed says the turn takes it and offers no Send now", async ({ page }) => {
+test("a message already typed says the turn takes it and has Send now pressed already", async ({ page }) => {
   // Arrange
   await openWith(page, queued({ status: "running", awaiting: { task: "cg-touch" }, message: "Typed while it was working; it takes the message at its next tool call, or as its current turn ends." }));
 
   // Assert
-  await expect(entry(page).locator(".queued-bubble")).toHaveAttribute("data-tip", /takes the message at its next tool call/);
-  await expect(entry(page).getByRole("button", { name: "Send now" })).toHaveCount(0);
+  await expect(entry(page).locator(".message-queued")).toHaveText("Queued");
+  await expect(entry(page).locator(".queued-bubble")).toHaveAccessibleDescription(/takes the message at its next tool call/);
+  await expect(entry(page).getByRole("button", { name: "Send now" })).toBeDisabled();
+  await expect(entry(page).getByRole("button", { name: "Edit" })).toHaveCount(0);
   await expect(entry(page).getByRole("button", { name: "Cancel" })).toBeVisible();
+});
+
+// The Overlord, 2026-10-28: "send now should be an option with all queued
+// messages". One that cannot go now says why when pressed, and asks nothing.
+test("Send now on a message that cannot go now says why under it and asks nothing", async ({ page }) => {
+  // Arrange
+  const posts = await openWith(page, queued());
+
+  // Act
+  await entry(page).getByRole("button", { name: "Send now" }).click();
+
+  // Assert
+  await expect(entry(page).locator(".queued-problem")).toHaveText("Its gate holds the branch.");
+  expect(posts).toEqual([]);
 });
 
 const KEPT = "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.png";

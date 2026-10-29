@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { Action, Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
@@ -94,7 +94,8 @@ function storeAttached(key: string, paths: string[]): void {
 // the box lists his latest with where each is, and those a paused goblin's
 // resume will carry, each of which can be deleted. Its microphone, held or
 // tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it,
-// and the board's recent dictations are a tap away.
+// and a click on the microphone, or Speech history in the style menu, opens
+// the board's recent dictations.
 //
 // A picture pasted into this box, a file dropped on it or added to it, is kept
 // where the session he writes to reads it and shows in the box as a thumbnail
@@ -111,7 +112,7 @@ function storeAttached(key: string, paths: string[]): void {
 // picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // model and effort are what the session's own record last says it runs.
@@ -125,6 +126,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // the send button's place interrupts while the box is empty, and history
   // is what he sent the session before, oldest first, which Up recalls.
   isWorking?: boolean; history?: string[];
+  // usage is the session's usage pies, drawn at the end of the controls row
+  // where the send arrow was before Send moved onto the line he writes on.
+  usage?: ReactNode;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -732,7 +736,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
               {shownEffort && <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span>}</button>
             {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} mode={mode} control={modelControl}
               onPick={(pick) => applyEngine({ model: pick.model?.id, effort: pick.effort }, true, pick.model)} onMode={chooseMode} onClose={closePane} />}
-            {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
+            {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} onClick={() => setRecentOpen((prior) => !prior)} />}
+            {usage}
           </div>
         </div>
       </div>

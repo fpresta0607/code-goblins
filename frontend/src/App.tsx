@@ -27,6 +27,7 @@ import { useSwitchKeys } from "./useSwitchKeys";
 import { missingPageAction, unsentComment, updateAction } from "./boardUpdate";
 import { boardPage, usePageMissing } from "./board-page";
 import { useWindowMove } from "./useWindowMove";
+import { inDesktopApp } from "./dictation";
 import { useAppBadgeRenewal } from "./use-app-badge-renewal";
 import { updateSucceededRecently } from "./update-progress";
 import { windowTarget } from "./terminalWindow";
@@ -508,8 +509,10 @@ export function App() {
           : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
         {/* The connection's pill sits right before the Command Center's
-            button, so the two read as one group. */}
-        <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>
+            button, so the two read as one group. The desktop window shows it
+            only while the board is not live (the Overlord, 2026-10-28: "dont
+            need live status pill in top right corner of desktop"). */}
+        {!(connected && inDesktopApp()) && <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>}
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
         {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
@@ -551,7 +554,7 @@ export function App() {
             isWorking={isWorking} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            box={(model, history, effort, usage) => createPortal(<Composer isWorking={isWorking} history={history} usage={usage} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}

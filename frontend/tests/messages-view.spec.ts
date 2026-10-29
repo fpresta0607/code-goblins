@@ -453,6 +453,26 @@ test.describe("on a phone's touch screen", () => {
   });
 });
 
+// The Overlord, 2026-10-28: "after a queued message is sent, you don't have
+// to keep the queued", and "below the message, like the controls".
+test("a message Claude Code took while it worked carries no Queued, and has the controls of any message", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+
+  // Act
+  await send(page, "messages", [message(11, { source: "overlord", queued: true, text: "also check the iPad" })]);
+
+  // Assert
+  const sent = talk.locator(".message-prompt").filter({ hasText: "also check the iPad" });
+  await expect(sent).toBeVisible();
+  await expect(sent).not.toContainText("Queued");
+  await sent.hover();
+  await expect(sent.locator(".message-actions time")).toBeVisible();
+  await expect(sent.getByRole("button", { name: "Copy" })).toBeVisible();
+});
+
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
   await open(page);
   await openCfo(page);

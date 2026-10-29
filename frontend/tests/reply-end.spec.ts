@@ -219,7 +219,7 @@ test("under a turn's last reply the row reads its time, then Copy, then the harn
   const parts = await row(page, "r5").locator(".message-reply-actions > *").evaluateAll((elements) => elements.map((element) => element.tagName === "TIME" ? "time" : element.classList.contains("message-copy") ? "copy" : element.classList.contains("mark") ? "mark" : element.className));
   expect(parts).toEqual(["time", "copy", "mark"]);
   await expect(row(page, "r2").locator(".message-reply-actions .mark")).toHaveCount(0);
-  await expect(page.locator(".composer-dock > .usage-bar .mark")).toHaveCount(0);
+  await expect(page.locator(".composer-dock .usage-bar .mark")).toHaveCount(0);
 });
 
 // The Overlord, 2026-10-28: "also have words that appear next to dither all
