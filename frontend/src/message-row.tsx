@@ -103,7 +103,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     {kept.text && <div className="message-bubble"><LongText isLong={isLongText(kept.text)} {...fold("more")}>
       {command ? <code>{(message.source === "shell" ? "!" : "") + kept.text}</code> : <MessageText text={kept.text} />}
     </LongText></div>}
-    {message.source === "overlord" && <p className="message-state">{readAt(message.at)}</p>}
+    {(message.source === "overlord" || command) && <p className="message-state">{readAt(message.at)}</p>}
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
     {printed && <LongText isLong={isLongText(printed)} {...fold("output")}><pre className="message-output">{printed}</pre></LongText>}

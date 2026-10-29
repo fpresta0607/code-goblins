@@ -88,7 +88,7 @@ test.describe("his messages in the chat's one scroll", () => {
     await expect(entry(page)).toHaveCount(0);
 
     // Act and Assert: the board's own record catches up, and nothing changes.
-    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [queued({ text: words, status: "succeeded" })] }));
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [queued({ text: words, status: "succeeded", updated_at: "2026-10-22T09:06:00Z" })] }));
     await expect(log(page).getByText(words, { exact: true })).toHaveCount(1);
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(page.locator(".messages-view:not([hidden])").getByRole("button", { name, exact: true })).toHaveCount(0);
   });
@@ -157,7 +157,7 @@ test.describe("his messages in the chat's one scroll", () => {
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
 
     // Act: the board sees the take and settles the first.
-    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [{ ...first, status: "succeeded", awaiting: undefined }, second] }));
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [{ ...first, status: "succeeded", awaiting: undefined, updated_at: "2026-10-22T09:06:00Z" }, second] }));
 
     // Assert: the row is still the first's, and the second still waits.
     await expect(page.locator(".queued-message.pane[data-queued=q1]")).toHaveCount(0);
@@ -167,9 +167,32 @@ test.describe("his messages in the chat's one scroll", () => {
     await expect(log(page).getByText(words, { exact: true })).toHaveCount(2);
   });
 
+  // An older message of the same words the board settled once the harness
+  // took it had its row then, on an earlier page the conversation has not
+  // loaded; a row written since is the new message's.
+  test("a row written after an older message of the same words settled reads the new one, whose own row is not loaded", async ({ page }) => {
+    // Arrange
+    const older = queued({ id: "q0", text: "yes", status: "succeeded", message: "Taken by the goblin, as its own record of the conversation shows.", created_at: "2026-10-21T08:00:00Z", updated_at: "2026-10-21T08:01:00Z" });
+    const newer = queued({ id: "q1", text: "yes", status: "running", message: "Typed into the terminal.", awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z" }, created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:00Z" });
+    const relay = await open(page, snapshot({ actions: [older, newer] }));
+    await openGoblin(page);
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+
+    // Act: the harness takes the new one.
+    const taken = "2026-10-22T09:05:00Z";
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+      { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: taken, kind: "prompt", source: "overlord", queued: true, text: "yes" }] });
+
+    // Assert
+    await expect(log(page).locator(".message-prompt", { hasText: "yes" }).locator(".message-state")).toHaveText(await readAt(page, taken));
+    await expect(entry(page)).toHaveCount(0);
+    await expect(log(page).getByText("yes", { exact: true })).toHaveCount(1);
+  });
+
   // The record keeps a shell command he typed without its "!", as Claude Code
-  // writes it, and the row shows it as he typed it.
-  test("a shell command he typed while the session works is read by its command row", async ({ page }) => {
+  // writes it, and the row shows it as he typed it, read as his words are.
+  test("a shell command he typed while the session works is read by its command row, which says Read and the time", async ({ page }) => {
     // Arrange
     const relay = await open(page, snapshot({ actions: [queued({ text: "!git status", status: "running", message: "Typed into the terminal.", awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z" }, created_at: "2026-10-22T09:01:00Z" })] }));
     await openGoblin(page);
@@ -177,11 +200,13 @@ test.describe("his messages in the chat's one scroll", () => {
     await expect(entry(page)).toBeVisible();
 
     // Act
+    const taken = "2026-10-22T09:05:00Z";
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
-      { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: "2026-10-22T09:05:00Z", kind: "prompt", source: "shell", text: "git status", output: "On branch main" }] });
+      { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: taken, kind: "prompt", source: "shell", text: "git status", output: "On branch main" }] });
 
     // Assert
     await expect(log(page).locator(".message-prompt.shell")).toContainText("On branch main");
+    await expect(log(page).locator(".message-prompt.shell .message-state")).toHaveText(await readAt(page, taken));
     await expect(entry(page)).toHaveCount(0);
     await expect(log(page).getByText("!git status", { exact: true })).toHaveCount(1);
   });

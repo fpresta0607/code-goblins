@@ -432,15 +432,18 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // whichever of the two arrives first. Each row of his is one message, the
   // oldest the board took of the same words, settled or still waiting, so a
   // second message of the same words waits for its own row; a row the CFO or
-  // the fleet wrote is never his. A send the board has not taken yet names no
-  // time, so an earlier message of the same words never hides it.
+  // the fleet wrote is never his. One the board settled had its row before it
+  // settled, as the board settles a message only once it has seen the harness
+  // take it, so a later row is never an older message's whose own row is not
+  // loaded. A send the board has not taken yet names no time, so an earlier
+  // message of the same words never hides it.
   const rows = [...his];
   const waiting = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
     parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
   const read = new Set<string>();
   const owners = sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
   for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
-    const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && sameWords(each.text, action.text));
+    const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && (action.status !== "succeeded" || Date.parse(each.at) <= Date.parse(action.updated_at)) && sameWords(each.text, action.text));
     if (row < 0) continue;
     rows.splice(row, 1);
     read.add(action.id);
