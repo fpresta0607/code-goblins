@@ -52,6 +52,9 @@ export interface Task extends Evaluation {
   mode: string;
   generation: string;
   session: string;
+  // actions_at is when the newest of the task's actions last changed, empty
+  // with none: its Details reads them when it opens, and again when this moves.
+  actions_at: string;
   // waits is what a queued task's row still waits for before the scheduler
   // starts it.
   waits: Wait[];
@@ -986,6 +989,7 @@ export function parseSnapshot(value: unknown): Snapshot {
         mode: string(t.mode),
         generation: string(t.generation),
         session: string(t.session),
+        actions_at: string(t.actions_at),
         waits: array(t.waits).map((value) => { const w = object(value); return { kind: string(w.kind), target: string(w.target), until: string(w.until), bytes: number(w.bytes), problem: string(w.problem) }; }),
         activity: t.activity === undefined ? "" : string(t.activity),
         handoff: t.handoff === undefined ? false : boolean(t.handoff),

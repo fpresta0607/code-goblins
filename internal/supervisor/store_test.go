@@ -1055,3 +1055,37 @@ func TestFullActionQueueDropsTheOldestUnconfirmedDelivery(t *testing.T) {
 		})
 	}
 }
+
+// A progress check that newer session activity supersedes changes when it is
+// passed over, so the task's Details, which reads its actions again when the
+// newest of them changed, shows it done rather than queued (#1611).
+func TestAProgressCheckPassedOverForNewerActivityChangesThen(t *testing.T) {
+	// Arrange: a stop queues a progress check, and a prompt after it
+	// supersedes that check.
+	store, h := testStore(t)
+	now := time.Now().UTC()
+	for _, e := range []nativehook.Event{event(t, h, "SessionStart", "s1", "", now), event(t, h, "Stop", "s1", "t1", now.Add(time.Second))} {
+		if err := store.Accept(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queued := store.Snapshot().Actions[0]
+	if err := store.Accept(event(t, h, "UserPromptSubmit", "s1", "t2", now.Add(2*time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	passed := time.Now().UTC()
+
+	// Act
+	if err := store.ProcessOne(context.Background(), func(context.Context, Action) (Evaluation, error) {
+		return Evaluation{}, errors.New("a superseded check is never evaluated")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	check := store.Snapshot().Actions[slices.IndexFunc(store.Snapshot().Actions, func(action Action) bool { return action.ID == queued.ID })]
+	if check.Message != "Superseded by newer session activity" || check.UpdatedAt.Before(passed) {
+		t.Errorf("the check reads %q, changed at %s, want superseded and changed no earlier than %s", check.Message, check.UpdatedAt, passed)
+	}
+}
