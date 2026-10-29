@@ -6,9 +6,11 @@ import { devices, expect, holdStream, servePages, test, type Page } from "./site
 // and the goblin's name block above the view took 190 of them, so a growing
 // message's last line went under the keyboard: in the terminal view the
 // screen kept a 200 px floor below the panel's foot, and Modern's box grew
-// down past it. The keyboard is played by shrinking the visual viewport as
-// Safari's does. WebKit refuses the suite's own port, so the board is served
-// at the private board's address, as tests/iphone-terminal.spec.ts does.
+// down past it. The panel's header is now its one row (2026-10-29), which
+// stays with the keyboard up. The keyboard is played by shrinking the visual
+// viewport as Safari's does. WebKit refuses the suite's own port, so the
+// board is served at the private board's address, as
+// tests/iphone-terminal.spec.ts does.
 const PRIVATE = "https://pc.example.ts.net:4311";
 const SESSION = "claude/9c4e2a71-8b3d-4f6a-a5c2-7d1e0f9b8a34";
 const snapshot = {
@@ -144,15 +146,11 @@ for (const [view, style] of [["the terminal view", "classic"], ["Modern's box", 
     await page.screenshot({ path: testInfo.outputPath("writing.png") });
 
     // Assert: the line being written is above the keyboard and inside the
-    // panel at every length, as the name block steps aside for the keyboard.
+    // panel at every length, under the header's one row, which stays with
+    // Back and the view switch.
     for (const { line, shown } of seen) expect(line).toBeLessThanOrEqual(shown + 1);
-    await expect(header).toBeHidden();
-    await expect(page.getByRole("button", { name: "Back to Board", exact: true })).toBeInViewport();
-
-    // Act: the keyboard closes.
-    await keyboard(page, 0);
-
-    // Assert: the name block is back.
-    await expect(header).toBeVisible();
+    await expect(header).toBeInViewport();
+    await expect(header.getByRole("button", { name: "Back to Board", exact: true })).toBeInViewport();
+    await expect(header.getByRole("group", { name: "Panel view" })).toBeInViewport();
   });
 }

@@ -487,8 +487,9 @@ export function App() {
       await request("/api/terminal/open", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: shownKey });
     } catch (error: unknown) { showWindowFeedback(message(error)); }
   };
-  // The panel's top row (see PanelRow): its controls in the order they are
-  // drawn, its corner button, and what Open in terminal met.
+  // The panel's controls at the end of its header row (see PanelRow): its
+  // controls in the order they are drawn, its corner button, an icon alone
+  // so the row fits, and what Open in terminal met.
   const toggleMaximized = () => {
     const choice = String(!maximized);
     // A maximized panel shows both its conversation and its task list, so it
@@ -505,9 +506,9 @@ export function App() {
   const row = {
     controls,
     corner: fillsPhone
-      ? <button className="labelled-button" aria-label={"Back to " + view} onClick={close}><Icon name="back" /><span>Back</span></button>
+      ? <button className="icon-button" aria-label={"Back to " + view} onClick={close}><Icon name="back" /></button>
       : backShown
-      ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
+      ? <button className="icon-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /></button>
       : <button className="icon-button" aria-label="Close panel" onClick={close}><Icon name="close" /></button>,
     notice: !boxOnScreen && windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };

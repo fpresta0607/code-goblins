@@ -369,3 +369,45 @@ func TestReadBacklogNeverTakesAPullRequestARowWaitsOnForItsOwn(t *testing.T) {
 		t.Errorf("artifact = %q, want none: the row only waits on that pull request", row.Artifact)
 	}
 }
+
+// A row tasks-axi hold put on hold waits for that hold, as tasks-axi show
+// reads it: until tasks-axi unhold clears it, or until its hold-until date
+// begins. A hold date it cannot read never clears and says why.
+func TestReadBacklogReadsATasksAxiHold(t *testing.T) {
+	cases := []struct {
+		name, tags string
+		want       Blocker
+	}{
+		{"a hold", "(hold: Wait for the current board task to land) (hold-kind: external)", Blocker{Kind: "hold", Target: "Wait for the current board task to land"}},
+		{"a hold with a date", "(hold: after the freeze, then ship) (hold-kind: future) (hold-until: 2026-11-02)", Blocker{Kind: "hold", Target: "after the freeze, then ship", Until: time.Date(2026, 11, 2, 0, 0, 0, 0, time.Local).UTC()}},
+		{"a hold date it cannot read", "(hold: after the freeze) (hold-until: next week)", Blocker{Kind: "hold", Target: "after the freeze", Problem: `Cannot read "next week" as a hold date`}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			h := snapshotHome(t)
+			if err := os.MkdirAll(h.Data, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			content := "## Queued\n- [ ] held - Ship it (repo: goblins) (since 2026-10-26) " + c.tags + "\n"
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			backlog, err := ReadBacklog(h)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := backlog.Queued[0]
+			if !reflect.DeepEqual(row.Blockers, []Blocker{c.want}) {
+				t.Errorf("blockers = %+v, want %+v", row.Blockers, []Blocker{c.want})
+			}
+			if row.Title != "Ship it" || row.Repo != "goblins" || len(row.BlockedByIDs) != 0 {
+				t.Errorf("row = %+v, want its title and repo apart from its hold, and no blocked-by", row)
+			}
+		})
+	}
+}

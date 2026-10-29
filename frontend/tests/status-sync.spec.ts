@@ -49,7 +49,8 @@ async function open(page: Page, task: Record<string, unknown>, posted: Posted[] 
 
 const board = (page: Page) => page.locator(".task-board");
 const card = (page: Page) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText(ZANE, { exact: true }) });
-const header = (page: Page) => page.locator(".goblin-panel .panel-header");
+// A goblin's status is said at the top of its panel's Task view.
+const details = (page: Page) => page.locator(".goblin-panel .panel-header-details");
 
 // A status as a surface draws it: its words and the phase its dot is drawn in.
 async function read(status: Locator) {
@@ -72,7 +73,7 @@ for (const state of STATES) {
     await card(page).locator(".task-card").click();
     await expect(page.locator("#panel-title")).toHaveText(ZANE);
     await openTaskList(page);
-    const onPanel = await read(header(page).locator(".panel-status"));
+    const onPanel = await read(details(page).locator(".panel-status"));
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
     const node = page.locator(".flow-node").filter({ has: page.locator("strong", { hasText: ZANE }) });
     const onCanvas = state.column === "Tasks" ? null : await read(node.locator(".plain-status"));
@@ -136,7 +137,7 @@ test("a queued task's Start is in its panel, not on its card, and it starts the 
   // Assert
   expect(shown).toEqual(["Start", "Remove"]);
   await expect.poll(() => posted).toEqual([{ path: "/api/tasks/start", body: { task: "cg-train-history" } }]);
-  await expect(header(page).locator(".panel-status")).toHaveText("Starting");
+  await expect(details(page).locator(".panel-status")).toHaveText("Starting");
   await expect(card(page).locator(".card-status-text")).toHaveText("Starting");
 });
 

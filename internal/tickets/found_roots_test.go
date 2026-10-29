@@ -57,6 +57,26 @@ func TestErrorClassTakesOutWhatChangesBetweenSightings(t *testing.T) {
 	}
 }
 
+func TestIsLostConnectionTellsAnUnreachableHostFromAnyOtherError(t *testing.T) {
+	cases := map[string]bool{
+		"root issues of code-goblins: gh api GET repos/acme/widgets/issues: error connecting to api.github.com": true,
+		"check your internet connection or https://githubstatus.com":                                            true,
+		"fatal: unable to access 'https://github.com/acme/widgets/': Could not resolve host: github.com":        true,
+		"fatal: unable to access 'https://github.com/acme/widgets/': Failed to connect to github.com port 443":  true,
+		"Get \"https://api.github.com\": dial tcp: lookup api.github.com: no such host":                         true,
+		"dial tcp 140.82.112.6:443: connect: network is unreachable":                                            true,
+		"gh api GET repos/acme/widgets/issues: Bad credentials (HTTP 401)":                                      false,
+		"error connecting to the board: herdr exited 1":                                                         false,
+		"pause condition for t1: open state/t1.json: denied after 3 tries":                                      false,
+		"": false,
+	}
+	for line, want := range cases {
+		if got := IsLostConnection(line); got != want {
+			t.Errorf("IsLostConnection(%q) = %v, want %v", line, got, want)
+		}
+	}
+}
+
 func TestRepeatedErrorRootCutsALongClassInItsTitleOnly(t *testing.T) {
 	class := strings.Repeat("word ", 30)
 	root := RepeatedErrorRoot(strings.TrimSpace(class), "")
