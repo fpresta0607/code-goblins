@@ -46,14 +46,14 @@ export function RunCard({ run, goblin, connected, instance, sending, error, onRu
     <header className="run-head">
       <ConnectorMark mark={shellMark(run.shell)} label={shellLabel(run.shell)} />
       <span className="chip">{shellLabel(run.shell)}</span>
-      {run.admin && <span className="chip admin" data-tip="Runs as administrator"><Icon name="shield" />Admin</span>}
+      {run.admin && <span className="chip admin"><Icon name="shield" />Admin</span>}
       <span className={"run-state delivery " + (mark.trouble ? "failed" : "succeeded")} role="status"><Icon name={mark.icon} />{failure ? "Failed" : mark.label}</span>
     </header>
     <h3 id={"run-" + run.id}>{inlineElements(run.title, copyValues, pathLinks(card))}</h3>
     {failure && <p className="run-failure">{failure}</p>}
     <div className="run-command">
       <pre><code>{run.command}</code></pre>
-      <button type="button" className="icon-button" aria-label="Copy command" data-tip={copied ? "Copied" : "Copy command"} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
+      <button type="button" className="icon-button" aria-label="Copy command" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
     </div>
     {run.cwd && <p className="run-cwd"><PathLink path={run.cwd} card={card} /></p>}
     {run.mail && <CardMail mail={run.mail} />}

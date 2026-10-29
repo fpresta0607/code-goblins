@@ -46,8 +46,8 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       const conversation = page.locator(".messages-view:not([hidden]) .conversation");
       await expect(conversation).toBeVisible();
       await expect(field(page)).toHaveValue("keep my draft");
-      await expect(conversation.getByText(pending.text, { exact: true })).toBeVisible();
-      // The conversation already lists what waits, so the box does not repeat it.
+      await expect(page.locator(".messages-view:not([hidden]) .conversation-queue").getByText(pending.text, { exact: true })).toBeVisible();
+      // The queue pinned above the box already lists what waits, so the box does not repeat it.
       await expect(box(page, NAME).locator(".composer-sent-text")).toHaveCount(0);
       const before = await conversation.evaluate((element) => element.scrollTop);
       await conversation.focus();
@@ -161,8 +161,8 @@ for (const style of ["classic", "modern"] as const) {
     await expect(page.locator(".terminal-foot.box")).toHaveCount(0);
     if (style === "modern") {
       await expect(field(page, "CFO")).toHaveValue("keep the CFO draft");
-      await expect(page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })).toBeVisible();
-      // The conversation already lists what waits, so the box does not repeat it.
+      await expect(page.locator(".messages-view:not([hidden]) .conversation-queue").getByText(pending.text, { exact: true })).toBeVisible();
+      // The queue pinned above the box already lists what waits, so the box does not repeat it.
       await expect(box(page, "CFO").locator(".composer-sent-text")).toHaveCount(0);
       await field(page, "CFO").press("Enter");
       await expect.poll(() => typed(relay)).toContain(pasted("keep the CFO draft") + "\r");
@@ -206,10 +206,10 @@ for (const style of ["classic", "modern"] as const) {
     }
     expect(relay.inputs.every((input) => new URL(input.address).searchParams.get("generation") === codex.generation)).toBe(true);
     relay.say({ type: "held", reason: "pipeline owns this task" });
-    // Modern keeps its conversation, which lists what waits; Classic keeps the
+    // Modern keeps its conversation and the queue pinned above its box; Classic keeps the
     // terminal alone, which says typing is paused.
     if (style === "modern") {
-      await expect(page.locator(".messages-view:not([hidden]) .conversation").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(page.locator(".messages-view:not([hidden]) .conversation-queue").getByText(pending.text, { exact: true })).toBeVisible();
       await expect(field(page)).toBeInViewport();
     } else await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`${style}-codex-replaced-pi.png`) });
@@ -283,7 +283,14 @@ for (const phone of [false, true]) {
         else await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
         await page.keyboard.press("Shift+PageUp");
         await expect.poll(position).not.toBe(beforeKey);
-        const beforeReconnect = await position();
+        // The key's scroll glides to its stop, so where it stops is read once
+        // it has, as a held view's is above.
+        let beforeReconnect: unknown;
+        await expect.poll(async () => {
+          const prior = beforeReconnect;
+          beforeReconnect = await position();
+          return beforeReconnect === prior;
+        }).toBe(true);
         relay.drop();
         await expect.poll(() => relay.views).toBe(2);
         await expect(page.locator(".terminal-view.staged")).toHaveCount(0);

@@ -1,35 +1,34 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
-import type { Snapshot, Task } from "./types";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import type { Action, Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
+import { ComposerAttachments } from "./composer-attachments";
 import { DictationButton } from "./dictation-button";
-import { parseEngineCatalog, type EngineModel } from "./engine-catalog";
+import { parseEngineCatalog, useEngineCatalog, type EngineModel } from "./engine-catalog";
 import { CODEX_NOT_SENT, driveCodexPicker } from "./codex-picker";
-import { effortTone, engineCommand, settingCommand, type EngineSetting } from "./engine-choices";
+import { effortTone, engineCommand, MODES, settingCommand, type EngineSetting } from "./engine-choices";
 import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
+import { filesOf, keptFiles } from "./kept-files";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
+import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
 import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
-import { PANEL_KEYS, panelKey } from "./panel-keys";
+import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
-import { QueuedMessage } from "./queued-message";
+import { QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
-import { useTerminalLink } from "./terminal-link";
+import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
-import { GATE_CUSTODY, isDetachedHold } from "./terminalInput";
+import { isDetachedHold } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
-
-// The permission modes the box names in the fewest words, as the terminal's
-// footer names them in more.
-const MODE_NAMES: Record<string, string> = { "auto mode": "Auto", "plan mode": "Plan", "accept edits": "Accept edits", "bypass permissions": "Bypass", "don't ask": "Don't ask", "manual mode": "Manual" };
 
 // How many of his latest messages to a goblin with no live terminal show
 // above the box.
@@ -38,12 +37,16 @@ const SHOWN = 5;
 // a burst of typing asks once.
 const MENTION_WAIT_MS = 120;
 // How long the box waits for Codex's /model picker to show the choice it
-// set out to pick before it closes the picker and says so.
+// set out to pick before it closes the picker and says so, for the harness to
+// take a model before the box sets that model's effort, and for its footer to
+// name the mode he picked.
 const CODEX_PICKER_WAIT_MS = 8000;
 // What he wrote and has not sent, kept per session for this tab's life, so a
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
 const DRAFT_KEY = "cfo-draft:";
+// The paths of the files he added to that draft, kept the same way.
+const ATTACHED_KEY = "cfo-draft-files:";
 
 function storedDraft(key: string): string {
   try { return sessionStorage.getItem(DRAFT_KEY + key) ?? ""; } catch { return ""; }
@@ -54,6 +57,20 @@ function storeDraft(key: string, text: string): void {
     if (text) sessionStorage.setItem(DRAFT_KEY + key, text);
     else sessionStorage.removeItem(DRAFT_KEY + key);
   } catch { /* the draft stays while the box does */ }
+}
+
+function storedAttached(key: string): string[] {
+  try {
+    const paths: unknown = JSON.parse(sessionStorage.getItem(ATTACHED_KEY + key) ?? "[]");
+    return Array.isArray(paths) ? paths.filter((path): path is string => typeof path === "string") : [];
+  } catch { return []; }
+}
+
+function storeAttached(key: string, paths: string[]): void {
+  try {
+    if (paths.length) sessionStorage.setItem(ATTACHED_KEY + key, JSON.stringify(paths));
+    else sessionStorage.removeItem(ATTACHED_KEY + key);
+  } catch { /* the files stay while the box does */ }
 }
 
 // The message box under a session's messages, in place of its terminal's
@@ -77,19 +94,25 @@ function storeDraft(key: string, text: string): void {
 // the box lists his latest with where each is, and those a paused goblin's
 // resume will carry, each of which can be deleted. Its microphone, held or
 // tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it,
-// and the board's recent dictations are a tap away.
+// and a click on the microphone, or Speech history in the style menu, opens
+// the board's recent dictations.
 //
-// A picture pasted into this box, or a file added to it, is kept where the
-// session he writes to reads it, and the message names its path, as the
-// answer card's picture is kept for its asker (internal/supervisor/
-// answer_images.go). It takes that road rather than the terminal views' own
-// paste of a picture onto this PC's clipboard and the harness's image key,
-// because this box also writes to a goblin that has no terminal up yet, and
-// every harness reads a path; the clipboard road would need a live terminal
-// and would leave a queued message without its picture. Alt+V and Ctrl+V both
+// A picture pasted into this box, a file dropped on it or added to it, is kept
+// where the session he writes to reads it and shows in the box as a thumbnail
+// he can remove, and Send names its path on a line of its own after his words,
+// as the answer card's picture is kept for its asker (internal/supervisor/
+// answer_images.go). Each harness reads a picture by its path as an image:
+// Claude Code with its Read tool, or as an attachment when the message is
+// pictures alone, Codex with view_image and pi with its read tool, which is
+// how pi's own paste of a picture names it too. It takes that road rather
+// than the terminal views' own paste of a picture onto this PC's clipboard and
+// the harness's image key, because this box also writes to a goblin that has
+// no terminal up yet, and every harness reads a path; the clipboard road
+// would need a live terminal and would leave a queued message without its
+// picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
 // harness's interrupt, and a paste the board cannot keep says so here.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
   // model and effort are what the session's own record last says it runs.
@@ -103,6 +126,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // the send button's place interrupts while the box is empty, and history
   // is what he sent the session before, oldest first, which Up recalls.
   isWorking?: boolean; history?: string[];
+  // usage is the session's usage pies, drawn at the end of the controls row
+  // where the send arrow was before Send moved onto the line he writes on.
+  usage?: ReactNode;
 }) {
   // A task whose terminal reads and takes messages directly is queued through
   // the board. So is a running task whose terminal refuses typing: its send
@@ -113,6 +139,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const draftKey = task?.id || terminal;
   const [draft, setDraft] = useState(() => storedDraft(draftKey));
   useEffect(() => storeDraft(draftKey, draft), [draftKey, draft]);
+  const [attached, setAttached] = useState(() => storedAttached(draftKey));
+  useEffect(() => storeAttached(draftKey, attached), [draftKey, attached]);
+  // What Send sends: his words, then the path of each file he added.
+  const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
   // Why the last Send found no terminal to type into, or why a paste could
   // not be kept, until the draft changes.
@@ -156,7 +186,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // Escape and a pick hand it back to the box.
   const closePane = useCallback(() => setPane(null), []);
   const modelControl = useRef<HTMLButtonElement>(null);
-  const effortControl = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLButtonElement>(null);
   const composerBox = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
@@ -192,6 +221,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setPick(0);
     sendID.current = "";
   };
+  const attach = (next: (prior: string[]) => string[]) => {
+    setAttached(next);
+    setUnsent("");
+    sendID.current = "";
+  };
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
   const isActive = !!(adding || isSending || unsent || dictation.listening);
   useEffect(() => {
@@ -201,21 +235,26 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const post = (body: object) => request("/api/actions", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": snapshot.instance }, body: JSON.stringify(body) });
   const isHeld = !!live?.held;
   // A real question of the harness's own, a list to choose from, is drawn
-  // and answered here, and a screen the relay could not read offers its way
-  // out; a screen of words with nothing to choose, such as the prompt line
-  // with his message on it or the harness's words for a usage limit, is
-  // never mirrored (the Overlord, 2026-10-28: "What is that window above the
-  // chat input ... remove it"). Only a real question takes what he writes as
-  // its answer.
+  // and answered here, and takes what he writes as its answer. Any other
+  // screen, words with nothing to choose, such as the prompt line with his
+  // message on it, an error or the harness's words for a usage limit, or one
+  // the relay could not read, is never mirrored above the box, whether a turn
+  // finished, failed or the view reconnected (the Overlord, 2026-10-28: "the
+  // terminal window that appears above chat input on mobile randomly I
+  // thought we got rid of that"); his messages wait for it, and the style
+  // menu's Classic and Windows Terminal show it.
   const isScreenOpen = !!live?.screen?.isOpen;
   const screenPanel = isScreenOpen ? live?.screen?.panel ?? null : null;
-  const panel = screenPanel && (screenPanel.choices.length > 0 || screenPanel.rows.length === 0) ? screenPanel : null;
-  const isAsking = !!panel && panel.choices.length > 0;
+  const panel = screenPanel && screenPanel.choices.length > 0 ? screenPanel : null;
+  const isAsking = !!panel;
   // The permission mode the session's terminal shows, which Shift+Tab cycles.
   const mode = live?.screen?.mode ?? "";
   const isUnread = !!live?.isUnread;
   const harness = task?.harness || snapshot.cfo_harness;
   const isEngineSupported = ["claude", "codex", "pi"].includes(harness);
+  // The harnesses' catalog is read as a box with a model button shows, so
+  // its pane opens at once.
+  useEngineCatalog(isShown && isEngineSupported);
   const canChangeEngine = isEngineSupported && !queues && link?.phase === "live" && !link.isReconnecting && !!link.screen && !link.screen.isOpen && !link.isUnread && !link.held;
   const unsentWhy = live?.phase === "closed" ? "Not sent. The terminal is closed." : live?.phase === "live" || live?.isReconnecting ? "Not sent. The terminal is reconnecting." : "Not sent. The terminal is connecting.";
   const recordedModel = model || task?.model || "";
@@ -231,31 +270,69 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // The model by its short, proper name (model-name.ts), never its raw id (the
   // Overlord, 2026-10-28: "claude-opus-5-5 is not proper case").
   const modelName = shortModel(shownModel);
-  // applyEngine sets the session's model or effort in its harness, as Classic
-  // would through the harness's own menu (the Overlord, 2026-10-27: "they
-  // should control the same interfaces. Same session"): one line for Claude
-  // Code and pi, and Codex's own picker, answered here, for Codex. A pick from
-  // the pane, which lists only what the harness offers, shows on its control
-  // at once (shouldShow); a value typed after the command shows once the
-  // session's record says it runs it.
-  const applyEngine = (setting: EngineSetting, value: string, shouldShow: boolean, chosen?: EngineModel) => {
+  // applyEngine sets the session's model, its effort or both in its harness,
+  // as Classic would through the harness's own menu (the Overlord,
+  // 2026-10-27: "they should control the same interfaces. Same session"): a
+  // line each for Claude Code and pi, the effort's once the harness has taken
+  // the model's, and Codex's own picker, answered here, for Codex. A pick
+  // from the pane, which lists only what the harness offers, shows on its
+  // control at once (shouldShow); a value typed after the command shows once
+  // the session's record says it runs it.
+  const applyEngine = (picked: { model?: string; effort?: string }, shouldShow: boolean, chosen?: EngineModel) => {
     setPane(null);
-    if (!canChangeEngine || !value) return;
-    const command = engineCommand(harness, setting, value);
-    const nextEffort = setting === "effort" ? value : chosen?.efforts.includes(shownEffort) ? shownEffort : chosen?.default_effort ?? "";
-    if (command ? !link.send(command) : !link.send("/model")) { setUnsent(unsentWhy); return; }
-    if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: { value, over: recordedModel } } : { ...prior, effort: { value, over: recordedEffort } });
-    if (!command) {
+    if (!canChangeEngine || !picked.model && !picked.effort) return;
+    // A Claude Code or pi model picked by itself goes in at its own default
+    // effort, Opus 5.5 at xhigh (the Overlord, 2026-10-28: "defautl for opus 5
+    // should be xhigh 5.5"); Codex's picker keeps the running effort where the
+    // model offers it.
+    const target = picked.model && !picked.effort && harness !== "codex" && chosen?.default_effort ? { ...picked, effort: chosen.default_effort } : picked;
+    const show = (isPicked: boolean) => setChosenEngine((prior) => ({
+      model: target.model ? isPicked ? { value: target.model, over: recordedModel } : undefined : prior.model,
+      effort: target.effort ? isPicked ? { value: target.effort, over: recordedEffort } : undefined : prior.effort,
+    }));
+    const modelCommand = target.model ? engineCommand(harness, "model", target.model) : "";
+    const effortCommand = target.effort ? engineCommand(harness, "effort", target.effort) : "";
+    const sent = modelCommand === null || effortCommand === null ? link.send("/model") : link.send(modelCommand || effortCommand);
+    if (!sent) { setUnsent(unsentWhy); return; }
+    if (shouldShow) show(true);
+    const drive = (stop: () => void) => {
       stopDriving.current?.();
       setDriving(true);
-      stopDriving.current = driveCodexPicker(terminal, { model: setting === "model" ? value : shownModel, name: setting === "model" ? chosen?.name ?? "" : "", effort: nextEffort }, CODEX_PICKER_WAIT_MS, (failed) => {
-        stopDriving.current = null;
-        setDriving(false);
-        if (!failed) return;
-        setUnsent(failed === CODEX_NOT_SENT ? unsentWhy : failed);
-        if (shouldShow) setChosenEngine((prior) => setting === "model" ? { ...prior, model: undefined } : { ...prior, effort: undefined });
+      stopDriving.current = stop;
+    };
+    const finish = (failed: string) => {
+      stopDriving.current = null;
+      setDriving(false);
+      if (!failed) return;
+      setUnsent(failed);
+      if (shouldShow) show(false);
+    };
+    if (modelCommand === null || effortCommand === null) {
+      const effortAfter = target.effort ?? (chosen?.efforts.includes(shownEffort) ? shownEffort : chosen?.default_effort ?? "");
+      drive(driveCodexPicker(terminal, { model: target.model ?? shownModel, name: target.model ? chosen?.name ?? "" : "", effort: effortAfter }, CODEX_PICKER_WAIT_MS,
+        (failed) => finish(failed === CODEX_NOT_SENT ? unsentWhy : failed)));
+    } else if (modelCommand && effortCommand) {
+      const timer = setTimeout(() => { stop(); finish("The session did not take the model in time, so its effort was not set."); }, CODEX_PICKER_WAIT_MS);
+      const stopWatching = watchLink(terminal, (next) => {
+        if (next?.screen?.submission !== sent || next.screen.isOpen) return;
+        stop();
+        finish(next.send(effortCommand) ? "" : unsentWhy);
       });
+      const stop = () => { clearTimeout(timer); stopWatching(); };
+      drive(stop);
     }
+    requestAnimationFrame(() => field.current?.focus());
+  };
+  // chooseMode sets the session's permission mode, as Shift+Tab cycles it in
+  // its terminal.
+  const chooseMode = (next: string) => {
+    setPane(null);
+    if (!live || next === mode) return;
+    stopDriving.current?.();
+    stopDriving.current = cycleMode(terminal, live, next, MODES.find((each) => each.mode === next)?.name ?? next, CODEX_PICKER_WAIT_MS, (failed) => {
+      stopDriving.current = null;
+      if (failed) setUnsent(failed === MODE_NOT_SENT ? unsentWhy : failed);
+    });
     requestAnimationFrame(() => field.current?.focus());
   };
   // What this box saves as a board action types nothing into the terminal, so
@@ -287,8 +364,13 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   useEffect(() => {
     for (const send of sending) if (snapshot.actions.some((action) => action.id === send.id)) removePendingSend(send.id);
   }, [sending, snapshot.actions]);
+  const afterSend = () => {
+    setDraft("");
+    setAttached([]);
+    setUnsent("");
+  };
   const send = async () => {
-    const text = draft.trim();
+    const text = outgoing;
     if (!text || isSending || adding) return;
     // A setting the box has a control for opens the board's own pane, or is
     // set at once with the value typed after it, never the terminal's menu;
@@ -303,7 +385,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
         (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
         (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
-      applyEngine(asked.setting, asked.value, false, chosen);
+      applyEngine(asked.setting === "model" ? { model: asked.value } : { effort: asked.value }, false, chosen);
       return;
     }
     if (!savesThroughBoard && !sendID.current && !holdsForTurn) {
@@ -312,32 +394,34 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       // he chose: the list's Enter confirms. It answers that question even
       // while the session works, and is never held as a message.
       if (isAsking) {
-        if (live?.paste(text.replace(/\s*\n\s*/g, " "))) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
+        if (live?.paste(text.replace(/\s*\n\s*/g, " "))) afterSend(); else setUnsent(unsentWhy);
         return;
       }
-      if (live?.send(text)) { setDraft(""); setUnsent(""); } else setUnsent(unsentWhy);
+      if (live?.send(text)) afterSend(); else setUnsent(unsentWhy);
       return;
     }
     sendID.current ||= crypto.randomUUID();
     const id = sendID.current;
     // The conversation shows it at once as his queued bubble, and the box
     // empties, before the board has answered; a refusal takes the bubble
-    // back and returns his words to the box as he wrote them.
-    const written = draft;
+    // back and returns his words and pictures to the box as he left them.
+    const written = draft, kept = attached;
     if (hasConversation) {
       addPendingSend({ id, task: task?.id || "", text });
       setDraft("");
+      setAttached([]);
     }
     setSending(true);
     try {
       await post({ id, kind: "message", task_id: task?.id || "", generation: "", text });
       sendID.current = "";
       storeDraft(draftKey, "");
-      setDraft("");
-      setUnsent("");
+      storeAttached(draftKey, []);
+      afterSend();
     } catch (error: unknown) {
       removePendingSend(id);
       setDraft((prior) => prior || written);
+      setAttached((prior) => prior.length ? prior : kept);
       setUnsent("Not sent. " + message(error));
       reportToCfo("a message to " + name, message(error));
     } finally {
@@ -360,16 +444,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       setDeleting("");
     }
   };
-  // add keeps each file he pasted or added where the session reads it, and
-  // names its path in the message. A file the board cannot keep says why in
-  // the box rather than disappearing.
+  // add keeps each file he pasted, dropped or added where the session reads
+  // it, and shows it in the box. A file the board cannot keep says why in the
+  // box rather than disappearing.
   const add = async (chosen: File[]) => {
     if (!chosen.length) return;
     setAdding((count) => count + chosen.length);
     for (const file of chosen) {
       try {
         const path = await keepFile(file, file.name || "pasted.png", snapshot.instance, task?.id);
-        write((prior) => prior.trim() ? prior.replace(/\s+$/, "") + "\n" + path : path);
+        attach((prior) => [...prior, path]);
       } catch (error: unknown) {
         setUnsent("That " + (file.type.startsWith("image/") ? "picture" : "file") + " was not added: " + message(error));
       } finally {
@@ -380,10 +464,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // A picture pasted into the box arrives as a file the session can read. Text
   // keeps the browser's own paste, which the textarea takes as it always has.
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const pictures = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+    const pictures = filesOf(event.clipboardData).filter((file) => file.type.startsWith("image/"));
     if (!pictures.length) return;
     event.preventDefault();
     void add(pictures);
+  };
+  // A file dragged onto the box is added as one chosen with Add files.
+  const dragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+  const drop = (event: DragEvent<HTMLDivElement>) => {
+    const dropped = filesOf(event.dataTransfer);
+    if (!dropped.length) return;
+    event.preventDefault();
+    void add(dropped);
   };
   // insert puts words where the caret or the selection is, keeping the rest of
   // the draft, and separates them from a word they would otherwise run into.
@@ -452,11 +548,62 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setCaret(chosen.caret);
     requestAnimationFrame(() => { box?.focus(); box?.setSelectionRange(chosen.caret, chosen.caret); });
   };
+  // What the board has kept for this goblin is what the board's own record of
+  // it says, so it survives a reload and a remount, and it stays on screen
+  // after a gate lets go so the action can be read and withdrawn.
+  const sent = messagesTo(snapshot, task?.id || "");
+  // A message the board still holds is under the conversation as its own
+  // entry, and the box keeps no second copy of its words.
+  const queued = sent.filter(isPendingMessage);
+  // Up in an empty box while the board holds a message of his to this session
+  // takes the newest back off the queue and into the box, his words and the
+  // files it named, to edit and send again; taken back, it never reaches the
+  // harness from the queue (the Overlord, 2026-10-28: "if I hit the up arrow
+  // when there's a queued message, it'll pull that queued message back into
+  // my chat composer automatically to then edit and resend it, taking it off
+  // the queue"). A message already typed into the turn is the harness's.
+  // Edit on a queued message takes it back the same way, before any words he
+  // has in the box since, and a message is taken back once however often he
+  // presses (the Overlord, 2026-10-28: "lack of indmepotent click on teh
+  // queue"), under the request ID a Cancel of it would use.
+  const takenBack = useRef(new Set<string>());
+  const unqueue = async (action: Action) => {
+    if (takenBack.current.has(action.id)) return;
+    takenBack.current.add(action.id);
+    setSending(true);
+    try {
+      await post({ id: "withdraw-" + action.id, kind: "message_withdraw", task_id: action.task_id, generation: "", target: action.id, text: action.text });
+      const taken = keptFiles(action.text);
+      setDraft((prior) => prior ? taken.text + "\n" + prior : taken.text);
+      setAttached((prior) => [...taken.paths, ...prior.filter((path) => !taken.paths.includes(path))]);
+      setUnsent("");
+    } catch (error: unknown) {
+      takenBack.current.delete(action.id);
+      setUnsent("Not taken back. " + message(error));
+      reportToCfo("taking back a message to " + name, message(error));
+    } finally {
+      setSending(false);
+      requestAnimationFrame(() => field.current?.focus());
+    }
+  };
+  useEffect(() => {
+    const takeBack = (event: Event) => {
+      const action = event instanceof CustomEvent && queued.find((each) => each.id === event.detail && !each.awaiting);
+      if (action) void unqueue(action);
+    };
+    window.addEventListener(TAKE_BACK_MESSAGE, takeBack);
+    return () => window.removeEventListener(TAKE_BACK_MESSAGE, takeBack);
+  });
   // Up in an empty box, or on the first line of a message it recalled,
   // brings back what he sent before, newest first, as the terminal does, and
   // Down walks forward again to the empty box; any edit ends the recall.
   const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const box = event.currentTarget;
+    const newest = queued.filter((action) => !action.awaiting).at(-1);
+    if (event.key === "ArrowUp" && hasConversation && !draft && !attached.length && newest) {
+      if (!isSending) void unqueue(newest);
+      return true;
+    }
     const shown = recalled !== null && draft === history[recalled] ? recalled : null;
     if (event.key === "ArrowUp" && (!draft || shown !== null && !box.value.slice(0, box.selectionStart).includes("\n")) && history.length) {
       const at = Math.max(0, (shown ?? history.length) - 1);
@@ -517,35 +664,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); }
   };
-  const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready."
-    : live?.held && GATE_CUSTODY.test(live.held) ? "Review in progress. Send to queue until it finishes."
-      : savesThroughBoard ? "Messages will be queued." : "";
+  // A message sent while the session works, or while a review holds it, is
+  // queued, and he assumes it, so no note says so (the Overlord, 2026-10-28:
+  // "this text not needed on working goblins resumes are assumed"); a goblin
+  // with no branch to work on says why its messages wait.
+  const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready." : "";
   const note = terminalFeedback || (adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : live?.feedback || dictation.note || queueNote);
-  // What the board has kept for this goblin is what the board's own record of
-  // it says, so it survives a reload and a remount, and it stays on screen
-  // after a gate lets go so the action can be read and withdrawn.
-  const sent = messagesTo(snapshot, task?.id || "");
-  // A message the board still holds is in the conversation as its own entry;
-  // the box keeps a quiet count of them and no second copy of their words.
-  const queued = sent.filter(isPendingMessage);
   // Without a conversation, even a Modern panel needs the queue here.
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
-  // The queued messages sit at the very bottom of the conversation, below the
-  // room of rows not drawn yet, so showing them is going to its end at once:
-  // a smooth scroll toward a place estimated from rows not yet measured would
-  // stop short as they are drawn.
-  const revealQueued = () => {
-    const queued = document.querySelector<HTMLElement>("[data-queued]");
-    const conversation = queued?.closest<HTMLElement>(".conversation");
-    if (conversation) conversation.scrollTop = conversation.scrollHeight;
-    queued?.scrollIntoView({ block: "nearest" });
-  };
-  const canSend = !isSending && !adding && !!draft.trim();
+  const canSend = !isSending && !adding && !!outgoing;
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
-  const canStop = isWorking && !draft.trim() && !isSending && !!live && !isHeld;
-  return <section className="composer" aria-label={"Messages to " + name}>
+  const canStop = isWorking && !outgoing && !isSending && !!live && !isHeld;
+  // data-queues says a Send now goes to the board's queue rather than into the
+  // terminal, which no note tells him (queueNote).
+  return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
     {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
@@ -555,7 +689,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         return <li key={key}>
           <span className="composer-sent-text">{text}</span>
           <span className="composer-sent-state">Kept for resume</span>
-          <button type="button" className="icon-button" aria-label={"Delete: " + text} data-tip="Delete before its resume"
+          <button type="button" className="icon-button" aria-label={"Delete: " + text}
             disabled={deleting === key} onClick={() => void withdraw(text, key)}><Icon name="trash" /></button>
         </li>;
       })}
@@ -569,14 +703,22 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
       {isRecentOpen && <RecentDictations where="the message" anchor={composerBox} model={dictation.model} look="pane" onPaste={(text) => { insert(text); setRecentOpen(false); }}
         onClose={closeRecent} onEngine={() => setEngine((count) => count + 1)} />}
-      <div className="composer-input">
-        <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
-          onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+      <div className="composer-input" onDragOver={dragOver} onDrop={drop}>
+        {attached.length > 0 && <ComposerAttachments paths={attached} instance={snapshot.instance} task={task?.id}
+          onRemove={(path) => { attach((prior) => prior.filter((each) => each !== path)); field.current?.focus(); }} />}
+        <div className="composer-line">
+          <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
+            onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+          {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" aria-keyshortcuts="Escape" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
+            : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} aria-keyshortcuts="Enter" data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
+              <Icon name={isSending ? "clock" : "send"} />
+            </button>}
+        </div>
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <div className="composer-row">
           <div className="composer-row-start">
-            <button type="button" className="composer-control" aria-label="Add files" data-tip="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
-            <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style} data-tip={isStyleOpen ? undefined : "Chat style and speech history"}
+            <button type="button" className="composer-control" aria-label="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
+            <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style}
               onClick={() => setStyleOpen((prior) => !prior)}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
             {isStyleOpen && <div className="composer-style-popover">
               <div className="composer-style-choices" role="group" aria-label="Chat style">
@@ -586,23 +728,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
               <button type="button" onClick={() => { setStyleOpen(false); setRecentOpen(true); menu.current?.focus(); }}><Icon name="clock" />Speech history</button>
               {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="external" />Open in Windows Terminal</button>}
             </div>}
-            {hasConversation && queued.length > 0 && <button type="button" className="composer-control queued-control" aria-label={queued.length + (queued.length === 1 ? " queued message" : " queued messages")} data-tip="Show the queued messages in the conversation" onClick={revealQueued}><Icon name="clock" /><span>{queued.length}</span></button>}
           </div>
           <div className="composer-row-end">
-            {mode && <button type="button" className="composer-control mode-chip" aria-label={"Mode: " + mode + ". Shift+Tab changes it"} data-tip={"Mode: " + mode + " · Shift+Tab changes it"} disabled={isHeld}
-              onMouseDown={(event) => event.preventDefault()} onClick={() => { if (!live?.control(PANEL_KEYS.backTab)) setUnsent(unsentWhy); field.current?.focus(); }}><Icon name="shield" /><span className="mode-chip-name">{MODE_NAMES[mode] ?? mode}</span></button>}
-            <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={pane === "model"} disabled={!canChangeEngine}
-              data-tip={pane === "model" ? undefined : (modelName || "Model") + (canChangeEngine ? " · Choose the session's model" : " · Model controls need a connected, unheld composer")}
-              onClick={() => setPane((open) => open === "model" ? null : "model")}>{harness && <HarnessMark harness={harness} />}{modelName || "Model"}</button>
-            <button ref={effortControl} type="button" className="composer-control engine-control" aria-label="Change effort" aria-haspopup="menu" aria-expanded={pane === "effort"} disabled={!canChangeEngine}
-              data-tip={pane === "effort" ? undefined : canChangeEngine ? "Effort · Choose the session's reasoning effort" : "Effort controls need a connected, unheld composer"}
-              onClick={() => setPane((open) => open === "effort" ? null : "effort")}>{shownEffort ? <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span> : <Icon name="sparkle" />}</button>
-            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} control={pane === "model" ? modelControl : effortControl} onPick={(setting, value, chosen) => applyEngine(setting, value, true, chosen)} onClose={closePane} />}
-            {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" data-tip="Stop dictating" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} />}
-            {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" data-tip="Stop · Esc" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
-              : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} data-tip={isSending ? "Sending" : "Send · Enter"} data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
-                <Icon name={isSending ? "clock" : "send"} />
-              </button>}
+            <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={!!pane} disabled={!canChangeEngine}
+              onClick={() => setPane((open) => open ? null : "model")}>{harness && <HarnessMark harness={harness} />}<span className="engine-control-model">{modelName || "Model"}</span>
+              {shownEffort && <span className={"effort-level " + effortTone(shownEffort)}>{shownEffort}</span>}</button>
+            {pane && <EnginePane setting={pane} harness={harness} model={shownModel} effort={shownEffort} mode={mode} control={modelControl}
+              onPick={(pick) => applyEngine({ model: pick.model?.id, effort: pick.effort }, true, pick.model)} onMode={chooseMode} onClose={closePane} />}
+            {live?.isDictating ? <button type="button" className="voice-bubble recording" aria-label="Stop terminal dictation" onClick={live.stopDictation}><Icon name="mic" /></button> : <DictationButton dictation={dictation} onClick={() => setRecentOpen((prior) => !prior)} />}
+            {usage}
           </div>
         </div>
       </div>

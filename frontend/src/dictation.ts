@@ -316,6 +316,19 @@ export class Dictation {
     }
   }
 
+  // cancel ends a hold that was a click rather than a dictation, as a quick
+  // press of a message box's microphone is: the microphone is handed back and
+  // nothing the hold heard is asked for, typed or told of.
+  cancel(): void {
+    const hold = this.hold;
+    if (!hold) return;
+    this.hold = null;
+    this.events.listening(false);
+    this.release();
+    this.finish(hold, "");
+    hold.recognizer.abort();
+  }
+
   // dispose stops listening without typing anything, for a terminal going
   // away, and drops the words still on their way.
   dispose(): void {

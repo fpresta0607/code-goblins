@@ -108,7 +108,7 @@ func TestAClaudeConversationCountsItsRequestsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Usage{InputTokens: 12, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 20, Model: "claude-opus-5-5"}
+	want := Usage{InputTokens: 12, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 20, ContextWindow: 1_000_000, Model: "claude-opus-5-5"}
 	if page.Usage == nil || *page.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", page.Usage, want)
 	}
@@ -247,8 +247,92 @@ func TestAClaudeLimitNoticeKeepsTheModelAndTheContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Usage{InputTokens: 10, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 18, Model: "claude-opus-5-5"}
+	want := Usage{InputTokens: 10, OutputTokens: 5, CacheReadTokens: 3, ContextTokens: 18, ContextWindow: 1_000_000, Model: "claude-opus-5-5"}
 	if page.Usage == nil || *page.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", page.Usage, want)
+	}
+}
+
+// A Claude Code transcript records no context window, so the session's
+// window is the one its model is published with, and a model the board does
+// not know has none (the Overlord, 2026-10-28: "right now it's just saying
+// context is unavailable").
+func TestAClaudeSessionReadsItsModelsContextWindow(t *testing.T) {
+	for _, test := range []struct {
+		model  string
+		window int64
+	}{
+		{"claude-opus-5-5", 1_000_000},
+		{"claude-haiku-4-5-20251001", 200_000},
+		{"claude-sonnet-4-5[1m]", 1_000_000},
+		{"claude-unknown-9", 0},
+	} {
+		t.Run(test.model, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			reply := answer("a1", "reply-1", textBlock("done"))
+			reply["message"].(object)["model"] = test.model
+			reply["message"].(object)["usage"] = object{"input_tokens": 100, "output_tokens": 20, "cache_read_input_tokens": 80}
+			path := conversation(t, home, prompted("u1", "work"), reply)
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Usage == nil || page.Usage.ContextWindow != test.window || page.Usage.ContextTokens != 200 {
+				t.Fatalf("usage = %+v, want 200 tokens of a %d window", page.Usage, test.window)
+			}
+			if held := reader.Usage(path); held == nil || held.ContextWindow != test.window {
+				t.Fatalf("a stream's usage = %+v, want a %d window", held, test.window)
+			}
+		})
+	}
+}
+
+// A model the Overlord defines for pi in models.json, as the fleet's
+// DeepSeek flash is, is read there before pi's own catalog, which may not
+// list it yet.
+func TestAPiSessionReadsACustomModelsContextWindow(t *testing.T) {
+	for _, test := range []struct {
+		name, custom, store string
+		window              int64
+	}{
+		{"only in models.json", `{"providers":{"openrouter":{"models":[{"id":"deepseek/flash-1017","contextWindow":1048576}]}}}`, `{"openrouter":{"models":[]}}`, 1_048_576},
+		{"models.json wins over the store", `{"providers":{"openrouter":{"models":[{"id":"deepseek/flash-1017","contextWindow":1048576}]}}}`, `{"openrouter":{"models":[{"id":"deepseek/flash-1017","contextWindow":128000}]}}`, 1_048_576},
+		{"only in the store", `{"providers":{"openrouter":{"modelOverrides":{}}}}`, `{"openrouter":{"models":[{"id":"deepseek/flash-1017","contextWindow":128000}]}}`, 128_000},
+		{"in neither", `{"providers":{}}`, `{}`, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			path := piSession(t, home, piHeader(),
+				piMessageEntry("u1", "", "user", object{"content": "work"}),
+				piMessageEntry("a1", "u1", "assistant", object{"provider": "openrouter", "model": "deepseek/flash-1017",
+					"usage": object{"input": 200, "output": 50, "totalTokens": 250}, "content": []object{{"type": "text", "text": "done"}}}),
+			)
+			dir := filepath.Join(home, ".pi", "agent")
+			if err := os.WriteFile(filepath.Join(dir, "models.json"), []byte(test.custom), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "models-store.json"), []byte(test.store), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reader := Reader{Home: home}
+
+			// Act
+			page, _, err := reader.MessagePage(path, -1)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Usage == nil || page.Usage.ContextWindow != test.window {
+				t.Fatalf("usage = %+v, want context window %d", page.Usage, test.window)
+			}
+		})
 	}
 }

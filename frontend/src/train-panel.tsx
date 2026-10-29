@@ -35,10 +35,10 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
       <div className="panel-identity">
         <h2 id="panel-title">Merge train</h2>
         <p className="project-label">{train.repository} into {train.base}</p>
-        <p className={"panel-status train-status train-" + look.tone} {...(train.note ? { "data-tip": train.note } : {})}><span className="status-dot" />{look.text}</p>
+        <p className={"panel-status train-status train-" + look.tone}><span className="status-dot" />{look.text}</p>
       </div>
       {look.url && <div className="panel-actions">
-        <a className="icon-button raised pill-link" href={look.url} target="_blank" rel="noreferrer" aria-label="Open the train's pull request" data-tip="Open the train's pull request"><svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg><span>#{look.url.split("/").at(-1)}</span></a>
+        <a className="icon-button raised pill-link" href={look.url} target="_blank" rel="noreferrer" aria-label="Open the train's pull request"><svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg><span>#{look.url.split("/").at(-1)}</span></a>
       </div>}
     </header>
     <div className="panel-task">
@@ -57,11 +57,11 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
                 <Avatar persona={goblin ? personaFor(goblin) : stablePersona(car.task)} />
                 <span className="train-panel-name">{carName(car)}</span>
               </>;
-              const tip = goblin ? { "data-tip": taskName(goblin) } : {};
               const stateClass = "train-panel-state train-" + state.tone;
               return <li key={car.url} className="train-panel-row train-panel-car">
-                {c.url ? <a className="train-panel-pull" href={c.url} target="_blank" rel="noreferrer" {...tip}>{content}</a> : <span className="train-panel-pull" {...tip}>{content}</span>}
-                {current?.url ? <a className={stateClass} href={current.url} target="_blank" rel="noreferrer" data-tip={`Run ${current.number}: ${current.riders.map((number) => "#" + number).join(", ")}`}>{state.text}</a> : <span className={stateClass}>{state.text}</span>}
+                {c.url ? <a className="train-panel-pull" href={c.url} target="_blank" rel="noreferrer">{content}</a> : <span className="train-panel-pull">{content}</span>}
+                {current?.url ? <a className={stateClass} href={current.url} target="_blank" rel="noreferrer">{state.text}</a> : <span className={stateClass}>{state.text}</span>}
+                {goblin && <p className="train-panel-task">{taskName(goblin)}</p>}
                 {c.tip && <p className="train-panel-car-note">{c.tip}</p>}
               </li>;
             })}
@@ -83,7 +83,7 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
                   return url ? <a key={number} className="train-panel-rider" href={url} target="_blank" rel="noreferrer">#{number}</a> : <span key={number} className="train-panel-rider">#{number}</span>;
                 })}</span>
                 <span className={"train-panel-state train-" + run.tone}>{run.text}</span>
-                {run.url && <a className="icon-button train-panel-open" href={run.url} target="_blank" rel="noreferrer" aria-label={"Open run " + run.number} data-tip={"Open run " + run.number}><Icon name="external" /></a>}
+                {run.url && <a className="icon-button train-panel-open" href={run.url} target="_blank" rel="noreferrer" aria-label={"Open run " + run.number}><Icon name="external" /></a>}
                 {run.once.length > 0 && <span className="train-panel-once">
                   <span className="train-panel-once-label">Failed once</span>
                   {run.once.map((check) => check.url ? <a key={check.name} className="train-panel-rider train-panel-check" href={check.url} target="_blank" rel="noreferrer">{check.name}</a> : <span key={check.name} className="train-panel-rider train-panel-check">{check.name}</span>)}

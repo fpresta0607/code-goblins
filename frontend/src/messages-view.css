@@ -2,7 +2,10 @@
    terminal fills, the same flex and the same rule above it as the terminal
    deck, so the two take the one size. Every size in the list is in em of the
    text size he chooses, so his size scales the whole conversation. */
-.messages-view { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+/* --box-fill is the fill of the box he writes in, which Jump to latest
+   wears too (the Overlord, 2026-10-28: "match fill color of chat input
+   box"). */
+.messages-view { --box-fill: #0b171cf2; position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
 /* The conversation over the message box, with what floats over it, never
    shorter than a few lines, so a list open above the box cannot fold it
    under its own padding, unless the chat has no room for them beside the
@@ -16,9 +19,8 @@
 /* A short conversation sits at the bottom, by the latest, as a chat does,
    in one centred column of a readable width however wide the panel is. */
 .conversation-items { display: flex; flex-direction: column; justify-content: flex-end; gap: 1.125em; width: 100%; max-width: 48em; min-height: 100%; margin-inline: auto; }
-/* The room of the messages after those drawn, above any queued message so
-   it stays at the very bottom; each message's room holds the gap after it,
-   so the gap before the room is taken back. */
+/* The room of the messages after those drawn; each message's room holds the
+   gap after it, so the gap before the room is taken back. */
 .conversation-room { margin-top: -1.125em; }
 .message { position: relative; display: grid; gap: .5em; min-width: 0; }
 /* His message in a quiet bubble on the right, with its Copy in the corner
@@ -29,7 +31,7 @@
 .message-prompt.cfo .message-bubble { background: #101b21; box-shadow: 0 0 0 1px var(--glass-border) inset; }
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
 .message-origin { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
-.message-queued { justify-self: end; padding: 0 .5em; border: 1px solid var(--glass-border); border-radius: 999px; font-size: .8125em; }
+.message-queued { justify-self: end; color: var(--muted); font-size: .8125em; }
 /* What a command printed scrolls a long line sideways inside its own box. */
 .message-output { justify-self: stretch; max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre; }
 /* A long message or print shows its first lines, fading out over Show more. */
@@ -121,7 +123,16 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-interrupt { display: flex; align-items: center; gap: .375em; font-style: italic; }
 .message-interrupt > .icon { width: 1.1em; height: 1.1em; }
 .message-pictures { display: flex; flex-wrap: wrap; gap: .5em; }
-.message-pictures img { max-width: min(100%, 24em); max-height: 18em; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; object-fit: contain; }
+/* The pictures he sent sit above his bubble, on his side, as Claude's app
+   draws them; a call's sit in its fold. */
+.message-prompt > .message-pictures { justify-content: flex-end; }
+.message-picture { display: block; max-width: 100%; min-height: 0; padding: 0; border: 1px solid var(--glass-border-hover); border-radius: 8px; background: #071015; box-shadow: none; overflow: hidden; cursor: zoom-in; }
+.message-picture:hover { border-color: var(--mint); }
+.message-picture img { display: block; max-width: min(100%, 24em); max-height: 18em; object-fit: contain; }
+/* A picture opened larger, over the board. */
+.picture-viewer { width: min(1100px, calc(100vw - 28px)); max-height: 92dvh; padding: 20px; overflow: auto; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); color: #edf4f3; background: var(--glass-bg), var(--hero-surface); box-shadow: var(--glass-shadow-hover); font-size: 1rem; }
+.picture-viewer::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
+@media (max-width: 640px) { .picture-viewer { padding: 14px; } }
 /* Copy shows on a message he points at or moves into, and always on a touch
    screen. */
 .message-copy { width: 32px; height: 32px; min-height: 32px; color: var(--muted); opacity: 0; transition: opacity .15s ease; }
@@ -132,48 +143,41 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-reply-actions .message-copy { opacity: 1; }
 .message-copy, .message-actions .message-copy { border: 0; background: transparent; box-shadow: none; }
 @media (pointer: coarse) { .message-copy { opacity: 1; } }
-.message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: rgba(3, 5, 10, 0.92); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; }
+.message-jump { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 14px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--box-fill); box-shadow: var(--glass-shadow); font-weight: 700; translate: -50% 0; touch-action: manipulation; }
 .message-jump .icon { width: 16px; height: 16px; }
 .messages-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); pointer-events: none; }
 @media (max-width: 40rem) {
   .conversation { padding: 12px 12px 10px; }
-  .message-prompt { max-width: 88%; }
+  .conversation-queue { padding: 0 12px 8px; }
+  .message-prompt, .queued-message.pane { max-width: 88%; }
   .disclosure.message-call > .disclosure-content { padding-left: .5em; }
 }
 
-/* The conversation's bottom corner: the harness's mark and the session's
-   stats. Small and quiet, part of the conversation, never a pill over it. */
-.session-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .3em .9em; padding: 0 4px .2em; color: var(--muted); font-size: .8125em; }
-/* Unreadable usage is the board's notice, at the height of the line's other
-   facts: the line's own type, no padding above or below, and its edge drawn
-   inside it, so saying it never makes the line taller or moves the box. */
-.session-footer .notice { padding: 0 8px; border: 0; box-shadow: inset 0 0 0 1px var(--glass-border); font-size: inherit; line-height: inherit; }
-.session-footer .notice-dot { margin-top: calc(.5lh - 4px); }
 /* The input floats above the conversation, centred under its column, with
    its controls outside the bar. */
 .composer-dock { position: relative; z-index: 3; display: grid; flex: none; align-content: end; align-self: center; gap: 8px; width: min(100%, 51rem); padding: 0 16px 16px; }
 .composer-dock .composer { padding: 0; border-top: 0; background: transparent; }
-.composer-dock .composer-input { background: #0b171cf2; backdrop-filter: blur(14px); }
+.composer-dock .composer-input { background: var(--box-fill); backdrop-filter: blur(14px); }
 .composer-dock .composer-sent { max-height: 10rem; overflow: auto; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: 14px; background: #0b171ce6; }
 /* A message the board still holds for delivery, in the conversation. */
-.queued-message.pane { display: grid; grid-template-columns: auto 1fr; align-self: flex-end; gap: .35em; max-width: min(78%, 46em); scroll-margin-bottom: 18px; }
-.queued-message.pane > :is(.queued-bubble, .queued-edit, .queued-problem) { grid-column: 1 / -1; }
+/* His queued messages, pinned under the conversation in its column, the
+   newest by the box; a long queue scrolls in its own room. */
+.conversation-queue { display: flex; flex: none; flex-direction: column; gap: .75em; width: 100%; max-width: calc(48em + 44px); max-height: 40cqh; margin-inline: auto; padding: 0 22px 10px; overflow: hidden auto; color: #e3ecef; line-height: 1.55; }
+.queued-message.pane { display: grid; grid-template-columns: minmax(0, 1fr); align-self: flex-end; gap: .35em; max-width: min(78%, 46em); }
+.queued-message.pane > :is(.message-pictures, .queued-bubble, .queued-problem) { grid-column: 1 / -1; }
+.queued-message.pane > .message-pictures { justify-content: flex-end; }
+
 .queued-message.pane .queued-actions { justify-content: flex-end; }
-.queued-bubble { border-style: dashed; }
 .queued-line { display: flex; flex-wrap: wrap; gap: .25em .6em; margin: 0; color: var(--muted); font-size: .8125em; }
 .queued-line strong { color: var(--amber); }
-.queued-state { display: grid; place-items: center; width: 22px; height: 22px; margin: 0; color: var(--amber); }
-.queued-state .icon { width: 16px; height: 16px; }
 .queued-actions { display: flex; flex-wrap: wrap; gap: .35em; }
 .queued-actions .labelled-button { min-height: 30px; padding: 2px 10px; font-size: .8125em; }
 .queued-actions .icon { width: 15px; height: 15px; }
 .queued-actions .icon-button { border: 0; background: transparent; }
 .queued-problem { margin: 0; color: var(--amber); font-size: .8125em; }
-.queued-edit { display: grid; gap: .4em; }
-.queued-edit textarea { width: 100%; min-height: 3em; padding: .5em .65em; border: 1px solid var(--glass-border-hover); border-radius: 10px; background: var(--field-bg); color: #edf4f3; resize: vertical; }
 .queued-message.queue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .25em .6em; }
 .queued-message.queue .composer-sent-text { grid-column: 1 / -1; }
-.queued-message.queue .queued-line, .queued-message.queue .queued-actions, .queued-message.queue .queued-problem, .queued-message.queue .queued-edit { grid-column: 1 / -1; }
+.queued-message.queue .queued-line, .queued-message.queue .queued-actions, .queued-message.queue .queued-problem { grid-column: 1 / -1; }
 /* Each of his messages keeps Copy and when it was sent in a small row under
    it, hidden until he taps the message or points at it, and closed when he
    taps away. On a touch screen only the tap opens it. */
@@ -181,15 +185,7 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .message-prompt:hover .message-actions, .message-prompt:focus-within .message-actions, .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }
 .message-actions .message-copy { position: static; opacity: 1; }
 .message-actions time { white-space: nowrap; }
-/* The last message sent says when it was sent and replied to, small under
-   it, like a receipt. */
-.message-receipt { margin: 0; color: var(--muted); font-size: .75em; }
 @media (hover: none) {
   .message-prompt .message-actions { visibility: hidden; opacity: 0; }
   .message-prompt.actions-open .message-actions { visibility: visible; opacity: 1; }
 }
-
-/* A settled selection copies itself, and says so quietly in the corner. */
-/* The session line starts with the mark of the session's harness. */
-.session-footer .mark { width: 22px; height: 22px; }
-.session-footer .mark svg, .session-footer .mark .icon { width: 13px; height: 13px; }

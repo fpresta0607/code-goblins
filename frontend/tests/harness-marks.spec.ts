@@ -5,8 +5,9 @@ import { box, open, openGoblin, snapshot } from "./session-board";
 // mark, the one the board draws on its card, from one shared component (the
 // Overlord, 2026-10-27: "make sure that whatever harness is being used inside
 // the modern chat, that it is using the right icon"), and the row under the
-// message shows the session's own model. The supervisor is played by
-// tests/session-board.ts.
+// message shows the session's own model. The panel's header draws no mark
+// (the Overlord, 2026-10-28: "We already know it's running Claude because of
+// the chat"). The supervisor is played by tests/session-board.ts.
 
 const SESSIONS = [
   { harness: "claude", name: "Claude Code", model: "claude-opus-5-5", shown: "Opus 5.5" },
@@ -25,17 +26,18 @@ for (const session of SESSIONS) {
     // Act
     await openGoblin(page);
 
-    // Assert: the panel's status line, the row under the turn's last reply
-    // and the model's button draw the mark the board's card draws for this
-    // harness, named for it, and the button names the session's own model.
+    // Assert: the row under the turn's last reply and the model's button
+    // draw the mark the board's card draws for this harness, named for it,
+    // the button names the session's own model, and the panel's header draws
+    // no mark at all.
     const card = await drawing(page, ".card-harness .mark");
     expect(card, "the card has a mark").not.toBe("");
-    expect(await drawing(page, ".panel-status .mark"), "the panel's status line").toBe(card);
+    await expect(page.locator(".goblin-panel > .panel-header .mark")).toHaveCount(0);
     const replyMark = page.locator(".messages-view:not([hidden]) .message-reply-actions .mark");
     expect(await drawing(page, ".messages-view:not([hidden]) .message-reply-actions .mark"), "the row under the last reply").toBe(card);
     await expect(replyMark).toHaveAttribute("aria-label", session.name);
     const model = box(page).getByRole("button", { name: "Change model", exact: true });
-    await expect(model).toHaveText(session.shown);
+    await expect(model.locator(".engine-control-model")).toHaveText(session.shown);
     expect(await model.evaluate((button) => button.querySelector(".mark path")?.getAttribute("d") ?? ""), "the model's button").toBe(card);
   });
 }

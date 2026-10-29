@@ -18,7 +18,7 @@ import { PanelViewSwitch } from "./panel-view-switch";
 export type PanelView = "terminal" | "task";
 
 // One panel for a goblin, the same from Board and Orchestration: its
-// conversation, or its task panel, chosen by the selector at its top. The
+// conversation, or its task panel, chosen by the selector in its header. The
 // terminals themselves live in the terminal deck below the panel, which keeps
 // each one live while the board is open, so switching goblins never
 // reconnects, and the messages lie in the deck's box, so they never resize a
@@ -79,8 +79,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
   </>;
   return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
     <PanelRow {...row} />
-    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={maximized || view === "terminal"} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
-    {!child && !maximized && <PanelViewSwitch view={view} views={views} onView={onView} />}
+    {child && task ? <BabyHeader goblin={task} child={child} now={now} /> : <PanelHeader task={task} node={node} snapshot={snapshot} compact={maximized || view === "terminal"} switcher={!child && !maximized && <PanelViewSwitch view={view} views={views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} />}
     {list}
   </section>;
 }

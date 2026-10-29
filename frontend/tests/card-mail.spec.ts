@@ -55,18 +55,18 @@ for (const c of CARDS) {
     });
     const card = await openCard(page, c.open);
     const link = card.getByRole("button", { name: "Open " + c.path + " in File Explorer" });
-    await expect(link).toHaveAttribute("data-tip", "Open in File Explorer");
+    await expect(link).toBeVisible();
 
     // Act
     await link.click();
 
     // Assert
     await expect.poll(() => sent).toEqual([{ token: "fixture-token", body: { kind: c.kind, id: c.id, path: c.path } }]);
-    await expect(link).toHaveAttribute("data-tip", "Opened in File Explorer");
+    await expect(card.getByRole("status").filter({ hasText: "Opened in File Explorer" })).toHaveClass("sr-only");
   });
 }
 
-test("in a plain browser a path link copies the path, says so in its tip, and never asks the supervisor", async ({ page, context }) => {
+test("in a plain browser a path link copies the path, says so, and never asks the supervisor", async ({ page, context }) => {
   // Arrange
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const asked: string[] = [];
@@ -77,15 +77,14 @@ test("in a plain browser a path link copies the path, says so in its tip, and ne
   const step = CARDS[0];
   const card = await openCard(page, step.open);
   const link = card.getByRole("button", { name: "Copy the path " + step.path });
-  await expect(link).toHaveAttribute("data-tip", "Copy the path: File Explorer opens it only from the desktop window");
+  await expect(card.getByRole("list", { name: "What to do" }).getByRole("listitem").first()).toHaveText("Read the refund notes in " + step.path + ".");
 
   // Act
   await link.click();
 
   // Assert
-  await expect(link).toHaveAttribute("data-tip", "Copied");
+  await expect(card.getByRole("status").filter({ hasText: "Copied" })).toHaveClass("sr-only");
   expect(await clipboard(page)).toBe(step.path);
-  await expect(card.getByRole("list", { name: "What to do" }).getByRole("listitem").first()).toHaveText("Read the refund notes in " + step.path + ".");
   expect(asked).toEqual([]);
 });
 

@@ -12,16 +12,32 @@
 .composer-sent .icon-button { align-self: center; width: 32px; height: 32px; min-height: 32px; margin-block: -6px; color: var(--muted); }
 .composer-sent .icon-button .icon { width: 18px; height: 18px; }
 .composer-box { position: relative; display: grid; gap: 4px; }
+/* Its edge is the edge every pane of the chat wears (popup.css), whether he
+   writes in it or not (the Overlord, 2026-10-28: "remove the chat input
+   lighter green border so it matches tool tips and models"). */
 .composer-input { display: grid; gap: 4px; min-width: 0; padding: 10px 6px 4px; border: 1px solid var(--glass-border-hover); border-radius: 18px; background: var(--field-bg); box-shadow: 0 4px 16px #0002; }
-.composer-input:focus-within { border-color: var(--mint); }
+/* The files he added, above his words inside the box's border: a picture as a
+   thumbnail, any other file by its name, each with its remove button on its
+   corner. A long row scrolls sideways rather than pushing the box taller. */
+.composer-attachments { display: flex; gap: 8px; margin: 0; padding: 2px 6px 6px; list-style: none; overflow-x: auto; scrollbar-width: thin; }
+.composer-attachment { position: relative; flex: none; display: grid; place-items: center; height: 64px; border: 1px solid var(--glass-border); border-radius: 10px; background: #071015; }
+.composer-attachment.picture { width: 64px; overflow: hidden; }
+.composer-attachment img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.composer-attachment-name { display: inline-flex; align-items: center; gap: 6px; max-width: 200px; padding: 0 30px 0 10px; overflow: hidden; color: #d8e9e2; font-size: .8125rem; text-overflow: ellipsis; white-space: nowrap; }
+.composer-attachment-name .icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
+.composer-attachment-remove { position: absolute; top: 3px; right: 3px; display: grid; place-items: center; width: 22px; height: 22px; min-height: 22px; padding: 0; border: 0; border-radius: 999px; background: #03050acc; color: var(--bone); box-shadow: none; }
+.composer-attachment-remove .icon { width: 12px; height: 12px; }
+.composer-attachment-remove:hover { background: #03050a; color: #fff; }
+/* A finger's reach around the small button, inside the thumbnail. */
+.composer-attachment-remove::after { content: ""; position: absolute; inset: -3px -3px -14px -14px; }
 /* The caret is as tall as the line, so the line is the text's own height
    (line-height normal) and the room around it is padding: the caret is the
    height of the letters he types (the Overlord, 2026-10-27: "the cursor
    blinking ... is the same size to fit that font"). */
 .composer textarea { display: block; box-sizing: border-box; min-width: 0; width: 100%; min-height: 1.5em; max-height: max(4.5em, min(12em, 30cqh)); padding: .15em 8px; border: 0; background: none; color: #edf4f3; font: inherit; font-weight: 400; line-height: normal; resize: none; field-sizing: content; overflow-wrap: anywhere; }
 /* The box grows with what he writes up to a cap that also shrinks with the
-   chat it sits in, never more than about a third of it, so Send and the
-   controls under it stay on screen however short the panel; past the cap it
+   chat it sits in, never more than about a third of it, so Send beside it and
+   the controls under it stay on screen however short the panel; past the cap it
    scrolls inside itself with a slim pill tucked into its edge (the Overlord,
    2026-10-27: "jsut small little pill embeded into the panel"), and the
    caret's line stays in view (composer.tsx). The page's thin scrollbar is
@@ -39,9 +55,11 @@
 .composer :is(button, input):focus { outline: none; }
 .composer :is(button, input):focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
 /* The row inside the box: adding files and the style menu at its start, then
-   the session's mode, model and effort, the microphone and Send at its end.
-   Every control keeps its full words; a narrow box drops the mode's name for
-   its icon, never the model's. */
+   the session's model with the effort it runs, the microphone and Send at
+   its end. The model's button opens the one pane for the session's settings,
+   its mode among them (engine-pane.tsx), so no other control crowds the row
+   (the Overlord, 2026-10-28: "you don't need an effort button inside the
+   mobile view. It's too crowded"). Every control keeps its full words. */
 .composer-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-width: 0; container-type: inline-size; }
 .composer-row-start { position: relative; display: flex; align-items: center; gap: 2px; flex: none; }
 .composer-row-end { display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: none; margin-left: auto; }
@@ -59,16 +77,22 @@
 .composer-note { min-width: 0; margin: 0; padding: 0 10px; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
 .composer-note:empty { display: none; }
 .composer-refusal { justify-self: start; }
-.composer-send { display: grid; place-items: center; flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+/* Send, and Stop in its place, sits at the end of the line he writes on, as
+   tall as that line, beside his last line however the box grows (the
+   Overlord, 2026-10-28: "place send button in line with message cfo height in
+   chat input"). A finger reaches it a little past its edge. */
+.composer-line { display: flex; align-items: flex-end; gap: 4px; min-width: 0; }
+.composer-line textarea { flex: 1 1 0; }
+.composer-send { position: relative; display: grid; place-items: center; flex: none; width: 32px; min-width: 32px; height: max(1.5em, calc(1lh + .3em)); min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font: inherit; line-height: normal; }
+.composer-send::after { content: ""; position: absolute; inset: -8px -6px -4px; }
 .composer-send[data-active] { color: var(--accent-green); }
 .composer-send:hover { background: transparent; }
 .composer-send:disabled { cursor: default; }
 .composer-send .icon { width: 18px; height: 18px; }
-.queued-control > span { font-variant-numeric: tabular-nums; }
 /* A touch screen's controls are taller to tap, and as wide as the row lets
    the whole row fit inside a 360 px phone's box. */
 @media (pointer: coarse) {
-  .composer-control, .composer-input .voice-bubble, .composer-send { min-height: 40px; height: 40px; }
+  .composer-control, .composer-input .voice-bubble { min-height: 40px; height: 40px; }
   .composer-sent .icon-button { width: 44px; min-height: 44px; height: 44px; margin-block: 0; }
 }
 @media (max-width: 480px) {
@@ -81,19 +105,10 @@
   .composer-dock { padding-inline: 8px; }
 }
 
-/* The permission mode the session's terminal shows, which a press or
-   Shift+Tab cycles as in the terminal. */
-.composer-control.mode-chip { gap: 6px; height: 28px; min-height: 28px; padding: 0 10px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--mint); font-size: .8125rem; }
-.composer-control.mode-chip .icon { width: 14px; height: 14px; }
-@container (max-width: 420px) {
-  .composer-control.mode-chip { min-width: 28px; padding: 0 6px; }
-  .mode-chip-name { display: none; }
-}
 /* A row narrower still draws its icon buttons a little tighter, so a long
    model name stays whole. */
 @container (max-width: 340px) {
-  .composer-row .composer-control, .composer-row .voice-bubble, .composer-row .composer-send { min-width: 32px; padding-inline: 4px; }
-  .composer-row .composer-send { width: 32px; }
+  .composer-row .composer-control, .composer-row .voice-bubble { min-width: 32px; padding-inline: 4px; }
 }
 
 /* The model's button leads with the mark of the session's harness, drawn

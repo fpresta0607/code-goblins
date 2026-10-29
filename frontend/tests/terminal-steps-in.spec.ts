@@ -156,21 +156,54 @@ test("a picker the box opens despite background work stays in the chat, and goes
   await expect(messages(page)).toBeVisible();
 });
 
-test("a screen the relay could not read still offers Cancel, its keys from the box, and the terminal", async ({ page }) => {
-  // Arrange
-  const relay = await open(page);
-  await openGoblin(page);
+// The Overlord, 2026-10-28, from his phone: "the terminal window that appears
+// above chat input on mobile randomly I thought we got rid of that". No
+// screen of the harness's own but a real question is drawn above the box: not
+// the prompt line read as a screen as a turn ends, not an error, not a screen
+// the relay could not read, and not what a reconnect reads first. A message
+// written meanwhile waits for the screen to close.
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
 
-  // Act
-  relay.say({ type: "screen", asking: false, open: true, working: false, submission: "", panel: {} });
+  test("turns that finish, fail, wait on a screen it cannot read and reconnect never draw a terminal box above the message box", async ({ page }) => {
+    // Arrange: a box drawn for any of them is noted the moment it shows.
+    const relay = await open(page);
+    await page.route("**/api/actions", (route) => route.fulfill({ status: 202, json: {} }));
+    await openGoblin(page);
+    await expect(field(page)).toBeVisible();
+    await page.evaluate(() => new MutationObserver(() => {
+      if (document.querySelector(".harness-panel")) document.body.dataset.terminalBox = "shown";
+    }).observe(document.body, { subtree: true, childList: true }));
+    const shows = async (fields: object) => {
+      relay.say({ ...closed, ...fields });
+      if ("open" in fields) await expect(box(page)).toHaveAttribute("data-queues", "");
+      else await expect(box(page)).not.toHaveAttribute("data-queues");
+    };
 
-  // Assert
-  await list(page).getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect.poll(() => typed(relay)).toBe("\x1b");
-  await expect(field(page)).toBeFocused();
-  await list(page).getByRole("button", { name: "Show the terminal" }).click();
-  await expect(back(page)).toBeVisible();
-  await expect(terminal(page)).toBeFocused();
+    // Act: a turn that finishes, its prompt line read as a screen of its own
+    // as the harness redraws it.
+    await shows({ working: true, open: true, panel: { rows: [">"], choices: [], hints: [] } });
+    await shows({});
+    // One that fails, its error in the input line's place.
+    await shows({ open: true, panel: { rows: ["API Error: 529 Overloaded"], choices: [], hints: ["esc to dismiss"] } });
+    await shows({});
+    // One that waits on a screen the relay could not read, and his message
+    // written meanwhile.
+    await shows({ open: true, panel: {} });
+    await field(page).fill("after the screen");
+    await field(page).press("Enter");
+    // A reconnect, whose first reading is that same screen.
+    const views = relay.views;
+    relay.drop();
+    await expect.poll(() => relay.views).toBeGreaterThan(views);
+    await shows({ open: true, panel: {} });
+
+    // Assert: nothing drawn above the box, his message held, never typed.
+    await expect(box(page).locator(".harness-panel")).toHaveCount(0);
+    expect(await page.evaluate(() => document.body.dataset.terminalBox)).toBeUndefined();
+    expect(typed(relay)).toBe("");
+    await expect(page.locator(".messages-view:not([hidden]) .conversation-queue")).toContainText("after the screen");
+  });
 });
 
 test("Back to messages returns to the messages with the keyboard in the box, and his draft there is the same", async ({ page }) => {
@@ -286,25 +319,32 @@ for (const [label, width, height] of [["desktop", 1440, 960], ["phone", 390, 844
   });
 }
 
-test("the session's permission mode shows under the box, and a press or Shift+Tab cycles it as in the terminal", async ({ page }) => {
+test("the session's permission mode shows in the model's pane, and Shift+Tab in the box cycles it as in the terminal", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
-  const chip = box(page).getByRole("button", { name: /^Mode: / });
+  const control = box(page).getByRole("button", { name: "Change model", exact: true });
+  const modes = box(page).getByRole("group", { name: "Mode", exact: true });
+  const shownMode = async () => {
+    await control.click();
+    const name = await modes.getByRole("menuitemradio", { checked: true }).textContent();
+    await page.keyboard.press("Escape");
+    return name;
+  };
 
   // Act and Assert: the mode the terminal's footer names, then each change.
   relay.say({ ...closed, mode: "auto mode" });
-  await expect(chip).toHaveText("Auto");
-  await chip.click();
+  await expect(control).toBeEnabled();
+  expect(await shownMode()).toBe("Auto");
+  await field(page).press("Shift+Tab");
   await expect.poll(() => typed(relay)).toBe("\x1b[Z");
   await expect(field(page)).toBeFocused();
   relay.say({ ...closed, mode: "plan mode" });
-  await expect(chip).toHaveText("Plan");
-  await field(page).press("Shift+Tab");
-  await expect.poll(() => typed(relay)).toBe("\x1b[Z\x1b[Z");
-  await expect(field(page)).toBeFocused();
+  await expect.poll(shownMode).toBe("Plan");
 
   // A harness whose footer names no mode shows none.
   relay.say(closed);
-  await expect(chip).toHaveCount(0);
+  await control.click();
+  await expect(box(page).getByRole("menu", { name: "Model", exact: true })).toBeVisible();
+  await expect(modes).toHaveCount(0);
 });

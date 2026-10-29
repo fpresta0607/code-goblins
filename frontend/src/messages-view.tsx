@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
-import { ContextUsage } from "./context-usage";
 import { Icon } from "./Icon";
+import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
 import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
 import { takesMessages } from "./messages";
@@ -11,8 +11,8 @@ import { ReplyWorking } from "./reply-working";
 import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
 import { parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
-import { SessionFooter } from "./session-footer";
-import { formatAge, sessionStats, usageBanner } from "./session-usage";
+import { usageReadings } from "./session-usage";
+import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
 import { usePendingSends } from "./pending-sends";
@@ -50,17 +50,18 @@ const UNREAD = "The session's messages cannot be read";
 // open, absent for the CFO, terminal is the key of the session's terminal,
 // whose link stops a turn, and box is the message box under the
 // conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, memory, isWorking, pending, subscriptions, spend, now, shown, visible, onChild, onComposerDock, box }: {
-  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; memory: number; isWorking: boolean;
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+  query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean;
   pending: Action[];
-  subscriptions?: SubscriptionUsage[]; spend?: KeySpend[]; now: number;
-  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string) => ReactNode;
+  subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
+  shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
   // What he sent that the board has not shown yet, drawn at once as queued.
   const sending = usePendingSends();
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
+  const queue = useRef<HTMLDivElement>(null);
   const [held, setHeld] = useState<MessagePage>({ messages: [], more: false });
   const heldValue = useRef(held);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
@@ -370,6 +371,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     }
   };
   const picture = useCallback((id: string) => address({ picture: id }), [address]);
+  const taskID = task?.id;
+  const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
   const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
   useLayoutEffect(() => {
@@ -383,18 +386,20 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, []);
-  const stats = sessionStats({ usage: held.usage, model, effort, memory });
-  const reading = usageBanner(harness, subscriptions, spend);
+  const readings = usageReadings(harness, held.usage, subscriptions, spend);
   // What he sent the session himself, oldest first, which Up in the box
   // brings back as the terminal's history does.
   const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
   const ends = turnEnds(held.messages, isWorking);
-  // Under the last message sent, as a receipt: when it was sent (the
-  // Overlord, 2026-10-28: "Reply just now is not needed, you only need the
-  // sent three minutes ago").
-  const lastSent = held.messages.map((message) => message.kind === "prompt" && message.source !== "notice").lastIndexOf(true);
-  const receipt = lastSent < 0 ? "" : "Sent " + formatAge(held.messages[lastSent].at, now);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
+  const queued = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
+    parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "queued", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
+  // A queue taller than its room scrolls, and shows its newest message, the
+  // one nearest the box, as each one joins it.
+  const newestQueued = queued[queued.length - 1]?.id;
+  useLayoutEffect(() => {
+    if (queue.current) queue.current.scrollTop = queue.current.scrollHeight;
+  }, [newestQueued]);
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -408,28 +413,47 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               page, its DOM and any selection in it as the window moves. */}
           {spans.flatMap((span, at) => [
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
-            ...held.messages.slice(span.start, span.end).map((message, at) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
-              harness={harness} isTurnEnd={ends.has(message.id)} receipt={span.start + at === lastSent ? receipt : ""}
-              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} onChild={openChild} />),
+            ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
+              harness={harness} isTurnEnd={ends.has(message.id)}
+              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
-          {isWorking && reachesEnd && <ReplyWorking terminal={task && takesMessages(task) ? "" : terminal} ink={harnessInk(harness)} />}
-          {pending.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
-          {sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) => <QueuedMessage key={"queued-" + send.id} instance={instance} name={name} variant="pane"
-            action={parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "queued", message: "Reaching the board.", send_now_why: "It is still reaching the board." })} />)}
+          {/* While the view connects it shows nothing that waits on the
+              session's reading, the dither included (the Overlord,
+              2026-10-28: "connecting screens don't need to display the dither
+              or usage unavailable"). */}
+          {phase === "live" && isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
         </div>
       </div>
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
-      {!isAtEnd && <button type="button" className="message-jump" onClick={jump}><Icon name="arrow-down" />Jump to latest</button>}
+      {/* A touch that stops the conversation gliding after a flick is one
+          the browser gives no click, and the button shows the moment he
+          leaves the end, while it glides, so a touch's lift takes him there
+          as a click does (the Overlord, 2026-10-28, from his phone: "Jump to
+          latest button mobile doesn't work"). */}
+      {!isAtEnd && <button type="button" className="message-jump" onClick={jump} onPointerUp={(event) => { if (event.pointerType === "touch") jump(); }}><Icon name="arrow-down" />Jump to latest</button>}
       {isCopied && <Notice className="terminal-corner">Copied</Notice>}
       {phase !== "closed" && (isReconnecting || !visible) && <Notice tone="warning" className="terminal-corner">Reconnecting</Notice>}
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>
-    {(box || reading.banner) && <div className="composer-dock">
-      <SessionFooter hasUsage={stats.hasUsage} why={reading.banner ? "" : reading.why} usage={<ContextUsage stats={stats} reading={reading} />} />
+    {/* His queued messages stay pinned between the conversation and the box,
+        out of the list that scrolls, so whatever the session prints after
+        them and however far up he reads they stay in view with their Send
+        now, Edit and Cancel (the Overlord, 2026-10-28: "it should always stay
+        at the bottom between the agent's chat response and the chat box, so I
+        could always see it and control it"). */}
+    {queued.length > 0 && <div ref={queue} className="conversation-queue" role="group" aria-label="Queued messages" style={{ fontSize: font }}>
+      {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
+    </div>}
+    {box && <div className="composer-dock">
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
-      {box?.(held.usage?.model || model, history, held.usage?.effort || effort)}
+      {/* The box draws the usage where its send arrow was (the Overlord,
+          2026-10-28: "The usage circle goes in place of the arrow in the
+          box"), only once the view is live and holds a real reading, never
+          while it connects ("connecting screens don't need to display the
+          dither or usage unavailable"). */}
+      {box?.(held.usage?.model || model, history, held.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
     </div>}
   </section>;
 }

@@ -23,9 +23,9 @@ function WorkingRow({ node, now }: { node: TreeNode; now: number }) {
 
 // What's working in a goblin's panel: counts and states first, then one row
 // for each child still running and the finished ones folded away. How much
-// the goblin itself holds is in the total's tip: the Overlord, 2026-10-08, on
-// a line saying when and how this was read, "i dont need descriptive text
-// everywhere like this".
+// the goblin itself holds follows the total in a few muted words: the
+// Overlord, 2026-10-08, on a line saying when and how this was read, "i dont
+// need descriptive text everywhere like this".
 export function WhatsWorking({ tree, now }: { tree: FleetTree; now: number }) {
   const summary = summarize(tree), active = running(tree), ended = finished(tree);
   return <div className="whats-working">
@@ -34,7 +34,7 @@ export function WhatsWorking({ tree, now }: { tree: FleetTree; now: number }) {
       {summary.silent > 0 && <span className="plain-status phase-silent"><span className="status-dot" />{summary.silent} silent</span>}
       {summary.idle > 0 && <span className="plain-status phase-idle"><span className="status-dot" />{summary.idle} idle</span>}
       {active.length === 0 && <span className="muted">Nothing running now</span>}
-      {tree.memory > 0 && <span {...tree.own_memory > 0 ? { "data-tip": "The goblin itself holds " + formatMemory(tree.own_memory) } : {}}>{formatMemory(tree.memory)} in all</span>}
+      {tree.memory > 0 && <span>{formatMemory(tree.memory)} in all{tree.own_memory > 0 && <span className="muted">, {formatMemory(tree.own_memory)} its own</span>}</span>}
     </p>
     {active.length > 0 && <ul className="working-list" aria-label="Running">{active.map((node) => <WorkingRow key={node.id} node={node} now={now} />)}</ul>}
     {ended.length > 0 && <Disclosure kind="disclosure-line working-finished" title={ended.length + " finished"}>

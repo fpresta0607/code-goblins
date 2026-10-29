@@ -117,7 +117,7 @@ test("a press the supervisor refuses puts the card back and says why beside it",
   await expect(context7.getByRole("button", { name: "Give context7" })).toBeVisible();
 });
 
-test("a carried connector that fails keeps one faint mark with its reason in the tooltip, and its repair", async ({ page }) => {
+test("a carried connector that fails keeps one faint mark with its reason in a muted line, and its repair", async ({ page }) => {
   // Arrange
   const supervisor: Supervisor = { grants: [], tokens: [], entries: ENTRIES, checking: false };
 
@@ -127,10 +127,9 @@ test("a carried connector that fails keeps one faint mark with its reason in the
   // Assert
   const acme = card(panel, "acme-internal");
   const mark = acme.locator(".connector-trouble");
-  await expect(mark).toHaveAttribute("aria-label", "Sign in: Sign-in required.");
-  await expect(mark).toHaveAttribute("data-tip", "Sign in: Sign-in required.");
+  await expect(mark).toBeVisible();
+  await expect(acme.getByText("Sign in: Sign-in required.", { exact: true })).toHaveClass("connector-about");
   expect(Number(await mark.evaluate((element) => getComputedStyle(element).opacity))).toBeLessThan(1);
   await expect(acme.getByRole("button", { name: "Sign in to acme-internal" })).toBeVisible();
-  await expect(acme).not.toContainText("Sign-in required.");
   await expect(card(panel, "github").locator(".connector-trouble")).toHaveCount(0);
 });

@@ -13,6 +13,14 @@
 .panel-header:has(> .afk-header) > .goblin-avatar { flex: none; }
 .panel-header:has(> .afk-header) > .panel-heading { flex: 1 1 0; min-width: min-content; }
 .afk-header { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
+.panel-header > .panel-view-switch + .afk-header { margin-left: 0; }
+/* On a phone the CFO's header is one row: its picture, its name and status,
+   the panel's Chat and Task icons and the toggle, with closer gaps, and a
+   status too long for what is left ends in an ellipsis rather than wrapping
+   the row (the Overlord, 2026-10-28: "it can fit inline with cfo and afk"). */
+.fills-phone .panel-header.panel-header:has(> .afk-header) { column-gap: 8px; }
+.fills-phone .panel-header:has(> .afk-header) > .panel-heading { min-width: 0; }
+.fills-phone .panel-header:has(> .afk-header) .panel-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .afk-header .icon-button { width: 36px; height: 36px; min-height: 36px; }
 .afk-header .icon-button .icon { width: 18px; height: 18px; }
 .afk-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px 4px 12px; border-radius: 999px; background: var(--field-bg); color: var(--muted); font-family: var(--font-display); font-size: 1rem; white-space: nowrap; }

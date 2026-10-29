@@ -67,12 +67,12 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       const failed = header.locator("a.hosted-checks");
       await expect(failed).toHaveAttribute("aria-label", /^Checks failed: /);
       await expect(failed).toHaveAttribute("href", JOB);
-      await expect(failed).toHaveAttribute("data-tip", "Failed: go (rest), frontend");
+      await expect(header.locator("a.hosted-checks + .pill-detail")).toHaveText("Failed: go (rest), frontend");
       await expect(failed).toHaveClass(/hosted-failed/);
       const local = header.locator("a.local-checks");
       await expect(local).toHaveAttribute("aria-label", /^Local tests failed: /);
       await expect(local).toHaveAttribute("href", "/api/tasks/nw-sync/checks");
-      await expect(local).toHaveAttribute("data-tip", "Failed: internal/supervisor. Affected level, 18m, 5m of it waiting for its turn");
+      await expect(header.locator("a.local-checks + .pill-detail")).toHaveText("Failed: internal/supervisor. Affected level, 18m, 5m of it waiting for its turn");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     });
   });
@@ -88,7 +88,7 @@ test("a merged task's panel says how its deploy stands and opens the run", async
   const failed = finished.locator("a.deployment");
   await expect(failed).toHaveAttribute("aria-label", /^Deploy failed: /);
   await expect(failed).toHaveAttribute("href", REPO + "/actions/runs/82");
-  await expect(failed).toHaveAttribute("data-tip", "Deploy API, Deploy worker at ccc333d");
+  await expect(finished.locator("a.deployment + .pill-detail")).toHaveText("Deploy API, Deploy worker at ccc333d");
   await expect(failed).toHaveClass(/hosted-failed/);
   const live = await openPanel(page, "Fix the docs links");
   await expect(live.locator("a.deployment")).toHaveAttribute("aria-label", /^Deploying: /);

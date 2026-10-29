@@ -39,7 +39,7 @@ export function HarnessPanel({ panel, name, onKeys, onShowTerminal }: {
     <div className="harness-panel-foot">
       <p className="harness-panel-hints">{panel.hints.join(" · ")}</p>
       {(!panel.choices.length || panel.hints.some((hint) => CANCELS.test(hint))) && <button type="button" className="labelled-button harness-cancel" onMouseDown={(event) => event.preventDefault()} onClick={() => onKeys(PANEL_KEYS.escape)}>Cancel</button>}
-      {onShowTerminal && <button type="button" className="icon-button harness-show-terminal" aria-label="Show the terminal" data-tip="Show the terminal" onClick={onShowTerminal}><Icon name="terminal" /></button>}
+      {onShowTerminal && <button type="button" className="icon-button harness-show-terminal" aria-label="Show the terminal" onClick={onShowTerminal}><Icon name="terminal" /></button>}
     </div>
   </section>;
 }

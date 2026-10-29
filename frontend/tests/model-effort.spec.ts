@@ -3,17 +3,11 @@ import { box, boxMenu, GOBLIN, NAME, open, openGoblin, PAGE, snapshot } from "./
 
 // The Overlord, 2026-10-28, on the build he runs: "claude-opus-5-5 is not
 // proper case, effort type that's running is not shown", "Max effort is a
-// rainbow", "the effort selector is a drawer that extends off the model
-// selector's pane", and the close button that did nothing. The box names the
-// model by its proper name everywhere and shows the effort the session runs,
-// read from how it was started until its own record says otherwise. The
-// supervisor is played by tests/session-board.ts.
+// rainbow", and the close button that did nothing. The box names the model
+// by its proper name everywhere and shows on the model's button the effort
+// the session runs, read from how it was started until its own record says
+// otherwise. The supervisor is played by tests/session-board.ts.
 
-const CATALOG = { harnesses: [
-  { id: "claude", name: "Claude Code", models: [{ id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], default_effort: "xhigh" }] },
-  { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra", efforts: ["low", "medium", "high", "xhigh"], default_effort: "medium" }] },
-  { id: "pi", name: "Pi", models: [{ id: "openrouter/z-ai/glm-5.3-flash", name: "GLM 5.3 Flash", efforts: ["off", "low", "medium", "high"], default_effort: "medium" }] },
-] };
 const SESSIONS = [
   { harness: "claude", model: "claude-opus-5-5", effort: "xhigh", name: "Opus 5.5", raw: ["claude-opus-5-5"] },
   { harness: "codex", model: "gpt-6-astra", effort: "high", name: "GPT-6 Astra", raw: ["gpt-6-astra"] },
@@ -36,8 +30,9 @@ for (const session of SESSIONS) {
     await openGoblin(page);
 
     // Assert
-    await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toHaveText(session.name);
-    await expect(box(page).getByRole("button", { name: "Change effort", exact: true })).toHaveText(session.effort);
+    const model = box(page).getByRole("button", { name: "Change model", exact: true });
+    await expect(model.locator(".engine-control-model")).toHaveText(session.name);
+    await expect(model.locator(".effort-level")).toHaveText(session.effort);
     const words = await shown(page);
     for (const raw of session.raw) expect(words, "no raw " + raw).not.toContain(raw);
   });
@@ -51,7 +46,7 @@ test("the CFO's box shows the effort its engine was started at", async ({ page }
   await page.keyboard.press("Control+Alt+1");
 
   // Assert
-  await expect(box(page, "CFO").getByRole("button", { name: "Change effort", exact: true })).toHaveText("high");
+  await expect(box(page, "CFO").getByRole("button", { name: "Change model", exact: true }).locator(".effort-level")).toHaveText("high");
 });
 
 // The server keeps a saved engine it did not apply, with pending false: one
@@ -70,10 +65,11 @@ for (const unapplied of UNAPPLIED) {
     // Act
     await page.keyboard.press("Control+Alt+1");
 
-    // Assert: the session's record has arrived, and the effort control shows
-    // its icon, not the saved engine's effort.
-    await expect(box(page, "CFO").getByRole("button", { name: "Change model", exact: true })).toHaveText(unapplied.shown);
-    await expect(box(page, "CFO").getByRole("button", { name: "Change effort", exact: true })).toHaveText("");
+    // Assert: the session's record has arrived, and the model's button shows
+    // no effort, not the saved engine's.
+    const model = box(page, "CFO").getByRole("button", { name: "Change model", exact: true });
+    await expect(model.locator(".engine-control-model")).toHaveText(unapplied.shown);
+    await expect(model.locator(".effort-level")).toHaveCount(0);
   });
 }
 
@@ -85,62 +81,11 @@ test("max effort is drawn as a rainbow", async ({ page }) => {
   await openGoblin(page);
 
   // Assert: a gradient of six colours or more across the word.
-  const level = box(page).getByRole("button", { name: "Change effort", exact: true }).locator(".effort-level");
+  const level = box(page).getByRole("button", { name: "Change model", exact: true }).locator(".effort-level");
   await expect(level).toHaveText("max");
   const paint = await level.evaluate((element) => getComputedStyle(element).backgroundImage);
   expect(paint).toContain("linear-gradient");
   expect(paint.match(/rgb/g)?.length ?? 0).toBeGreaterThanOrEqual(6);
-});
-
-test("the effort is a drawer off the model's pane, out when the effort control opens it", async ({ page }) => {
-  // Arrange
-  const relay = await open(page, snapshot({}, { phase: "settled" }), "", { ...PAGE, usage: { ...RECORD, model: GOBLIN.model, effort: "xhigh" } });
-  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
-  await openGoblin(page);
-  relay.say({ type: "screen", asking: false, open: false, working: false });
-  const model = box(page).getByRole("menu", { name: "Model", exact: true });
-  const drawer = model.getByRole("menu", { name: "Effort", exact: true });
-
-  // Act: the effort control.
-  await box(page).getByRole("button", { name: "Change effort", exact: true }).click();
-
-  // Assert: one pane, the model's, with its effort drawer out and the
-  // effort it runs taking the keyboard.
-  await expect(model).toBeVisible();
-  await expect(box(page).getByRole("menu")).toHaveCount(2);
-  await expect(drawer.getByRole("menuitemradio", { name: "xhigh", exact: true })).toBeFocused();
-
-  // Act: the model control, then the drawer's own toggle.
-  await box(page).getByRole("button", { name: "Change effort", exact: true }).click();
-  await box(page).getByRole("button", { name: "Change model", exact: true }).click();
-
-  // Assert
-  const toggle = model.getByRole("button", { name: /^Effort/ });
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect(drawer).toHaveCount(0);
-  await toggle.click();
-  await expect(drawer.getByRole("menuitemradio")).toHaveCount(5);
-});
-
-test("the effort control pressed by keyboard with the model's pane open pulls the drawer out", async ({ page }) => {
-  // Arrange: the model's pane open, its running model taking the keyboard.
-  const relay = await open(page, snapshot({}, { phase: "settled" }), "", { ...PAGE, usage: { ...RECORD, model: GOBLIN.model, effort: "xhigh" } });
-  await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
-  await openGoblin(page);
-  relay.say({ type: "screen", asking: false, open: false, working: false });
-  const model = box(page).getByRole("menu", { name: "Model", exact: true });
-  await box(page).getByRole("button", { name: "Change model", exact: true }).click();
-  await expect(model.getByRole("menuitemradio", { name: "Opus 5.5", exact: true })).toBeFocused();
-
-  // Act: back to the effort control, and Enter.
-  await page.keyboard.press("Shift+Tab");
-  await expect(box(page).getByRole("button", { name: "Change effort", exact: true })).toBeFocused();
-  await page.keyboard.press("Enter");
-
-  // Assert: the same pane, its drawer out, the effort it runs focused.
-  await expect(box(page).getByRole("button", { name: "Change effort", exact: true })).toHaveAttribute("aria-expanded", "true");
-  await expect(model.getByRole("button", { name: /^Effort/ })).toHaveAttribute("aria-expanded", "true");
-  await expect(model.getByRole("menu", { name: "Effort", exact: true }).getByRole("menuitemradio", { name: "xhigh", exact: true })).toBeFocused();
 });
 
 test("Close on speech history closes it", async ({ page }) => {

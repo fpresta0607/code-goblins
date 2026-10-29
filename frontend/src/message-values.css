@@ -14,4 +14,4 @@
 .message-table .copy-value { display: flex; justify-content: space-between; }
 .message-table .copy-value code { min-width: 12ch; }
 .copy-value .icon-button { flex: none; }
-.copy-value .icon-button[data-tip="Copied"] { color: var(--mint); border-color: var(--mint); }
+.copy-value .icon-button.copied { color: var(--mint); border-color: var(--mint); }
