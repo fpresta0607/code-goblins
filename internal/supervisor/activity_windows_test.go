@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,9 +12,79 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+// A report spooling its board receipt, such as a cfo send, holds the activity
+// lock for a moment. A cycle that meets it leaves the inbox to the next cycle
+// and reports nothing: each one reported the hold as its error, which the
+// supervisor met again and again and filed as #1505. A hold that outlasts
+// spoolHeldLong is a stuck report, and is reported.
+func TestACycleLeavesTheActivityInboxToAReportSpoolingItsReceipt(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		heldFor    time.Duration
+		isReported bool
+	}{
+		{name: "a moment", heldFor: 0, isReported: false},
+		{name: "past spoolHeldLong", heldFor: spoolHeldLong + time.Minute, isReported: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			now := time.Now().UTC()
+			if err := store.Accept(event(t, h, "SessionStart", "worker", "", now)); err != nil {
+				t.Fatal(err)
+			}
+			a := BoardActivity{ID: "spooled-review", Kind: "review", TaskID: "task-1", Generation: "g1", Target: store.Snapshot().TaskSessions["task-1"], State: "active", URL: "http://127.0.0.1:4387/session/example", At: now, Until: now.Add(time.Minute)}
+			if err := spoolActivity(h.State, a); err != nil {
+				t.Fatal(err)
+			}
+			// Another live process, this test's parent, holds the lock as a
+			// report spooling its receipt does.
+			lockPath := filepath.Join(h.State, ".board-activity.lock")
+			if _, err := lock.AcquireNamedOwner(h.State, ".board-activity.lock", os.Getppid(), ""); err != nil {
+				t.Fatal(err)
+			}
+			holder, err := lock.ReadNamed(h.State, ".board-activity.lock")
+			if err != nil {
+				t.Fatal(err)
+			}
+			holder.Acquired = holder.Acquired.Add(-test.heldFor)
+			data, err := json.Marshal(holder)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(lockPath, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			s := &Service{Store: store, subscribers: map[chan struct{}]struct{}{}, work: make(chan struct{}, 1)}
+
+			// Act
+			s.cycle(context.Background(), true)
+
+			// Assert
+			s.mu.Lock()
+			reported := s.lastError
+			s.mu.Unlock()
+			if strings.Contains(reported, lock.ErrHeld.Error()) != test.isReported {
+				t.Fatalf("the board's error = %q, want the hold reported: %t", reported, test.isReported)
+			}
+			if test.isReported {
+				return
+			}
+			if err := os.Remove(lockPath); err != nil {
+				t.Fatal(err)
+			}
+			s.cycle(context.Background(), true)
+			if !slices.ContainsFunc(store.Snapshot().Activity, func(b BoardActivity) bool { return b.ID == a.ID }) {
+				t.Fatal("the spooled receipt was not taken in once the hold ended")
+			}
+		})
+	}
+}
 
 func TestPrimaryPresentationUsesVerifiedContextWithoutBorrowingTask(t *testing.T) {
 	store, h := testStore(t)
