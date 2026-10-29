@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, chosenOption, closedElsewhere, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget } from "./commandQueue.ts";
+import { answerMark, answerReason, answeredBy, answeredElsewhere, answeredLabel, canChange, chosenOption, closedElsewhere, holdsUnsent, itemFor, newestItemOf, nextOpenKey, notSent, openKeys, outcomeIcon, questionOutcome, questionPage, reviewLine, sendState, settledIcon, settledItems, settledLabel, waitingItems, waitReason, waitsOnOverlord, waitTarget, withClosed } from "./commandQueue.ts";
 import type { Action, Review } from "./types.ts";
-import { parseSnapshot, type BoardActivity } from "./types.ts";
+import { parseClosedItems, parseSnapshot, type BoardActivity } from "./types.ts";
 
 const question = (id: string, task: string, created_at: string, status = "pending", extra: Record<string, unknown> = {}) => ({ id, identity: "i-" + id, task, created_at, status, options: ["A", "B"], ...extra });
 const review = (id: string, task: string, created_at: string, state = "open", extra: Record<string, unknown> = {}) => ({ id, identity: "r-" + id, task, title: "Look at " + id, created_at, updated_at: created_at, state, ...extra });
@@ -681,4 +681,24 @@ test("a page he sent a revision on waits on its goblin, so it leaves Waiting on 
   assert.deepEqual(settled, []);
   assert.deepEqual(onScreen.map((item) => item.key), ["review:waiting-billing-7", "review:waiting-notes-3"], "the card on screen when he revised stays, saying so");
   assert.equal(nextOpenKey(onScreen, "review:waiting-notes-3"), null, "moving on never lands on a page that waits on its goblin");
+});
+
+// #1611: the snapshot carries the items closed in the last hour, and History
+// reads the older ones when it opens.
+test("History lists the snapshot's closed items with those it read, the snapshot's copy of each standing", () => {
+  // Arrange: an answer the snapshot carries, which History read before it
+  // was delivered, beside an older answer and a run only the read holds.
+  const snapshot = parseSnapshot({ healthy: true, history_count: 3,
+    questions: [question("recent", "", "2026-10-29T08:00:00Z", "succeeded", { answer_id: "a1", answered_at: "2026-10-29T08:30:00Z" }), question("open", "", "2026-10-29T08:40:00Z")] });
+  const read = parseClosedItems({ history_count: 0, actions: null, reviews: null, credentials: null, browser_signins: null,
+    questions: [question("recent", "", "2026-10-29T08:00:00Z", "queued", { answer_id: "a1", answered_at: "2026-10-29T08:30:00Z" }), question("older", "", "2026-10-28T08:00:00Z", "succeeded", { answer_id: "a0", answered_at: "2026-10-28T09:00:00Z" })],
+    runs: [{ id: "build", identity: "run-build", title: "Build", command: "go build", state: "succeeded", exit_code: 0, created_at: "2026-10-28T10:00:00Z", finished_at: "2026-10-28T10:05:00Z" }] });
+
+  // Act
+  const history = withClosed(snapshot, read);
+
+  // Assert
+  assert.deepEqual(settledItems(history).map((item) => item.key), ["question:recent", "run:build", "question:older"]);
+  assert.equal(history.questions?.find((each) => each.id === "recent")?.status, "succeeded", "the snapshot's own copy of an item it carries stands");
+  assert.equal(withClosed(snapshot, undefined), snapshot, "before History reads, it lists what the snapshot carries");
 });

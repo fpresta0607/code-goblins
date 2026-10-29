@@ -361,7 +361,7 @@ func TestPruneKeepsAWaitItemItsGoblinStillStandsOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snapshot.Reviews; len(got) != 1 || got[0].ID != wait.ID {
+	if got := store.Snapshot().Reviews; len(got) != 1 || got[0].ID != wait.ID {
 		t.Fatalf("reviews = %+v, want the standing wait kept", got)
 	}
 	i := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "task-1" })

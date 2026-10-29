@@ -73,8 +73,13 @@ async function open(page: Page): Promise<Board> {
     const kept: string = (() => { try { return localStorage.getItem("fixture-actions") ?? ""; } catch { return ""; } })();
     const withKept = kept ? { ...(JSON.parse(snapshot) as object), actions: JSON.parse(kept) } : snapshot;
     // Every stream the board opens: the snapshot's, each session's messages,
-    // and a baby goblin's output. A test sends a message stream an event.
+    // and a baby goblin's output. A test sends a message stream an event. A
+    // message stream says alive every five seconds, as the supervisor's does
+    // while it has nothing to send, until a test makes the streams fall
+    // silent (fixtureSilent); a CFO stream opened after a test set
+    // fixtureCfoPage begins with that page.
     const streams: { url: URL; source: EventTarget & { readyState: number } }[] = [];
+    const fixture = window as unknown as { fixtureSilent?: boolean; fixtureCfoPage?: unknown };
     Object.assign(window, { messageStreams: streams });
     // The board's own stream is separate, so a test can send it a snapshot
     // without counting it among the message streams.
@@ -83,17 +88,19 @@ async function open(page: Page): Promise<Board> {
       static CONNECTING = 0; static OPEN = 1; static CLOSED = 2;
       onerror: (() => void) | null = null;
       readyState = 1;
+      alive: ReturnType<typeof setInterval> | undefined;
       constructor(address: string | URL) {
         super();
         const url = new URL(address, location.href);
         const send = (type: string, data: unknown) => setTimeout(() => this.dispatchEvent(new MessageEvent(type, { data: typeof data === "string" ? data : JSON.stringify(data) })));
         if (url.pathname === "/api/messages") {
           streams.push({ url, source: this });
-          send("page", url.searchParams.get("cfo") ? pages.cfo : pages.goblin);
+          send("page", url.searchParams.get("cfo") ? fixture.fixtureCfoPage ?? pages.cfo : pages.goblin);
+          this.alive = setInterval(() => { if (!fixture.fixtureSilent) this.dispatchEvent(new MessageEvent("alive", { data: "{}" })); }, 5000);
         } else if (url.pathname.endsWith("/agent")) send("output", { entries: [{ kind: "prompt", text: "Find the touch handlers" }, { kind: "reply", text: "Found them in terminal-touch.ts" }] });
         else { boards.push(this); send("snapshot", withKept); }
       }
-      close() { this.readyState = 2; }
+      close() { this.readyState = 2; clearInterval(this.alive); }
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
     window.addEventListener("fixture-stream", (event) => {
@@ -564,6 +571,59 @@ test("a stream the supervisor ends says why, and Reconnect reads the messages ag
   await closed.getByRole("button", { name: "Reconnect" }).click();
   await expect(closed).toHaveCount(0);
   expect(await streams(page)).toBe(2);
+});
+
+// The Overlord, 2026-10-29: "why is the modern chat lagging ... it seems like
+// it stopped". His CFO's chat showed a call Running at least 76 s after its
+// result was written, with no notice: its stream had fallen silent, and the
+// board could not tell a silent stream from a quiet one. The supervisor says
+// alive while it has nothing to send, so a stream silent for 15 s stalled.
+test("a message stream that falls silent says Reconnecting and opens again with the newest messages", async ({ page }) => {
+  // Arrange: the CFO's chat reads Answer 99, and the conversation goes on to
+  // Answer 101 while its stream is silent. Reconnecting shows only until the
+  // stream opened again sends its page, which the clock can fire in the same
+  // run, so a watch on the view records it.
+  await page.clock.install();
+  await open(page);
+  await openCfo(page);
+  const talk = list(page, "CFO");
+  await expect(talk).toContainText("Answer 99");
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+  await page.evaluate((newest) => {
+    Object.assign(window, { fixtureSilent: true, fixtureCfoPage: newest });
+    const view = document.querySelector(".messages-view:not([hidden])")!;
+    const watch = new MutationObserver(() => {
+      if (view.querySelector(".terminal-corner")?.textContent !== "Reconnecting") return;
+      Object.assign(window, { saidReconnecting: true });
+      watch.disconnect();
+    });
+    watch.observe(view, { subtree: true, childList: true, characterData: true });
+  }, { messages: range(52, 102), more: true });
+
+  // Act: 15 s pass with no word from the stream, and the stream opened again
+  // sends its page.
+  await page.clock.runFor(15_000);
+  await expect.poll(() => streams(page)).toBe(2);
+  await page.clock.runFor(100);
+
+  // Assert
+  await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
+  await expect(page.locator(".messages-view").getByRole("status").filter({ hasText: "Reconnecting" })).toHaveCount(0);
+  expect(await page.evaluate(() => "saidReconnecting" in window), "it said Reconnecting while it opened the stream again").toBe(true);
+});
+
+test("a message stream that says it is alive stays open while nothing happens", async ({ page }) => {
+  // Arrange
+  await page.clock.install();
+  await open(page);
+  await openCfo(page);
+  await expect(list(page, "CFO")).toContainText("Answer 99");
+
+  // Act
+  await page.clock.runFor(60_000);
+
+  // Assert
+  expect(await streams(page)).toBe(1);
 });
 
 test("Back from a goblin's panel returns to the CFO's messages", async ({ page }) => {

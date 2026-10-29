@@ -328,6 +328,44 @@ func TestGrantRequestCardGrantsAfterThePressAndWakesTheCFO(t *testing.T) {
 	}
 }
 
+// The Overlord, 2026-10-29, with a picture of a grant card on his phone: "I
+// should be allowed to grant service access from my phone and command center,
+// shouldn't just be from the PC." Told his private board is proven his only by
+// Tailscale's headers, which a program on this PC can forge, he chose "Allow
+// it as is". A service grant card's Grant through the private board's gate
+// lands, recorded as from his private board; a press with no card, such as a
+// revoke from the Connections panel, stays on the PC.
+func TestHisPrivateBoardGrantsAServiceOnItsCardAndNothingElse(t *testing.T) {
+	// Arrange
+	s, stateDir := grantBoard(t)
+	s.Instance = "test-instance"
+	board := throughTheGate(t, s)
+	card, err := s.acceptCredentialRequest(CredentialRequest{ID: "cred-0123456789abcdef", By: "cfo", Identity: strings.Repeat("c", 64), Task: "task-1", Project: "work", GrantService: "sample", Why: "Read the test service"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	revokeCode, _ := postOnHisPhone(t, board, "/api/connections/grant", `{"task":"task-1","generation":"g1","connection":"service:other","action":"revoke"}`, nil)
+	grantCode, grantBody := postOnHisPhone(t, board, "/api/connections/grant", `{"task":"task-1","generation":"g1","connection":"service:sample","action":"grant","request":"`+card.ID+`","request_generation":"`+card.Generation+`"}`, nil)
+
+	// Assert
+	after, err := state.ReadTaskMeta(stateDir, "task-1")
+	closed, found := s.Store.credential(card.ID)
+	if revokeCode != http.StatusForbidden {
+		t.Errorf("a revoke through his private board = %d, want it refused: only a grant card's Grant moves to the phone", revokeCode)
+	}
+	if grantCode != http.StatusOK || err != nil || !slices.Equal(after.Credentials, []string{"other", "sample"}) || !found || closed.State != "granted" {
+		t.Fatalf("Grant through his private board = %d %s, grants %v, card %s (%v), want sample granted and the card closed", grantCode, grantBody, after.Credentials, closed.State, err)
+	}
+	pending, err := wake.Pending(stateDir)
+	if err != nil || !slices.ContainsFunc(pending, func(record wake.Record) bool {
+		return strings.Contains(record.Detail, "granted sample from "+privateBoard)
+	}) {
+		t.Errorf("the CFO's queue = %+v, %v, want the grant told as from his own private board", pending, err)
+	}
+}
+
 func TestGrantRequestCardKeepsTheRecordedGrantAndRecoveryWhenScriptRefreshFails(t *testing.T) {
 	// Arrange
 	s, stateDir := grantBoard(t)

@@ -563,6 +563,32 @@ test.describe("AFK report layout", () => {
     await expect(fromHistory.getByRole("radio", { name: "Delete now", exact: true })).toBeVisible();
   });
 
+  // #1611: the snapshot carries the items closed in the last hour, and a
+  // decision the CFO took in his place can be hours older.
+  test("the report opens a decision the snapshot no longer carries in its change card, read on its own", async ({ page }) => {
+    // Arrange
+    const decided = { ...question("afk-left-20261015T050000.000000000Z", "Delete the idle cache database?"), status: "succeeded", options: ["Delete in a week", "Delete now", "Keep it longer"], answer: "Keep it longer", answered_option: "Keep it longer", answer_kind: "option" };
+    await open(page, snapshot({ afk: KEPT, questions: [], history_count: 1 }));
+    await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
+    const reads: string[] = [];
+    await page.route((url) => url.pathname === "/api/items/closed", (route) => {
+      reads.push(new URL(route.request().url()).search);
+      return route.fulfill({ json: { questions: [decided] } });
+    });
+    const report = page.getByRole("dialog", { name: "Your AFK report" });
+    await openCfoPanel(page);
+    await (await reportButton(page)).click();
+
+    // Act
+    await report.locator("iframe").contentFrame().getByRole("button", { name: "Change answer" }).first().click();
+
+    // Assert
+    const change = page.locator("dialog.question-modal .change-card");
+    await expect(change).toContainText(decided.text);
+    await expect(change.getByRole("radio", { name: "Keep it longer" })).toBeChecked();
+    expect(reads).toEqual(["?question=" + decided.id]);
+  });
+
   test("a report that cannot load can be retried and Escape inside it returns focus", async ({ page }) => {
     await open(page, snapshot({ afk: KEPT }));
     let isAvailable = false;

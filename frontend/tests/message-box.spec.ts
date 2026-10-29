@@ -57,18 +57,22 @@ async function open(page: Page, first: object) {
       private publish = (event: Event) => {
         if (event instanceof CustomEvent) this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(event.detail) }));
       };
+      alive: ReturnType<typeof setInterval> | undefined;
       constructor(address: string) {
         super();
         if (new URL(address, location.href).pathname === "/api/messages") {
           queueMicrotask(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify({ messages: [
             { id: "typed", seq: 0, kind: "prompt", source: "overlord", text: "merge 512 first" },
           ], more: false }) })));
+          // A message stream says alive every five seconds, as the
+          // supervisor's does while it has nothing to send.
+          this.alive = setInterval(() => this.dispatchEvent(new MessageEvent("alive", { data: "{}" })), 5000);
           return;
         }
         window.addEventListener("fixture-snapshot", this.publish);
         queueMicrotask(() => this.publish(new CustomEvent("fixture-snapshot", { detail: snapshot })));
       }
-      close() { window.removeEventListener("fixture-snapshot", this.publish); }
+      close() { window.removeEventListener("fixture-snapshot", this.publish); clearInterval(this.alive); }
     }
     Object.defineProperty(window, "EventSource", { value: SnapshotSource });
   }, first);

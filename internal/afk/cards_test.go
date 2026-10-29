@@ -8,7 +8,7 @@ import (
 )
 
 func stepAt(minute int, what string) Entry {
-	return Entry{At: night.Add(time.Duration(minute) * time.Minute), Kind: KindHis, What: what, Link: "https://vercel.com/login", Evidence: "his own sign-in. Backlog row cg-sign-in"}
+	return Entry{At: night.Add(time.Duration(minute) * time.Minute), Kind: KindHis, What: what, Link: "https://vercel.com/login", Evidence: "his own sign-in. Backlog row cg-sign-in", Options: []string{"I signed in", "Park the deploy"}, Recommendation: "I signed in"}
 }
 
 func TestACardedStepIsToldByItsCardAndNotAsALineOfItsOwn(t *testing.T) {
@@ -29,9 +29,9 @@ func TestACardedStepIsToldByItsCardAndNotAsALineOfItsOwn(t *testing.T) {
 func TestACardedStepTheCardSettledIsNotUnderSettledByTheCFO(t *testing.T) {
 	// Arrange
 	carded := stepAt(1, "Sign in to Vercel")
-	carded.Settled = "You answered Done on its card"
+	carded.Settled = "You answered I signed in on its card"
 	report := Report{Session: "afk-1", Since: night, Ended: night.Add(time.Hour), From: "the board", EndedFrom: "the board", Decisions: []Entry{carded}}
-	report.Held = []Held{{Item: HisCardItem(carded), What: carded.What, At: carded.At, Now: "you answered it: Done"}}
+	report.Held = []Held{{Item: HisCardItem(carded), What: carded.What, At: carded.At, Now: "you answered it: I signed in"}}
 
 	// Act
 	headings := titled(report.Sections())
@@ -65,15 +65,15 @@ func TestACardsStepIsSettledAfterAFKTurnsOffAndItsReportReadsItSettled(t *testin
 	}
 
 	// Act
-	first := SettleAfter(dir, step.At, "You answered Done on its card", night.Add(2*time.Hour))
-	second := SettleAfter(dir, step.At, "You answered Later on its card", night.Add(3*time.Hour))
+	first := SettleAfter(dir, step.At, "You answered I signed in on its card", night.Add(2*time.Hour))
+	second := SettleAfter(dir, step.At, "You answered Park the deploy on its card", night.Add(3*time.Hour))
 	kept, found, err := ReadReport(dir)
 
 	// Assert
 	if first != nil || second != nil || err != nil || !found {
 		t.Fatalf("first = %v, second = %v, read = %v, %v, want both settles taken", first, second, found, err)
 	}
-	if got := kept.Decisions[0].Settled; got != "You answered Done on its card" {
+	if got := kept.Decisions[0].Settled; got != "You answered I signed in on its card" {
 		t.Errorf("settled = %q, want the first answer kept: a step is settled once", got)
 	}
 	if NeedsHim(kept.Decisions[0]) {
@@ -83,7 +83,7 @@ func TestACardsStepIsSettledAfterAFKTurnsOffAndItsReportReadsItSettled(t *testin
 
 func TestASettleAfterNamesALineOfTheLog(t *testing.T) {
 	dir := t.TempDir()
-	if err := SettleAfter(dir, night, "Done", night); err == nil {
+	if err := SettleAfter(dir, night, "I signed in", night); err == nil {
 		t.Error("SettleAfter of a line the log does not hold = nil, want it refused")
 	}
 }
@@ -117,67 +117,32 @@ func TestACommandIsLoggedOnlyOnAStepOnlyHeCanTake(t *testing.T) {
 	}
 }
 
-// A step only he can take is logged only with what its card does it with: a
-// command he runs with one click, or the page he takes it on beside Done. On
-// 2026-10-18 the Overlord pressed Done on install and merge steps logged with
-// neither, and nothing ran, so a step with no page, and one whose words name
-// a command, are refused with the flag that makes its card act.
-func TestAStepIsLoggedOnlyWithWhatItsCardDoesItWith(t *testing.T) {
-	for name, tc := range map[string]struct {
-		entry   Entry
-		refusal string
-	}{
-		"a page he takes it on": {Entry{Kind: KindHis, What: "Give your GitHub account access to the project's Vercel team again", Link: "https://vercel.com/teams/acme/settings/members", Evidence: "Vercel refuses every deployment by its Git author"}, ""},
-		"a command he runs":     {Entry{Kind: KindHis, What: "Restart the shared no-mistakes daemon", Evidence: "the safety check refused it", Command: "no-mistakes daemon start", Shell: "powershell"}, ""},
-		"no page":               {Entry{Kind: KindHis, What: "Install Code Goblins main-3278b62b, which replaces every earlier build today", Evidence: "His command: powershell -NoProfile -File update-candidate.ps1 -Short 3278b62b"}, "--link"},
-		"a fleet command":       {Entry{Kind: KindHis, What: "Retire Kenny (cfo cleanup task-7), merge Teddy's no-mistakes PR 11", Link: "https://github.com/fpresta0607/no-mistakes/pull/11", Evidence: "the safety check refused each"}, "cfo cleanup"},
-		"a PowerShell call":     {Entry{Kind: KindHis, What: "Install it: powershell -NoProfile -File C:\\dev\\code-goblins\\state\\ops\\update-candidate.ps1", Link: "https://example.com/build", Evidence: "built clean"}, "--run"},
-		"a script":              {Entry{Kind: KindHis, What: "Run install-3278b62b.ps1 from his terminal", Link: "https://example.com/build", Evidence: "built clean"}, "install-3278b62b.ps1"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			// Arrange
-			dir := t.TempDir()
-			if _, _, err := TurnOn(dir, "the board", nil, night); err != nil {
-				t.Fatal(err)
-			}
-
-			// Act
-			_, err := Log(dir, tc.entry, night.Add(time.Minute))
-			check := CheckStep(tc.entry)
-
-			// Assert
-			if tc.refusal == "" {
-				if err != nil || check != nil {
-					t.Errorf("Log = %v, CheckStep = %v, want the step logged", err, check)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tc.refusal) || check == nil {
-				t.Errorf("Log = %v, CheckStep = %v, want it refused naming %q", err, check, tc.refusal)
-			}
-		})
-	}
-}
-
-// A step only he can take that is a decision of his offers its own choices,
-// as cfo question does, and its card offers them in place of Done and Later:
-// his answer goes to the CFO, which acts on it, so it needs no page and may
-// name the command the CFO runs on his yes. It is never also a command he
-// runs, and it offers real choices, one of them recommended or none.
-func TestAStepOnlyHeCanTakeOffersChoicesOnlyAsADecisionOfHis(t *testing.T) {
+// A step only he can take is logged only as the card cfo run-request or cfo
+// question makes: a command he runs, as administrator or not, or real choices
+// with one of them recommended. On 2026-10-29 the Overlord cleared two cards
+// whose only choices said he had done the step or would later, and neither
+// had happened, so a step with neither is refused, whatever page it names.
+func TestAStepOnlyHeCanTakeIsLoggedOnlyAsTheCardTheCFOWouldMake(t *testing.T) {
 	choices := []string{"Approve the repair", "Dry-run it again first", "Leave it as it is"}
 	for name, tc := range map[string]struct {
 		entry   Entry
 		refusal string
 	}{
 		"three choices and a recommendation": {Entry{Kind: KindHis, What: "Approve the production repair of Georgetown", Link: "https://github.com/acme/app/issues/2012", Evidence: "a production repair is his", Options: choices, Recommendation: choices[1]}, ""},
-		"choices and no page":                {Entry{Kind: KindHis, What: "Spend 40 credits on the corpus rebuild", Evidence: "a spend is his", Options: choices[:2]}, ""},
-		"choices and a command in its words": {Entry{Kind: KindHis, What: "Close PR 140 with gh pr close 140", Evidence: "a teammate's pull request", Options: []string{"Close it", "Keep it open"}}, ""},
-		"one choice":                         {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: choices[:1]}, "2 to 8 choices"},
-		"the same choice twice":              {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: []string{"Approve", "Approve"}}, "distinct"},
+		"choices and no page":                {Entry{Kind: KindHis, What: "Spend 40 credits on the corpus rebuild", Evidence: "a spend is his", Options: choices[:2], Recommendation: choices[0]}, ""},
+		"choices and a command in its words": {Entry{Kind: KindHis, What: "Close PR 140 with gh pr close 140", Evidence: "a teammate's pull request", Options: []string{"Close it", "Keep it open"}, Recommendation: "Keep it open"}, ""},
+		"a command he runs":                  {Entry{Kind: KindHis, What: "Restart the shared no-mistakes daemon", Evidence: "the safety check refused it", Command: "no-mistakes daemon start", Shell: "powershell"}, ""},
+		"a command he runs as administrator": {Entry{Kind: KindHis, What: "Update the Dell drivers with TechHub", Evidence: "#Requires -RunAsAdministrator", Command: "dell-techhub-update", Shell: "powershell", Admin: true}, ""},
+		"a page and no choices":              {Entry{Kind: KindHis, What: "Give your GitHub account access to the project's Vercel team again", Link: "https://vercel.com/teams/acme/settings/members", Evidence: "Vercel refuses every deployment by its Git author"}, "2 to 8 choices"},
+		"nothing but its words":              {Entry{Kind: KindHis, What: "Install Code Goblins main-3278b62b", Evidence: "built clean"}, "2 to 8 choices"},
+		"one choice":                         {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: choices[:1], Recommendation: choices[0]}, "2 to 8 choices"},
+		"the same choice twice":              {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: []string{"Approve", "Approve"}, Recommendation: "Approve"}, "distinct"},
+		"choices and no recommendation":      {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: choices}, "--recommend"},
 		"a recommendation not among them":    {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Options: choices, Recommendation: "Approve"}, "one of its choices"},
 		"a recommendation and no choices":    {Entry{Kind: KindHis, What: "Approve the repair", Link: "https://example.com", Evidence: "his", Recommendation: "Approve"}, "2 to 8 choices"},
-		"choices and a command he runs":      {Entry{Kind: KindHis, What: "Restart the daemon", Evidence: "refused", Command: "no-mistakes daemon start", Shell: "powershell", Options: choices}, "--run or --option"},
+		"choices and a command he runs":      {Entry{Kind: KindHis, What: "Restart the daemon", Evidence: "refused", Command: "no-mistakes daemon start", Shell: "powershell", Options: choices, Recommendation: choices[0]}, "--run or --option"},
+		"administrator with no command":      {Entry{Kind: KindHis, What: "Approve the repair", Evidence: "his", Options: choices, Recommendation: choices[0], Admin: true}, "administrator"},
+		"administrator on another decision":  {Entry{Kind: KindDeploy, What: "acme", Evidence: "read", Admin: true}, "--kind his"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
@@ -191,8 +156,8 @@ func TestAStepOnlyHeCanTakeOffersChoicesOnlyAsADecisionOfHis(t *testing.T) {
 
 			// Assert
 			if tc.refusal == "" {
-				if err != nil || !slices.Equal(logged.Options, tc.entry.Options) || logged.Recommendation != tc.entry.Recommendation || CheckStep(logged) != nil {
-					t.Errorf("Log = %+v, %v, want the step logged with its choices", logged, err)
+				if err != nil || !slices.Equal(logged.Options, tc.entry.Options) || logged.Recommendation != tc.entry.Recommendation || logged.Admin != tc.entry.Admin || CheckStep(logged) != nil {
+					t.Errorf("Log = %+v, %v, want the step logged as its card", logged, err)
 				}
 				return
 			}

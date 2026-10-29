@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { message, reportToCfo, request } from "./api";
-import { object, parseAction, string, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types";
+import { message, reportToCfo, request, useResource } from "./api";
+import { object, parseAction, parseClosedItems, string, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
 import { age } from "./presentation";
-import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, type Item } from "./commandQueue";
+import { answerMark, answerReason, answeredElsewhere, answeredHere, asItems, canChange, closedAt, closedElsewhere, holdsUnsent, isOpen, itemFor, nextOpenKey, notSent, questionPage, sendState, settledIcon, reviewLine, settledItems, settledLabel, waitingItems, withClosed, type Item } from "./commandQueue";
 import { publicationKey, publishedAt, type Sent } from "./item-state";
 import { RunCard } from "./RunCard";
 import { UpdateCard } from "./update-card";
@@ -97,7 +97,21 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // The changes being sent now, by draft key, so a second press in the same
   // frame sends nothing more.
   const sendingChanges = useRef(new Set<string>());
-  const changeQuestion = changing ? (snapshot.questions || []).find((question) => question.id === changing) : undefined;
+  // History is read when it opens, and again when an item closes while it is
+  // open; a Change answer on a question the board holds neither way, as from
+  // his AFK report, reads that question.
+  const [isHistoryOpen, setHistoryOpen] = useState(false);
+  const newestClosed = settledItems(snapshot)[0];
+  const history = useResource(isHistoryOpen ? "/api/items/closed" : null, parseClosedItems, newestClosed ? newestClosed.key + " " + closedAt(newestClosed) : "");
+  const shown = withClosed(snapshot, history.data);
+  const asked = useResource(changing && !shown.questions?.some((question) => question.id === changing) ? "/api/items/closed?question=" + encodeURIComponent(changing) : null, parseClosedItems);
+  const known = withClosed(shown, asked.data);
+  const changeQuestion = changing ? (known.questions || []).find((question) => question.id === changing) : undefined;
+  // A question that has no answer to change, or that is gone, opens the list.
+  if (changing && (asked.error || asked.data && !(changeQuestion && canChange(changeQuestion)))) {
+    setChanging("");
+    setInbox(true);
+  }
   const stack = waitingItems(snapshot, kept);
   const waiting = waitingItems(snapshot);
   const index = Math.max(0, stack.findIndex((item) => item.key === current));
@@ -157,9 +171,11 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     // A focus on an item he already answered or cleared, as from a
     // notification that outlived it, opens the list, never another item.
     const key = focus?.key || waiting[0]?.key;
-    const changedQuestion = key?.startsWith("change:") ? (snapshot.questions || []).find((question) => question.id === key.slice(7) && canChange(question)) : undefined;
-    if (focus) setChanging(changedQuestion?.id || "");
-    if (focus && changedQuestion) setInbox(false);
+    const changeId = key?.startsWith("change:") ? key.slice(7) : "";
+    const changedQuestion = changeId ? (known.questions || []).find((question) => question.id === changeId) : undefined;
+    const changes = !!changeId && (!changedQuestion || canChange(changedQuestion));
+    if (focus) setChanging(changes ? changeId : "");
+    if (focus && changes) setInbox(false);
     else if (focus && key && stack.some((item) => item.key === key)) { setOpen(true); show(key); setInbox(false); }
     else if (focus) setInbox(true);
   }
@@ -300,7 +316,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   };
   // Open only the new generation, once the supervisor publishes it.
   if (reopenAttempt) {
-    const latest = snapshot.credentials?.find((candidate) => candidate.id === reopenAttempt.request.id);
+    const latest = known.credentials?.find((candidate) => candidate.id === reopenAttempt.request.id);
     if (snapshot.instance !== reopenAttempt.instance || !latest || latest.generation !== reopenAttempt.request.generation) {
       setReopenAttempt(null);
       if (snapshot.instance === reopenAttempt.instance && latest?.state === "open") {
@@ -369,7 +385,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     const goblin = snapshot.tasks.find((task) => task.id === event.task_id);
     return event.cfo_identity ? "The CFO" : goblin ? goblinName(goblin) : event.task_id;
   };
-  const settled = settledItems(snapshot).slice(0, 20);
+  const settled = settledItems(shown).slice(0, 20);
   // An accepted click stays pending until the broker reports progress, even
   // when he leaves its card. A late refusal belongs only to that attempt.
   const staleSignIns = Object.entries(signInAttempts).filter(([id, attempt]) => {
@@ -416,7 +432,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
             <a className="icon-button raised" href={event.url} target="_blank" rel="noreferrer" aria-label={"Watch: " + event.watch}><Icon name="watch" /></a>
           </li>)}</ul> : <p className="muted">Nothing is waiting on you.</p>}
         </section>
-        {settled.length > 0 && <Disclosure kind="inbox-history" title={<>History <span className="column-count">{settled.length}</span></>}>
+        {(settled.length > 0 || snapshot.history_count > 0) && <Disclosure kind="inbox-history" open={isHistoryOpen} onOpenChange={setHistoryOpen}
+          title={<>History <span className="column-count">{Math.max(settled.length, snapshot.history_count)}</span></>}>
+          {history.error ? <button className="icon-button raised retry-read" aria-label="Retry" onClick={history.reload}><Icon name="refresh" /></button>
+            : !history.data && <p className="loading" role="status">Loading History…</p>}
           <ul className="inbox-list">{settled.map((candidate) => {
             const mark = settledIcon(candidate, snapshot.actions);
             const who = candidate.kind === "question" ? answerMark(candidate.question) : "";

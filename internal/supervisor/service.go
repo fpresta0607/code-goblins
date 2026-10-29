@@ -1528,6 +1528,9 @@ type Snapshot struct {
 	// Credentials are the credential requests: names, never a value.
 	Credentials    []CredentialRequest `json:"credentials"`
 	BrowserSignIns []BrowserSignIn     `json:"browser_signins"`
+	// HistoryCount is how many closed items the board's History lists; it
+	// reads them when it opens.
+	HistoryCount int `json:"history_count"`
 
 	// Attention is the Overlord's order of the live goblins, top first; a
 	// goblin it does not name has not been placed.
@@ -1604,7 +1607,7 @@ type Snapshot struct {
 	Processors *Processors `json:"processors,omitempty"`
 	// GPU is the machine's graphics adapters and how busy each is for the
 	// meter beside the processors, absent on a board that cannot read them.
-	GPU           *GPU                `json:"gpu,omitempty"`
+	GPU *GPU `json:"gpu,omitempty"`
 	// CIUsual is how long each repository's CI runs and deploys usually
 	// take, which a card paused on one names.
 	CIUsual       []CIUsual           `json:"ci_usual,omitempty"`
@@ -1631,6 +1634,7 @@ type Snapshot struct {
 func (snapshot *Snapshot) setItems(items Items) {
 	snapshot.BrowserSignIns = items.BrowserSignIns
 	snapshot.Questions, snapshot.Reviews, snapshot.Runs, snapshot.Credentials, snapshot.Actions = items.Questions, items.Reviews, items.Runs, items.Credentials, items.Actions
+	snapshot.HistoryCount = items.HistoryCount
 }
 
 func (s *Service) Snapshot() (Snapshot, error) {
@@ -1700,7 +1704,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Registration = checked
 		}
 	}
-	out.setItems(boardItems(d))
+	out.setItems(recentItems(boardItems(d), out.At))
 	// The board plays a message or a start for ten seconds after it happened
 	// and shows a presentation while it runs, so the snapshot carries those
 	// and the last minute alone: the newest 128 the store keeps were 43 KB of

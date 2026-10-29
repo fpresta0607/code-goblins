@@ -52,15 +52,15 @@ import (
 // writes state/afk.json itself is his user; AGENTS.md forbids both, and
 // nothing here stops either.
 //
-// His private board, which remote access's gate admitted, turns AFK mode off
-// and never on (CFO decision 1008966, 2026-10-18), since he can always switch
-// it and his off there was refused. What proves that board his is Tailscale's
-// identity headers, and an agent on this PC can forge them, sending them
-// itself or through a Serve route of its own it adds for a moment. A forged
-// off ends his stretch early and tells the CFO he is back, which holds the
-// fleet's decisions for him but hands no one his authority. On hands the CFO
-// his authority, so it stays on a board on the PC proven as above, or his
-// terminal.
+// His private board, which remote access's gate admitted, turns AFK mode on
+// and off: the Overlord's decision of 2026-10-29 ("Allow it now as it is"),
+// over proving his phone by its own tailnet address and over keeping on to
+// the PC. What proves that board his is Tailscale's identity headers, and an
+// agent on this PC can forge them, sending them itself or through a Serve
+// route of its own it adds for a moment. A forged off ends his stretch early
+// and tells the CFO he is back; a forged on hands the CFO his authority. He
+// chose it knowing both, so the switch is recorded as made from his private
+// board, by those headers, for him and the CFO to see.
 
 // hisBoard is a board proven the Overlord's own: the program he started that
 // shows it, the program the process that holds the connection runs, which is
@@ -288,9 +288,9 @@ const refusalWakeEvery = time.Minute
 // a program sending it again under a new process changes.
 var refusalNumbers = regexp.MustCompile(`[0-9]+`)
 
-// privateBoard is where an off from his private board is recorded as made,
-// with what proves it, for the CFO: his pages show only his private board. An
-// off forged on this PC is recorded the same.
+// privateBoard is where a press on his private board is recorded as made,
+// with what proves it, for the CFO: his pages show only his private board. A
+// press forged on this PC is recorded the same.
 const privateBoard = "his own private board (by Tailscale's headers, which a program on this PC can forge)"
 
 // switchAFKFromBoard serves POST /api/afk: the board's AFK switch. The body is
@@ -312,13 +312,10 @@ func (h *HTTP) switchAFKFromBoard(w http.ResponseWriter, r *http.Request) {
 	who := switchingBoard(*input.On)
 	var from string
 	var err error
-	switch {
-	case !remoteaccess.Admitted(r):
-		from, err = h.Service.overlordsBoard(r, h.Host, asked, who)
-	case *input.On:
-		err = &boardRefusal{found: who.refuse("this press came through his private board, which turns AFK mode off and never on").Error(), say: who.say}
-	default:
+	if remoteaccess.Admitted(r) {
 		from = privateBoard
+	} else {
+		from, err = h.Service.overlordsBoard(r, h.Host, asked, who)
 	}
 	if err != nil {
 		h.refuse(w, http.StatusForbidden, "afk", "A press of AFK mode's switch on a board was refused", "", err)

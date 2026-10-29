@@ -204,6 +204,14 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		writeFile(t, cfoConversationPath(h.State), string(cleared))
 		read("page", `"id":"c2"`)
 	})
+	t.Run("a stream with nothing new says it is still there", func(t *testing.T) {
+		read := stream(t, "cfo=cfo&token=board-token")
+
+		// Act and Assert: a board that hears nothing for longer knows the
+		// stream stalled.
+		read("page", `"id":"c2"`)
+		read("alive", "{}")
+	})
 	t.Run("a stream follows the conversation and ends once the task restarted", func(t *testing.T) {
 		read := stream(t, task)
 

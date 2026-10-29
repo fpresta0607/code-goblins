@@ -283,9 +283,9 @@ func TestAFKLogSendsADecisionWithWhatIsWrongWhatWasTriedItsChoicesAndTheAnswer(t
 	}
 }
 
-// A step only he can take is one card once he is back: what it is and why the CFO
-// cannot take it, never a question.
-func TestAFKLogSendsAStepOnlyHeCanTakeAsAPlainLine(t *testing.T) {
+// A step only he can take is one card once he is back, the question card cfo
+// question makes: what it is, its page, and the choices he answers it with.
+func TestAFKLogSendsAStepOnlyHeCanTakeWithItsChoices(t *testing.T) {
 	// Arrange
 	runtime, _ := afkRuntime(t)
 	var sent afk.Entry
@@ -293,11 +293,12 @@ func TestAFKLogSendsAStepOnlyHeCanTakeAsAPlainLine(t *testing.T) {
 
 	// Act
 	exit, stdout, stderr := afkCommand(runtime, "log", "--kind", "his", "--what", "Sign in to Vercel for nw-search-index",
-		"--evidence", "Vercel asks for his own sign-in. Backlog row nw-vercel-sign-in", "--link", "https://vercel.com/login")
+		"--evidence", "Vercel asks for his own sign-in. Backlog row nw-vercel-sign-in", "--link", "https://vercel.com/login",
+		"--option", "I signed in", "--option", "Park nw-search-index", "--recommend", "I signed in")
 
 	// Assert
-	if exit != 0 || sent.Kind != afk.KindHis || sent.What != "Sign in to Vercel for nw-search-index" || sent.Link != "https://vercel.com/login" || len(sent.Options) != 0 {
-		t.Errorf("exit=%d stdout=%q stderr=%q sent=%+v, want his step sent as a plain line", exit, stdout, stderr, sent)
+	if exit != 0 || sent.Kind != afk.KindHis || sent.What != "Sign in to Vercel for nw-search-index" || sent.Link != "https://vercel.com/login" || strings.Join(sent.Options, "|") != "I signed in|Park nw-search-index" || sent.Recommendation != "I signed in" {
+		t.Errorf("exit=%d stdout=%q stderr=%q sent=%+v, want his step sent with its choices and its recommendation", exit, stdout, stderr, sent)
 	}
 }
 
@@ -474,7 +475,7 @@ func TestAFKStatusListsWhatWasDecidedAndWhatIsHeld(t *testing.T) {
 		{Kind: afk.KindMerge, What: pr, Evidence: "gate run 41 passed"},
 		{Kind: afk.KindMerge, What: pr, Evidence: "gh pr merge", Outcome: afk.OutcomeMerged},
 		{Kind: afk.KindAnswer, What: "notify-pd-billing-12", Task: "pd-billing", Evidence: "asked: Which store? answered: SQLite"},
-		{Kind: afk.KindHis, What: "Sign in to Vercel for pd-auth", Link: "https://vercel.com/login", Evidence: "his own sign-in. Backlog row pd-auth-vercel-sign-in"},
+		{Kind: afk.KindHis, What: "Sign in to Vercel for pd-auth", Link: "https://vercel.com/login", Evidence: "his own sign-in. Backlog row pd-auth-vercel-sign-in", Options: []string{"I signed in", "Park pd-auth"}, Recommendation: "I signed in"},
 	} {
 		if _, err := afk.Log(h.State, entry, time.Now()); err != nil {
 			t.Fatal(err)
