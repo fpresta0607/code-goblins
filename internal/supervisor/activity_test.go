@@ -3,6 +3,8 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -169,6 +171,48 @@ func TestSpoolActivityWaitsForTheIngestLock(t *testing.T) {
 	}
 	if err := <-released; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A cfo command reporting activity holds the lock while it writes one file.
+// Serve meeting it there leaves the inbox to its next cycle: on 2026-10-25 it
+// woke the CFO twice with the bare "session lock held by a live process",
+// naming a reporter that was gone a moment later (#1506).
+func TestIngestLeavesTheInboxToTheNextCycleWhileAReporterHoldsItsLock(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	now := time.Now().UTC()
+	if err := store.Accept(event(t, h, "SessionStart", "worker", "", now)); err != nil {
+		t.Fatal(err)
+	}
+	report := BoardActivity{ID: "reported-while-held", Kind: "review", TaskID: "task-1", Generation: "g1", Target: store.Snapshot().TaskSessions["task-1"], State: "active", URL: "http://127.0.0.1:4387/session/f26e", At: now, Until: now.Add(time.Minute)}
+	if err := spoolActivity(h.State, report); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.AcquireNamedOwner(h.State, ".board-activity.lock", os.Getppid(), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	heldErr := store.ingestActivity()
+	heldActivity := store.Snapshot().Activity
+	if err := os.Remove(filepath.Join(h.State, ".board-activity.lock")); err != nil {
+		t.Fatal(err)
+	}
+	freeErr := store.ingestActivity()
+
+	// Assert
+	if heldErr != nil {
+		t.Fatalf("ingest met a reporter's lock and failed: %v", heldErr)
+	}
+	if slices.ContainsFunc(heldActivity, func(a BoardActivity) bool { return a.ID == report.ID }) {
+		t.Fatal("ingest took the inbox under another process's lock")
+	}
+	if freeErr != nil {
+		t.Fatal(freeErr)
+	}
+	if activity := store.Snapshot().Activity; !slices.ContainsFunc(activity, func(a BoardActivity) bool { return a.ID == report.ID }) {
+		t.Fatalf("the next cycle did not take the report left in the inbox: %v", activity)
 	}
 }
 

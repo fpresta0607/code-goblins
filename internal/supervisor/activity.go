@@ -303,8 +303,13 @@ func spoolActivity(dir string, a BoardActivity) error {
 	return fsx.AtomicWriteFile(path, data)
 }
 
+// ingestActivity takes the reports spooled into the inbox. A report holds the
+// inbox's lock while it writes one file, so a lock held leaves the inbox to
+// the next cycle, a few seconds away: it is no failure of serve's (#1506).
 func (s *Store) ingestActivity() error {
-	if _, err := lock.AcquireExclusiveNamed(s.Home.State, ".board-activity.lock"); err != nil {
+	if _, err := lock.AcquireExclusiveNamed(s.Home.State, ".board-activity.lock"); errors.Is(err, lock.ErrHeld) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 	defer lock.ReleaseExclusiveNamed(s.Home.State, ".board-activity.lock")
