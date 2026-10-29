@@ -779,12 +779,10 @@ button.dialogue-portrait:hover::before { background: #12202a; }
    them, starting where they start. */
 .panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; min-width: 0; }
 .panel-heading > .panel-identity { flex: 1 1 auto; }
-/* The name and a named goblin's task id, under it, each keep to one line
-   beside the Chat and Task switch, cut short with their whole words in their
-   tips, and neither breaks a word. */
-.panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The name and a named goblin's task, under it, show whole, wrapping
+   between words and breaking one only when it is wider than the line. */
+.panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
 .panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
-p.panel-goblin-task { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* The CFO's Restart, under its name on one line at the height of the
    header's other controls, and what a press could not do beside it. */
 .cfo-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; }
@@ -985,6 +983,7 @@ p.panel-goblin-task { overflow: hidden; white-space: nowrap; text-overflow: elli
 .voice-dock-hint { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; margin: 0 8px 0 0; color: var(--bone-dim); font-size: .875rem; contain: inline-size; }
 .voice-dock-hint > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-dock-hint strong { color: var(--bone); font-weight: 700; }
+.voice-dock-listening { flex: 1; min-width: 0; margin: 0 8px 0 0; color: var(--muted); font-size: .875rem; text-align: right; overflow-wrap: anywhere; }
 .voice-dock-hint .icon-button { flex: none; width: 32px; height: 32px; min-height: 32px; border: 0; background: transparent; color: var(--muted); }
 .voice-meta { grid-column: 1; color: var(--bone-dim); font-size: .9375rem; }
 .voice-text { grid-column: 1; color: var(--bone); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1002,6 +1001,11 @@ p.panel-goblin-task { overflow: hidden; white-space: nowrap; text-overflow: elli
   .panel-header { gap: 10px 14px; padding-inline: 18px; }
   .panel-header .goblin-avatar { width: 48px; height: 48px; }
   .panel-header h2 { font-size: 1.375rem; }
+}
+/* A panel as narrow as a phone gives the name a phone's size, so a long name
+   shows whole in two lines beside the Chat and Task switch. */
+@container goblin-panel (max-width: 25rem) {
+  .panel-header h2, .panel-header.compact h2 { font-size: 1.125rem; }
 }
 
 /* The comment affordance is a speech-bubble icon, never a font glyph,
@@ -1026,6 +1030,7 @@ p.panel-goblin-task { overflow: hidden; white-space: nowrap; text-overflow: elli
 .comment-overlay textarea { width: 100%; min-height: 84px; max-height: 240px; background: var(--field-bg); }
 .comment-overlay .comment-trouble { margin: 0; overflow-wrap: anywhere; }
 .comment-overlay footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.comment-overlay .comment-why { margin: 0 auto 0 0; overflow-wrap: anywhere; }
 .comment-overlay .send:not(:disabled) { background: var(--accent-green); color: #03130c; }
 .comment-overlay.sent { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; }
 .comment-sent-text { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

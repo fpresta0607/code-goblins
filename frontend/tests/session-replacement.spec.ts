@@ -283,7 +283,14 @@ for (const phone of [false, true]) {
         else await page.getByRole("textbox", { name: "Terminal input", exact: true }).focus();
         await page.keyboard.press("Shift+PageUp");
         await expect.poll(position).not.toBe(beforeKey);
-        const beforeReconnect = await position();
+        // The key's scroll glides to its stop, so where it stops is read once
+        // it has, as a held view's is above.
+        let beforeReconnect: unknown;
+        await expect.poll(async () => {
+          const prior = beforeReconnect;
+          beforeReconnect = await position();
+          return beforeReconnect === prior;
+        }).toBe(true);
         relay.drop();
         await expect.poll(() => relay.views).toBe(2);
         await expect(page.locator(".terminal-view.staged")).toHaveCount(0);

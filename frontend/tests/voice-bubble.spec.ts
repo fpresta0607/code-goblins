@@ -317,7 +317,7 @@ test("the bubble sits in the pane's corner and opens the board's recent dictatio
   const corner = await bubble.boundingBox(), frame = await pane.boundingBox();
   expect(corner && frame && frame.x + frame.width - (corner.x + corner.width)).toBeLessThan(30);
   expect(corner && frame && frame.y + frame.height - (corner.y + corner.height)).toBeLessThan(30);
-  await expect(bubble).toHaveAttribute("data-tip", "Hold Ctrl+Shift+Space to dictate");
+  await expect(bubble).toHaveAccessibleName("Recent messages");
   // At rest the bubble is a small microphone to click for the list.
   await expect(bubble.locator("svg path")).toHaveAttribute("d", MICROPHONE);
 
@@ -354,7 +354,7 @@ test.describe("in the desktop app", () => {
     const { bubble, pane, posts } = await openPane(page, { app: true });
     await holdShortcut(page, 0);
     await expect(bubble).toHaveClass(/recording/);
-    await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
+    await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with test-model on this PC");
     await expect.poll(() => page.evaluate(() => window.voiceProbe!.captures.length)).toBe(1);
     await page.waitForTimeout(1200);
     await testInfo.attach("app-dictation-listening", { body: await pane.screenshot(), contentType: "image/png" });
@@ -416,7 +416,7 @@ test("the browser's speech recognition is used only once he turns it on, and the
   await page.keyboard.press("Escape");
 
   await holdShortcut(page, 0);
-  await expect(bubble).toHaveAttribute("data-tip", "Listening with this browser's speech recognition · release Ctrl+Shift+Space to type");
+  await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with this browser's speech recognition");
   await expect.poll(() => page.evaluate(() => window.voiceProbe!.started.length)).toBe(1);
   await releaseShortcut(page);
   await expect(page.locator("output")).toHaveText("heard by the browser");
@@ -511,7 +511,7 @@ test("holding the shortcut records one capture and its bars follow the voice", a
   });
   await holdShortcut(page, 0);
   await expect(bubble).toHaveClass(/recording/);
-  await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
+  await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with test-model on this PC");
   await expect.poll(() => page.evaluate(() => window.voiceSignal?.context.state)).toBe("running");
   const bars = bubble.locator(".voice-bars span");
   await expect(bars).toHaveCount(9);
@@ -918,7 +918,7 @@ test.describe("at his window's size", () => {
 
       // Assert
       await expect.poll(() => page.evaluate(() => window.voiceProbe!.firstFrame)).toMatch(/\brecording\b/);
-      await expect(bubble).toHaveAttribute("data-tip", "Listening with test-model on this PC · release Ctrl+Shift+Space to type");
+      await expect(page.locator(".voice-dock-listening")).toHaveText("Listening with test-model on this PC");
       await releaseShortcut(page);
       await expect(bubble).not.toHaveClass(/recording/);
       await page.evaluate(() => window.dispatchEvent(new Event("allow-microphone")));

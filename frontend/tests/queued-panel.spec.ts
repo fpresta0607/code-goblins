@@ -326,7 +326,7 @@ test("the task's edit control is a small pencil at its text, named by its tip, f
   await pencil(page).hover();
 
   // Assert
-  await expect(page.getByRole("tooltip")).toHaveText("Edit task");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
 
   // Act: come to it by keyboard, open the box with Enter and leave with Escape.
   await page.mouse.move(0, 0);
@@ -334,7 +334,7 @@ test("the task's edit control is a small pencil at its text, named by its tip, f
   await page.keyboard.press("Tab");
   await page.keyboard.press("Shift+Tab");
   await expect(pencil(page)).toBeFocused();
-  await expect(page.getByRole("tooltip")).toHaveText("Edit task");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await page.keyboard.press("Enter");
   await expect(box(page)).toBeFocused();
   await page.keyboard.press("Escape");
@@ -351,7 +351,7 @@ test("the task's edit control is a small pencil at its text, named by its tip, f
 const GB = 2 ** 30;
 const NOTE = "needs 12 GB free for a minute, which only comes when his own apps are closed";
 const EVIDENCE = "Already finished: its last report was done (2026-10-06 11:59Z: done: PR 9); it never starts again by itself. Move its row to ## Done, or queue new work under a new id";
-const EVIDENCE_TIP = "Its last report was done (2026-10-06 11:59Z: done: PR 9).";
+const EVIDENCE_LINE = "Its last report was done (2026-10-06 11:59Z: done: PR 9).";
 const HELD = task("queued-held", "queued", { generation: "", brief: true, queue_revision: "q1", waits: [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }], reason: NOTE });
 const FINISHED = task("queued-finished", "queued", { generation: "", brief: true, queue_revision: "q1", finished: EVIDENCE });
 const START_FAILED = task("queued-failed", "queued", { generation: "", brief: true, queue_revision: "q1", start_error: "cfo spawn: the brief names no project" });
@@ -378,9 +378,10 @@ test("a queued task's panel has no More under its status, whatever its row waits
 });
 
 // The one thing of More a person needs to act on a queued task: what says it
-// already finished, before he removes it or has it queued again. It is the
-// tip of the status that says so, with no words added to the panel.
-test("a queued task that already finished says what says so in the tip of its status, for the keyboard too", async ({ page }) => {
+// already finished, before he removes it or has it queued again. It shows
+// under the status that says so, muted, and in no tip (decision 1013298: "No
+// panel tips, those texts move onto the page").
+test("a queued task that already finished says what says so under its status, with no tip", async ({ page }) => {
   // Arrange
   await open(page, [], [FINISHED, HELD, WORKING]);
   await select(page, "queued-finished");
@@ -390,27 +391,16 @@ test("a queued task that already finished says what says so in the tip of its st
   // Act: point at the status.
   await status.hover();
 
-  // Assert: the evidence alone, as a sentence with no semicolon, and in the
-  // header only as what a screen reader reads with the status.
-  await expect(page.getByRole("tooltip")).toHaveText(EVIDENCE_TIP);
-  expect(await header(page).getByText("last report").evaluateAll((found) => found.map((each) => each.className))).toEqual(["sr-only"]);
-
-  // Act: come to it by keyboard.
-  await page.mouse.move(0, 0);
+  // Assert: the evidence alone, as a sentence with no semicolon, muted under
+  // the status, with no tip and no keyboard stop on the status.
+  await expect(header(page).getByText(EVIDENCE_LINE, { exact: true })).toHaveClass("muted");
   await expect(page.getByRole("tooltip")).toHaveCount(0);
-  await pencil(page).focus();
-  await page.keyboard.press("Tab");
+  await expect(status).not.toHaveAttribute("tabindex");
 
-  // Assert
-  await expect(status).toBeFocused();
-  await expect(page.getByRole("tooltip")).toHaveText(EVIDENCE_TIP);
-  await expect(status).toHaveAccessibleDescription(EVIDENCE_TIP);
-
-  // A status with nothing behind it has no tip and takes no keyboard stop.
+  // A status with nothing behind it has no line under it.
   await select(page, "queued-held");
-  await expect(header(page).locator(".panel-status")).toHaveText("Waits for 12 GB free");
-  await expect(header(page).locator(".panel-status")).not.toHaveAttribute("data-tip");
-  await expect(header(page).locator(".panel-status")).not.toHaveAttribute("tabindex");
+  await expect(status).toHaveText("Waits for 12 GB free");
+  await expect(header(page).getByText("last report")).toHaveCount(0);
 });
 
 // A caret on the board opens or closes what it stands before. The one on a

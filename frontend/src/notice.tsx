@@ -13,11 +13,11 @@ export type NoticeTone = "info" | "warning" | "error";
 // a block; actions sit on its right. Nothing in it moves. It is a status
 // unless the board allows the alert (error-surfaces.test.ts). className
 // places it in its parent; the look is the notice's own.
-export function Notice({ tone = "info", form = "line", icon, role = "status", tip, className, actions, children }: {
-  tone?: NoticeTone; form?: "line" | "box"; icon?: IconName; role?: "status" | "alert"; tip?: string; className?: string; actions?: ReactNode; children?: ReactNode;
+export function Notice({ tone = "info", form = "line", icon, role = "status", className, actions, children }: {
+  tone?: NoticeTone; form?: "line" | "box"; icon?: IconName; role?: "status" | "alert"; className?: string; actions?: ReactNode; children?: ReactNode;
 }) {
   const Frame = form === "line" ? "span" : "div";
-  return <Frame className={`notice ${form} ${tone}` + (className ? " " + className : "")} role={role} data-tip={tip}>
+  return <Frame className={`notice ${form} ${tone}` + (className ? " " + className : "")} role={role}>
     {icon ? <Icon name={icon} /> : <span className="notice-dot" aria-hidden="true" />}
     {children !== undefined && children !== "" && <Frame className="notice-words">{children}</Frame>}
     {actions && <span className="notice-actions">{actions}</span>}

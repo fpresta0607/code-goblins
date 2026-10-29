@@ -44,7 +44,7 @@ export function HistoryStoredCard({ request, asker, to, connected, instance }: {
     </ul>}
     <div className="history-stored-actions">
       <ClickFeedback text={feedback} />
-      <button type="button" className="history-stored-note" data-tip={"Write to " + recipient + " about this card"} disabled={!connected || isSending} onClick={() => setIsWriting(true)}><Icon name="comment" />Something else?</button>
+      <button type="button" className="history-stored-note" disabled={!connected || isSending} onClick={() => setIsWriting(true)}><Icon name="comment" />Something else?</button>
     </div>
     {isWriting && <AnswerWindow asker={recipient} task={to} instance={instance} onCancel={() => setIsWriting(false)} onSend={(text) => void send(text)} />}
   </div>;

@@ -120,20 +120,23 @@ export function valueWarnings(hint: CredentialHint | undefined, value: string): 
   return warnings;
 }
 
-// Where a row's value goes, for the tip on its empty mark: the project's
-// vault, which its goblins and each auth.json service that declares the name
-// read, and the env file it is also set in.
-export function whereItGoes(request: CredentialRequest, name: string): string {
-  const services = request.services[name] || [];
-  const readers = services.length ? " and the " + listNames(services) + (services.length > 1 ? " services" : " service") : "";
-  return "Goes to the " + request.project + " vault for its goblins" + readers + (request.env_file ? ", and into " + request.env_file : "");
+// Where a card's values go, in a muted line above its rows: the project's
+// vault, which its goblins read, and the env file they are also set in.
+export function whereItGoes(request: CredentialRequest): string {
+  return "Goes to the " + request.project + " vault for its goblins" + (request.env_file ? ", and into " + request.env_file : "");
 }
 
-// How a stored row's value was stored, for the tip on its check.
-export function storedTip(request: CredentialRequest, name: string): string {
+// The auth.json services that declare a row's name and so read its value too,
+// in a muted line under the name.
+export function readersOf(request: CredentialRequest, name: string): string {
+  const services = request.services[name] || [];
+  return services.length ? "Also read by the " + listNames(services) + (services.length > 1 ? " services" : " service") : "";
+}
+
+// How a stored row's value was stored, in muted words after its Stored.
+export function storedHow(request: CredentialRequest, name: string): string {
   const how = request.fetched.includes(name) ? "fetched from the page" : request.typed.includes(name) ? "typed in the terminal" : "pasted on the card";
-  return (request.replaced.includes(name) ? "Replaced" : "Stored") + " in the " + request.project + " vault, " + how +
-    (request.written.includes(name) ? ", and set in " + request.env_file : "");
+  return how + (request.written.includes(name) ? ", set in " + request.env_file : "");
 }
 
 // What a card's Fetch it for me offers: the keys a reviewed page reads, with
@@ -142,11 +145,6 @@ export function fetchOffer(fetch: CredentialFetch): string {
   const what = fetch.names.length === 2 ? "both keys" : fetch.names.length === 1 ? fetch.names[0] : `the ${fetch.names.length} keys`;
   const page = fetch.names.every((name) => name.split("_").includes("TEST")) ? "test key page" : "key page";
   return `The fleet can read ${what} from ${fetch.provider}'s ${page} with the ${fetch.login} login, straight into the vault. No agent sees ${fetch.names.length === 1 ? "it" : "them"}.`;
-}
-
-// The tip on the check of a name the vault held before the request.
-export function heldTip(request: CredentialRequest): string {
-  return "Already in the " + request.project + " vault";
 }
 
 // The board takes values only on this PC: a board opened over the tailnet

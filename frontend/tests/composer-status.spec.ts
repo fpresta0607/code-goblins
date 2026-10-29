@@ -127,7 +127,7 @@ for (const style of ["modern"]) {
         relay.say({ type: "unread", unread: true });
         await expect(field(page)).toBeVisible();
         await field(page).fill("Read this after the current turn");
-        await expect(page.locator(".host-terminal > .terminal-corner-left[data-tip]:visible")).toHaveCount(0);
+        await expect(page.getByText("Program busy. Typed keys are waiting.").filter({ visible: true })).toHaveCount(0);
         await expect(box(page)).toHaveAttribute("data-queues", "");
         await expect(box(page).locator(".composer-note")).toHaveText("");
         await send(page).click();

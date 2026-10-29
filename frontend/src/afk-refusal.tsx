@@ -10,7 +10,7 @@ import { plainText } from "./task-words";
 export function AfkRefusal({ on, problem, onClose }: { on: boolean; problem: string; onClose?: () => void }) {
   if (!problem) return null;
   return <Notice form="box" tone="error" icon="warning" role="alert"
-    actions={onClose && <button className="icon-button" aria-label="Close the message" data-tip="Close" onClick={onClose}><Icon name="close" /></button>}>
+    actions={onClose && <button className="icon-button" aria-label="Close the message" onClick={onClose}><Icon name="close" /></button>}>
     <strong>{on ? "AFK did not turn on" : "AFK did not turn off"}</strong>
     <p>{plainText(problem)}</p>
   </Notice>;

@@ -35,8 +35,10 @@ const snapshot = parseSnapshot({
   ],
 });
 
-// With ?board=<px> the board sits in a board region that wide, as it does
-// beside an open panel, which leaves it at least 280 px. With ?queue the queue
+// The board sits in the board region, as in the app, the only place besides
+// Orchestration where its tips show (tips.ts). With ?board=<px> that region
+// is that wide, as it is beside an open panel, which leaves it at least
+// 280 px. With ?queue the queue
 // shows in the CFO's panel instead, stacked under the board as on a phone,
 // where the app's 8 px margin leaves the pane 16 px narrower than the screen.
 // The board is stacked, so each card spans the board's whole width. Escape
@@ -58,7 +60,7 @@ function Fixture() {
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
     <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={select} />
   </section></div></aside>;
-  return width ? <main className="canvas-region" style={{ width }}>{board}</main> : board;
+  return <main className="canvas-region" style={width ? { width } : undefined}>{board}</main>;
 }
 watchTips();
 createRoot(document.getElementById("root")!).render(<Fixture />);

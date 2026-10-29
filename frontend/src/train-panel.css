@@ -5,9 +5,9 @@
 .train-panel-mark .icon { width: 40px; height: 40px; }
 .train-panel .panel-status.train-status { justify-self: start; }
 .train-panel-content { display: grid; gap: 0; }
-.train-panel-note, .train-panel-car-note, .train-panel-attempt-note { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.train-panel-note, .train-panel-task, .train-panel-car-note, .train-panel-attempt-note { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .train-panel-note { padding-top: 22px; }
-.train-panel-car-note { grid-column: 1 / -1; flex: 0 0 100%; font-size: .9375rem; }
+.train-panel-task, .train-panel-car-note { grid-column: 1 / -1; flex: 0 0 100%; font-size: .9375rem; }
 .train-panel-attempt { display: grid; gap: 10px; min-width: 0; }
 .train-panel-attempt + .train-panel-attempt { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
 .train-panel-attempt h4 { margin: 0; font-size: 1.0625rem; overflow-wrap: anywhere; }

@@ -16,8 +16,8 @@ function hintDismissed(): boolean {
 // voice, which is a flat dotted line while the keys are held in silence. The
 // first visit explains the shortcut once, as a quiet line beside the bubble
 // rather than a card over the terminal's last rows. model is the speech model
-// the supervisor runs on this PC, which the bubble names as what listens; the
-// list's foot says so too and offers the browser's own speech recognition
+// the supervisor runs on this PC, which a muted line beside the bubble names
+// as what listens while it listens; the list's foot says so too and offers the browser's own speech recognition
 // where the browser has one. On a touch screen, where nothing is held down
 // with ease, the bubble is the dictation itself: onTap is told of each tap,
 // the first to start listening and the next to stop and send what was said
@@ -47,24 +47,22 @@ export function VoiceBubble({ listening, level, model, onPaste, onTap, tools }: 
     setOpen(true);
   };
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
-  const tip = isTouch ? (listening ? "Listening with " + engine + " · tap to send" : "Tap to dictate")
-    : listening ? "Listening with " + engine + " · release Ctrl+Shift+Space to type" : "Hold Ctrl+Shift+Space to dictate";
   // Escape closes the list from the bubble or from inside it.
   return <div ref={dock} className="voice-dock" onKeyDown={(event) => { if (open && event.key === "Escape") { event.stopPropagation(); close(); } }}>
     {hint && !open && <p className="voice-dock-hint" role="note">
       <span><strong>Speak into this terminal.</strong> {isTouch ? "Tap the microphone and speak, then tap it again to send." : "Hold Ctrl+Shift+Space and speak."}</span>
-      <button className="icon-button" aria-label="Dismiss hint" data-tip="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>
+      <button className="icon-button" aria-label="Dismiss hint" onClick={dismiss}><Icon name="close" /></button>
     </p>}
     {open && <RecentDictations where="this terminal" anchor={dock} model={model} onPaste={(text) => { onPaste(text); setOpen(false); }} onClose={close} onEngine={() => chosen((count) => count + 1)} />}
     {isTouch && tools}
+    {listening && <span className="voice-dock-listening" role="status">Listening with {engine}</span>}
     {isTouch ? <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
-      aria-label={listening ? "Stop and send" : "Dictate"} aria-pressed={listening} data-tip={tip}
+      aria-label={listening ? "Stop and send" : "Dictate"} aria-pressed={listening}
       onPointerDown={(event) => event.preventDefault()} onClick={(event) => { dismiss(); onTap(event.timeStamp); }}>
       {listening ? <VoiceBars level={level} /> : <Icon name="mic" />}
     </button> : <button ref={bubble} className={"voice-bubble" + (listening ? " recording terminal-listening" : "")}
-      aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} data-tip={tip} onClick={toggle}>
+      aria-label={listening ? "Listening" : "Recent messages"} aria-expanded={open} onClick={toggle}>
       {listening ? <VoiceBars level={level} /> : <Icon name="mic" />}
     </button>}
-    {listening && <span className="sr-only" role="status">Listening with {engine}</span>}
   </div>;
 }

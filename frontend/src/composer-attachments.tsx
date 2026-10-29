@@ -15,7 +15,7 @@ export function ComposerAttachments({ paths, instance, task, onRemove }: {
         {isPicturePath(path)
           ? <img src={keptFileAddress(instance, task, path)} alt={label} decoding="async" />
           : <span className="composer-attachment-name"><Icon name="file" />{name}</span>}
-        <button type="button" className="composer-attachment-remove" aria-label={"Remove " + label} data-tip="Remove" onClick={() => onRemove(path)}><Icon name="close" /></button>
+        <button type="button" className="composer-attachment-remove" aria-label={"Remove " + label} onClick={() => onRemove(path)}><Icon name="close" /></button>
       </li>;
     })}
   </ul>;
