@@ -3,9 +3,10 @@ import { box, open, openGoblin } from "./session-board";
 
 // The Overlord, 2026-10-28, from his phone: "The chat input bar when it's
 // reconnecting, it's a small little text, like when it's reconnecting, it
-// just shifts everything off." A dropped connection shows its state without
-// moving anything: the box and the conversation keep their place and size
-// while it reconnects and after.
+// just shifts everything off." A dropped connection moves nothing: the box
+// and the conversation keep their place and size while it reconnects and
+// after. Meanwhile the box queues what he sends with no words for it (2026-10-28: "this text not needed on working goblins
+// resumes are assumed").
 
 // places reads where the box and the conversation are drawn.
 const places = (page: Page) => page.evaluate(() => [".composer-dock", ".conversation", ".composer-input"].map((selector) => {
@@ -28,8 +29,8 @@ for (const width of [393, 1280]) {
     relay.refuse();
     relay.drop();
 
-    // Assert: it says so, and nothing moved.
-    await expect(page.locator(".terminal-corner.warning")).toBeVisible();
+    // Assert: the box queues, and nothing moved.
+    await expect(box(page)).toHaveAttribute("data-queues", "");
     expect(await places(page)).toEqual(before);
     await expect(box(page).locator(".composer-note")).toHaveText("");
 
@@ -37,7 +38,7 @@ for (const width of [393, 1280]) {
     const views = relay.views;
     relay.accept();
     await expect.poll(() => relay.views).toBeGreaterThan(views);
-    await expect(page.locator(".terminal-corner.warning")).toHaveCount(0);
+    await expect(box(page)).not.toHaveAttribute("data-queues", "");
 
     // Assert
     expect(await places(page)).toEqual(before);

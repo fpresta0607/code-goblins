@@ -179,8 +179,9 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
     // works, sits at the end of the line he writes on, no taller than that
     // line, and stays beside his last line as the box grows.
     test("Send sits at the end of the line he writes on, as tall as that line", async ({ page }) => {
-      // Arrange
-      const relay = await open(page);
+      // Arrange: a goblin waiting on CI sits at its prompt, so its screen
+      // alone says whether a turn runs (a working task's empty box shows Stop).
+      const relay = await open(page, snapshot({}, { phase: "waiting", waiting_on: "ci" }));
       await openGoblin(page);
       const measure = () => box(page).locator(".composer-input").evaluate((input) => {
         const shape = (element: Element) => {

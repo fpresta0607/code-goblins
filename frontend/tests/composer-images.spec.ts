@@ -210,7 +210,7 @@ for (const width of [1440, 390]) {
     await expect(bubble).toHaveText("what is wrong here?");
     const [picture, words] = await Promise.all([preview.boundingBox(), bubble.boundingBox()]);
     expect(picture && words && picture.y + picture.height <= words.y, "the picture above the bubble").toBeTruthy();
-    await expect(page.getByRole("log")).not.toContainText("composer-files");
+    await expect(sent).not.toContainText("composer-files");
     expect(kept.reads).toEqual([KEPT]);
     await sent.screenshot({ path: testInfo.outputPath(`bubble-preview-${width}.png`) });
 
