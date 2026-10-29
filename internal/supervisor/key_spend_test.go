@@ -103,6 +103,11 @@ func TestKeySpendIsShownOnlyForAPiThatUsesOpenRouter(t *testing.T) {
 			sessions: []Session{{ID: "cfo", Harness: "pi", Role: "cfo", Model: "openrouter/deepseek/deepseek-v4.1-flash", Phase: "active"}}, want: 1, status: openrouter.StatusAvailable},
 		{name: "a Pi CFO on another provider", withoutTask: true, cfo: cfoState{registered: true, harness: "pi", session: "cfo", since: scheduleStarts},
 			sessions: []Session{{ID: "cfo", Harness: "pi", Role: "cfo", Model: "deepseek/deepseek-v4.1-flash", Phase: "active"}}, want: 0},
+		{name: "a Pi CFO with no session registered, by its newest session", withoutTask: true, cfo: cfoState{registered: true, harness: "pi", since: scheduleStarts},
+			sessions: []Session{
+				{ID: "cfo-a", Harness: "pi", Role: "cfo", Model: "openrouter/deepseek/deepseek-v4.1-flash", Phase: "active", UpdatedAt: scheduleStarts.Add(time.Hour)},
+				{ID: "cfo-b", Harness: "pi", Role: "cfo", Model: "deepseek/deepseek-v4.1-flash", Phase: "ended", UpdatedAt: scheduleStarts},
+			}, want: 1, status: openrouter.StatusAvailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

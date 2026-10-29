@@ -1430,6 +1430,7 @@ The page holds only the messages within 1,200 px of what he reads, each measured
 What a call folds under its row, and a thought under its line, is in the page only while it is open.
 At its end it follows what arrives, and while he reads further up nothing moves it: a message that grows above, one that arrives below and an older page read in above all leave the message he reads where it was.
 Jump to latest, at the list's foot while he reads up, returns to the end.
+A scroll that finds the list where it put itself to show its end keeps it following: a message that arrived while he read up is kept as room of an estimated height until it is drawn, and Jump to latest's own scroll lands before the rows it draws are measured, so a reply taller than its estimate once left the list short of the end, with Jump to latest back (#1753).
 Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and touch while held or disconnected, and keeps its reading anchor on reconnect.
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
 While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference (#1584), and Classic in its box's Style menu returns the terminal.
