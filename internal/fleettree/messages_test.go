@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -99,6 +100,150 @@ func callBlock(id, tool, subject, state, result string) Block {
 	return Block{Kind: BlockCall, CallID: id, Tool: tool, Subject: subject, State: state, Result: result}
 }
 
+// entryOffsets is where each entry of the conversation at path begins.
+func entryOffsets(t *testing.T, path string) []int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var offsets []int
+	for offset := 0; offset < len(data); {
+		offsets = append(offsets, offset)
+		end := strings.IndexByte(string(data[offset:]), '\n')
+		if end < 0 {
+			break
+		}
+		offset += end + 1
+	}
+	return offsets
+}
+
+// numbered is messages as a test names them: each seq, and the offset that
+// begins each picture's id, as the number of the entry of the conversation at
+// path it is the offset of.
+func numbered(t *testing.T, path string, messages []Message) []Message {
+	t.Helper()
+	numbers := map[int]int{}
+	for number, offset := range entryOffsets(t, path) {
+		numbers[offset] = number
+	}
+	number := func(offset int) int {
+		t.Helper()
+		number, isEntry := numbers[offset]
+		if !isEntry {
+			t.Fatalf("%d begins no entry", offset)
+		}
+		return number
+	}
+	renamed := func(pictures []Picture) []Picture {
+		var named []Picture
+		for _, picture := range pictures {
+			offset, rest, _ := strings.Cut(picture.ID, ".")
+			at, err := strconv.Atoi(offset)
+			if err != nil {
+				t.Fatalf("picture id %q begins with no offset", picture.ID)
+			}
+			picture.ID = strconv.Itoa(number(at)) + "." + rest
+			named = append(named, picture)
+		}
+		return named
+	}
+	named := make([]Message, 0, len(messages))
+	for _, message := range messages {
+		message.Seq = number(message.Seq)
+		message.Pictures = renamed(message.Pictures)
+		message.Blocks = slices.Clone(message.Blocks)
+		for i := range message.Blocks {
+			message.Blocks[i].Pictures = renamed(message.Blocks[i].Pictures)
+		}
+		named = append(named, message)
+	}
+	return named
+}
+
+// longConversation is a conversation longer than a tail's reach: a first
+// prompt with a picture and an answer whose call is settled past the reach,
+// what Claude Code keeps for its model alone, then sixty prompts, the last
+// with a picture, and the answer to it.
+func longConversation() []any {
+	first := answer("a1", "msg_first", useBlock("toolu_1", "Bash", object{"command": "go test ./..."}))
+	first["message"].(object)["usage"] = object{"input_tokens": 1000, "output_tokens": 10}
+	entries := []any{prompted("u-first", []object{imageBlock([]byte("the first picture")), textBlock("the first words")}), first}
+	kept := `{"type":"api-request-blob","sessionId":"session-1","message":{"content":"` + strings.Repeat("x", 64<<10) + `"}}`
+	for range messageTailReach/len(kept) + 16 {
+		entries = append(entries, kept)
+	}
+	entries = append(entries, answered("u-result", "toolu_1", "ok", object{"stdout": "ok"}, nil))
+	for i := range 59 {
+		entries = append(entries, prompted("u"+strconv.Itoa(i), "prompt "+strconv.Itoa(i)))
+	}
+	last := answer("a2", "msg_last", textBlock("the last words"))
+	last["message"].(object)["usage"] = object{"input_tokens": 2000, "output_tokens": 20}
+	return append(entries, prompted("u-last", []object{imageBlock([]byte("the last picture")), textBlock("prompt 59")}), last)
+}
+
+// A long conversation's newest page comes from a read of its tail, and the
+// read of the whole conversation beside it changes nothing a view holds: each
+// message keeps its seq, id and pictures, the view takes the page anew once,
+// and the older pages and what the session spent come from the whole.
+func TestALongConversationReadsTheSameOnceReadWhole(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home, longConversation()...)
+	reader := Reader{Home: home}
+	newest, cursor, err := reader.MessagePage(path, -1)
+	if err != nil || len(newest.Messages) != MessagesPerPage || !newest.More {
+		t.Fatalf("MessagePage = %d messages, more %t, %v; want a full page and more", len(newest.Messages), newest.More, err)
+	}
+
+	// Act
+	older, _, olderErr := reader.MessagePage(path, newest.Messages[0].Seq)
+	_, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	again, _, againErr := reader.MessagePage(path, -1)
+
+	// Assert
+	if newest.Usage != nil {
+		t.Errorf("the tail's page carries usage %+v; want none until the whole conversation is read", newest.Usage)
+	}
+	if olderErr != nil || len(older.Messages) != 13 || older.More || older.Messages[0].Text != "the first words" || older.Messages[12].Text != "prompt 10" || newest.Messages[0].Text != "prompt 11" {
+		t.Fatalf("the page before the newest = %d messages, more %t, %v; want the first words to prompt 10 and no more", len(older.Messages), older.More, olderErr)
+	}
+	if call := older.Messages[1].Blocks[0]; call.State != CallDone || call.Result != "ok" {
+		t.Errorf("the first answer's call = %+v; want it done with the result read past the tail's reach", call)
+	}
+	held := append(slices.Clone(older.Messages), newest.Messages...)
+	for i := 1; i < len(held); i++ {
+		if held[i].Seq <= held[i-1].Seq {
+			t.Errorf("%s at seq %d follows %s at seq %d; want the seqs of the pages rising", held[i].ID, held[i].Seq, held[i-1].ID, held[i-1].Seq)
+			break
+		}
+	}
+	if sinceErr != nil || !isAnew {
+		t.Errorf("MessagesSince the tail's page = anew %t, %v; want the view to take the page anew", isAnew, sinceErr)
+	}
+	if againErr != nil || !reflect.DeepEqual(again.Messages, newest.Messages) {
+		t.Errorf("the newest page once read whole = %+v, %v\nwant the tail's page %+v", again.Messages, againErr, newest.Messages)
+	}
+	if again.Usage == nil || again.Usage.InputTokens != 3000 || again.Usage.OutputTokens != 30 {
+		t.Errorf("usage once read whole = %+v; want both answers counted", again.Usage)
+	}
+	for _, tc := range []struct {
+		message Message
+		want    string
+	}{
+		{older.Messages[0], "the first picture"},
+		{newest.Messages[48], "the last picture"},
+	} {
+		if len(tc.message.Pictures) != 1 {
+			t.Fatalf("message %s holds pictures %+v; want one", tc.message.ID, tc.message.Pictures)
+		}
+		if _, data, err := reader.MessagePicture(path, tc.message.Pictures[0].ID); err != nil || string(data) != tc.want {
+			t.Errorf("MessagePicture(%s) = %q, %v; want %q", tc.message.Pictures[0].ID, data, err, tc.want)
+		}
+	}
+}
+
 // Each kind of entry a Claude Code conversation holds reads as the message
 // the message view shows: prompts with where they came from, answers
 // grouped by their id, calls with their outcome and what came back, edits,
@@ -141,8 +286,8 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			},
 			want: []Message{
 				prompt(0, "u1", FromOverlord, "Read the readme"),
-				reply(1, "msg_1", Block{Kind: BlockThinking, Text: "The readme says what the repo is."}, callBlock("toolu_1", "Read", "README.md", CallDone, "1\t# Repo"), Block{Kind: BlockText, Text: "It names the repo."}),
-				reply(2, "msg_2", Block{Kind: BlockText, Text: "Done."}),
+				reply(2, "msg_1", Block{Kind: BlockThinking, Text: "The readme says what the repo is."}, callBlock("toolu_1", "Read", "README.md", CallDone, "1\t# Repo"), Block{Kind: BlockText, Text: "It names the repo."}),
+				reply(6, "msg_2", Block{Kind: BlockText, Text: "Done."}),
 			},
 		},
 		{
@@ -210,8 +355,8 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 				}
 			},
 			want: []Message{
-				{ID: "u1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/model opus", Output: "Set model to opus"},
-				prompt(1, "u3", FromSlash, "/review"),
+				{ID: "u1", Seq: 1, Kind: MessagePrompt, At: at, Source: FromSlash, Text: "/model opus", Output: "Set model to opus"},
+				prompt(3, "u3", FromSlash, "/review"),
 			},
 		},
 		{
@@ -254,8 +399,8 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			},
 			want: []Message{
 				reply(0, "msg_1", callBlock("toolu_1", "Bash", "go test ./...", CallInterrupted, "The user doesn't want to proceed with this tool use.")),
-				{ID: "u2", Seq: 1, Kind: MessageInterrupt, At: at, Text: "Request interrupted by user for tool use"},
-				{ID: "u3", Seq: 2, Kind: MessageInterrupt, At: at, Text: "Request interrupted by user"},
+				{ID: "u2", Seq: 2, Kind: MessageInterrupt, At: at, Text: "Request interrupted by user for tool use"},
+				{ID: "u3", Seq: 3, Kind: MessageInterrupt, At: at, Text: "Request interrupted by user"},
 			},
 		},
 		{
@@ -336,8 +481,8 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 				}
 			},
 			want: []Message{
-				{ID: "u1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromOverlord, Text: "Why is this red?", Pictures: []Picture{{ID: "1", MediaType: "image/png", Bytes: 12}}},
-				reply(1, "msg_1", Block{Kind: BlockCall, CallID: "toolu_1", Tool: "Read", Subject: "shot.png", State: CallDone, Pictures: []Picture{{ID: "2", MediaType: "image/png", Bytes: 8}}}),
+				{ID: "u1", Seq: 0, Kind: MessagePrompt, At: at, Source: FromOverlord, Text: "Why is this red?", Pictures: []Picture{{ID: "0.0", MediaType: "image/png", Bytes: 12}}},
+				reply(1, "msg_1", Block{Kind: BlockCall, CallID: "toolu_1", Tool: "Read", Subject: "shot.png", State: CallDone, Pictures: []Picture{{ID: "2.0.0", MediaType: "image/png", Bytes: 8}}}),
 			},
 		},
 		{
@@ -371,8 +516,8 @@ func TestMessagesReadEachKindOfEntry(t *testing.T) {
 			if want == nil {
 				want = []Message{}
 			}
-			if err != nil || !reflect.DeepEqual(page.Messages, want) || page.More {
-				t.Errorf("MessagePage = %+v, more %t, %v\nwant %+v", page.Messages, page.More, err, want)
+			if got := numbered(t, path, page.Messages); err != nil || !reflect.DeepEqual(got, want) || page.More {
+				t.Errorf("MessagePage = %+v, more %t, %v\nwant %+v", got, page.More, err, want)
 			}
 		})
 	}
@@ -389,7 +534,7 @@ func TestMessagesLeaveAHalfWrittenLastLineForTheNextRead(t *testing.T) {
 	appendText(t, path, whole[:40])
 	reader := Reader{Home: home}
 	page, cursor, err := reader.MessagePage(path, -1)
-	if err != nil || !reflect.DeepEqual(page.Messages, []Message{prompt(0, "u1", FromOverlord, "first")}) {
+	if err != nil || !reflect.DeepEqual(numbered(t, path, page.Messages), []Message{prompt(0, "u1", FromOverlord, "first")}) {
 		t.Fatalf("MessagePage with a half-written line = %+v, %v; want the first prompt alone", page.Messages, err)
 	}
 
@@ -398,7 +543,7 @@ func TestMessagesLeaveAHalfWrittenLastLineForTheNextRead(t *testing.T) {
 	messages, _, isAnew, err := reader.MessagesSince(path, cursor)
 
 	// Assert
-	if err != nil || isAnew || !reflect.DeepEqual(messages, []Message{prompt(1, "u2", FromOverlord, "second")}) {
+	if err != nil || isAnew || !reflect.DeepEqual(numbered(t, path, messages), []Message{prompt(1, "u2", FromOverlord, "second")}) {
 		t.Errorf("MessagesSince = %+v, anew %t, %v; want the second prompt once written whole", messages, isAnew, err)
 	}
 }
@@ -438,9 +583,9 @@ func TestMessagesSinceAreTheMessagesThatBeganOrChanged(t *testing.T) {
 	// Assert
 	want := []Message{
 		reply(1, "msg_1", callBlock("toolu_1", "Bash", "go test ./...", CallDone, "ok")),
-		prompt(3, "u3", FromOverlord, "thanks"),
+		prompt(4, "u3", FromOverlord, "thanks"),
 	}
-	if err != nil || isAnew || !reflect.DeepEqual(messages, want) {
+	if err != nil || isAnew || !reflect.DeepEqual(numbered(t, path, messages), want) {
 		t.Errorf("MessagesSince = %+v, anew %t, %v; want %+v", messages, isAnew, err, want)
 	}
 	if againErr != nil || len(again) != 0 {
@@ -469,7 +614,7 @@ func TestMessagesOfAReplacedConversationAreReadAnew(t *testing.T) {
 	if err != nil || !isAnew || messages != nil {
 		t.Errorf("MessagesSince after a replace = %+v, anew %t, %v; want it read anew", messages, isAnew, err)
 	}
-	if pageErr != nil || !reflect.DeepEqual(page.Messages, []Message{prompt(0, "v1", FromOverlord, "new")}) {
+	if pageErr != nil || !reflect.DeepEqual(numbered(t, path, page.Messages), []Message{prompt(0, "v1", FromOverlord, "new")}) {
 		t.Errorf("MessagePage after a replace = %+v, %v; want the new conversation", page.Messages, pageErr)
 	}
 }
@@ -484,8 +629,10 @@ func TestMessagePagesReachBackAPageAtATime(t *testing.T) {
 		entries = append(entries, prompted("u"+strconv.Itoa(i), "prompt "+strconv.Itoa(i)))
 	}
 	path := conversation(t, home, entries...)
+	offsets := entryOffsets(t, path)
 	reader := Reader{Home: home}
 
+	// before is the entry a page is before, or a seq past every entry.
 	for _, tc := range []struct {
 		before, first, last int
 		isMore              bool
@@ -493,18 +640,23 @@ func TestMessagePagesReachBackAPageAtATime(t *testing.T) {
 		{-1, 70, 119, true},
 		{70, 20, 69, true},
 		{20, 0, 19, false},
-		{500, 70, 119, true},
+		{1 << 30, 70, 119, true},
 		{0, 0, -1, false},
 	} {
 		t.Run("before "+strconv.Itoa(tc.before), func(t *testing.T) {
+			before := tc.before
+			if before >= 0 && before < len(offsets) {
+				before = offsets[before]
+			}
+
 			// Act
-			page, _, err := reader.MessagePage(path, tc.before)
+			page, _, err := reader.MessagePage(path, before)
 
 			// Assert
 			if err != nil || len(page.Messages) != tc.last-tc.first+1 || page.More != tc.isMore {
 				t.Fatalf("MessagePage(%d) = %d messages, more %t, %v; want %d to %d, more %t", tc.before, len(page.Messages), page.More, err, tc.first, tc.last, tc.isMore)
 			}
-			if len(page.Messages) > 0 && (page.Messages[0].Seq != tc.first || page.Messages[len(page.Messages)-1].Text != "prompt "+strconv.Itoa(tc.last)) {
+			if len(page.Messages) > 0 && (page.Messages[0].Seq != offsets[tc.first] || page.Messages[len(page.Messages)-1].Text != "prompt "+strconv.Itoa(tc.last)) {
 				t.Errorf("MessagePage(%d) runs %+v to %+v; want %d to %d", tc.before, page.Messages[0], page.Messages[len(page.Messages)-1], tc.first, tc.last)
 			}
 		})
@@ -524,15 +676,17 @@ func TestMessagePictureIsReadBackByItsID(t *testing.T) {
 	if _, _, err := reader.MessagePage(path, -1); err != nil {
 		t.Fatal(err)
 	}
+	result := strconv.Itoa(entryOffsets(t, path)[2])
 
 	for _, tc := range []struct {
 		id   string
 		want string
 	}{
-		{"1", "a screenshot"},
-		{"2", "the file"},
-		{"3", ""},
-		{"../1", ""},
+		{"0.0", "a screenshot"},
+		{result + ".0.0", "the file"},
+		{"0.1", ""},
+		{"1", ""},
+		{"../0.0", ""},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
 			// Act
@@ -569,7 +723,7 @@ func TestMessagesReadAcrossTheChunksOfALongConversation(t *testing.T) {
 
 	// Act
 	page, _, err := reader.MessagePage(path, -1)
-	mediaType, data, pictureErr := reader.MessagePicture(path, "1")
+	mediaType, data, pictureErr := reader.MessagePicture(path, strconv.Itoa(entryOffsets(t, path)[4])+".0")
 
 	// Assert
 	if err != nil || len(page.Messages) != 5 || page.Messages[4].ID != "u4" || page.Messages[4].Text != "and this" || len([]rune(page.Messages[0].Text)) != messageTextLimit {
@@ -610,7 +764,7 @@ func TestAConversationNoViewAsksForIsLetGo(t *testing.T) {
 			// Act
 			now = now.Add(tc.elapsed)
 			tc.letsGo(&reader, other)
-			_, _, pictureErr := reader.MessagePicture(path, "1")
+			_, _, pictureErr := reader.MessagePicture(path, "0.0")
 			_, _, isAnew, err := reader.MessagesSince(path, cursor)
 
 			// Assert
@@ -645,8 +799,8 @@ func TestTheFleetsTypedWakeIsANoticeNotHisMessage(t *testing.T) {
 		prompt(1, "u2", FromOverlord, "cfo, take a look at the failing test"),
 		prompt(2, "u3", FromOverlord, "cfo watcher wake-ups are noisy, quiet them down"),
 	}
-	if err != nil || !reflect.DeepEqual(page.Messages, want) {
-		t.Fatalf("MessagePage = %+v, %v\nwant %+v", page.Messages, err, want)
+	if got := numbered(t, path, page.Messages); err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("MessagePage = %+v, %v\nwant %+v", got, err, want)
 	}
 }
 
