@@ -2,16 +2,19 @@ import { useState, type ReactNode } from "react";
 import { message, request } from "./api";
 import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
+import { HarnessMark } from "./harness-mark";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
 import { ownsTaskSession, sessionTitle } from "./lineageTree";
-import { ALREADY_FINISHED, harnessName, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
+import { ALREADY_FINISHED, harnessName, harnessTip, liveCfoSession, nodeStatus, personaFor, pullRequestBadge, pullRequestLabel, safePullRequest, waitingTarget } from "./workflow";
 import { reviewLine, waitingItems, type Item } from "./commandQueue";
 import { credentialAsk } from "./credentials";
 import { signInHeading } from "./browser-signins";
 import { plainMessage } from "./messageText";
 import { AfkToggle } from "./afk-toggle";
+import { OPEN_AFK_REPORT } from "./afk";
+import { PanelRow, type PanelControl } from "./panel-row";
 import { CfoUpdate } from "./cfo-update";
 import { RestartPcButton } from "./restart-pc-button";
 import { finishedEvidence, goblinName, taskSummary } from "./task-words";
@@ -27,25 +30,21 @@ import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { TaskAdjustment } from "./task-adjustment";
 
 // Who the goblin is, what it is doing now and what the Overlord can do about
-// it. Its status is the one place the panel says the task's state, with one
-// plain sentence under it and the words that sentence leaves out behind
-// Details; a failure links to the task's log. The name and the task take the
-// room first, each wrapping whole rather than cut short, and the buttons stay
-// beside them only while all fit on one row, else they take a row of their
-// own under them. A goblin's Terminal view heads as the CFO's
-// does, with its picture, its name and title, its task id and one status
-// line, and no description and no buttons, which its Task view holds (the
-// Overlord, 2026-10-17: "If they exist on the task panel, we don't need them
-// in the terminal header"). The CFO drawn without a task has
-// no worktree to open; its header carries Restart right below its name on
-// its Task view, the AFK toggle beside its status, with Update before it
-// while an update of the CFO's harness waits and Restart PC before that while
-// the kernel's pools are past their line, and under them what a press of
-// Update waits for or why it did not restart the CFO. switcher, the panel's
-// Chat and Task icons, sits in the same row, before the CFO's controls, and
-// the status line carries no mark of the session's harness (the Overlord,
-// 2026-10-28: "We already know it's running Claude because of the chat").
-export function PanelHeader({ task, node, snapshot, compact, isDetails = false, switcher, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; compact: boolean; isDetails?: boolean; switcher?: ReactNode; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+// it. The header is one short row, so the conversation gets the room (the
+// Overlord, 2026-10-29: "Minimize height and maximize the space"): the
+// session's small picture, its name, its harness's mark and a goblin's task
+// id, each cut short when the row is narrow, then switcher, the panel's Chat
+// and Task icons, centred between them and the row's end, then row, the
+// panel's controls with Close or Back, led on the CFO's panel by its AFK
+// switch, with Update before it while an update of the CFO's harness waits
+// and Restart PC before that while the kernel's pools are past their line.
+// Everything else is the details, isDetails, at the top of the Task view: the
+// goblin's whole name and task id, its status, the one place the panel says
+// the task's state, with one plain sentence under it and the words that
+// sentence leaves out behind Details, where a failure links to the task's
+// log, the task's buttons, and on the CFO's panel the last AFK report and
+// what a press of Update waits for.
+export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -58,6 +57,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
+  const harness = (task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : "");
   const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
@@ -84,8 +84,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
     } catch (error: unknown) { showFeedback(message(error)); }
     finally { setOpening(false); }
   };
-  // What the full header shows and the compact one leaves out, which the
-  // panel's Task view shows when the selector chooses it.
+  // What the details show at the top of the Task view.
   const projectLine = task?.project && <div className="project-line"><p className="project-label">{task.project}</p><PeopleRow snapshot={snapshot} task={task} /></div>;
   const helper = helps && <p className="muted">Helper of {helps}</p>;
   const partOf = !owner && node && task && <p className="muted">Part of {goblinName(task)}</p>;
@@ -108,28 +107,24 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
       <ClickFeedback text={feedback} />
     </div>;
   const awaitedLink = awaited && <button className="status-link" aria-label={"Open " + goblinName(awaited) + ", which this goblin is waiting on"} onClick={() => onOpenTask(awaited)}><Icon name="next" /></button>;
-  if (isDetails) return <div className="panel-header-details">{projectLine}{helper}{partOf}{awaited && <p>{goblinName(awaited)}{awaitedLink}</p>}{activity}{detailsRow}{actions}</div>;
-  return <header className={"panel-header" + (compact ? " compact" : "")}>
-    <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
-    <div className="panel-heading">
-      <div className="panel-identity">
-        <h2 id="panel-title">{title}</h2>
-        {owner && task.phase === "queued" ? <TaskAdjustment key={task.id} task={task} snapshot={snapshot} /> : goblinTask && <p className="panel-goblin-task">{goblinTask}</p>}
-        {!compact && projectLine}
-        {!compact && helper}
-        <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{!compact && awaitedLink}</p>
-        {evidence && <p className="muted">{evidence}</p>}
-        {!compact && partOf}
-        {!compact && activity}
-        {!compact && detailsRow}
-      </div>
-      {/* A finished task's checks and deploy are in its panel alone, so its
-          links show there too; only a live one opens its folder, and not on
-          a small screen, since VS Code and the folder open on the PC. */}
-      {!compact && actions}
+  if (isDetails) return <div className="panel-header-details">
+    {owner && task.phase === "queued" && <TaskAdjustment key={task.id} task={task} snapshot={snapshot} />}
+    {goblinTask && <p className="panel-whole-name">{title} · {goblinTask}</p>}
+    {projectLine}{helper}{partOf}
+    <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaitedLink}</p>
+    {evidence && <p className="muted">{evidence}</p>}
+    {activity}{detailsRow}{actions}
+    {cfo && snapshot.afk.state === "off" && snapshot.afk.page && <div className="panel-actions"><button className="labelled-button" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /><span>Open your last AFK report</span></button></div>}
+    {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
+  </div>;
+  return <header className="panel-header one-row">
+    <div className="panel-identity">
+      <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
+      <h2 id="panel-title">{title}</h2>
+      {harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}
+      {goblinTask && <p className="panel-goblin-task">{goblinTask}</p>}
     </div>
     {switcher}
-    {cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />}
-    {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
+    {row && <PanelRow {...row} isShared leading={cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />} />}
   </header>;
 }

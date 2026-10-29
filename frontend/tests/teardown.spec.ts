@@ -41,7 +41,7 @@ test("paused, resumed, stopped and restarted cards leave Windows teardown to the
       await expect(header.locator(".raw-details-text")).toContainText("chrome.exe pid 42");
     }
     if (phase === "working") {
-      await expect(page.locator(".panel-header .panel-status")).toHaveText("Working");
+      await expect(header.locator(".panel-status")).toHaveText("Working");
     }
     if (phase === "paused") {
       await expect(page.getByRole("button", { name: "Resume paused teardown fixture", exact: true }).first()).toBeEnabled();

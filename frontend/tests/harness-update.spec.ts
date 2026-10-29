@@ -100,14 +100,20 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
 test.describe("once pressed", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("the CFO's header says the restart waits for the end of its turn, and a second press takes it back", async ({ page }, testInfo) => {
+  // The header is one row, so the button there shows the press waits, and the
+  // CFO's Task view says for what.
+  test("the CFO's header shows the restart waits, its Task view says for the end of its turn, and a second press takes it back", async ({ page }, testInfo) => {
     // Arrange
     const sent = await open(page, snapshot({ cfo_update: { ...WAITING, pending: true } }));
     await openCfoPanel(page);
 
     // Assert
-    await expect(header(page).getByRole("status").filter({ hasText: "Restarts onto" })).toHaveText("Restarts onto the Claude Code update when its turn ends.");
+    await expect(header(page).getByRole("button", { name: "Cancel the Claude Code update" })).toHaveText("Cancel update");
+    await expect(header(page).getByRole("status").filter({ hasText: "Restarts onto" })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("cfo-header-update-pending.png") });
+    await header(page).getByRole("button", { name: "Task", exact: true }).click();
+    await expect(panel(page).getByRole("status").filter({ hasText: "Restarts onto" })).toHaveText("Restarts onto the Claude Code update when its turn ends.");
+    await header(page).getByRole("button", { name: "Chat", exact: true }).click();
 
     // Act
     await header(page).getByRole("button", { name: "Cancel the Claude Code update" }).click();

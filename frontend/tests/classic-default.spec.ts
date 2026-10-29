@@ -11,15 +11,24 @@ const terminalInput = (page: Page) => page.getByRole("textbox", { name: "Termina
 const modern = (page: Page) => page.locator(".context-pane").getByRole("button", { name: "Switch to Modern chat", exact: true });
 const saved = (page: Page) => page.evaluate(() => localStorage.getItem("cfo-chat-style"));
 
+const more = (page: Page) => page.locator(".context-pane .panel-top").getByRole("button", { name: "More", exact: true });
+
 // classicShown says the panel draws the terminal as it was before Modern
 // Chat: no box, no Back to messages bar, no terminal copy button beside it,
-// and Modern one press away in the panel's row.
+// and Modern in the panel's row, or in its More where the row has no room
+// for it, as beside the CFO's AFK switch at the panel's default width.
 async function classicShown(page: Page, name: string): Promise<void> {
   await expect(terminalInput(page)).toBeVisible();
   await expect(box(page, name)).toBeHidden();
   await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy terminal text", exact: true })).toHaveCount(0);
-  await expect(modern(page)).toBeVisible();
+  await expect(modern(page).or(more(page))).toBeVisible();
+}
+
+async function pressModern(page: Page): Promise<void> {
+  if (await modern(page).count()) return modern(page).click();
+  await more(page).click();
+  await page.locator(".context-pane .panel-top").getByRole("menuitem", { name: "Modern chat", exact: true }).click();
 }
 
 async function modernShown(page: Page, name: string): Promise<void> {
@@ -45,7 +54,7 @@ for (const who of ["CFO", "goblin"] as const) {
     // Act and Assert: twice each way, since a style chosen once must not keep
     // the next choice from showing.
     for (let round = 0; round < 2; round++) {
-      await modern(page).click();
+      await pressModern(page);
       await modernShown(page, name);
       await expect(field(page, name)).toBeFocused();
       expect(await saved(page)).toBe("modern");

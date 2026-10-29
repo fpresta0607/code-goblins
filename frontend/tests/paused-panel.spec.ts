@@ -106,7 +106,6 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
       // Arrange
       await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause))], "Bernie");
-      const header = panel(page).locator(".panel-header");
 
       for (const [name, status] of [["Bernie", "Paused by you"], ...PAUSES.map(([name, , status]) => [name, status])] as [string, string | RegExp][]) {
         // Act
@@ -114,7 +113,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
         // Assert: the status says Paused and why, and no line under it says
         // so again.
-        await expect(header.locator(".panel-status"), name).toHaveText(status);
+        await expect(detailsHeader.locator(".panel-status"), name).toHaveText(status);
         await expect(detailsHeader.locator(".panel-activity"), name).toHaveCount(0);
         await expect(detailsHeader, name).not.toContainText(/It (stays paused|resumes by itself)/);
       }
@@ -128,7 +127,6 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       // Arrange: a goblin paused for memory, for a task, for a time, for CI
       // and by him, and one paused before pauses had reasons.
       await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause)), paused("Old")], "Bernie");
-      const header = panel(page).locator(".panel-header");
       const cases: [string, string, string, RegExp][] = [
         ["Mabel", "Paused for memory", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
         ["Tansy", "Paused until Bernie delivers", did("Tansy"), /^It resumes by itself when Bernie - Merge Maestro finishes\.$/],
@@ -149,7 +147,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
         // Assert: what the goblin last reported, in sentences, then what it
         // waits for, with nothing of the pause's own record, as the panel's
         // prose and not as a terminal's lines.
-        await expect(header.locator(".panel-status"), name).toContainText(status);
+        await expect(detailsHeader.locator(".panel-status"), name).toContainText(status);
         await expect(detailsHeader.locator(".panel-activity"), name).toHaveCount(0);
         expect(text.startsWith(work + " "), name + ": " + text).toBe(true);
         expect(text.slice(work.length + 1), name).toMatch(waits);

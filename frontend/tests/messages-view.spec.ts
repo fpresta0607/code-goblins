@@ -224,13 +224,13 @@ test("Claude Code and Codex panels show their messages in the same Modern view",
   await expect(page.getByRole("textbox", { name: /^Message / })).toBeInViewport();
 });
 
-test("the Messages view draws the conversation as the session recorded it, under the terminal's compact header", async ({ page }) => {
+test("the Messages view draws the conversation as the session recorded it, under the panel's one-row header", async ({ page }) => {
   await open(page);
   await openGoblin(page);
 
   const talk = list(page, "Zeke - Touch Wrangler");
   await expect(talk).toBeVisible();
-  await expect(page.locator(".panel-header.compact")).toHaveCount(1);
+  await expect(page.locator(".panel-header.one-row")).toHaveCount(1);
   await expect(talk.locator(".message-from")).toHaveCount(0);
   await expect(talk.locator(".message-prompt.cfo .message-bubble")).toHaveText("Read the brief at brief.md and follow it exactly.");
   await expect(talk.locator("strong").filter({ hasText: "Found the scroll bug." })).toBeVisible();

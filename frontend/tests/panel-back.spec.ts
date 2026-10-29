@@ -1,8 +1,9 @@
 import { expect, holdStream, test, type Page } from "./site";
 
-// The panel of anything but the CFO has Back where Close was: a button with
-// its arrow and its name, which returns the panel to the CFO's panel on the
-// view that panel last showed. The CFO's own panel keeps Close. Escape does
+// The panel of anything but the CFO has Back where Close was: an icon button
+// with its arrow, named Back to the CFO, which returns the panel to the CFO's
+// panel on the view that panel last showed. It is an icon alone since the
+// header is one row (2026-10-29). The CFO's own panel keeps Close. Escape does
 // what the button in the corner does.
 const since = "2026-10-02T09:00:00Z";
 const task = (id: string, phase: string, fields: Record<string, unknown> = {}) => ({ id, title: id, project: "code-goblins", phase, verified: false, generation: id + "-1", since, ...fields });
@@ -38,7 +39,7 @@ for (const id of ["queued-one", "working-one", "paused-one", "done-one"]) {
     await open(page);
     await card(page, id).click();
     await expect(title(page)).toHaveText(id);
-    await expect(back(page)).toHaveText("Back");
+    await expect(back(page)).toHaveText("");
     await expect(back(page).locator("svg")).toBeVisible();
     await expect(close(page)).toHaveCount(0);
     await back(page).click();
