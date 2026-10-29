@@ -29,8 +29,9 @@ import (
 
 // The test binary plays every part. As the command in a terminal it answers
 // typed lines ("echo-child") or just waits ("sleep-child"), and as the command
-// of a stream session it answers JSON lines ("stream-child"); with hostRole set
-// it is the host itself, or a launcher that starts a host and exits.
+// of a stream session it answers JSON lines ("stream-child") or plays a
+// recorded Claude Code session back ("stream-replay"); with hostRole set it is
+// the host itself, or a launcher that starts a host and exits.
 const hostRole = "HOST_TEST_ROLE"
 
 // hostClassAtStart names the file a host of this test binary writes the
@@ -45,6 +46,8 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 	case len(os.Args) > 1 && os.Args[1] == "stream-child":
 		streamChild()
+	case len(os.Args) > 2 && os.Args[1] == "stream-replay":
+		streamReplay(os.Args[2])
 	case len(os.Args) > 3 && os.Args[1] == "launch-host":
 		launchFromTerminal(os.Args[2], os.Args[3])
 	case len(os.Args) > 2 && os.Args[1] == "start-child":

@@ -2,6 +2,7 @@ package host
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -188,13 +189,18 @@ func serveStream(connection *os.File, token string, program *conpty.Piped, lines
 			}
 		}
 	}()
+	// A viewer reads each line byte for byte as its program wrote it, which
+	// json.Marshal would not keep, since it writes each <, > and & in a line
+	// as a Unicode escape.
 	send := func(batch []StreamLine) error {
 		for _, line := range batch {
-			payload, err := json.Marshal(line)
-			if err != nil {
+			var payload bytes.Buffer
+			encoder := json.NewEncoder(&payload)
+			encoder.SetEscapeHTML(false)
+			if err := encoder.Encode(line); err != nil {
 				return err
 			}
-			if err := writeFrame(connection, frameLine, payload); err != nil {
+			if err := writeFrame(connection, frameLine, bytes.TrimSuffix(payload.Bytes(), []byte("\n"))); err != nil {
 				return err
 			}
 		}

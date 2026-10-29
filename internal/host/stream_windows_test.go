@@ -69,8 +69,15 @@ func streamChild() {
 // by pid, when the test does.
 func launchStream(t *testing.T) (string, Record) {
 	t.Helper()
+	return launchStreamOf(t, "stream-child")
+}
+
+// launchStreamOf starts a host running this test binary with role and args
+// as a stream session, and ends it, by pid, when the test does.
+func launchStreamOf(t *testing.T, role string, args ...string) (string, Record) {
+	t.Helper()
 	stateDir := t.TempDir()
-	record, err := Launch(stateDir, []string{os.Args[0]}, hostEnvironment(), Spec{ID: "s1", Args: []string{os.Args[0], "stream-child"}, IsStream: true})
+	record, err := Launch(stateDir, []string{os.Args[0]}, hostEnvironment(), Spec{ID: "s1", Args: append([]string{os.Args[0], role}, args...), IsStream: true})
 	if err != nil {
 		t.Fatalf("Launch: %v", err)
 	}
