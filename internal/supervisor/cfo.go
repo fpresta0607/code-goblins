@@ -18,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/custody"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -487,6 +488,17 @@ func (c *CFOConnection) Send(ctx context.Context, identity, text string) (Evalua
 // key.
 const nativeSubmitSettle = 300 * time.Millisecond
 
+// claudeTypedUpTo is the longest line typed into a Claude Code CFO as keys.
+// Claude Code 2.1.312 takes a longer burst of keys as a paste, and one it
+// reads in parts as a paste of the first part and keys after it: on
+// 2026-10-29 the live CFO, slow to read in a turn, read a board message of
+// 1,512 bytes as a paste of its first 1,024 and keys after them, and took
+// only those keys at its next tool call (#1740). A longer line goes as one
+// bracketed paste, which it takes whole however it reads it. A shorter one
+// stays keys, which it never takes as a paste: it typed 800 characters as
+// keys, and a bracketed path alone becomes an image.
+const claudeTypedUpTo = 512
+
 // nativeConfirm bounds how long a delivery to the native CFO waits after
 // submission to be shown taken before the delivery is left sent and awaiting
 // that, in time the machine ran (awake), since a pause of the whole machine
@@ -558,8 +570,13 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 		return Evaluation{Reason: "The CFO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
 	}
 	instruction := oneLine(line)
+	typed := instruction
+	if primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !fleet.IsCommand(instruction) {
+		typed = herdr.CleanPaste("\x1b[200~" + instruction + "\x1b[201~")
+		instruction = strings.TrimSuffix(strings.TrimPrefix(typed, "\x1b[200~"), "\x1b[201~")
+	}
 	submitted := time.Now()
-	if err := delivery.Write([]byte(instruction)); err != nil {
+	if err := delivery.Write([]byte(typed)); err != nil {
 		return Evaluation{}, fmt.Errorf("the message may have reached the CFO's native terminal only in part: %w", err)
 	}
 	shown, cancelShown := awake.WithTimeout(context.Background(), nativeConfirm)
