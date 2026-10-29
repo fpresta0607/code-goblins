@@ -3,6 +3,7 @@ package supervisor
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,17 +25,17 @@ func TestACycleReadsTheFleetWakesAgainOnlyOnceTheyChanged(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	shown := func() int64 {
+	shown := func() float64 {
 		t.Helper()
 		service.cycle(t.Context(), false)
 		snapshot, err := service.Snapshot()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(snapshot.CIDurations) != 1 {
-			t.Fatalf("CI durations = %+v, want the one recorded", snapshot.CIDurations)
+		if len(snapshot.CIUsual) != 1 {
+			t.Fatalf("usual CI times = %+v, want the one recorded", snapshot.CIUsual)
 		}
-		return snapshot.CIDurations[0].Seconds
+		return snapshot.CIUsual[0].Seconds
 	}
 	recorded(780)
 	info, err := os.Stat(path)
@@ -54,7 +55,7 @@ func TestACycleReadsTheFleetWakesAgainOnlyOnceTheyChanged(t *testing.T) {
 
 	// Assert
 	if first != 780 || unchanged != 780 || changed != 1790 {
-		t.Errorf("shown %d s, then %d s over the same size and write time, then %d s once it changed; want 780, 780 and 1790", first, unchanged, changed)
+		t.Errorf("shown %g s, then %g s over the same size and write time, then %g s once it changed; want 780, 780 and 1790", first, unchanged, changed)
 	}
 }
 
@@ -90,5 +91,53 @@ func TestCIFinishedRecordsMeasuredDurationsAndOmitsUnknownTimes(t *testing.T) {
 	}
 	if strings.Contains(string(data), `"name":"unknown"`) {
 		t.Fatal("missing start was presented as a measured duration")
+	}
+}
+
+// #1611: the snapshot carried the 200 CI runs and deploys last measured, 40 KB
+// of every board's first snapshot and sent whole again whenever one finished,
+// though a card paused on CI shows only how long its repository's runs
+// usually take.
+func TestABoardIsSentEachRepositorysUsualCITimeRatherThanItsRuns(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	measured := func(repository, kind string, seconds ...int64) []CIDuration {
+		runs := make([]CIDuration, len(seconds))
+		for i, each := range seconds {
+			runs[i] = CIDuration{Repository: repository, Kind: kind, Name: "test", Seconds: each, FinishedAt: time.Date(2026, 10, 28, 12, i, 0, 0, time.UTC)}
+		}
+		return runs
+	}
+	watched := fleetWakes{Durations: slices.Concat(measured("o/r", "deploy", 661, 600), measured("o/r", "ci", 900, 720, 780), measured("o/other", "deploy", 120))}
+	if err := writeFleetWakes(h.State, watched); err != nil {
+		t.Fatal(err)
+	}
+	service.cycle(t.Context(), false)
+
+	// Act
+	snapshot, err := service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	type usual struct {
+		Repository, Kind string
+		Seconds          float64
+	}
+	var board struct {
+		Usual []usual          `json:"ci_usual"`
+		Runs  *json.RawMessage `json:"ci_durations"`
+	}
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatal(err)
+	}
+	want := []usual{{"o/other", "deploy", 120}, {"o/r", "ci", 780}, {"o/r", "deploy", 630.5}}
+	if !slices.Equal(board.Usual, want) || board.Runs != nil {
+		t.Errorf("the board is sent the usual times %+v and the runs %v, want %+v and no runs", board.Usual, board.Runs != nil, want)
 	}
 }
