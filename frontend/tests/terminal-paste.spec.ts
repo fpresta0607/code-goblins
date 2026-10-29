@@ -7,14 +7,20 @@ import { card, NAME, open, pasted, typed } from "./session-board";
 
 const PICTURE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+// The terminal's view is staged, hidden, while it replays the host's screen,
+// and its hidden textarea takes no focus, so an Alt+V pressed then reached the
+// panel and pasted nothing (#1562): the terminal is ready once its view shows,
+// as openGoblin waits for it.
 async function classicTerminal(page: Page) {
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const relay = await open(page);
   await card(page, NAME).click();
   const terminal = page.locator(".native-terminal:visible");
   await expect(terminal).toBeVisible();
-  await expect(terminal.locator("textarea.xterm-helper-textarea")).toHaveCount(1);
-  return { relay, terminal };
+  await expect(terminal.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+  const input = terminal.locator("textarea.xterm-helper-textarea");
+  await expect(input).toHaveCount(1);
+  return { relay, input };
 }
 
 async function clipboard(page: Page, text: string, picture = "") {
@@ -30,10 +36,11 @@ async function clipboard(page: Page, text: string, picture = "") {
 test("Alt+V pastes the clipboard's text into the terminal", async ({ page }) => {
   // Arrange
   await clipboard(page, "pasted into the terminal");
-  const { relay, terminal } = await classicTerminal(page);
+  const { relay, input } = await classicTerminal(page);
 
   // Act
-  await terminal.locator("textarea.xterm-helper-textarea").focus();
+  await input.focus();
+  await expect(input).toBeFocused();
   await page.keyboard.press("Alt+v");
 
   // Assert
@@ -43,7 +50,7 @@ test("Alt+V pastes the clipboard's text into the terminal", async ({ page }) => 
 test("Alt+V puts a clipboard picture on this PC's clipboard and presses the harness's image key", async ({ page }) => {
   // Arrange
   await clipboard(page, "", PICTURE);
-  const { relay, terminal } = await classicTerminal(page);
+  const { relay, input } = await classicTerminal(page);
   const posts: string[] = [];
   await page.route("**/api/terminal/image", (route) => {
     posts.push(route.request().headers()["content-type"] ?? "");
@@ -51,7 +58,8 @@ test("Alt+V puts a clipboard picture on this PC's clipboard and presses the harn
   });
 
   // Act
-  await terminal.locator("textarea.xterm-helper-textarea").focus();
+  await input.focus();
+  await expect(input).toBeFocused();
   await page.keyboard.press("Alt+v");
 
   // Assert
