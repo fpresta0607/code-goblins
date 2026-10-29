@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -24,9 +25,10 @@ import (
 
 // Message is one message of a Claude Code session as the board's message
 // view shows it: a prompt, a reply, a compaction or an interrupt. Seq is its
-// place in the session, counted from 0 in the order the messages began, and
-// ID stays the same for its life: Claude Code's id of the reply, or the id
-// of the entry that holds the rest.
+// place in the session, the offset in the conversation of the entry it began
+// at, so a read of the conversation's tail and a read of the whole of it give
+// a message the same, and ID stays the same for its life: Claude Code's id of
+// the reply, or the id of the entry that holds the rest.
 type Message struct {
 	ID   string    `json:"id"`
 	Seq  int       `json:"seq"`
@@ -216,6 +218,10 @@ const (
 	diffLinesKept = 200
 	// pictureEntryReach bounds the entry a picture is read back from.
 	pictureEntryReach = 64 << 20
+	// messageTailReach is how much of the end of a conversation is read
+	// before its newest page is served: a CFO's conversation runs to a
+	// hundred megabytes, which take seconds to read whole.
+	messageTailReach = 8 << 20
 )
 
 // MessagePage is a page of a session's messages, oldest first, and whether
@@ -274,8 +280,21 @@ type messageLog struct {
 	path  string
 	asked time.Time
 
-	mu   sync.Mutex
+	mu sync.Mutex
+	messageState
+}
+
+// messageState is what a read of a conversation found, which a read of the
+// whole conversation puts in place of a read of its tail at once.
+type messageState struct {
 	read int64
+	// from is where the read began: 0, or the first entry of a long
+	// conversation's tail, read first so its newest page waits for no more.
+	// The whole conversation is then read beside it, and whole closes once
+	// that read is in place of this one, or failed for wholeErr.
+	from     int64
+	whole    chan struct{}
+	wholeErr error
 	// epoch tells this read of the conversation from any earlier one.
 	epoch uint64
 	// messages are the conversation's messages, and changed the revision at
@@ -308,10 +327,7 @@ type pictureAt struct {
 
 // reset starts the log over as the read epoch of its conversation.
 func (l *messageLog) reset(epoch uint64) {
-	l.read, l.epoch = 0, epoch
-	l.messages, l.changed, l.revision = nil, nil, 0
-	l.replies, l.calls, l.pictures = map[string]int{}, map[string]blockAt{}, map[string]pictureAt{}
-	l.usage, l.window = Usage{}, 0
+	l.messageState = messageState{epoch: epoch, replies: map[string]int{}, calls: map[string]blockAt{}, pictures: map[string]pictureAt{}}
 }
 
 // messageEntry is the part of a Claude Code transcript entry the message
@@ -376,8 +392,10 @@ var apiRequest = []byte(`{"type":"api-request`)
 
 // update parses the entries written since the last read. A conversation that
 // shrank was replaced, and is read again from its start as a read of its own.
-// The caller holds l.mu.
-func (l *messageLog) update(epoch func() uint64) error {
+// A first read of a conversation longer than reach, when reach is not 0,
+// begins at the first entry of its last reach bytes, and the whole
+// conversation is read beside it. The caller holds l.mu.
+func (l *messageLog) update(epoch func() uint64, reach int64) error {
 	file, err := fsx.Open(l.path)
 	if err != nil {
 		return err
@@ -390,6 +408,13 @@ func (l *messageLog) update(epoch func() uint64) error {
 	if info.Size() < l.read {
 		l.reset(epoch())
 	}
+	if l.read == 0 && reach > 0 && info.Size() > reach {
+		if l.from, err = entryAfter(file, info.Size()-reach); err != nil {
+			return err
+		}
+		l.read = l.from
+		l.readWhole(epoch)
+	}
 	l.read, err = readOn(file, l.read, info.Size(), func(start int64, lines [][]byte) {
 		for _, line := range lines {
 			l.entry(line, start)
@@ -397,6 +422,87 @@ func (l *messageLog) update(epoch func() uint64) error {
 		}
 	})
 	return err
+}
+
+// entryAfter is where the first entry at or after offset begins: just past
+// the newline before it.
+func entryAfter(file *os.File, offset int64) (int64, error) {
+	buffer := make([]byte, 64<<10)
+	for next := offset - 1; ; {
+		count, err := file.ReadAt(buffer, next)
+		if i := bytes.IndexByte(buffer[:count], '\n'); i >= 0 {
+			return next + int64(i) + 1, nil
+		}
+		next += int64(count)
+		if errors.Is(err, io.EOF) {
+			return next, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+}
+
+// readWhole reads the whole conversation beside the read of its tail, and
+// puts what it found in place of what that read found, as a read of a new
+// epoch, unless the log was read anew meanwhile. The caller holds l.mu.
+func (l *messageLog) readWhole(epoch func() uint64) {
+	done, tail := make(chan struct{}), l.epoch
+	l.whole, l.wholeErr = done, nil
+	go func() {
+		defer close(done)
+		whole := &messageLog{path: l.path}
+		whole.reset(0)
+		err := whole.update(epoch, 0)
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if l.epoch != tail {
+			return
+		}
+		if err == nil {
+			// Read on to what was written while the whole was read.
+			err = whole.update(epoch, 0)
+		}
+		if err != nil {
+			l.wholeErr = err
+			return
+		}
+		l.adopt(whole.messageState, epoch)
+	}()
+}
+
+// adopt puts what a read of the whole conversation found in place of what
+// the read of its tail found. When the whole holds each message of the tail
+// at its seq, a view of the tail holds nothing it does not: the read keeps
+// its epoch, so a view is sent no page again, and only a message the whole
+// reads otherwise, or read on to, counts as changed. Otherwise, as when the
+// tail held no message, it is a read of a new epoch. The caller holds l.mu.
+func (l *messageLog) adopt(whole messageState, epoch func() uint64) {
+	tail := l.messageState
+	l.messageState = whole
+	at := 0
+	if len(tail.messages) > 0 {
+		at = l.end(tail.messages[0].Seq)
+	}
+	isHeld := len(tail.messages) > 0 && len(l.messages)-at >= len(tail.messages)
+	for j := 0; isHeld && j < len(tail.messages); j++ {
+		isHeld = l.messages[at+j].Seq == tail.messages[j].Seq && l.messages[at+j].ID == tail.messages[j].ID
+	}
+	if !isHeld {
+		l.epoch = epoch()
+		return
+	}
+	l.epoch, l.revision = tail.epoch, tail.revision+1
+	for i := range l.changed {
+		switch j := i - at; {
+		case j < 0:
+			l.changed[i] = 0
+		case j < len(tail.messages) && reflect.DeepEqual(l.messages[i], tail.messages[j]):
+			l.changed[i] = tail.changed[j]
+		default:
+			l.changed[i] = l.revision
+		}
+	}
 }
 
 // entry folds one transcript entry, at offset in the file, into the log. A
@@ -410,33 +516,37 @@ func (l *messageLog) entry(line []byte, offset int64) {
 	if json.Unmarshal(line, &entry) != nil || entry.IsSidechain {
 		return
 	}
+	// A read of a tail begins at its first prompt, interrupt or compaction:
+	// an answer or a summary before them may have begun before the tail.
+	if l.from > 0 && len(l.messages) == 0 && (entry.Type == "assistant" || entry.IsCompactSummary) {
+		return
+	}
 	id := entry.UUID
 	if id == "" {
 		id = "@" + strconv.FormatInt(offset, 10)
 	}
 	switch {
 	case entry.Type == "assistant":
-		l.reply(entry, id)
+		l.reply(entry, id, offset)
 	case entry.Type == "user" && entry.IsCompactSummary:
-		l.summary(entry, id)
+		l.summary(entry, id, offset)
 	case entry.Type == "user" && !entry.IsMeta:
 		l.user(entry, id, offset)
 	case entry.Type == "attachment" && entry.Attachment.Type == "queued_command":
 		// A queued prompt is its text, or its blocks when a picture was
 		// pasted into it, whose text alone is read.
-		l.prompt(Message{ID: id, At: entry.Timestamp, IsQueued: true}, resultText(entry.Attachment.Prompt))
+		l.prompt(Message{ID: id, Seq: int(offset), At: entry.Timestamp, IsQueued: true}, resultText(entry.Attachment.Prompt))
 	case entry.Type == "system" && entry.Subtype == "compact_boundary":
-		l.add(Message{ID: id, Kind: MessageCompaction, At: entry.Timestamp, Trigger: entry.CompactMetadata.Trigger})
+		l.add(Message{ID: id, Seq: int(offset), Kind: MessageCompaction, At: entry.Timestamp, Trigger: entry.CompactMetadata.Trigger})
 	}
 }
 
 // add appends message to the log and returns where it is.
 func (l *messageLog) add(message Message) int {
-	message.Seq = len(l.messages)
 	l.revision++
 	l.messages = append(l.messages, message)
 	l.changed = append(l.changed, l.revision)
-	return message.Seq
+	return len(l.messages) - 1
 }
 
 // touch marks the message at index changed.
@@ -448,8 +558,8 @@ func (l *messageLog) touch(index int) {
 // reply folds one block of a reply into it: Claude Code writes each block of
 // an answer as an entry of its own under the answer's id, a tool's result
 // sometimes between them. Thinking it kept only the signature of shows
-// nothing.
-func (l *messageLog) reply(entry messageEntry, id string) {
+// nothing. A reply's seq is the offset of its first entry that shows.
+func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
 	var blocks []messageBlock
 	if json.Unmarshal(entry.Message.Content, &blocks) != nil {
 		return
@@ -481,7 +591,7 @@ func (l *messageLog) reply(entry messageEntry, id string) {
 	}
 	index, isKnown := l.replies[id]
 	if !isKnown {
-		index = l.add(Message{ID: id, Kind: MessageReply, At: entry.Timestamp, Model: entry.Message.Model})
+		index = l.add(Message{ID: id, Seq: int(offset), Kind: MessageReply, At: entry.Timestamp, Model: entry.Message.Model})
 		l.replies[id] = index
 		// Claude Code writes one entry for each block of an answer, and
 		// repeats the answer's usage on them: only the first counts it. A
@@ -511,9 +621,9 @@ func (l *messageLog) user(entry messageEntry, id string, offset int64) {
 	if json.Unmarshal(entry.Message.Content, &text) == nil {
 		switch notice, isInterrupt := interrupt(text); {
 		case isInterrupt:
-			l.add(Message{ID: id, Kind: MessageInterrupt, At: entry.Timestamp, Text: notice})
+			l.add(Message{ID: id, Seq: int(offset), Kind: MessageInterrupt, At: entry.Timestamp, Text: notice})
 		case !l.commandOutput(text):
-			l.prompt(Message{ID: id, At: entry.Timestamp, IsQueued: entry.PromptSource == "queued"}, text)
+			l.prompt(Message{ID: id, Seq: int(offset), At: entry.Timestamp, IsQueued: entry.PromptSource == "queued"}, text)
 		}
 		return
 	}
@@ -529,7 +639,7 @@ func (l *messageLog) user(entry messageEntry, id string, offset int64) {
 			l.result(entry, block, offset, i)
 		case "text":
 			if notice, isInterrupt := interrupt(block.Text); isInterrupt {
-				l.add(Message{ID: id, Kind: MessageInterrupt, At: entry.Timestamp, Text: notice})
+				l.add(Message{ID: id, Seq: int(offset), Kind: MessageInterrupt, At: entry.Timestamp, Text: notice})
 				return
 			}
 			texts = append(texts, block.Text)
@@ -540,7 +650,7 @@ func (l *messageLog) user(entry messageEntry, id string, offset int64) {
 		}
 	}
 	if len(texts) > 0 || len(pictures) > 0 {
-		l.prompt(Message{ID: id, At: entry.Timestamp, IsQueued: entry.PromptSource == "queued", Pictures: pictures}, strings.Join(texts, "\n"))
+		l.prompt(Message{ID: id, Seq: int(offset), At: entry.Timestamp, IsQueued: entry.PromptSource == "queued", Pictures: pictures}, strings.Join(texts, "\n"))
 	}
 }
 
@@ -689,13 +799,13 @@ func (l *messageLog) commandOutput(text string) bool {
 			command.Errors = printed
 		}
 	}
-	l.touch(command.Seq)
+	l.touch(len(l.messages) - 1)
 	return true
 }
 
 // summary gives the compaction before it the summary Claude Code goes on
 // from.
-func (l *messageLog) summary(entry messageEntry, id string) {
+func (l *messageLog) summary(entry messageEntry, id string, offset int64) {
 	var text string
 	if json.Unmarshal(entry.Message.Content, &text) != nil {
 		return
@@ -706,7 +816,7 @@ func (l *messageLog) summary(entry messageEntry, id string) {
 		l.touch(last)
 		return
 	}
-	l.add(Message{ID: id, Kind: MessageCompaction, At: entry.Timestamp, Text: text})
+	l.add(Message{ID: id, Seq: int(offset), Kind: MessageCompaction, At: entry.Timestamp, Text: text})
 }
 
 // toolOutcome is the part of what Claude Code recorded of a call's result
@@ -853,34 +963,47 @@ func edited(outcome toolOutcome) Edit {
 // pictureTypes are the images a picture is served as.
 var pictureTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
-// picture keeps where an image of source is, as a picture of the log.
+// picture keeps where an image of source is, as a picture of the log named
+// by where it is, so a read of the conversation's tail and a read of the
+// whole of it name it the same.
 func (l *messageLog) picture(source pictureSource, at pictureAt) (Picture, bool) {
 	if source.Type != "base64" || !slices.Contains(pictureTypes, source.MediaType) {
 		return Picture{}, false
 	}
-	id := strconv.Itoa(len(l.pictures) + 1)
+	id := strconv.FormatInt(at.offset, 10) + "." + strconv.Itoa(at.block)
+	if at.part >= 0 {
+		id += "." + strconv.Itoa(at.part)
+	}
 	l.pictures[id] = at
 	return Picture{ID: id, MediaType: source.MediaType, Bytes: len(source.Data)/4*3 - (len(source.Data) - len(strings.TrimRight(source.Data, "=")))}, true
 }
 
 // page is the messages before seq before, the newest page of them; a
-// negative before reads the newest.
+// negative before reads the newest. What the session spent is left out
+// while only the conversation's tail is read.
 func (l *messageLog) page(before int) MessagePage {
-	end := len(l.messages)
-	if before >= 0 {
-		end = min(end, before)
-	}
+	end := l.end(before)
 	start := max(0, end-MessagesPerPage)
-	page := MessagePage{Messages: make([]Message, 0, end-start), More: start > 0}
+	page := MessagePage{Messages: make([]Message, 0, end-start), More: start > 0 || l.from > 0}
 	for _, message := range l.messages[start:end] {
 		page.Messages = append(page.Messages, shared(message))
 	}
-	if l.usage != (Usage{}) {
+	if l.usage != (Usage{}) && l.from == 0 {
 		usage := l.usage
 		usage.ContextWindow = l.window
 		page.Usage = &usage
 	}
 	return page
+}
+
+// end is where the messages before seq before end, or all of them for a
+// negative before.
+func (l *messageLog) end(before int) int {
+	if before < 0 {
+		return len(l.messages)
+	}
+	end, _ := slices.BinarySearchFunc(l.messages, before, func(message Message, seq int) int { return cmp.Compare(message.Seq, seq) })
+	return end
 }
 
 // shared is message as a reader may keep it while the log changes: its
@@ -919,7 +1042,7 @@ func (r *Reader) messageLog(path string) (*messageLog, error) {
 	r.forgetIdleMessages(now)
 	r.messagesMu.Unlock()
 	log.mu.Lock()
-	if err := log.update(epoch); err != nil {
+	if err := log.update(epoch, messageTailReach); err != nil {
 		log.mu.Unlock()
 		r.messagesMu.Lock()
 		if r.messageLogs[path] == log {
@@ -968,6 +1091,23 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 		return MessagePage{}, MessageCursor{}, err
 	}
 	defer log.mu.Unlock()
+	// A page that reaches the first message of a read of the conversation's
+	// tail waits for the whole of it, which a failed read of the whole
+	// starts once more.
+	isRetried := false
+	for before >= 0 && log.from > 0 && log.end(before) <= MessagesPerPage {
+		if log.wholeErr != nil {
+			if isRetried {
+				return MessagePage{}, MessageCursor{}, log.wholeErr
+			}
+			log.readWhole(func() uint64 { return r.messageEpoch.Add(1) })
+			isRetried = true
+		}
+		whole := log.whole
+		log.mu.Unlock()
+		<-whole
+		log.mu.Lock()
+	}
 	return log.page(before), MessageCursor{log.epoch, log.revision}, nil
 }
 
@@ -1047,6 +1187,9 @@ func (r *Reader) Usage(path string) *Usage {
 	}
 	log.mu.Lock()
 	defer log.mu.Unlock()
+	if log.from > 0 {
+		return nil
+	}
 	return usageOf(log.usage, log.window)
 }
 
