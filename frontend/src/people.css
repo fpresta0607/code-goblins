@@ -20,6 +20,7 @@
    list of every name, each whole. */
 .project-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; min-width: 0; }
 .people-row { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.people-same-area { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
 .people-faces { display: flex; margin: 0; padding: 0; list-style: none; }
 .people-faces .person + .person { margin-left: -6px; }
 .people-faces .person a, .people-faces .person > span { display: flex; border-radius: 50%; }

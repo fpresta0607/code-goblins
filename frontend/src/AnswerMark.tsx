@@ -7,7 +7,7 @@ const WORDS = { you: "You answered", cfo: "The CFO answered", away: "The CFO ans
 // Overlord, the CFO's face for the CFO, and the CFO's face with a moon for an
 // answer it gave while he was away.
 export function AnswerMark({ who }: { who: keyof typeof WORDS }) {
-  return <span className={"answer-mark " + who} role="img" aria-label={WORDS[who]} data-tip={WORDS[who]}>
+  return <span className={"answer-mark " + who} role="img" aria-label={WORDS[who]}>
     {who === "you" ? <Icon name="crown" /> : <Avatar persona="cfo" small />}
     {who === "away" && <span className="away-badge"><Icon name="moon" /></span>}
   </span>;

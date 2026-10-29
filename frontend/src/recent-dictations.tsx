@@ -68,16 +68,16 @@ export function RecentDictations({ where, anchor, model, look = "card", onPaste,
   const title = look === "pane" ? "Speech history" : "Recent messages";
   return <section ref={card} popover="manual" className={look === "pane" ? "popup-surface speech-pane voice-recent" : "voice-card voice-recent"} role="dialog" aria-label={title}>
     <p className="voice-card-title">{title}</p>
-    <button className={"icon-button voice-close" + (look === "pane" ? "" : " pixel-icon")} aria-label={"Close " + title.toLowerCase()} data-tip="Close" onClick={onClose}><Icon name="close" /></button>
+    <button className={"icon-button voice-close" + (look === "pane" ? "" : " pixel-icon")} aria-label={"Close " + title.toLowerCase()} onClick={onClose}><Icon name="close" /></button>
     {messages.length ? <ul>{messages.map((message, index) => {
       const key = message.at + ":" + index;
       return <li key={key}>
         {message.at > 0 && <span className="voice-meta">{clock(message.at)}</span>}
         <p className="voice-text">{message.text}</p>
         <span className="voice-actions">
-          {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text} data-tip={copied === key ? "Copied" : "Copy"}
+          {clipboard && <button className="icon-button pixel-icon" aria-label={"Copy: " + message.text}
             onClick={() => { navigator.clipboard.writeText(message.text).then(() => setCopied(key), () => {}); }}><Icon name={copied === key ? "check" : "copy"} /></button>}
-          <button className="icon-button pixel-icon" aria-label={"Paste into " + where + ": " + message.text} data-tip={"Paste into " + where}
+          <button className="icon-button pixel-icon" aria-label={"Paste into " + where + ": " + message.text}
             onClick={() => onPaste(spoken([message.text]))}><Icon name="paste" /></button>
         </span>
       </li>;

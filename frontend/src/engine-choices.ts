@@ -15,6 +15,21 @@ export function effortTone(level: string): string {
   return { off: "dull", minimal: "dull", low: "light", medium: "green", high: "teal", xhigh: "purple", max: "max" }[level] ?? "plain";
 }
 
+// MODES are the permission modes Claude Code 2.1.302 cycles with Shift+Tab, by
+// the words its footer names each with, the name the board gives it and its
+// tone, in the order the model pane lists them. Each mode has a colour of its
+// own, so he tells them apart at a glance, and no icon (the Overlord,
+// 2026-10-28: "I don't like that it has the same color for every mode, and
+// the icons are all the same").
+export const MODES = [
+  { mode: "manual mode", name: "Manual", tone: "manual" },
+  { mode: "accept edits", name: "Accept edits", tone: "edits" },
+  { mode: "plan mode", name: "Plan", tone: "plan" },
+  { mode: "auto mode", name: "Auto", tone: "auto" },
+  { mode: "don't ask", name: "Don't ask", tone: "unasked" },
+  { mode: "bypass permissions", name: "Bypass", tone: "bypass" },
+] as const;
+
 // effortsInOrder sorts a harness's levels from the least to the most.
 export function effortsInOrder(levels: string[]): string[] {
   return [...levels].sort((first, second) => EFFORT_RANKS.indexOf(first) - EFFORT_RANKS.indexOf(second));

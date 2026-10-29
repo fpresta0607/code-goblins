@@ -130,7 +130,7 @@ export function FirstRun({ instance, devDrive, onStarting, onStarted, onBoard }:
       <label htmlFor="projects-folder">Projects folder <span className="muted">(optional)</span></label>
       <div className="first-run-folder">
         <input id="projects-folder" value={folder} onChange={(event) => setTyped(event.target.value)} placeholder="C:\dev" spellCheck={false} autoComplete="off" disabled={isChoosingFolder} />
-        <button type="button" aria-label="Choose folder" data-tip="Choose folder" disabled={isChoosingFolder} onClick={() => void chooseFolder()}><Icon name="folder" /></button>
+        <button type="button" aria-label="Choose folder" disabled={isChoosingFolder} onClick={() => void chooseFolder()}><Icon name="folder" /></button>
         <button type="submit" disabled={isChoosingFolder}>Look</button>
       </div>
       <ClickFeedback text={folderFeedback} />

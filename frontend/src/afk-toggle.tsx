@@ -14,7 +14,7 @@ import "./afk.css";
 // and a refusal is one short sentence on a row of its own under the header
 // until he closes it. Turning it on asks first. Turning it off needs no question:
 // it only gives him his decisions back, and it is how a switch that cannot be
-// read is reset, which its tip says while it cannot be read.
+// read is reset, which a muted line beside it says while it cannot be read.
 // On his private board it turns off and never on, with no words for why (CFO
 // decision 1008966): on hands the CFO his authority, so it stays on the PC.
 // While it is off, the button beside it reopens his report modal.
@@ -24,18 +24,18 @@ export function AfkToggle({ afk, instance, leading }: { afk: Afk; instance: stri
   const { pending, problem, pressedOn, turn, clear } = useAfkSwitch(instance);
   const on = afk.state === "on";
   const canTurnOn = onThisMachine(window.location.hostname);
-  const tip = on ? "Turn AFK off" : afk.state !== "off" ? "Reset AFK to off" : canTurnOn ? "Turn AFK on" : undefined;
   const turnOn = async () => { if (await turn(true)) setAsking(false); };
   const press = () => { if (afk.state === "off") { clear(); setAsking(true); } else void turn(false); };
   return <>
     <div className="afk-header">
       {leading}
-      {afk.state === "off" && afk.page && <button className="icon-button raised" aria-label="Open your last AFK report" data-tip="Last AFK stretch" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /></button>}
-      <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" aria-busy={pending} data-tip={tip} disabled={pending || (afk.state === "off" && !canTurnOn)} onClick={press}>
+      {afk.state === "off" && afk.page && <button className="icon-button raised" aria-label="Open your last AFK report" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /></button>}
+      <button className="afk-toggle" role="switch" aria-checked={on} aria-label="AFK mode" aria-busy={pending} disabled={pending || (afk.state === "off" && !canTurnOn)} onClick={press}>
         <span className="afk-toggle-label">AFK</span>
         {pending && <span className="card-start-spinner" aria-hidden="true" />}
         <span className="afk-toggle-track" aria-hidden="true"><span className="afk-toggle-thumb" /></span>
       </button>
+      {afk.state === "unreadable" && <span className="muted">Unreadable: a press resets it</span>}
     </div>
     {!asking && <AfkRefusal on={pressedOn} problem={problem} onClose={clear} />}
     {asking && <AfkOnDialog pending={pending} problem={problem} onTurnOn={() => void turnOn()} onClose={() => { setAsking(false); clear(); }} />}

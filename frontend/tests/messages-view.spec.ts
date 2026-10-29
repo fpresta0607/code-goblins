@@ -388,6 +388,8 @@ test("Copy puts a message's words on the clipboard, and its text can be selected
   await command.hover();
   await command.getByRole("button", { name: "Copy" }).click();
   await expect.poll(() => clipboard(page)).toBe("git status\n\nnothing to commit");
+  // The turn ends, so its last reply carries Copy.
+  await send(page, "messages", [message(11, { kind: "interrupt", text: "[Request interrupted by user]" })]);
   const last = talk.locator(".message-reply").last();
   await last.hover();
   await last.getByRole("button", { name: "Copy" }).click();
@@ -425,27 +427,50 @@ test.describe("on a phone's touch screen", () => {
     const talk = list(page, "Zeke - Touch Wrangler");
     await expect(talk.locator("[data-message]")).toHaveCount(11);
 
-    // Two replies after the last one, so neither is led by the name, one
-    // with a path that breaks across the whole width and one led by a call.
+    // Two replies after the last one, one with a path that breaks across the
+    // whole width and one led by a call, and the turn ends.
     await send(page, "messages", [
       reply(11, { kind: "text", text: "Changed frontend/src/terminal-touch-handlers/hand-a-vertical-swipe-to-the-history-and-keep-a-long-press-for-paste.ts" }),
       reply(12, { kind: "call", tool: "Bash", subject: "npx playwright test phone-terminal.spec.ts", state: "running" }, { kind: "text", text: "Running the phone terminal spec." }),
+      message(13, { kind: "interrupt", text: "[Request interrupted by user]" }),
     ]);
 
-    const named = talk.locator('[data-message="m10"]');
+    // Only the turn's last reply carries Copy (the Overlord, 2026-10-28: "why
+    // the stray copy button in our chat?").
     const words = talk.locator('[data-message="m11"]');
     const called = talk.locator('[data-message="m12"]');
     await expect(called).toBeVisible();
-    for (const row of [named, words, called]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCSS("opacity", "1");
+    for (const row of [talk.locator('[data-message="m10"]'), words]) await expect(row.getByRole("button", { name: "Copy" })).toHaveCount(0);
+    const copyButton = called.getByRole("button", { name: "Copy" });
+    await expect(copyButton).toHaveCSS("opacity", "1");
     await expect(words.locator(".message-from")).toHaveCount(0);
     await expect(called.locator(".message-from")).toHaveCount(0);
-    expect(shared(await box(words.getByRole("button", { name: "Copy" })), await contents(words.locator(".message-words"))), "Copy covers no word of the reply's text").toBe(0);
-    expect(shared(await box(called.getByRole("button", { name: "Copy" })), await box(called.locator(".call-end"))), "Copy covers no call state").toBe(0);
-    const corner = await box(named);
-    const copy = await box(named.getByRole("button", { name: "Copy" }));
+    const copy = await box(copyButton);
+    expect(shared(copy, await contents(called.locator(".message-words"))), "Copy covers no word of the reply's text").toBe(0);
+    expect(shared(copy, await box(called.locator(".call-end"))), "Copy covers no call state").toBe(0);
+    const corner = await box(called);
     expect(copy.top >= corner.top - 1 && copy.bottom <= corner.bottom + 1, "Copy lies in the message's corner").toBe(true);
-    expect(shared(copy, await contents(named.locator(".message-words").first())), "Copy covers no word of the reply").toBe(0);
   });
+});
+
+// The Overlord, 2026-10-28: "after a queued message is sent, you don't have
+// to keep the queued", and "below the message, like the controls".
+test("a message Claude Code took while it worked carries no Queued, and has the controls of any message", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openGoblin(page);
+  const talk = list(page, "Zeke - Touch Wrangler");
+
+  // Act
+  await send(page, "messages", [message(11, { source: "overlord", queued: true, text: "also check the iPad" })]);
+
+  // Assert
+  const sent = talk.locator(".message-prompt").filter({ hasText: "also check the iPad" });
+  await expect(sent).toBeVisible();
+  await expect(sent).not.toContainText("Queued");
+  await sent.hover();
+  await expect(sent.locator(".message-actions time")).toBeVisible();
+  await expect(sent.getByRole("button", { name: "Copy" })).toBeVisible();
 });
 
 test("Ctrl+Plus, Ctrl+Minus and Ctrl+0, and the right button with the wheel, size the message text, kept in this browser", async ({ page }) => {
@@ -519,7 +544,7 @@ for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as 
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
       const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
-      board.say({ type: "screen", asking: false, open: true, working: false, submission: "", panel: {} });
+      board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
       await page.getByRole("button", { name: "Show the terminal" }).click();
       await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
@@ -560,7 +585,8 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   await openGoblin(page, "Pia - Pi Pilot");
   const who = "Pia - Pi Pilot";
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
-  await expect(messageBox(page, who).locator(".composer-note")).toHaveText("Messages will be queued.");
+  await expect(messageBox(page, who)).toHaveAttribute("data-queues", "");
+  await expect(messageBox(page, who).locator(".composer-note")).toHaveText("");
 
   // Act: he sends while the input is held.
   const typedBefore = board.say;
@@ -579,7 +605,7 @@ test("a held pi goblin's send is queued, survives a reload, and can be withdrawn
   await send(page, "snapshot", { ...SNAPSHOT, revision: 2, actions: [{ id: posted[0].id, kind: "message", task_id: "cg-pi", text: sentText, status: "queued", message: "", awaiting: "" }] });
   const queued = page.locator(".queued-message.pane").filter({ hasText: sentText });
   await expect(queued).toBeVisible();
-  await expect(queued.locator(".queued-state")).toBeVisible();
+  await expect(queued.locator(".queued-bubble")).toBeVisible();
   await page.reload();
   await openGoblin(page, who);
   await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toBeVisible();
@@ -758,4 +784,45 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   expect(posted[1]).toMatchObject({ task_id: "cg-pi", text: sentText, target: posted[0].id });
   await send(page, "snapshot", { ...SNAPSHOT, revision: 3, actions: [] });
   await expect(page.locator(".queued-message.pane").filter({ hasText: sentText })).toHaveCount(0);
+});
+
+// The Overlord, 2026-10-28, from his phone: "Jump to latest button mobile
+// doesn't work again match fill color of chat input box". A flick up the
+// conversation shows the button while the conversation still glides, and the
+// tap that stops the glide is one the browser gives no click.
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+
+  test("a tap on Jump to latest while the conversation glides takes him to the newest message, the button leaves, and it wears the box's fill", async ({ page }) => {
+    // Arrange: a flick up the conversation.
+    await open(page);
+    await openCfo(page);
+    const talk = list(page, "CFO");
+    await expect(talk).toContainText("Answer 99");
+    const jump = page.getByRole("button", { name: "Jump to latest" });
+    await page.evaluate(() => {
+      document.body.dataset.clicks = "0";
+      document.addEventListener("click", () => { document.body.dataset.clicks = String(Number(document.body.dataset.clicks) + 1); }, true);
+    });
+    const shape = (await talk.boundingBox())!;
+    const x = Math.round(shape.x + shape.width / 2), from = Math.round(shape.y + shape.height / 4);
+    const touch = await page.context().newCDPSession(page);
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: from }] });
+    for (let step = 1; step <= 5; step++) await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: from + step * 80 }] });
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(jump).toBeVisible();
+    const fill = await jump.evaluate((element) => getComputedStyle(element).backgroundColor);
+    const button = (await jump.boundingBox())!;
+
+    // Act: a tap at once, while it glides.
+    await page.touchscreen.tap(button.x + button.width / 2, button.y + button.height / 2);
+
+    // Assert: the tap stopped the glide, so the browser gave it no click, and
+    // it still took him to the newest message.
+    await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
+    expect(await page.evaluate(() => document.body.dataset.clicks), "the tap that stopped the glide got no click, on the button or wherever it left").toBe("0");
+    await expect(talk.locator("[data-message]").last()).toBeInViewport();
+    await expect(jump).toHaveCount(0);
+    expect(fill).toBe(await page.locator(".messages-view:not([hidden]) .composer-input").evaluate((element) => getComputedStyle(element).backgroundColor));
+  });
 });

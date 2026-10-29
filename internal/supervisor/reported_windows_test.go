@@ -1,12 +1,9 @@
 package supervisor
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -39,32 +36,7 @@ func TestAGoblinsReportReachesAnOpenBoardWithinASecondAtTheLiveFleetsSize(t *tes
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	request, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	snapshots := make(chan Snapshot, 16)
-	go func() {
-		reader := bufio.NewReaderSize(response.Body, 4<<20)
-		name := ""
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-			switch line = strings.TrimRight(line, "\n"); {
-			case strings.HasPrefix(line, "event: "):
-				name = strings.TrimPrefix(line, "event: ")
-			case strings.HasPrefix(line, "data: ") && name == "snapshot":
-				var snapshot Snapshot
-				if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &snapshot) == nil {
-					snapshots <- snapshot
-				}
-			}
-		}
-	}()
+	snapshots := openBoard(t, ctx, server.URL)
 	select {
 	case <-snapshots:
 	case <-time.After(30 * time.Second):
@@ -109,8 +81,8 @@ func TestAGoblinsReportReachesAnOpenBoardWithinASecondAtTheLiveFleetsSize(t *tes
 		Reported(h.State)
 		for shown := false; !shown; {
 			select {
-			case snapshot := <-snapshots:
-				shown = slices.ContainsFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "goblin-03" && task.Activity == activity })
+			case event := <-snapshots:
+				shown = slices.ContainsFunc(event.data.Tasks, func(task Task) bool { return task.ID == "goblin-03" && task.Activity == activity })
 			case <-time.After(30 * time.Second):
 				t.Fatalf("report %d never reached the board", len(took))
 			}

@@ -1,24 +1,21 @@
-import { expect, test } from "./site";
+import { expect, test, type Page } from "./site";
 import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, PAGE, pasted, snapshot, typed } from "./session-board";
 
 const USAGE = { input_tokens: 12000, output_tokens: 800, context_tokens: 24000, context_window: 100000, model: "recorded-model" };
+const context = (page: Page) => page.getByRole("meter", { name: "Context", exact: true });
 
 for (const width of [1440, 390]) {
-  test(`a branch reset drops abandoned context statistics at ${width}px`, async ({ page }) => {
+  test(`a branch reset drops abandoned context usage at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await open(page, snapshot({}, { harness: "pi" }), "", { ...PAGE, usage: USAGE });
     await openGoblin(page);
     await field(page).fill("keep this draft");
-    await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
+    await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
 
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), more: false });
 
-    const ring = page.getByRole("button", { name: "Context usage unavailable", exact: true });
-    await expect(ring).toBeVisible();
-    await ring.focus();
-    const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
-    await expect(stats).not.toContainText("24k of 100k");
-    await expect(stats).not.toContainText("recorded-model");
+    await expect(context(page)).toHaveCount(0);
+    await expect(box(page)).not.toContainText(/24k|recorded-model|unavailable/);
     await expect(field(page)).toHaveValue("keep this draft");
   });
 }
@@ -42,22 +39,12 @@ for (const width of [1440, 390]) {
       const name = who === "CFO" ? "CFO" : NAME;
       const composer = box(page, name);
       await field(page, name).fill("preserve this draft");
-      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("Recorded Model");
-      await expect(composer.getByRole("button", { name: "Change effort", exact: true }), "the effort control shows the session's effort, or its icon where none is known").toHaveText(who === "CFO" ? "" : "xhigh");
+      await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
+      await expect(composer.locator(".engine-control .effort-level"), "the model's button shows the session's effort where one is known").toHaveText(who === "CFO" ? [] : ["xhigh"]);
 
-      const ring = page.getByRole("button", { name: "Context: 24% used", exact: true });
-      await ring.focus();
-      const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
-      await expect(stats).toContainText("24k of 100k");
-      await expect(stats).toContainText("12k");
-      await ring.press("Escape");
-      await expect(stats).toHaveCount(0);
-      if (width === 390) await ring.tap();
-      else await ring.hover();
-      await expect(stats).toBeVisible();
-      await expect(stats).toBeInViewport();
-      await field(page, name).click();
-      await expect(stats).toHaveCount(0);
+      await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
+      await expect(context(page)).toHaveAttribute("aria-valuetext", "24% used, 24k of 100k tokens");
+      await expect(context(page)).toBeInViewport();
       // Choosing a dictation puts it where the caret is, so it is put at the
       // end of the draft first, as a tap on its last word does.
       await page.keyboard.press("End");
@@ -71,16 +58,16 @@ for (const width of [1440, 390]) {
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
       await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
-      await expect(page.getByRole("button", { name: "Context: 72% used", exact: true })).toBeVisible();
-      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("Changed Model");
+      await expect(context(page)).toHaveAttribute("aria-valuenow", "72");
+      await expect(composer.locator(".engine-control-model")).toHaveText("Changed Model");
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal: "new-cfo" }, { harness: "codex", generation: "replacement" }));
-      await expect(page.getByRole("button", { name: "Context: 24% used", exact: true })).toBeVisible();
+      await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
       await expect.poll(() => relay.addresses.some((address) => address.includes(who === "CFO" ? "cfo=new-cfo" : "generation=replacement"))).toBe(true);
       relay.say({ type: "screen", asking: false, open: false, working: false });
       await (await boxMenu(page, name)).getByRole("button", { name: "Open in Windows Terminal", exact: true }).click();
       await expect.poll(() => posted[1]).toEqual(who === "CFO" ? { native: "cfo=new-cfo" } : { native: `task=${GOBLIN.id}&generation=replacement` });
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
-      await expect(composer.getByRole("button", { name: "Change model", exact: true })).toHaveText("Recorded Model");
+      await expect(composer.locator(".engine-control-model")).toHaveText("Recorded Model");
       await expect(composer.getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
       const controls = await composer.locator(".composer-row button").evaluateAll((buttons) => buttons.map((button) => {
         const bounds = button.getBoundingClientRect();
@@ -90,8 +77,6 @@ for (const width of [1440, 390]) {
       expect(controls.every((control) => control.right <= width)).toBe(true);
       await page.mouse.move(0, 0);
       await page.screenshot({ path: testInfo.outputPath(`session-controls-${who}-${width}.png`) });
-      await ring.focus();
-      await page.screenshot({ path: testInfo.outputPath(`session-stats-${who}-${width}.png`) });
     });
   }
   });
@@ -142,18 +127,23 @@ for (const harness of ["codex", "claude", "pi"] as const) {
       await field(page, name).fill("my unsent words");
       await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
       relay.say({ type: "screen", asking: false, open: false, working: false });
-      const control = box(page, name).getByRole("button", { name: setting === "model" ? "Change model" : "Change effort", exact: true });
+      const control = box(page, name).getByRole("button", { name: "Change model", exact: true });
       await expect(control).toBeEnabled();
 
-      // Act: the control opens the board's own pane, never the terminal.
+      // Act: the control opens the board's own pane, never the terminal, with
+      // the efforts of the model it runs out beside it.
       if (width === 390) await control.tap();
       else await control.click();
-      const pane = box(page, name).getByRole("menu", { name: setting === "model" ? "Model" : "Effort", exact: true });
+      const pane = box(page, name).getByRole("menu", { name: "Model", exact: true });
+      const efforts = box(page, name).getByRole("menu", { name: "Effort", exact: true });
       await expect(pane).toBeVisible();
       await expect(pane.getByRole("menuitemradio", { checked: true })).toHaveCount(1);
+      await expect(efforts.getByRole("menuitemradio", { checked: true })).toHaveCount(1);
       expect(typed(relay), "opening the pane types nothing").toBe("");
       await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
-      const choice = pane.getByRole("menuitemradio", { name: option, exact: typeof option === "string" });
+      const choice = (setting === "model" ? pane : efforts).getByRole("menuitemradio", { name: option, exact: typeof option === "string" });
+      // A tap on another model brings out its efforts, and a second takes it.
+      if (width === 390 && setting === "model") await choice.tap();
       if (width === 390) await choice.tap();
       else await choice.click();
 
@@ -196,8 +186,8 @@ test("a setting changed in Classic shows in Modern's controls, from the session'
   // Arrange
   await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
   await openGoblin(page);
-  const model = box(page).getByRole("button", { name: "Change model", exact: true });
-  const effort = box(page).getByRole("button", { name: "Change effort", exact: true });
+  const model = box(page).locator(".engine-control-model");
+  const effort = box(page).locator(".engine-control .effort-level");
   await expect(model).toHaveText("Opus 5.5");
   await expect(effort).toHaveText("xhigh");
 
@@ -215,8 +205,8 @@ test("a pane pick gives way once the session's record says something new, and ne
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
-  const effort = box(page).getByRole("button", { name: "Change effort", exact: true });
-  await effort.click();
+  const effort = box(page).locator(".engine-control .effort-level");
+  await box(page).getByRole("button", { name: "Change model", exact: true }).click();
   await box(page).getByRole("menu", { name: "Effort", exact: true }).getByRole("menuitemradio", { name: "max", exact: true }).click();
   await expect(effort).toHaveText("max");
   const record = (usage: object) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data } })), usage);
@@ -263,7 +253,7 @@ test("each effort level wears its own colour, dull at the least, a gradient at m
   await page.route("**/api/engines", (route) => route.fulfill({ json: CATALOG }));
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
-  await box(page).getByRole("button", { name: "Change effort", exact: true }).click();
+  await box(page).getByRole("button", { name: "Change model", exact: true }).click();
   const pane = box(page).getByRole("menu", { name: "Effort", exact: true });
   await expect(pane.getByRole("menuitemradio")).toHaveCount(5);
 
@@ -408,8 +398,8 @@ test("a value typed after the command shows on its control only once the session
   const relay = await open(page, snapshot(), "", { ...PAGE, usage: recorded("claude-opus-5-5", "xhigh") });
   await openGoblin(page);
   relay.say({ type: "screen", asking: false, open: false, working: false });
-  const effort = box(page).getByRole("button", { name: "Change effort", exact: true });
-  await expect(effort).toBeEnabled();
+  await expect(box(page).getByRole("button", { name: "Change model", exact: true })).toBeEnabled();
+  const effort = box(page).locator(".engine-control .effort-level");
 
   // Act: a level Claude Code does not take.
   await field(page).fill("/effort hgih");

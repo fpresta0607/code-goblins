@@ -22,7 +22,7 @@ test("a wait's values read as a table and each copies with one click", async ({ 
   await expect(table.getByRole("columnheader")).toHaveText(["Type", "Name", "Content", "Proxy"]);
   await expect(table.getByRole("row")).toHaveCount(4);
   await expect(table.getByRole("button", { name: /^Copy / })).toHaveCount(6);
-  await expect(table.getByRole("button", { name: "Copy 9fQe2kLx7Rm0aPz4Vb8Nw" })).toHaveAttribute("data-tip", "Copied");
+  await expect(table.getByRole("button", { name: "Copy 9fQe2kLx7Rm0aPz4Vb8Nw" })).toHaveClass(/\bcopied\b/);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("9fQe2kLx7Rm0aPz4Vb8Nw");
   await expect(dialog.getByText("So mcp.precisiondocs.ai serves the connector.")).toBeVisible();
   await expect(dialog.getByText("**")).toHaveCount(0);
@@ -62,7 +62,7 @@ test("a value still copies with one click on a page that has no clipboard", asyn
   await button.click();
 
   // Assert
-  await expect(button).toHaveAttribute("data-tip", "Copied");
+  await expect(button).toHaveClass(/\bcopied\b/);
   expect(await page.evaluate(() => (window as unknown as { copiedValue: string }).copiedValue)).toBe("9fQe2kLx7Rm0aPz4Vb8Nw");
   await expect(button).toBeFocused();
   await expect(page.locator("textarea")).toHaveCount(0);
@@ -70,7 +70,7 @@ test("a value still copies with one click on a page that has no clipboard", asyn
 
 // A copy label that opened below its button reached past the last row, so the
 // table grew a scrollbar of its own and cut the label off.
-test("a wait's table never scrolls up or down inside itself, so its last row's copy label shows whole", async ({ page }) => {
+test("a wait's table never scrolls up or down inside itself", async ({ page }) => {
   // Arrange
   await page.goto("/tests/fixtures/wait-table.html");
   await page.getByRole("button", { name: "Open", exact: true }).click();
@@ -85,7 +85,6 @@ test("a wait's table never scrolls up or down inside itself, so its last row's c
   });
 
   // Assert
-  await expect(button).toHaveAttribute("data-tip", "Copy");
   expect(scrolled).toBe(0);
 });
 

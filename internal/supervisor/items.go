@@ -20,8 +20,9 @@ type Items struct {
 	Actions        []Action            `json:"actions"`
 }
 
-// itemsEvent is the items alone as the board's stream sends them, between
-// snapshots, the moment one changes.
+// itemsEvent is the items with the revision they were read at, which the
+// board's stream lays over what the board holds and sends as a change the
+// moment one changes, between snapshots.
 type itemsEvent struct {
 	Instance string `json:"instance"`
 	Revision uint64 `json:"revision"`

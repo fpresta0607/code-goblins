@@ -6,7 +6,7 @@ import { PanelMore } from "./panel-more";
 
 // A control of the panel's top row: an icon button while the row has room for
 // it, and a named item of the row's More menu once it has not. name is what
-// its tip and its menu item say, label its accessible name as an icon, and
+// its menu item says, label its accessible name as an icon, and
 // importance its claim on the row: where there is not room for all, the
 // controls with the highest stay.
 export interface PanelControl { id: string; name: string; label: string; icon: IconName; importance: number; onPress: () => void }
@@ -49,7 +49,7 @@ export function PanelRow({ controls, corner, notice }: {
   const kept = new Set([...controls].sort((a, b) => b.importance - a.importance).slice(0, fit.shown).map((control) => control.id));
   return <div ref={row} className="panel-top">
     <div className="panel-controls">
-      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} data-tip={control.name} onClick={control.onPress}><Icon name={control.icon} /></button>)}
+      {controls.filter((control) => kept.has(control.id)).map((control) => <button key={control.id} className="icon-button" aria-label={control.label} onClick={control.onPress}><Icon name={control.icon} /></button>)}
       {kept.size < count && <PanelMore controls={controls.filter((control) => !kept.has(control.id)).sort((a, b) => b.importance - a.importance)} />}
       <div ref={cornerBox} className="panel-corner">{corner}</div>
       {notice}

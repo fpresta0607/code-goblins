@@ -30,13 +30,13 @@ export function TerminalTouchTools({ events }: { events: TouchToolEvents }) {
     }
   };
   return <span className="terminal-touch-tools">
-    <button type="button" className="icon-button" aria-label="Paste" data-tip="Paste" onPointerDown={keep} onClick={() => void paste()}><Icon name="paste" /></button>
-    <button type="button" className="icon-button" aria-label="Add a picture" data-tip="Add a picture" onPointerDown={keep} onClick={() => picker.current?.click()}><Icon name="images" /></button>
+    <button type="button" className="icon-button" aria-label="Paste" onPointerDown={keep} onClick={() => void paste()}><Icon name="paste" /></button>
+    <button type="button" className="icon-button" aria-label="Add a picture" onPointerDown={keep} onClick={() => picker.current?.click()}><Icon name="images" /></button>
     <input ref={picker} type="file" accept="image/*" hidden aria-label="Picture to add" onChange={(event) => {
       const picture = event.currentTarget.files?.[0];
       event.currentTarget.value = "";
       if (picture) events.image(picture);
     }} />
-    <button type="button" className="icon-button" aria-label="Copy text" data-tip="Copy text" onPointerDown={keep} onClick={events.copy}><Icon name="copy" /></button>
+    <button type="button" className="icon-button" aria-label="Copy text" onPointerDown={keep} onClick={events.copy}><Icon name="copy" /></button>
   </span>;
 }

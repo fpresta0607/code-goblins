@@ -3,8 +3,8 @@ import test from "node:test";
 import { boardAlerts, outlived } from "./alertRules.ts";
 import { cfoSummary } from "./cfoSummary.ts";
 import { closedAt, isOpen, itemFor, nextOpenKey, openKeys, settledIcon, settledItems, settledLabel, waitingItems } from "./commandQueue.ts";
-import { holdClosed, remembered, withItems } from "./item-state.ts";
-import { parseItems, parseSnapshot } from "./types.ts";
+import { holdClosed, remembered } from "./item-state.ts";
+import { parseSnapshot } from "./types.ts";
 
 const SIGN_IN = {
   id: "signin-stripe", generation: "generation-one", login: "stripe-account", provider: "Stripe", account: "PrecisionDocs account",
@@ -13,15 +13,13 @@ const SIGN_IN = {
 };
 const board = (changes: Record<string, unknown> = {}) => parseSnapshot({ healthy: true, instance: "board", revision: 1, browser_signins: [SIGN_IN], ...changes });
 
-test("snapshots and items parse browser sign-ins and default a missing list to empty", () => {
-  for (const parse of [parseSnapshot, parseItems]) {
-    assert.deepEqual(parse({ healthy: true, browser_signins: [SIGN_IN] }).browser_signins, [SIGN_IN]);
-    assert.deepEqual(parse({ healthy: true }).browser_signins, []);
-    assert.deepEqual(parse({ healthy: true, browser_signins: null }).browser_signins, []);
-    assert.throws(() => parse({ healthy: true, browser_signins: [{}] }));
-    assert.throws(() => parse({ healthy: true, browser_signins: [{ ...SIGN_IN, account: 123 }] }));
-    assert.throws(() => parse({ healthy: true, browser_signins: [{ ...SIGN_IN, state: "unknown" }] }));
-  }
+test("snapshots parse browser sign-ins and default a missing list to empty", () => {
+  assert.deepEqual(parseSnapshot({ healthy: true, browser_signins: [SIGN_IN] }).browser_signins, [SIGN_IN]);
+  assert.deepEqual(parseSnapshot({ healthy: true }).browser_signins, []);
+  assert.deepEqual(parseSnapshot({ healthy: true, browser_signins: null }).browser_signins, []);
+  assert.throws(() => parseSnapshot({ healthy: true, browser_signins: [{}] }));
+  assert.throws(() => parseSnapshot({ healthy: true, browser_signins: [{ ...SIGN_IN, account: 123 }] }));
+  assert.throws(() => parseSnapshot({ healthy: true, browser_signins: [{ ...SIGN_IN, state: "unknown" }] }));
 });
 
 for (const state of ["ready", "opening", "open", "signed_in", "expired"]) {
@@ -61,15 +59,6 @@ test("sign-in arrivals alert once and their closed notifications expire", () => 
   assert.match(alerts[0].text, /Sign in to Stripe for PrecisionDocs-AI/);
   assert.deepEqual(boardAlerts(ready, board({ browser_signins: [{ ...SIGN_IN, state: "open" }] })), []);
   assert.equal(outlived(alerts[0], board({ browser_signins: [{ ...SIGN_IN, state: "signed_in" }] })), true);
-});
-
-test("items events update sign-ins with revision and instance fencing", () => {
-  const current = board();
-  const items = parseItems({ instance: "board", revision: 2, browser_signins: [{ ...SIGN_IN, state: "open" }] });
-  const updated = withItems(current, items);
-  assert.equal(updated?.browser_signins?.[0].state, "open");
-  assert.equal(withItems(current, { ...items, revision: 0 }), current);
-  assert.equal(withItems(current, { ...items, instance: "elsewhere" }), current);
 });
 
 for (const state of ["signed_in", "expired"]) {

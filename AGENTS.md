@@ -378,7 +378,7 @@ A goblin takes back a card it no longer needs with `cfo auth request --withdraw 
 `--wait-on <card>` waits on a card again after its wait was cut short.
 Every local file or folder path a card's text names, such as a notes file in a step, is a link.
 In the desktop window it opens File Explorer at that folder, with the file selected, through the supervisor, which opens only an existing path on a drive of this PC that the card's own text names.
-In a plain browser, where that cannot work, the link copies the path instead, as its tip says.
+In a plain browser, where that cannot work, the link copies the path instead, and its folder turns into a check once it has.
 Every Command Center card has a way out beside its decision buttons.
 A question, a review with an answer box, or a Scrawl review card, which has no box for words since he answers on its page, has Skip.
 Every other card, a command, a wait with no page, or a credential or step card, has Skip, which tells its goblin to go on without it and wakes you, and a pencil, Something else?, that opens a small window whose green Send gives whoever asked his written or dictated answer, with any pictures he pasted named as `Image: <path>` lines.

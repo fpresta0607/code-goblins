@@ -270,8 +270,6 @@ test("Scrawl reviews say what is wrong with an amber mark and a few words, and o
   await expect(scrawl).toHaveAccessibleDescription("Direct route");
   const mark = panel.getByRole("img", { name: BYPASSED.scrawl_issue, exact: true });
   await expect(mark).toBeVisible();
-  await mark.focus();
-  await expect(mark).toBeFocused();
   await expect(panel.locator(".remote-access-option").getByRole("button", { name: "Copy " + BYPASSED.scrawl_fix, exact: true })).toBeVisible();
   await expect(panel.getByRole("button", { name: /Set up/ })).toHaveCount(0);
   await expect(panel.getByText(BYPASSED.scrawl_issue)).toHaveCount(0);

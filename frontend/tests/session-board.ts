@@ -64,7 +64,11 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
         const url = new URL(address, location.href);
         if (url.pathname === "/api/messages") {
           window.addEventListener("fixture-messages", this.update);
-          setTimeout(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify(messages) })));
+          // A test that holds the session's messages back (holdMessages)
+          // lets them through with a fixture-release-messages event.
+          const first = () => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify(messages) }));
+          if ((window as { fixtureHoldsMessages?: boolean }).fixtureHoldsMessages) window.addEventListener("fixture-release-messages", first, { once: true });
+          else setTimeout(first);
           return;
         }
         window.addEventListener("fixture-snapshot", this.publish);
@@ -145,4 +149,14 @@ export async function openGoblin(page: Page) {
   await expect(page.locator("#panel-title")).toHaveText(NAME);
   await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
   await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+}
+
+// holdMessages keeps every session's first page of messages back, so its view
+// stays connecting until releaseMessages lets it through.
+export async function holdMessages(page: Page) {
+  await page.addInitScript(() => { (window as { fixtureHoldsMessages?: boolean }).fixtureHoldsMessages = true; });
+}
+
+export async function releaseMessages(page: Page) {
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("fixture-release-messages")));
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, field, GOBLIN, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
+import { at, box, field, GOBLIN, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "im not seeing queued messages appear in the
 // modern chat right away, it lags", "there's no edit or send now function
@@ -171,12 +171,12 @@ test("a held message the board looks at again keeps waiting with Edit, Send now 
     await show(revision, status);
 
     // Assert
-    await expect(shown.locator(".queued-state")).toHaveAttribute("aria-label", action.message);
+    await expect(shown.locator(".queued-bubble")).toHaveAccessibleDescription(action.message);
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(shown.getByRole("button", { name, exact: true }), name + " while " + status).toBeEnabled();
   }
 });
 
-test("Edit changes a queued message's words before it is sent", async ({ page }) => {
+test("Edit takes a queued message back into the box, off the queue", async ({ page }) => {
   // Arrange
   const { posts } = await sendWhileWorking(page, "pi");
   await field(page).fill("rebase onto main");
@@ -188,12 +188,11 @@ test("Edit changes a queued message's words before it is sent", async ({ page })
   // Act
   const shown = bubble(page, "rebase onto main");
   await shown.getByRole("button", { name: "Edit", exact: true }).click();
-  await shown.getByRole("textbox", { name: "Edit message: rebase onto main" }).fill("rebase onto main, then push");
-  await shown.getByRole("button", { name: "Save", exact: true }).click();
 
   // Assert
-  await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_edit"]);
-  expect(posts[1]).toMatchObject({ target: posts[0].id, text: "rebase onto main, then push" });
+  await expect.poll(() => posts.map((post) => post.kind)).toEqual(["message", "message_withdraw"]);
+  expect(posts[1]).toMatchObject({ target: posts[0].id, text: "rebase onto main" });
+  await expect(field(page)).toHaveValue("rebase onto main");
 });
 
 // The Overlord, 2026-10-28: "it's sending and appending messages together
@@ -217,6 +216,10 @@ for (const harness of ["claude", "codex", "pi"]) {
     await expect.poll(() => posts.map((post) => post.kind + ":" + post.text)).toEqual(["message:first, check the train", "message:second, merge it", "message:third, tell me"]);
     expect(new Set(posts.map((post) => post.id)).size, "each its own message").toBe(3);
     expect(typed(relay), "nothing typed onto the prompt line").toBe("");
+    // He assumes it queues, so no note says so (2026-10-28: "this text not
+    // needed on working goblins resumes are assumed").
+    await expect(box(page).locator(".composer-note")).toHaveText("");
+    await expect(page.locator(".context-pane")).not.toContainText(/Send to queue|will be queued/);
   });
 }
 

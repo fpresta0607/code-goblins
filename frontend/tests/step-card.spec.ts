@@ -252,7 +252,7 @@ test("his words from Something else? complete the step card as Sent, and History
   const row = menu.locator(".inbox-history .inbox-list > li").filter({ hasText: "for acme-shop" });
   await row.locator(".history-open").click();
   await expect(row.locator(".history-mark")).toHaveAttribute("aria-label", "You wrote: which plan?");
-  await expect(row.locator(".history-detail")).toHaveText("You wrote: which plan?");
+  await expect(row.locator(".history-detail > small").first()).toHaveText("You wrote: which plan?");
   await expect(page.locator(".notice")).toHaveCount(0);
   await menu.locator(".command-center-updates").screenshot({ path: testInfo.outputPath("step-card-answer-history.png") });
 });

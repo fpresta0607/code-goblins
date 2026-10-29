@@ -27,6 +27,7 @@ import { useSwitchKeys } from "./useSwitchKeys";
 import { missingPageAction, unsentComment, updateAction } from "./boardUpdate";
 import { boardPage, usePageMissing } from "./board-page";
 import { useWindowMove } from "./useWindowMove";
+import { inDesktopApp } from "./dictation";
 import { useAppBadgeRenewal } from "./use-app-badge-renewal";
 import { updateSucceededRecently } from "./update-progress";
 import { windowTarget } from "./terminalWindow";
@@ -374,7 +375,6 @@ export function App() {
   // the CFO's own harness, with no change pending and no problem.
   const cfoEngine = snapshot?.cfo_engine;
   const panelEffort = cfoShown || !task ? (cfoEngine && !cfoEngine.pending && !cfoEngine.problem && cfoEngine.harness === snapshot?.cfo_harness ? cfoEngine.effort : "") : task.effort || "";
-  const panelMemory = cfoShown || !task ? 0 : task.tree?.memory || 0;
   const panelPending = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "").filter(isPendingMessage) : [];
   // A session the board reads as messages shows them, with its terminal laid
   // out behind them in the same box for its box to type through. The terminal steps into their place, with the keyboard,
@@ -508,7 +508,7 @@ export function App() {
       ? <button className="labelled-button" aria-label={"Back to " + view} onClick={close}><Icon name="back" /><span>Back</span></button>
       : backShown
       ? <button className="labelled-button" aria-label="Back to the CFO" onClick={back}><Icon name="back" /><span>Back</span></button>
-      : <button className="icon-button" aria-label="Close panel" data-tip="Close" onClick={close}><Icon name="close" /></button>,
+      : <button className="icon-button" aria-label="Close panel" onClick={close}><Icon name="close" /></button>,
     notice: !boxOnScreen && windowFeedback && <span className="window-feedback"><ClickFeedback text={windowFeedback} /></span>,
   };
   return <AfkBoard snapshot={snapshot} now={now} onOpenCommand={(key) => setCommandFocus({ key, at: Date.now() })}><div className={"app-shell" + (fillsPhone ? " fills-phone" : "")} onKeyDown={(event) => {
@@ -525,16 +525,21 @@ export function App() {
       <div className="topbar-controls">
         {/* A small screen has no room for the tour's button, nor for the
             layout's, since a board that narrow is always stacked. */}
-        {snapshot && !firstRun && !compact && <button className="icon-button" aria-label="Replay the tour" data-tip="Replay the tour" onClick={startTour}><Icon name="question" /></button>}
+        {snapshot && !firstRun && !compact && <button className="icon-button" aria-label="Replay the tour" onClick={startTour}><Icon name="question" /></button>}
         {/* A kanban board too narrow for columns side by side is stacked, so
-            there the button changes nothing and says why; a board stacked by
-            choice keeps its way back, since the panel yields to a kanban. */}
+            there the button changes nothing and its name says why; a board
+            stacked by choice keeps its way back, since the panel yields to a
+            kanban. */}
         {!firstRun && view === "Board" && !compact && (boardNarrow && boardLayout === "kanban"
-          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side" data-tip="Too narrow for columns side by side, so the board is stacked. Close or narrow the panel, or widen the window."><Icon name="stacked" /></button>
-          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"} data-tip={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
+          ? <button className="icon-button" aria-disabled="true" aria-label="Layout: stacked, the board is too narrow for columns side by side. Close or narrow the panel, or widen the window."><Icon name="stacked" /></button>
+          : <button className="icon-button" aria-label={nextLayout === "stacked" ? "Stacked layout" : "Kanban layout"}
             onClick={() => { setBoardLayout(nextLayout); store(BOARD_LAYOUT_KEY, nextLayout); }}><Icon name={boardLayout} /></button>)}
+        {/* The connection's pill sits right before the Command Center's
+            button, so the two read as one group. The desktop window shows it
+            only while the board is not live (the Overlord, 2026-10-28: "dont
+            need live status pill in top right corner of desktop"). */}
+        {!(connected && inDesktopApp()) && <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>}
         {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
-        <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>
         {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>
@@ -571,11 +576,11 @@ export function App() {
             the conversation and its box; Classic's terminal has none. */}
         <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn && !classicInPlace} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
-            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort} memory={panelMemory}
+            name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
             isWorking={isWorking} pending={panelPending}
-            subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} now={now} shown={messagesShown} visible={connected}
+            subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
-            box={(model, history, effort) => createPortal(<Composer isWorking={isWorking} history={history} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
+            box={(model, history, effort, usage) => createPortal(<Composer isWorking={isWorking} history={history} usage={usage} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}
               focus={boxOnScreen ? boxFocus : 0} onShowTerminal={stepIn} onOpenTerminal={shownWindow ? () => void openWindow() : undefined} terminalFeedback={windowFeedback} />, composerTarget)} />}
           {snapshot && terminalOpened && <Suspense fallback={terminalShown ? <div className="terminal-deck"><div className="deck-stage"><div className="terminal-cover" role="status"><span className="terminal-spinner" aria-hidden="true" /><p>Connecting to the terminal</p></div></div></div> : null}>
             <TerminalDeck snapshot={snapshot} task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} cfo={cfoShown} shown={terminalShown || messagesShown} behind={messagesShown} hasComposer={boxOnScreen} connected={connected} focus={switchFocus} onHistory={messagesSource ? readHistory : undefined}

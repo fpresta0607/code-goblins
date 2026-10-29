@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -252,6 +253,33 @@ func (s Screens) IsIdleAtEmptyComposer(screen []string) bool {
 // IsWorking reports whether screen shows a turn in progress.
 func (s Screens) IsWorking(screen []string) bool {
 	return anyRow(screen, s.Working)
+}
+
+// workingWordsMax caps the words WorkingWords returns, so a heading Codex
+// names its step by stays one short phrase beside the board's dither.
+const workingWordsMax = 48
+
+// WorkingWords is what the last row of a turn in progress says the harness
+// is doing, with its spinner, its timer and its interrupt hint cut away:
+// Claude Code's verb, as "Cogitating" from "✻ Cogitating… (12s · esc to
+// interrupt)", the heading Codex names its step by, as "Working" or
+// "Exploring the tests", and pi's "Working". It is "" while no turn shows.
+func (s Screens) WorkingWords(screen []string) string {
+	for i := len(screen) - 1; i >= 0 && s.Working != nil; i-- {
+		if !s.Working.MatchString(screen[i]) {
+			continue
+		}
+		words := strings.TrimLeftFunc(screen[i], func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+		if cut := strings.IndexAny(words, "…(─"); cut >= 0 {
+			words = words[:cut]
+		}
+		words = strings.TrimSpace(words)
+		if runes := []rune(words); len(runes) > workingWordsMax {
+			words = strings.TrimSpace(string(runes[:workingWordsMax])) + "…"
+		}
+		return words
+	}
+	return ""
 }
 
 // IsAsking reports whether screen shows the harness waiting on an answer at

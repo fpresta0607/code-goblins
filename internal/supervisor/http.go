@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -215,6 +216,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.keepAnswerImage(w, r)
 	case r.URL.Path == "/api/composer/file" && r.Method == "POST":
 		h.keepComposerFile(w, r)
+	case r.URL.Path == "/api/composer/file" && r.Method == "GET":
+		h.composerPicture(w, r)
 	case r.URL.Path == "/api/commands" && r.Method == "GET":
 		h.commands(w, r)
 	case r.URL.Path == "/api/files" && r.Method == "GET":
@@ -387,9 +390,24 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 			built <- build{snapshot, err}
 		}()
 	}
-	// sent is the items the board has, as they were last sent to it; nil
-	// before its first snapshot, which the items go on.
+	// view is what the board holds, key by key, as this stream last sent it,
+	// and nil before its first snapshot: every event after that one is a
+	// change to it, so the board receives only what changed. sent is the
+	// items the board has, as they were last sent to it.
+	var view map[string]json.RawMessage
 	var sent []byte
+	sendChange := func(next map[string]json.RawMessage) error {
+		changed, isChanged := changeOfKeys(view, next)
+		view = next
+		if !isChanged {
+			return nil
+		}
+		data, err := json.Marshal(changed)
+		if err != nil {
+			return err
+		}
+		return send("event: change\ndata: %s\n\n", data)
+	}
 	begin(h.Service.Revision())
 	for {
 		select {
@@ -416,7 +434,13 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 			if sent, err = json.Marshal(items); err != nil {
 				return
 			}
-			if send("id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data) != nil {
+			next := keysOf(data)
+			if view == nil {
+				if send("id: %s:%d\nevent: snapshot\ndata: %s\n\n", snapshot.Instance, snapshot.Revision, data) != nil {
+					return
+				}
+				view = next
+			} else if sendChange(next) != nil {
 				return
 			}
 			if stale {
@@ -428,9 +452,14 @@ func (h *HTTP) stream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
-			if sent != nil && !bytes.Equal(body, sent) {
+			if view != nil && !bytes.Equal(body, sent) {
 				data, err := json.Marshal(itemsEvent{h.Service.Instance, revision, items})
-				if err != nil || send("event: items\ndata: %s\n\n", data) != nil {
+				if err != nil {
+					return
+				}
+				next := maps.Clone(view)
+				maps.Copy(next, keysOf(data))
+				if sendChange(next) != nil {
 					return
 				}
 				sent = body
@@ -483,7 +512,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	// A message goes to whichever CFO or goblin session runs when it is
 	// delivered, and a delete names the message by its goblin and words, so
 	// neither needs a recipient identity.
-	if input.Generation == "" && input.Kind != "message" && input.Kind != "message_withdraw" && input.Kind != "message_edit" && input.Kind != "message_now" {
+	if input.Generation == "" && input.Kind != "message" && input.Kind != "message_withdraw" && input.Kind != "message_now" {
 		apiError(w, 409, "Recipient identity is required; refresh the board")
 		return
 	}
@@ -500,18 +529,9 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// A queued message's own actions change it where it waits, or ask for it
-	// now, and are never queued as deliveries of their own.
-	switch a.Kind {
-	case "message_edit":
-		if _, err := h.Service.Store.EditQueuedMessage(a.Target, a.TaskID, a.Text); err != nil {
-			apiError(w, 409, err.Error())
-			return
-		}
-		h.Service.publish(nil)
-		respond(w, 202, map[string]string{"status": "edited"})
-		return
-	case "message_now":
+	// A queued message's Send now asks for it where it waits, and is never
+	// queued as a delivery of its own.
+	if a.Kind == "message_now" {
 		if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
 			apiError(w, 409, err.Error())
 			return

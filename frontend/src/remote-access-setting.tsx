@@ -27,7 +27,7 @@ type Machine = ReturnType<typeof parseMachines>[number];
 function parse(value: unknown) {
   const v = object(value);
   const text = (field: unknown) => field ? string(field) : "";
-  return { enabled: boolean(v.enabled), ready: boolean(v.ready), url: text(v.url), issue: text(v.issue), attention: text(v.attention), tailscale: text(v.tailscale), tailscaleIssue: text(v.tailscale_issue), fix: text(v.fix), scrawl: v.scrawl === undefined ? false : boolean(v.scrawl), scrawlState: text(v.scrawl_state), scrawlIssue: text(v.scrawl_issue), scrawlFix: text(v.scrawl_fix) };
+  return { enabled: boolean(v.enabled), ready: boolean(v.ready), url: text(v.url), issue: text(v.issue), attention: text(v.attention), tailscale: text(v.tailscale), fix: text(v.fix), scrawl: v.scrawl === undefined ? false : boolean(v.scrawl), scrawlState: text(v.scrawl_state), scrawlIssue: text(v.scrawl_issue), scrawlFix: text(v.scrawl_fix) };
 }
 
 // The machines on his tailnet whose boards answer privately, the one whose
@@ -134,7 +134,6 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
   const scrawlWrong = status.scrawlState !== "" && status.scrawlState !== "on";
   return <section className="remote-access-setting" aria-label="Remote access">
     <SettingSwitch label="Tailscale" on={status.enabled} pending={pending === "tailscale"} disabled={pending !== "" || !instance || !status.enabled && !canTurnOn}
-      tip={status.enabled ? "Turn remote access off" : canTurnOn ? "Turn remote access on" : status.tailscaleIssue || status.issue}
       mark={status.enabled ? status.ready && !status.attention ? "ok" : "problem" : status.attention ? "problem" : undefined} markTip={status.issue}
       note={TAILSCALE_NOTES[status.attention || (status.enabled ? "" : status.tailscale)]}
       onPress={() => void change({ on: !status.enabled })} />
@@ -145,7 +144,6 @@ export function RemoteAccessSetting({ instance, runs, connected }: { instance: s
     {status.enabled && status.url && <CopyValue value={status.url} />}
     {status.enabled && <div className="remote-access-option">
       <SettingSwitch label="Scrawl reviews" on={status.scrawl} pending={pending === "scrawl"} disabled={pending !== "" || !instance || !status.ready || !status.scrawl && !local}
-        tip={status.scrawl ? "Turn Scrawl reviews off" : "Turn Scrawl reviews on"}
         mark={scrawlWrong ? "problem" : status.scrawl && status.scrawlState === "on" ? "ok" : undefined} markTip={status.scrawlIssue}
         note={SCRAWL_NOTES[status.scrawlState]}
         onPress={() => void change({ scrawl: !status.scrawl })} />
