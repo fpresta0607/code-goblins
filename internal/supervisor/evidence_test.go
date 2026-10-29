@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -407,6 +408,57 @@ func TestQueuedBriefsListOnlyBriefsNothingStarted(t *testing.T) {
 	queued := queuedBriefs(h, diskBriefs)
 	if len(queued) != 1 || queued[0].ID != "queued" || queued[0].Phase != "queued" {
 		t.Fatalf("queued = %+v, want only the brief nothing started", queued)
+	}
+}
+
+// Each snapshot build, each cycle and the ticket keeper list the queued
+// briefs. On 2026-10-28 the home held 848 folders, nearly all of tasks long
+// dispatched, beside 1,925 archive entries, and the listing asked the disk
+// about every brief and matched every folder against every archive entry
+// and task record: most of each snapshot build's processor time (#1716). It
+// asks the disk only about a folder nothing started, whose ID, dots and all,
+// no record or archive entry names.
+func TestQueuedBriefsAskTheDiskOnlyAboutFoldersNothingStarted(t *testing.T) {
+	// Arrange: a brief nothing started, a folder with no brief, and the
+	// briefs of tasks that run, ended, or were archived, one of them under an
+	// ID with a dot.
+	dir := t.TempDir()
+	h := home.Home{Root: dir, State: filepath.Join(dir, "state"), Data: filepath.Join(dir, "data")}
+	for _, path := range []string{
+		filepath.Join(h.Data, "queued", "brief.md"),
+		filepath.Join(h.Data, "notes-only", "report.md"),
+		filepath.Join(h.Data, "live", "brief.md"),
+		filepath.Join(h.Data, "cleaned", "brief.md"),
+		filepath.Join(h.Data, "archived", "brief.md"),
+		filepath.Join(h.Data, "fix.v2", "brief.md"),
+		filepath.Join(h.State, "Live.meta"),
+		filepath.Join(h.State, "cleaned.status"),
+		filepath.Join(h.State, state.ArchiveDirName, "archived.20260920T000000Z", "handoff.md"),
+		filepath.Join(h.State, state.ArchiveDirName, "fix.v2.status.20260920T000000Z"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var asked []string
+	counted := briefReader{func(path string) (fs.FileInfo, error) {
+		asked = append(asked, filepath.Base(filepath.Dir(path)))
+		return os.Stat(path)
+	}, briefProject}
+
+	// Act
+	queued := queuedBriefs(h, counted)
+
+	// Assert
+	if len(queued) != 1 || queued[0].ID != "queued" {
+		t.Fatalf("queued = %+v, want only the brief nothing started", queued)
+	}
+	slices.Sort(asked)
+	if want := []string{"notes-only", "queued"}; !slices.Equal(asked, want) {
+		t.Errorf("the listing asked the disk about the briefs of %v, want only %v, the folders nothing started", asked, want)
 	}
 }
 

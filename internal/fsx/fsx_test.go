@@ -46,6 +46,49 @@ func TestAtomicWriteFileLeavesNoTempOnSuccess(t *testing.T) {
 	}
 }
 
+// A commit of a new file puts it in a missing place whole, and refuses a
+// place already taken without touching what is there, keeping the staged
+// file for another try until Discard removes it.
+func TestCommitNewPutsTheFileOnlyInAMissingPlace(t *testing.T) {
+	for _, existing := range []string{"", "theirs"} {
+		t.Run("existing="+existing, func(t *testing.T) {
+			// Arrange
+			dir := t.TempDir()
+			path := filepath.Join(dir, "record")
+			if existing != "" {
+				if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			staged, err := Stage(path, []byte("ours"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			commitErr := staged.CommitNewContext(t.Context())
+			staged.Discard()
+
+			// Assert
+			want := "ours"
+			if existing != "" {
+				want = existing
+				if !errors.Is(commitErr, os.ErrExist) {
+					t.Errorf("commit over an existing file = %v, want os.ErrExist", commitErr)
+				}
+			} else if commitErr != nil {
+				t.Errorf("commit into a missing place = %v", commitErr)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != want {
+				t.Errorf("record = %q, %v; want %q", got, err, want)
+			}
+			if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+				t.Errorf("dir has %d entries, want 1 (no leftover staged file)", len(entries))
+			}
+		})
+	}
+}
+
 func TestReadLines(t *testing.T) {
 	tests := []struct {
 		name    string

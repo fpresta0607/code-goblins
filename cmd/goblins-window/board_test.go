@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -103,6 +104,29 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 	}
 }
 
+// standInLook stands in for the supervisor's /api/waiting, the window's look
+// for what waits: it answers the items waiting.Items reads from the snapshot
+// that snapshot returns, as the supervisor answers from its own, and refuses
+// every other request, a snapshot's among them, which the window never needs
+// for its look (#1716).
+func standInLook(t *testing.T, snapshot func() string) *httptest.Server {
+	t.Helper()
+	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/waiting" {
+			http.NotFound(w, r)
+			return
+		}
+		instance, items, err := waiting.Items([]byte(snapshot()))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(waiting.Look{Instance: instance, Items: items})
+	}))
+	t.Cleanup(board.Close)
+	return board
+}
+
 // The window notifies only what is new since its last look: its first look
 // learns what already waits, which the board shows; a goblin's question the
 // CFO left, which the page counts but never alerts, is never told; and a
@@ -110,16 +134,7 @@ func TestTheWindowLoadsTheBoardOnlyWhenItsPageIsNotABoards(t *testing.T) {
 func TestTheWatcherTellsOnlyNewItems(t *testing.T) {
 	var mu sync.Mutex
 	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"First?","status":"pending","created_at":"T1"}]}`
-	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		if r.URL.Path != "/api/snapshot" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(snapshot))
-	}))
-	defer board.Close()
+	board := standInLook(t, func() string { mu.Lock(); defer mu.Unlock(); return snapshot })
 	watcher := &Watcher{}
 
 	first, answered := watcher.New(board.URL)
@@ -157,12 +172,7 @@ func TestAWaitWhoseDecisionClosesIsNotNew(t *testing.T) {
 	var mu sync.Mutex
 	wait := `{"id":"waiting-olive-4","title":"Add the DNS records","state":"open","task":"olive","follows":"q1","created_at":"T2"}`
 	snapshot := `{"instance":"i-1","questions":[{"id":"q1","text":"Which domain?","status":"pending","created_at":"T1"}],"reviews":[` + wait + `]}`
-	board := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		_, _ = w.Write([]byte(snapshot))
-	}))
-	defer board.Close()
+	board := standInLook(t, func() string { mu.Lock(); defer mu.Unlock(); return snapshot })
 	watcher := &Watcher{}
 	watcher.New(board.URL)
 

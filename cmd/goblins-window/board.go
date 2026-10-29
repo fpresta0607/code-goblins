@@ -217,21 +217,21 @@ func (p *Page) Shown() {
 // look. Its first look only learns what already waits, which the board shows.
 type Watcher struct {
 	Client *http.Client
-	// Instance is the supervisor's instance, as the last snapshot read named
-	// it.
+	// Instance is the supervisor's instance, as the last look named it.
 	Instance string
 	seen     map[string]bool
 }
 
-// New reads the board's snapshot and returns the items that were not
+// New reads what waits on the board and returns the items that were not
 // waiting at the last look, and whether the board answered. A board that
-// cannot be read shows nothing new.
+// cannot be read shows nothing new. It reads the waiting items alone, never
+// the board's snapshot, which holds the whole fleet (#1716).
 func (w *Watcher) New(board string) ([]waiting.Item, bool) {
 	client := w.Client
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
-	response, err := client.Get(strings.TrimSuffix(board, "/") + "/api/snapshot")
+	response, err := client.Get(strings.TrimSuffix(board, "/") + "/api/waiting")
 	if err != nil {
 		return nil, false
 	}
@@ -239,19 +239,15 @@ func (w *Watcher) New(board string) ([]waiting.Item, bool) {
 	if response.StatusCode != http.StatusOK {
 		return nil, false
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, 16<<20))
-	if err != nil {
+	var look waiting.Look
+	if err := json.NewDecoder(io.LimitReader(response.Body, 16<<20)).Decode(&look); err != nil {
 		return nil, false
 	}
-	instance, items, err := waiting.Items(data)
-	if err != nil {
-		return nil, false
-	}
-	w.Instance = instance
+	w.Instance = look.Instance
 	first := w.seen == nil
 	current := map[string]bool{}
 	var fresh []waiting.Item
-	for _, item := range items {
+	for _, item := range look.Items {
 		current[item.ID] = true
 		if !first && !w.seen[item.ID] && !item.IsQuiet {
 			fresh = append(fresh, item)

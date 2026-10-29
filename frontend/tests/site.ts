@@ -18,10 +18,12 @@ export const ORIGIN = "http://127.0.0.1:1";
 // test does not answer itself fails. origin serves the pages under another
 // origin too, for a test of the board as another machine sees it. Its browser
 // has had the board's quick tour, so no tour covers the board on a first
-// open, unless hadTour is false.
-export async function servePages(context: BrowserContext, origin = ORIGIN, hadTour = true): Promise<void> {
+// open, unless hadTour is false, and draws conversations in the chatStyle it
+// chose, where the test saved none of its own, unless chatStyle is null.
+export async function servePages(context: BrowserContext, origin = ORIGIN, hadTour = true, chatStyle: string | null = "modern"): Promise<void> {
   const site = process.env.BOARD_TEST_SITE!;
   if (hadTour) await context.addInitScript(() => localStorage.setItem("cfo-tour", "seen"));
+  if (chatStyle) await context.addInitScript((style) => { if (location.protocol.startsWith("http") && localStorage.getItem("cfo-chat-style") === null) localStorage.setItem("cfo-chat-style", style); }, chatStyle);
   // Chromium fetches an audio worklet's module past these routes, so the
   // capture worklet dictation records through, which the board serves from
   // its own address, is handed to the page from the build as a blob.
@@ -142,11 +144,14 @@ export async function roomForATest({ free, limit, pause, ci }: Room = MACHINE): 
 }
 
 // Every test waits for room before it starts. A test's own context has its
-// pages served, with hadTour passed to servePages; a test that opens another
-// context serves that one itself.
-export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; isSteppedIn: boolean }>({
+// pages served, with hadTour and chatStyle passed to servePages; a test that
+// opens another context serves that one itself. Modern Chat's specs predate
+// Classic as the board's default, so a test's browser chose Modern unless it
+// says otherwise.
+export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; chatStyle: string | null; isSteppedIn: boolean }>({
   room: [MACHINE, { option: true }],
   hadTour: [true, { option: true }],
+  chatStyle: ["modern", { option: true }],
   // The stepped-in project's runs draw each fixture's terminal stepped into a
   // Messages view's place (tests/fixtures/stepped-in.tsx).
   isSteppedIn: [false, { option: true }],
@@ -154,8 +159,8 @@ export const test = base.extend<{ room: Room; paced: void; hadTour: boolean; isS
     await roomForATest(room);
     await use();
   }, { auto: true, timeout: MACHINE.limit + 10_000 }],
-  context: async ({ context, hadTour, isSteppedIn }, use) => {
-    await servePages(context, ORIGIN, hadTour);
+  context: async ({ context, hadTour, chatStyle, isSteppedIn }, use) => {
+    await servePages(context, ORIGIN, hadTour, chatStyle);
     // A page with no storage, as about:blank, is left as it is.
     if (isSteppedIn) await context.addInitScript(() => { if (location.protocol.startsWith("http")) sessionStorage.setItem("fixture-stepped-in", "true"); });
     await use(context);

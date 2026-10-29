@@ -28,6 +28,13 @@ func hisCommandStep() afk.Entry {
 	return afk.Entry{Kind: afk.KindHis, What: "Let the fleet read what GitHub Actions bills you", Evidence: "the fleet token lacks the user scope", Command: "gh auth refresh -h github.com -s user\n", Shell: "powershell"}
 }
 
+// hisDecisionStep is a step only he can take that is a decision of his, as
+// the Georgetown repair of 2026-10-28 was: he answers it with a choice the
+// CFO then acts on, not with Done.
+func hisDecisionStep() afk.Entry {
+	return afk.Entry{Kind: afk.KindHis, What: "Approve Odie's one-time production repair of PrecisionDocs project Georgetown", Link: "https://github.com/fpresta0607/PrecisionDocs-AI/issues/2012", Evidence: "a production repair is his to approve. Backlog row 2026-10-28", Options: []string{"Approve the repair", "Dry-run it again first", "Leave Georgetown as it is"}, Recommendation: "Dry-run it again first"}
+}
+
 func cardsOf(s *Service) (questions []Question, runs []Run) {
 	for _, q := range s.Store.Snapshot().Questions {
 		if strings.HasPrefix(q.ID, "afk-his-") {
@@ -250,5 +257,69 @@ func TestAStepItsCardCouldNotDoBecomesNoCard(t *testing.T) {
 		return strings.Contains(r.Detail, "could not become cards") && strings.Contains(r.Detail, install.What) && strings.Contains(r.Detail, "--link")
 	}) {
 		t.Errorf("wakes = %+v, want the CFO told the install step could not become a card, and why", pending)
+	}
+}
+
+// The Overlord, 2026-10-28: "afk commands dont have proper multiple choice
+// answers like normal command cfo prompts please fix so its options arent
+// always done / later". Three of his four cards that day asked him to approve
+// something, and Done was all he could answer. A step logged with choices
+// becomes a card with those choices and its recommendation, in place of Done
+// and Later; the board adds Other to every question.
+func TestAStepLoggedWithChoicesBecomesACardWithThoseChoicesAndItsRecommendation(t *testing.T) {
+	// Arrange
+	s, h, _ := asTheCFO(t)
+	decision := hisDecisionStep()
+
+	// Act
+	logged := awayAndBack(t, s, h, decision)
+	questions, runs := cardsOf(s)
+
+	// Assert
+	if len(questions) != 1 || len(runs) != 0 {
+		t.Fatalf("cards = %d questions and %d runs, want one question for the decision", len(questions), len(runs))
+	}
+	q := questions[0]
+	if q.ID != afk.HisCardID(logged[0]) || q.Status != "pending" || !slices.Equal(q.Options, decision.Options) || q.Recommended != decision.Recommendation {
+		t.Errorf("question = %+v, want the CFO's own pending card with exactly the choices %q and %q recommended", q, decision.Options, decision.Recommendation)
+	}
+	if !strings.HasPrefix(q.Text, decision.What+"\n") || !strings.Contains(q.Text, "`"+decision.Link+"`") {
+		t.Errorf("question text = %q, want the decision in plain words and its link", q.Text)
+	}
+}
+
+// His answer to a card with choices reaches the CFO as an answer to any of
+// its questions does, with the text of the choice he picked, and settles the
+// step in the log with it.
+func TestHisAnswerToACardWithChoicesReachesTheCFOWithTheChosenChoice(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	_, identity, cfo, connection := primaryFixture(t, store)
+	for _, name := range []string{"CFO_ROLE", "NO_MISTAKES_GATE"} {
+		t.Setenv(name, "")
+	}
+	s := &Service{Store: store, Options: Options{CFO: connection}}
+	runPipe(t, s)
+	decision := hisDecisionStep()
+	logged := awayAndBack(t, s, h, decision)
+	card := afk.HisCardID(logged[0])
+	chosen := decision.Options[0]
+
+	// Act
+	if _, err := store.Queue(Action{ID: "board-answer", Kind: "cfo_answer", Generation: identity, QuestionID: card, Text: chosen, AnswerKind: "option"}); err != nil {
+		t.Fatal(err)
+	}
+	runAll(t, store, s)
+	told := cfo.waitForLines(t, 1)
+	settleErr := s.settleHisCards(time.Now().UTC())
+	report, found, err := ReadAFKReport(h)
+
+	// Assert
+	want := "User answer to CFO question " + card + ". Question: " + decision.What + "\n- Link: `" + decision.Link + "` Answer: " + chosen
+	if !slices.ContainsFunc(told, func(line string) bool { return strings.Contains(line, oneLine(want)) }) {
+		t.Errorf("the CFO received %q, want its card's answer %q", told, oneLine(want))
+	}
+	if settleErr != nil || err != nil || !found || len(report.Held) != 1 || report.Held[0].Waiting || !strings.Contains(report.Held[0].Now, chosen) {
+		t.Errorf("settle = %v, report = %v %v, held = %+v, want the card closed with his choice %q", settleErr, found, err, report.Held, chosen)
 	}
 }

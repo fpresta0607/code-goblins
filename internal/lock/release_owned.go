@@ -69,16 +69,22 @@ func acquireExclusiveStrictReading(ctx context.Context, dir, name string, read f
 	if err != nil {
 		return nil, err
 	}
+	// The record goes into place whole, as writeInfo puts it.
 	path := filepath.Join(dir, name)
+	staged, err := fsx.Stage(path, data)
+	if err != nil {
+		return nil, err
+	}
+	defer staged.Discard()
 	for attempt := 0; attempt < acquireAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		file, err := fsx.CreateNewContext(ctx, path, 0644)
+		publishing()
+		err := staged.CommitNewContext(ctx)
 		if err == nil {
 			exclusiveLeases.acquired[key] = self.Acquired
-			_, writeError := file.Write(data)
-			if err := errors.Join(writeError, file.Close(), ctx.Err()); err != nil {
+			if err := ctx.Err(); err != nil {
 				return self, err
 			}
 			current, err := read(ctx, dir, name)

@@ -3,16 +3,15 @@ import { at, box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, 
 
 test.describe("phone speech history", () => {
   test.use({ hasTouch: true });
-  for (const style of ["classic", "modern"]) {
+  for (const state of ["held", "ready"]) {
     for (const width of [360, 390]) {
-      test(`phone ${style} inserts an older speech entry at the selection without reading the clipboard at ${width}px`, async ({ page }) => {
+      test(`phone ${state} inserts an older speech entry at the selection without reading the clipboard at ${width}px`, async ({ page }) => {
         await page.setViewportSize({ width, height: 800 });
-        await page.addInitScript((chatStyle) => {
-          localStorage.setItem("cfo-chat-style", chatStyle);
+        await page.addInitScript(() => {
           let reads = 0;
           Object.defineProperty(navigator, "clipboard", { configurable: true, value: { read: async () => { reads++; return []; } } });
           Object.assign(window, { clipboardReads: () => reads });
-        }, style);
+        });
         const relay = await open(page);
         await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: [
           { text: "newest dictation", at: Date.parse("2026-10-22T09:31:00Z") },
@@ -20,7 +19,7 @@ test.describe("phone speech history", () => {
         ] } }));
         await card(page, NAME).tap();
         await expect.poll(() => relay.views).toBeGreaterThan(0);
-        if (style === "classic") relay.say({ type: "held", reason: "pipeline owns this task" });
+        if (state === "held") relay.say({ type: "held", reason: "pipeline owns this task" });
         await expect(field(page)).toBeVisible();
         await field(page).fill("before replace after");
         await field(page).evaluate((element) => { const box = element as HTMLTextAreaElement; box.focus(); box.setSelectionRange(7, 14); });
