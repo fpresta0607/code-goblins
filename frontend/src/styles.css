@@ -1002,6 +1002,11 @@ button.dialogue-portrait:hover::before { background: #12202a; }
   .panel-header .goblin-avatar { width: 48px; height: 48px; }
   .panel-header h2 { font-size: 1.375rem; }
 }
+/* A panel as narrow as a phone gives the name a phone's size, so a long name
+   shows whole in two lines beside the Chat and Task switch. */
+@container goblin-panel (max-width: 25rem) {
+  .panel-header h2, .panel-header.compact h2 { font-size: 1.125rem; }
+}
 
 /* The comment affordance is a speech-bubble icon, never a font glyph,
    positioned on the first line of its row. */

@@ -525,6 +525,7 @@ Under Working and any failure the header shows no sentence, at the Overlord's wo
 For any other task, Details under the sentence shows the report or the supervisor's problems exactly as written; a read that fails shows Retry, and the CFO hears what could not be read.
 A goblin's header over its messages or its terminal is compact and headed as the CFO's is: its picture, its name and title, its task id and one status line, with no task description and no buttons but the panel's Chat and Task switch, since its task list holds them and the live screen shows the latest output (the Overlord, 2026-10-17: "If they exist on the task panel, we don't need them in the terminal header").
 In both views the goblin's name and its task show whole beside that switch, wrapping between words and at a task id's hyphens, and break a word only when it is wider than the line; neither has a tip.
+In a panel as narrow as a phone, 400 px or less, the name takes the phone's smaller size, so a long one still shows whole in two lines beside the switch.
 In a full header its buttons stay beside them only while all fit on one row, and otherwise take a row of their own under the task, starting where it starts (the Overlord, 2026-10-09: "Place buttons under when super long.").
 The task list holds the workspace, connections, changes, activity and commit history, each a section closed until it is opened, beside the goblin's messages or its live native terminal.
 Its header details keep the link to a goblin this one waits on, both beside the conversation and in the Task fold.
