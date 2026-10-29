@@ -145,7 +145,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 	tree := Tree{TaskID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Children: []Node{}, FetchedAt: now}
 
 	processes, harness, isRunning, isReused, processErr := r.harnessOf(goblin)
-	harness = r.withoutLinkBrowsers(harness)
+	harness = r.withoutOthers(harness)
 	switch {
 	case processErr != nil:
 		tree.Unread = append(tree.Unread, "processes: "+processErr.Error())
@@ -234,7 +234,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 		// a pipeline or a loop by replacing its own process, which leaves the
 		// program no parent, so a detached job counts in the child whose
 		// processes host the console it is attached to.
-		detached := r.withoutLinkBrowsers(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)})
+		detached := r.withoutOthers(harnessProcesses{jobs: r.detachedJobs(meta.ID, processes, harness)})
 		left, _ := r.jobNodes(detached, commands, tree.Children, line, now)
 		for i := range left {
 			node := &left[i]
