@@ -38,13 +38,16 @@ import { TaskAdjustment } from "./task-adjustment";
 // panel's controls with Close or Back, led on the CFO's panel by its AFK
 // switch, with Update before it while an update of the CFO's harness waits
 // and Restart PC before that while the kernel's pools are past their line.
+// The CFO's picture is Home, onHome, which goes back to the board (the
+// Overlord, 2026-10-29: "just click on the CFO in the top, the CFO avatar,
+// and that should take us back to the home screen").
 // Everything else is the details, isDetails, at the top of the Task view: the
 // goblin's whole name and task id, its status, the one place the panel says
 // the task's state, with one plain sentence under it and the words that
 // sentence leaves out behind Details, where a failure links to the task's
 // log, the task's buttons, and on the CFO's panel the last AFK report and
 // what a press of Update waits for.
-export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
+export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, onAnswer, onOpenTask, onOpenLog, onHome }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void; onHome?: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -119,7 +122,7 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
   </div>;
   return <header className="panel-header one-row">
     <div className="panel-identity">
-      <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
+      {cfo && onHome ? <button className="panel-home" aria-label="Home" onClick={onHome}><Avatar persona="cfo" small /></button> : <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />}
       <h2 id="panel-title">{title}</h2>
       {harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}
       {goblinTask && <p className="panel-goblin-task">{goblinTask}</p>}

@@ -62,6 +62,31 @@ test("Escape goes back from a task's panel, and closes the CFO's", async ({ page
   await expect(page.locator(".context-pane")).toBeHidden();
 });
 
+// The Overlord, 2026-10-29: "You could even just click on the CFO in the top,
+// the CFO avatar, and that should take us back to the home screen." A task's
+// picture is only a picture.
+test("the CFO's picture in its header goes back to the board, maximized or not, and a task's does nothing", async ({ page }) => {
+  // Arrange
+  await open(page);
+  const home = page.locator(".goblin-panel > .panel-header").getByRole("button", { name: "Home", exact: true });
+  for (const isMaximized of [false, true]) {
+    await page.keyboard.press("Control+Alt+1");
+    await expect(title(page)).toHaveText("CFO");
+    if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+    await expect(page.locator(".canvas-region")).toBeVisible({ visible: !isMaximized });
+
+    // Act
+    await home.locator(".goblin-avatar").click();
+
+    // Assert
+    await expect(page.locator(".context-pane")).toBeHidden();
+    await expect(page.locator(".canvas-region")).toBeVisible();
+  }
+  await card(page, "working-one").click();
+  await expect(title(page)).toHaveText("working-one");
+  await expect(home).toHaveCount(0);
+});
+
 for (const id of ["working-one", "paused-one"]) {
   test(`a card opens the panel of ${id} beside the board, one view with no pill`, async ({ page }) => {
     await open(page);
