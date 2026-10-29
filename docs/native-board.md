@@ -2266,7 +2266,9 @@ A save's body is never logged, and a panic while one is handled answers with a f
 When a task needs a service already declared by its project, the goblin or registered CFO can file `cfo auth request --project <project> --task <task> --grant <service> --why "<reason>" --wait`.
 This card carries the task, service and one-line reason, with Grant and Deny and no value inputs or browser steps.
 Filing it grants nothing.
-Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies.
+Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies on the PC.
+His private board grants it too, as he decided on 2026-10-29 ("Allow it as is"), knowing the gate proves that board his only by Tailscale's headers, which a program on this PC can forge: a grant through the gate is recorded as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`.
+Only a service grant card's Grant moves to the private board: granting or revoking a connector from the Connections panel, typing values and opening a browser sign-in window stay on the PC.
 The card closes as `granted` only after the grant lands, the task is told to re-source, and the CFO gets the existing grant wake.
 Deny, withdrawal, expiry, a stale task or card generation, a different project or a missing service declaration grants nothing.
 
@@ -2541,15 +2543,12 @@ A switch that fails after the board was proven his answers 409 with one sentence
 The adversary is the same one, at the board: an agent that follows its contract and tries the switch from a browser it started, through a proxy or from another machine.
 An agent that drives the Overlord's own running browser or window through his desktop is his to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
 
-His [private board](remote-access.md), the board remote access shares over his own tailnet, turns the switch off and never on (CFO decision 1008966).
-He can always switch AFK mode, and on 2026-10-18 his off there was refused.
-Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and an off it admitted is recorded for the CFO as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`, which his pages show as your private board.
+His [private board](remote-access.md), the board remote access shares over his own tailnet, turns the switch on and off, as he decided on 2026-10-29 ("Allow it now as it is"), over proving his phone by its own tailnet address and over keeping on to the PC.
+Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and a switch it admitted is recorded for the CFO as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`, which his pages show as your private board.
 Those are Tailscale's headers, and an agent on this PC can forge them, sending them itself or through a Serve route of its own it adds for a moment, so nothing proves the private board his.
-A forged off ends his stretch early, with its report and his cards, and tells the CFO he is back, so the fleet's decisions wait for him again; it hands no one his authority.
-On hands the CFO his authority, so on stays on a board on the PC proven as above, or his terminal.
-An on through the gate is refused with the sentence every board is shown, and the CFO is told it came through the private board.
+A forged off ends his stretch early, with its report and his cards, and tells the CFO he is back; a forged on hands the CFO his authority. He chose it knowing both.
+On asks first on the private board as it does on the PC.
 Another user of his tailnet, a request without Tailscale's identity and another proxy never pass the gate.
-On the private board the switch is disabled while AFK mode is off, with no tip.
 
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.
