@@ -57,10 +57,14 @@ type Spec struct {
 	// starts off the performance cores the fleet's work leaves to the
 	// Overlord's own apps (processor.MachineFleetThreads).
 	ShouldLeaveCoresForApps bool
+	// IsStream runs the command on pipes rather than in a terminal, for a
+	// program that speaks one JSON object a line both ways, as Claude Code
+	// does with stream-json; Cols and Rows are not used.
+	IsStream bool
 }
 
 // RunArgs runs a host from its command line: --state, --id, --dir, --cols,
-// --rows and --leave-cores-for-apps, then -- and the command to run.
+// --rows, --leave-cores-for-apps and --stream, then -- and the command to run.
 func RunArgs(args []string) error {
 	flags := flag.NewFlagSet("host", flag.ContinueOnError)
 	stateDir := flags.String("state", "", "the CFO home's state directory, where the host records itself")
@@ -70,6 +74,7 @@ func RunArgs(args []string) error {
 	flags.IntVar(&spec.Cols, "cols", 120, "the terminal's width in cells")
 	flags.IntVar(&spec.Rows, "rows", 40, "the terminal's height in cells")
 	flags.BoolVar(&spec.ShouldLeaveCoresForApps, "leave-cores-for-apps", false, "keep the terminal off the performance cores the fleet's work leaves to the Overlord's own apps")
+	flags.BoolVar(&spec.IsStream, "stream", false, "run the command on pipes, one JSON object a line, rather than in a terminal")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -95,27 +100,28 @@ func Run(stateDir string, spec Spec) error {
 	}
 	// One live host per terminal: a second would take over the record that
 	// finds the first, and leave the first unreachable.
-	if running, err := ReadRecord(stateDir, spec.ID); err == nil {
-		if client, err := Dial(running); err == nil {
-			_ = client.Close()
-			return fmt.Errorf("host: terminal %s already runs in host pid %d", spec.ID, running.HostPID)
-		}
+	if running, err := ReadRecord(stateDir, spec.ID); err == nil && isServing(running) {
+		return fmt.Errorf("host: terminal %s already runs in host pid %d", spec.ID, running.HostPID)
 	}
 	var proof [32]byte
 	if _, err := rand.Read(proof[:]); err != nil {
 		return err
 	}
-	output, err := newHistory(spec.Cols, spec.Rows)
-	if err != nil {
-		return err
-	}
 	var processors uintptr
 	if spec.ShouldLeaveCoresForApps {
+		var err error
 		// Cores that cannot be read hold no terminal back: it runs on every
 		// one, as the start rule starts on processors it cannot read.
 		if processors, err = processor.MachineFleetThreads(); err != nil {
 			fmt.Fprintf(os.Stderr, "host: the terminal runs on every processor core, since this machine's cannot be read: %v\n", err)
 		}
+	}
+	if spec.IsStream {
+		return runStream(stateDir, spec, hex.EncodeToString(proof[:]), processors)
+	}
+	output, err := newHistory(spec.Cols, spec.Rows)
+	if err != nil {
+		return err
 	}
 	console, err := conpty.Start(conpty.Spec{Args: spec.Args, Dir: spec.Dir, Env: terminalEnvironment(spec.ID, hex.EncodeToString(proof[:])), Cols: spec.Cols, Rows: spec.Rows, Unread: output.unread, Processors: processors})
 	if err != nil {
@@ -127,7 +133,7 @@ func Run(stateDir string, spec Spec) error {
 			fmt.Fprintf(os.Stderr, "host: tell the CFO the terminal runs on the system conhost: %v\n", err)
 		}
 	}
-	record, pipe, err := announce(stateDir, spec.ID, console.PID(), hex.EncodeToString(proof[:]))
+	record, pipe, err := announce(stateDir, spec.ID, console.PID(), hex.EncodeToString(proof[:]), false)
 	if err != nil {
 		_ = console.Close()
 		return err
@@ -242,10 +248,28 @@ func terminalEnvironment(id, proof string) []string {
 	return append(env, IDVariable+"="+id, ProofVariable+"="+proof)
 }
 
+// reach connects to the host record names as the client its kind of host
+// takes, a stream session's or a terminal's, to learn that it answers or to
+// ask it to close.
+func reach(record Record) (*Client, error) {
+	client, _, err := dial(record, hello{Version: Version, Token: record.Token, Stream: record.Stream})
+	return client, err
+}
+
+// isServing reports whether the host record names answers.
+func isServing(record Record) bool {
+	client, err := reach(record)
+	if err != nil {
+		return false
+	}
+	_ = client.Close()
+	return true
+}
+
 // announce opens the host's pipe and records where to find it, with when the
 // terminal's program started and the digest of the proof value its terminal
 // carries.
-func announce(stateDir, id string, childPID int, proof string) (Record, *listener, error) {
+func announce(stateDir, id string, childPID int, proof string, isStream bool) (Record, *listener, error) {
 	name, err := pipeName()
 	if err != nil {
 		return Record{}, nil, err
@@ -264,7 +288,7 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 	if !ok {
 		return Record{}, nil, fmt.Errorf("host: the terminal's program pid %d has no start time", childPID)
 	}
-	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: ProofSum(proof)}
+	record := Record{ID: id, Pipe: name, Token: hex.EncodeToString(secret[:]), Version: Version, HostPID: os.Getpid(), ChildPID: childPID, ChildStart: childStart, Started: time.Now().UTC(), ProofSum: ProofSum(proof), Stream: isStream}
 	if err := writeRecord(stateDir, record); err != nil {
 		return Record{}, nil, fmt.Errorf("host: record the host: %w", err)
 	}
@@ -276,6 +300,33 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 	return record, pipe, nil
 }
 
+// greet reads a client's handshake and refuses a client of another version,
+// with another token, or that asks for the other kind of host than this one.
+func greet(connection *os.File, token string, isStream bool) (hello, bool) {
+	lift := awake.Deadline(connection.SetReadDeadline, handshakeTimeout)
+	greeting, err := readHello(connection)
+	lift()
+	if err != nil {
+		return hello{}, false
+	}
+	refusal := ""
+	switch {
+	case greeting.Version != Version:
+		refusal = fmt.Sprintf("this host speaks protocol %d, not %d", Version, greeting.Version)
+	case subtle.ConstantTimeCompare([]byte(greeting.Token), []byte(token)) != 1:
+		refusal = "the token does not match this host"
+	case greeting.Stream && !isStream:
+		refusal = "this host runs a terminal, not a stream session"
+	case !greeting.Stream && isStream:
+		refusal = "this host runs a stream session, not a terminal"
+	}
+	if refusal != "" {
+		_ = writeHello(connection, hello{Version: Version, Error: refusal})
+		return hello{}, false
+	}
+	return greeting, true
+}
+
 // serve is one viewer's connection: the handshake, then input, resizes and a
 // close request one way and the history and live output the other, until the
 // terminal ends or the viewer leaves. Input is read from the handshake on, so a
@@ -285,18 +336,8 @@ func announce(stateDir, id string, childPID int, proof string) (Record, *listene
 // alone.
 func serve(connection *os.File, token string, console *conpty.Console, output *history, closing chan<- struct{}, screens *sync.RWMutex) {
 	defer connection.Close()
-	lift := awake.Deadline(connection.SetReadDeadline, handshakeTimeout)
-	greeting, err := readHello(connection)
-	lift()
-	if err != nil {
-		return
-	}
-	switch {
-	case greeting.Version != Version:
-		_ = writeHello(connection, hello{Version: Version, Error: fmt.Sprintf("this host speaks protocol %d, not %d", Version, greeting.Version)})
-		return
-	case subtle.ConstantTimeCompare([]byte(greeting.Token), []byte(token)) != 1:
-		_ = writeHello(connection, hello{Version: Version, Error: "the token does not match this host"})
+	greeting, ok := greet(connection, token, false)
+	if !ok {
 		return
 	}
 	if greeting.Screen {

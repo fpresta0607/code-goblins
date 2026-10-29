@@ -432,7 +432,7 @@ func TestCompletedSnapshotKeepsRecordedEngineThroughStoppedLifecycle(t *testing.
 		t.Fatal(err)
 	}
 
-	tasks := finishedTasks(h, time.Now())
+	tasks := finishedTasks(h, &keptReads{}, time.Now())
 
 	if len(tasks) != 1 || tasks[0].Harness != "codex" || tasks[0].Model != "recorded-model" || tasks[0].Effort != "xhigh" {
 		t.Fatalf("completed engine was lost: %+v", tasks)

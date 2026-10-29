@@ -1,6 +1,4 @@
-import { useNow } from "./clock";
 import { Icon } from "./Icon";
-import { elapsedText } from "./session-usage";
 import { useTerminalLink } from "./terminal-link";
 import { WorkingIndicator } from "./working-indicator";
 import "./reply-working.css";
@@ -13,17 +11,16 @@ import "./reply-working.css";
 // it, which presses Escape through the link of the session's terminal, as
 // the box's Stop does, with no terminal shown. With no terminal to stop
 // through (terminal is empty, as for a goblin whose messages queue through
-// the board) or while typing is held, it only says the session works. Its
-// hint says for how long, from since.
-export function ReplyWorking({ terminal, ink, since }: { terminal: string; ink: string; since: string }) {
+// the board) or while typing is held, it only says the session works. It
+// reads no clock: a hint that counted how long it had worked drew it again
+// every second, 83 times in 20 s on an idle panel.
+export function ReplyWorking({ terminal, ink }: { terminal: string; ink: string }) {
   const link = useTerminalLink(terminal);
-  const worked = elapsedText(since, useNow(1_000));
-  const tip = "Working" + (worked ? " " + worked : "");
   return <div className="reply-working">
     {link && !link.held
-      ? <button type="button" className="reply-stop" aria-label="Stop" data-tip={tip + " · Stop"} onClick={() => link.escape()}>
+      ? <button type="button" className="reply-stop" aria-label="Stop" onClick={() => link.escape()}>
         <WorkingIndicator ink={ink} /><Icon name="stop-circle" />
       </button>
-      : <span className="reply-stop" data-tip={tip}><WorkingIndicator ink={ink} /></span>}
+      : <span className="reply-stop"><WorkingIndicator ink={ink} /></span>}
   </div>;
 }

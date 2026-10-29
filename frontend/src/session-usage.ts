@@ -76,18 +76,6 @@ export function formatAge(at: string, now: number): string {
   return months < 12 ? months + " months ago" : Math.floor(months / 12) + " years ago";
 }
 
-// elapsedText draws how long a session has been working, short: seconds under
-// a minute, minutes and seconds under an hour, and hours and minutes after.
-export function elapsedText(since: string, now: number): string {
-  const from = since && !since.startsWith("0001") ? Date.parse(since) : NaN;
-  if (!Number.isFinite(from)) return "";
-  const seconds = Math.max(0, Math.floor((now - from) / 1000));
-  if (seconds < 60) return seconds + "s";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return minutes + "m " + (seconds % 60) + "s";
-  return Math.floor(minutes / 60) + "h " + (minutes % 60) + "m";
-}
-
 // sessionStats reads every stat the fleet can back, and names each it cannot.
 // A usage that names only the session's model or effort, as a record does
 // before its first reply, has recorded no spend.
