@@ -3,6 +3,7 @@ import type { Action, Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
 import { ComposerAttachments } from "./composer-attachments";
+import { ComposerBanner } from "./composer-banner";
 import { DictationButton } from "./dictation-button";
 import { parseEngineCatalog, useEngineCatalog, type EngineModel } from "./engine-catalog";
 import { CODEX_NOT_SENT, driveCodexPicker } from "./codex-picker";
@@ -16,12 +17,11 @@ import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
-import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
-import { QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
+import { QUEUED_NOTICE, QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
 import { TOUCH_SCREEN } from "./small-screen";
 import { useTerminalLink, watchLink } from "./terminal-link";
@@ -148,8 +148,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
   // Why the last Send found no terminal to type into, or why a paste could
-  // not be kept, until the draft changes.
-  const [unsent, setUnsent] = useState("");
+  // not be kept, until the draft changes. Each refusal is counted, so the
+  // banner over the box shows the same words again for a second press.
+  const [refusal, setRefusal] = useState({ text: "", count: 0 });
+  const unsent = refusal.text;
+  const setUnsent = useCallback((text: string) => setRefusal((prior) => text ? { text, count: prior.count + 1 } : prior.text ? { text, count: prior.count } : prior), []);
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [isStyleOpen, setStyleOpen] = useState(false);
   // A touch screen's + opens a menu of its two ways to add a picture.
@@ -604,6 +607,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     window.addEventListener(TAKE_BACK_MESSAGE, takeBack);
     return () => window.removeEventListener(TAKE_BACK_MESSAGE, takeBack);
   });
+  // What a press on one of this session's queued messages could not do says
+  // so over the box, as the box's own refusals do.
+  useEffect(() => {
+    const refused = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail.task === (task?.id ?? "")) setUnsent(event.detail.text);
+    };
+    window.addEventListener(QUEUED_NOTICE, refused);
+    return () => window.removeEventListener(QUEUED_NOTICE, refused);
+  }, [task?.id, setUnsent]);
   // Up in an empty box, or on the first line of a message it recalled,
   // brings back what he sent before, newest first, as the terminal does, and
   // Down walks forward again to the empty box; any edit ends the recall.
@@ -691,6 +703,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
   return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
+    <ComposerBanner key={refusal.count + ":" + (unsent || note)} text={unsent || note} isRefusal={!!unsent} />
     {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
@@ -758,7 +771,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
           </div>
         </div>
       </div>
-      {unsent ? <Notice tone="warning" role="alert" className="composer-refusal">{unsent}</Notice> : <p className="composer-note" role="status">{note}</p>}
     </div>
   </section>;
 }

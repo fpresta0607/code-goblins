@@ -739,7 +739,9 @@ test("a hold let go before its recording runs types nothing and says nothing", a
   expect(posts).toHaveLength(0);
 });
 
-test("a hold with nothing said in it says Nothing was heard", async ({ page }) => {
+// The Overlord, 2026-10-29: it shows in "a little banner right above the
+// chat input that is only temporary".
+test("a hold with nothing said in it says Nothing was heard over the box, for a moment", async ({ page }) => {
   // Arrange
   const { pane } = await openPane(page, { app: true, words: () => "" });
   await speakAt(page, 0);
@@ -748,8 +750,9 @@ test("a hold with nothing said in it says Nothing was heard", async ({ page }) =
   await dictate(page, 800);
 
   // Assert
-  await expect(pane.getByRole("status")).toHaveText("Nothing was heard.");
+  await expect(pane.locator(".composer-banner").getByText("Nothing was heard.", { exact: true })).toBeVisible();
   await expect(page.locator("output")).toHaveText("");
+  await expect(pane.locator(".composer-banner")).toHaveCount(0, { timeout: 8000 });
 });
 
 test("a silent hold he has already dictated past is never told as nothing heard over the next dictation", async ({ page }) => {

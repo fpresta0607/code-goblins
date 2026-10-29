@@ -348,7 +348,7 @@ test("Send now and Cancel each reach the board once, however often he presses th
   // Assert
   await expect(sendNow).toHaveCount(0);
   await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
-  await expect(entry(page).locator(".queued-problem")).toHaveCount(0);
+  await expect(page.locator(".composer-banner")).toHaveCount(0);
   expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
@@ -370,17 +370,46 @@ test("a message already typed into a working session says the turn takes it, and
 
 // The Overlord, 2026-10-28: "send now should be an option with all queued
 // messages". One that cannot go now says why when pressed, and asks nothing.
-test("Send now on a message that cannot go now says why under it and asks nothing", async ({ page }) => {
-  // Arrange
-  const posts = await openWith(page, queued());
+// And 2026-10-29, of notices such as "that queued message is no longer
+// waiting, so nothing was deleted" in a line under the box: "these should
+// appear as maybe a little banner right above the chat input that is only
+// temporary, goes away slightly and doesn't move the screen up".
+const NOT_WAITING = "that queued message is no longer waiting, so nothing was deleted";
+for (const [press, said] of [["Send now", "Its gate holds the branch."], ["Cancel", NOT_WAITING]] as const) {
+  test(`${press} that cannot be done says why in a banner just above the box, which moves nothing and goes by itself`, async ({ page }) => {
+    // Arrange
+    await openWith(page, queued());
+    const asked: string[] = [];
+    await page.route("**/api/actions", (route) => {
+      asked.push((route.request().postDataJSON() as { kind: string }).kind);
+      return route.fulfill({ status: 409, json: { error: NOT_WAITING } });
+    });
+    const banner = box(page).locator(".composer-banner");
+    const places = () => page.evaluate(() => {
+      const top = (selector: string) => [...document.querySelectorAll(selector)].find((element) => element.getClientRects().length)!.getBoundingClientRect();
+      return { log: top("[role=log]").bottom, input: top(".composer-input").top };
+    });
+    const before = await places();
 
-  // Act
-  await entry(page).getByRole("button", { name: "Send now" }).click();
+    // Act
+    await entry(page).getByRole("button", { name: press, exact: true }).click();
 
-  // Assert
-  await expect(entry(page).locator(".queued-problem")).toHaveText("Its gate holds the branch.");
-  expect(posts).toEqual([]);
-});
+    // Assert: over the conversation's end, just above the box, and nothing
+    // moved for it.
+    await expect(banner).toHaveText(said);
+    const shown = (await banner.boundingBox())!;
+    expect(await places()).toEqual(before);
+    expect(shown.y + shown.height).toBeLessThanOrEqual(before.input);
+    expect(shown.y + shown.height).toBeGreaterThan(before.input - 40);
+    await expect(entry(page)).toBeVisible();
+    expect(asked).toEqual(press === "Cancel" ? ["message_withdraw"] : []);
+
+    // Assert: it goes by itself, and a second press says it again.
+    await expect(banner).toHaveCount(0, { timeout: 8000 });
+    await entry(page).getByRole("button", { name: press, exact: true }).click();
+    await expect(banner).toHaveText(said);
+  });
+}
 
 const KEPT = "C:\\goblin\\tasktmp\\cg-touch\\composer-files\\pasted-1.png";
 // controls reads a queued entry's buttons as they are drawn: name, look and

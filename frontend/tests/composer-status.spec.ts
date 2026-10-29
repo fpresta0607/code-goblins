@@ -39,10 +39,9 @@ for (const style of ["modern"]) {
         // Act and Assert: routine waiting is shown once, beside its one input.
         await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
         await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
         await expect(send(page)).toBeInViewport();
-        expect(await box(page).locator(".composer-note").evaluate((note) => getComputedStyle(note).color)).toBe(await box(page).locator(".composer-control").first().evaluate((control) => getComputedStyle(control).color));
 
         // Act: a genuine failure must take priority over the hold.
         await send(page).click();
@@ -68,7 +67,7 @@ for (const style of ["modern"]) {
         expect(requests[1]).toEqual(requests[0]);
         expect(requests[0]).toMatchObject({ text: sentText });
         await expect(box(page).getByRole("alert")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
         expect(typed(relay)).toBe(before);
 
         // Act: the durable entry remains after the hold changes.
@@ -129,7 +128,7 @@ for (const style of ["modern"]) {
         await field(page).fill("Read this after the current turn");
         await expect(page.getByText("Program busy. Typed keys are waiting.").filter({ visible: true })).toHaveCount(0);
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(1);
@@ -145,7 +144,7 @@ for (const style of ["modern"]) {
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        await expect(box(page).locator(".composer-banner")).toHaveCount(0);
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(2);
@@ -378,6 +377,9 @@ for (const style of ["modern"]) {
       await expect.poll(() => relay.views).toBeGreaterThan(0);
       relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
       await expect(field(page)).toBeVisible();
+      // Why messages queue shows once over the box, and goes by itself.
+      const note = box(page).locator(".composer-banner");
+      await expect(note).toHaveText("Detached worktree. Send to queue until a branch is ready.");
       const draft = "A draft to retain while the branch is recovered. ".repeat(18);
       await field(page).fill(draft);
       await field(page).focus();
@@ -387,7 +389,6 @@ for (const style of ["modern"]) {
         keyboard(300, 20);
       });
 
-      const note = box(page).locator(".composer-note");
       const screenshot = testInfo.outputPath("detached-keyboard-surface.png");
       await page.screenshot({ path: screenshot });
       await testInfo.attach("detached-keyboard-surface", { path: screenshot, contentType: "image/png" });
@@ -404,7 +405,6 @@ for (const style of ["modern"]) {
       expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
       expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport);
       expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.visualBottom);
-      await expect(note).toHaveText("Detached worktree. Send to queue until a branch is ready.");
       await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
       await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
       await expect(send(page)).toBeInViewport();
@@ -433,7 +433,7 @@ for (const style of ["modern"]) {
       await page.keyboard.type("recovery");
       relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
       await expect(box(page)).toHaveAttribute("data-queues", "");
-      await expect(note).toHaveText("");
+      await expect(note).toHaveCount(0);
       relay.say({ type: "held", reason: "" });
       await expect(field(page)).toHaveValue("Keep this until recovery");
       expect(typed(relay)).toBe("");

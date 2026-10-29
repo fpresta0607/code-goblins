@@ -10,6 +10,11 @@ import type { Action } from "./types";
 // the box of its session to take it back (composer.tsx).
 export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
 
+// QUEUED_NOTICE names the event a queued message sends with its task's ID and
+// what a press on it could not do, for the box of its session to say over
+// itself (composer.tsx).
+export const QUEUED_NOTICE = "cfo-queued-notice";
+
 // One message the board holds for delivery, shown where it waits: its words,
 // what it waits on in the supervisor's own plain reason, and the three things
 // he can do with it (the Overlord, 2026-10-26: "Does this seem to be a way to
@@ -27,11 +32,10 @@ export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
 // can't really tell what's been sent and what's getting sent"). What it waits
 // on is its description for a screen reader. Every message the board still
 // holds offers Send now (the Overlord, 2026-10-28: "send now should be an
-// option with all queued messages"): one that cannot go now says why under it
-// when pressed. One already typed into the terminal is the harness's to take,
+// option with all queued messages"): one that cannot go now says why over the
+// box when pressed, as whatever else a press could not do does. One already typed into the terminal is the harness's to take,
 // so the board offers nothing to do with it.
 export const QueuedMessage = memo(function QueuedMessage({ action, instance, name, variant, isWorking = false, onDeleted }: QueuedProps) {
-  const [problem, setProblem] = useState("");
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
   // more (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -43,13 +47,13 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
   const post = (body: object) => request("/api/actions", undefined, {
     method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": instance }, body: JSON.stringify(body),
   });
+  const refuse = (text: string) => window.dispatchEvent(new CustomEvent(QUEUED_NOTICE, { detail: { task: action.task_id, text } }));
   const act = async (body: { kind: string; text?: string }, after: () => void) => {
     if (isSending) return;
     setSending(true);
-    setProblem("");
     const id = body.kind === "message_withdraw" ? "withdraw-" + action.id : crypto.randomUUID();
     try { await post({ id, task_id: action.task_id, target: action.id, ...body }); after(); }
-    catch (error: unknown) { setProblem(message(error)); reportToCfo("a queued message to " + name, message(error)); }
+    catch (error: unknown) { refuse(message(error)); reportToCfo("a queued message to " + name, message(error)); }
     finally { setSending(false); }
   };
   // A message is typed only once it awaits the turn; one the board is
@@ -73,13 +77,12 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
     <p className="sr-only" id={why}>{reason || state}</p>
     {canAct && asked !== "withdrawn" && <div className="queued-actions">
       <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"}
-        onClick={() => action.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : setProblem(action.send_now_why || "It cannot be typed into its session now.")}><Icon name="arrow-up" /></button>
+        onClick={() => action.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : refuse(action.send_now_why || "It cannot be typed into its session now.")}><Icon name="arrow-up" /></button>
       <button type="button" className="icon-button" aria-label="Edit" disabled={isSending}
         onClick={() => window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id }))}><Icon name="edit" /></button>
       <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
         onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
     </div>}
-    {problem && <p className="queued-problem" role="status">{problem}</p>}
   </div>;
 }, isSameQueued);
 
