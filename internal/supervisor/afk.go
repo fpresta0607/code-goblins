@@ -477,16 +477,12 @@ func (s *Service) switchAFKAs(from, asked string, on bool) error {
 	return s.afkNotice(switchedSays(from, asked, "off") + ": he is back and decides again, so the standing rules apply. " + settled + says + "Write the report of the stretch into your terminal: cfo afk report")
 }
 
-// hisCardChoices are the choices of the card a step only he can take is when
-// it is no command and offers no choices of its own: he did it, or it waits
-// for later. Either closes the card and settles the step.
-var hisCardChoices = []string{"Done", "Later"}
-
 // cardHisSteps makes each step only the Overlord can take that the stretch left
 // open, one the CFO logged as his and neither struck nor settled, a card in his
-// Command Center: a run item when the step is a command he runs, otherwise a
-// question with the step in plain words, its link and the choices the CFO gave
-// it, with its recommendation, or Done and Later when it gave none. A step is
+// Command Center, the card cfo run-request or cfo question makes: a run item
+// when the step is a command he runs, as administrator when the CFO said so,
+// otherwise a question with the step in plain words, its link and the choices
+// the CFO gave it, with its recommendation. A step is
 // the same card however often this runs, so it returns each
 // card the board holds for the stretch's open steps, and those that could not
 // be made.
@@ -526,7 +522,7 @@ func (s *Service) admitHisCard(step afk.Entry, identity string, now time.Time) e
 		if slices.ContainsFunc(s.Store.Snapshot().Runs, func(r Run) bool { return r.ID == id }) {
 			return nil
 		}
-		return s.Store.admitRun(Run{ID: id, Identity: identity, By: "cfo", Title: bounded(step.What, 2000), Shell: step.Shell, Command: step.Command, Cwd: s.Store.Home.Root, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)})
+		return s.Store.admitRun(Run{ID: id, Identity: identity, By: "cfo", Title: bounded(step.What, 2000), Shell: step.Shell, Admin: step.Admin, Command: step.Command, Cwd: s.Store.Home.Root, State: "ready", CreatedAt: now, ExpiresAt: now.Add(runLifetime)})
 	}
 	if slices.ContainsFunc(s.Store.Snapshot().Questions, func(q Question) bool { return q.ID == id }) {
 		return nil
@@ -535,11 +531,7 @@ func (s *Service) admitHisCard(step afk.Entry, identity string, now time.Time) e
 	if step.Link != "" {
 		text += "\n- Link: `" + step.Link + "`"
 	}
-	options := hisCardChoices
-	if len(step.Options) > 0 {
-		options = step.Options
-	}
-	return s.Store.acceptQuestion(Question{ID: id, Identity: identity, Text: bounded(text, 4000), Options: slices.Clone(options), Recommended: step.Recommendation, CreatedAt: now})
+	return s.Store.acceptQuestion(Question{ID: id, Identity: identity, Text: bounded(text, 4000), Options: slices.Clone(step.Options), Recommended: step.Recommendation, CreatedAt: now})
 }
 
 // settleHisCards settles in the log each step only he can take whose card he
