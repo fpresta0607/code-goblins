@@ -31,14 +31,16 @@ test("a CI browser run ends at a global timeout, and a desk run is not cut short
 });
 
 // WebKit needs Media Foundation on a Windows runner, and that install waited
-// 29 minutes on Windows Update on 2026-10-22 (#1406). So the spec that runs
-// in it is a project of its own, for the one shard that installs WebKit.
-test("the iPhone spec is a WebKit project of its own", async () => {
+// 29 minutes on Windows Update on 2026-10-22 (#1406). So the specs that run
+// in it are a project of their own, for the one shard that installs WebKit.
+const IPHONE_SPECS = ["**/iphone-*.spec.ts"];
+
+test("the iPhone specs are a WebKit project of their own", async () => {
   const config = await configWithCI(true);
   const projects = config.projects ?? [];
   const iphone = projects.find((project) => project.name === "iphone");
   const board = projects.find((project) => project.name === "board");
 
-  assert.deepEqual(iphone?.testMatch, ["**/iphone-terminal.spec.ts"]);
-  assert.deepEqual(board?.testIgnore, ["**/iphone-terminal.spec.ts"], "the sharded Chromium run leaves the WebKit spec to the iPhone project");
+  assert.deepEqual(iphone?.testMatch, IPHONE_SPECS);
+  assert.deepEqual(board?.testIgnore, IPHONE_SPECS, "the sharded Chromium run leaves the WebKit specs to the iPhone project");
 });
