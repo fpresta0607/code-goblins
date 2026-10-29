@@ -22,8 +22,11 @@ const (
 	// still sending the browser on is not.
 	signedOutWait = 2 * time.Second
 	// hideWait bounds hiding the keys again, which runs even when the read
-	// failed or its time ran out.
-	hideWait = 10 * time.Second
+	// failed or its time ran out. It outlasts a pause of the whole machine,
+	// such as a hosted runner's host takes for about ten seconds (#1048),
+	// with as long again left to close the tab: a shorter bound ran out
+	// inside such a pause and left the key page's tab open.
+	hideWait = 30 * time.Second
 	// keyPoll is how often a wait looks again.
 	keyPoll = 100 * time.Millisecond
 )
@@ -70,13 +73,7 @@ func ReadKeys(ctx context.Context, address string, provider keypages.Provider, a
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		hide, cancel := context.WithTimeout(context.WithoutCancel(ctx), hideWait)
-		defer cancel()
-		_ = loadPage(hide, connection, "about:blank")
-		connection.Close()
-		_ = closeTab(hide, address, tab)
-	}()
+	defer closeKeyTab(ctx, address, tab, connection)
 	if err := openKeyPage(ctx, connection, provider, page, account); err != nil {
 		return nil, err
 	}
@@ -127,20 +124,32 @@ func openTab(ctx context.Context, address string) (string, *cdp.Conn, error) {
 	return created.ID, connection, nil
 }
 
+// closeKeyTab loads a blank page in the key page's tab, at connection, and
+// closes the tab, so no key is left on screen, even when the read failed or
+// ctx ended.
+func closeKeyTab(ctx context.Context, address, tab string, connection *cdp.Conn) {
+	hide, cancel := context.WithTimeout(context.WithoutCancel(ctx), hideWait)
+	defer cancel()
+	_ = loadPage(hide, connection, "about:blank")
+	connection.Close()
+	_ = closeTab(hide, address, tab)
+}
+
 // closeTab closes tab id in the browser at address and returns once the
 // browser no longer lists it. Chrome answers the close before the tab is
-// gone, and lists it for a moment after, where it answers nothing.
+// gone, and lists it for a moment after, where it answers nothing. A close
+// or a look at the list that failed, as one does when the browser stalls
+// past the bridge's own bound for it, is tried again until ctx ends.
 func closeTab(ctx context.Context, address, id string) error {
-	if err := callBrowser(ctx, address, "Target.closeTarget", map[string]string{"targetId": id}, nil); err != nil {
-		return err
-	}
+	closeErr := callBrowser(ctx, address, "Target.closeTarget", map[string]string{"targetId": id}, nil)
 	for {
 		tabs, err := pages(ctx, address)
-		if err != nil {
-			return err
-		}
-		if !slices.ContainsFunc(tabs, func(tab page) bool { return tab.ID == id }) {
+		switch {
+		case err != nil:
+		case !slices.ContainsFunc(tabs, func(tab page) bool { return tab.ID == id }):
 			return nil
+		case closeErr != nil:
+			closeErr = callBrowser(ctx, address, "Target.closeTarget", map[string]string{"targetId": id}, nil)
 		}
 		select {
 		case <-ctx.Done():

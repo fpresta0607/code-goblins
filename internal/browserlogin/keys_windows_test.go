@@ -11,11 +11,15 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/fpresta0607/code-goblins/internal/cdp"
 	"github.com/fpresta0607/code-goblins/internal/keypages"
+	"github.com/fpresta0607/code-goblins/internal/proc"
 )
 
 // keyCanary is a key no page, error or file holds unless the code under
@@ -290,5 +294,90 @@ func TestAClosedTabIsNoLongerListedOnceCloseTabReturns(t *testing.T) {
 		if slices.ContainsFunc(tabs, func(tab page) bool { return tab.ID == id }) {
 			t.Fatalf("tab %s is still listed after closeTab returned", id)
 		}
+	}
+}
+
+// A hosted runner's host can pause every process on it for about eleven
+// seconds (#1048). A pause inside hiding the keys outlasted the hide's bound,
+// or the bridge's own bound on one look at the browser, and left the key
+// page's tab open, which a ReadKeys test saw as one page more after the
+// fetch than before it. Holding every process of the browser for as long
+// stands in for such a pause.
+func TestTheKeyTabClosesThroughAStallOfTheWholeBrowser(t *testing.T) {
+	const (
+		stall = 11 * time.Second
+		// statusProcessIsTerminating is NtResumeProcess's answer for a
+		// process that ended while it was held.
+		statusProcessIsTerminating = 0xC000010A
+	)
+	for _, test := range []struct {
+		name  string
+		close func(ctx context.Context, address, tab string, connection *cdp.Conn)
+	}{
+		{"while the blank page loads", closeKeyTab},
+		{"while the tab closes", func(ctx context.Context, address, tab string, connection *cdp.Conn) {
+			connection.Close()
+			_ = closeTab(ctx, address, tab)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			process, _ := startChrome(t, []string{"localhost"})
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			tab, connection, err := openTab(ctx, process.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids, _, err := proc.JobProcessIDs(syscall.Handle(process.job.handle))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var held []windows.Handle
+			for _, id := range ids {
+				handle, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				held = append(held, handle)
+				if status, _, _ := ntSuspendProcess.Call(uintptr(handle)); status != 0 {
+					t.Fatalf("hold chrome's process %d: status %#x", id, status)
+				}
+			}
+			stalled := time.Now()
+			resumed := make(chan uintptr, 1)
+			// stall-accepted: the test means this hold to run out, and the check after it reads the same clock.
+			time.AfterFunc(stall, func() {
+				var failed uintptr
+				for _, handle := range held {
+					// A renderer Chrome started just before the hold can end
+					// during it, which leaves it nothing to let go.
+					if status, _, _ := ntResumeProcess.Call(uintptr(handle)); status != 0 && status != statusProcessIsTerminating {
+						failed = status
+					}
+					windows.CloseHandle(handle)
+				}
+				resumed <- failed
+			})
+
+			// Act
+			test.close(ctx, process.URL, tab, connection)
+
+			// Assert
+			waited := time.Since(stalled)
+			if status := <-resumed; status != 0 {
+				t.Fatalf("resume chrome: status %#x", status)
+			}
+			tabs, err := pages(ctx, process.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slices.ContainsFunc(tabs, func(listed page) bool { return listed.ID == tab }) {
+				t.Fatalf("tab %s is still open after its browser's %s stall", tab, stall)
+			}
+			if waited < stall {
+				t.Fatalf("the tab closed %s into its browser's %s stall, so the stall never held it", waited, stall)
+			}
+		})
 	}
 }
