@@ -23,7 +23,7 @@ const quiet = {
 type Board = typeof quiet;
 const asking = (item: { questions?: object[]; reviews?: object[] }, revision = 2): Board => ({ ...quiet, revision, questions: item.questions || [], reviews: item.reviews || [] });
 
-// Every board the test opens gets its snapshots and its items events from the
+// Every board the test opens gets its snapshots and their changes from the
 // test, through a stand-in event stream, one event at a time: nothing arrives
 // that the test did not send.
 async function standInStream(context: BrowserContext) {
@@ -43,7 +43,7 @@ async function standInStream(context: BrowserContext) {
   });
   await context.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
 }
-const send = (page: Page, type: "snapshot" | "items", data: object) => page.evaluate((detail) => { window.dispatchEvent(new CustomEvent("fixture-stream", { detail })); }, { type, data });
+const send = (page: Page, type: "snapshot" | "change", data: object) => page.evaluate((detail) => { window.dispatchEvent(new CustomEvent("fixture-stream", { detail })); }, { type, data });
 
 // The supervisor's record of what the board announced: each key goes to the
 // first board that asks for it.
@@ -437,7 +437,7 @@ test("the CFO's answer reaches the board ahead of the full snapshot, and a snaps
   const answered = { ...question, status: "succeeded", answer: "Merge it", answer_kind: "option", answered_option: "Merge it", answered_by: "cfo", answered_at: "2026-10-02T11:05:00Z", message: "Answered by the CFO." };
 
   // Act: only the Command Center's items arrive.
-  await send(page, "items", { instance: quiet.instance, revision: 3, questions: [answered], reviews: [], runs: [], credentials: [], actions: [] });
+  await send(page, "change", { keys: { revision: { value: 3 }, questions: { items: { [question.id]: { value: answered } } } } });
 
   // Assert
   await expectGone(page, ASKS);

@@ -1,11 +1,8 @@
 package supervisor
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -247,7 +244,7 @@ func (output printed) Run(context.Context, execx.Request) (execx.Result, error) 
 }
 
 // boardReviews follows the board's event stream, as the Command Center does,
-// and sends the review items each event carries as it arrives.
+// and sends the review items the board holds after each event.
 func boardReviews(t *testing.T, s *Service) <-chan []Review {
 	t.Helper()
 	handler := NewHTTP(s, "", fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body></body></html>")}})
@@ -256,32 +253,12 @@ func boardReviews(t *testing.T, s *Service) <-chan []Review {
 	handler.Host = strings.TrimPrefix(server.URL, "http://")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/events", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
+	board := openBoard(t, ctx, server.URL)
 	events := make(chan []Review, 256)
 	go func() {
 		defer close(events)
-		defer response.Body.Close()
-		reader := bufio.NewReader(response.Body)
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-			if data, isData := strings.CutPrefix(line, "data: "); isData {
-				var event struct {
-					Reviews []Review `json:"reviews"`
-				}
-				if json.Unmarshal([]byte(data), &event) == nil {
-					events <- event.Reviews
-				}
-			}
+		for event := range board {
+			events <- event.data.Reviews
 		}
 	}()
 	return events

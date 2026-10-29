@@ -1,11 +1,9 @@
 package supervisor
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
@@ -363,35 +361,15 @@ func spool(t *testing.T, root, stateDir, name string, at time.Time) {
 }
 
 // streamPhases opens one board's event stream and reports the phase each
-// snapshot it receives gives task.
+// snapshot it holds gives task.
 func streamPhases(t *testing.T, ctx context.Context, url, task string) <-chan string {
 	t.Helper()
-	request, _ := http.NewRequestWithContext(ctx, "GET", url+"/api/events", nil)
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { response.Body.Close() })
+	events := openBoard(t, ctx, url)
 	phases := make(chan string, 64)
 	go func() {
-		reader := bufio.NewReaderSize(response.Body, 4<<20)
-		name := ""
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return
-			}
-			switch line = strings.TrimRight(line, "\n"); {
-			case strings.HasPrefix(line, "event: "):
-				name = strings.TrimPrefix(line, "event: ")
-			case strings.HasPrefix(line, "data: ") && name == "snapshot":
-				var snapshot Snapshot
-				if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &snapshot) != nil {
-					continue
-				}
-				if i := slices.IndexFunc(snapshot.Tasks, func(candidate Task) bool { return candidate.ID == task }); i >= 0 {
-					phases <- snapshot.Tasks[i].Phase
-				}
+		for event := range events {
+			if i := slices.IndexFunc(event.data.Tasks, func(candidate Task) bool { return candidate.ID == task }); i >= 0 {
+				phases <- event.data.Tasks[i].Phase
 			}
 		}
 	}()
