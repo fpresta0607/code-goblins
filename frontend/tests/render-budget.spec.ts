@@ -182,7 +182,9 @@ test("a snapshot that changes the meters alone draws no card", async ({ page }) 
 // it holds for it: each build's time, revision and meters now come in an
 // event of their own, laid over the snapshot the board shows (#1611).
 test("a meter reading of its own moves its meter and draws no card", async ({ page }) => {
-  // Arrange: the clock stands five seconds into a minute.
+  // Arrange: the clock stands five seconds into a minute. The reading stays
+  // over the 5 GB the next task starts at, under which the queue's first card
+  // rightly says so.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   await open(page, fleet([...WORKING, ...RESTING]));
   const line = page.getByRole("group", { name: "Memory" }).locator(":scope > .memory-line");
@@ -190,10 +192,10 @@ test("a meter reading of its own moves its meter and draws no card", async ({ pa
   await reset(page);
 
   // Act
-  await read(page, { keys: { at: { value: "2026-10-27T09:00:15Z" }, revision: { value: 2 }, memory: { keys: { available: { value: 3.4 * 2 ** 30 } } } } });
+  await read(page, { keys: { at: { value: "2026-10-27T09:00:15Z" }, revision: { value: 2 }, memory: { keys: { available: { value: 5.5 * 2 ** 30 } } } } });
 
   // Assert
-  await expect(line).toHaveText("Memory free3.4 GB");
+  await expect(line).toHaveText("Memory free5.5 GB");
   const counts = await counted(page);
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
 });
