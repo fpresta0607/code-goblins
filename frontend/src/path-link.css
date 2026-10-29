@@ -2,4 +2,6 @@
    wrapping anywhere, which opens File Explorer or copies the path. */
 .path-link { display: inline; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: #dff7ee; font: inherit; font-family: var(--font-mono); font-size: .9em; text-align: left; text-decoration: underline; text-decoration-color: var(--glass-border-hover); text-underline-offset: 3px; overflow-wrap: anywhere; }
 .path-link:hover { background: none; text-decoration-color: var(--mint); }
+/* Why a click on it failed, for a few seconds beside it. */
+.path-link-said { margin-left: 6px; color: var(--muted); }
 .path-link .icon { display: inline-block; width: 1em; height: 1em; margin-right: 4px; vertical-align: -0.125em; color: var(--mint); }

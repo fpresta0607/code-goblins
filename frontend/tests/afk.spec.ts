@@ -649,13 +649,12 @@ test("after the CFO turned AFK on at his ask, the lesser Turn AFK off turns it o
   expect(supervisor.asked.map((ask) => ask.on)).toEqual([false, false]);
 });
 
-test("a switch that cannot be read is shown off, its tip says how to reset it, and what waits on him still leads", async ({ page }) => {
+test("a switch that cannot be read is shown off, says beside it in muted words how to reset it, and what waits on him still leads", async ({ page }) => {
   const supervisor = await open(page, snapshot({ questions: [QUESTIONS[0]], afk: { state: "unreadable" } }));
   await expect(bar(page).getByRole("button", { name: "Open Command Center: 1 waiting on you" })).toBeVisible();
   await openCfoPanel(page);
   await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
-  await expect(toggle(page)).toHaveAttribute("data-tip", "Reset AFK to off");
-  await expect(header(page).getByText(/cannot be read/)).toHaveCount(0);
+  await expect(header(page).getByText("Unreadable: a press resets it", { exact: true })).toHaveClass("muted");
   // His press resets it: it asks for off, and asks nothing first.
   await toggle(page).click();
   await expect.poll(() => supervisor.asked).toEqual([{ on: false, token: "fixture" }]);

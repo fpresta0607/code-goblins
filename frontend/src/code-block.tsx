@@ -24,7 +24,7 @@ export function CodeBlock({ text, language, textClass }: { text: string; languag
       <button type="button" className="code-copy" onClick={() => { copyText(text).then(() => setCopied(true), () => {}); }}>
         <Icon name={isCopied ? "check" : "copy"} />{isCopied ? "Copied" : "Copy"}
       </button>
-      <button type="button" className="icon-button code-expand" aria-label={isExpanded ? "Collapse" : "Expand"} aria-expanded={isExpanded} data-tip={isExpanded ? "Collapse" : "Expand"}
+      <button type="button" className="icon-button code-expand" aria-label={isExpanded ? "Collapse" : "Expand"} aria-expanded={isExpanded}
         onClick={() => setExpanded((prior) => !prior)}><Icon name={isExpanded ? "restore" : "maximize"} /></button>
     </figcaption>
     <pre className={textClass}><code>{text}</code></pre>

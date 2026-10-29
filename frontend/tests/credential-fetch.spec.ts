@@ -45,11 +45,12 @@ for (const viewport of [{ width: 1280, height: 1000 }, { width: 390, height: 844
     await expect(fetch.getByRole("button", { name: "Fetch it for me" })).toHaveCount(0);
 
     await update(page, { fetch: { ...offer, reason: "the Stripe key page: the page changed" } });
-    await expect(fetch.getByText("Fetch stopped", { exact: true })).toHaveAttribute("data-tip", "the Stripe key page: the page changed");
+    await expect(fetch.locator(".credential-fetch-stopped")).toContainText("Fetch stopped");
+    await expect(fetch.locator(".credential-fetch-stopped .muted")).toHaveText("the Stripe key page: the page changed");
     await expect(fetch.getByRole("button", { name: "Fetch it for me" })).toBeEnabled();
 
     await update(page, { saved: ["STRIPE_SECRET_KEY"], fetched: ["STRIPE_SECRET_KEY"], fetch: offer });
     await expect(card.locator(".credential-fetch")).toHaveCount(0);
-    await expect(card.locator('[data-credential-name="STRIPE_SECRET_KEY"] .credential-stored')).toHaveAttribute("data-tip", "Stored in the precisiondocs vault, fetched from the page");
+    await expect(card.locator('[data-credential-name="STRIPE_SECRET_KEY"] .credential-stored .muted')).toHaveText("fetched from the page");
   });
 }

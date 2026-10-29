@@ -2,8 +2,8 @@ import { expect, holdStream, type Locator, openItem, openTaskList, type Page, te
 
 // Every tip on the board touches its own part, holds its whole text on a
 // solid surface, stays inside the window and is cut off by nothing, wherever
-// its part is: a card, the CFO's bar, the top bar, a task's panel, the
-// Command Center or the Orchestration canvas, on a wide window and on a phone.
+// its part is: a card, the CFO's bar or the Orchestration canvas, on a wide
+// window and on a phone. Nothing outside those views shows a tip.
 const GB = 2 ** 30;
 const since = "2026-10-02T09:00:00Z";
 // Commit is the tighter of memory and commit.
@@ -137,43 +137,58 @@ async function walk(scope: Locator) {
   return { shown, faults };
 }
 
-// A phone has no tour, layout, VS Code or folder button, so fewer parts there
-// carry a tip.
-for (const [size, viewport, boardTips, panelTips] of [["wide", { width: 1440, height: 900 }, 14, 3], ["phone", { width: 390, height: 844 }, 12, 1]] as const) {
+// Points at every control in scope, one at a time, and returns how many it
+// pointed at and the text of each tip that showed, which should be none.
+async function pointAtEach(scope: Locator) {
+  const tips: string[] = [];
+  let pointed = 0;
+  for (const part of await scope.locator("button:visible, summary:visible, a:visible, [data-tip]:visible").all()) {
+    await part.hover();
+    await part.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    pointed++;
+    tips.push(...await scope.page().getByRole("tooltip").allTextContents());
+  }
+  return { pointed, tips };
+}
+
+for (const [size, viewport] of [["wide", { width: 1440, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {
   test.describe(`on a ${size} window`, () => {
     test.use({ viewport });
 
-    test("every tip on the board, the CFO's bar and the top bar is whole, solid and inside the window", async ({ page }) => {
+    test("every tip on the board and the CFO's bar is whole, solid and inside the window", async ({ page }) => {
       test.slow();
       await open(page);
-      const { shown, faults } = await walk(page.locator(".app-shell"));
-      expect(shown).toBeGreaterThanOrEqual(boardTips);
+      const { shown, faults } = await walk(page.locator(".canvas-region"));
+      expect(shown).toBeGreaterThanOrEqual(11);
       expect(faults).toEqual([]);
     });
 
-    test("every tip in a task's panel is whole, solid and inside the window", async ({ page }) => {
-      await open(page);
+    // The Overlord, 2026-10-28: "Only need tool tips in board and
+    // orchestration", not in the chat, the box, the header or the panes.
+    test("no control in the top bar, a task's panel or the Command Center shows a tip", async ({ page }) => {
+      // Arrange
+      await open(page, TASKS, [QUESTION]);
+
+      // Act: the top bar, then a task's panel, then the Command Center's
+      // question and its list.
+      const bar = await pointAtEach(page.locator(".topbar"));
       await page.locator(".task-card-shell").filter({ has: page.locator(".card-title").getByText("working-two", { exact: true }) }).locator(".task-card").click();
       await expect(page.locator("#panel-title")).toHaveText("working-two");
       await openTaskList(page);
-      const { shown, faults } = await walk(page.locator(".context-pane"));
-      expect(shown).toBeGreaterThanOrEqual(panelTips);
-      expect(faults).toEqual([]);
-    });
-
-    test("every tip in the Command Center is whole, solid and inside the window", async ({ page }) => {
-      await open(page, TASKS, [QUESTION]);
+      const panel = await pointAtEach(page.locator(".context-pane"));
       const dialog = page.locator("dialog.question-modal");
       await openItem(page, "Which layout should the board open in");
       await expect(dialog).toBeVisible();
-      const card = await walk(dialog);
+      const card = await pointAtEach(dialog);
       await dialog.getByRole("button", { name: "Close the Command Center", exact: true }).click();
       await expect(dialog).toBeHidden();
       const menu = page.locator(".command-center-menu");
       await menu.locator("summary").click();
-      const list = await walk(menu);
-      expect(list.shown + card.shown).toBeGreaterThanOrEqual(3);
-      expect([...list.faults, ...card.faults]).toEqual([]);
+      const list = await pointAtEach(menu);
+
+      // Assert: each had controls to point at, and none showed a tip.
+      expect({ bar: bar.pointed > 0, panel: panel.pointed > 2, card: card.pointed > 0, list: list.pointed > 0 }).toEqual({ bar: true, panel: true, card: true, list: true });
+      expect([...bar.tips, ...panel.tips, ...card.tips, ...list.tips]).toEqual([]);
     });
   });
 }

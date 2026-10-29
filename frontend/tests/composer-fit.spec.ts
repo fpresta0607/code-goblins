@@ -75,21 +75,6 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
   });
 }
 
-test("the Style menu opens without its button's tip over it", async ({ page }) => {
-  // Arrange
-  await open(page);
-  await openGoblin(page);
-  const style = box(page).getByRole("button", { name: /^Style: / });
-  await style.hover();
-  await expect(page.getByRole("tooltip")).toHaveText("Chat style and speech history");
-
-  // Act
-  await style.click();
-
-  // Assert
-  await expect(box(page).getByRole("group", { name: "Chat style" })).toBeVisible();
-  await expect(page.getByRole("tooltip")).toHaveCount(0);
-});
 
 // The Overlord, 2026-10-28: "what happened to being able to click the
 // microphone and see recent messages".
@@ -134,7 +119,8 @@ test("a long message keeps its last lines in view while dictation adds to it", a
 // app draws its box (the CFO's review of step 3, 2026-10-27: "No loose rows
 // under it. Model short (Opus 5.5), never cut at 360 px. Every icon gets a
 // hover label. Test against the box border."), on his desktop's side panel
-// and on a phone's touch screen. The usage pies end the row since the
+// and on a phone's touch screen. The hover labels went with item 42, which
+// keeps tips out of the box, and the usage pies end the row since the
 // Overlord, 2026-10-28: "The usage circle goes in place of the arrow in the box".
 const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
 const WEEK = { provider: "claude", status: "available", percent_remaining: 12, read_at: "2026-10-28T09:00:00Z", resets_at: "2026-11-02T09:00:00Z", source: "oauth", floor_percent: 5 };
@@ -158,7 +144,7 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
         return [...input.querySelectorAll(".composer-row button, .composer-row .usage-bar")].map((control) => {
           const bounds = control.getBoundingClientRect();
           return {
-            name: control.getAttribute("aria-label"), tip: control.getAttribute("data-tip"),
+            name: control.getAttribute("aria-label"),
             isInside: bounds.width > 0 && bounds.left >= border.left - 0.5 && bounds.right <= border.right + 0.5 && bounds.top >= text.bottom - 0.5 && bounds.bottom <= border.bottom + 0.5,
             middle: Math.round(bounds.top + bounds.height / 2), isCut: control.scrollWidth > control.clientWidth + 0.5,
           };
@@ -170,7 +156,6 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       expect(row.filter((control) => !control.isInside).map((control) => control.name), "every control inside the box's border, under the words").toEqual([]);
       expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);
       expect(row.filter((control) => control.isCut).map((control) => control.name), "no control's words cut").toEqual([]);
-      expect(row.filter((control) => control.name !== "Usage" && !control.tip).map((control) => control.name), "every button has a hover label").toEqual([]);
       await expect(box(page).locator(".composer-tools")).toHaveCount(0);
     });
 

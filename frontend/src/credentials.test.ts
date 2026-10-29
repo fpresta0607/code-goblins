@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { credentialAsk, credentialFinish, credentialHeading, credentialSettled, fetchOffer, heldTip, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
+import { credentialAsk, credentialFinish, credentialHeading, credentialSettled, fetchOffer, linkLabel, onThisMachine, readersOf, stepText, stillNeeded, storeCommand, storedHow, terminalNames, valueWarnings, whereItGoes } from "./credentials.ts";
 import { boardAlerts, outlived } from "./alertRules.ts";
 import { cfoSummary } from "./cfoSummary.ts";
 import { settledLabel, waitingItems } from "./commandQueue.ts";
@@ -99,13 +99,15 @@ test("a format hint warns about a value of the wrong kind and advises on one it 
   assert.deepEqual(valueWarnings(undefined, "anything"), []);
 });
 
-test("a row's tips say where its value goes and how it was stored, naming the vault, its readers and the env file", () => {
-  assert.equal(whereItGoes(request({ services: { STRIPE_SECRET_KEY: ["stripe", "billing"] } }), "STRIPE_SECRET_KEY"), "Goes to the precisiondocs vault for its goblins and the stripe and billing services");
-  assert.equal(whereItGoes(request({ env_file: ".env.docker.local" }), "DATABASE_URL"), "Goes to the precisiondocs vault for its goblins, and into .env.docker.local");
-  assert.equal(storedTip(request({ saved: ["DATABASE_URL"] }), "DATABASE_URL"), "Stored in the precisiondocs vault, pasted on the card");
-  assert.equal(storedTip(request({ saved: ["DATABASE_URL"], replaced: ["DATABASE_URL"], typed: ["DATABASE_URL"], written: ["DATABASE_URL"], env_file: ".env" }), "DATABASE_URL"), "Replaced in the precisiondocs vault, typed in the terminal, and set in .env");
-  assert.equal(storedTip(request({ saved: ["STRIPE_TEST_SECRET_KEY"], fetched: ["STRIPE_TEST_SECRET_KEY"] }), "STRIPE_TEST_SECRET_KEY"), "Stored in the precisiondocs vault, fetched from the page");
-  assert.equal(heldTip(request()), "Already in the precisiondocs vault");
+test("a card says where its values go, which services also read a row, and how each was stored, naming the vault and the env file", () => {
+  assert.equal(whereItGoes(request()), "Goes to the precisiondocs vault for its goblins");
+  assert.equal(whereItGoes(request({ env_file: ".env.docker.local" })), "Goes to the precisiondocs vault for its goblins, and into .env.docker.local");
+  assert.equal(readersOf(request({ services: { STRIPE_SECRET_KEY: ["stripe", "billing"] } }), "STRIPE_SECRET_KEY"), "Also read by the stripe and billing services");
+  assert.equal(readersOf(request({ services: { STRIPE_SECRET_KEY: ["stripe"] } }), "STRIPE_SECRET_KEY"), "Also read by the stripe service");
+  assert.equal(readersOf(request(), "DATABASE_URL"), "");
+  assert.equal(storedHow(request({ saved: ["DATABASE_URL"] }), "DATABASE_URL"), "pasted on the card");
+  assert.equal(storedHow(request({ saved: ["DATABASE_URL"], typed: ["DATABASE_URL"], written: ["DATABASE_URL"], env_file: ".env" }), "DATABASE_URL"), "typed in the terminal, set in .env");
+  assert.equal(storedHow(request({ saved: ["STRIPE_TEST_SECRET_KEY"], fetched: ["STRIPE_TEST_SECRET_KEY"] }), "STRIPE_TEST_SECRET_KEY"), "fetched from the page");
 });
 
 test("a card offers to fetch the keys a reviewed page reads, saying where from and that no agent sees them", () => {

@@ -19,7 +19,7 @@ export function RemoteFix({ command, run, instance, connected, pending, disabled
   return <div className="remote-fix">
     {command && <div className="remote-fix-command">
       <CopyValue value={command} />
-      <button type="button" className="icon-button raised" aria-label={label} data-tip={label} aria-busy={isBusy} disabled={!connected || disabled || isBusy} onClick={onRun}>
+      <button type="button" className="icon-button raised" aria-label={label} aria-busy={isBusy} disabled={!connected || disabled || isBusy} onClick={onRun}>
         {isBusy ? <span className="card-start-spinner" aria-hidden="true" /> : <Icon name="play" />}
       </button>
     </div>}

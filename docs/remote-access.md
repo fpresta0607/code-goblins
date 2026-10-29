@@ -36,8 +36,9 @@ owner account. No personal hostname, account or key is included in the build.
 
 The panel checks the signed-in owner and reads back the exact private proxy
 before calling it ready, which a green check beside the switch says; an amber
-triangle says something is wrong, and its tip says what. The section has no
-explanatory text: the private link to copy while it is on and, on the PC, the
+triangle says something is wrong, and muted words under the switch say what.
+The section has no other explanatory text: the private link to copy while it
+is on and, on the PC, the
 command that mends what is missing under the switch it is for, to copy or to run
 with its play button. Play runs that command, only while it is still the one the
 switch shows, in a PowerShell terminal drawn in the section, as a Command Center

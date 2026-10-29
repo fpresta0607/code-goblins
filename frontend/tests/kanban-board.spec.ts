@@ -98,7 +98,7 @@ test("a board too narrow for three columns stacks, and its layout button says wh
   expect(await columns(page)).toBe(1);
   const layout = page.getByRole("button", { name: /^Layout: stacked/ });
   await expect(layout).toHaveAttribute("aria-disabled", "true");
-  await expect(layout).toHaveAttribute("data-tip", /^Too narrow for columns side by side, so the board is stacked\./);
+  await expect(layout).toHaveAccessibleName(/too narrow for columns side by side\. Close or narrow the panel, or widen the window\.$/);
   // The button is marked disabled, so the press skips the wait for an enabled one.
   await layout.click({ force: true });
   expect(await columns(page)).toBe(1);

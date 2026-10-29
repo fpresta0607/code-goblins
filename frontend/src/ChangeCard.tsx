@@ -53,7 +53,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
     {warning && <p className="change-warning">{warning}</p>}
     <div className="card-actions">
       <ClickFeedback text={feedback} />
-      {pager || <button type="button" className="icon-button raised" aria-label="Close" data-tip="Close" onClick={onClose}><Icon name="close" /></button>}
+      {pager || <button type="button" className="icon-button raised" aria-label="Close" onClick={onClose}><Icon name="close" /></button>}
       <button className="primary send-decision" type="submit" disabled={!canChange}><Icon name="edit" />Change answer</button>
     </div>
   </form>;

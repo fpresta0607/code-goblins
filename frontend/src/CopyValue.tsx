@@ -15,7 +15,7 @@ export function CopyValue({ value }: { value: string }) {
   const copy = () => copyText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), COPIED_MS); }, () => {});
   return <span className="copy-value">
     <code>{value}</code>
-    <button type="button" className="icon-button" aria-label={"Copy " + value} data-tip={copied ? "Copied" : "Copy"} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
+    <button type="button" className={"icon-button" + (copied ? " copied" : "")} aria-label={"Copy " + value} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
   </span>;
 }
 

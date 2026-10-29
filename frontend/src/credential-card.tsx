@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 import { Notice } from "./notice";
 import { age } from "./presentation";
 import { personaFor } from "./workflow";
-import { canPressDone, credentialHeading, fetchOffer, heldTip, inputLabel, linkLabel, onThisMachine, stepText, stillNeeded, storeCommand, storedTip, terminalNames, valueWarnings, whereItGoes } from "./credentials";
+import { canPressDone, credentialHeading, fetchOffer, inputLabel, linkLabel, onThisMachine, readersOf, stepText, stillNeeded, storeCommand, storedHow, terminalNames, valueWarnings, whereItGoes } from "./credentials";
 import { CredentialField } from "./credential-field";
 import { CredentialReplaceDialog } from "./credential-replace-dialog";
 import { RunTerminal } from "./run-terminal";
@@ -225,7 +225,7 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       {request.window_state === "" && request.reason && <Notice tone="warning" icon="warning">{request.reason}</Notice>}
     </div>}
     {open && !local && <p className="credential-remote"><Icon name="lock" />{request.grant_service ? "Grant service access from the board on your PC." : "Values can only be typed on the board on your PC. Here, copy the terminal command instead."}</p>}
-    {!open && <p className="credential-outcome" data-tip={request.reason}><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong></p>}
+    {!open && <p className="credential-outcome"><Icon name={request.state === "done" ? "check" : "clock"} /><strong>{request.state === "done" ? "Done" : request.state === "dismissed" ? "Dismissed" : "Closed"}</strong>{request.reason && <span className="muted">{request.reason}</span>}</p>}
     {open && terminalOpen && <p className="credential-terminal-open" role="status"><Icon name="terminal" />{!local ? "A terminal is open on the board on your PC: type each value there, where nothing you type is shown." : terminal ? "Type each value in the terminal below, where nothing you type is shown." : "A terminal is open on this PC: type each value there, where nothing you type is shown."}</p>}
     {open && terminal && <RunTerminal run={terminal} instance={snapshot.instance} connected={connected} />}
     {offer && <div className="credential-fetch">
@@ -233,22 +233,23 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
       {offer.state === "fetching"
         ? <p className="credential-fetching" role="status"><Icon name="refresh" />Fetching from {offer.provider}'s page</p>
         : <button type="button" className="primary" disabled={!connected || isFetching || terminalOpen} onClick={() => void fetchKeys()}><Icon name="download" />Fetch it for me</button>}
-      {offer.reason && offer.state !== "fetching" && <span className="credential-fetch-stopped" data-tip={offer.reason}><Icon name="warning" />Fetch stopped</span>}
+      {offer.reason && offer.state !== "fetching" && <span className="credential-fetch-stopped"><Icon name="warning" />Fetch stopped<span className="muted">{offer.reason}</span></span>}
     </div>}
+    {request.names.length > 0 && <p className="muted credential-where">{whereItGoes(request)}</p>}
     {inputs.length > 0 && <table className="credential-table">
       <colgroup><col className="credential-name-column" /><col /></colgroup>
       <thead><tr><th scope="col">Name</th><th scope="col">Value</th></tr></thead>
       <tbody>{request.plain.map((name) => <tr key={name} data-credential-name={name} data-state={sent(name) ? "saved" : "needed"} data-plain="">
         <th scope="row">{request.labels[name] ? <><span className="input-label">{request.labels[name]}</span><code>{wrappable(name, "_")}</code></> : <code>{wrappable(name, "_")}</code>}</th>
         <td className="credential-value">{sent(name)
-          ? <span className="credential-stored" data-tip={"Sent to " + asker}><span className="credential-check" aria-hidden="true"><Icon name="check" /></span>Sent</span>
+          ? <span className="credential-stored"><span className="credential-check" aria-hidden="true"><Icon name="check" /></span>Sent</span>
           : <div className="credential-value-line">
             {!open ? <span className="muted">Not sent</span>
               : !local ? <span className="credential-pill"><Icon name="lock" />Type it on your PC</span>
               : <input className="credential-input plain-input" type="text" value={plainValues[name] || ""} placeholder="Type it here" disabled={!connected || storing.includes(name)} autoComplete="off" spellCheck={false} aria-label={inputLabel(request, name)}
                 onChange={(event) => { const next = event.currentTarget.value; setPlainValues((prior) => ({ ...prior, [name]: next })); setRefusals((prior) => ({ ...prior, [name]: "" })); setKeyShaped((prior) => prior.filter((candidate) => candidate !== name)); }}
                 onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void sendPlain(name); } }} />}
-            {open && local && <button type="button" className="icon-button raised credential-store" aria-label={"Send " + inputLabel(request, name)} data-tip={"Send it to " + asker} disabled={!connected || !(plainValues[name] || "").trim() || storing.includes(name)} onClick={() => void sendPlain(name)}><Icon name="send" /></button>}
+            {open && local && <button type="button" className="icon-button raised credential-store" aria-label={"Send " + inputLabel(request, name)} disabled={!connected || !(plainValues[name] || "").trim() || storing.includes(name)} onClick={() => void sendPlain(name)}><Icon name="send" /></button>}
           </div>}
           {refusals[name] && <Notice tone="error" icon="warning" role="alert" className="credential-refusal">{refusals[name]}</Notice>}
           {refusals[name] && keyShaped.includes(name) && <button type="button" className="raised pill-link credential-not-secret" disabled={!connected || storing.includes(name)} onClick={() => void sendPlain(name, true)}>It is not a secret: send it anyway</button>}
@@ -258,22 +259,22 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
         const isStoring = storing.includes(name);
         const state = saved(name) ? "saved" : held(name) ? "held" : "needed";
         return <tr key={name} data-credential-name={name} data-state={state}>
-          <th scope="row">{request.labels[name] && <span className="input-label">{request.labels[name]}</span>}<code>{wrappable(name, "_")}</code></th>
+          <th scope="row">{request.labels[name] && <span className="input-label">{request.labels[name]}</span>}<code>{wrappable(name, "_")}</code>{readersOf(request, name) && <span className="muted credential-readers">{readersOf(request, name)}</span>}</th>
           <td className="credential-value">{state === "saved"
-            ? <span className="credential-stored" data-tip={storedTip(request, name)}><span className="credential-check" aria-hidden="true"><Icon name="check" /></span>Stored</span>
-            : <div className="credential-value-line">
+            ? <span className="credential-stored"><span className="credential-check" aria-hidden="true"><Icon name="check" /></span>{request.replaced.includes(name) ? "Replaced" : "Stored"}<span className="muted">{storedHow(request, name)}</span></span>
+            : <><div className="credential-value-line">
               {!open ? <span className="muted">Not stored</span>
                 : !local ? <span className="credential-pill"><Icon name={held(name) ? "refresh" : "lock"} />{held(name) ? "Stored before: saving replaces it" : "Type it on your PC"}</span>
                 : <CredentialField key={rounds[name] || 0} label={"Value for " + name} placeholder={held(name) ? "Paste a new one to replace it" : "Paste here"} disabled={!connected || terminalOpen || isStoring}
                   onValue={(next, pasted) => { setValues((prior) => ({ ...prior, [name]: next })); setRefusals((prior) => ({ ...prior, [name]: "" })); if (pasted && !warnings(name, next).length) void store(name, [], next); }}
                   onCommit={() => void store(name, [])} />}
-              {open && local && warnings(name, value).map((warning) => <span key={warning} className="credential-warning" role="img" aria-label={warning} data-tip={warning}><Icon name="warning" /></span>)}
               {open && local && value && !isStoring && !terminalOpen
-                ? <button type="button" className="icon-button raised credential-store" aria-label={"Store " + name} data-tip="Store it" disabled={!connected} onClick={() => void store(name, [])}><Icon name="lock" /></button>
+                ? <button type="button" className="icon-button raised credential-store" aria-label={"Store " + name} disabled={!connected} onClick={() => void store(name, [])}><Icon name="lock" /></button>
                 : state === "held"
-                ? <span className="credential-check held" role="img" aria-label="Stored before" data-tip={heldTip(request)}><Icon name="check" /></span>
-                : <span className={"credential-ring" + (isStoring ? " storing" : "")} role="img" aria-label={isStoring ? "Storing" : "Not stored yet"} data-tip={whereItGoes(request, name)} />}
-            </div>}
+                ? <span className="credential-check held" role="img" aria-label="Stored before"><Icon name="check" /></span>
+                : <span className={"credential-ring" + (isStoring ? " storing" : "")} role="img" aria-label={isStoring ? "Storing" : "Not stored yet"} />}
+            </div>
+            {open && local && warnings(name, value).map((warning) => <p key={warning} className="credential-warning"><Icon name="warning" />{warning}</p>)}</>}
             {refusals[name] && <Notice tone="error" icon="warning" role="alert" className="credential-refusal">{refusals[name]}</Notice>}
           </td>
         </tr>;
@@ -286,8 +287,8 @@ export function CredentialCard({ request, snapshot, connected, pager }: { reques
         <pre ref={commandBox}>{commands.map((line) => <code key={line}>{line}</code>)}</pre>
       </div>
       <div className="credential-terminal-actions">
-        <button type="button" className="icon-button raised" aria-label="Copy the commands" data-tip={copied ? "Copied" : "Copy"} onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
-        {local && <button type="button" className="icon-button raised" aria-label="Run in a terminal on this PC" data-tip="Run in a terminal on this PC" disabled={!connected || busy || terminalOpen} onClick={() => void run([])}><Icon name="play" /></button>}
+        <button type="button" className="icon-button raised" aria-label="Copy the commands" onClick={copy}><Icon name={copied ? "check" : "copy"} /></button>
+        {local && <button type="button" className="icon-button raised" aria-label="Run in a terminal on this PC" disabled={!connected || busy || terminalOpen} onClick={() => void run([])}><Icon name="play" /></button>}
       </div>
     </div>}
     {(pager || feedback || open) && <div className="card-actions">

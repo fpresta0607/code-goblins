@@ -24,7 +24,7 @@ import { WhatsWorking } from "./WhatsWorking";
 // A read that failed: the CFO hears why (useResource), and the section offers
 // only Retry.
 function RetryRead({ retry }: { retry: () => void }) {
-  return <button className="icon-button raised retry-read" aria-label="Retry" data-tip="Retry" onClick={retry}><Icon name="refresh" /></button>;
+  return <button className="icon-button raised retry-read" aria-label="Retry" onClick={retry}><Icon name="refresh" /></button>;
 }
 
 function FileReview({ task, path, revision, reviews, connected }: {
@@ -52,7 +52,7 @@ function Changes({ task, revision = "", reviews, connected }: {
   return <div className="changes">
     <div className="section-toolbar"><p className="muted">{changeSummary(revision, files.data?.length)}</p>
       {onGitHub && <a className="text-link" href={onGitHub} target="_blank" rel="noreferrer">Files on GitHub</a>}
-      <button className="icon-button raised" aria-label="Refresh changes" data-tip="Refresh changes" onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}><Icon name="refresh" /></button>
+      <button className="icon-button raised" aria-label="Refresh changes" onClick={() => { files.reload(); setVersion((prior) => prior + 1); }}><Icon name="refresh" /></button>
     </div>
     {files.error ? <RetryRead retry={files.reload} /> :
       !files.data ? <p className="loading" role="status">Reading the change set…</p> :
@@ -143,7 +143,7 @@ function Activity({ task, snapshot }: { task?: Task; snapshot: Snapshot }) {
       <ol className="action-list">{actions.map((action) => {
         const delivery = deliveryMark(action);
         return <li key={action.id}>
-          <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label} data-tip={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at)}</time></div>
+          <div><strong>{actionLabel(action.kind)}</strong><span className={"delivery " + action.status} role="img" aria-label={delivery.label}><Icon name={delivery.icon} /></span><time>{age(action.updated_at)}</time></div>
           {action.text && <p className="action-text">{action.text}</p>}
           {delivery.trouble && <p className="muted">{delivery.label}</p>}
         </li>;

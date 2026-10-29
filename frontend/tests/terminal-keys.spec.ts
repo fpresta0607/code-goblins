@@ -181,7 +181,6 @@ for (const role of ["cfo", "goblin"]) {
     terminal.unread(true);
 
     await expect(notice).toBeVisible();
-    await expect(notice).toHaveAttribute("data-tip", "The program is busy. It takes what was typed when it is free, so there is no need to press again.");
     terminal.unread(false);
     await expect(notice).toHaveCount(0);
   });

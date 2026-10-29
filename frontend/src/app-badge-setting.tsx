@@ -44,7 +44,7 @@ export function AppBadgeSetting({ instance }: { instance: string }) {
     finally { setPending(false); }
   };
   return <div className="app-badge-setting">
-    <SettingSwitch label="App badge" on={isOn} pending={pending} disabled={pending || !instance} tip={isOn ? "Turn the app badge off" : "Turn the app badge on"} onPress={() => void press()} />
+    <SettingSwitch label="App badge" on={isOn} pending={pending} disabled={pending || !instance} onPress={() => void press()} />
     <ClickFeedback text={feedback} />
   </div>;
 }

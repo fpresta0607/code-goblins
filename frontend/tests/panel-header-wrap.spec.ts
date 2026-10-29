@@ -75,6 +75,8 @@ function headerReport() {
     nameLines: lines(name),
     titleLines: lines(title),
     broken: [...broken(name), ...broken(title)],
+    // The name or the title drawn cut short, past its box.
+    cut: [name, title].filter((element) => element.scrollWidth > element.clientWidth + 1 || element.scrollHeight > element.clientHeight + 1).map((element) => element.id || element.className),
     textWidth: Math.round(Math.max(nameBox.width, titleBox.width)),
     headerWidth: Math.round(header.clientWidth),
     headerHeight: Math.round(header.getBoundingClientRect().height),
@@ -115,8 +117,9 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
         const listed = await detailsHeader.evaluate((details) => [...details.querySelectorAll<HTMLElement>(".panel-actions > a, .panel-actions > button")].filter((action) => action.checkVisibility()).map((action) => action.getAttribute("aria-label") || action.textContent!.trim()));
         expect(listed).toEqual(where === "a phone" ? PHONE_BUTTONS : BUTTONS);
         expect(report.broken).toEqual([]);
-        expect(report.nameLines).toBe(1);
+        expect(report.nameLines).toBeLessThanOrEqual(2);
         expect(report.titleLines).toBeLessThanOrEqual(2);
+        expect(report.cut).toEqual([]);
         expect(report.besideOrUnder).toBe(true);
         expect(report.underAt).toBe(0);
         expect(report.pageScroll).toBe(0);
@@ -125,36 +128,25 @@ for (const [where, viewport, deviceScaleFactor] of VIEWS) {
   });
 }
 
-// A name or task id cut to its line shows in full in its
-// tip; one shown whole has none.
-test("a name and task id cut short show in full in their tips", async ({ page }) => {
+// A name or task id too long for its line wraps whole onto the page, with no
+// tip to read it in (decision 1013298: "No panel tips, those texts move onto
+// the page").
+test("a long name and task id show whole on the page, with no tip", async ({ page }) => {
   // Arrange
   const name = "Merge Maestro of the Connector Release Notes";
   const id = "pd-whats-new-connectors-release-notes-for-every-connector-shipped-this-week";
   await open(page, 360, { ...BERNIE, goblin_title: name, id });
-  await openTaskList(page);
   const header = page.locator(".panel-header");
 
   // Act
-  await header.locator("#panel-title").hover();
-
-  // Assert
-  await expect(page.getByRole("tooltip")).toHaveText("Bernie - " + name);
-  await header.locator(".panel-goblin-task").hover();
-  await expect(page.getByRole("tooltip")).toHaveText(id);
-});
-
-test("a name and task id shown whole carry no tip", async ({ page }) => {
-  // Arrange
-  await open(page, "maximized");
-  const header = page.locator(".panel-header");
-
-  // Act
+  const report = await page.evaluate(headerReport);
   await header.locator("#panel-title").hover();
   await header.locator(".panel-goblin-task").hover();
-  // Time for the header to measure them and give either a tip, were it cut.
-  await page.waitForTimeout(2000);
 
-  // Assert
+  // Assert: both wrap rather than fit one line, and neither is cut.
+  await expect(header.locator(".panel-goblin-task")).toHaveText(id);
+  expect(report.nameLines).toBeGreaterThan(1);
+  expect(report.titleLines).toBeGreaterThan(1);
+  expect(report.cut).toEqual([]);
   await expect(page.getByRole("tooltip")).toHaveCount(0);
 });
