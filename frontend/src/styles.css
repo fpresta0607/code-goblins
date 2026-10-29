@@ -171,7 +171,6 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .cfo-rest p { flex: 1; min-width: 0; margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .cfo-rest-portrait { display: grid; place-items: center; width: 56px; height: 56px; min-height: 56px; padding: 0; flex: none; border: 1px solid var(--glass-border); border-radius: 12px; background: var(--glass-bg), var(--hero-surface); }
 .cfo-rest-portrait .goblin-avatar { width: 48px; height: 48px; }
-.cfo-rest .mark { border-radius: 10px; }
 /* Paused tasks sit inside In progress, after its working cards, under a thin
    labelled divider, like a page break. */
 .paused-tasks { display: grid; gap: 16px; margin-top: 22px; }
@@ -736,12 +735,6 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 /* The speaker's name on a tab over the box, in lantern, as the CFO's bar
    wears it while something waits on the Overlord. */
 .dialogue-tab { position: relative; z-index: 1; max-width: calc(100% - 96px); margin: 0 0 -4px 82px; padding: 3px 12px 3px; border: 2px solid var(--soot); border-bottom: 0; background: var(--hide); box-shadow: inset 2px 2px 0 var(--edge), inset -2px 0 0 var(--edge); color: var(--lantern); font: 400 1rem/1.4 var(--font-display); overflow-wrap: anywhere; clip-path: polygon(0 4px, 2px 4px, 2px 2px, 4px 2px, 4px 0, calc(100% - 4px) 0, calc(100% - 4px) 2px, calc(100% - 2px) 2px, calc(100% - 2px) 4px, 100% 4px, 100% 100%, 0 100%); }
-/* A badge beside the portrait, such as the CFO's harness mark, sits in the
-   same stepped frame, drawn behind it so its tip shows in full. */
-.dialogue-who { display: flex; align-items: center; gap: 10px; }
-.dialogue .mark { position: relative; isolation: isolate; width: 40px; height: 40px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.dialogue .mark::before { content: ""; position: absolute; inset: 0; z-index: -1; clip-path: var(--pixel-corners); border: 2px solid var(--soot); background: #070b10; box-shadow: inset 0 0 0 2px var(--edge); }
-.dialogue .mark svg, .dialogue .mark .icon { width: 22px; height: 22px; }
 .dialogue-text { min-width: 0; font-size: 1rem; line-height: 1.5; }
 .dialogue-text p { margin: 0; overflow-wrap: anywhere; }
 .dialogue-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
@@ -793,11 +786,10 @@ button.dialogue-portrait:hover::before { background: #12202a; }
    them, starting where they start. */
 .panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; min-width: 0; }
 .panel-heading > .panel-identity { flex: 1 1 auto; }
-/* The name keeps to one line and a named goblin's task, under it, to two,
-   and neither breaks a word. */
-.panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The name and a named goblin's task, under it, show whole, wrapping
+   between words and breaking one only when it is wider than the line. */
+.panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
 .panel-goblin-task { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
-p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: normal; }
 /* The CFO's Restart, under its name on one line at the height of the
    header's other controls, and what a press could not do beside it. */
 .cfo-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; }
@@ -1000,6 +992,7 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .voice-dock-hint { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; margin: 0 8px 0 0; color: var(--bone-dim); font-size: .875rem; contain: inline-size; }
 .voice-dock-hint > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voice-dock-hint strong { color: var(--bone); font-weight: 700; }
+.voice-dock-listening { flex: 1; min-width: 0; margin: 0 8px 0 0; color: var(--muted); font-size: .875rem; text-align: right; overflow-wrap: anywhere; }
 .voice-dock-hint .icon-button { flex: none; width: 32px; height: 32px; min-height: 32px; border: 0; background: transparent; color: var(--muted); }
 .voice-meta { grid-column: 1; color: var(--bone-dim); font-size: .9375rem; }
 .voice-text { grid-column: 1; color: var(--bone); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1017,6 +1010,11 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
   .panel-header { gap: 10px 14px; padding-inline: 18px; }
   .panel-header .goblin-avatar { width: 48px; height: 48px; }
   .panel-header h2 { font-size: 1.375rem; }
+}
+/* A panel as narrow as a phone gives the name a phone's size, so a long name
+   shows whole in two lines beside the Chat and Task switch. */
+@container goblin-panel (max-width: 25rem) {
+  .panel-header h2, .panel-header.compact h2 { font-size: 1.125rem; }
 }
 
 /* The comment affordance is a speech-bubble icon, never a font glyph,
@@ -1041,6 +1039,7 @@ p.panel-goblin-task { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-o
 .comment-overlay textarea { width: 100%; min-height: 84px; max-height: 240px; background: var(--field-bg); }
 .comment-overlay .comment-trouble { margin: 0; overflow-wrap: anywhere; }
 .comment-overlay footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.comment-overlay .comment-why { margin: 0 auto 0 0; overflow-wrap: anywhere; }
 .comment-overlay .send:not(:disabled) { background: var(--accent-green); color: #03130c; }
 .comment-overlay.sent { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 6px 8px 6px 14px; }
 .comment-sent-text { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1253,6 +1252,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .subscription-track { stroke: var(--muted); opacity: .24; }
 .subscription-fill { stroke: var(--mint); }
 .subscription-percent { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.subscription-name { color: var(--muted); font-size: .875rem; }
 .subscription-dial.reserve { color: var(--amber); }
 .subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
 .subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }
@@ -1398,25 +1398,20 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 
 /* The terminal deck below the panel header: every live terminal, one shown
    at a time, filling the panel. */
-/* The panel's own header and its top selector take what they need, and the
-   stage under them takes the rest of the panel. */
+/* The panel's own header takes what it needs, and the stage under it takes
+   the rest of the panel. */
 .goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
-/* The selector at the panel's top, between its conversation and its task
-   panel: a segmented control, never a fold or a dropdown. */
-.panel-view-switch { display: flex; flex: none; gap: 8px; order: 2; margin: 8px 14px 10px; padding: 4px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
+/* The selector between the panel's conversation and its task panel: a
+   segmented control of two icons in the header's own row, at the row's end
+   or before the CFO's controls, never a fold, a dropdown or a row of its own. */
+.panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 3px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
+.panel-header:has(> .panel-view-switch) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.panel-header > .panel-view-switch { margin-left: auto; }
 .goblin-panel > .panel-top { order: 0; }
 .goblin-panel > .panel-header { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
-.panel-view-switch > button { display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 4px 18px; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); font-family: var(--font-display); font-size: .9375rem; }
+.panel-view-switch > button { display: inline-grid; place-items: center; width: 38px; min-height: 34px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }
-/* On a phone the selector is its two icons alone, in the same place and the
-   same control, each keeping its accessible name. */
-@media (max-width: 40rem) {
-  .panel-view-switch { order: 1; margin: 8px 14px 0; }
-  .goblin-panel > .panel-header { order: 2; }
-  .panel-view-switch > button { padding: 4px 12px; }
-  .panel-view-switch .view-switch-label { display: none; }
-}
 .panel-view-switch > button:hover { color: #edf4f3; }
 .panel-view-switch > button[aria-pressed="true"] { color: #f4fbff; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
 /* The stage is the box under the panel's header that a session's Messages

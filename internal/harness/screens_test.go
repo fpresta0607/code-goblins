@@ -940,3 +940,52 @@ func TestAPiComposerShowsACollapsedPaste(t *testing.T) {
 		})
 	}
 }
+
+// The board shows beside its dither the words a harness's turn row says it is
+// doing (the Overlord, 2026-10-28: "also have words that appear next to dither
+// all the whimsical verbs claude whilst working uses"), without the spinner,
+// the timer or the interrupt hint, and nothing while no turn shows.
+func TestWorkingWordsAreTheTurnRowsOwnWords(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		kind  Kind
+		rows  []string
+		words string
+	}{
+		{"a claude verb", Claude, []string{"✻ Cogitating… (12s · ↓ 3.2k tokens · esc to interrupt)", "", "❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, "Cogitating"},
+		{"a claude verb on another frame", Claude, []string{"* Sautéing… (2m 3s · esc to interrupt)", "", "❯"}, "Sautéing"},
+		{"a codex turn", Codex, []string{"• Working (5s • esc to interrupt)", "› ", "100% context left"}, "Working"},
+		{"a codex step heading", Codex, []string{"◦ Exploring the tests (41s • esc to interrupt)", "› ", "100% context left"}, "Exploring the tests"},
+		{"a pi turn", Pi, []string{"── ⠸ Working ──", "", "0.8%/1.0M (auto)"}, "Working"},
+		{"a claude composer with no turn", Claude, []string{"❯", "  ⏵⏵ bypass permissions on (shift+tab to cycle)"}, ""},
+		{"a codex composer with no turn", Codex, []string{"› Ask Codex to do anything", "100% context left"}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			words := screens.WorkingWords(test.rows)
+
+			// Assert
+			if words != test.words {
+				t.Errorf("WorkingWords(%q) = %q, want %q", test.rows, words, test.words)
+			}
+		})
+	}
+}
+
+// A long heading Codex names its step by is cut to one short phrase.
+func TestWorkingWordsCutALongHeading(t *testing.T) {
+	// Arrange
+	screens, _ := NativeScreens(Codex)
+	heading := strings.Repeat("Reading every handler ", 6)
+
+	// Act
+	words := screens.WorkingWords([]string{"• " + heading + "(5s • esc to interrupt)", "› ", "100% context left"})
+
+	// Assert
+	if runes := []rune(words); len(runes) != workingWordsMax+1 || !strings.HasSuffix(words, "…") || !strings.HasPrefix(heading, strings.TrimSuffix(words, "…")) {
+		t.Errorf("WorkingWords cut %q to %q, want its first %d characters and an ellipsis", heading, words, workingWordsMax)
+	}
+}

@@ -87,7 +87,8 @@ type nativeRelay struct {
 // them in the terminal itself or as a harness puts them back when stopped,
 // which anything typed now would join, read as a delivery reads them
 // (spawn.WithoutInlineOffer), so the board's box holds a message rather than
-// typing it onto them.
+// typing it onto them. Doing is what its turn row says it is doing, as
+// Claude Code's whimsical verb, which the board shows beside its dither.
 type screenState struct {
 	Asking     bool           `json:"asking"`
 	Open       bool           `json:"open"`
@@ -97,6 +98,7 @@ type screenState struct {
 	Panel      *harness.Panel `json:"panel,omitempty"`
 	Mode       string         `json:"mode,omitempty"`
 	HasDraft   bool           `json:"draft,omitempty"`
+	Doing      string         `json:"doing,omitempty"`
 }
 
 // relaySize is a size to tell the view once the output before it is sent.
@@ -304,6 +306,7 @@ func (h *HTTP) nativeTerminal(w http.ResponseWriter, r *http.Request) {
 		}
 		state.Mode = screens.Mode(rows)
 		state.HasDraft = spawn.WithoutInlineOffer(screens).ComposerHoldsText(rows)
+		state.Doing = screens.WorkingWords(rows)
 		message, _ := json.Marshal(struct {
 			Type string `json:"type"`
 			screenState

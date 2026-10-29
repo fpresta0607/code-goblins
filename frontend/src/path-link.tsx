@@ -18,23 +18,27 @@ export interface PathCard { kind: "credential" | "question" | "review" | "run"; 
 // PC"). In the desktop window it opens File Explorer at its folder, with a
 // file selected, through the supervisor, which opens only a path the card
 // itself names. A plain browser cannot open a folder on his PC, so there the
-// link copies the path instead, and its tip says so. Beside a code value,
-// which copies itself, it is the folder icon alone.
+// link copies the path instead. A click that worked turns its folder into a
+// check for a moment, and one that failed says why in a few muted words
+// beside it. Beside a code value, which copies itself, it is the folder icon
+// alone.
 export function PathLink({ path, card, isIcon = false }: { path: string; card: PathCard; isIcon?: boolean }) {
-  const [said, setSaid] = useState("");
+  const [said, setSaid] = useState({ text: "", isFailure: false });
   const isDesktop = inDesktopApp();
-  const say = (text: string, shown = SAID_MS) => { setSaid(text); setTimeout(() => setSaid(""), shown); };
+  const say = (text: string, isFailure = false) => {
+    setSaid({ text, isFailure });
+    setTimeout(() => setSaid({ text: "", isFailure: false }), isFailure ? FAILED_MS : SAID_MS);
+  };
   const open = async () => {
-    if (!isDesktop) return copyText(path).then(() => say("Copied"), () => say("Not copied. Select the path and press Ctrl+C.", FAILED_MS));
+    if (!isDesktop) return copyText(path).then(() => say("Copied"), () => say("Not copied. Select the path and press Ctrl+C.", true));
     try {
       await request("/api/cards/open-path", undefined, { method: "POST", headers: { "Content-Type": "application/json", "X-CFO-Token": card.instance }, body: JSON.stringify({ kind: card.kind, id: card.id, path }) });
       say("Opened in File Explorer");
-    } catch (error: unknown) { say(message(error), FAILED_MS); }
+    } catch (error: unknown) { say(message(error), true); }
   };
-  return <button type="button" className={"path-link" + (isIcon ? " icon" : "")} aria-label={isDesktop ? "Open " + path + " in File Explorer" : "Copy the path " + path}
-    data-tip={said || (isDesktop ? "Open in File Explorer" : "Copy the path: File Explorer opens it only from the desktop window")} onClick={() => void open()}>
-    <Icon name="folder" />{!isIcon && <span>{path}</span>}
-  </button>;
+  return <><button type="button" className={"path-link" + (isIcon ? " icon" : "")} aria-label={isDesktop ? "Open " + path + " in File Explorer" : "Copy the path " + path} onClick={() => void open()}>
+    <Icon name={said.text && !said.isFailure ? "check" : "folder"} />{!isIcon && <span>{path}</span>}
+  </button>{said.text && <span className={said.isFailure ? "path-link-said" : "sr-only"} role="status">{said.text}</span>}</>;
 }
 
 export const pathLinks = (card: PathCard): PathRenderer => (path, key, isIcon) => <PathLink key={key} path={path} card={card} isIcon={isIcon} />;

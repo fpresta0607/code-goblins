@@ -118,9 +118,9 @@ test("the goblin panel lists working children and folds finished children away",
   await expect(page.getByRole("list", { name: "Finished" }).locator(".working-row")).toHaveCount(2);
   // No line says how fresh the reading is (the Overlord, 2026-10-08: "i dont
   // need descriptive text everywhere like this"), and the goblin's own memory
-  // is in the total's tip.
+  // follows the total in a few muted words.
   await expect(page.locator(".working-freshness")).toHaveCount(0);
-  await expect(page.getByText(/ in all$/)).toHaveAttribute("data-tip", "The goblin itself holds 1.0 GB");
+  await expect(page.locator(".working-summary .muted")).toHaveText(", 1.0 GB its own");
 });
 
 // The Overlord, 2026-10-07, on the yellow "Silent 6h 41m: ..." banner a

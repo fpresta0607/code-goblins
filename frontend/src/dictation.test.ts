@@ -132,6 +132,25 @@ test("a blocked microphone is reported and types nothing", () => {
   assert.match(problems.at(-1) || "", /microphone is blocked/);
 });
 
+test("a hold cancelled as a click hands the microphone back and types and says nothing", () => {
+  // Arrange
+  const { subject, heard, listening, problems, failures } = dictation();
+  subject.start();
+  FakeRecognizer.made[0].hear("half a word");
+
+  // Act
+  subject.cancel();
+
+  // Assert
+  assert.deepEqual(heard, []);
+  assert.deepEqual(problems.filter(Boolean), []);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(listening, [true, false]);
+  assert.equal(subject.isListening, false);
+  subject.stop();
+  assert.deepEqual(heard, [], "a stop after the cancel types nothing either");
+});
+
 test("closing the terminal while listening drops what was heard", () => {
   const { subject, heard, listening } = dictation();
   subject.start();

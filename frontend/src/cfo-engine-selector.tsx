@@ -25,7 +25,6 @@ export function CfoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
     || (choice.harness && !harness ? "Harness " + harnessName(choice.harness) + " is unavailable" : "")
     || (choice.model && !model ? "Model " + choice.model + " is unavailable" : "")
     || (model && choice.effort && !model.efforts.includes(choice.effort) ? "Effort " + choice.effort + " is unavailable for " + model.name : "");
-  const isChosen = !!harness && !harness.reason && !!model && model.efforts.includes(choice.effort);
   const save = async () => {
     if (isSaving) return;
     setSaving(true); showFeedback("");
@@ -37,7 +36,7 @@ export function CfoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
     finally { setSaving(false); }
   };
   return <div className="engine-selector" role="group" aria-label="CFO engine">
-    {catalog.error ? <button className="icon-button raised" aria-label="Retry" data-tip="Retry" onClick={catalog.reload}><Icon name="refresh" /></button> : !catalog.data ? <p className="loading" role="status">Reading engines…</p> : <>
+    {catalog.error ? <button className="icon-button raised" aria-label="Retry" onClick={catalog.reload}><Icon name="refresh" /></button> : !catalog.data ? <p className="loading" role="status">Reading engines…</p> : <>
       <div className="engine-fields">
         <label htmlFor={label + "-harness"}>Harness<span className="engine-harness"><ConnectorMark mark={harnessMark(choice.harness)} label={harnessName(choice.harness)} /><select id={label + "-harness"} value={choice.harness} disabled={isSaving} onChange={(event) => {
           setDraft({ harness: event.target.value, model: "", effort: "" });
@@ -49,10 +48,10 @@ export function CfoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
         <label htmlFor={label + "-effort"}>Effort<select id={label + "-effort"} value={choice.effort} disabled={isSaving || !model} onChange={(event) => { setDraft({ ...choice, effort: event.target.value }); }}><option value="" disabled>Choose effort</option>{choice.effort && !model?.efforts.includes(choice.effort) && <option value={choice.effort} disabled>{choice.effort} (unavailable)</option>}{model?.efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}</select></label>
       </div>
       {unavailable && <p className="muted">{unavailable}</p>}
-      <button className="labelled-button" data-tip={isChosen ? "The CFO takes this at its next safe turn" : "Choose a harness, model and effort"} disabled={isSaving || !draft || !!unavailable} onClick={() => void save()}><Icon name="refresh" />Save</button>
+      <button className="labelled-button" disabled={isSaving || !draft || !!unavailable} onClick={() => void save()}><Icon name="refresh" />Save</button>
     </>}
     <ClickFeedback text={feedback} />
-    {received?.pending && <p className="engine-pending" data-tip={received.waiting}>Pending: {received.model} {received.effort}</p>}
-    {received?.problem && <p className="muted" data-tip={received.problem}>Not applied</p>}
+    {received?.pending && <p className="engine-pending">Pending: {received.model} {received.effort}{received.waiting && <span className="muted"> · {received.waiting}</span>}</p>}
+    {received?.problem && <p className="muted">Not applied: {received.problem}</p>}
   </div>;
 }

@@ -63,11 +63,18 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		os.Exit(2)
 	}
 	line, offer, hasPasteEnded := "", strings.HasPrefix(mode, "daybreak"), false
+	// A Claude Code fixture takes its input as Claude Code 2.1.312 did: a
+	// bracketed paste is one paste however it is read, while keys typed in a
+	// burst longer than claudeRead bytes are taken as a paste of the first
+	// claudeRead bytes and keys after them, and a turn's queue then keeps
+	// only the keys, as the live CFO's did on 2026-10-29 (#1740).
+	paste, readAsPaste, isPasting := "", "", false
+	composer := func() string { return paste + readAsPaste + line }
 	draw := func(isWorking bool) {
 		rows := []string{}
 		if offer {
 			rows = append(rows, "Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue")
-		} else if mode == "late-modal" && line != "" {
+		} else if mode == "late-modal" && composer() != "" {
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "", "Press enter to continue"}, "\r\n"))
 			return
 		}
@@ -80,7 +87,11 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		}
 		if harness == "claude" {
 			rule := strings.Repeat("─", 80)
-			rows = append(rows, rule, "❯ "+line, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
+			shown := line
+			if paste != "" || readAsPaste != "" {
+				shown = "[Pasted text #1]" + line
+			}
+			rows = append(rows, rule, "❯ "+shown, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
 		} else {
 			text := line
 			if text == "" {
@@ -102,16 +113,26 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			// A key sent as a control sequence, such as End before Codex's
 			// submit, ends a paste and leaves the line as it is.
 			if next, err := reader.Peek(min(1, reader.Buffered())); err == nil && len(next) == 1 && next[0] == '[' {
+				sequence := ""
 				for {
 					final, err := reader.ReadByte()
 					if err != nil {
 						return
 					}
+					sequence += string(final)
 					if final >= 0x40 && final <= 0x7e && final != '[' {
 						break
 					}
 				}
-				hasPasteEnded = true
+				switch sequence {
+				case "[200~":
+					isPasting = true
+				case "[201~":
+					isPasting = false
+					draw(false)
+				default:
+					hasPasteEnded = true
+				}
 				continue
 			}
 			record("escape")
@@ -124,7 +145,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				record("ignored-enter")
 				continue
 			}
-			if offer || mode == "late-modal" && line != "" {
+			if offer || mode == "late-modal" && composer() != "" {
 				record("dialog-enter")
 				continue
 			}
@@ -134,7 +155,8 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				continue
 			}
 			if mode == "busy" {
-				record("queued " + line)
+				queued := paste + line
+				record("queued " + queued)
 				go func(text string) {
 					for {
 						if _, err := os.Stat(events + ".accept"); err == nil {
@@ -144,17 +166,24 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 						}
 						time.Sleep(10 * time.Millisecond)
 					}
-				}(line)
+				}(queued)
 			} else {
-				record("accepted " + line)
+				record("accepted " + composer())
 			}
-			line = ""
+			line, paste, readAsPaste = "", "", ""
 			draw(true)
 		default:
-			if offer && line == "" {
+			if offer && composer() == "" {
 				record("typed-under-dialog")
 			}
+			if isPasting {
+				paste += string(key)
+				continue
+			}
 			line += string(key)
+			if harness == "claude" && readAsPaste == "" && len(line) >= claudeRead {
+				readAsPaste, line = line, ""
+			}
 			// What is typed in one go is drawn once it is all read, as a
 			// harness draws a paste: a draw for each character of several
 			// answers typed as one message outlasts the wait to see it shown.
@@ -164,6 +193,10 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		}
 	}
 }
+
+// claudeRead is how much of a burst of keys the live CFO's Claude Code read
+// at once on 2026-10-29, and took as a paste (#1740).
+const claudeRead = 1024
 
 func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 	t.Helper()

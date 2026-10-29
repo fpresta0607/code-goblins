@@ -28,8 +28,8 @@ for (const width of [1440, 390, 320]) {
       const openai = bar.getByRole("progressbar", { name: "OpenAI 76% weekly remaining" });
       await expect(claude).toBeVisible();
       await expect(openai).toBeVisible();
-      await expect(claude).toHaveText("?");
-      await expect(openai).toHaveText("76%");
+      await expect(claude.locator(".subscription-percent")).toHaveText("?");
+      await expect(openai.locator(".subscription-percent")).toHaveText("76%");
       const layout = await bar.evaluate((element) => ({
         overflows: element.scrollWidth > element.clientWidth,
         smallest: Math.min(...[...element.querySelectorAll<HTMLElement>(".subscription-percent")].map((text) => parseFloat(getComputedStyle(text).fontSize))),
@@ -86,6 +86,30 @@ for (const percent of [1, 5.1]) {
   });
 }
 
+// The Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons
+// in cfo banner in top left of board, only need usage". The bar's dials draw
+// no brand, so two subscriptions' dials name their providers in words.
+test("the CFO's bar shows each subscription's usage with no brand mark, naming the provider when there are two", async ({ page }) => {
+  // Arrange and Act
+  const bar = await open(page, [usage("claude", 40), usage("codex", 76)]);
+
+  // Assert
+  const claude = bar.getByRole("progressbar", { name: "Claude 40% weekly remaining" });
+  const openai = bar.getByRole("progressbar", { name: "OpenAI 76% weekly remaining" });
+  await expect(claude).toHaveText("Claude40%");
+  await expect(openai).toHaveText("Codex76%");
+  await expect(bar.locator(".subscription-ring svg, .mark")).toHaveCount(0);
+});
+
+test("one subscription's dial on the CFO's bar is its usage alone", async ({ page }) => {
+  // Arrange and Act
+  const bar = await open(page, [usage("codex", 76)]);
+
+  // Assert
+  await expect(bar.getByRole("progressbar", { name: "OpenAI 76% weekly remaining" })).toHaveText("76%");
+  await expect(bar.locator(".subscription-ring svg, .mark")).toHaveCount(0);
+});
+
 test("no active providers means no dials on the CFO's bar", async ({ page }) => {
   const bar = await open(page, []);
   await expect(bar.locator(".subscription-dial")).toHaveCount(0);
@@ -94,7 +118,7 @@ test("no active providers means no dials on the CFO's bar", async ({ page }) => 
 test("an active stale provider stays visible with an unknown ring", async ({ page }) => {
   const bar = await open(page, [usage("codex", 76, "stale")]);
   const dial = bar.getByRole("img", { name: "OpenAI weekly remaining unavailable" });
-  await expect(dial).toHaveText("?");
+  await expect(dial.locator(".subscription-percent")).toHaveText("?");
   await expect(dial.locator(".subscription-fill")).toHaveCount(0);
   await dial.hover();
   await expect(page.getByRole("tooltip")).toContainText("stale");

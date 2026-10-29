@@ -2,3 +2,5 @@
 .hosted-failed { color: var(--red); }
 .hosted-cancelled { color: var(--muted); }
 .hosted-passed, .hosted-approved { color: var(--mint); }
+/* What failed, beside its pill in the panel's link row. */
+.pill-detail { color: var(--muted); font-size: .9375rem; overflow-wrap: anywhere; }

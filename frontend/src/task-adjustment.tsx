@@ -59,7 +59,7 @@ export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snaps
   };
   if (!draft) return <div className="panel-goblin-task task-line">
     <span onClick={task.starting ? undefined : () => setDraft(current)}>{line}</span>
-    <button ref={pencil} className="icon-button" aria-label="Edit task" data-tip="Edit task" disabled={task.starting} onClick={() => setDraft(current)}><Icon name="edit" /></button>
+    <button ref={pencil} className="icon-button" aria-label="Edit task" disabled={task.starting} onClick={() => setDraft(current)}><Icon name="edit" /></button>
   </div>;
   return <>
     <div className="task-edit" role="group" aria-label="Edit the task" aria-busy={isSending}>
@@ -70,8 +70,8 @@ export function TaskAdjustment({ task, snapshot }: { task: Task; snapshot: Snaps
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void save(); }
         }} />
       <span className="task-edit-actions">
-        <button className="icon-button" aria-label="Save task" data-tip="Save" disabled={isSending || task.starting || !draft.text.trim()} onClick={() => void save()}>{isSending ? <span className="card-start-spinner" /> : <Icon name="check" />}</button>
-        <button className="icon-button" aria-label="Cancel edit" data-tip="Cancel" disabled={isSending} onClick={cancel}><Icon name="close" /></button>
+        <button className="icon-button" aria-label="Save task" disabled={isSending || task.starting || !draft.text.trim()} onClick={() => void save()}>{isSending ? <span className="card-start-spinner" /> : <Icon name="check" />}</button>
+        <button className="icon-button" aria-label="Cancel edit" disabled={isSending} onClick={cancel}><Icon name="close" /></button>
       </span>
     </div>
     <ClickFeedback text={feedback} />

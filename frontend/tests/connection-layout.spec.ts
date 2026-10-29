@@ -17,14 +17,16 @@ async function open(page: Page, width: number, isChecking = false) {
 }
 
 for (const width of [720, 520, 360]) {
-  test(`a card's long name ends before its buttons and shows whole in its tooltip at a panel width of ${width}`, async ({ page }) => {
+  test(`a card's long name wraps whole before its buttons, with no tooltip, at a panel width of ${width}`, async ({ page }) => {
     await open(page, width);
     const card = page.locator(".connector-card").first();
     const name = (await card.locator("strong").boundingBox())!;
     const button = (await card.locator(".connector-toggle").boundingBox())!;
     expect(name.x + name.width).toBeLessThan(button.x);
+    await expect(card.locator("strong")).toHaveText(longName);
+    expect(await card.locator("strong").evaluate((element) => element.scrollWidth <= element.clientWidth + 1 && element.scrollHeight <= element.clientHeight + 1)).toBe(true);
     await card.locator("strong").hover();
-    await expect(page.getByRole("tooltip")).toHaveText(longName);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
     const panel = page.getByRole("region", { name: "Connections", exact: true });
     expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await expect(page.getByRole("button", { name: "Sign in to Context7" })).toBeVisible();

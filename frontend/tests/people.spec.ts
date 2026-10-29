@@ -87,7 +87,7 @@ test.describe("in his window", () => {
     const header = await openPanel(page, "Say why a billing sync fails");
     const people = header.locator(".people-row .person");
     expect(await people.evaluateAll((faces) => faces.map((face) => face.querySelector("a")?.getAttribute("aria-label")))).toEqual(["ana-teammate, in the same area: PR #46, issue #49", "ben-teammate", "cy-teammate"]);
-    await expect(people.nth(1).locator("a")).toHaveAttribute("data-tip", "ben-teammate");
+    await expect(header.locator(".people-same-area")).toHaveText("In the same area: ana-teammate: PR #46, issue #49");
     await expect(header.locator(".people-more")).toHaveCount(0);
     await expect(people.first()).toHaveClass(/same-area/);
     await expect(people.nth(1)).not.toHaveClass(/same-area/);

@@ -1130,7 +1130,7 @@ func TestANativeViewDistinguishesBackgroundWorkFromAHarnessTurn(t *testing.T) {
 	}
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
-	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions"}`)
+	v.waitFor(t, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions","doing":"Pondering"}`)
 	if slices.Contains(terminal.lines(t), "turn ended") {
 		t.Error("the view learned of the turn only after its spinner stopped")
 	}
@@ -1283,7 +1283,7 @@ func TestANativeViewIsToldItsHarnessNoLongerAsksWhileTheTurnItsAnswerStartedDraw
 
 	v.send(t, websocket.MessageBinary, "turn for 20s\r")
 
-	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions"}`
+	asking, back := `{"type":"screen","asking":true,"open":true,"working":false,"submission":"",`, `{"type":"screen","asking":false,"open":false,"working":true,"submission":"","mode":"bypass permissions","doing":"Pondering"}`
 	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
 		v.mu.Lock()
 		screen := v.screen.String()

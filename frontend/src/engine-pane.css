@@ -1,7 +1,11 @@
-/* Modern Chat's own pane for a session's model and effort: it opens above the
-   box's row, right-aligned with it, on the surface every popup of the chat
-   wears (popup.css), and scrolls inside itself past a third of the window. */
-.engine-pane { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; display: grid; gap: 2px; width: min(20rem, calc(100cqw - 8px)); max-height: min(22rem, 45dvh); padding: 6px; overflow: auto; overscroll-behavior: contain; }
+/* Modern Chat's one pane for a session's settings: it opens above the box's
+   row, right-aligned with it, on the surface every popup of the chat wears
+   (popup.css), and scrolls inside itself past a third of the window. A
+   model's efforts come out in a flyout off the pane's left side, beside that
+   model's row, never moving the list; the pane and the flyout share the
+   box's width, so both fit on a phone. */
+.engine-panes { --pane-width: min(13rem, 56cqw); position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 3; width: var(--pane-width); }
+.engine-pane { display: grid; gap: 2px; max-height: min(24rem, 50dvh); padding: 6px; overflow: auto; overscroll-behavior: contain; }
 .engine-pane:focus-visible { outline: none; }
 .engine-pane-title { display: flex; align-items: center; gap: 8px; margin: 2px 6px 6px; color: var(--muted); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 .engine-pane-title .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
@@ -9,19 +13,25 @@
 .engine-pane-note { margin: 4px 8px 8px; color: var(--muted); font-size: .875rem; }
 .engine-pane-retry { justify-self: start; margin: 4px 8px 8px; }
 .engine-choice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; min-height: 36px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: #edf4f3; text-align: left; }
-.engine-choice:hover, .engine-choice:focus-visible { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
+.engine-choice:hover, .engine-choice:focus-visible, .engine-choice[aria-expanded="true"] { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
 .engine-choice[aria-checked="true"] { background: var(--glass-bg-hover); }
-.engine-choice > .icon { grid-row: 1 / span 2; grid-column: 2; width: 16px; height: 16px; color: var(--mint); }
+.engine-choice > .icon { grid-column: 2; width: 16px; height: 16px; color: var(--mint); }
 .engine-choice-label { min-width: 0; overflow: hidden; font-size: .875rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-/* The effort is a drawer at the model pane's foot, which pulls out under a
-   rule to the levels of the model it runs. */
-.engine-drawer { display: grid; gap: 2px; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--glass-border); }
-.engine-drawer-toggle { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: .8125rem; font-weight: 600; text-align: left; }
-.engine-drawer-toggle:hover, .engine-drawer-toggle:focus-visible { background: var(--glass-bg-hover); }
-.engine-drawer-toggle > .icon { width: 14px; height: 14px; margin-left: auto; transition: transform .15s ease; }
-.engine-drawer-toggle[aria-expanded="true"] > .icon { transform: rotate(90deg); }
-.engine-drawer-levels { display: grid; gap: 2px; padding-left: 8px; }
-@media (pointer: coarse) { .engine-choice, .engine-drawer-toggle { min-height: 44px; } }
+.engine-flyout { position: absolute; right: calc(100% + 4px); display: grid; gap: 2px; width: min(9rem, calc(100cqw - var(--pane-width) - 16px)); padding: 6px; }
+/* The permission mode, under a rule at the pane's foot: one choice per mode
+   the harness cycles, each in its own colour, the one it runs filled. */
+.engine-modes { display: grid; margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--glass-border); }
+.engine-mode-choices { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 4px 2px; }
+.engine-mode { --mode-ink: var(--muted); min-height: 30px; padding: 4px 10px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--mode-ink); font-size: .8125rem; font-weight: 600; box-shadow: none; }
+.engine-mode:hover, .engine-mode:focus-visible { border-color: var(--glass-border-hover); background: var(--glass-bg-hover); }
+.engine-mode[aria-checked="true"] { border-color: currentColor; background: color-mix(in srgb, var(--mode-ink) 14%, transparent); }
+.engine-mode.mode-manual { --mode-ink: #dce6e3; }
+.engine-mode.mode-edits { --mode-ink: var(--purple); }
+.engine-mode.mode-plan { --mode-ink: #7cc4f0; }
+.engine-mode.mode-auto { --mode-ink: var(--mint); }
+.engine-mode.mode-unasked { --mode-ink: var(--amber); }
+.engine-mode.mode-bypass { --mode-ink: var(--red); }
+@media (pointer: coarse) { .engine-choice { min-height: 44px; } .engine-mode { min-height: 36px; } }
 
 /* An effort is coloured by its level in Code Goblins' palette, wherever the
    chat names it, as Claude Code colours its own: the least dull, then light,

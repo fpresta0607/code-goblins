@@ -15,16 +15,14 @@
 .connector-initial { font-size: 1.5rem; font-weight: 800; color: var(--mint); }
 .connector-copy { display: grid; gap: 2px; flex: 1; min-width: 0; }
 .connector-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.connector-name strong { min-width: 0; font-size: 1.125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connector-name strong { min-width: 0; font-size: 1.125rem; overflow-wrap: anywhere; }
 .connector-about { color: var(--muted); overflow-wrap: anywhere; }
 .connector-trouble { display: inline-grid; place-items: center; flex: none; color: var(--amber); opacity: 0.6; }
 .connector-trouble .icon { width: 16px; height: 16px; }
-.connector-trouble:hover, .connector-trouble:focus-visible { opacity: 1; }
 .connector-toggle { display: grid; place-items: center; width: 44px; height: 44px; flex: none; padding: 0; border: 1px solid var(--glass-border-hover); border-radius: 12px; background: var(--ghost-bg); color: #edf4f3; }
 .connector-toggle .icon { width: 20px; height: 20px; }
 .connector-toggle.is-carried { color: var(--accent-green); }
 .browser-login-name { flex-wrap: wrap; row-gap: 2px; }
-.browser-login-name strong { white-space: normal; overflow-wrap: anywhere; }
 .browser-login-state { display: inline-flex; align-items: center; flex: none; gap: 6px; font-weight: 700; white-space: nowrap; }
 .browser-login-state .icon { width: 18px; height: 18px; }
 .browser-login-state.is-signed-in { color: var(--mint); }

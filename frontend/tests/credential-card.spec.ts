@@ -123,10 +123,11 @@ for (const hasRefreshFailure of [false, true]) {
     await menu.getByText("History").click();
     const row = menu.locator(".inbox-history .inbox-list > li").filter({ hasText: "Grant stripe to add-billing" });
     await row.locator(".history-open").click();
-    await expect(row.locator(".history-detail")).toHaveText(outcome);
+    await expect(row.locator(".history-detail > small").first()).toHaveText(outcome);
     const change = row.locator(".history-change");
     await expect(change).toHaveAttribute("aria-disabled", "true");
-    await expect(change).toHaveAttribute("data-tip", "Its service was granted");
+    await expect(change).toHaveAccessibleDescription("Its service was granted");
+    await expect(row.locator(".history-detail")).toContainText("Its service was granted");
     await expect(change).toHaveAccessibleName(/^Nothing to change:/);
     await change.evaluate((element: HTMLButtonElement) => element.click());
     expect(sent).toEqual([]);
@@ -397,7 +398,7 @@ test("a pasted value its format hint warns about waits for his Enter instead of 
 
   // Act
   await paste(page, field, canary("sk" + "_live_"));
-  await expect(card.getByRole("img", { name: /use a restricted rk_live_ key/ })).toHaveAttribute("data-tip", /use a restricted rk_live_ key/);
+  await expect(card.locator('[data-credential-name="STRIPE_SECRET_KEY"] .credential-warning')).toHaveText(/use a restricted rk_live_ key/);
   const beforeEnter = sent.length;
   await field.press("Enter");
 
@@ -523,37 +524,40 @@ test("the header gives the steps to get the values numbered in order, the page t
   await expect(steps.first().getByRole("link")).toHaveAttribute("href", "https://dashboard.stripe.com/test/apikeys");
 });
 
-test("each row's mark says in its tip where its value goes, and how it was stored once it is", async ({ page }) => {
+test("a card says where its values go and which services also read a row, and a stored row says how it was stored", async ({ page }) => {
   // Arrange
   await answer(page);
   const card = await openCard(page);
   const row = card.locator('[data-credential-name="STRIPE_SECRET_KEY"]');
-  await expect(row.getByRole("img", { name: "Not stored yet" })).toHaveAttribute("data-tip", "Goes to the precisiondocs vault for its goblins and the stripe service");
-  await expect(card.locator('[data-credential-name="STRIPE_WEBHOOK_SECRET"]').getByRole("img", { name: "Stored before" })).toHaveAttribute("data-tip", "Already in the precisiondocs vault");
+  await expect(card.locator(".credential-where")).toHaveText("Goes to the precisiondocs vault for its goblins");
+  await expect(row.locator(".credential-readers")).toHaveText("Also read by the stripe service");
+  await expect(row.getByRole("img", { name: "Not stored yet" })).toBeVisible();
+  await expect(card.getByLabel("Value for STRIPE_WEBHOOK_SECRET")).toHaveAttribute("placeholder", "Paste a new one to replace it");
 
   // Act
   await page.evaluate((id) => window.board?.request(id, { saved: ["STRIPE_SECRET_KEY"], typed: ["STRIPE_SECRET_KEY"] }), STRIPE);
 
   // Assert
   await expect(row).toHaveAttribute("data-state", "saved");
-  await expect(row.locator(".credential-stored")).toHaveAttribute("data-tip", "Stored in the precisiondocs vault, typed in the terminal");
+  await expect(row.locator(".credential-stored")).toContainText("Stored");
+  await expect(row.locator(".credential-stored .muted")).toHaveText("typed in the terminal");
   await expect(row.locator("input")).toHaveCount(0);
 });
 
-test("a request whose values also go to an env file says so in its row's tip", async ({ page }) => {
+test("a request whose values also go to an env file says so above its rows", async ({ page }) => {
   // Arrange
   await answer(page);
   await openCard(page);
 
   // Act
   await page.getByRole("dialog").getByRole("button", { name: "Back", exact: true }).click();
-  const row = page.getByRole("dialog").locator('[data-credential-request="cred-fedcba9876543210"] [data-credential-name="DATABASE_URL"]');
+  const where = page.getByRole("dialog").locator('[data-credential-request="cred-fedcba9876543210"] .credential-where');
 
   // Assert
-  await expect(row.getByRole("img", { name: "Not stored yet" })).toHaveAttribute("data-tip", "Goes to the precisiondocs vault for its goblins, and into .env.docker.local");
+  await expect(where).toHaveText("Goes to the precisiondocs vault for its goblins, and into .env.docker.local");
 });
 
-test("an expired request says it is closed, with why in its tip, and takes nothing", async ({ page }) => {
+test("an expired request says it is closed, with why beside it, and takes nothing", async ({ page }) => {
   // Arrange
   await answer(page);
   const card = await openCard(page);
@@ -562,8 +566,8 @@ test("an expired request says it is closed, with why in its tip, and takes nothi
   await page.evaluate((id) => window.board?.request(id, { state: "expired", reason: "Nobody saved it within 24 hours.", closed_at: "2026-10-02T03:00:00Z" }), STRIPE);
 
   // Assert
-  await expect(card.locator(".credential-outcome")).toHaveText("Closed");
-  await expect(card.locator(".credential-outcome")).toHaveAttribute("data-tip", "Nobody saved it within 24 hours.");
+  await expect(card.locator(".credential-outcome strong")).toHaveText("Closed");
+  await expect(card.locator(".credential-outcome .muted")).toHaveText("Nobody saved it within 24 hours.");
   await expect(card.locator("input")).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Run in a terminal on this PC" })).toHaveCount(0);
 });

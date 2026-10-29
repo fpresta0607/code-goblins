@@ -89,11 +89,11 @@ export function plainText(raw: string): string {
 }
 
 // finishedEvidence is what says a queued task already finished, as one plain
-// sentence for the tip of its status. The supervisor writes it for the CFO,
+// sentence under its status. The supervisor writes it for the CFO,
 // as "Already finished: its pull request merged (...); it never starts again
 // by itself. Move its row to ## Done, or queue new work under a new id": the
 // status says the first of that and the last is the CFO's next step, so the
-// tip says the evidence between them.
+// line says the evidence between them.
 export function finishedEvidence(finished: string): string {
   return plainText(finished.replace(/^Already finished:\s*/, "").replace(/;\s*it never starts again by itself\.[\s\S]*$/, ""));
 }

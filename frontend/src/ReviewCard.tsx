@@ -77,7 +77,7 @@ export function ReviewCard({ review, snapshot, connected, draft, onDraft, onSend
     <div className="card-actions">
       <ClickFeedback text={feedback} />
       {pager}
-      {pending && !hasPencil && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" data-tip={status ? "Skip: " + asker + " goes on without it" : "Clear it without answering"} onClick={onClear}><Icon name="close" /></button>}
+      {pending && !hasPencil && <button type="button" className="icon-button raised" disabled={!connected || draft.sending} aria-label="Skip this card" onClick={onClear}><Icon name="close" /></button>}
       {pending && hasPencil && <SkipWithNote asker={review.task ? asker : "the CFO"} task={review.task} instance={snapshot.instance} disabled={!connected || draft.sending} onSkip={onClear} onAnswer={onAnswer} />}
       {pending && target?.kind === "item" && <button type="button" className="primary wait-open" onClick={() => onOpen(target.key)}><Icon name="next" />{target.label}</button>}
       {pending && target?.kind === "page" && <a className="primary button-link wait-open" href={scrawlLink(target.url)} target="_blank" rel="noreferrer"><Icon name="external" />{target.label}</a>}

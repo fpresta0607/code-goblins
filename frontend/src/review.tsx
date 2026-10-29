@@ -76,8 +76,8 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
   const stale = selection.head !== diff.head || selection.diff_id !== diff.fingerprint;
   const staleGeneration = selection.generation !== reviews.generation;
   const blocked = !connected || draft.sending || !draft.text.trim() || !!action || !valid || stale || staleGeneration;
-  // Why Send cannot run is in its tip.
-  const sendTip = !valid ? "Select up to 200 lines in a row" : stale ? "This diff changed. Select the current lines" : staleGeneration ? "This task restarted. Select its current lines" : "Send to the CFO";
+  // Why Send cannot run, beside it.
+  const why = !valid ? "Select up to 200 lines in a row" : stale ? "This diff changed. Select the current lines" : staleGeneration ? "This task restarted. Select its current lines" : "";
   const cancel = () => { if (!draft.sending) reviews.change(key, { hidden: true }); };
   const kind = "comment-overlay" + (floating ? " floating" : "");
   if (action) {
@@ -85,8 +85,8 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
     return <div className={kind + " sent"} role="status" aria-label={"Comment on " + range + ". " + mark.label}>
       <span className={"delivery " + action.status} aria-hidden="true"><Icon name={mark.icon} /></span>
       <p className="comment-sent-text"><strong>{range}</strong> {draft.text}</p>
-      <button className="icon-button" aria-label="New comment on these lines" data-tip="New comment" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}><Icon name="comment" /></button>
-      <button className="icon-button" aria-label="Close" data-tip="Close" onClick={cancel}><Icon name="close" /></button>
+      <button className="icon-button" aria-label="New comment on these lines" onClick={() => reviews.change(key, { text: "", submission: null, receipt: undefined, error: "" })}><Icon name="comment" /></button>
+      <button className="icon-button" aria-label="Close" onClick={cancel}><Icon name="close" /></button>
       {mark.trouble && <p className="comment-trouble">{mark.label}</p>}
     </div>;
   }
@@ -99,9 +99,10 @@ export function ReviewComment({ diff, reviews, connected, floating }: { diff: Fi
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!blocked) void reviews.send(diff); }
       }} />
     <footer>
+      {why && <p className="muted comment-why">{why}</p>}
       <ClickFeedback text={feedback} />
-      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" data-tip={sendTip} onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
-      <button className="icon-button" disabled={draft.sending} aria-label="Cancel comment" data-tip="Cancel" onClick={cancel}><Icon name="close" /></button>
+      <button className="icon-button send" disabled={blocked} aria-label="Send to the CFO" onClick={() => void reviews.send(diff)}><Icon name={draft.sending ? "clock" : "send"} /></button>
+      <button className="icon-button" disabled={draft.sending} aria-label="Cancel comment" onClick={cancel}><Icon name="close" /></button>
     </footer>
   </section>;
 }
