@@ -581,15 +581,19 @@ for (const harness of ["claude", "codex", "pi"] as const) {
     await openGoblin(page);
     const list = page.getByRole("listbox", { name: "Files", exact: true });
 
-    // Act
+    // Act: he pauses before the mention's last letter, as a person types, so
+    // the list read for "ter" shows while "term" is still to be read.
     await field(page).fill("read @term and fix it");
     await field(page).press("Home");
-    for (let at = 0; at < "read @term".length; at++) await field(page).press("ArrowRight");
+    for (let at = 0; at < "read @ter".length; at++) await field(page).press("ArrowRight");
+    await page.waitForTimeout(300);
+    await field(page).press("ArrowRight");
 
-    // Assert: the list holds the files the session's folder names for it.
+    // Assert: the list holds the files the session's folder names for it,
+    // read for the whole mention once he stops typing.
     await expect(list.locator(".popup-option-label")).toHaveText(["terminalView.ts", "terminal-link.ts"]);
     await expect(list.locator(".popup-option-detail")).toHaveText(["frontend/src/terminalView.ts", "frontend/src/terminal-link.ts"]);
-    expect(asked.at(-1)).toBe("term");
+    await expect.poll(() => asked.at(-1)).toBe("term");
 
     // Act: Tab takes the second.
     await page.keyboard.press("ArrowDown");
