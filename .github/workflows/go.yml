@@ -306,9 +306,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npx playwright install chromium --only-shell
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      # WebKit, which tests/iphone-terminal.spec.ts runs in, needs Media
-      # Foundation, which Windows Server leaves out. Only shard 1 runs that
-      # spec, so only shard 1 installs it.
+      # WebKit, which the tests/iphone-*.spec.ts files run in, needs Media
+      # Foundation, which Windows Server leaves out. Only shard 1 runs those
+      # specs, so only shard 1 installs it.
       - name: Install WebKit for the iPhone tests
         if: matrix.shard == 1
         timeout-minutes: 10
