@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -321,5 +322,59 @@ func TestReportsReadsAProjectsReportsNewestFirst(t *testing.T) {
 	}
 	if _, err := Reports("code-goblins"); err == nil || !strings.Contains(err.Error(), filepath.Base(broken)) {
 		t.Errorf("Reports with a report that does not read = %v, want an error naming it", err)
+	}
+}
+
+// Reports reads a report again only once its size or write time changed:
+// the supervisor reads every live project's reports on each of its cycles,
+// many a minute, 20 reports and 315 KB of code-goblins' on 2026-10-28
+// (#1716). Words of the same size written over a report, its write time
+// kept, are what only a new read would show; a report added or removed
+// shows at once.
+func TestReportsReadsAgainOnlyAReportThatChanged(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+	first := run(t, "code-goblins", started, "1111111111111111")
+	if _, err := Reports("code-goblins"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first, bytes.ReplaceAll(data, []byte("1111111111111111"), []byte("9999999999999999")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(first, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	commits := func(reports []Report, err error) string {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var commits []string
+		for _, report := range reports {
+			commits = append(commits, report.Commit)
+		}
+		return strings.Join(commits, " ")
+	}
+
+	// Act
+	unchanged := commits(Reports("code-goblins"))
+	second := run(t, "code-goblins", started.Add(time.Hour), "2222222222222222")
+	added := commits(Reports("code-goblins"))
+	if err := os.Remove(second); err != nil {
+		t.Fatal(err)
+	}
+	removed := commits(Reports("code-goblins"))
+
+	// Assert
+	if unchanged != "1111111111111111" || added != "2222222222222222 1111111111111111" || removed != "1111111111111111" {
+		t.Errorf("Reports = %q over the same size and write time, %q with a report added, %q with it removed; want the first reading kept until the folder changed", unchanged, added, removed)
 	}
 }

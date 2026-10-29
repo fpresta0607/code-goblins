@@ -139,6 +139,25 @@ test("a snapshot that changes nothing draws no queued card in the CFO's panel", 
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
 });
 
+test("a snapshot that changes nothing draws no message in the CFO box's list again", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute, and the CFO's box
+  // lists the five messages he sent last.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const sent = numbered(5, (number) => ({ id: "sent-" + number, kind: "message", task_id: "", generation: "", status: "succeeded", message: "Taken by the CFO.", awaiting: "", can_send_now: false, send_now_why: "", text: "Message " + number, created_at: since, updated_at: since }));
+  const snapshot = { ...fleet([...WORKING, ...RESTING]), actions: sent };
+  await open(page, snapshot);
+  await expect(page.locator(".queued-message")).toHaveCount(5);
+  await reset(page);
+
+  // Act
+  await push(page, { ...snapshot, revision: 2, at: "2026-10-27T09:00:15Z" });
+  await page.waitForTimeout(500);
+
+  // Assert
+  const counts = await counted(page);
+  expect(counts.rendered["queued-message"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
+});
+
 test("a snapshot that changes the meters alone draws no card", async ({ page }) => {
   // Arrange: the clock stands five seconds into a minute.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
@@ -153,6 +172,29 @@ test("a snapshot that changes the meters alone draws no card", async ({ page }) 
   // Assert
   const counts = await counted(page);
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
+});
+
+// The meters (memory, disk, processors, GPU and the pool) are read again for
+// nearly every snapshot, every three seconds on 2026-10-28, and their bars
+// eased each new width over 0.4 s: about 30 frames of layout and paint for
+// each snapshot, 1,470 frames in two minutes of the live fleet (#1716). A bar
+// takes its new width at once.
+test("a meter's new reading moves its bar at once, with no animation", async ({ page }) => {
+  // Arrange: the memory bar's animations are read as the board writes its
+  // new width, before any frame, since an eased width is over in 0.4 s.
+  const snapshot = fleet([...WORKING, ...RESTING]);
+  await open(page, snapshot);
+  await page.locator(".memory-fill").first().evaluate((bar) => {
+    const widthWritten = new Promise<string[]>((resolve) => new MutationObserver(() => resolve(bar.getAnimations().map((animation) => (animation as CSSTransition).transitionProperty || animation.constructor.name))).observe(bar, { attributeFilter: ["style"] }));
+    Object.assign(window, { widthWritten });
+  });
+
+  // Act
+  await push(page, { ...snapshot, revision: 2, memory: { ...memory, available: memory.available - 2 ** 30 } });
+
+  // Assert
+  const animated = await page.evaluate(() => (window as unknown as { widthWritten: Promise<string[]> }).widthWritten);
+  expect(animated).toEqual([]);
 });
 
 test("a snapshot that changes one goblin draws its card alone", async ({ page }) => {

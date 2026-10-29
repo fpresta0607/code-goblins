@@ -72,6 +72,7 @@ A Codex goblin's launch, and the Codex CFO's, pass `--enable hooks` and one `-c 
 Codex keys a hook's trust by where it is defined, the same `<session-flags>/config.toml` for every launch, and by what it runs, so the Overlord trusts them once, in a Codex goblin's `/hooks`, for every Codex session of the home; until he does, each Codex start reports that it started without trusting its hooks, and its hooks do not run.
 A home whose paths would need quoting, such as one under a profile whose name has a space, cannot write the direct command into a `-c` override, so its Codex goblins start without per-launch hooks, which the start's output says, and the board reads them from their terminals; its Codex CFO starts without them too, and `cfo hooks install codex` writes them for it with its helper.
 Pi takes its hooks from its extension, `~/.pi/agent/extensions/cfo-native.ts`, which `cfo hooks install pi` writes; a pi goblin starts with its goblin seal's extension as well.
+`cfo install`, which `cfo update` runs, rewrites an extension `cfo hooks install pi` wrote as its own build writes it, so a fix to it reaches every pi session started after the update; it writes none where none was installed and leaves a file it did not write.
 Run `cfo hooks check claude`, `cfo hooks check codex`, or `cfo hooks check pi` to inspect the installed capability contract.
 Run `cfo hooks install <harness>` to add the corresponding native lifecycle integration for sessions the fleet did not start; for Claude Code and Codex the fleet's own launches need none.
 The verified minimum contracts are Claude Code 2.1.278, Codex 0.154.0, and Pi 0.85.1.
@@ -1360,9 +1361,11 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
+Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a still halftone of sixteen cells lit in Bayer order, which breathes as one every 1.6 seconds.
+That breath is the one animation Modern Chat runs, of opacity alone, which the compositor draws without the page's main thread.
+The helix and the sixteen cells that each animated before it ran 32 animations and kept the main thread 44 percent busy in a panel at rest (the Overlord, 2026-10-28: "32 animations??? remvoe like all but the streaming one").
 The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
-It carries an accessible name, and reduced motion keeps a static helix.
+It carries an accessible name, and reduced motion keeps it still.
 Working cards, tree rows and panel headers show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
 The CFO's own panel shows the indicator at its reply's end while it works, as a goblin's does.
@@ -1425,7 +1428,8 @@ Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and tou
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
 While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference (#1584), and Classic in its box's Style menu returns the terminal.
 The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
-While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour, and its hint says how long it has worked (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
+While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
+It reads no clock, so it is not drawn again while the session works: a hint that counted how long it had worked drew it every second.
 Pointing at it, or reaching it with Tab, shows Stop on it, and a touch screen always shows it: a press sends Escape through the session's terminal link, as the box's Stop does, and shows no terminal.
 A goblin whose messages queue through the board, or one whose typing is held, shows the indicator without Stop.
 The indicator is drawn only while the conversation reaches its end.
