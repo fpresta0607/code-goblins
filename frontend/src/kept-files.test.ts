@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filesOf, isPicturePath, keptFileAddress, keptPictures } from "./kept-files.ts";
+import { clipboardPicture, filesOf, isPicturePath, keptFileAddress, keptPictures } from "./kept-files.ts";
 
 const WINDOWS = "C:\\dev\\code-goblins\\state\\tasktmp\\task-1\\composer-files\\pasted-123.png";
 const UNIX = "/home/goblin/composer-files/pasted-1.png";
@@ -63,3 +63,36 @@ test("a paste or drop takes its files from the files list, or from its items whe
   assert.deepEqual(filesOf(transfer([], [{ kind: "string", file: null }])), [], "and none for text alone");
   assert.deepEqual(filesOf(null), [], "nor for no data at all");
 });
+
+// What a phone's Paste a picture reads: a copied screenshot's PNG, text with
+// no picture, a clipboard Safari was not allowed to read, and a browser with
+// no clipboard reading at all.
+const PICTURE = new Blob(["png"], { type: "image/png" });
+const CLIPBOARDS = [
+  { what: "a copied screenshot", clipboard: { read: async () => [{ types: ["image/png"], getType: async () => PICTURE }] }, read: { name: "pasted.png", type: "image/png" } },
+  { what: "copied text", clipboard: { read: async () => [{ types: ["text/plain"], getType: async () => new Blob(["words"]) }] }, read: { error: "The clipboard holds no picture. Copy one, then paste it here." } },
+  { what: "a refused read", clipboard: { read: async () => { throw new DOMException("not allowed", "NotAllowedError"); } }, read: { error: "The clipboard was not read, so no picture was added." } },
+  { what: "no clipboard reading", clipboard: undefined, read: { error: "This browser cannot read a picture from the clipboard." } },
+];
+
+for (const { what, clipboard, read } of CLIPBOARDS) {
+  test(`Paste a picture reads ${what} as ${"error" in read ? "a reason" : "the picture"}`, async () => {
+    // Arrange
+    const prior = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard } });
+
+    try {
+      // Act
+      const result = await clipboardPicture();
+
+      // Assert
+      if ("error" in read) assert.deepEqual(result, read);
+      else {
+        assert.ok("picture" in result);
+        assert.deepEqual({ name: result.picture.name, type: result.picture.type }, read);
+      }
+    } finally {
+      if (prior) Object.defineProperty(globalThis, "navigator", prior);
+    }
+  });
+}

@@ -11,7 +11,7 @@ import { EnginePane } from "./engine-pane";
 import { HarnessMark } from "./harness-mark";
 import { HarnessPanel } from "./harness-panel";
 import { Icon } from "./Icon";
-import { filesOf, keptFiles } from "./kept-files";
+import { clipboardPicture, filesOf, keptFiles } from "./kept-files";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
@@ -23,6 +23,7 @@ import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
 import { QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
+import { TOUCH_SCREEN } from "./small-screen";
 import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
@@ -111,7 +112,9 @@ function storeAttached(key: string, paths: string[]): void {
 // would need a live terminal and would leave a queued message without its
 // picture. Alt+V and Ctrl+V both
 // paste what the clipboard holds (the Overlord, 2026-10-26), Ctrl+C stays the
-// harness's interrupt, and a paste the board cannot keep says so here.
+// harness's interrupt, and a paste the board cannot keep says so here. On a
+// touch screen the + opens Paste a picture, since an iPhone's own Paste in a
+// text box takes text alone, and Photos or files, the phone's own picker.
 export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
   model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
@@ -149,6 +152,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const [unsent, setUnsent] = useState("");
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [isStyleOpen, setStyleOpen] = useState(false);
+  // A touch screen's + opens a menu of its two ways to add a picture.
+  const [isAddOpen, setAddOpen] = useState(false);
   // Which of the board's own setting panes is open over the row, if one is.
   const [pane, setPane] = useState<EngineSetting | null>(null);
   // What he last picked in a pane, kept on its control until the session's
@@ -501,6 +506,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     else if ("image" in input) await add([input.image]);
     else setUnsent(input.error);
   };
+  const pastePicture = async () => {
+    const read = await clipboardPicture();
+    if ("picture" in read) await add([read.picture]);
+    else setUnsent(read.error);
+  };
   const added = (event: ChangeEvent<HTMLInputElement>) => {
     const chosen = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -638,10 +648,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         return;
       }
     }
-    // Escape with the box's own pane, speech history or style menu open
+    // Escape with the box's own pane, speech history, style or add menu open
     // closes it (the box's handler below), and reaches neither the harness
     // nor its screen.
-    if (event.key === "Escape" && (pane || isRecentOpen || isStyleOpen)) return;
+    if (event.key === "Escape" && (pane || isRecentOpen || isStyleOpen || isAddOpen)) return;
     // An open screen of the harness's own takes the terminal's keys from an
     // empty box, so it is answered here as in the terminal.
     const keysForPanel = panel && !isHeld && !draft ? panelKey(event, panel) : null;
@@ -677,6 +687,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // While the harness works and the box is empty, the send button is Stop,
   // which presses Escape in its terminal as the terminal's own Esc does.
   const canStop = isWorking && !outgoing && !isSending && !!live && !isHeld;
+  const isTouch = matchMedia(TOUCH_SCREEN).matches;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
   return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
@@ -699,6 +710,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       if (pane) { event.stopPropagation(); setPane(null); field.current?.focus(); }
       else if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
       else if (isStyleOpen) { event.stopPropagation(); setStyleOpen(false); }
+      else if (isAddOpen) { event.stopPropagation(); setAddOpen(false); }
     }}>
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
       {isRecentOpen && <RecentDictations where="the message" anchor={composerBox} model={dictation.model} look="pane" onPaste={(text) => { insert(text); setRecentOpen(false); }}
@@ -717,9 +729,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         <input ref={files} className="composer-file-input" type="file" multiple hidden aria-hidden="true" tabIndex={-1} onChange={added} />
         <div className="composer-row">
           <div className="composer-row-start">
-            <button type="button" className="composer-control" aria-label="Add files" disabled={adding > 0} onClick={() => files.current?.click()}><Icon name="plus" /></button>
+            <button type="button" className="composer-control" aria-label="Add files" aria-haspopup={isTouch ? "true" : undefined} aria-expanded={isTouch ? isAddOpen : undefined} disabled={adding > 0}
+              onClick={() => { if (!isTouch) { files.current?.click(); return; } setStyleOpen(false); setAddOpen((prior) => !prior); }}><Icon name="plus" /></button>
+            {/* It wears the style menu's look. */}
+            {isAddOpen && <div className="composer-style-popover">
+              <button type="button" onClick={() => { setAddOpen(false); void pastePicture(); }}><Icon name="paste" />Paste a picture</button>
+              <button type="button" onClick={() => { setAddOpen(false); files.current?.click(); }}><Icon name="images" />Photos or files</button>
+            </div>}
             <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style}
-              onClick={() => setStyleOpen((prior) => !prior)}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
+              onClick={() => { setAddOpen(false); setStyleOpen((prior) => !prior); }}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
             {isStyleOpen && <div className="composer-style-popover">
               <div className="composer-style-choices" role="group" aria-label="Chat style">
                 <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}><Icon name="comment" />Modern</button>
