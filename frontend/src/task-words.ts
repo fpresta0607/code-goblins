@@ -213,6 +213,7 @@ function waitWords(wait: Wait, tasks: Task[]): string {
     case "time": return "Starts " + when(wait.until);
     case "memory": return `Waits for ${Number((wait.bytes / 2 ** 30).toFixed(1))} GB free`;
     case "pr": return "Waits for " + plainText(wait.target).replace(/\.$/, "") + " to merge";
+    case "hold": return "Held: " + wait.target;
   }
   const awaited = tasks.find((candidate) => candidate.id === wait.target);
   return "Waits for " + (awaited ? goblinName(awaited) : wait.target);

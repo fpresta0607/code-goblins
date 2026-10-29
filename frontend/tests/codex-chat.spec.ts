@@ -51,6 +51,9 @@ for (const who of ["CFO", "goblin"] as const) {
     await expect(field(page, name)).toBeInViewport();
     await testInfo.attach(`codex-${who}-phone.png`, { body: await page.screenshot(), contentType: "image/png" });
     await page.reload();
+    // The switch key is lost when pressed before the board shows the
+    // supervisor's snapshot, which can come after the page has loaded (#1546).
+    await expect(page.locator(".board-column").first()).toBeVisible();
     if (who === "goblin") await openGoblin(page);
     else await page.keyboard.press("Control+Alt+1");
     await expect(log).toContainText("On it.");
