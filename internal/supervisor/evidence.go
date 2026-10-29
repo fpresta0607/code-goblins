@@ -930,44 +930,51 @@ type briefReader struct {
 var diskBriefs = briefReader{os.Stat, briefProject}
 
 // queuedBriefs are briefs nothing has started: no live task record, and no
-// status log or archive entry, which every dispatched task leaves.
+// status log or archive entry, which every dispatched task leaves. One listing
+// each of the task records and of the archive says which folders were
+// dispatched, and only a brief nothing started is asked of the disk: on
+// 2026-10-28 the home held 848 folders, nearly all of tasks long dispatched,
+// beside 1,925 archive entries, and matching every folder against both
+// listings and asking the disk about every brief took most of a snapshot
+// build, which the board makes every few seconds (#1716).
 func queuedBriefs(h home.Home, briefs briefReader) []Task {
 	entries, err := os.ReadDir(h.Data)
 	if err != nil {
 		return nil
 	}
-	archived, _ := os.ReadDir(filepath.Join(h.State, state.ArchiveDirName))
-	// One listing of the task records says which briefs were dispatched,
-	// in place of two questions to the disk for every brief.
+	archive, _ := os.ReadDir(filepath.Join(h.State, state.ArchiveDirName))
 	records, _ := os.ReadDir(h.State)
-	recorded := func(name string) bool {
-		return slices.ContainsFunc(records, func(record os.DirEntry) bool { return strings.EqualFold(record.Name(), name) })
+	recorded := make(map[string]bool, len(records))
+	for _, record := range records {
+		recorded[strings.ToLower(record.Name())] = true
+	}
+	// A task's archive entries are named by its ID and a dot, and an ID may
+	// hold dots itself, so each name stands for every task ID it begins with.
+	archived := map[string]bool{}
+	for _, entry := range archive {
+		name := entry.Name()
+		for i := range len(name) {
+			if name[i] == '.' {
+				archived[name[:i]] = true
+			}
+		}
 	}
 	tasks := []Task{}
 	for _, entry := range entries {
 		id := entry.Name()
-		if !entry.IsDir() || state.ValidTaskID(id) != nil {
+		if !entry.IsDir() || state.ValidTaskID(id) != nil || recorded[strings.ToLower(id+".meta")] || recorded[strings.ToLower(id+".status")] || archived[id] {
 			continue
 		}
 		brief := filepath.Join(h.Data, id, "brief.md")
 		info, err := briefs.stat(brief)
-		if err != nil || recorded(id+".meta") || recorded(id+".status") {
+		if err != nil {
 			continue
 		}
-		dispatched := false
-		for _, a := range archived {
-			if strings.HasPrefix(a.Name(), id+".") {
-				dispatched = true
-				break
-			}
+		checkout := briefs.project(brief)
+		if checkout != "" {
+			checkout = filepath.Base(checkout)
 		}
-		if !dispatched {
-			checkout := briefs.project(brief)
-			if checkout != "" {
-				checkout = filepath.Base(checkout)
-			}
-			tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Since: created(info), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
-		}
+		tasks = append(tasks, Task{ID: id, Title: id, Project: checkout, Since: created(info), Evaluation: Evaluation{Phase: "queued", Reason: "Brief ready at data/" + id + "/brief.md; not dispatched yet"}})
 	}
 	return tasks
 }
