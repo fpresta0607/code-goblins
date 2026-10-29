@@ -1017,7 +1017,7 @@ cfo pr check <id> <url>
 cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]
 cfo pr train <project>
 cfo afk on [--asked "<his words>"] | off [--asked "<his words>"] | status | report
-cfo afk log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>]
+cfo afk log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] [--option "<choice>"]... [--recommend "<choice>"]
 cfo cleanup <id>
 cfo backlog done <id>
 cfo reap [--dry-run|--apply]

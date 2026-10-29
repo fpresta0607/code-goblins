@@ -332,7 +332,7 @@ func TestAFKLogRefusesADecisionThatIsUnansweredOrNotDiagnosed(t *testing.T) {
 		"no diagnosis":                    append(slices.Clone(left), "--tried", "cfo auth --fix", "--option", "Now", "--option", "Later"),
 		"nothing tried":                   append(slices.Clone(left), "--diagnosis", "overwritten", "--option", "Now", "--option", "Later"),
 		"one choice":                      append(slices.Clone(left), "--diagnosis", "overwritten", "--tried", "cfo auth --fix", "--option", "Now"),
-		"choices on his step":             {"--kind", "his", "--what", "Sign in to Vercel", "--evidence", "his own sign-in", "--option", "Now", "--option", "Later"},
+		"choices on another decision":     {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--option", "Now", "--option", "Later"},
 		"a diagnosis on another decision": {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--diagnosis", "none"},
 		"an answer on another decision":   {"--kind", "deploy", "--what", "acme production", "--evidence", "/health reads 200", "--answer", "Now"},
 	} {
