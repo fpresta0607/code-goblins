@@ -354,7 +354,7 @@ func (r *Reader) conversation(ctx context.Context, goblin Goblin, harness Proces
 		if session == "" && isRunning {
 			session = claudeProcessSession(r.Home, harness)
 		}
-		return SessionTranscript(r.Home, "claude", session), nil
+		return HeldTranscript(r.Home, "claude", goblin.Meta.Worktree, session), nil
 	case "codex":
 		metas := r.rollouts(ctx)
 		return r.codexConversation(ctx, goblin.Meta.Worktree, session, metas), metas

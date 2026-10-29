@@ -37,6 +37,28 @@ func SessionTranscript(home, harness, session string) string {
 	return newestFile(matches)
 }
 
+// claudeProjectFolder names the folder under .claude\projects where Claude
+// Code keeps the conversations held in a working folder: its path with every
+// character that is not a letter or digit as a dash.
+var claudeProjectFolder = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// HeldTranscript is SessionTranscript for a conversation held in dir. Claude
+// Code keeps it in dir's own folder, so that folder is asked first, and only
+// a conversation it does not hold is looked for in every folder. Looking in
+// every folder asked the disk about each of the 1,273 folders Claude Code
+// kept on 2026-10-28, 10,196 file operations and 84 ms of processor a look,
+// and the board looks for every live goblin's conversation every 15 seconds
+// (#1716).
+func HeldTranscript(home, harness, dir, session string) string {
+	if home != "" && dir != "" && strings.EqualFold(harness, "claude") && sessionID.MatchString(session) {
+		own := filepath.Join(home, ".claude", "projects", claudeProjectFolder.ReplaceAllString(dir, "-"), session+".jsonl")
+		if info, err := os.Stat(own); err == nil && info.Mode().IsRegular() {
+			return own
+		}
+	}
+	return SessionTranscript(home, harness, session)
+}
+
 // piFolderCharacters are the characters pi 0.85 writes as a hyphen in the
 // folder it keeps a working folder's sessions in, which it wraps in two
 // hyphens: C:\dev\x is --C--dev-x--.
