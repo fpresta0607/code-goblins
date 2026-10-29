@@ -908,6 +908,35 @@ function keySpendStatus(value: unknown): KeySpend["status"] {
   }
   return "unavailable";
 }
+// Readings are what every build moves, the snapshot's time and revision, and
+// what nearly every build moves, its meters: after the first snapshot they
+// come in an event of their own, which the board takes without parsing the
+// fleet it holds again (#1611).
+export type Readings = Pick<Snapshot, "at" | "revision" | "memory" | "disk" | "processors" | "gpu">;
+
+export function parseReadings(v: Record<string, unknown>): Readings {
+  return {
+    at: string(v.at),
+    revision: number(v.revision),
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, holders }) => ({
+      available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
+      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), pool_line: number(pool_line),
+      pool_growth: array(pool_growth).map((value) => { const g = object(value); return { tag: string(g.tag), pool: string(g.pool), grown: number(g.grown), holds: number(g.holds) }; }),
+      floor: number(floor), next: number(next),
+      holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
+    }))(object(v.memory)),
+    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
+      drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
+    }))(object(v.disk)),
+    processors: v.processors === undefined || v.processors === null ? null : (({ performance_cores, efficiency_cores, free, efficiency_free, next, busiest }) => ({
+      performance_cores: number(performance_cores), efficiency_cores: number(efficiency_cores), free: number(free), efficiency_free: number(efficiency_free), next: number(next),
+      busiest: array(busiest).map((name) => string(name)),
+    }))(object(v.processors)),
+    gpu: v.gpu === undefined || v.gpu === null ? null : {
+      adapters: array(object(v.gpu).adapters).map((value) => { const a = object(value); return { name: string(a.name), busy: number(a.busy), busiest: a.busiest === undefined ? "" : string(a.busiest) }; }),
+    },
+  };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
@@ -925,9 +954,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     }),
     afk: parseAfk(v.afk),
     instance: string(v.instance),
-    revision: number(v.revision),
     started: string(v.started),
-    at: string(v.at),
+    ...parseReadings(v),
     reconciled: string(v.reconciled),
     healthy: boolean(v.healthy),
     example: v.example === undefined ? false : boolean(v.example),
@@ -949,25 +977,8 @@ export function parseSnapshot(value: unknown): Snapshot {
     cfo_closed: v.cfo_closed === undefined ? false : boolean(v.cfo_closed),
     cfo_configured: v.cfo_configured === undefined ? false : boolean(v.cfo_configured),
     inbox: number(v.inbox),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, holders }) => ({
-      available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
-      paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), pool_line: number(pool_line),
-      pool_growth: array(pool_growth).map((value) => { const g = object(value); return { tag: string(g.tag), pool: string(g.pool), grown: number(g.grown), holds: number(g.holds) }; }),
-      floor: number(floor), next: number(next),
-      holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
-    }))(object(v.memory)),
     pc_restart: v.pc_restart == null ? null : ((restart) => ({ state: pcRestartState(restart.state), problem: string(restart.problem), at: string(restart.at) }))(object(v.pc_restart)),
     ci_usual: array(v.ci_usual).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.seconds) }; }),
-    disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
-      drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
-    }))(object(v.disk)),
-    processors: v.processors === undefined || v.processors === null ? null : (({ performance_cores, efficiency_cores, free, efficiency_free, next, busiest }) => ({
-      performance_cores: number(performance_cores), efficiency_cores: number(efficiency_cores), free: number(free), efficiency_free: number(efficiency_free), next: number(next),
-      busiest: array(busiest).map((name) => string(name)),
-    }))(object(v.processors)),
-    gpu: v.gpu === undefined || v.gpu === null ? null : {
-      adapters: array(object(v.gpu).adapters).map((value) => { const a = object(value); return { name: string(a.name), busy: number(a.busy), busiest: a.busiest === undefined ? "" : string(a.busiest) }; }),
-    },
     projects: array(v.projects).map((value) => { const p = object(value); return { name: string(p.name), repository: string(p.repository), contributors: array(p.contributors).map((person) => parsePerson(object(person))) }; }),
     release: v.release == null ? null : (({ installed, tag, page, published, source }) => ({ installed: string(installed), tag: string(tag), page: string(page), published: string(published), source: boolean(source) }))(object(v.release)),
     merge_trains: array(v.merge_trains).map(parseMergeTrain),

@@ -60,7 +60,8 @@ func TestTheStreamSendsTheCommandCentersItemsAheadOfASnapshotStillBeingBuilt(t *
 	}
 	s.publish(nil)
 
-	// Assert: the items arrive while that build is still running.
+	// Assert: the items arrive while that build is still running, and then
+	// their revision.
 	items := nextEvent(t, events, "the Command Center's items")
 	if items.name != "change" || items.data.Instance != "test-instance" || len(items.data.Questions) != 1 || items.data.Questions[0].Status != "cleared" {
 		t.Fatalf("the stream sent %s with the questions %+v before the snapshot was built, want a change of the items with the question cleared", items.name, items.data.Questions)
@@ -68,16 +69,17 @@ func TestTheStreamSendsTheCommandCentersItemsAheadOfASnapshotStillBeingBuilt(t *
 	if len(items.data.Actions) != 1 || items.data.Actions[0].ID != "dismiss-1" {
 		t.Errorf("the items carry the actions %+v, want the dismiss he sent", items.data.Actions)
 	}
+	revised := nextReading(t, events, "the items' revision")
 
 	// Act: the build that began before the dismiss finishes.
 	release()
 
 	// Assert: its snapshot shows the question as it is now.
-	built := nextEvent(t, events, "the snapshot")
-	if built.name != "change" || built.data.Questions[0].Status != "cleared" {
-		t.Fatalf("the stream then sent %s with the question %s, want the snapshot's change with it still cleared", built.name, built.data.Questions[0].Status)
+	built := nextReading(t, events, "the snapshot")
+	if built.data.Questions[0].Status != "cleared" {
+		t.Fatalf("the board then holds the question %s, want it still cleared", built.data.Questions[0].Status)
 	}
-	if built.data.Revision < items.data.Revision {
-		t.Errorf("the snapshot's revision %d is older than the items' %d, so a board would drop it", built.data.Revision, items.data.Revision)
+	if built.data.Revision < revised.data.Revision {
+		t.Errorf("the snapshot's revision %d is older than the items' %d, so the board would go back to an older one", built.data.Revision, revised.data.Revision)
 	}
 }

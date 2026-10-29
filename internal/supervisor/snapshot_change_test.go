@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -135,6 +136,19 @@ func TestTheSameValueIsNoChange(t *testing.T) {
 	}
 }
 
+func TestASnapshotsReadingsAreTakenOutOfWhatItsChangesCarry(t *testing.T) {
+	// Arrange
+	keys := keysOf(json.RawMessage(`{"revision":3,"at":"1","memory":{"available":8},"tasks":[],"disk":{"free":4}}`))
+
+	// Act
+	readings := takeReadings(keys)
+
+	// Assert
+	if !slices.Equal(slices.Sorted(maps.Keys(keys)), []string{"tasks"}) || !slices.Equal(slices.Sorted(maps.Keys(readings)), []string{"at", "disk", "memory", "revision"}) {
+		t.Fatalf("the snapshot kept %v and its readings were %v, want tasks kept and at, disk, memory and revision taken", slices.Sorted(maps.Keys(keys)), slices.Sorted(maps.Keys(readings)))
+	}
+}
+
 // streamEvent is one event of a board's stream: its name, its size, and the
 // snapshot the board holds once it took it in.
 type streamEvent struct {
@@ -145,8 +159,8 @@ type streamEvent struct {
 
 // openBoard opens one board's event stream and reports each event on the
 // channel it returns with what the board holds after it: the snapshot it
-// opened with, and each change applied to what it held. An event of another
-// name changes nothing it holds.
+// opened with, and each change and reading applied to what it held. An event
+// of another name changes nothing it holds.
 func openBoard(t *testing.T, ctx context.Context, url string) <-chan streamEvent {
 	t.Helper()
 	request, _ := http.NewRequestWithContext(ctx, "GET", url+"/api/events", nil)
@@ -182,7 +196,7 @@ func openBoard(t *testing.T, ctx context.Context, url string) <-chan streamEvent
 			switch name {
 			case "snapshot":
 				held = value
-			case "change":
+			case "change", "meters":
 				var c boardChange
 				if json.Unmarshal([]byte(data), &c) != nil {
 					return
@@ -218,6 +232,18 @@ func nextEvent(t *testing.T, events <-chan streamEvent, what string) streamEvent
 	}
 }
 
+// nextReading reads the stream's events up to its next reading, which ends
+// each build and each change of the items, since every one has a revision of
+// its own: what the board holds once it took them whole.
+func nextReading(t *testing.T, events <-chan streamEvent, what string) streamEvent {
+	t.Helper()
+	for {
+		if event := nextEvent(t, events, what); event.name == "meters" {
+			return event
+		}
+	}
+}
+
 // boardFixture is a supervisor serving one board, whose store holds count
 // questions waiting.
 func boardFixture(t *testing.T, count int) (*Service, *Store, string) {
@@ -250,13 +276,43 @@ func TestABuildThatChangedNothingSendsTheBoardOnlyItsTime(t *testing.T) {
 	// Act: the fleet is read again and nothing in it changed.
 	s.publish(nil)
 
-	// Assert
+	// Assert: its time and revision alone, as a reading.
 	built := nextEvent(t, events, "the next build")
-	if built.name != "change" || built.size > 200 {
-		t.Fatalf("the stream sent a %s of %d bytes for a fleet that did not change, want a change of 200 bytes at most (the snapshot was %d)", built.name, built.size, opened.size)
+	if built.name != "meters" || built.size > 100 {
+		t.Fatalf("the stream sent a %s of %d bytes for a fleet that did not change, want its readings in 100 bytes at most (the snapshot was %d)", built.name, built.size, opened.size)
 	}
 	if !built.data.At.After(opened.data.At) || built.data.Revision <= opened.data.Revision || len(built.data.Questions) != 100 {
 		t.Errorf("the board holds the time %s, the revision %d and %d questions, want a later time, a later revision and the 100 questions", built.data.At, built.data.Revision, len(built.data.Questions))
+	}
+}
+
+// A meter reading changed the snapshot, so the board parsed the whole fleet
+// it holds for it (#1611).
+func TestAMeterReadingReachesTheBoardInAnEventOfItsOwn(t *testing.T) {
+	// Arrange: a board open with its first snapshot, its machine's memory
+	// read at 8 GiB free.
+	s, _, url := boardFixture(t, 100)
+	var available atomic.Uint64
+	available.Store(8 << 30)
+	s.Options.Dispatch = &Dispatch{Memory: func() (Memory, error) {
+		return Memory{Available: available.Load(), Total: 32 << 30, CommitAvailable: 64 << 30, CommitLimit: 96 << 30}, nil
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := openBoard(t, ctx, url)
+	opened := nextEvent(t, events, "its first snapshot")
+
+	// Act: the next reading finds 6 GiB free.
+	available.Store(6 << 30)
+	s.publish(nil)
+
+	// Assert
+	read := nextEvent(t, events, "the next reading")
+	if read.name != "meters" || read.size > 400 {
+		t.Fatalf("the stream sent a %s of %d bytes for a new reading, want the readings in 400 bytes at most (the snapshot was %d)", read.name, read.size, opened.size)
+	}
+	if opened.data.Memory == nil || opened.data.Memory.Available != 8<<30 || read.data.Memory == nil || read.data.Memory.Available != 6<<30 || len(read.data.Questions) != 100 {
+		t.Errorf("the board held %+v and then %+v with %d questions, want 8 GiB free, then 6 GiB with the 100 questions", opened.data.Memory, read.data.Memory, len(read.data.Questions))
 	}
 }
 

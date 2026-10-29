@@ -65,7 +65,10 @@ async function open(page: Page, snapshot: Record<string, unknown>) {
     const frame = window.requestAnimationFrame.bind(window);
     window.requestAnimationFrame = (callback) => { counts.frames++; return frame(callback); };
     const streams: EventTarget[] = [];
-    Object.assign(window, { push: (next: unknown) => streams.forEach((stream) => stream.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(next) }))) });
+    Object.assign(window, {
+      push: (next: unknown) => streams.forEach((stream) => stream.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(next) }))),
+      read: (readings: unknown) => streams.forEach((stream) => stream.dispatchEvent(new MessageEvent("meters", { data: JSON.stringify(readings) }))),
+    });
     class HeldStream extends EventTarget {
       onerror: (() => void) | null = null;
       constructor() {
@@ -85,6 +88,7 @@ async function open(page: Page, snapshot: Record<string, unknown>) {
 const reset = (page: Page) => page.evaluate(() => Object.assign((window as unknown as { counts: Counts }).counts, { commits: 0, rendered: {}, frames: 0 }));
 const counted = (page: Page) => page.evaluate(() => (window as unknown as { counts: Counts }).counts);
 const push = (page: Page, snapshot: unknown) => page.evaluate((next) => (window as unknown as { push: (next: unknown) => void }).push(next), snapshot);
+const read = (page: Page, readings: unknown) => page.evaluate((next) => (window as unknown as { read: (next: unknown) => void }).read(next), readings);
 const total = (counts: Counts) => Object.values(counts.rendered).reduce((sum, count) => sum + count, 0);
 
 test("an idle board draws nothing between its minutes", async ({ page }) => {
@@ -170,6 +174,28 @@ test("a snapshot that changes the meters alone draws no card", async ({ page }) 
   await page.waitForTimeout(500);
 
   // Assert
+  const counts = await counted(page);
+  expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
+});
+
+// A meter reading changed the snapshot, so the board parsed the whole fleet
+// it holds for it: each build's time, revision and meters now come in an
+// event of their own, laid over the snapshot the board shows (#1611).
+test("a meter reading of its own moves its meter and draws no card", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute. The reading stays
+  // over the 5 GB the next task starts at, under which the queue's first card
+  // rightly says so.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  await open(page, fleet([...WORKING, ...RESTING]));
+  const line = page.getByRole("group", { name: "Memory" }).locator(":scope > .memory-line");
+  await expect(line).toHaveText("Memory free6.0 GB");
+  await reset(page);
+
+  // Act
+  await read(page, { keys: { at: { value: "2026-10-27T09:00:15Z" }, revision: { value: 2 }, memory: { keys: { available: { value: 5.5 * 2 ** 30 } } } } });
+
+  // Assert
+  await expect(line).toHaveText("Memory free5.5 GB");
   const counts = await counted(page);
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
 });
