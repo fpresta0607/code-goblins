@@ -18,11 +18,13 @@ for (const style of ["modern"]) {
         await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
         relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
         await expect(field(page)).toBeVisible();
-        let draft = "Keep this draft\n" + "A long message that stays readable while waiting. ".repeat(40);
+        const draft = "Keep this draft\n" + "A long message that stays readable while waiting. ".repeat(40);
         await field(page).fill(draft);
         await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 201, json: { path: "C:/session-files/design.txt" } }));
         await box(page).locator('input[type="file"]').setInputFiles({ name: "design.txt", mimeType: "text/plain", buffer: Buffer.from("Keep this attachment") });
-        draft = draft.trimEnd() + "\nC:/session-files/design.txt";
+        // What Send sends: his words, then the kept file's path on its own line.
+        const sentText = draft.trimEnd() + "\nC:/session-files/design.txt";
+        await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("design.txt");
         await expect(field(page)).toHaveValue(draft);
         const before = typed(relay);
         const requests: unknown[] = [];
@@ -36,7 +38,8 @@ for (const style of ["modern"]) {
 
         // Act and Assert: routine waiting is shown once, beside its one input.
         await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("Review in progress. Send to queue until it finishes.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
         await expect(send(page)).toBeInViewport();
         expect(await box(page).locator(".composer-note").evaluate((note) => getComputedStyle(note).color)).toBe(await box(page).locator(".composer-control").first().evaluate((control) => getComputedStyle(control).color));
@@ -63,14 +66,15 @@ for (const style of ["modern"]) {
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(2);
         expect(requests[1]).toEqual(requests[0]);
+        expect(requests[0]).toMatchObject({ text: sentText });
         await expect(box(page).getByRole("alert")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         expect(typed(relay)).toBe(before);
 
         // Act: the durable entry remains after the hold changes.
         // The board carries it under the id the box sent it with.
         const sent = (requests[0] as { id: string }).id;
-        await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })), snapshot({ revision: 2, actions: [{ id: sent, kind: "message", task_id: GOBLIN.id, text: draft, status: "queued", message: "Waiting until the session takes input", can_send_now: false }] }));
+        await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: data })), snapshot({ revision: 2, actions: [{ id: sent, kind: "message", task_id: GOBLIN.id, text: sentText, status: "queued", message: "Waiting until the session takes input", can_send_now: false }] }));
         await expect(page.locator(".queued-message:visible")).toHaveCount(1);
         const queueSurface = testInfo.outputPath("queue-with-long-message.png");
         await page.screenshot({ path: queueSurface });
@@ -90,7 +94,7 @@ for (const style of ["modern"]) {
         await card(page, NAME).click();
         await expect.poll(() => relay.views).toBeGreaterThan(0);
         relay.say({ type: "held", reason: "pipeline owns this task" });
-        await expect(box(page).locator(".composer-note")).toHaveText("Review in progress. Send to queue until it finishes.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
         await field(page).fill("Preserve this failed message");
         await page.route("**/api/actions", (route) => route.fulfill({ status: 503, json: { error: "The message could not be queued. Try again." } }));
 
@@ -124,7 +128,8 @@ for (const style of ["modern"]) {
         await expect(field(page)).toBeVisible();
         await field(page).fill("Read this after the current turn");
         await expect(page.locator(".host-terminal > .terminal-corner-left[data-tip]:visible")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(1);
@@ -139,7 +144,8 @@ for (const style of ["modern"]) {
         await expect(page.locator(".terminal-corner.warning")).toHaveCount(1);
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
-        await expect(box(page).locator(".composer-note")).toHaveText("Messages will be queued.");
+        await expect(box(page)).toHaveAttribute("data-queues", "");
+        await expect(box(page).locator(".composer-note")).toHaveText("");
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(2);
@@ -181,7 +187,7 @@ for (const style of ["modern"]) {
           relay.say({ type: "held", reason: "pipeline owns this task" });
           const draft = "Keep this pending message " + status;
           await field(page).fill(draft);
-          await expect(box(page).locator(".composer-note")).toHaveText("Review in progress. Send to queue until it finishes.");
+          await expect(box(page)).toHaveAttribute("data-queues", "");
           let isPending = false;
           let submission: unknown;
           let complete: () => Promise<void> = async () => { throw new Error("No pending send"); };
@@ -233,7 +239,8 @@ for (const style of ["modern"]) {
         await upload();
 
         // Assert
-        await expect(field(page)).toHaveValue("Keep the attachment\nC:/session-files/pending.txt");
+        await expect(field(page)).toHaveValue("Keep the attachment");
+        await expect(box(page).getByRole("list", { name: "Attached files" })).toContainText("pending.txt");
         expect(typed(relay)).toBe(before);
       });
       test(`${style} keeps recording controls and terminal output usable through release at ${width}px`, async ({ page }) => {
@@ -276,32 +283,25 @@ for (const style of ["modern"]) {
         await expect(field(page)).toHaveValue("please rebase onto main");
         expect(typed(relay)).toBe("");
       });
-      test(`${style} shows usage unavailability once with accessible details at ${width}px`, async ({ page }, testInfo) => {
+      // A session whose usage cannot be read shows nothing of it, never
+      // words for why (the Overlord, 2026-10-28).
+      test(`${style} shows no usage and no words for it when the session's usage cannot be read at ${width}px`, async ({ page }, testInfo) => {
         // Arrange
         await page.addInitScript((value) => localStorage.setItem("cfo-chat-style", value), style);
         const relay = await open(page);
+
+        // Act
         await card(page, NAME).click();
-        await field(page).fill("Keep this while inspecting usage");
-        const footer = page.locator(".session-footer:visible");
-
-        // Assert: one plain sentence on the notice, said once in the footer.
-        await expect(footer.locator(".notice")).toHaveText("Claude usage could not be read.");
-        await expect(footer.getByText(/usage/i)).toHaveCount(1);
-        const surface = testInfo.outputPath("usage-unavailable-surface.png");
-        await page.screenshot({ path: surface });
-        await testInfo.attach("usage-unavailable-surface", { path: surface, contentType: "image/png" });
-
-        // Act: keyboard and touch both open useful details in the existing control.
-        const usage = page.getByRole("button", { name: "Context usage unavailable", exact: true });
-        if (width === 390) await usage.tap();
-        else await usage.focus();
-        const details = page.getByRole("tooltip", { name: "Session statistics", exact: true });
+        await field(page).fill("Keep this draft");
 
         // Assert
-        await expect(details).toContainText("Claude usage could not be read");
-        await usage.press("Escape");
-        await expect(details).toHaveCount(0);
-        await expect(field(page)).toHaveValue("Keep this while inspecting usage");
+        await expect(page.locator(".usage-bar:visible")).toHaveCount(0);
+        await expect(box(page)).not.toContainText(/usage|unavailable|could not be read/i);
+        await expect(page.getByText(/usage unavailable|usage could not be read/i)).toHaveCount(0);
+        const surface = testInfo.outputPath("usage-unread-surface.png");
+        await page.screenshot({ path: surface });
+        await testInfo.attach("usage-unread-surface", { path: surface, contentType: "image/png" });
+        await expect(field(page)).toHaveValue("Keep this draft");
         expect(typed(relay)).toBe("");
       });
     });
@@ -432,7 +432,8 @@ for (const style of ["modern"]) {
       await field(page).focus();
       await page.keyboard.type("recovery");
       relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
-      await expect(note).toHaveText("Review in progress. Send to queue until it finishes.");
+      await expect(box(page)).toHaveAttribute("data-queues", "");
+      await expect(note).toHaveText("");
       relay.say({ type: "held", reason: "" });
       await expect(field(page)).toHaveValue("Keep this until recovery");
       expect(typed(relay)).toBe("");

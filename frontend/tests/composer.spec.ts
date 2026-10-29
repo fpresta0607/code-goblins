@@ -64,12 +64,13 @@ for (const width of [1440, 390]) {
 
     await expect(input).toBeVisible();
     const reply = page.locator(".message-reply");
-    const replyText = await reply.locator(".message-words").boundingBox();
-    const replyActions = await reply.locator(".message-reply-actions").boundingBox();
-    expect(replyText && replyActions && replyActions.y >= replyText.y + replyText.height).toBeTruthy();
-    // The session works, so the reply's end is the dither, not its time.
-    await expect(reply.locator(".message-reply-actions time")).toHaveCount(0);
+    // The session works, so the reply's end is the dither, not its time or
+    // its copy.
     await expect(page.locator(".reply-working")).toBeVisible();
+    const replyText = await reply.locator(".message-words").boundingBox();
+    const dither = await page.locator(".reply-working").boundingBox();
+    expect(replyText && dither && dither.y >= replyText.y + replyText.height).toBeTruthy();
+    await expect(reply.locator(".message-reply-actions")).toHaveCount(0);
     const bounds = await Promise.all([input, add, field(page), microphone, style].map((part) => part.boundingBox()));
     const [bar, plus, prompt, mic, menu] = bounds;
     expect(bar && plus && prompt && mic && menu).toBeTruthy();
@@ -134,7 +135,8 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
 
   relay.say({ type: "unread", unread: true });
-  await expect(note).toHaveText("Messages will be queued.");
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(send(page)).toBeEnabled();
   await field(page).press("Enter");
   await expect.poll(() => actions.length).toBe(1);
@@ -146,9 +148,11 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await expect(send(page)).toBeEnabled();
   await expect(field(page)).toHaveValue("merge it");
   relay.say({ type: "held", reason: "pipeline owns this task" });
-  await expect(note).not.toHaveText("");
   // A message sent while the gate holds the input is queued, so Send stays
-  // usable and the note says why nothing appears yet.
+  // usable, and no note says so: he assumes it (the Overlord, 2026-10-28:
+  // "this text not needed on working goblins resumes are assumed").
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(send(page)).toBeEnabled();
   relay.say({ type: "held", reason: "" });
   await expect(send(page)).toBeEnabled();
@@ -162,7 +166,8 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   expect(before, "nothing was typed while the program was busy").not.toContain("merge it");
   await send(page).click();
 
-  await expect(note).toHaveText("Messages will be queued.");
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(field(page)).toHaveValue("");
   expect(actions).toHaveLength(2);
   expect(actions[1]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "merge it" });
@@ -396,7 +401,8 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // Assert: no pill over the thread, the plain copy beside the box, and Send
   // usable so the message is queued.
   await expect(page.locator(".terminal-held")).toHaveCount(0);
-  await expect(note).toHaveText("Messages will be queued.");
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(note).toHaveText("");
   await expect(field(page)).toBeVisible();
   await field(page).fill("send this while the check fails");
   await expect(send(page)).toBeEnabled();
@@ -449,11 +455,12 @@ async function readClipboardOf(page: Page, text: string, picture = "") {
   }, { words: text, image: picture });
 }
 
-test("a picture pasted into the box is kept where the session reads it, and the message names its path", async ({ page }) => {
+test("a picture pasted into the box is kept where the session reads it, shows in the box, and the message names its path", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   const posts: { url: string; body: string }[] = [];
   await page.route("**/api/composer/file**", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
     posts.push({ url: route.request().url(), body: route.request().postDataBuffer()?.toString("base64") ?? "" });
     await route.fulfill({ json: { path: KEPT } });
   });
@@ -463,7 +470,8 @@ test("a picture pasted into the box is kept where the session reads it, and the 
   await pastePicture(page);
 
   // Assert
-  await expect(field(page)).toHaveValue(KEPT);
+  await expect(box(page).getByRole("list", { name: "Attached files" }).getByRole("img", { name: "Picture 1" })).toBeVisible();
+  await expect(field(page)).toHaveValue("");
   await expect.poll(() => posts.length).toBe(1);
   expect(posts[0].url).toContain("task=" + GOBLIN.id);
   expect(posts[0].url).toContain("name=shot.png");
@@ -483,6 +491,7 @@ test("a picture the board cannot keep says so in the box rather than disappearin
 
   // Assert
   await expect(field(page)).toHaveValue("");
+  await expect(box(page).getByRole("list", { name: "Attached files" })).toHaveCount(0);
   await expect(box(page).getByRole("alert")).toHaveText("That picture was not added: The file could not be kept: no room");
 });
 
@@ -500,7 +509,7 @@ test("Alt+V pastes the clipboard's text into the box, as Ctrl+V does", async ({ 
   await expect(field(page)).toHaveValue("from the clipboard");
 });
 
-test("Alt+V pastes a picture into the box by the path the session reads", async ({ page }) => {
+test("Alt+V pastes a picture into the box as one it shows and sends by the path the session reads", async ({ page }) => {
   // Arrange
   await readClipboardOf(page, "", PICTURE);
   await open(page);
@@ -512,7 +521,8 @@ test("Alt+V pastes a picture into the box by the path the session reads", async 
   await page.keyboard.press("Alt+v");
 
   // Assert
-  await expect(field(page)).toHaveValue(KEPT);
+  await expect(box(page).getByRole("img", { name: "Picture 1" })).toBeVisible();
+  await expect(field(page)).toHaveValue("");
 });
 
 for (const harness of ["claude", "codex", "pi"] as const) {
@@ -607,24 +617,23 @@ test("a leading ! command is typed into the session as the harness's own shell c
   await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
 });
 
-test("a delivered message appears once in Modern chat and the queue count includes every pending message", async ({ page }) => {
+test("a delivered message appears once in Modern chat, every pending message is pinned above the box, and the box has no queue control", async ({ page }) => {
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
   await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
     messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" },
       { id: "long", seq: 1, kind: "reply", blocks: [{ kind: "text", text: "Earlier conversation paragraph.\n\n".repeat(80) }] }], more: false,
   });
   await openGoblin(page);
-  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
-  const queue = page.getByRole("button", { name: "8 queued messages", exact: true });
-  await expect(queue).toBeVisible();
+  const pinned = page.getByRole("group", { name: "Queued messages", exact: true });
+  await expect(pinned.locator(".queued-message")).toHaveCount(8);
+  await expect(box(page).getByRole("button", { name: /queued message/ })).toHaveCount(0);
+  // At the conversation's start, where the window draws the delivered message.
   await page.getByRole("log", { name: "Messages of " + NAME }).evaluate((list) => { list.scrollTop = 0; });
-  const firstQueued = page.locator('.queued-message[data-queued="q0"]');
-  await expect(firstQueued).not.toBeInViewport();
-  await queue.click();
-  await expect(firstQueued).toBeInViewport();
+  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
+  await expect(page.locator('.queued-message[data-queued="q7"]')).toBeInViewport();
 });
 
-test("the queue control shows a queued message at the bottom of a long conversation read far up", async ({ page }) => {
+test("a queued message stays in view above the box while he reads far up a long conversation", async ({ page }) => {
   // Arrange: a long conversation, read about 3,000 px up from its end.
   const reply = (seq: number) => ({ id: "m" + seq, seq, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\n" + "A reply that runs over a few lines. ".repeat(12) }] });
   const messages = Array.from({ length: 200 }, (_, seq) => seq % 2 ? reply(seq) : { id: "m" + seq, seq, kind: "prompt", source: "overlord", text: "Question " + seq });
@@ -634,13 +643,10 @@ test("the queue control shows a queued message at the bottom of a long conversat
   await expect(conversation).toContainText("Answer 199");
   await conversation.evaluate((list) => { list.scrollTop = list.scrollHeight - list.clientHeight - 3000; });
   const queued = page.locator('.queued-message[data-queued="q1"]');
-  await expect(queued).not.toBeInViewport();
 
-  // Act
-  await page.getByRole("button", { name: "1 queued message", exact: true }).click();
-
-  // Assert
+  // Assert: no click needed, and it is not in the list that scrolls.
   await expect(queued).toBeInViewport();
   await expect(queued).toContainText("queued while it works");
+  await expect(conversation.locator(".queued-message")).toHaveCount(0);
 });
 

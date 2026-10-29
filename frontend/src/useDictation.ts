@@ -136,6 +136,7 @@ export function useDictation(type: (text: string, isSent: boolean) => void, inst
     dictation.current.start(at);
   }, [follow]);
   const stop = useCallback(() => dictation.current?.stop(), []);
+  const cancel = useCallback(() => dictation.current?.cancel(), []);
   const toggle = useCallback((at: number) => {
     if (dictation.current?.isListening) dictation.current.stop(true);
     else start(at);
@@ -152,5 +153,5 @@ export function useDictation(type: (text: string, isSent: boolean) => void, inst
     return !meaning.swallow;
   }, [start, stop]);
   const level = useCallback(() => dictation.current?.level() ?? 0, []);
-  return { listening, note: note.text, key, start, stop, toggle, level, model };
+  return { listening, note: note.text, key, start, stop, cancel, toggle, level, model };
 }

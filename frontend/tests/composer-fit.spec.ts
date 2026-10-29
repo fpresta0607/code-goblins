@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { box, boxMenu, field, open, openGoblin, send } from "./session-board";
+import { box, boxMenu, field, open, openGoblin, PAGE, send, snapshot } from "./session-board";
 
 // What he types and what pops up over the box always fit the window (the
 // Overlord, 2026-10-27): "as I'm typing in very, very long messages ... I
@@ -91,6 +91,25 @@ test("the Style menu opens without its button's tip over it", async ({ page }) =
   await expect(page.getByRole("tooltip")).toHaveCount(0);
 });
 
+// The Overlord, 2026-10-28: "what happened to being able to click the
+// microphone and see recent messages".
+test("a click on the box's microphone opens the speech history and dictates nothing", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: DICTATIONS } }));
+  await openGoblin(page);
+  const microphone = box(page).getByRole("button", { name: "Hold to dictate", exact: true });
+
+  // Act
+  await microphone.click();
+
+  // Assert
+  const history = page.getByRole("dialog", { name: "Speech history" });
+  await expect(history.getByText("check the phone spec", { exact: false })).toBeVisible();
+  await expect(microphone).not.toHaveClass(/recording/);
+  await expect(field(page)).toHaveValue("");
+});
+
 test("a long message keeps its last lines in view while dictation adds to it", async ({ page }) => {
   // Arrange
   await page.setViewportSize({ width: 1280, height: 600 });
@@ -115,42 +134,86 @@ test("a long message keeps its last lines in view while dictation adds to it", a
 // app draws its box (the CFO's review of step 3, 2026-10-27: "No loose rows
 // under it. Model short (Opus 5.5), never cut at 360 px. Every icon gets a
 // hover label. Test against the box border."), on his desktop's side panel
-// and on a phone's touch screen.
+// and on a phone's touch screen. The usage pies end the row since the
+// Overlord, 2026-10-28: "The usage circle goes in place of the arrow in the box".
+const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
+const WEEK = { provider: "claude", status: "available", percent_remaining: 12, read_at: "2026-10-28T09:00:00Z", resets_at: "2026-11-02T09:00:00Z", source: "oauth", floor_percent: 5 };
 for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 960, false], ["a phone", 390, 844, true], ["a small phone", 360, 640, true]] as const) {
   test.describe(`on ${label}`, () => {
     test.use({ viewport: { width, height }, hasTouch: isTouch, isMobile: isTouch });
 
-    test("the box's controls lie in one row inside its border, the model whole, and every icon has a hover label", async ({ page }) => {
-      // Arrange: a Claude Code session in auto mode, its effort known.
-      const relay = await open(page);
+    test("the box's controls and usage pies lie in one row inside its border, the model whole", async ({ page }) => {
+      // Arrange: a Claude Code session in auto mode, its effort and usage known.
+      const relay = await open(page, snapshot({ subscriptions: [WEEK] }), "rebase onto main", { ...PAGE, usage: USAGE });
       await openGoblin(page);
       relay.say({ type: "screen", asking: false, open: false, working: false, submission: "", mode: "auto mode" });
       const model = box(page).getByRole("button", { name: "Change model" });
-      await expect(model).toHaveText("Opus 5.5");
-      await expect(box(page).getByRole("button", { name: /^Mode: / })).toBeVisible();
+      await expect(model.locator(".engine-control-model")).toHaveText("Opus 5.5");
+      await expect(model.locator(".effort-level")).toHaveText("xhigh");
 
       // Act
       const row = await box(page).locator(".composer-input").evaluate((input) => {
         const border = input.getBoundingClientRect();
         const text = input.querySelector("textarea")!.getBoundingClientRect();
-        return [...input.querySelectorAll(".composer-row button")].map((button) => {
-          const bounds = button.getBoundingClientRect();
+        return [...input.querySelectorAll(".composer-row button, .composer-row .usage-bar")].map((control) => {
+          const bounds = control.getBoundingClientRect();
           return {
-            name: button.getAttribute("aria-label"), tip: button.getAttribute("data-tip"), hasWords: (button.textContent ?? "").trim() !== "",
+            name: control.getAttribute("aria-label"), tip: control.getAttribute("data-tip"),
             isInside: bounds.width > 0 && bounds.left >= border.left - 0.5 && bounds.right <= border.right + 0.5 && bounds.top >= text.bottom - 0.5 && bounds.bottom <= border.bottom + 0.5,
-            middle: Math.round(bounds.top + bounds.height / 2), isCut: button.scrollWidth > button.clientWidth + 0.5,
+            middle: Math.round(bounds.top + bounds.height / 2), isCut: control.scrollWidth > control.clientWidth + 0.5,
           };
         });
       });
 
       // Assert
-      expect(row.map((control) => control.name).slice(0, -1)).toEqual(["Add files", "Style: modern", "Mode: auto mode. Shift+Tab changes it", "Change model", "Change effort", isTouch ? "Dictate" : "Hold to dictate"]);
-      expect(["Send", "Stop"], "Send, or Stop while the session works").toContain(row.at(-1)?.name);
+      expect(row.map((control) => control.name)).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate", "Usage"]);
       expect(row.filter((control) => !control.isInside).map((control) => control.name), "every control inside the box's border, under the words").toEqual([]);
       expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);
       expect(row.filter((control) => control.isCut).map((control) => control.name), "no control's words cut").toEqual([]);
-      expect(row.filter((control) => !control.tip).map((control) => control.name), "every control has a hover label").toEqual([]);
+      expect(row.filter((control) => control.name !== "Usage" && !control.tip).map((control) => control.name), "every button has a hover label").toEqual([]);
       await expect(box(page).locator(".composer-tools")).toHaveCount(0);
+      // A phone's row has room for the two pies alone, the side panel's for
+      // their percentages too.
+      await expect(box(page).locator(".usage-percent:visible")).toHaveCount(isTouch ? 0 : 2);
+    });
+
+    // The Overlord, 2026-10-28: "place send button in line with message cfo
+    // height in chat input". Send, and Stop in its place while the session
+    // works, sits at the end of the line he writes on, no taller than that
+    // line, and stays beside his last line as the box grows.
+    test("Send sits at the end of the line he writes on, as tall as that line", async ({ page }) => {
+      // Arrange: a goblin waiting on CI sits at its prompt, so its screen
+      // alone says whether a turn runs (a working task's empty box shows Stop).
+      const relay = await open(page, snapshot({}, { phase: "waiting", waiting_on: "ci" }));
+      await openGoblin(page);
+      const measure = () => box(page).locator(".composer-input").evaluate((input) => {
+        const shape = (element: Element) => {
+          const bounds = element.getBoundingClientRect();
+          return { top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right, height: bounds.height, middle: bounds.left + bounds.width / 2 };
+        };
+        const words = shape(input.querySelector("textarea")!);
+        const button = input.querySelector(".composer-send")!;
+        const control = shape(button);
+        const above = document.elementFromPoint(control.middle, control.top - 6);
+        return { words, control, name: button.getAttribute("aria-label"), border: shape(input), isReachedAbove: !!above && button.contains(above) };
+      });
+      await field(page).fill("check the phone spec");
+      const line = (await measure()).words.height;
+
+      for (const [text, isWorking] of [["", false], ["check the phone spec", false], ["one\ntwo\nthree", false], ["", true]] as const) {
+        // Act
+        await field(page).fill(text);
+        relay.say({ type: "screen", asking: false, open: false, working: isWorking, submission: "", mode: "auto mode" });
+        await expect(box(page).locator(".composer-send")).toHaveAccessibleName(isWorking ? "Stop" : "Send");
+        const { words, control, border, isReachedAbove } = await measure();
+
+        // Assert
+        expect(Math.abs(control.height - line), `${isWorking ? "Stop" : "Send"} is as tall as one line of words`).toBeLessThanOrEqual(1);
+        expect(Math.abs(control.bottom - words.bottom), "it sits beside his last line").toBeLessThanOrEqual(1);
+        expect(control.left, "it follows the words on their line").toBeGreaterThanOrEqual(words.right - 0.5);
+        expect(control.right, "it stays inside the box's border").toBeLessThanOrEqual(border.right + 0.5);
+        if (isTouch) expect(isReachedAbove, "a finger just above it still presses it").toBe(true);
+      }
     });
   });
 }

@@ -62,7 +62,7 @@ test("an idle conversation changes nothing in the page while the board's snapsho
   // Arrange
   await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: "queued while busy", status: "queued", at }] }));
   await openGoblin(page);
-  await expect(log(page)).toContainText("queued while busy");
+  await expect(page.locator(".messages-view:not([hidden]) .conversation-queue")).toContainText("queued while busy");
   await page.waitForTimeout(500);
   await watch(page);
 
@@ -232,7 +232,7 @@ test("the keyboard on a row that leaves the window goes to the list, whose keys 
   await expect.poll(() => log(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(before);
 });
 
-test("the queue control brings a queued message into view while he reads far up a long conversation", async ({ page }) => {
+test("a queued message stays pinned above the box while he reads far up a long conversation", async ({ page }) => {
   // Arrange: a message waits in the queue, and he reads about 3,000 px up
   // from the end of a long conversation.
   await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: "queued while busy", status: "queued", at }] }), "", LONG);
@@ -240,14 +240,11 @@ test("the queue control brings a queued message into view while he reads far up 
   await expect(log(page)).toContainText("Answer 999");
   await log(page).evaluate((element) => { element.scrollTop = element.scrollHeight - element.clientHeight - 3000; });
   await page.waitForTimeout(500);
-  const queued = log(page).locator('.queued-message[data-queued="q1"]');
-  await expect(queued).not.toBeInViewport();
-
-  // Act
-  await page.getByRole("button", { name: "1 queued message", exact: true }).click();
+  const queued = page.locator('.queued-message[data-queued="q1"]');
 
   // Assert
   await expect(queued).toBeInViewport();
+  await expect(log(page).locator(".queued-message")).toHaveCount(0);
 });
 
 test("a selection from an older message to the newest copies every message between, however far it reaches", async ({ page }) => {

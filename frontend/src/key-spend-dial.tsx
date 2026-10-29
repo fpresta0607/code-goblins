@@ -10,8 +10,9 @@ import type { KeySpend } from "./types";
 // no reading. The dollars are key-wide: every caller of one key shows one
 // total, and the external BYOK spend is reported beside them, never in them.
 // With more than one credential in use each dial names its Pi profile, so a
-// screen reader tells two of them apart.
-export function KeySpendDial({ usage, now, isSeveral }: { usage: KeySpend; now: number; isSeveral: boolean }) {
+// screen reader tells two of them apart. hasMark draws OpenRouter's brand
+// inside the ring.
+export function KeySpendDial({ usage, now, isSeveral, hasMark }: { usage: KeySpend; now: number; isSeveral: boolean; hasMark: boolean }) {
   const state = keySpendState(usage, now, isSeveral);
   const description = useId();
   const brand = BRAND_MARKS.openrouter;
@@ -23,7 +24,7 @@ export function KeySpendDial({ usage, now, isSeveral }: { usage: KeySpend; now: 
       <svg className="subscription-ring" viewBox="0 0 52 52" aria-hidden="true" focusable="false">
         <circle className="subscription-track" cx="26" cy="26" r="22" />
         {isRinged && <circle className="subscription-fill" cx="26" cy="26" r="22" pathLength="100" strokeDasharray={`${state.percentRemaining} 100`} transform="rotate(-90 26 26)" />}
-        <svg x="15" y="15" width="22" height="22" viewBox="0 0 24 24" fill={brand.ink}><path d={brand.path} /></svg>
+        {hasMark && <svg x="15" y="15" width="22" height="22" viewBox="0 0 24 24" fill={brand.ink}><path d={brand.path} /></svg>}
       </svg>
       <span className="key-spend-values">
         <strong className="key-spend-spent">{state.text}</strong>

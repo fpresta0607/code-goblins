@@ -7,8 +7,11 @@ import { expect, holdStream, openTaskList, type Page, test } from "./site";
 // and title, and then the status of what it's doing. I do like the way the
 // working status looks for in-progress goblins." A goblin's Terminal view
 // heads with its picture, its name and title, its task id and one status
-// line, in every state, with no description and no buttons: those are in its
-// Task view. The supervisor is played by one held snapshot.
+// line, in every state, with no description and no buttons but the panel's
+// Chat and Task switch, which sits in the header's row (the Overlord,
+// 2026-10-28: "chat and task doesn't need to be full width, it can fit inline
+// with cfo and afk and just be the icons"): the rest are in its Task view.
+// The supervisor is played by one held snapshot.
 const REPO = "https://github.com/fpresta0607/household-assistant";
 const at = new Date(Date.now() - 20 * 60_000).toISOString();
 const FRANK = {
@@ -40,7 +43,7 @@ async function openTerminal(page: Page, goblin: Record<string, unknown>) {
 test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
 for (const [state, fields, status, phase] of STATES) {
-  test(`a goblin ${state} heads its terminal with its picture, name, task id and one status line, and no buttons`, async ({ page }, testInfo) => {
+  test(`a goblin ${state} heads its terminal with its picture, name, task id and one status line, and no buttons but the Chat and Task switch`, async ({ page }, testInfo) => {
     // Arrange
     const header = await openTerminal(page, { ...FRANK, ...fields });
 
@@ -58,7 +61,9 @@ for (const [state, fields, status, phase] of STATES) {
     await expect(header.locator(".panel-status")).toHaveText(status);
     await expect(header.locator(".panel-status")).toHaveClass(new RegExp("phase-" + phase));
     await expect(header).not.toContainText(FRANK.title);
-    await expect(header.locator(".panel-actions, .panel-activity, .project-line, button, a")).toHaveCount(0);
+    await expect(header.locator(".panel-actions, .panel-activity, .project-line, a")).toHaveCount(0);
+    await expect(header.getByRole("button")).toHaveCount(2);
+    await expect(header.getByRole("group", { name: "Panel view" }).getByRole("button")).toHaveCount(2);
     expect(rows.map((row) => row.lines)).toEqual([1, 1, 1]);
     expect(rows[1].top).toBeGreaterThanOrEqual(rows[0].bottom - 1);
     expect(rows[2].top).toBeGreaterThanOrEqual(rows[1].bottom - 1);
