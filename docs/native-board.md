@@ -1768,15 +1768,19 @@ No choice is preselected and written text is sent only when Other is selected.
 Use a new stable ID for a new question, and keep the same ID/content for an uncertain publication retry.
 The publisher walks up to 32 process ancestors and verifies the registered CFO PID, creation time and live native identity; a worker cannot escalate on the CFO's behalf.
 For a CFO in a native terminal, a publisher whose chain of parents stops short of the CFO is proven instead by the terminal's proof value, as for a goblin's question.
-The board's stream, `GET /api/events`, sends two kinds of event.
-A `snapshot` is the whole board, read from the fleet's files, so the supervisor builds each away from the stream.
+The board's stream, `GET /api/events`, opens with a `snapshot`, the whole board, and after it sends only `change` events, each what changed since the event before.
+A snapshot is read from the fleet's files, so the supervisor builds each away from the stream.
 One build serves everyone who asks while it runs: every open board, `/api/snapshot` and the ticket keeper share it, so one change costs one build however many readers there are, and one refresh every 15 seconds serves them all.
 A build opens a fleet file only when its size or its modification time changed since the build before, and otherwise keeps what the file gave then; it asks the disk about each path once, and learns of the task records, lifecycle records and monitor records from one listing of each folder.
 On 2026-10-02 a build opened 447 files at the live fleet's size and took 3 to 13 seconds on the fleet's machine, where opening a file cost 20 to 80 ms in bursts; an unchanged fleet now opens 4, and a goblin's report one more.
 A goblin's `cfo notify` tells the supervisor over its pipe as it returns, without waiting for an answer: the supervisor runs a cycle, which takes in a blocked question or a wait on the Overlord, and tells every board, so a report reaches an open board within a second rather than at the next refresh, and leaves the board's last error as it was.
 With no supervisor running, or one too busy to take it, the report shows at the next refresh.
-An `items` event is the Command Center's part alone (`questions`, `reviews`, `runs`, `credentials` and `actions`, with the supervisor's `instance` and `revision`), read from the store's memory and sent the moment it differs from what that board last received, while a snapshot may still be building; the board lays it over its last snapshot.
-A snapshot carries the items as they are when it is sent, not as they were when its build began, so it never undoes an items event sent before it.
+Each stream keeps what its board holds, and sends each build after the first as a change to it: for an object, the keys whose values changed (`keys`) and the keys it lost (`gone`); for a list whose items each carry an id no other item has, the items that changed by id (`items`), and every id in order (`order`) when items came, went or moved; anything else whole (`value`).
+A build in which nothing changed sends only its `at` and `revision`.
+Each snapshot was the whole fleet, about a megabyte, though between two builds a few goblins' clocks and the meters move: replayed through the stream, a recorded 265 seconds of the live fleet's stream fell from 23.1 MB a minute to 0.26 MB a minute after its first snapshot (#1611).
+The Command Center's part (`questions`, `reviews`, `runs`, `credentials`, `browser_signins` and `actions`, with the supervisor's `instance` and `revision`) is read from the store's memory and sent as a change the moment it differs from what that board holds, while a snapshot may still be building.
+A build carries the items as they are when it is sent, not as they were when it began, so it never undoes a change sent before it.
+A change that does not fit what the board holds is told to the CFO, and the board opens its stream again for a whole snapshot.
 The Command Center shows one item at a time as a stack, a question, a review item, a run item or a credential request, the CFO's own items first, then goblins in the In progress order, each goblin's by longest wait, then goblins not placed yet by longest wait (the snapshot's `attention` names the placed ones), and a horizontal swipe on touch screens moves between them; the card stands alone, with no edge of the next one behind it, and its text is sized to read at a glance (19 px body, 22 px titles).
 A card's own action row holds Back, its place such as 2 of 4, and Next, which leaves the item as it is and shows the next, on the left while more than one item waits, and its answer on the right.
 Closing keeps every item for later.
