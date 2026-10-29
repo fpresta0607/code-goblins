@@ -142,6 +142,40 @@ test("Classic full-screen Codex zooms on a right-button wheel up while ended and
   expect(await page.evaluate(() => localStorage.getItem("cfo-chat-style"))).toBe("classic");
 });
 
+// A view that connects again replays the terminal's history before its
+// repaint, as the supervisor's relay does, so the line he reads in output
+// written after the last repaint is still there to return to (#1566).
+test("Classic keeps the line it reads in later output through a reconnect", async ({ page }) => {
+  // Arrange
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+  const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, HISTORY);
+  await card(page, NAME).click();
+  const rows = page.locator(".terminal-view:not(.staged) > .xterm .xterm-rows");
+  await expect(rows).toContainText("> ready");
+  relay.write(Array.from({ length: 200 }, (_, index) => "\r\nCodex later " + index).join(""));
+  await expect(rows).toContainText("Codex later 199");
+  await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
+  await expect(page.getByRole("button", { name: "Jump to bottom", exact: true })).toBeVisible();
+  // A row the panel gains while he reads moves the first line, so the line
+  // is read once it holds.
+  const top = rows.locator("> div").first();
+  let reading = "";
+  await expect.poll(async () => {
+    const prior = reading;
+    reading = await top.textContent() ?? "";
+    return reading === prior;
+  }).toBe(true);
+  expect(reading).toContain("Codex later");
+
+  // Act
+  relay.drop();
+  await expect.poll(() => relay.views).toBe(2);
+  await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
+
+  // Assert
+  await expect(top).toHaveText(reading);
+});
+
 for (const style of ["classic", "modern"] as const) {
   test(`${style} follows an ended CFO host into Codex without reload or losing its draft`, async ({ page }) => {
     await page.addInitScript((style) => {
