@@ -22,7 +22,7 @@ async function classicShown(page: Page, name: string): Promise<void> {
   await expect(box(page, name)).toBeHidden();
   await expect(page.getByRole("button", { name: "Back to messages", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy terminal text", exact: true })).toHaveCount(0);
-  await expect(modern(page).or(more(page))).toBeVisible();
+  await expect(modern(page).or(more(page)).first()).toBeVisible();
 }
 
 async function pressModern(page: Page): Promise<void> {
