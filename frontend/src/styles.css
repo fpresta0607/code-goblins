@@ -1226,7 +1226,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .memory-bar { position: relative; height: 8px; border-radius: 8px; background: rgba(163, 179, 194, 0.14); }
 /* The bar is thin, so its tip answers a pointer a little above and below it. */
 .memory-bar::after { content: ""; position: absolute; inset: -8px 0; }
-.memory-fill { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)); transition: width .4s ease, background .2s ease; }
+/* A meter takes each reading at once: the meters are read for nearly every
+   snapshot, and an eased width redrew the bar for 0.4 s each time (#1716). */
+.memory-fill { position: absolute; inset: 0 auto 0 0; border-radius: 8px; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue)); }
 .memory-fill.waiting { background: var(--amber); }
 .memory-fill.under { background: var(--red); }
 .memory-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: #e4eeeb; }
@@ -1270,7 +1272,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .card-start.icon-button.raised[aria-disabled="true"]:hover { transform: none; box-shadow: var(--glass-shadow); }
 .task-card-shell.has-start .task-card { padding-right: 46px; }
 .card-start-spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: terminal-spin .8s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .memory-fill { transition: none; } .card-start-spinner { animation-duration: 2.4s; } }
+@media (prefers-reduced-motion: reduce) { .card-start-spinner { animation-duration: 2.4s; } }
 /* Tasks and In progress are in priority order, top first: each card's
    number is its place and stays in sight on hover, on focus and in a drag, and
    a dragged card lifts while the others slide aside. A finger drags by the
