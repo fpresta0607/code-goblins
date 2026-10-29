@@ -411,6 +411,10 @@ func TestADeferredDeliveryDoesNotHoldOtherRunnableActions(t *testing.T) {
 	}
 }
 
+// An answer reaches a CFO at a live Daybreak offer, which one Escape
+// dismisses before the answer is typed, and one whose offer left its rows on
+// screen after that Escape: they are history that owns no key, so the answer
+// is typed and submitted under them, never queued behind them (#1556).
 func TestNativeCFOProvesAcceptanceAcrossTheDialogAndPasteBoundary(t *testing.T) {
 	for _, mode := range []string{"daybreak", "paste", "late-modal", "daybreak-stuck"} {
 		t.Run(mode, func(t *testing.T) {
@@ -419,14 +423,6 @@ func TestNativeCFOProvesAcceptanceAcrossTheDialogAndPasteBoundary(t *testing.T) 
 			terminal := nativeCFOComposer(t, stateDir, mode)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
-			if mode == "daybreak-stuck" {
-				// A dialog's first key waits two seconds for it to settle, and a
-				// stuck offer is left only when this context ends, so the budget
-				// leaves a loaded machine time to send its one Escape.
-				// stall-accepted: the test means this context to run out on the stuck offer.
-				ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
-				defer cancel()
-			}
 
 			// Act
 			result, err := (&CFOConnection{State: stateDir}).Send(ctx, registrationIdentity(t, stateDir), "Reply received")
@@ -437,7 +433,7 @@ func TestNativeCFOProvesAcceptanceAcrossTheDialogAndPasteBoundary(t *testing.T) 
 				t.Errorf("unsafe input: %s", input)
 			}
 			switch mode {
-			case "daybreak", "paste":
+			case "daybreak", "daybreak-stuck", "paste":
 				if err != nil || result.Awaiting != nil || strings.Count(input, "accepted Overlord: Reply received") != 1 {
 					t.Errorf("Send = %+v, %v, input %q; want one accepted answer with no unproved Sent state", result, err, input)
 				}
@@ -445,10 +441,9 @@ func TestNativeCFOProvesAcceptanceAcrossTheDialogAndPasteBoundary(t *testing.T) 
 				if err == nil || errors.Is(err, ErrDeferred) || strings.Contains(input, "accepted ") {
 					t.Errorf("Send = %+v, %v, input %q; want the typed answer held unsubmitted, without replay", result, err, input)
 				}
-			case "daybreak-stuck":
-				if !errors.Is(err, ErrDeferred) || result.Awaiting != nil || strings.Count(input, "escape") != 1 {
-					t.Errorf("Send = %+v, %v, input %q; want one dismissal attempt and the untyped answer queued", result, err, input)
-				}
+			}
+			if strings.HasPrefix(mode, "daybreak") && strings.Count(input, "escape") != 1 {
+				t.Errorf("input %q; want exactly one Escape", input)
 			}
 		})
 	}

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/digest"
-	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -117,10 +116,6 @@ func proveNativeCompact(t *testing.T, p *wakeProof) {
 	cfo := p.startCompactCFO(t)
 	p.cfoTerminal = &cfo
 	p.say("CFO %s runs in native terminal cfo, host pid %d, harness pid %d", p.cfo, cfo.HostPID, cfo.ChildPID)
-	noticing, stopNoticing := context.WithCancel(context.Background())
-	noticed := make(chan struct{})
-	go func() { defer close(noticed); p.dismissOptionalNotices(noticing, cfo) }()
-	defer func() { stopNoticing(); <-noticed }()
 	p.await(t, "the CFO to register and end its first turn", 5*time.Minute, func() bool {
 		primary, live := livePrimaryFile(p.home.State)
 		return live && primary == p.cfo && p.idle(cfo)
@@ -357,29 +352,6 @@ func (p *wakeProof) startCompactCFO(t *testing.T) host.Record {
 		_ = hostProcess.Release()
 	})
 	return p.settle(t, record)
-}
-
-// dismissOptionalNotices closes, until ctx ends, each optional offer with a
-// known Escape hint the CFO's terminal shows, as the board's send to the CFO
-// does before it types. Codex 0.160 drew its Daybreak security offer under the
-// composer once its first turn ended, live on 2026-10-08, and the typed wake
-// does not type while it shows; each dismissal is logged, so the record says
-// when the proof stood in for that.
-func (p *wakeProof) dismissOptionalNotices(ctx context.Context, record host.Record) {
-	screens, _ := harness.NativeScreens(harness.Kind(p.cfo))
-	for {
-		if screen, err := host.ReadScreen(record); err == nil {
-			if dialog, shown := screens.Dialog(screen); shown && dialog.EscapeHint != "" {
-				p.say("dismissing %s with Escape: %v", dialog.Name, spawn.AnswerDialog(ctx, record, dialog, screen))
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		// stall-accepted: running out only looks at the screen again, which is the loop's passing path.
-		case <-time.After(2 * time.Second):
-		}
-	}
 }
 
 // compactionEnded is when the harness's own session record says the

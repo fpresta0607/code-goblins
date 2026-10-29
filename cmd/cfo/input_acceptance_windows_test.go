@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -165,12 +164,9 @@ func proveAnswerOnce(t *testing.T, p *wakeProof) {
 		if err != nil {
 			return false
 		}
-		// Codex can offer optional setup once a turn ends, which the board
-		// dismisses as well before it types.
-		if dialog, shows := screens.Dialog(screen); shows && dialog.EscapeHint != "" {
-			p.say("dismissing %s, as a delivery would: %v", dialog.Name, spawn.AnswerDialog(context.Background(), cfo, dialog, screen))
-			return false
-		}
+		// Codex can offer optional setup once a turn ends, above a composer
+		// that still reads ready: the board dismisses a live offer before it
+		// types (#1556).
 		return screens.IsReady(screen) && !screens.IsWorking(screen) && screens.ComposerEmpty(screen)
 	})
 	screen, _ := host.ReadScreen(cfo)

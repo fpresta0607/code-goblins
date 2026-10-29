@@ -558,10 +558,30 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 			return Evaluation{Reason: "The CFO has a dialog open. Your answer is queued; nothing was sent."}, ErrDeferred
 		}
 		if err := spawn.AnswerDialog(ctx, record, dialog, before); err != nil {
-			return Evaluation{Reason: "The CFO's optional notice has not closed. Your answer is queued; nothing was sent."}, ErrDeferred
+			return Evaluation{Reason: "The CFO's dialog has not closed. Your answer is queued; nothing was sent."}, ErrDeferred
 		}
 		before, err = read(record)
 		if err != nil {
+			return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
+		}
+	}
+	// A live offer drawn above the composer takes a key of its own over an
+	// empty one, so it is dismissed with its one Escape before anything is
+	// typed, as a delivery to a goblin dismisses it. Rows that outlive the key
+	// are history, which holds nothing back (#1556).
+	_, dismissed, err := spawn.Service{ReadScreen: read}.DismissOffer(ctx, record, screens)
+	if err != nil {
+		return Evaluation{Reason: "The CFO's optional offer could not be dismissed. Your answer is queued; nothing was sent."}, ErrDeferred
+	}
+	if dismissed {
+		// The terminal holds an Escape the next input follows within 100 ms
+		// as the start of a longer key, so the answer waits a poll.
+		select {
+		case <-time.After(nativeConfirmPoll):
+		case <-ctx.Done():
+			return Evaluation{Reason: "The CFO's optional offer was dismissed. Your answer is queued; nothing was sent."}, ErrDeferred
+		}
+		if before, err = read(record); err != nil {
 			return Evaluation{Reason: "The CFO's input cannot be read. Your answer is queued; nothing was sent."}, ErrDeferred
 		}
 	}

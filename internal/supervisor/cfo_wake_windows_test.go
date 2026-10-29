@@ -380,7 +380,7 @@ func TestAnUntypedWakeIsRecordedWithWhyAndTheCFOsScreen(t *testing.T) {
 		"a turn's own heading":            {[]string{"• Investigating the CFO's wake path (2m 05s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
 		"a dialog's words read in a turn": {[]string{"  Hooks need review", "• Working (12s • esc to interrupt)", "› Ask Codex to do anything"}, "its screen shows it in the middle of a turn"},
 		"its agents run":                  {[]string{"• Waiting for 3 background agents (12m • esc to interrupt)", "› Ask Codex to do anything", "  gpt-6-astra high · work"}, "its screen shows it in the middle of a turn"},
-		"at a dialog":                     {[]string{"  Set up security for Daybreak mode", "› 1. Set up security", "  Press a number to choose · esc to dismiss · type to continue", "› Ask Codex to do anything"}, "its screen shows the optional Daybreak security setup offer"},
+		"at a dialog":                     {[]string{"Trust this folder?", "› 1. Trust and continue", "  2. Quit", "", "enter continue · esc quit"}, "its screen shows the folder trust prompt"},
 		"holding text":                    {[]string{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}, "its screen does not show it waiting at an empty prompt"},
 		"no prompt":                       {[]string{"Starting Codex..."}, "its screen does not show it waiting at an empty prompt"},
 	} {
@@ -406,6 +406,29 @@ func TestAnUntypedWakeIsRecordedWithWhyAndTheCFOsScreen(t *testing.T) {
 				t.Errorf("skip = %+v; want why %q, 1 wake and the screen's rows", kept[0], test.why)
 			}
 		})
+	}
+}
+
+// Codex draws its optional Daybreak offer above its composer, and the rows of
+// an offer an earlier redraw dismissed stay on screen as history no key
+// reaches: a wake is typed into the CFO idle at the empty composer under them,
+// whose delivery dismisses a live offer before it types, and no reason is
+// recorded for a skip that never happened (#1556).
+func TestAWakeIsTypedIntoACFOIdleUnderAnInlineOffersRows(t *testing.T) {
+	// Arrange
+	screen := append([]string{"  Set up security for Daybreak mode", "› 1. Set up security", "  Press a number to choose · esc to dismiss · type to continue", ""}, idleCodexCFO...)
+	s, stateDir, typed, _ := typedWakeCFO(t, "codex", screen)
+	queueWake(t, stateDir, "notify", "g1", "done: PR https://example.test/pull/1")
+
+	// Act
+	err := s.wakeCFO(context.Background(), time.Now().UTC())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept := skips(t, stateDir); len(*typed) != 1 || len(kept) != 0 {
+		t.Fatalf("typed %q and recorded %+v; want the wake typed once and no skip", *typed, kept)
 	}
 }
 
