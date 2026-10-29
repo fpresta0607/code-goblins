@@ -29,13 +29,17 @@ async function open(page: Page) {
     class Stream extends EventTarget {
       onerror: (() => void) | null = null;
       readyState = 1;
+      alive: ReturnType<typeof setInterval> | undefined;
       constructor(address: string | URL) {
         super();
         const isMessages = new URL(address, location.href).pathname === "/api/messages";
         const [type, data] = isMessages ? ["page", JSON.stringify({ messages: [], more: false })] : ["snapshot", snapshot];
         setTimeout(() => this.dispatchEvent(new MessageEvent(type, { data })));
+        // A message stream says alive every five seconds, as the supervisor's
+        // does while it has nothing to send.
+        if (isMessages) this.alive = setInterval(() => this.dispatchEvent(new MessageEvent("alive", { data: "{}" })), 5000);
       }
-      close() { this.readyState = 2; }
+      close() { this.readyState = 2; clearInterval(this.alive); }
     }
     Object.defineProperty(window, "EventSource", { value: Stream });
   }, JSON.stringify(SNAPSHOT));
