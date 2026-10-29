@@ -754,7 +754,8 @@ func TestExecutorRetryCompletesARunWhoseEndSparedAService(t *testing.T) {
 // The executor reads the source its command runs on once the turn is taken
 // and before the command starts, and again once it has ended, and keeps both
 // reads in the record, a moved or unreadable source as much as a steady one.
-// The command's own result is its own whatever the reads found.
+// The command's exit code is its own whatever the reads found, and a run
+// that tested no one source fails.
 func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
 	first := Source{Commit: "c1", Tree: "t1", IsComplete: true}
 	moved := Source{Commit: "c1", Tree: "t2", IsComplete: true}
@@ -800,8 +801,8 @@ func TestExecutorReadsTheSourceAroundItsCommand(t *testing.T) {
 			result, path, err := executor.RunWithin(ctx, execx.Request{Dir: root, Name: program, Env: append(os.Environ(), standin.Env(ran, standin.Rule{Any: true, Exit: 3})...)}, 0)
 
 			// Assert
-			if err != nil || result.ExitCode != 3 {
-				t.Fatalf("result = %+v, %v; want the command's own exit 3", result, err)
+			if (err == nil) != row.isTested || result.ExitCode != 3 {
+				t.Fatalf("result = %+v, %v; want the command's own exit 3, failing unless it tested one source", result, err)
 			}
 			if len(hadRun) != 2 || hadRun[0] || !hadRun[1] {
 				t.Fatalf("the command had run at each read: %v; want a read before it started and one after it ended", hadRun)

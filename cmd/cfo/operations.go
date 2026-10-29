@@ -360,9 +360,6 @@ func runMeasuredTier(name string, cmds []projectcfg.Command, scope string, meta 
 			continue
 		}
 		res[index].Leftovers, res[index].Spared, res[index].Source = record.Measurement.Leftovers, record.Measurement.Spared, record.Source
-		if _, err := record.Source.Tested(); err != nil && record.Status != "not_started" {
-			fmt.Fprintf(stderr, "%s: %s tested no one source: %v\n", name, strings.Join(result.Command, " "), err)
-		}
 		if len(record.Measurement.Leftovers) > 0 {
 			fmt.Fprintf(stderr, "%s: %s left %s running after it exited, which the run ended\n", name, strings.Join(result.Command, " "), processNames(record.Measurement.Leftovers))
 		}

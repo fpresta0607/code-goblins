@@ -59,8 +59,9 @@ type Executor struct {
 	// Source, when set, reads the source the command runs on (ReadSource)
 	// once its turn is taken and before it starts, and again once it has
 	// ended. The record keeps both reads, so it says what was tested and
-	// whether it moved while the command ran. A read that fails is recorded,
-	// and the command runs and keeps its result all the same.
+	// whether it moved while the command ran. A read that fails is recorded
+	// and the command runs, but a run that tested no one source
+	// (SourceReads.Tested) fails whatever its command's exit code.
 	Source func(ctx context.Context, dir string) (Source, error)
 
 	mu      sync.Mutex
@@ -426,6 +427,8 @@ func (executor *Executor) execute(ctx context.Context, request execx.Request, li
 		}
 		source, readError := executor.Source(readContext, request.Dir)
 		failure = errors.Join(failure, execution.readSource(func(reads *SourceReads) { reads.ReadEnd(source, readError) }))
+		_, testedError := execution.record.Source.Tested()
+		failure = errors.Join(failure, testedError)
 	}
 	exitCode = -1
 	if command.ProcessState != nil {

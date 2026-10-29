@@ -304,6 +304,51 @@ func TestExecutorStartsTheCommandOnlyWhenItsRunStillNeedsIt(t *testing.T) {
 	}
 }
 
+// A command that tested no one source verified nothing a caller can name, so
+// its run fails though the command exited 0, and keeps that exit code. On
+// 2026-10-27 a cfo verify run whose tree moved while it ran exited 0 and
+// recorded a pass.
+func TestExecutorFailsARunThatTestedNoOneSource(t *testing.T) {
+	complete := Source{Commit: "c1", CommitTree: "t1", Tree: "t1", IsComplete: true}
+	for name, row := range map[string]struct {
+		start, end Source
+		endError   error
+		want       string
+	}{
+		"its source differed at its end": {start: complete, end: Source{Commit: "c2", CommitTree: "t2", Tree: "t2", IsComplete: true}, want: "the source differed"},
+		"its end read failed":            {start: complete, endError: errors.New("git is gone"), want: "git is gone"},
+		"its source was incomplete":      {start: Source{Commit: "c1", CommitTree: "t1", Tree: "t1"}, end: Source{Commit: "c1", CommitTree: "t1", Tree: "t1"}, want: "does not hold all"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			executor := Executor{Admission: admission(t), Monitor: Monitor{Poll: 10 * time.Millisecond, Headroom: plentyOfMemory}}
+			reads := 0
+			executor.Source = func(context.Context, string) (Source, error) {
+				reads++
+				if reads == 1 {
+					return row.start, nil
+				}
+				return row.end, row.endError
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			// Act
+			result, record, err := executor.RunWithin(ctx, execx.Request{Dir: t.TempDir(), Name: "cmd", Args: []string{"/d", "/c", "exit 0"}}, 0)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), row.want) || result.ExitCode != 0 {
+				t.Fatalf("run = %+v, %v; want the zero-exit command's run to fail saying %q", result, err, row.want)
+			}
+			evidence := readExecution(t, record)
+			if evidence.Status != "failed" || evidence.ExitCode == nil || *evidence.ExitCode != 0 || !strings.Contains(evidence.Failure, row.want) {
+				t.Fatalf("evidence = %+v; want a failure that keeps exit 0 and says %q", evidence, row.want)
+			}
+		})
+	}
+}
+
 func TestExecutorLimitStopsOnceTheCommandExits(t *testing.T) {
 	if os.Getenv(limitsRole) == "starter" {
 		// The command starts a child and exits at once, so its own run never

@@ -262,9 +262,8 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 			stopSaying()
 			ran := time.Since(check.Start)
 			check.Source.ReadEnd(verify.ReadSource(context.Background(), execx.OSRunner{}, dir))
-			if _, sourceErr := check.Source.Tested(); sourceErr != nil {
-				fmt.Fprintf(stderr, "cfo gate test: go %s tested no one source: %v\n", command[1], sourceErr)
-			}
+			_, sourceErr := check.Source.Tested()
+			err = errors.Join(err, sourceErr)
 			if events != nil {
 				if outputErr := events.End(); outputErr != nil && !errors.Is(err, outputErr) {
 					err = errors.Join(err, outputErr)

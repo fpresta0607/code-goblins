@@ -179,9 +179,9 @@ func TestVerifyRecordsTheSourceEachCommandRanOn(t *testing.T) {
 	}
 }
 
-// A command whose source changed while it ran keeps its own result, and the
-// tier says that it tested no one source.
-func TestVerifySaysWhenACommandsSourceChangedWhileItRan(t *testing.T) {
+// A command whose source changed while it ran tested no one source, so the
+// tier fails though the command exited 0, as issue #1536 found it passing.
+func TestVerifyFailsWhenACommandsSourceChangedWhileItRan(t *testing.T) {
 	// Arrange
 	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["cmd", "/d", "/c", "echo changed> moved.txt"]]}`)
 
@@ -191,11 +191,11 @@ func TestVerifySaysWhenACommandsSourceChangedWhileItRan(t *testing.T) {
 
 	// Assert
 	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
-	if exit != 0 || len(results) != 1 || results[0].Status != "passed" {
-		t.Fatalf("exit = %d, results = %+v; want the command's own pass", exit, results)
+	if exit != 1 || len(results) != 1 || results[0].Status != "failed" || results[0].ExitCode != 0 {
+		t.Fatalf("exit = %d, results = %+v; want the tier to fail on the command's exit 0", exit, results)
 	}
-	if want := "cfo verify: cmd /d /c echo changed> moved.txt tested no one source: verify: the source differed between the reads as the run started and once it ended"; !strings.HasPrefix(stderr.String(), want) {
-		t.Errorf("stderr = %q; want it to start %q", stderr.String(), want)
+	if want := "verify: the source differed between the reads as the run started and once it ended"; !strings.Contains(stderr.String(), want) || !strings.Contains(results[0].Error, want) {
+		t.Errorf("stderr = %q, error = %q; want both to say %q", stderr.String(), results[0].Error, want)
 	}
 	if _, err := results[0].Source.Tested(); err == nil {
 		t.Errorf("the result's reads %+v name a tested source; want none", results[0].Source)
@@ -934,24 +934,5 @@ func TestVerifyKeepsNoPassWhenAnEarlierCommandChangedAnInput(t *testing.T) {
 	}
 	if passes := storeFiles(t, "passes"); len(passes) != 0 || !strings.Contains(stderr.String(), "read otherwise once it had run") {
 		t.Errorf("passes = %v, stderr = %q; want no pass kept, as what it depends on read otherwise", passes, stderr.String())
-	}
-}
-
-// A command that never started read no source, so the tier says nothing of
-// its source, only that it took no turn.
-func TestVerifySaysNothingOfTheSourceOfACommandThatNeverStarted(t *testing.T) {
-	// Arrange
-	runtime, _ := measuredTask(t, `"verification": {"fast": [["git", "version"]]}`)
-	runtime.availableMemory = func() (supervisor.Memory, error) {
-		return supervisor.Memory{}, errors.New("memory cannot be read")
-	}
-
-	// Act
-	var stdout, stderr bytes.Buffer
-	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
-
-	// Assert
-	if exit != 1 || strings.Contains(stderr.String(), "tested no one source") {
-		t.Errorf("exit = %d, stderr = %q; want a failure that says nothing of a source", exit, stderr.String())
 	}
 }
