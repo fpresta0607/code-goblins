@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -1693,7 +1694,7 @@ func TestACommandKeepsItsLeadingSlashOrBang(t *testing.T) {
 			t.Fatalf("a command reached the harness as %q, want %q", got, strings.TrimSpace(text))
 		}
 	}
-	if got := fromOverlord("please look at this"); !strings.HasPrefix(got, overlordWords) {
+	if got := fromOverlord("please look at this"); !strings.HasPrefix(got, routing.BoardMessagePrefix) {
 		t.Fatalf("a message reached the harness as %q, want the Overlord's stamp", got)
 	}
 }
