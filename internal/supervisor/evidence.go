@@ -593,84 +593,128 @@ func taskSessionSummary(lines []string, spawned time.Time) (report string, repor
 // newest first. Cleanup leaves the status log in place with no task record
 // beside it; cfo reap later moves it into the archive as its own file, and
 // older archives keep it inside the task's archived directory.
-func finishedTasks(h home.Home, now time.Time) []Task {
+//
+// The Completed column is rebuilt every minute, and a finished task's files
+// seldom change again, so reads keeps what each one gave while its size and
+// write time stay the same, as its folder's listing shows them, and a record
+// written before the window is not opened: what it records happened before
+// it was written. Opening each of them on every rebuild took 933 ms of
+// processor, 6 MB of reads and about 22,000 file operations on 2026-10-28,
+// with 1,170 records and 499 status logs (#1716).
+func finishedTasks(h home.Home, reads *keptReads, now time.Time) []Task {
 	stateDir := h.State
 	type finished struct {
 		at   time.Time
 		path string
+		// info is the status log as its folder's listing showed it, nil
+		// when no listing did.
+		info fs.FileInfo
+	}
+	listed := func(info fs.FileInfo) func(string) (fs.FileInfo, error) {
+		return func(string) (fs.FileInfo, error) { return info, nil }
 	}
 	found := map[string]finished{}
-	keep := func(id, path string, at time.Time) {
+	keep := func(id, path string, at time.Time, info fs.FileInfo) {
 		if state.ValidTaskID(id) != nil || now.Sub(at) > historyWindow {
 			return
 		}
 		if prior, ok := found[id]; !ok || at.After(prior.at) {
-			found[id] = finished{at, path}
+			found[id] = finished{at, path, info}
 		}
 	}
-	if entries, err := os.ReadDir(stateDir); err == nil {
-		for _, entry := range entries {
-			id, ok := strings.CutSuffix(entry.Name(), ".status")
-			if !ok || entry.IsDir() {
-				continue
+	// summary is what a finished task's status log says of its work since
+	// spawned.
+	type summary struct {
+		pr, report          string
+		reportedAt, retired time.Time
+	}
+	summarize := func(f finished, spawned time.Time) (summary, error) {
+		look := reads.look
+		if f.info != nil {
+			look = listed(f.info)
+		}
+		return keptAsking(reads, look, "finished status since "+spawned.Format(time.RFC3339), []string{f.path}, func() (summary, error) {
+			lines, err := fsx.ReadLines(f.path)
+			if err != nil {
+				return summary{}, err
 			}
-			if _, err := os.Stat(filepath.Join(stateDir, id+".meta")); err == nil {
-				continue
-			}
-			if info, err := entry.Info(); err == nil {
-				keep(id, filepath.Join(stateDir, entry.Name()), info.ModTime())
-			}
+			_, pr := statusActivity(lines, time.Time{})
+			report, reportedAt, retired := taskSessionSummary(lines, spawned)
+			return summary{pr, report, reportedAt, retired}, nil
+		})
+	}
+	entries, _ := os.ReadDir(stateDir)
+	// live are the tasks with a record, by lowercase ID, as Windows names
+	// files.
+	live := map[string]bool{}
+	for _, entry := range entries {
+		if id, ok := strings.CutSuffix(entry.Name(), ".meta"); ok {
+			live[strings.ToLower(id)] = true
+		}
+	}
+	for _, entry := range entries {
+		id, ok := strings.CutSuffix(entry.Name(), ".status")
+		if !ok || entry.IsDir() || live[strings.ToLower(id)] {
+			continue
+		}
+		if info, err := entry.Info(); err == nil {
+			keep(id, filepath.Join(stateDir, entry.Name()), info.ModTime(), info)
 		}
 	}
 	archive := filepath.Join(stateDir, state.ArchiveDirName)
 	if entries, err := os.ReadDir(archive); err == nil {
 		for _, entry := range entries {
 			if m := archivedStatusFile.FindStringSubmatch(entry.Name()); m != nil && !entry.IsDir() {
-				if at, err := time.Parse("20060102T150405Z", m[2]); err == nil {
-					keep(m[1], filepath.Join(archive, entry.Name()), at)
+				at, err := time.Parse("20060102T150405Z", m[2])
+				info, infoErr := entry.Info()
+				if err == nil && infoErr == nil {
+					keep(m[1], filepath.Join(archive, entry.Name()), at, info)
 				}
 			} else if m := archivedTaskDir.FindStringSubmatch(entry.Name()); m != nil && entry.IsDir() {
 				path := filepath.Join(archive, entry.Name(), m[1]+".status")
-				if at, err := time.Parse("20060102T150405Z", m[2]); err == nil && exists(path) {
-					keep(m[1], path, at)
+				if at, err := time.Parse("20060102T150405Z", m[2]); err == nil && now.Sub(at) <= historyWindow && exists(path) {
+					keep(m[1], path, at, nil)
 				}
 			}
 		}
 	}
 	tasks := []Task{}
-	backlog, _ := fleet.ReadBacklog(h)
+	// backlogRows are the structured backlog rows by ID, each the first of
+	// Done, Queued and Parked that names it.
+	backlogRows, _ := kept(reads, "finished backlog", []string{filepath.Join(h.Data, "backlog.md")}, func() (map[string]fleet.BacklogRow, error) {
+		backlog, err := fleet.ReadBacklog(h)
+		rows := map[string]fleet.BacklogRow{}
+		for _, row := range slices.Concat(backlog.Done, backlog.Queued, backlog.Parked) {
+			if _, seen := rows[row.ID]; row.Structured && !seen {
+				rows[row.ID] = row
+			}
+		}
+		return rows, err
+	})
 	for id, f := range found {
-		lines, err := fsx.ReadLines(f.path)
+		read, err := summarize(f, time.Time{})
 		if err != nil {
 			continue
 		}
-		_, pr := statusActivity(lines, time.Time{})
-		report, reportedAt, retired := taskSessionSummary(lines, time.Time{})
+		pr, report, reportedAt, retired := read.pr, read.report, read.reportedAt, read.retired
 		phase, reason := "stopped", "Stopped without recorded delivery"
 		if pr != "" {
 			phase, reason = "done", "Delivered pull request; task cleaned up"
 		}
 		title, project := id, ""
-		for _, row := range append(append(backlog.Done, backlog.Queued...), backlog.Parked...) {
-			if row.Structured && row.ID == id {
-				title, project = row.Title, row.Repo
-				break
-			}
+		if row, isListed := backlogRows[id]; isListed {
+			title, project = row.Title, row.Repo
 		}
 		for _, brief := range []string{filepath.Join(h.Data, id, "brief.md"), filepath.Join(h.Data, "archive", "finished", id, "brief.md")} {
-			if project == "" {
-				project = briefProject(brief)
+			if project != "" && title != id {
+				break
 			}
-			if title == id {
-				if content, err := fsx.ReadFile(brief); err == nil {
-					_, task, ok := strings.Cut(strings.ReplaceAll(string(content), "\r\n", "\n"), "## Task\n")
-					if ok {
-						first, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
-						if !strings.HasPrefix(first, "#") && first != "" {
-							title = bounded(first, 200)
-						}
-					}
-				}
+			read, _ := kept(reads, "finished brief", []string{brief}, func() (briefSays, error) { return readBrief(brief) })
+			if project == "" {
+				project = read.project
+			}
+			if title == id && read.title != "" {
+				title = read.title
 			}
 		}
 		if project != "" {
@@ -678,24 +722,50 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 		}
 		tasks = append(tasks, Task{ID: "finished:" + id, Title: title, Project: project, Archived: true, LastReport: report, ReportedAt: reportedAt, RetiredAt: retired, Evaluation: Evaluation{Phase: phase, PR: pr, Reason: reason, At: f.at}})
 	}
+	// outcomes are the outcome records as their folder's listing shows them,
+	// by ID, each read only when wanted.
+	outcomes := map[string]fs.FileInfo{}
+	outcomeOf := func(id string) (state.Outcome, error) {
+		info, isListed := outcomes[id]
+		if !isListed {
+			return state.Outcome{}, fs.ErrNotExist
+		}
+		return keptAsking(reads, listed(info), "finished outcome", []string{filepath.Join(stateDir, "outcomes", id+".json")}, func() (state.Outcome, error) {
+			return state.ReadOutcome(stateDir, id)
+		})
+	}
 	for _, directory := range []string{"outcomes", "lifecycle"} {
 		entries, _ := os.ReadDir(filepath.Join(stateDir, directory))
 		for _, entry := range entries {
 			id, ok := strings.CutSuffix(entry.Name(), ".json")
-			if !ok || state.ValidTaskID(id) != nil || exists(filepath.Join(stateDir, id+".meta")) {
+			if !ok || state.ValidTaskID(id) != nil || live[strings.ToLower(id)] {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			if directory == "outcomes" {
+				outcomes[id] = info
+			}
+			// A record is written when what it records happens or later, so
+			// one written before the window records nothing in it.
+			if now.Sub(info.ModTime()) > historyWindow {
 				continue
 			}
 			var task Task
 			var generation string
 			if directory == "outcomes" {
-				outcome, err := state.ReadOutcome(stateDir, id)
+				outcome, err := outcomeOf(id)
 				if err != nil {
 					continue
 				}
 				generation = outcome.Generation
 				task = Task{ID: "finished:" + id, Title: outcome.Title, GoblinName: outcome.GoblinName, GoblinTitle: outcome.GoblinTitle, Project: filepath.Base(outcome.Project), Branch: outcome.Branch, Harness: outcome.Harness, Model: outcome.Model, Effort: outcome.Effort, Archived: true, Evaluation: Evaluation{Phase: outcome.Phase, PR: outcome.PR, Reason: outcome.Reason, At: outcome.At}}
 			} else {
-				record, err := state.ReadLifecycle(stateDir, id)
+				record, err := keptAsking(reads, listed(info), "finished lifecycle", []string{filepath.Join(stateDir, "lifecycle", entry.Name())}, func() (state.Lifecycle, error) {
+					return state.ReadLifecycle(stateDir, id)
+				})
 				if err != nil || record.Phase != "stopped" {
 					continue
 				}
@@ -703,7 +773,7 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				task = Task{ID: "finished:" + id, Title: record.Title, GoblinName: record.GoblinName, GoblinTitle: record.GoblinTitle, Project: filepath.Base(record.Project), Archived: true, Lifecycle: lifecycleStatus(record), Teardown: record.TeardownLabels(), Evaluation: Evaluation{Phase: "stopped", Reason: record.Reason, At: record.Updated}}
 				// A stop never relabels what its own generation delivered: a
 				// helper its parent merged is retired through Stop.
-				if outcome, err := state.ReadOutcome(stateDir, id); err == nil && outcome.Generation == record.Generation && outcome.Phase == "done" {
+				if outcome, err := outcomeOf(id); err == nil && outcome.Generation == record.Generation && outcome.Phase == "done" {
 					task.Phase = "done"
 				}
 				if at := slices.IndexFunc(tasks, func(existing Task) bool { return existing.ID == task.ID }); at >= 0 {
@@ -721,8 +791,8 @@ func finishedTasks(h home.Home, now time.Time) []Task {
 				continue
 			}
 			if status, ok := found[id]; ok && generation != "queued" {
-				if lines, err := fsx.ReadLines(status.path); err == nil {
-					task.LastReport, task.ReportedAt, task.RetiredAt = taskSessionSummary(lines, spawnTime(generation))
+				if read, err := summarize(status, spawnTime(generation)); err == nil {
+					task.LastReport, task.ReportedAt, task.RetiredAt = read.report, read.reportedAt, read.retired
 				}
 			}
 			tasks = slices.DeleteFunc(tasks, func(existing Task) bool { return existing.ID == task.ID })
@@ -1001,6 +1071,27 @@ func briefProject(path string) string {
 		}
 	}
 	return ""
+}
+
+// briefSays is what a brief names: the checkout of its project and the first
+// line of its task, each empty when it names none.
+type briefSays struct {
+	project, title string
+}
+
+// readBrief reads what the brief at path says.
+func readBrief(path string) (briefSays, error) {
+	content, err := fsx.ReadFile(path)
+	if err != nil {
+		return briefSays{}, err
+	}
+	says := briefSays{project: briefProject(path)}
+	if _, task, ok := strings.Cut(strings.ReplaceAll(string(content), "\r\n", "\n"), "## Task\n"); ok {
+		if first, _, _ := strings.Cut(strings.TrimSpace(task), "\n"); !strings.HasPrefix(first, "#") && first != "" {
+			says.title = bounded(first, 200)
+		}
+	}
+	return says, nil
 }
 
 func exists(path string) bool {

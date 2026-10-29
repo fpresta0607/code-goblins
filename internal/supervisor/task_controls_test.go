@@ -396,7 +396,7 @@ func TestQueuedStopShowsFailureAfterWritingItsLifecycle(t *testing.T) {
 	if index < 0 || snapshot.Tasks[index].ActionError == "" || snapshot.Tasks[index].Phase != "queued" {
 		t.Fatalf("failed Stop is not visible: %+v", snapshot.Tasks)
 	}
-	if history := finishedTasks(h, time.Now()); slices.ContainsFunc(history, func(task Task) bool { return task.ID == "finished:"+queued.Row.ID }) {
+	if history := finishedTasks(h, &keptReads{}, time.Now()); slices.ContainsFunc(history, func(task Task) bool { return task.ID == "finished:"+queued.Row.ID }) {
 		t.Fatalf("failed Stop shows the queued task as Completed: %+v", history)
 	}
 }
@@ -569,7 +569,7 @@ func TestStoppedCardNeverPromisesAValidationRestart(t *testing.T) {
 	if err := os.Remove(filepath.Join(h.State, meta.ID+".meta")); err != nil {
 		t.Fatal(err)
 	}
-	history := finishedTasks(h, time.Now())
+	history := finishedTasks(h, &keptReads{}, time.Now())
 	index := slices.IndexFunc(history, func(task Task) bool { return task.ID == "finished:"+meta.ID })
 	if index < 0 || history[index].Lifecycle == nil || history[index].Lifecycle.ValidationRestarts {
 		t.Fatalf("archived stopped card promises a validation restart: %+v", history)
