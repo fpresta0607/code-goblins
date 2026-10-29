@@ -50,33 +50,40 @@ test("the reply in progress ends with the harness's working animation while the 
 // The Overlord, 2026-10-28, on a panel at rest that ran 32 animations and was
 // drawn again four times a second: "32 animations??? remvoe like all but the
 // streaming one". A working session's conversation runs one animation, of
-// opacity alone, which the compositor draws, and its working spot is never
-// drawn again while nothing happens.
+// opacity alone, which the compositor draws, and React draws nothing again
+// while nothing happens: the working spot's clock drew it every second. React's
+// own devtools hook counts each commit.
 test("a working session's conversation runs one opacity animation and redraws nothing at rest", async ({ page }) => {
-  // Arrange
+  // Arrange: the clock stands five seconds into a minute.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  await page.addInitScript(() => {
+    const seen = { commits: 0 };
+    Object.assign(window, {
+      seen,
+      __REACT_DEVTOOLS_GLOBAL_HOOK__: {
+        supportsFiber: true, renderers: new Map(), inject() { return 1; }, checkDCE() {}, onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, onScheduleFiberRoot() {},
+        onCommitFiberRoot() { seen.commits++; },
+      },
+    });
+  });
   await open(page, snapshot({}, { ...MEMORY, runtime: { state: "working" } }), "rebase onto main", PAGE_WITH_USAGE);
   await openGoblin(page);
   await expect(page.locator(".reply-working .working-indicator")).toBeVisible();
-  await page.evaluate(() => {
-    const seen = { mutations: 0 };
-    new MutationObserver((records) => { seen.mutations += records.length; })
-      .observe(document.querySelector(".reply-working")!, { subtree: true, childList: true, attributes: true, characterData: true });
-    Object.assign(window, { seen });
-  });
+  await page.clock.runFor(2_000);
+  await page.evaluate(() => { (window as unknown as { seen: { commits: number } }).seen.commits = 0; });
 
   // Act
   await page.clock.runFor(20_000);
 
   // Assert
-  const mutations = await page.evaluate(() => (window as unknown as { seen: { mutations: number } }).seen.mutations);
+  const commits = await page.evaluate(() => (window as unknown as { seen: { commits: number } }).seen.commits);
   const animations = await page.evaluate(() => document.getAnimations()
     .filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane"))
     .map((animation) => ({
       name: (animation as CSSAnimation).animationName,
       properties: [...new Set((animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)),
     })));
-  expect(mutations).toBe(0);
+  expect.soft(commits, "React commits while nothing happened").toBe(0);
   expect(animations).toEqual([{ name: "working-breath", properties: ["opacity"] }]);
 });
 
