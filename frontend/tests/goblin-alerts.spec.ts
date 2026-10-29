@@ -149,12 +149,13 @@ test("with reduced motion the boxes just appear", async ({ page }) => {
   expect(await page.locator(".dialogue").evaluateAll((boxes) => boxes.map((element) => getComputedStyle(element).animationName))).toEqual(["none", "none"]);
 });
 
-test("the CFO's bar wears the mark of the harness the CFO runs, at rest and while something waits, and no goblin's alert does", async ({ page }) => {
+// The Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons
+// in cfo banner in top left of board, only need usage".
+test("the CFO's bar wears no mark of the harness the CFO runs, at rest or while something waits, and no goblin's alert does", async ({ page }) => {
   await open(page);
-  for (const mark of [waiting(page).locator(".mark"), resting(page).locator(".mark")]) {
-    await expect(mark).toHaveAttribute("aria-label", "Claude Code · Opus 5.5");
-    await expect(mark).toHaveAttribute("data-tip", "Claude Code · Opus 5.5");
-  }
+  await expect(waiting(page)).toBeVisible();
+  await expect(resting(page)).toBeVisible();
+  for (const bar of [waiting(page), resting(page)]) await expect(bar.locator(".mark")).toHaveCount(0);
   await expect(page.locator(".toasts .mark")).toHaveCount(0);
 });
 

@@ -1,35 +1,25 @@
-import { expect, test, type Page } from "./site";
+import { expect, test } from "./site";
 import { GOBLIN, open, openGoblin, PAGE, snapshot } from "./session-board";
 
-// The Overlord, 2026-10-26: "just have a streaming ands stats line in bottom
-// cornern liek this ... where teh time stamp is plus a banner that you can
-// open for usage stats on teh session". The conversation's bottom corner
-// carries the stats, and a banner above the composer opens the session's
-// usage in place. Since 2026-10-27 the working animation sits at the end of
-// the reply in progress and the time facts under his message
-// (tests/reply-end.spec.ts).
+// The conversation's bottom: since 2026-10-27 the working animation sits at
+// the end of the reply in progress and the time facts under his message
+// (tests/reply-end.spec.ts), and since 2026-10-28 the session's usage is the
+// box's pies (tests/usage-bar.spec.ts).
 
 const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
 const PAGE_WITH_USAGE = { ...PAGE, usage: USAGE };
 const MEMORY = { ...GOBLIN, tree: { task_id: GOBLIN.id, generation: GOBLIN.generation, harness: GOBLIN.harness, memory: 208 * 2 ** 20, own_memory: 208 * 2 ** 20, conversation_at: "", children: [], unread: [], source_updated_at: "", fetched_at: "" } };
-const footer = (page: Page) => page.locator(".session-footer");
 
-test("the conversation's bottom line carries the stats, not a wall of numbers, and no time fact shows under his message", async ({ page }) => {
+test("a settled session shows no working animation and no time fact under his message", async ({ page }) => {
   // Arrange
   await open(page, snapshot({}, { ...MEMORY, phase: "settled" }), "rebase onto main", PAGE_WITH_USAGE);
+
+  // Act
   await openGoblin(page);
 
   // Assert
-  const line = footer(page);
-  await expect(line).toBeVisible();
-  await expect(line).not.toContainText(/Sent|Replied|Working/);
   await expect(page.locator('[data-message="m0"] .message-actions')).toBeHidden();
   await expect(page.locator(".reply-working")).toHaveCount(0);
-  // The fuller numbers live on in the banner, not on this line.
-  await expect(line).not.toContainText("$3.209");
-  await expect(line).not.toContainText("59.3%");
-  await page.getByRole("button", { name: "Context: 59.3% used", exact: true }).click();
-  await expect(page.getByRole("tooltip", { name: "Session statistics", exact: true })).toContainText("1.4M");
 });
 
 test("the reply in progress ends with the harness's working animation while the session works", async ({ page }, testInfo) => {
@@ -40,59 +30,10 @@ test("the reply in progress ends with the harness's working animation while the 
   // Assert
   const working = page.locator(".reply-working .working-indicator");
   await expect(working).toBeVisible();
-  await expect(footer(page)).not.toContainText("Working");
   // The indicator takes Claude Code's own ink from the board's mark.
   await expect(working).toHaveCSS("color", "rgb(217, 119, 87)");
   await expect(page.locator(".context-pane .working-indicator:visible")).toHaveCount(1);
   await testInfo.attach("footer-working.png", { body: await page.screenshot(), contentType: "image/png" });
-});
-
-test("a session whose usage cannot be read leaves its ring unmeasured and says why", async ({ page }) => {
-  // Arrange
-  await open(page);
-  await openGoblin(page);
-
-  // Assert: the footer says it once, in one sentence on the notice, and the
-  // disclosure says it too.
-  await expect(footer(page).locator(".notice")).toHaveText("Claude usage could not be read.");
-  await expect(page.getByRole("region", { name: "Session usage", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Context usage unavailable", exact: true }).click();
-  const stats = page.getByRole("tooltip", { name: "Session statistics", exact: true });
-  await expect(stats).toContainText("Claude usage could not be read");
-  await expect(stats).toContainText("its token usage and spend");
-});
-
-test("a session with a readable provider and no recorded usage says Usage unavailable", async ({ page }) => {
-  // Arrange
-  const subscriptions = [{ provider: "claude", status: "available", percent_remaining: 12, read_at: "", resets_at: "2026-10-28T09:00:00Z", source: "oauth", floor_percent: 5 }];
-  await open(page, snapshot({ subscriptions }, MEMORY));
-  await openGoblin(page);
-
-  // Assert
-  await expect(footer(page).locator(".notice")).toHaveText("Usage unavailable");
-});
-
-test("the context ring opens available session stats and allowance without covering the composer", async ({ page }) => {
-  // Arrange
-  const subscriptions = [{ provider: "claude", status: "available", percent_remaining: 12, read_at: "", resets_at: "2026-10-28T09:00:00Z", source: "oauth", floor_percent: 5 }];
-  await open(page, snapshot({ subscriptions }, MEMORY), "rebase onto main", PAGE_WITH_USAGE);
-  await openGoblin(page);
-  const ring = page.getByRole("button", { name: "Context: 59.3% used", exact: true });
-  await expect(ring).toBeVisible();
-  await ring.click();
-  const banner = page.getByRole("tooltip", { name: "Session statistics", exact: true });
-  await expect(banner).toContainText("Approaching weekly usage limit");
-  await expect(banner).toContainText("Resets ");
-
-  // Assert: the full stats open in place, and the box he writes in stays visible.
-  const details = banner.locator(".usage-stats");
-  await expect(details).toBeVisible();
-  await expect(details).toContainText("Input tokens");
-  await expect(details).toContainText("1.4M");
-  await expect(details).toContainText("Context");
-  await expect(details).toContainText("593k of 1.0M");
-  await expect(page.getByRole("region", { name: "Messages to " + "Zeke - Touch Wrangler" })).toBeInViewport();
-  await page.getByRole("region", { name: "Messages to Zeke - Touch Wrangler" }).getByRole("textbox").fill("still reachable");
 });
 
 test("the conversation draws no speaker name and no harness icon above a message", async ({ page }) => {

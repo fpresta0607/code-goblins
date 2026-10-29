@@ -6,12 +6,10 @@ import type { Persona } from "./workflow";
 // as a game dialogue box: the speaker's portrait, the speaker's name on a tab
 // in lantern, what it says, and what he can do about it. A box whose words
 // already name the speaker, such as an alert, has no tab. A portrait with an
-// action is a button; a badge, such as the mark of the harness the speaker
-// runs, sits beside it.
-export function DialogueBox({ persona, speaker, label, portrait, badge, actions, children }: {
+// action is a button.
+export function DialogueBox({ persona, speaker, label, portrait, actions, children }: {
   persona: Persona; speaker?: string; label: string;
   portrait?: { label: string; onClick: (source: HTMLElement) => void };
-  badge?: ReactNode;
   actions: ReactNode; children: ReactNode;
 }) {
   const face = portrait
@@ -20,7 +18,7 @@ export function DialogueBox({ persona, speaker, label, portrait, badge, actions,
   return <div className="dialogue" role="group" aria-label={label}>
     {speaker && <span className="dialogue-tab" aria-hidden="true">{speaker}</span>}
     <div className="dialogue-box">
-      {badge ? <span className="dialogue-who">{face}{badge}</span> : face}
+      {face}
       <div className="dialogue-text">{children}</div>
       <div className="dialogue-actions">{actions}</div>
     </div>
