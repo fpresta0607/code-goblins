@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -293,7 +294,7 @@ func TestFinishedTasksReadEveryCleanupLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	finished := finishedTasks(home.Home{State: stateDir, Data: t.TempDir()}, now)
+	finished := finishedTasks(home.Home{State: stateDir, Data: t.TempDir()}, &keptReads{}, now)
 	got := map[string]string{}
 	for _, task := range finished {
 		if !task.Archived || task.PR != "" && task.Phase != "done" || task.PR == "" && task.Phase != "stopped" {
@@ -329,7 +330,7 @@ func TestCompletedStoppedCardRetainsTaskTitleRepositoryAndPullRequest(t *testing
 	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "delivered", Operation: "stop-1", Action: "stop", Phase: "stopped", Title: "Delivered title", Project: "example", Updated: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	tasks := finishedTasks(h, time.Now())
+	tasks := finishedTasks(h, &keptReads{}, time.Now())
 	if len(tasks) != 2 {
 		t.Fatalf("Completed=%+v", tasks)
 	}
@@ -361,11 +362,109 @@ func TestCompletedCardKeepsTheGoblinsNameAndTitle(t *testing.T) {
 			}
 
 			// Act
-			tasks := finishedTasks(h, time.Now())
+			tasks := finishedTasks(h, &keptReads{}, time.Now())
 
 			// Assert
 			if len(tasks) != 1 || tasks[0].GoblinName != "Jerry" || tasks[0].GoblinTitle != "Code Designer" {
 				t.Fatalf("Completed = %+v, want the goblin's name and title kept", tasks)
+			}
+		})
+	}
+}
+
+func TestCompletedColumnReadsAFinishedTasksRecordsAgainOnlyOnceTheyChange(t *testing.T) {
+	// Arrange
+	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+	now := time.Now().UTC()
+	written := now.Add(-time.Hour).Truncate(time.Second)
+	status := filepath.Join(h.State, "cleaned.status")
+	outcome := filepath.Join(h.State, "outcomes", "delivered.json")
+	lifecycle := filepath.Join(h.State, "lifecycle", "halted.json")
+	backlog := filepath.Join(h.Data, "backlog.md")
+	write := func(statusText, rowTitle, outcomeTitle, stopTitle string) {
+		t.Helper()
+		if err := os.WriteFile(status, []byte(statusText), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(backlog, []byte("## Done\n- **cleaned** - "+rowTitle+" (repo: example)\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.WriteOutcome(h.State, state.Outcome{ID: "delivered", Title: outcomeTitle, Phase: "stopped", At: written}); err != nil {
+			t.Fatal(err)
+		}
+		if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "halted", Operation: "stop-1", Action: "stop", Phase: "stopped", Title: stopTitle, Updated: written}); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{status, backlog, outcome, lifecycle} {
+			if err := os.Chtimes(path, written, written); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	reads := &keptReads{}
+	completed := func() map[string]string {
+		t.Helper()
+		got := map[string]string{}
+		for _, task := range finishedTasks(h, reads, now) {
+			got[task.ID] = task.Title + " " + task.PR
+		}
+		return got
+	}
+	first := map[string]string{"finished:cleaned": "First row https://example/pr/1", "finished:delivered": "First title ", "finished:halted": "First stop "}
+	write("done: PR https://example/pr/1\n", "First row", "First title", "First stop")
+	if got := completed(); !maps.Equal(got, first) {
+		t.Fatalf("Completed = %v, want %v", got, first)
+	}
+
+	// Act: each file is rewritten at its size and write time.
+	write("done: PR https://example/pr/2\n", "Later row", "Later title", "Later stop")
+	kept := completed()
+	write("done: PR https://example/pr/10\n", "A later row", "A later title", "A later stop")
+	changed := completed()
+
+	// Assert
+	if !maps.Equal(kept, first) {
+		t.Errorf("Completed = %v, want %v kept while no file's size or write time moved", kept, first)
+	}
+	want := map[string]string{"finished:cleaned": "A later row https://example/pr/10", "finished:delivered": "A later title ", "finished:halted": "A later stop "}
+	if !maps.Equal(changed, want) {
+		t.Errorf("Completed = %v, want %v once each file changed", changed, want)
+	}
+}
+
+func TestCompletedColumnSkipsARecordWrittenBeforeTheWindow(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		record func(stateDir string, at time.Time) error
+	}{
+		{name: "an outcome", path: filepath.Join("outcomes", "old.json"), record: func(stateDir string, at time.Time) error {
+			return state.WriteOutcome(stateDir, state.Outcome{ID: "old", Title: "Old", Phase: "stopped", At: at})
+		}},
+		{name: "a stop", path: filepath.Join("lifecycle", "old.json"), record: func(stateDir string, at time.Time) error {
+			return state.WriteLifecycle(stateDir, state.Lifecycle{ID: "old", Operation: "stop-1", Action: "stop", Phase: "stopped", Title: "Old", Updated: at})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: the record names a time inside the window, but its
+			// file was last written before it, so it is not opened.
+			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+			now := time.Now()
+			if err := tc.record(h.State, now.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			before := now.Add(-historyWindow - time.Hour)
+			if err := os.Chtimes(filepath.Join(h.State, tc.path), before, before); err != nil {
+				t.Fatal(err)
+			}
+
+			// Act
+			tasks := finishedTasks(h, &keptReads{}, now)
+
+			// Assert
+			if len(tasks) != 0 {
+				t.Fatalf("Completed = %+v, want nothing from a record written before the window", tasks)
 			}
 		})
 	}
@@ -1623,7 +1722,7 @@ func TestCompletedShowsAMergedHelperFinishedThoughTheMergeStoppedIt(t *testing.T
 			}
 
 			// Act
-			tasks := finishedTasks(h, time.Now())
+			tasks := finishedTasks(h, &keptReads{}, time.Now())
 
 			// Assert
 			if len(tasks) != 1 || tasks[0].Phase != test.want || tasks[0].Reason != "Merged into its parent g1's branch feat/x" {
