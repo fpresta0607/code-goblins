@@ -57,11 +57,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
 }) {
-  // What he sent that the board has not shown yet, drawn at once as queued.
+  // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const queue = useRef<HTMLDivElement>(null);
   const [held, setHeld] = useState<MessagePage>({ messages: [], more: false });
   const heldValue = useRef(held);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
@@ -402,14 +401,14 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
   const ends = turnEnds(held.messages, isWorking);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
+  // Once the session's record shows his words, written since the board took
+  // them, its row is his message, and the board's copy goes, so it shows once
+  // whichever of the two arrives first. A send the board has not taken yet
+  // names no time, so an earlier message of the same words never hides it.
+  const recorded = held.messages.filter((message) => message.kind === "prompt");
   const queued = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
-    parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "queued", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
-  // A queue taller than its room scrolls, and shows its newest message, the
-  // one nearest the box, as each one joins it.
-  const newestQueued = queued[queued.length - 1]?.id;
-  useLayoutEffect(() => {
-    if (queue.current) queue.current.scrollTop = queue.current.scrollHeight;
-  }, [newestQueued]);
+    parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))]
+    .filter((action) => !action.created_at || !recorded.some((message) => message.at >= action.created_at && sameWords(message.text, action.text)));
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -433,6 +432,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
           {phase === "live" && isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
+          {/* His messages not yet in the session's record, at the
+              conversation's end in its one scroll (the Overlord, 2026-10-29:
+              "the double scrolls and having its own little scroll for queued
+              messages doesn't really work"), so whatever the session prints
+              comes before them and the list, following its end, keeps them
+              right above the box. */}
+          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" isWorking={isWorking} />)}
         </div>
       </div>
       {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
@@ -447,15 +453,6 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       {phase === "closed" && <Notice form="box" icon="comment" className="terminal-foot"
         actions={<button className="primary" disabled={!visible} onClick={() => { setPhase(held.messages.length ? "live" : "connecting"); setReconnecting(held.messages.length > 0); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>}
     </div>
-    {/* His queued messages stay pinned between the conversation and the box,
-        out of the list that scrolls, so whatever the session prints after
-        them and however far up he reads they stay in view with their Send
-        now, Edit and Cancel (the Overlord, 2026-10-28: "it should always stay
-        at the bottom between the agent's chat response and the chat box, so I
-        could always see it and control it"). */}
-    {queued.length > 0 && <div ref={queue} className="conversation-queue" role="group" aria-label="Queued messages" style={{ fontSize: font }}>
-      {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
-    </div>}
     {box && <div className="composer-dock">
       {onComposerDock && <div ref={onComposerDock} className="composer-slot" />}
       {/* The box draws the usage where its send arrow was (the Overlord,
@@ -466,4 +463,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       {box?.(held.usage?.model || model, history, held.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
     </div>}
   </section>;
+}
+
+// sameWords says two texts hold the same words, however a harness wrapped or
+// trimmed them.
+function sameWords(one: string, other: string): boolean {
+  return one.trim().split(/\s+/).join(" ") === other.trim().split(/\s+/).join(" ");
 }

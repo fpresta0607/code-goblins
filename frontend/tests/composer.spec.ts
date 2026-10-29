@@ -617,23 +617,26 @@ test("a leading ! command is typed into the session as the harness's own shell c
   await expect.poll(() => typed(relay)).toContain(pasted("!git status --short") + "\r");
 });
 
-test("a delivered message appears once in Modern chat, every pending message is pinned above the box, and the box has no queue control", async ({ page }) => {
+test("a delivered message appears once in Modern chat, every pending message waits at its end, and the box has no queue control", async ({ page }) => {
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
   await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
     messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" },
       { id: "long", seq: 1, kind: "reply", blocks: [{ kind: "text", text: "Earlier conversation paragraph.\n\n".repeat(80) }] }], more: false,
   });
   await openGoblin(page);
-  const pinned = page.getByRole("group", { name: "Queued messages", exact: true });
-  await expect(pinned.locator(".queued-message")).toHaveCount(8);
+  const conversation = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(conversation.locator(".queued-message")).toHaveCount(8);
   await expect(box(page).getByRole("button", { name: /queued message/ })).toHaveCount(0);
-  // At the conversation's start, where the window draws the delivered message.
-  await page.getByRole("log", { name: "Messages of " + NAME }).evaluate((list) => { list.scrollTop = 0; });
-  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
   await expect(page.locator('.queued-message[data-queued="q7"]')).toBeInViewport();
+  // At the conversation's start, where the window draws the delivered message.
+  await conversation.evaluate((list) => { list.scrollTop = 0; });
+  await expect(page.locator(".context-pane").getByText("already in the conversation", { exact: true })).toHaveCount(1);
 });
 
-test("a queued message stays in view above the box while he reads far up a long conversation", async ({ page }) => {
+// The Overlord, 2026-10-29: "One scroll only, the chat's." A message he
+// typed while the session works is at the conversation's end, where Jump to
+// latest takes him.
+test("a queued message waits at the end of a long conversation he reads far up, and Jump to latest brings it into view", async ({ page }) => {
   // Arrange: a long conversation, read about 3,000 px up from its end.
   const reply = (seq: number) => ({ id: "m" + seq, seq, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\n" + "A reply that runs over a few lines. ".repeat(12) }] });
   const messages = Array.from({ length: 200 }, (_, seq) => seq % 2 ? reply(seq) : { id: "m" + seq, seq, kind: "prompt", source: "overlord", text: "Question " + seq });
@@ -642,11 +645,14 @@ test("a queued message stays in view above the box while he reads far up a long 
   const conversation = page.getByRole("log", { name: "Messages of " + NAME });
   await expect(conversation).toContainText("Answer 199");
   await conversation.evaluate((list) => { list.scrollTop = list.scrollHeight - list.clientHeight - 3000; });
-  const queued = page.locator('.queued-message[data-queued="q1"]');
+  const queued = conversation.locator('.queued-message[data-queued="q1"]');
+  await expect(queued).not.toBeInViewport();
 
-  // Assert: no click needed, and it is not in the list that scrolls.
+  // Act
+  await page.getByRole("button", { name: "Jump to latest", exact: true }).click();
+
+  // Assert
   await expect(queued).toBeInViewport();
   await expect(queued).toContainText("queued while it works");
-  await expect(conversation.locator(".queued-message")).toHaveCount(0);
 });
 

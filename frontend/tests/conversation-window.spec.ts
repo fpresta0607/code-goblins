@@ -62,7 +62,7 @@ test("an idle conversation changes nothing in the page while the board's snapsho
   // Arrange
   await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: "queued while busy", status: "queued", at }] }));
   await openGoblin(page);
-  await expect(page.locator(".messages-view:not([hidden]) .conversation-queue")).toContainText("queued while busy");
+  await expect(log(page).locator(".queued-message")).toContainText("queued while busy");
   await page.waitForTimeout(500);
   await watch(page);
 
@@ -232,7 +232,8 @@ test("the keyboard on a row that leaves the window goes to the list, whose keys 
   await expect.poll(() => log(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(before);
 });
 
-test("a queued message stays pinned above the box while he reads far up a long conversation", async ({ page }) => {
+// The Overlord, 2026-10-29: "One scroll only, the chat's."
+test("a queued message waits at the end of the conversation's one scroll while he reads far up a long one", async ({ page }) => {
   // Arrange: a message waits in the queue, and he reads about 3,000 px up
   // from the end of a long conversation.
   await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: "queued while busy", status: "queued", at }] }), "", LONG);
@@ -243,8 +244,9 @@ test("a queued message stays pinned above the box while he reads far up a long c
   const queued = page.locator('.queued-message[data-queued="q1"]');
 
   // Assert
-  await expect(queued).toBeInViewport();
-  await expect(log(page).locator(".queued-message")).toHaveCount(0);
+  await expect(log(page).locator(".queued-message")).toHaveCount(1);
+  await expect(queued).not.toBeInViewport();
+  expect(await queued.evaluate((element) => element === [...element.closest("[role=log]")!.querySelectorAll("[data-message], .queued-message")].at(-1))).toBe(true);
 });
 
 test("a selection from an older message to the newest copies every message between, however far it reaches", async ({ page }) => {
