@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -114,7 +115,12 @@ func TestCodexsFolderTrustPromptIsAnsweredWithTrustAndContinue(t *testing.T) {
 	}
 }
 
-func TestCodexsOptionalDaybreakOfferBlocksTheComposer(t *testing.T) {
+// Codex draws its optional Daybreak offer above its composer rather than in
+// its place, and the console keeps the rows of an offer an earlier redraw
+// dismissed, which no key reaches. Its rows are never a dialog: the composer
+// under them reads ready and empty to every reader, and only Offer names the
+// offer, for the one Escape a delivery presses before it types (#1556).
+func TestCodexsInlineOfferNeverHoldsItsComposerBack(t *testing.T) {
 	screens, _ := NativeScreens(Codex)
 	for name, test := range map[string]struct {
 		rows      []string
@@ -127,19 +133,58 @@ func TestCodexsOptionalDaybreakOfferBlocksTheComposer(t *testing.T) {
 		"another security screen":                 {[]string{"Set up Advanced Account Security", "esc to dismiss"}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
+			// Arrange
 			rows := append(test.rows, "› Ask Codex to do anything", "100% context left")
-			dialog, isFound := screens.Dialog(rows)
-			if isFound != test.isOffered {
-				t.Errorf("dialog found %v, want %v", isFound, test.isOffered)
+
+			// Act
+			dialog, isDialog := screens.Dialog(rows)
+			offer, isOffered := screens.Offer(rows)
+
+			// Assert
+			if isDialog {
+				t.Errorf("the screen reads as %s", dialog.Name)
 			}
-			if dialog.Chosen("1. Set up security") {
+			if isOffered != test.isOffered {
+				t.Errorf("offer found %v, want %v", isOffered, test.isOffered)
+			}
+			if offer.Chosen("1. Set up security") {
 				t.Error("security enrollment is never an automatic answer")
 			}
-			if isReady := screens.IsReady(rows); isReady == test.isOffered {
-				t.Errorf("ready %v while offered %v", isReady, test.isOffered)
+			if !screens.IsIdleAtEmptyComposer(rows) || screens.IsAsking(rows) || screens.IsOpen(rows) {
+				t.Errorf("idle at an empty composer %v, asking %v, open %v; want only idle", screens.IsIdleAtEmptyComposer(rows), screens.IsAsking(rows), screens.IsOpen(rows))
 			}
-			if isEmpty := screens.ComposerEmpty(rows); isEmpty == test.isOffered {
-				t.Errorf("empty composer %v while offered %v", isEmpty, test.isOffered)
+		})
+	}
+}
+
+// Offer names an offer a delivery may press Escape at only while that key
+// can still be the offer's: Escape is a startup dialog's own key, where the
+// folder trust prompt quits Codex, a draft's once the composer holds one, and
+// a turn's interrupt while one runs (#1432).
+func TestAnInlineOfferIsLiveOnlyOverAnIdleEmptyComposer(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	offer := []string{"Set up security for Daybreak mode", "", "› 1. Set up security", "", "Press a number to choose · esc to dismiss · type to continue", ""}
+	trust := []string{"  Do you trust the contents of this directory? Working with untrusted contents comes with higher risk of prompt", "  injection. Trusting the directory allows project-local config, hooks, and exec policies to load.", "", "› 1. Yes, continue", "  2. No, quit", "", "  Press enter to continue"}
+	for name, test := range map[string]struct {
+		rows   []string
+		isLive bool
+	}{
+		"over an empty composer":  {[]string{"› Ask Codex to do anything", "100% context left"}, true},
+		"over a draft":            {[]string{"› 1) run the tests", "", "100% context left"}, false},
+		"over a startup dialog":   {trust, false},
+		"while a turn runs":       {[]string{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything", "100% context left"}, false},
+		"with no composer at all": {nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			rows := append(slices.Clone(offer), test.rows...)
+
+			// Act
+			_, isLive := screens.Offer(rows)
+
+			// Assert
+			if isLive != test.isLive {
+				t.Errorf("Offer = %v, want %v", isLive, test.isLive)
 			}
 		})
 	}
@@ -475,7 +520,7 @@ func TestOnlyACompleteRetainedComposerCanBeSubmittedAfterADialog(t *testing.T) {
 		"codex old prompt":               {Codex, []string{"› " + instruction, "", "• Done", "› Ask Codex to do anything", "", "100% context left"}, false},
 		"codex paste":                    {Codex, []string{"› [Pasted Content 58 chars]", "", "100% context left"}, false},
 		"codex missing footer":           {Codex, []string{"› " + instruction, ""}, false},
-		"codex Daybreak overlay":         {Codex, []string{"Set up security for Daybreak mode", "\u203a 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "› " + instruction, "", "100% context left"}, false},
+		"codex under a Daybreak offer":   {Codex, []string{"Set up security for Daybreak mode", "\u203a 1. Set up security", "Press a number to choose · esc to dismiss · type to continue", "› " + instruction, "", "100% context left"}, true},
 		"codex extra draft":              {Codex, []string{"› " + instruction + " do something else", "", "100% context left"}, false},
 		"claude complete":                {Claude, []string{rule, "❯ " + instruction, rule, "auto mode on"}, true},
 		"claude old draft":               {Claude, []string{rule, "❯ " + instruction, rule, "a reply", rule, "❯ another draft", rule, "auto mode on"}, false},

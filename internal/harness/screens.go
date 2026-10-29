@@ -17,6 +17,16 @@ import (
 // into.
 type Screens struct {
 	Dialogs []Dialog
+	// Offers are the optional offers the harness draws inline above its
+	// composer rather than in its place, as Codex draws its Daybreak security
+	// offer. Codex hands every key to a composer that holds a draft, taking
+	// Escape and a digit as the offer's own only over an empty one and only
+	// while no turn runs (codex-rs tui/src/bottom_pane/actionable_banner.rs,
+	// handle_inline_banner_key), and the console keeps the rows of an offer an
+	// earlier redraw dismissed. So an offer is never a dialog: nothing waits
+	// on it or reports it, and a delivery dismisses one Offer reads as live
+	// before it types (#1432, #1556).
+	Offers []Dialog
 	// Ready matches a row of the composer waiting for input.
 	Ready *regexp.Regexp
 	// Working matches a row while a turn runs.
@@ -69,7 +79,7 @@ type Screens struct {
 // shows, by moving the focus, the option whose row starts with one of Focus,
 // down to the option that starts with Accept, then confirming that option with
 // Enter.
-// EscapeHint instead names the footer of an optional offer dismissed with
+// EscapeHint instead names the footer of a dialog or an offer dismissed with
 // Escape, never accepted. A dialog without either is never answered: it stops
 // the spawn. Summary marks
 // a dialog whose answer leaves untrusted what it lists: the row it matches says
@@ -130,8 +140,8 @@ func NativeScreens(kind Kind) (Screens, bool) {
 	case Codex:
 		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
 		return Screens{
+			Offers: []Dialog{{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue", OverlayOption: regexp.MustCompile(`^\s*› 1\. Set up security\s*$`)}},
 			Dialogs: []Dialog{
-				{Name: "the optional Daybreak security setup offer", Markers: []string{"Set up security for Daybreak mode"}, EscapeHint: "Press a number to choose · esc to dismiss · type to continue", OverlayOption: regexp.MustCompile(`^\s*› 1\. Set up security\s*$`)},
 				{Name: "the update prompt", Markers: []string{"Update available!"}, Focus: []string{"›"}, Accept: "2. Skip"},
 				{Name: "the directory trust prompt", Markers: []string{"Do you trust the contents of this directory?"}, Focus: []string{"›"}, Accept: "1. Yes, continue", Menu: regexp.MustCompile(`(?m)^[ \t]*(?:› )?1\. Yes, continue[ \t]*\n[ \t]*(?:› )?2\. No, quit[ \t]*\n[ \t\n]*Press enter to continue[ \t\n]*\z`)},
 				// Codex 0.160 asks this in its place, live on 2026-10-07 in a
@@ -206,11 +216,35 @@ func (s Screens) Dialog(screen []string) (Dialog, bool) {
 			continue
 		}
 		// A menu replaces the composer. Its text above a live composer is
-		// conversation history; an optional offer can overlay the composer.
+		// conversation history.
 		if len(dialog.Focus) > 0 && s.showsComposerOrTurn(screen) {
 			continue
 		}
 		return dialog, true
+	}
+	return Dialog{}, false
+}
+
+// Offer returns the offer screen shows while it may still take a key, which
+// a delivery dismisses with one Escape before it types: no turn runs, no
+// dialog's words show, and the composer neither holds text nor has anything
+// open in its place, since Escape is then a dialog's, a picker's or a draft's
+// own key, and Codex's folder trust prompt quits on it. The rows an earlier
+// redraw left read the same as a live offer, so what Offer reports is pressed
+// once and never waited on.
+func (s Screens) Offer(screen []string) (Dialog, bool) {
+	if s.IsWorking(screen) || s.ComposerHoldsText(screen) || s.IsOpen(screen) {
+		return Dialog{}, false
+	}
+	for _, dialog := range s.Dialogs {
+		if dialog.Shows(screen) {
+			return Dialog{}, false
+		}
+	}
+	for _, offer := range s.Offers {
+		if offer.Shows(screen) {
+			return offer, true
+		}
 	}
 	return Dialog{}, false
 }

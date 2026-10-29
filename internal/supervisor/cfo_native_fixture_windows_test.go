@@ -72,7 +72,10 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 	composer := func() string { return paste + readAsPaste + line }
 	draw := func(isWorking bool) {
 		rows := []string{}
-		if offer {
+		// A daybreak-stuck offer keeps its rows once Escape dismissed it, as
+		// Codex's console keeps an offer an earlier redraw drew, and they own
+		// no key (#1556).
+		if offer || mode == "daybreak-stuck" {
 			rows = append(rows, "Set up security for Daybreak mode", "› 1. Set up security", "Press a number to choose · esc to dismiss · type to continue")
 		} else if mode == "late-modal" && composer() != "" {
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "", "Press enter to continue"}, "\r\n"))
@@ -136,9 +139,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				continue
 			}
 			record("escape")
-			if mode != "daybreak-stuck" {
-				offer = false
-			}
+			offer = false
 			draw(false)
 		case '\r', '\n':
 			if mode == "ignored-enter" {
