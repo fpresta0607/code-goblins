@@ -1417,6 +1417,9 @@ type Task struct {
 	Mode        string `json:"mode"`
 	Generation  string `json:"generation"`
 	Session     string `json:"session"`
+	// ActionsAt is when the newest of the task's actions last changed, so its
+	// Details, which reads them when it opens, reads them again.
+	ActionsAt time.Time `json:"actions_at,omitzero"`
 	// Waits is what a queued task's row still waits for before the
 	// scheduler starts it, for its card's words.
 	Waits   []fleet.Blocker `json:"waits,omitempty"`
@@ -1602,7 +1605,9 @@ type Snapshot struct {
 	// GPU is the machine's graphics adapters and how busy each is for the
 	// meter beside the processors, absent on a board that cannot read them.
 	GPU           *GPU                `json:"gpu,omitempty"`
-	CIDurations   []CIDuration        `json:"ci_durations,omitempty"`
+	// CIUsual is how long each repository's CI runs and deploys usually
+	// take, which a card paused on one names.
+	CIUsual       []CIUsual           `json:"ci_usual,omitempty"`
 	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// KeySpend is the spend of the API key a harness bills by rather than by
 	// a subscription window, as OpenRouter does for Pi.
@@ -1643,7 +1648,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if s.localReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.localReadErr.Error())
 	}
-	out.CIDurations = slices.Clone(s.ciDurations)
+	out.CIUsual = usualCIDurations(s.ciDurations)
 	out.MergeTrains = append([]MergeTrainView{}, s.trains...)
 	if s.progressReadErr != nil {
 		out.Issues = append(slices.Clone(out.Issues), s.progressReadErr.Error())
@@ -1696,7 +1701,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		}
 	}
 	out.setItems(boardItems(d))
-	out.Activity = d.Activity
+	// The board plays a message or a start for ten seconds after it happened
+	// and shows a presentation while it runs, so the snapshot carries those
+	// and the last minute alone: the newest 128 the store keeps were 43 KB of
+	// every board's first snapshot (#1611).
+	out.Activity = slices.DeleteFunc(slices.Clone(d.Activity), func(event BoardActivity) bool {
+		return out.At.Sub(event.At) >= time.Minute && !(event.State == "active" && event.Until.After(out.At))
+	})
 	// A log of AFK mode that could not be read is said where the board says
 	// the supervisor's other troubles, unless one is already there.
 	var afkErr error
@@ -2091,8 +2102,15 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Tasks = append(out.Tasks, done)
 	}
 	archived := archivedTasks(s.Store.Home)
+	actionsAt := map[string]time.Time{}
+	for _, action := range d.Actions {
+		if action.UpdatedAt.After(actionsAt[action.TaskID]) {
+			actionsAt[action.TaskID] = action.UpdatedAt
+		}
+	}
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
+		task.ActionsAt = actionsAt[task.ID]
 		id := strings.TrimPrefix(task.ID, "finished:")
 		if state.ValidTaskID(id) == nil {
 			task.Handoff = s.hasHandoff(id, archived)
@@ -2129,6 +2147,13 @@ func (s *Service) Snapshot() (Snapshot, error) {
 			out.Inbox++
 		}
 	}
+	// The board draws the CFO's sessions and the session each task names as
+	// its own in its generation, and no other: of the 512 the store keeps,
+	// sub-agents' and retired goblins' among them, it drew 24 on 2026-10-28,
+	// and the rest were 290 KB of every board's first snapshot (#1611).
+	out.Sessions = slices.DeleteFunc(out.Sessions, func(node Session) bool {
+		return node.Role != "cfo" && !slices.ContainsFunc(out.Tasks, func(task Task) bool { return task.Session == node.ID && task.Generation == node.Generation })
+	})
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	out.KeySpend = s.keySpendUsage(cfo, out)
 	return out, nil

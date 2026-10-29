@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { finishedEvidence, goblinName, listItem, pausedWithParent, pauseStatus, plainText, reportBody, summary, taskName, taskSummary, withoutHarness, teardownSentence, type Summary } from "./task-words.ts";
-import { parseSnapshot, type CIDuration, type PauseCondition, type Task } from "./types.ts";
+import { parseSnapshot, type CIUsual, type PauseCondition, type Task } from "./types.ts";
 
 const task = (fields: Record<string, unknown>): Task => parseSnapshot({ healthy: true, tasks: [{ id: "a", title: "a", phase: "working", generation: "s1", verified: false, ...fields }] }).tasks[0];
 const lifecycle = (fields: Record<string, unknown>) => ({ phase: "paused", action: "pause", at: "2026-10-05T16:30:06Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, ...fields });
@@ -255,10 +255,9 @@ test("a goblin paused for its own pull request says what it did and what resumes
 test("a paused card reads Paused and why in a few words, never Waiting", () => {
   // Arrange
   const blocker = task({ id: "cg-board-kill", title: "Pause, Resume and Stop on the board; Claude Code" });
-  const runs = (repository: string, kind: string, minutes: number[]): CIDuration[] => minutes.map((minute) => ({ repository, kind, seconds: minute * 60 }));
-  const durations = [...runs("o/r", "ci", [15, 12, 13]), ...runs("o/r", "deploy", [10, 11]), ...runs("o/other", "deploy", [2])];
+  const usual: CIUsual[] = [{ repository: "o/r", kind: "ci", seconds: 13 * 60 }, { repository: "o/r", kind: "deploy", seconds: 10.5 * 60 }, { repository: "o/other", kind: "deploy", seconds: 2 * 60 }];
   const head = "@" + "a".repeat(40);
-  const cases: [string, Record<string, unknown> | undefined, CIDuration[], string | RegExp][] = [
+  const cases: [string, Record<string, unknown> | undefined, CIUsual[], string | RegExp][] = [
     ["memory", { reason: "memory" }, [], "Paused for memory"],
     ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, [], "Paused for allowance"],
     ["the Overlord", { reason: "overlord" }, [], "Paused by you"],
@@ -267,10 +266,10 @@ test("a paused card reads Paused and why in a few words, never Waiting", () => {
     ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, [], "Paused until another task delivers"],
     ["a pull request", { reason: "dependency", until: "pr:https://github.com/o/r/pull/12" }, [], "Paused until PR #12 merges"],
     ["a date", { reason: "dependency", until: "date:2026-10-10T09:00:00Z" }, [], /^Paused until Oct \d+$/],
-    ["CI with the repository's runs", { reason: "ci", until: "pr:https://github.com/o/r/pull/12" + head }, durations, "Paused until CI finishes, usually 13 min"],
+    ["CI with the repository's runs", { reason: "ci", until: "pr:https://github.com/o/r/pull/12" + head }, usual, "Paused until CI finishes, usually 13 min"],
     ["CI with none measured", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + head }, [], "Paused until CI finishes"],
-    ["a deploy with an even count of runs", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + head }, durations, "Paused until its deploy finishes, usually 11 min"],
-    ["a deploy measured only elsewhere", { reason: "deploy", until: "run:https://github.com/o/new/actions/runs/9" + head }, durations, "Paused until its deploy finishes"],
+    ["a deploy that usually takes ten and a half minutes", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + head }, usual, "Paused until its deploy finishes, usually 11 min"],
+    ["a deploy measured only elsewhere", { reason: "deploy", until: "run:https://github.com/o/new/actions/runs/9" + head }, usual, "Paused until its deploy finishes"],
     ["a pause from before pauses had reasons", undefined, [], "Paused"],
   ];
 

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/waiting"
@@ -31,7 +32,11 @@ type itemsEvent struct {
 
 // boardItems is what the board sees of the store's items.
 func boardItems(d Database) Items {
-	items := Items{Actions: d.Actions}
+	// A task's progress checks are listed only in its Details, which reads
+	// them when it opens: they were 234 of the 256 actions the store keeps,
+	// 110 KB of every board's first snapshot, and each one queued sent every
+	// action's id again (#1611).
+	items := Items{Actions: slices.DeleteFunc(slices.Clone(d.Actions), func(action Action) bool { return action.Kind == "evaluate" })}
 	// The board sees how many images a question has, never where they are.
 	items.Questions = make([]Question, len(d.Questions))
 	for i, q := range d.Questions {
