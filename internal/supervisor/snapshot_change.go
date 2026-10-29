@@ -136,6 +136,24 @@ func changeOfKeys(held, next map[string]json.RawMessage) (boardChange, bool) {
 	return out, out.Keys != nil || out.Gone != nil
 }
 
+// readingKeys are what every build moves, the snapshot's time and revision,
+// and what nearly every build moves, its meters, which a stream sends as a
+// change of their own, so a board takes a reading without parsing the fleet it
+// holds again (#1611).
+var readingKeys = []string{"at", "revision", "memory", "disk", "processors", "gpu"}
+
+// takeReadings takes the readings out of a snapshot's keys.
+func takeReadings(keys map[string]json.RawMessage) map[string]json.RawMessage {
+	readings := map[string]json.RawMessage{}
+	for _, key := range readingKeys {
+		if value, isRead := keys[key]; isRead {
+			readings[key] = value
+			delete(keys, key)
+		}
+	}
+	return readings
+}
+
 // changeOfItems is the change from one list of items with ids to another.
 func changeOfItems(held []json.RawMessage, heldIDs []string, next []json.RawMessage, nextIDs []string) boardChange {
 	var out boardChange
