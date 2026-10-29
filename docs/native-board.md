@@ -1358,9 +1358,11 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix and sixteen cells lighting in Bayer order, cross-fading over 1.2 seconds in each direction on an eight-second cycle.
+Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a still halftone of sixteen cells lit in Bayer order, which breathes as one every 1.6 seconds.
+That breath is the one animation Modern Chat runs, of opacity alone, which the compositor draws without the page's main thread.
+The helix and the sixteen cells that each animated before it ran 32 animations and kept the main thread 44 percent busy in a panel at rest (the Overlord, 2026-10-28: "32 animations??? remvoe like all but the streaming one").
 The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
-It carries an accessible name, and reduced motion keeps a static helix.
+It carries an accessible name, and reduced motion keeps it still.
 Working cards, tree rows and panel headers show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
 The CFO's own panel shows the indicator at its reply's end while it works, as a goblin's does.
@@ -1417,7 +1419,8 @@ Classic normal-buffer history accepts wheel, trackpad, Shift+PageUp/Down and tou
 A full-screen program owns its native history, so Shift+PageUp/Down follows its wheel path.
 While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference (#1584), and Classic in its box's Style menu returns the terminal.
 The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
-While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour, and its hint says how long it has worked (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
+While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
+It reads no clock, so it is not drawn again while the session works: a hint that counted how long it had worked drew it every second.
 Pointing at it, or reaching it with Tab, shows Stop on it, and a touch screen always shows it: a press sends Escape through the session's terminal link, as the box's Stop does, and shows no terminal.
 A goblin whose messages queue through the board, or one whose typing is held, shows the indicator without Stop.
 The indicator is drawn only while the conversation reaches its end.

@@ -139,6 +139,25 @@ test("a snapshot that changes nothing draws no queued card in the CFO's panel", 
   expect(counts.rendered["task-card-shell"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
 });
 
+test("a snapshot that changes nothing draws no message in the CFO box's list again", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute, and the CFO's box
+  // lists the five messages he sent last.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const sent = numbered(5, (number) => ({ id: "sent-" + number, kind: "message", task_id: "", generation: "", status: "succeeded", message: "Taken by the CFO.", awaiting: "", can_send_now: false, send_now_why: "", text: "Message " + number, created_at: since, updated_at: since }));
+  const snapshot = { ...fleet([...WORKING, ...RESTING]), actions: sent };
+  await open(page, snapshot);
+  await expect(page.locator(".queued-message")).toHaveCount(5);
+  await reset(page);
+
+  // Act
+  await push(page, { ...snapshot, revision: 2, at: "2026-10-27T09:00:15Z" });
+  await page.waitForTimeout(500);
+
+  // Assert
+  const counts = await counted(page);
+  expect(counts.rendered["queued-message"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
+});
+
 test("a snapshot that changes the meters alone draws no card", async ({ page }) => {
   // Arrange: the clock stands five seconds into a minute.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });

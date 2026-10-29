@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { message, reportToCfo, request } from "./api";
 import { Icon } from "./Icon";
 import { messageState } from "./messages";
@@ -13,9 +13,7 @@ import type { Action } from "./types";
 // reaches the harness. pane draws it in the
 // conversation, queue in the message box's own list, and both offer the same
 // acts.
-export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
-  action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void;
-}) {
+export const QueuedMessage = memo(function QueuedMessage({ action, instance, name, variant, onDeleted }: QueuedProps) {
   const [isEditing, setEditing] = useState(false);
   const [draft, setDraft] = useState(action.text);
   const [problem, setProblem] = useState("");
@@ -62,4 +60,16 @@ export function QueuedMessage({ action, instance, name, variant, onDeleted }: {
       {problem && <p className="queued-problem" role="status">{problem}</p>}
     </>}
   </div>;
+}, isSameQueued);
+
+type QueuedProps = { action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void };
+
+// Each snapshot parses every action anew, so a comparison by identity drew
+// every queued message again on every snapshot, 315 times in 120 s of a live
+// board. It is drawn again only when what it shows or sends changes.
+function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
+  const [was, is] = [prior.action, next.action];
+  return was.id === is.id && was.task_id === is.task_id && was.text === is.text && was.status === is.status && was.message === is.message
+    && !!was.awaiting === !!is.awaiting && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why
+    && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.onDeleted === next.onDeleted;
 }
