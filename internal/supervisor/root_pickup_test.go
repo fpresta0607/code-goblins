@@ -13,6 +13,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -49,8 +50,23 @@ func rootBoard(t *testing.T, open ...tickets.OpenRoot) (*Service, home.Home, *in
 			reads++
 			return open, nil
 		},
+		ClosingPullRequests: func(context.Context, string, int) ([]string, error) { return nil, nil },
 	}
 	return handler.Service, h, &reads
+}
+
+// fileRootAsLiveTask makes task a live task of h that filed the root issue
+// at url with cfo issue file.
+func fileRootAsLiveTask(t *testing.T, h home.Home, task, url string) {
+	t.Helper()
+	taskTmp := filepath.Join(h.State, "tasktmp", task)
+	if err := os.MkdirAll(taskTmp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, state.TaskMetaPath(h.State, task), "project=widgets\ntasktmp="+taskTmp+"\n")
+	if err := tickets.RecordFiledRoot(taskTmp, url); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func queuedIDs(t *testing.T, h home.Home) []string {
@@ -172,6 +188,63 @@ func TestPickUpRootsLeavesAnIssueSomeoneHolds(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPickUpRootsLeavesALiveTasksFollowUpToItsOneOwner(t *testing.T) {
+	// Arrange: a live task given a follow-up filed its issue after it was
+	// spawned, so its brief does not name it, as on 2026-10-26.
+	service, h, _ := rootBoard(t, rootIssue(7))
+	fileRootAsLiveTask(t, h, "widgets-follow-up", rootIssue(7).URL)
+	var closing []string
+	service.Options.RootIssues.ClosingPullRequests = func(_ context.Context, repository string, number int) ([]string, error) {
+		if repository != rootRepository || number != 7 {
+			t.Errorf("read the pull requests that close %s#%d, want acme/widgets#7", repository, number)
+		}
+		return closing, nil
+	}
+
+	// Act: a pass while the task works on it, one after it opened its pull
+	// request and ended, and one after the pull request closed unmerged.
+	whileRunning := service.pickUpRoots(t.Context(), rootNow)
+	runningQueued := queuedIDs(t, h)
+	closing = []string{"https://github.com/acme/widgets/pull/8"}
+	if err := os.Remove(state.TaskMetaPath(h.State, "widgets-follow-up")); err != nil {
+		t.Fatal(err)
+	}
+	whilePullOpen := service.pickUpRoots(t.Context(), rootNow.Add(rootPickupEvery))
+	pullQueued := queuedIDs(t, h)
+	closing = nil
+	afterPull := service.pickUpRoots(t.Context(), rootNow.Add(2*rootPickupEvery))
+
+	// Assert
+	if err := errors.Join(whileRunning, whilePullOpen, afterPull); err != nil {
+		t.Fatal(err)
+	}
+	if len(runningQueued) != 0 || len(pullQueued) != 0 {
+		t.Fatalf("queued while the task ran = %v, while its pull request was open = %v, want neither a second owner", runningQueued, pullQueued)
+	}
+	if got := strings.Join(queuedIDs(t, h), ","); got != "root-widgets-7 ops-root" {
+		t.Fatalf("queued once it has no owner = %q, want root-widgets-7", got)
+	}
+}
+
+func TestPickUpRootsLeavesAnIssueWhosePullRequestsCannotBeRead(t *testing.T) {
+	// Arrange
+	service, h, _ := rootBoard(t, rootIssue(7))
+	service.Options.RootIssues.ClosingPullRequests = func(context.Context, string, int) ([]string, error) {
+		return nil, errors.New("gh: Bad credentials (HTTP 401)")
+	}
+
+	// Act
+	err := service.pickUpRoots(t.Context(), rootNow)
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "root issues of widgets: gh: Bad credentials") {
+		t.Fatalf("err = %v, want the unread pull requests named", err)
+	}
+	if got := queuedIDs(t, h); len(got) != 0 {
+		t.Fatalf("queued = %v, want nothing taken whose owner is unknown", got)
 	}
 }
 

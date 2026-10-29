@@ -280,6 +280,7 @@ func rootStartBoard(t *testing.T, issueState string, issueErr error) (*Service, 
 			}
 			return issueState, issueErr
 		},
+		ClosingPullRequests: func(context.Context, string, int) ([]string, error) { return nil, nil },
 	}
 	id := "root-widgets-7"
 	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7)))
@@ -326,6 +327,58 @@ func TestRootDispatchReconcilesTheRecordedIssueBeforeAnySpawn(t *testing.T) {
 			}
 			if records := fleetWakeRecords(t, h, "notify"); len(records) != 1 || !strings.Contains(records[0].Detail, test.want) {
 				t.Fatalf("notices=%v, want one explicit reconciliation notice", records)
+			}
+		})
+	}
+}
+
+func TestAQueuedRootNeverStartsBesideTheTaskThatOwnsItsIssue(t *testing.T) {
+	for _, test := range []struct {
+		name, want string
+		reads      int32
+		arrange    func(*testing.T, *Service, home.Home)
+	}{
+		{name: "filed by a live task given it as a follow-up", want: "belongs to widgets-follow-up, the live task that filed it", arrange: func(t *testing.T, _ *Service, h home.Home) {
+			fileRootAsLiveTask(t, h, "widgets-follow-up", rootIssue(7).URL)
+		}},
+		{name: "closed by an open pull request", want: "closed by the open pull request https://github.com/acme/widgets/pull/8", reads: 1, arrange: func(t *testing.T, s *Service, _ home.Home) {
+			s.Options.RootIssues.ClosingPullRequests = func(_ context.Context, repository string, number int) ([]string, error) {
+				if repository != rootRepository || number != 7 {
+					t.Errorf("read the pull requests that close %s#%d, want the persisted issue identity", repository, number)
+				}
+				return []string{"https://github.com/acme/widgets/pull/8"}, nil
+			}
+		}},
+		{name: "pull requests unreadable", want: "cannot be read", reads: 1, arrange: func(t *testing.T, s *Service, _ home.Home) {
+			s.Options.RootIssues.ClosingPullRequests = func(context.Context, string, int) ([]string, error) {
+				return nil, errors.New("GitHub unavailable")
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: the root was picked up and queued, and its issue has an
+			// owner by the time it would start.
+			service, h, spawner, reads := rootStartBoard(t, "open", nil)
+			test.arrange(t, service, h)
+
+			// Act
+			for pass := range 3 {
+				if err := service.checkFleet(t.Context(), rootNow.Add(time.Duration(pass)*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				waitRootReading(t, service)
+			}
+			err := service.startQueued("root-widgets-7", false)
+
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Start = %v, want %q", err, test.want)
+			}
+			if len(spawner.recorded()) != 0 || reads.Load() != test.reads {
+				t.Fatalf("spawns=%v reads=%d, want no second owner spawned and %d reads", spawner.recorded(), reads.Load(), test.reads)
+			}
+			if records := fleetWakeRecords(t, h, "notify"); len(records) != 1 || !strings.Contains(records[0].Detail, test.want) {
+				t.Fatalf("notices=%v, want one reconciliation notice", records)
 			}
 		})
 	}

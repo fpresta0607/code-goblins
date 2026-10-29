@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -351,6 +352,69 @@ func TestIssueFileFilesANewRootOnTheProjectsRepository(t *testing.T) {
 	}
 	if strings.Join(gh.writes, " ") != "repos/acme/widgets/labels repos/acme/widgets/issues" {
 		t.Fatalf("writes = %v", gh.writes)
+	}
+}
+
+func TestIssueFileNotesTheGoblinTaskThatFiledANewRoot(t *testing.T) {
+	cases := []struct {
+		name, gate, open string
+		want             []string
+	}{
+		{name: "a new issue", want: []string{"https://github.com/acme/widgets/issues/42"}},
+		{name: "a step under a gate", gate: "1"},
+		{name: "a sighting of an open issue", open: `[{"number":7,"title":"follow-up","html_url":"https://github.com/acme/widgets/issues/7","body":"filed by hand"}]`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			gh := &issueGH{open: tc.open}
+			runtime, h := issueRuntime(t, gh)
+			taskTmp := filepath.Join(h.State, "tasktmp", "widgets-fix")
+			if err := os.MkdirAll(taskTmp, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(state.TaskMetaPath(h.State, "widgets-fix"), []byte("tasktmp="+taskTmp+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CFO_TASK_ID", "widgets-fix")
+			t.Setenv("NO_MISTAKES_GATE", tc.gate)
+			var stdout, stderr strings.Builder
+
+			// Act
+			code := runIssue([]string{"file", "--project", "widgets", "--title", "follow-up"}, &stdout, &stderr, runtime)
+
+			// Assert
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr = %q", code, stderr.String())
+			}
+			filed, err := tickets.FiledRoots(taskTmp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(filed, tc.want) {
+				t.Fatalf("noted as filed by the task = %v, want %v", filed, tc.want)
+			}
+		})
+	}
+}
+
+func TestIssueFileFromATaskTheHomeHasNoRecordOfNotesNothing(t *testing.T) {
+	// Arrange
+	gh := &issueGH{}
+	runtime, h := issueRuntime(t, gh)
+	t.Setenv("CFO_TASK_ID", "elsewhere")
+	t.Setenv("NO_MISTAKES_GATE", "")
+	var stdout, stderr strings.Builder
+
+	// Act
+	code := runIssue([]string{"file", "--project", "widgets", "--title", "follow-up"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if code != 0 || !strings.Contains(stdout.String(), "filed #42") {
+		t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(h.State, "tasktmp")); !os.IsNotExist(err) {
+		t.Fatalf("a task temporary directory was made for a task with no record: %v", err)
 	}
 }
 
