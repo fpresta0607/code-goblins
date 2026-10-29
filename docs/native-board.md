@@ -1410,9 +1410,9 @@ A picture a harness showed or made opens larger on a click as his own do.
 A call that started a sub-agent is its baby goblin's row, named as the canvas names it, with Open, which shows that baby goblin's terminal while its goblin's tree holds it.
 A compaction is folded to its summary, an interrupt is a plain Interrupted row, and a background task's notice is a quiet line.
 Each prompt he sent keeps a small row under it with Copy, which copies its words as written, and when it was sent; the row stays hidden until he taps the message or points at it where there is a pointer, and closes when he taps away.
-The last message sent carries a receipt under it, small and always shown: Sent and how long ago, and Replied and how long ago once a reply to it has arrived (the Overlord, 2026-10-27: "this goes under my messages, not above the chat bar").
+Nothing else shows under his message: no receipt of when it was sent or replied to (the Overlord, 2026-10-29: "We don't need the sent just now if we already have the hover where it shows a timestamp and copy").
 A selection he settles in the conversation, released with a mouse or a touch or ended from the keyboard, copies itself and says Copied quietly; a selection he clears copies nothing.
-A reply with text keeps Copy below the reply, and only the reply that ends a turn, the last before his next message or an interrupt, shows when it arrived beside it, so a turn of many replies and tool rows prints its time once (`turnEnds` in `frontend/src/session-messages.ts`); a message the harness queued into its turn goes on with that turn.
+Only the reply that ends a turn, the last before his next message or an interrupt, shows when it arrived and then Copy, once the turn has ended, so a turn of many replies and tool rows prints its time and Copy once (`turnEnds` in `frontend/src/session-messages.ts`); a message the harness queued into its turn goes on with that turn.
 A notice and a compaction keep Copy too, and every message's text can be selected.
 Exact fleet wake markers, session-lock and wake-queue digests, and stamped background-run and helper notices draw as service lines.
 A genuine message that merely begins with `cfo`, such as `cfo drain please`, remains the user's message.
