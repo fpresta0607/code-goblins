@@ -179,7 +179,7 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.notify()
-	problem := nextEvent(t, events, "the folder problem").data
+	problem := nextReading(t, events, "the folder problem").data
 	if problem.Revision <= initial.Revision || !strings.Contains(problem.Error, "native-inbox") {
 		t.Fatalf("stream omitted folder problem: %+v", problem)
 	}
@@ -190,7 +190,7 @@ func TestBoardStreamStaysOpenAcrossAnUnreadableNativeInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.notify()
-	recovered := nextEvent(t, events, "the recovery").data
+	recovered := nextReading(t, events, "the recovery").data
 	if recovered.Error != "" || recovered.Revision <= problem.Revision || recovered.Instance != initial.Instance {
 		t.Fatalf("stream did not recover in place: %+v", recovered)
 	}
