@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
@@ -57,7 +59,7 @@ func (r *Reader) ChildOutput(task, node string) (Output, error) {
 	case !isKept:
 		return Output{}, ErrNoRecord
 	case record.transcript != "":
-		entries, err := AgentEntries(record.transcript, records.harness)
+		entries, err := r.agentEntries(task, record.transcript, records.harness)
 		return Output{Entries: entries}, err
 	}
 	lines := slices.Clone(record.lines)
@@ -72,6 +74,44 @@ func (r *Reader) ChildOutput(task, node string) (Output, error) {
 		}
 	}
 	return Output{Lines: lines[max(0, len(lines)-ChildLinesKept):]}, nil
+}
+
+// agentOutput is the last reading of a sub-agent's record a child's terminal
+// showed, and the size and write time the record had when it was read.
+type agentOutput struct {
+	path     string
+	size     int64
+	modified time.Time
+	entries  []AgentEntry
+}
+
+// agentEntries is AgentEntries for a child of task's goblin, read again only
+// once the record's size or write time changed. A child's terminal asks for
+// its output every half second, and each read took up to 4 MiB of the record
+// (#1716). One reading is kept for each goblin, of the child its terminal
+// last showed.
+func (r *Reader) agentEntries(task, path, harness string) ([]AgentEntry, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return AgentEntries(path, harness)
+	}
+	r.mu.Lock()
+	kept, isKept := r.agentOutputs[task]
+	r.mu.Unlock()
+	if isKept && kept.path == path && kept.size == info.Size() && kept.modified.Equal(info.ModTime()) {
+		return kept.entries, nil
+	}
+	entries, err := AgentEntries(path, harness)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	if r.agentOutputs == nil {
+		r.agentOutputs = map[string]agentOutput{}
+	}
+	r.agentOutputs[task] = agentOutput{path: path, size: info.Size(), modified: info.ModTime(), entries: entries}
+	r.mu.Unlock()
+	return entries, nil
 }
 
 // outputFileLines are the newest lines a background shell wrote to its

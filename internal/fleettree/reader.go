@@ -75,6 +75,7 @@ type Reader struct {
 	commands     map[processKey]string
 	readings     map[processKey]cpuReading
 	gates        map[string]gateReading
+	agentOutputs map[string]agentOutput
 	usual        map[string]time.Duration
 	usualAt      time.Time
 
@@ -455,6 +456,11 @@ func (r *Reader) Forget(live map[string]bool) {
 	for task := range r.gates {
 		if !live[task] {
 			delete(r.gates, task)
+		}
+	}
+	for task := range r.agentOutputs {
+		if !live[task] {
+			delete(r.agentOutputs, task)
 		}
 	}
 	// A conversation no view reads any more goes too, though nothing asks
