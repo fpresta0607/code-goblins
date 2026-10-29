@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"io"
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -334,5 +336,131 @@ func TestRedactKeepsOrdinaryAddressesAndTakesCredentials(t *testing.T) {
 		if got := redact(c.text); got != c.want {
 			t.Errorf("redact(%q) = %q, want %q", c.text, got, c.want)
 		}
+	}
+}
+
+// actionsBoard is a board whose store holds task-1's actions, each a minute
+// after the one before and named by its kind and place.
+func actionsBoard(t *testing.T, kinds ...string) (*HTTP, []Action) {
+	t.Helper()
+	handler, _ := orderBoard(t)
+	store := handler.Service.Store
+	at := time.Now().UTC().Add(-time.Hour)
+	actions := make([]Action, len(kinds))
+	for i, kind := range kinds {
+		actions[i] = Action{ID: fmt.Sprintf("%s-%02d", kind, i), Kind: kind, TaskID: "task-1", Generation: "g1", Status: "succeeded", CreatedAt: at.Add(time.Duration(i) * time.Minute), UpdatedAt: at.Add(time.Duration(i) * time.Minute)}
+	}
+	store.mu.Lock()
+	store.db.Actions = append(store.db.Actions, actions...)
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler, actions
+}
+
+// readTaskActions asks the board's route for task's actions as its Details
+// does when it opens.
+func readTaskActions(t *testing.T, handler *HTTP, task string) (int, []string) {
+	t.Helper()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest("GET", "http://board.local/api/tasks/"+task+"/actions", nil))
+	var read []Action
+	if response.Code == http.StatusOK {
+		if err := json.Unmarshal(response.Body.Bytes(), &read); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := []string{}
+	for _, action := range read {
+		ids = append(ids, action.ID)
+	}
+	return response.Code, ids
+}
+
+// #1611: a task's progress checks were 234 of the 256 actions the store
+// keeps, 110 KB of every board's first snapshot, though only the task's
+// Details lists them; each one queued sent every action's id again.
+func TestATasksProgressChecksReachOnlyItsDetailsWhenItOpens(t *testing.T) {
+	// Arrange
+	handler, actions := actionsBoard(t, "evaluate", "message", "evaluate")
+
+	// Act
+	snapshot, err := handler.Service.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, read := readTaskActions(t, handler, "task-1")
+
+	// Assert
+	var board struct {
+		Actions []struct{ ID string }
+		Tasks   []struct {
+			ID        string
+			ActionsAt time.Time `json:"actions_at"`
+		}
+	}
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	for _, action := range board.Actions {
+		sent = append(sent, action.ID)
+	}
+	if !slices.Equal(sent, []string{"message-01"}) {
+		t.Errorf("the board is sent the actions %v, want the message alone", sent)
+	}
+	task := board.Tasks[slices.IndexFunc(board.Tasks, func(task struct {
+		ID        string
+		ActionsAt time.Time `json:"actions_at"`
+	}) bool {
+		return task.ID == "task-1"
+	})]
+	if !task.ActionsAt.Equal(actions[2].UpdatedAt) {
+		t.Errorf("task-1's actions changed last at %s, want %s, its newest progress check's", task.ActionsAt, actions[2].UpdatedAt)
+	}
+	if code != http.StatusOK || !slices.Equal(read, []string{"evaluate-00", "message-01", "evaluate-02"}) {
+		t.Errorf("its Details reads %d %v, want 200 and every action of task-1, oldest first", code, read)
+	}
+}
+
+func TestATasksDetailsReadsItsNewestTwentyActions(t *testing.T) {
+	for _, count := range []int{0, 1, 20, 25} {
+		// Arrange
+		kinds := make([]string, count)
+		var want []string
+		for i := range kinds {
+			kinds[i] = "evaluate"
+			if i >= count-20 {
+				want = append(want, fmt.Sprintf("evaluate-%02d", i))
+			}
+		}
+		handler, _ := actionsBoard(t, kinds...)
+
+		// Act
+		code, read := readTaskActions(t, handler, "task-1")
+
+		// Assert
+		if code != http.StatusOK || !slices.Equal(read, append([]string{}, want...)) {
+			t.Errorf("with %d actions its Details reads %d %v, want 200 and %v", count, code, read, want)
+		}
+	}
+}
+
+func TestADetailsOfATaskTheBoardDoesNotKnowReadsNoActions(t *testing.T) {
+	// Arrange
+	handler, _ := actionsBoard(t, "evaluate")
+
+	// Act
+	code, read := readTaskActions(t, handler, "task-gone")
+
+	// Assert
+	if code != http.StatusNotFound || len(read) != 0 {
+		t.Errorf("the actions of a task the board does not know read %d %v, want 404 and none", code, read)
 	}
 }

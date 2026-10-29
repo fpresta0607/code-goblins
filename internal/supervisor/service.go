@@ -1417,6 +1417,9 @@ type Task struct {
 	Mode        string `json:"mode"`
 	Generation  string `json:"generation"`
 	Session     string `json:"session"`
+	// ActionsAt is when the newest of the task's actions last changed, so its
+	// Details, which reads them when it opens, reads them again.
+	ActionsAt time.Time `json:"actions_at,omitzero"`
 	// Waits is what a queued task's row still waits for before the
 	// scheduler starts it, for its card's words.
 	Waits   []fleet.Blocker `json:"waits,omitempty"`
@@ -2099,8 +2102,15 @@ func (s *Service) Snapshot() (Snapshot, error) {
 		out.Tasks = append(out.Tasks, done)
 	}
 	archived := archivedTasks(s.Store.Home)
+	actionsAt := map[string]time.Time{}
+	for _, action := range d.Actions {
+		if action.UpdatedAt.After(actionsAt[action.TaskID]) {
+			actionsAt[action.TaskID] = action.UpdatedAt
+		}
+	}
 	for i := range out.Tasks {
 		task := &out.Tasks[i]
+		task.ActionsAt = actionsAt[task.ID]
 		id := strings.TrimPrefix(task.ID, "finished:")
 		if state.ValidTaskID(id) == nil {
 			task.Handoff = s.hasHandoff(id, archived)
