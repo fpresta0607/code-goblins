@@ -1340,6 +1340,8 @@ A stat the conversation does not record is left out, and the board leaves that s
 With `stream=1` it answers server-sent events: a `page` event with the newest page, then a `messages` event with each message that began or changed since, read every half second, each in full, which a view puts in place of the one with the same `id` or adds by its `seq`, and after a page or a change a `usage` event with what the session has spent, from the read already made.
 A later `page` event replaces everything a view holds: the session moved to another conversation, as `/clear` moves it, or the conversation was replaced.
 The session's conversation is found again as often as a terminal view's binding is checked, and once the session no longer runs an `unavailable` event says why and the stream ends.
+A stream that sent nothing for as long sends an `alive` event, so the view, which hears from its stream at least every five seconds, takes one silent for 15 seconds as stalled: it says Reconnecting and opens the stream again, which begins with the newest page.
+On 2026-10-29 the Overlord's view of the CFO showed a call Running at least 76 seconds after it ended, with no word that it was stale.
 A stream also ends after ten minutes, as a baby goblin's does, and at most 32 stream at once, a limit of their own.
 With `picture=ID` it answers a picture a message holds, read back from its entry by the id a read of the messages gave it, never by a path or an offset the browser names; a Claude Code picture's id names where it is in its conversation, so a read of the tail and a read of the whole name it alike, and it is answered only when a read found a picture there.
 `GET /api/commands?task=ID&generation=GEN&token=TOKEN` answers `{"commands":[{"name":"model","description":"...","source":"builtin"},...]}` for the task's current harness and worktree; `cfo=TERMINAL` reads the CFO's harness and home.
@@ -2272,7 +2274,9 @@ A save's body is never logged, and a panic while one is handled answers with a f
 When a task needs a service already declared by its project, the goblin or registered CFO can file `cfo auth request --project <project> --task <task> --grant <service> --why "<reason>" --wait`.
 This card carries the task, service and one-line reason, with Grant and Deny and no value inputs or browser steps.
 Filing it grants nothing.
-Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies.
+Grant posts to `/api/connections/grant`, naming the card's ID and generation as `request` and `request_generation` beside the task generation and service; the existing owner-board check applies on the PC.
+His private board grants it too, as he decided on 2026-10-29 ("Allow it as is"), knowing the gate proves that board his only by Tailscale's headers, which a program on this PC can forge: a grant through the gate is recorded as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`.
+Only a service grant card's Grant moves to the private board: granting or revoking a connector from the Connections panel, typing values and opening a browser sign-in window stay on the PC.
 The card closes as `granted` only after the grant lands, the task is told to re-source, and the CFO gets the existing grant wake.
 Deny, withdrawal, expiry, a stale task or card generation, a different project or a missing service declaration grants nothing.
 
@@ -2547,15 +2551,12 @@ A switch that fails after the board was proven his answers 409 with one sentence
 The adversary is the same one, at the board: an agent that follows its contract and tries the switch from a browser it started, through a proxy or from another machine.
 An agent that drives the Overlord's own running browser or window through his desktop is his to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
 
-His [private board](remote-access.md), the board remote access shares over his own tailnet, turns the switch off and never on (CFO decision 1008966).
-He can always switch AFK mode, and on 2026-10-18 his off there was refused.
-Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and an off it admitted is recorded for the CFO as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`, which his pages show as your private board.
+His [private board](remote-access.md), the board remote access shares over his own tailnet, turns the switch on and off, as he decided on 2026-10-29 ("Allow it now as it is"), over proving his phone by its own tailnet address and over keeping on to the PC.
+Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and a switch it admitted is recorded for the CFO as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`, which his pages show as your private board.
 Those are Tailscale's headers, and an agent on this PC can forge them, sending them itself or through a Serve route of its own it adds for a moment, so nothing proves the private board his.
-A forged off ends his stretch early, with its report and his cards, and tells the CFO he is back, so the fleet's decisions wait for him again; it hands no one his authority.
-On hands the CFO his authority, so on stays on a board on the PC proven as above, or his terminal.
-An on through the gate is refused with the sentence every board is shown, and the CFO is told it came through the private board.
+A forged off ends his stretch early, with its report and his cards, and tells the CFO he is back; a forged on hands the CFO his authority. He chose it knowing both.
+On asks first on the private board as it does on the PC.
 Another user of his tailnet, a request without Tailscale's identity and another proxy never pass the gate.
-On the private board the switch is disabled while AFK mode is off, with no tip.
 
 Every snapshot carries `afk`, which is what the board shows of the switch.
 Its `state` is `off`, `on`, or `unreadable` for a switch that cannot be read, which is never taken for on.

@@ -20,6 +20,9 @@ import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
 const MAX_RETRIES = 5;
+// The supervisor says alive while a stream has nothing to send, at least
+// every five seconds, so a stream silent this long stalled.
+const SILENT_MS = 15_000;
 // He reads the newest messages while the list's end is this close.
 const AT_END_PX = 24;
 // The page of messages before the first one held is read once he reads up
@@ -146,7 +149,21 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     readingOlder.current = false;
     const stream = new EventSource(address({ stream: "1" }));
     let failures = 0;
+    // A stream that stalled is opened again, which begins with the newest
+    // page, and says Reconnecting until it does: on 2026-10-29 the CFO's
+    // view showed a call Running at least 76 s after it ended, with no word
+    // that it was stale.
+    let silence: ReturnType<typeof setTimeout> | undefined;
+    const heard = () => {
+      clearTimeout(silence);
+      silence = setTimeout(() => {
+        stream.close();
+        setReconnecting(true);
+        setAttempt((prior) => prior + 1);
+      }, SILENT_MS);
+    };
     const close = (why: string) => {
+      clearTimeout(silence);
       stream.close();
       setReconnecting(false);
       setClosedWhy(why);
@@ -154,6 +171,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     };
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
+      heard();
       setHeld(change);
       setReconnecting(false);
       setPhase("live");
@@ -182,7 +200,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       if (stream.readyState === EventSource.CLOSED || ++failures >= MAX_RETRIES) close(UNREAD);
       else setReconnecting(true);
     };
-    return () => stream.close();
+    stream.addEventListener("alive", heard);
+    heard();
+    return () => {
+      clearTimeout(silence);
+      stream.close();
+    };
   }, [address, visible, attempt, where]);
 
   // settle keeps the list where he reads it after anything moved its

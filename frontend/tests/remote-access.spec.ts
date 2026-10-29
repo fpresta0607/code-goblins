@@ -299,31 +299,41 @@ test("a phone on the private board turns Scrawl reviews off but never on, and is
   await expect(tailscale).toBeDisabled();
 });
 
-// CFO decision 1008966: his private board turns AFK mode off and never on,
-// with no words for why, since on hands the CFO his authority and stays on
-// the PC.
-test("a phone on the private board turns AFK off but never on, and says nothing of it", async ({ page }) => {
+// The Overlord, 2026-10-29: "why can't I turn on AFK when I'm on my mobile
+// screen? That should be something I could turn off and on." He chose to allow
+// it as it is, knowing the private board is proven his only by headers a
+// program on the PC can forge. On his phone, at its width, the switch is
+// enabled while AFK is off, asks first as on the PC, and turns it on and off.
+test("a phone on the private board turns AFK on and off", async ({ page }) => {
   // Arrange
   const { push } = await open(page, ON, { origin: URL });
   const asked: unknown[] = [];
   await page.route("**/api/afk", (route) => {
-    asked.push(route.request().postDataJSON());
-    return route.fulfill({ json: { state: "off" } });
+    const body: { on: boolean } = route.request().postDataJSON();
+    asked.push(body);
+    return route.fulfill({ json: { state: body.on ? "on" : "off" } });
   });
   const afk = page.getByRole("switch", { name: "AFK mode" });
-
-  // Assert: off, it cannot be turned on and has no tip.
   await expect(afk).toHaveAttribute("aria-checked", "false");
-  await expect(afk).toBeDisabled();
-  await expect(afk).not.toHaveAttribute("data-tip");
-
-  // Act: AFK mode turned on at the PC reaches the phone, and he turns it off.
-  await push({ afk: { state: "on", since: new Date().toISOString(), from: "his own board (goblins-window.exe pid 4242)", decided: 0, held: [] } });
   await expect(afk).toBeEnabled();
+
+  // Act: he turns it on, through the same question the PC asks.
+  await afk.click();
+  const dialog = page.getByRole("dialog", { name: "Go AFK?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Turn AFK on" }).click();
+
+  // Assert
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => asked).toEqual([{ on: true }]);
+
+  // Act: the snapshot says it is on, and he turns it off.
+  await push({ afk: { state: "on", since: new Date().toISOString(), from: "his own private board (by Tailscale's headers, which a program on this PC can forge)", decided: 0, held: [] } });
+  await expect(afk).toHaveAttribute("aria-checked", "true");
   await afk.click();
 
   // Assert
-  await expect.poll(() => asked).toEqual([{ on: false }]);
+  await expect.poll(() => asked).toEqual([{ on: true }, { on: false }]);
 });
 
 for (const comeBack of ["focus", "visibilitychange"] as const) {

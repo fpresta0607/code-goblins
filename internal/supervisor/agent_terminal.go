@@ -278,7 +278,10 @@ const unreadMessages = "The session's messages cannot be read"
 // the session moved to another conversation, or its conversation was
 // replaced. The session is located again as often as a terminal view's
 // binding is checked, and an unavailable event says why it no longer runs, or
-// cannot be read, before the stream ends.
+// cannot be read, before the stream ends. A stream that sent nothing for as
+// long sends an alive event, so a board that hears nothing for longer knows
+// the stream stalled: on 2026-10-29 the Overlord's view of the CFO showed a
+// call Running at least 76 s after it ended, with no word that it was stale.
 func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate func() (string, error), path string) {
 	select {
 	case h.messageSlots <- struct{}{}:
@@ -294,6 +297,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("X-Accel-Buffering", "no")
+	var sent time.Time
 	send := func(event string, value any) bool {
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -304,6 +308,7 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 			return false
 		}
 		flusher.Flush()
+		sent = time.Now()
 		return true
 	}
 	var cursor fleettree.MessageCursor
@@ -365,6 +370,9 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				}
 			}
 		case <-tick.C:
+			if time.Since(sent) >= h.terminalTick && !send("alive", struct{}{}) {
+				return
+			}
 			if path == "" {
 				continue
 			}

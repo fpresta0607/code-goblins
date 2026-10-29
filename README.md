@@ -873,7 +873,7 @@ If the switch is refused, a red box in the dialog or under the CFO panel header 
 The message stays until you close it or try the switch again.
 The Code Goblins window always turns it, however it was opened, an update that restarted it included.
 A browser turns it when you started it from the desktop or from a terminal of your own, and keeps that after whatever opened it has closed and after it restarts itself.
-Your private board, on your phone, turns it off but not on: turn it on at the PC.
+Your private board, on your phone, turns it on and off too.
 Any other board on another machine, or one reached through a proxy, cannot turn it, and neither can a browser another program can drive, such as one started with a debugging port.
 Use a terminal that is not run as administrator: the supervisor cannot read an elevated one, and refuses what it cannot read.
 Use PowerShell or cmd, opened from the desktop or in Windows Terminal: Git Bash cuts a command off from its parents, and the supervisor refuses one it cannot follow to the desktop.

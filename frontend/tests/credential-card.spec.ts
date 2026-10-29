@@ -509,6 +509,40 @@ test("a board opened from another machine shows no value field and no Run, only 
   await expect(card.locator('[data-credential-name="STRIPE_WEBHOOK_SECRET"]')).toContainText("Stored before: saving replaces it");
 });
 
+// The Overlord, 2026-10-29, with a picture of a grant card on his phone: "I
+// should be allowed to grant service access from my phone and command center,
+// shouldn't just be from the PC." He chose to allow it as it is. On his phone,
+// at its width and off the PC, a service grant card offers Grant and Deny,
+// and a card that asks for typed values still keeps them to the PC.
+test("a phone off the PC grants or denies a service, and still types no values", async ({ page }) => {
+  // Arrange
+  await page.setViewportSize({ width: 390, height: 844 });
+  const elsewhere = "https://board.test";
+  await servePages(page.context(), elsewhere);
+  await answer(page);
+  const granted: unknown[] = [];
+  await page.route("**/api/connections/grant", (route) => { granted.push(route.request().postDataJSON()); return route.fulfill({ status: 200, json: {} }); });
+  const card = await openCard(page, elsewhere);
+  await expect(card).toContainText("Values can only be typed on the board on your PC");
+
+  // Act
+  await page.evaluate((id) => window.board?.request(id, { names: [], plain: [], existing: [], link: "", steps: [], grant_service: "stripe", task_generation: "g1" }), STRIPE);
+
+  // Assert
+  await expect(card.getByRole("heading", { name: "Grant stripe to add-billing" })).toBeVisible();
+  await expect(card.locator(".credential-remote")).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Deny", exact: true })).toBeEnabled();
+  const grant = card.getByRole("button", { name: "Grant", exact: true });
+  await expect(grant).toBeEnabled();
+  await expect(grant).toBeInViewport();
+
+  // Act
+  await grant.click();
+
+  // Assert
+  await expect.poll(() => granted).toEqual([{ task: "add-billing", generation: "g1", connection: "service:stripe", action: "grant", request: STRIPE, request_generation: STRIPE_GENERATION }]);
+});
+
 test("the header gives the steps to get the values numbered in order, the page to open first, each starting with a capital", async ({ page }) => {
   // Arrange
   await answer(page);
