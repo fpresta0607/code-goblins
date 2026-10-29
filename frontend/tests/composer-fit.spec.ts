@@ -157,6 +157,9 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);
       expect(row.filter((control) => control.isCut).map((control) => control.name), "no control's words cut").toEqual([]);
       await expect(box(page).locator(".composer-tools")).toHaveCount(0);
+      // A phone's row has room for the two pies alone, the side panel's for
+      // their percentages too.
+      await expect(box(page).locator(".usage-percent:visible")).toHaveCount(isTouch ? 0 : 2);
     });
 
     // The Overlord, 2026-10-28: "place send button in line with message cfo

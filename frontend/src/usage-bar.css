@@ -1,12 +1,19 @@
 /* The session's usage pies (usage-bar.tsx), at the end of the message box's
    controls row (composer.tsx), inside the box's own border, so they wear no
-   dress of their own. In a narrow box, a phone's or a narrow side panel's,
-   each pie keeps its percentage and drops its name, which its colour and a
-   screen reader still give, so the row stays one row. A pie is a disc of the
+   dress of their own. Each pie drops its name, which its colour and a screen
+   reader still give, where the row has no room for it, so the row stays one
+   row inside the border: two names need a row wider than 520 px and one a row
+   wider than 380 px. At 380 px and under, a phone's row or the narrowest
+   panel's, two pies drop their percentages too and draw alone, as Claude's
+   phone app draws its usage as a ring. A pie is a disc of the
    slice's colour, a stroke as wide as its radius drawn around half that
    radius, over a faint full disc. */
 .usage-bar { display: inline-flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; padding: 0 4px; color: var(--muted); font-size: .75rem; line-height: 1.25; white-space: nowrap; }
-@container (max-width: 480px) { .usage-label { display: none; } }
+@container (max-width: 520px) { .usage-bar:has(> :nth-child(2)) .usage-label { display: none; } }
+@container (max-width: 380px) {
+  .usage-label { display: none; }
+  .usage-bar:has(> :nth-child(2)) .usage-percent { display: none; }
+}
 .usage-reading { display: inline-flex; align-items: center; gap: 4px; min-width: 0; font-variant-numeric: tabular-nums; }
 .usage-context { --usage-ink: var(--mint); }
 .usage-week { --usage-ink: var(--blue); }
