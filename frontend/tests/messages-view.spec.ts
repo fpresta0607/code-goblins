@@ -191,6 +191,23 @@ const scrollTo = (box: Locator, top: number) => box.evaluate((element, top) => n
   element.addEventListener("scroll", () => done(), { once: true });
   element.scrollTop = top;
 }), top);
+// readingAt returns the message he reads, the first whose top is in sight,
+// and where its top lies once that holds: a jump past the rows drawn draws
+// the rows it lands among at their own heights, and a frame later moves them
+// to put the message it landed on back at the list's top (#1753).
+async function readingAt(box: Locator): Promise<{ read: string; before: number }> {
+  let place = { read: "", before: NaN };
+  await expect.poll(async () => {
+    const prior = place;
+    place = await box.evaluate((element) => {
+      const top = element.getBoundingClientRect().top;
+      const row = [...element.querySelectorAll<HTMLElement>("[data-message]")].find((each) => each.getBoundingClientRect().top >= top)!;
+      return { read: row.dataset.message!, before: row.getBoundingClientRect().top - top };
+    });
+    return place.read === prior.read && place.before === prior.before;
+  }).toBe(true);
+  return place;
+}
 
 test("Claude Code and Codex panels show their messages in the same Modern view", async ({ page }) => {
   await open(page);
@@ -285,8 +302,7 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
   await expect(talk).toContainText("Answer 99");
   const { end } = await scroll(talk);
   await scrollTo(talk, Math.round(end / 2));
-  const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
-  const before = await offset(talk, read);
+  const { read, before } = await readingAt(talk);
   const { end: was } = await scroll(talk);
 
   // One message above where he reads grows, and two arrive below it.
@@ -297,6 +313,31 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
   await page.getByRole("button", { name: "Jump to latest" }).click();
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+});
+
+// A message that arrives while he reads up is not drawn, so the list keeps it
+// a room of an estimated height; Jump to latest draws it at its own (#1753).
+test("Jump to latest lands at the end of a reply taller than its estimate that arrived while he read up", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openCfo(page);
+  const talk = list(page, "CFO");
+  await expect(talk).toContainText("Answer 99");
+  await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+  await expect(jump).toBeVisible();
+  const { end: was } = await scroll(talk);
+  const findings = Array.from({ length: 30 }, (_, at) => `Finding ${at + 1} of the review`);
+  await send(page, "messages", [reply(100, { kind: "text", text: ["Answer 100", ...findings].join("\n\n") })]);
+  await expect.poll(async () => (await scroll(talk)).end).toBeGreaterThan(was);
+
+  // Act
+  await jump.click();
+
+  // Assert
+  await expect(talk.locator("[data-message]").last()).toContainText("Finding 30 of the review");
+  await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
+  await expect(jump).toHaveCount(0);
 });
 
 test("older messages are read a page at a time as he reads up, and his place is kept", async ({ page }) => {
@@ -744,8 +785,7 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
 
   // Act: he reads up, and a reply arrives below.
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
-  const read = await talk.evaluate((element) => [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().top >= element.getBoundingClientRect().top)!.dataset.message!);
-  const before = await offset(talk, read);
+  const { read, before } = await readingAt(talk);
   const { end: was } = await scroll(talk);
   await send(page, "messages", [reply(200, { kind: "text", text: "More arrived." })]);
 

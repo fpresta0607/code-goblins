@@ -78,9 +78,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const [isAtEnd, setAtEnd] = useState(true);
   // Whether he reads the end of the list, which then follows new messages;
   // while he reads further up, anchor is the message at the list's top and
-  // how far its top lies below the list's, which stays put.
+  // how far its top lies below the list's, which stays put. pinnedTo is the
+  // scroll top the list last put itself at to show its end.
   const following = useRef(true);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
+  const pinnedTo = useRef(-1);
   // The page holds only the rows within reach of where he reads
   // (message-window.ts): rowHeights is each drawn row's measured height with
   // the gap after it, by its message's id, and view where he reads, kept only
@@ -190,7 +192,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const settle = useCallback(() => {
     const box = list.current;
     if (!box || !shownValue.current) return;
-    if (following.current) { box.scrollTop = box.scrollHeight; return; }
+    if (following.current) {
+      box.scrollTop = box.scrollHeight;
+      pinnedTo.current = box.scrollTop;
+      return;
+    }
     const kept = anchor.current;
     const row = kept && [...box.querySelectorAll<HTMLElement>("[data-message]")].find((each) => each.dataset.message === kept.id);
     if (kept && row) box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - kept.offset;
@@ -232,7 +238,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const remember = () => {
     const box = list.current;
     if (!box || !shownValue.current) return;
-    const isEnd = box.scrollHeight - box.scrollTop - box.clientHeight <= AT_END_PX;
+    // A scroll that finds the list where it put itself is its own and keeps
+    // it following: Jump to latest's lands before the rows it draws at the end
+    // are measured, and those taller than their estimate push the end on.
+    const isEnd = box.scrollHeight - box.scrollTop - box.clientHeight <= AT_END_PX || (following.current && box.scrollTop === pinnedTo.current);
     following.current = isEnd;
     setAtEnd(isEnd);
     const top = box.getBoundingClientRect().top;
@@ -348,6 +357,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     following.current = true;
     setAtEnd(true);
     box.scrollTop = box.scrollHeight;
+    pinnedTo.current = box.scrollTop;
     box.focus({ preventScroll: true });
   };
   const keys = (event: KeyboardEvent<HTMLElement>) => {
