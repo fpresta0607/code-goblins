@@ -303,8 +303,19 @@ func spoolActivity(dir string, a BoardActivity) error {
 	return fsx.AtomicWriteFile(path, data)
 }
 
+// spoolHeldLong is how long a report may hold the activity lock before the
+// hold is a stuck report and not one spooling its receipt.
+const spoolHeldLong = time.Minute
+
 func (s *Store) ingestActivity() error {
 	if _, err := lock.AcquireExclusiveNamed(s.Home.State, ".board-activity.lock"); err != nil {
+		// A report spooling its receipt holds the lock for a moment, and its
+		// receipt waits in the inbox for the next cycle; only a stuck report
+		// is an error (#1505).
+		holder, readErr := lock.ReadNamed(s.Home.State, ".board-activity.lock")
+		if errors.Is(err, lock.ErrHeld) && (readErr != nil || time.Since(holder.Acquired) < spoolHeldLong) {
+			return nil
+		}
 		return err
 	}
 	defer lock.ReleaseExclusiveNamed(s.Home.State, ".board-activity.lock")
