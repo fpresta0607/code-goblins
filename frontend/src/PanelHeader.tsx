@@ -36,8 +36,10 @@ import { TaskAdjustment } from "./task-adjustment";
 // id, each cut short when the row is narrow, then switcher, the panel's Chat
 // and Task icons, centred between them and the row's end, then row, the
 // panel's controls with Close or Back, led on the CFO's panel by its AFK
-// switch, with Update before it while an update of the CFO's harness waits
-// and Restart PC before that while the kernel's pools are past their line.
+// switch. The CFO's rare states take a line of their own under the row, at
+// its end, only while one shows: Restart PC while the kernel's pools are past
+// their line, Update while an update of the CFO's harness waits, and the
+// words for a switch that cannot be read, so the row keeps its room.
 // Everything else is the details, isDetails, at the top of the Task view: the
 // goblin's whole name and task id, its status, the one place the panel says
 // the task's state, with one plain sentence under it and the words that
@@ -117,14 +119,21 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
     {cfo && snapshot.afk.state === "off" && snapshot.afk.page && <div className="panel-actions"><button className="labelled-button" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /><span>Open your last AFK report</span></button></div>}
     {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
   </div>;
-  return <header className="panel-header one-row">
-    <div className="panel-identity">
-      <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
-      <h2 id="panel-title">{title}</h2>
-      {harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}
-      {goblinTask && <p className="panel-goblin-task">{goblinTask}</p>}
-    </div>
-    {switcher}
-    {row && <PanelRow {...row} isShared leading={cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} leading={<><RestartPcButton snapshot={snapshot} /><CfoUpdate snapshot={snapshot} /></>} />} />}
-  </header>;
+  return <>
+    <header className="panel-header one-row">
+      <div className="panel-identity">
+        <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />
+        <h2 id="panel-title">{title}</h2>
+        {harness && <HarnessMark harness={harness} label={harnessTip(harness, task?.model || node?.model || "", task?.effort || "")} />}
+        {goblinTask && <p className="panel-goblin-task">{goblinTask}</p>}
+      </div>
+      {switcher}
+      {row && <PanelRow {...row} isShared leading={cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />} />}
+    </header>
+    {cfo && <div className="cfo-header-line">
+      <RestartPcButton snapshot={snapshot} />
+      <CfoUpdate snapshot={snapshot} />
+      {snapshot.afk.state === "unreadable" && <span className="muted">Unreadable: a press resets it</span>}
+    </div>}
+  </>;
 }

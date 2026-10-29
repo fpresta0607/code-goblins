@@ -431,7 +431,7 @@ export function NativeTerminal({ task, node, harness, instance, visible, shown, 
     };
     element.addEventListener("pointerdown", startCopy);
     pastElement.addEventListener("pointerdown", startCopy);
-    const focusTopRow = () => element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
+    const focusTopRow = () => element.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled, .panel-leading *)")?.focus();
     // Ctrl+Plus, Ctrl+Minus and Ctrl+0 choose the text size a sized pane is
     // drawn at, and choosing it takes the pane's size.
     const zoom = (event: KeyboardEvent) => {

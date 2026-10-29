@@ -79,6 +79,75 @@ for (const width of [1440, 393, 360]) {
   }
 }
 
+// Where the row is narrowest, the CFO's panel dragged to its narrowest beside
+// the board and a phone, in both chat styles and with an update waiting or
+// not, what always shows still fits: the picture stays whole, the name and
+// the mark are cut at the identity's own edge and never drawn under the
+// switch, every control of the row, AFK and Close or Back with them, lies in
+// the panel, and Update takes the line under the row.
+const UPDATE = { harness: "claude", line: "✓ Update installed · Restart to update", installed: "2026-10-29T08:00:00Z", pending: true };
+const NARROWEST = [
+  { where: "a 360 px panel beside the board", viewport: { width: 1440, height: 900 }, pane: 360 },
+  { where: "a 360 px phone", viewport: { width: 360, height: 800 }, pane: 0 },
+  { where: "a 390 px phone", viewport: { width: 390, height: 844 }, pane: 0 },
+];
+for (const { where, viewport, pane } of NARROWEST) {
+  for (const style of ["classic", "modern"]) {
+    for (const isUpdateWaiting of [false, true]) {
+      test(`the CFO's header row on ${where} in ${style}${isUpdateWaiting ? " with an update waiting" : ""} keeps its picture whole, its name and mark off the switch, and every control in the panel`, async ({ page }) => {
+        // Arrange
+        await page.setViewportSize(viewport);
+        await page.addInitScript(({ style, pane }) => {
+          localStorage.setItem("cfo-chat-style", style);
+          if (pane) localStorage.setItem("cfo-pane-width", String(pane));
+        }, { style, pane });
+        await open(page, snapshot(isUpdateWaiting ? { cfo_update: UPDATE } : {}));
+
+        // Act
+        await openCfo(page);
+
+        // Assert: one row, and what the identity draws, cut at its edge
+        // where it hides what overflows it, ends before the switch.
+        const row = await box(header(page));
+        expect(row.height).toBeLessThanOrEqual(ROW_PX);
+        const drawn = await header(page).evaluate((element) => {
+          const identity = element.querySelector(".panel-identity")!;
+          const edge = identity.getBoundingClientRect();
+          const isClipped = getComputedStyle(identity).overflowX !== "visible";
+          return {
+            identity: edge.right,
+            picture: identity.querySelector(".goblin-avatar")!.getBoundingClientRect().right,
+            views: element.querySelector(".panel-view-switch")!.getBoundingClientRect().left,
+            parts: [...identity.children].map((part) => ({ part: part.id || part.className, right: isClipped ? Math.min(part.getBoundingClientRect().right, edge.right) : part.getBoundingClientRect().right })),
+          };
+        });
+        expect(drawn.picture, "the picture is whole").toBeLessThanOrEqual(drawn.identity + 0.5);
+        for (const { part, right } of drawn.parts) expect(right, part + " ends before the switch").toBeLessThanOrEqual(drawn.views + 0.5);
+
+        // Assert: every control of the row lies in the panel.
+        const panel = await box(page.locator(".context-pane"));
+        const inPanel = async (control: Locator) => {
+          const each = await box(control);
+          const name = await control.evaluate((element) => element.getAttribute("aria-label") || element.textContent);
+          expect(each.x, name + " in the panel").toBeGreaterThanOrEqual(panel.x - 0.5);
+          expect(each.x + each.width, name + " in the panel").toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+          expect(each.y + each.height, name + " in the panel").toBeLessThanOrEqual(panel.y + panel.height + 0.5);
+        };
+        await expect(header(page).locator(".panel-corner button")).toBeVisible();
+        await expect(header(page).getByRole("switch", { name: "AFK mode", exact: true })).toBeVisible();
+        for (const control of await header(page).locator(".panel-top button:visible").all()) await inPanel(control);
+
+        // Assert: Update is on the line under the row, in the panel.
+        if (isUpdateWaiting) {
+          const update = page.locator(".cfo-header-line").getByRole("button", { name: "Cancel the Claude Code update", exact: true });
+          expect((await box(update)).y).toBeGreaterThanOrEqual(row.y + row.height);
+          await inPanel(update);
+        }
+      });
+    }
+  }
+}
+
 test("a goblin's name is cut short in the header row, never wrapped, and shows whole in its Task view", async ({ page }) => {
   // Arrange
   await page.setViewportSize({ width: 360, height: 900 });

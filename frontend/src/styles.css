@@ -478,8 +478,10 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 /* A notice above the board, as a newer board served or the line after a
    restart, keeps its height. */
 .app-shell > .notice { flex: none; }
-/* What Open in terminal met, under the panel row's end, over what is below. */
-.window-feedback { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); }
+/* What Open in terminal met, a refusal of the CFO's AFK switch, and what a
+   press of Restart PC or Update met, under its row's end, over what is
+   below, so it never widens the row or pushes the conversation down. */
+.window-feedback, .panel-leading > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); }
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .notice { flex: 1 0 100%; margin: 0; }
@@ -1397,10 +1399,12 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    of the selector equally, so it sits in the middle while both fit. Past
    that the controls keep what they show (see PanelRow), and give a control to
    More only once the name is down to its first letters, and never what always
-   shows: the AFK switch, More and Close or Back. */
+   shows: the AFK switch, More and Close or Back. The identity never narrows
+   past its picture, and cuts the name and the mark at its own edge, so
+   neither is drawn under the selector. */
 .panel-header.one-row { display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
 .panel-header.one-row .panel-identity > .goblin-avatar { flex: none; width: 32px; height: 32px; }
-.one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 0; }
+.one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
 .one-row h2 { flex: 0 1 auto; min-width: 0; font-size: 1.25rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .one-row .panel-identity > .mark { flex: none; width: 26px; height: 26px; }
 .one-row .panel-identity > .mark :is(svg, .icon) { width: 15px; height: 15px; }
@@ -1410,6 +1414,12 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
 .fills-phone .one-row .panel-identity > .mark { width: 22px; height: 22px; }
 .fills-phone .one-row .panel-identity > .mark :is(svg, .icon) { width: 13px; height: 13px; }
+/* The CFO's rare states, Restart PC, Update and the words for a switch that
+   cannot be read, take a line of their own under its header's row, at the
+   row's end, and the line takes no room while none of them shows. */
+.cfo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
+.cfo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
+.fills-phone .cfo-header-line { margin-inline: 6px; }
 /* The goblin's whole name and task id, which the row may cut short, open its
    Task view. */
 .panel-whole-name { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
@@ -1418,7 +1428,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    dropdown or a row of its own. */
 .panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 3px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
 .goblin-panel > .panel-top { order: 0; }
-.goblin-panel > .panel-header { order: 1; }
+.goblin-panel > :is(.panel-header, .cfo-header-line) { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
 .panel-view-switch > button { display: inline-grid; place-items: center; width: 38px; min-height: 34px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }

@@ -241,16 +241,16 @@ Four days into a boot its pools held 10.96 GB, and with every goblin paused it h
 A goblin's terminal holds about 0.8 GB (six measured, 0.70 to 1.06) and a run in the heavy line up to 2.5 GB, the line's own record, so two goblins at work, one of them in a heavy run, need 4.1 GB above the 4 GB floor: 8.1 GB free with no goblin, 3.3 GB more than those pools left.
 The line is 10.96 less 3.3, 7.66 GB, kept at 7.5 so the board offers the restart before the fleet falls to one goblin at a time.
 
-Past the line the CFO panel's header shows **Restart PC** before Update and the AFK switch, on the board on this PC only: a board at any other address, his private board included, never shows it, as it never turns AFK mode on.
+Past the line **Restart PC** shows on the line under the CFO panel's header row, before Update, on the board on this PC only: a board at any other address, his private board included, never shows it, as it never turns AFK mode on.
 His press asks once, in a question that lists what the restart does, with Cancel focused, and his Restart PC sends `POST /api/pc/restart`.
-Past the token and origin checks the supervisor takes it only from a board it proves the Overlord's own on this PC, as it proves one for AFK mode's on, refusing a press through his private board, through a proxy or from a browser an agent started with one short sentence beside the button while the CFO is told what it found.
+Past the token and origin checks the supervisor takes it only from a board it proves the Overlord's own on this PC, as it proves one for AFK mode's on, refusing a press through his private board, through a proxy or from a browser an agent started with one short sentence under the button while the CFO is told what it found.
 It refuses a press while the pools are under the line, on a board that cannot restart the PC, such as an example board, and while a restart runs.
 Then, in order, it:
 
 1. Tells the CFO first, with a `memory` wake keyed `restart`: what the pools hold, what happens next, and to start, resume and merge nothing and end its turn.
 2. Waits up to two minutes for a start or a change of a goblin under way to end, while nothing starts, resumes, pauses at the memory floor or comes back by itself, and the Overlord's own Starts and Resumes wait their turn.
 3. Pauses every working goblin at once through `cfo pause <id> --reason restart --until <when this sign-in began>`, which has each write its handoff before its terminal stops, as every pause does, and pauses a helper with its parent. A goblin whose latest report is `done` with a pull request and that took no prompt since, as one the CFO steers back to work takes, waits on its merge and is not paused, so no resume brings it back after the sign-in. A restart pause aborts the goblin's open gate run after keeping its commits, as every pause but a memory pause does.
-4. Reads back that each is paused for the restart. One that is not stops the restart short: Windows is not restarted, a few words beside Restart PC say so for a moment and it is offered again, the CFO is told why, and the goblins already paused stay paused until the PC restarts or they are resumed.
+4. Reads back that each is paused for the restart. One that is not stops the restart short: Windows is not restarted, a few words under Restart PC say so for a moment and it is offered again, the CFO is told why, and the goblins already paused stay paused until the PC restarts or they are resumed.
 5. Ends every run still in the machine's heavy line, holding a turn or waiting for one, each by its process id once that process proves to be a `cfo` or `goblins` run, whose command ends with it in its job and whose turn goes back to the line.
 6. Waits up to three minutes for the CFO's turn to end, as Update waits for it.
 7. Tells the CFO what the restart did, then restarts Windows with `InitiateShutdown`, closing no app by force, so one with unsaved work asks him first, and starting again after he signs in each app registered to be.
@@ -508,9 +508,10 @@ When AFK mode turns off nothing opens over the board: the stretch becomes his pa
 See [AFK mode in the README](../README.md#afk-mode) for what the page shows.
 Selecting a card or node opens the same goblin panel from either view: a one-row header with the goblin and icon actions, then one view with no tabs, the Overlord's ask of 2026-10-23: the goblin's messages or its live terminal, with its task list beside them on a panel 900 px wide or more, and folded under the header as Task on a narrower one or a small screen ([The Messages view](#the-messages-view)).
 The CFO's header carries the toggle of AFK mode in its one row, before the panel's controls: a small switch labelled AFK, in the board's green while it is on.
-The turn-on question focuses Cancel, and a switch that cannot be read shows off, with Unreadable: a press resets it in muted words beside it.
-The [README](../README.md#afk-mode) describes the switch's loading and refusal displays.
+The turn-on question focuses Cancel, and a switch that cannot be read shows off, with Unreadable: a press resets it in muted words on a line of their own under the row, the line Restart PC and Update share while either shows, so the row keeps its room.
+The [README](../README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the row's end, over the conversation, so it neither widens the row nor moves the conversation down.
 On a panel at its narrowest the row cuts the CFO's name short and puts the panel's other controls in More rather than cover or hide the toggle, so it is there at every width.
+The name, the harness's mark and a goblin's task id are cut at the edge of their own part of the row, which never narrows past the session's picture, so none of them is drawn under the Chat and Task switch.
 While AFK mode is off and his page of the last stretch is in his Command Center, **Open your last AFK report** at the top of the CFO's Task view opens that page again, from the snapshot's `afk.page`.
 The status at the top of the panel's Task view is the one place the panel says the task's state (`frontend/src/task-words.ts` translates what the fleet wrote, at display time, and changes no record).
 A resume or stop whose lifecycle record failed reads Resume failed or Stop failed, whatever the goblin's own last report says, on its card, node and panel alike.
@@ -755,7 +756,7 @@ Scrolling such a pane counts as working in the board, like typing: a view that d
 Herdr's frames carry no mouse modes, so a click never reaches the program and Claude Code's "Jump to bottom (ctrl+End)" note cannot be pressed; instead, a plain click (under 4 px of movement, not a drag or a selection) on a pane the board has scrolled up and could scroll now sends Ctrl+End, which jumps it back to its bottom, and Ctrl+End typed in the view does the same.
 The jump waits out the double-click interval, 300 ms after the release, and a further press in that time cancels it, so a double-click or triple-click selects the word or line it aimed at; a click on a pane the view does not hold, such as one a review gate owns, does nothing.
 A NUL key such as Ctrl+Space is typed like any other key.
-Shift+Escape moves keyboard focus out of the terminal to the panel's top row; ordinary Escape stays with the pane.
+Shift+Escape moves keyboard focus out of the terminal to the panel's first control, never to the CFO's AFK switch that leads them; ordinary Escape stays with the pane.
 Releasing a drag selection copies it to the clipboard, the way Herdr does, and Ctrl+Shift+C, or Ctrl+C while text is selected, copies the current selection.
 Closing, switching, disconnecting or restarting invalidates the lease; reconnection starts with a full screen frame, never replayed input.
 At most eight views are open, frame gaps disconnect, and oversized UTF-8 paste is rejected before sending.
@@ -946,7 +947,7 @@ The board keeps these keys for itself:
 | --- | --- |
 | Ctrl+Plus, Ctrl+Minus, Ctrl+0 | Steps or restores the font size |
 | Ctrl+Shift+Space, held | Dictates |
-| Shift+Escape | Leaves the terminal for the panel's top row |
+| Shift+Escape | Leaves the terminal for the panel's first control |
 | Ctrl+Alt+Up, Ctrl+Alt+Down, Ctrl+Alt+1 to 9 | Switches terminals |
 | Ctrl+V, Ctrl+Shift+V, Shift+Insert | Pastes |
 | Ctrl+Shift+C, Ctrl+Insert, Ctrl+C while text is selected | Copies |
@@ -1455,7 +1456,7 @@ The page of 50 before the first message held is read once he reads within 600 px
 A read that fails is asked again on his next approach to the top, no sooner than five seconds after it, until three in a row have failed, and then not until the stream reconnects.
 Ctrl+Plus, Ctrl+Minus and Ctrl+0, the right button held with the wheel, or the wheel with Ctrl and Shift held, size the message text a pixel at a time between 12 and 28 px from 16 px.
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
-Shift+Escape leaves the messages for the panel's top row, as it leaves a terminal, and Escape does what the corner button does.
+Shift+Escape leaves the messages for the panel's first control, never the CFO's AFK switch that leads them, as it leaves a terminal, and Escape does what the corner button does.
 The messages lie where the terminal deck lies, under the panel's one-row header, beside its task list, in the same flex and under the same rule (`frontend/src/panel-stage.tsx`), so their box is the terminal's.
 Stepping the terminal in or out therefore never asks it for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
 It stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.
@@ -1555,11 +1556,11 @@ An update waits when the harness's own footer under its composer says so, which 
 For Claude Code that install is `claude.exe`, which its installer writes again on every update.
 For Codex and pi it is the package npm installed under the shim `codex.cmd` or `pi.cmd` on PATH, read from its `package.json`, since npm writes a shim only when it links the bin and their own updaters, `codex update` and `pi update`, rewrite the package instead, so a shim npm linked again is no update and a package either route installed is one.
 Codex and pi announce only an update that is available, which a restart does not install, so for them the install is the signal; the same words above the composer are the conversation and never count.
-While one waits, the snapshot's `cfo_update` puts **Update** before the AFK switch in the CFO panel's header, and a task's `harness_update` puts it among the goblin's controls, on its card and in its panel.
+While one waits, the snapshot's `cfo_update` puts **Update** on a line of its own under the CFO panel's header row, at its end, and a task's `harness_update` puts it among the goblin's controls, on its card and in its panel.
 Nothing restarts until the Overlord presses it: an update waiting only shows the button, AFK mode never presses it, and the CFO never does.
 The CFO's press, `POST /api/cfo/update`, is kept in `state/cfo-update.json` for the CFO whose terminal's host started then, and `{"cancel":true}` takes it back.
 The supervisor restarts the CFO onto the update through the Restart CFO path, on its own conversation (`claude --resume <id>`, `codex resume <id>`, `pi --session <id>`), once its turn has ended on two readings a second apart: no dialog shows, its composer is empty, no background shell or monitor waits, and either its Stop hook waits on the wake queue, proved by the hook holding `state/.claude-autoarm.lock` under the registered CFO's own harness, or no turn or tool runs.
-Until then the button reads Cancel update beside a clock and the CFO's Task view says the CFO restarts when its turn ends; a press for a CFO whose terminal was replaced since is dropped, and a restart that fails says why under the header and leaves the CFO running.
+Until then the button reads Cancel update beside a clock and the CFO's Task view says the CFO restarts when its turn ends; a press for a CFO whose terminal was replaced since is dropped, and a restart that fails says why in a few words under Update for a moment, over the conversation, and leaves the CFO running.
 A goblin's press is a pending engine choice with `when` `update` and its own harness, model and effort, shown on its card, which applies at the end of its turn as a deferred switch does and runs `cfo switch <id> --generation <generation> --restart`.
 `--restart` starts the goblin's own harness, model and effort again in place while it runs, which a same-values switch otherwise refuses, on its own conversation, `pi --session <id>` for a pi goblin as `claude --resume <id>` and `codex resume <id>` for the others.
 

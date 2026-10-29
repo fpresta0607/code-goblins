@@ -398,7 +398,9 @@ test("an older page that fails to arrive goes to the CFO and is asked for again 
   expect(board.older).toEqual(["50"]);
 });
 
-test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes to the pill and Escape goes back", async ({ page }) => {
+// Shift+Escape goes to the panel's first control, never to the AFK switch
+// that leads the CFO's, where a Space would turn AFK off with no question.
+test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes to the panel's first control, not the AFK switch, and Escape goes back", async ({ page }) => {
   await open(page);
   await openCfo(page);
   const talk = list(page, "CFO");
@@ -410,8 +412,13 @@ test("Shift with Page Up and Page Down scrolls the messages, Shift+Escape goes t
   await expect.poll(async () => (await scroll(talk)).top).toBeLessThan(top - 200);
   await page.keyboard.press("Shift+PageDown");
   await expect.poll(async () => (await scroll(talk)).top).toBeGreaterThan(top - 50);
+  await send(page, "snapshot", { ...SNAPSHOT, revision: 2, afk: { state: "on", since: new Date().toISOString(), from: "his own board", decided: 0, held: [] } });
+  const afk = page.locator(".context-pane").getByRole("switch", { name: "AFK mode" });
+  await expect(afk).toHaveAttribute("aria-checked", "true");
+  await talk.focus();
   await page.keyboard.press("Shift+Escape");
-  await expect(page.locator(".context-pane .panel-top button:not(:disabled)").first()).toBeFocused();
+  await expect(afk).not.toBeFocused();
+  await expect(page.locator(".context-pane").getByRole("button", { name: "Maximize the panel", exact: true })).toBeFocused();
   await expect(page.locator("#panel-title")).toHaveText("CFO");
   await talk.focus();
   await page.keyboard.press("Escape");

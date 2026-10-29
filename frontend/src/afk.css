@@ -9,8 +9,6 @@
    in the CFO panel's one header row, so it is there at every width. On
    wears the board's green. */
 .afk-header { display: flex; align-items: center; gap: 8px; flex: none; }
-.afk-header .icon-button { width: 36px; height: 36px; min-height: 36px; }
-.afk-header .icon-button .icon { width: 18px; height: 18px; }
 .afk-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px 4px 12px; border-radius: 999px; background: var(--field-bg); color: var(--muted); font-family: var(--font-display); font-size: 1rem; white-space: nowrap; }
 .afk-toggle:hover:not(:disabled) { color: #edf4f3; border-color: var(--glass-border-hover); }
 .afk-toggle-track { position: relative; flex: none; width: 34px; height: 20px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--ghost-bg); transition: background .15s ease, border-color .15s ease; }
@@ -20,9 +18,7 @@
 .afk-toggle[aria-checked="true"] .afk-toggle-thumb { transform: translateX(14px); background: #03130c; }
 @media (prefers-reduced-motion: reduce) { .afk-toggle-track, .afk-toggle-thumb { transition: none; } }
 .afk-toggle .card-start-spinner { flex: none; }
-/* A refusal of his switch, or the CFO's pending update, takes a row of its
-   own under the header; in a dialog a refusal sits under its words. */
-.panel-header > .notice { flex: 1 0 100%; margin: 8px 0 0; }
+/* In a dialog a refusal of his switch sits under its words. */
 .afk-dialog > .notice { margin: 16px 0 0; }
 
 /* A button that waits on the supervisor says so: its spinner, then what it

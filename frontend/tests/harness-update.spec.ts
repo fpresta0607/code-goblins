@@ -29,6 +29,8 @@ async function open(page: Page, first: object): Promise<Sent[]> {
 }
 
 const header = (page: Page) => page.locator(".panel-header");
+// The line under the CFO's header row, which holds its Update.
+const line = (page: Page) => page.locator(".cfo-header-line");
 const card = (page: Page) => page.locator(".task-card-shell").filter({ hasText: "Export invoices as CSV" });
 const panel = (page: Page) => page.locator(".goblin-panel");
 
@@ -49,18 +51,21 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
   test.describe(`at ${width} px`, () => {
     test.use({ viewport: { width, height } });
 
-    test("the CFO's header offers Update beside the AFK switch while an update waits, and his press asks for it once", async ({ page }, testInfo) => {
+    test("the CFO's header offers Update on a line under its row while an update waits, and his press asks for it once", async ({ page }, testInfo) => {
       // Arrange
       const sent = await open(page, snapshot({ cfo_update: WAITING }));
       await openCfoPanel(page);
-      const update = header(page).getByRole("button", { name: "Update Claude Code" });
+      const update = line(page).getByRole("button", { name: "Update Claude Code" });
 
-      // Assert: beside the switch, on one row with it at every width.
+      // Assert: on a line of its own right under the header's row, at the
+      // row's end, at every width, so the row keeps the AFK switch and Close.
       await expect(update).toBeVisible();
-      await header(page).screenshot({ path: testInfo.outputPath(`cfo-header-update-${width}.png`) });
-      const button = (await update.boundingBox())!, toggle = (await header(page).getByRole("switch", { name: "AFK mode" }).boundingBox())!;
-      expect(Math.abs(button.y + button.height / 2 - (toggle.y + toggle.height / 2))).toBeLessThan(4);
-      expect(toggle.x - (button.x + button.width)).toBeLessThan(32);
+      await panel(page).screenshot({ path: testInfo.outputPath(`cfo-header-update-${width}.png`) });
+      const button = (await update.boundingBox())!, row = (await header(page).boundingBox())!, corner = (await header(page).locator(".panel-corner").boundingBox())!;
+      expect(button.y).toBeGreaterThanOrEqual(row.y + row.height - 0.5);
+      expect(button.y - (row.y + row.height)).toBeLessThan(12);
+      expect(Math.abs(button.x + button.width - (corner.x + corner.width))).toBeLessThanOrEqual(1);
+      await expect(header(page).getByRole("switch", { name: "AFK mode" })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 
       // Act
@@ -100,15 +105,15 @@ for (const [width, height] of [[1280, 800], [390, 844]]) {
 test.describe("once pressed", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  // The header is one row, so the button there shows the press waits, and the
-  // CFO's Task view says for what.
+  // The header is one row, so the button under it shows the press waits, and
+  // the CFO's Task view says for what.
   test("the CFO's header shows the restart waits, its Task view says for the end of its turn, and a second press takes it back", async ({ page }, testInfo) => {
     // Arrange
     const sent = await open(page, snapshot({ cfo_update: { ...WAITING, pending: true } }));
     await openCfoPanel(page);
 
     // Assert
-    await expect(header(page).getByRole("button", { name: "Cancel the Claude Code update" })).toHaveText("Cancel update");
+    await expect(line(page).getByRole("button", { name: "Cancel the Claude Code update" })).toHaveText("Cancel update");
     await expect(header(page).getByRole("status").filter({ hasText: "Restarts onto" })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("cfo-header-update-pending.png") });
     await header(page).getByRole("button", { name: "Task", exact: true }).click();
@@ -116,7 +121,7 @@ test.describe("once pressed", () => {
     await header(page).getByRole("button", { name: "Chat", exact: true }).click();
 
     // Act
-    await header(page).getByRole("button", { name: "Cancel the Claude Code update" }).click();
+    await line(page).getByRole("button", { name: "Cancel the Claude Code update" }).click();
 
     // Assert
     await expect.poll(() => sent).toEqual([{ path: "/api/cfo/update", body: { cancel: true }, token: "fixture" }]);

@@ -361,11 +361,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     box.focus({ preventScroll: true });
   };
   const keys = (event: KeyboardEvent<HTMLElement>) => {
-    // Shift+Escape leaves the messages for the panel's top row, as it leaves a
-    // terminal.
+    // Shift+Escape leaves the messages for the panel's first control, as it
+    // leaves a terminal, never for what leads the controls, the CFO's AFK
+    // switch.
     if (event.shiftKey && event.key === "Escape") {
       event.preventDefault();
-      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled)")?.focus();
+      event.currentTarget.closest(".context-pane")?.querySelector<HTMLButtonElement>(".panel-top button:not(:disabled, .panel-leading *)")?.focus();
       return;
     }
     const box = list.current;
