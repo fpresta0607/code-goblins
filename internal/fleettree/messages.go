@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -466,9 +467,42 @@ func (l *messageLog) readWhole(epoch func() uint64) {
 			l.wholeErr = err
 			return
 		}
-		l.messageState = whole.messageState
-		l.epoch = epoch()
+		l.adopt(whole.messageState, epoch)
 	}()
+}
+
+// adopt puts what a read of the whole conversation found in place of what
+// the read of its tail found. When the whole holds each message of the tail
+// at its seq, a view of the tail holds nothing it does not: the read keeps
+// its epoch, so a view is sent no page again, and only a message the whole
+// reads otherwise, or read on to, counts as changed. Otherwise, as when the
+// tail held no message, it is a read of a new epoch. The caller holds l.mu.
+func (l *messageLog) adopt(whole messageState, epoch func() uint64) {
+	tail := l.messageState
+	l.messageState = whole
+	at := 0
+	if len(tail.messages) > 0 {
+		at = l.end(tail.messages[0].Seq)
+	}
+	isHeld := len(tail.messages) > 0 && len(l.messages)-at >= len(tail.messages)
+	for j := 0; isHeld && j < len(tail.messages); j++ {
+		isHeld = l.messages[at+j].Seq == tail.messages[j].Seq && l.messages[at+j].ID == tail.messages[j].ID
+	}
+	if !isHeld {
+		l.epoch = epoch()
+		return
+	}
+	l.epoch, l.revision = tail.epoch, tail.revision+1
+	for i := range l.changed {
+		switch j := i - at; {
+		case j < 0:
+			l.changed[i] = 0
+		case j < len(tail.messages) && reflect.DeepEqual(l.messages[i], tail.messages[j]):
+			l.changed[i] = tail.changed[j]
+		default:
+			l.changed[i] = l.revision
+		}
+	}
 }
 
 // entry folds one transcript entry, at offset in the file, into the log. A
@@ -480,6 +514,11 @@ func (l *messageLog) entry(line []byte, offset int64) {
 	}
 	var entry messageEntry
 	if json.Unmarshal(line, &entry) != nil || entry.IsSidechain {
+		return
+	}
+	// A read of a tail begins at its first prompt, interrupt or compaction:
+	// an answer or a summary before them may have begun before the tail.
+	if l.from > 0 && len(l.messages) == 0 && (entry.Type == "assistant" || entry.IsCompactSummary) {
 		return
 	}
 	id := entry.UUID

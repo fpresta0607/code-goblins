@@ -162,19 +162,26 @@ func numbered(t *testing.T, path string, messages []Message) []Message {
 	return named
 }
 
-// longConversation is a conversation longer than a tail's reach: a first
-// prompt with a picture and an answer whose call is settled past the reach,
-// what Claude Code keeps for its model alone, then sixty prompts, the last
-// with a picture, and the answer to it.
-func longConversation() []any {
-	first := answer("a1", "msg_first", useBlock("toolu_1", "Bash", object{"command": "go test ./..."}))
-	first["message"].(object)["usage"] = object{"input_tokens": 1000, "output_tokens": 10}
-	entries := []any{prompted("u-first", []object{imageBlock([]byte("the first picture")), textBlock("the first words")}), first}
+// beyondTheTail is what Claude Code keeps for its model alone, past a tail's
+// reach.
+func beyondTheTail() []any {
 	kept := `{"type":"api-request-blob","sessionId":"session-1","message":{"content":"` + strings.Repeat("x", 64<<10) + `"}}`
+	var entries []any
 	for range messageTailReach/len(kept) + 16 {
 		entries = append(entries, kept)
 	}
-	entries = append(entries, answered("u-result", "toolu_1", "ok", object{"stdout": "ok"}, nil))
+	return entries
+}
+
+// longConversation is a conversation longer than a tail's reach: a first
+// prompt with a picture and an answer whose call is settled, and whose last
+// block is written, past the reach, then sixty prompts, the last with a
+// picture, and the answer to it.
+func longConversation() []any {
+	first := answer("a1", "msg_first", useBlock("toolu_1", "Bash", object{"command": "go test ./..."}))
+	first["message"].(object)["usage"] = object{"input_tokens": 1000, "output_tokens": 10}
+	entries := append([]any{prompted("u-first", []object{imageBlock([]byte("the first picture")), textBlock("the first words")}), first}, beyondTheTail()...)
+	entries = append(entries, answered("u-result", "toolu_1", "ok", object{"stdout": "ok"}, nil), answer("a1-end", "msg_first", textBlock("The suite passed.")))
 	for i := range 59 {
 		entries = append(entries, prompted("u"+strconv.Itoa(i), "prompt "+strconv.Itoa(i)))
 	}
@@ -185,8 +192,9 @@ func longConversation() []any {
 
 // A long conversation's newest page comes from a read of its tail, and the
 // read of the whole conversation beside it changes nothing a view holds: each
-// message keeps its seq, id and pictures, the view takes the page anew once,
-// and the older pages and what the session spent come from the whole.
+// message keeps its seq, id and pictures, a view following the tail's page is
+// sent nothing again, an answer begun before the tail shows only whole, and
+// the older pages and what the session spent come from the whole.
 func TestALongConversationReadsTheSameOnceReadWhole(t *testing.T) {
 	// Arrange
 	home := t.TempDir()
@@ -199,7 +207,7 @@ func TestALongConversationReadsTheSameOnceReadWhole(t *testing.T) {
 
 	// Act
 	older, _, olderErr := reader.MessagePage(path, newest.Messages[0].Seq)
-	_, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	changed, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
 	again, _, againErr := reader.MessagePage(path, -1)
 
 	// Assert
@@ -209,8 +217,8 @@ func TestALongConversationReadsTheSameOnceReadWhole(t *testing.T) {
 	if olderErr != nil || len(older.Messages) != 13 || older.More || older.Messages[0].Text != "the first words" || older.Messages[12].Text != "prompt 10" || newest.Messages[0].Text != "prompt 11" {
 		t.Fatalf("the page before the newest = %d messages, more %t, %v; want the first words to prompt 10 and no more", len(older.Messages), older.More, olderErr)
 	}
-	if call := older.Messages[1].Blocks[0]; call.State != CallDone || call.Result != "ok" {
-		t.Errorf("the first answer's call = %+v; want it done with the result read past the tail's reach", call)
+	if first := older.Messages[1]; len(first.Blocks) != 2 || first.Blocks[0].State != CallDone || first.Blocks[0].Result != "ok" || first.Blocks[1].Text != "The suite passed." {
+		t.Errorf("the first answer = %+v; want its call done with the result read past the tail's reach, and its last block", first.Blocks)
 	}
 	held := append(slices.Clone(older.Messages), newest.Messages...)
 	for i := 1; i < len(held); i++ {
@@ -219,8 +227,8 @@ func TestALongConversationReadsTheSameOnceReadWhole(t *testing.T) {
 			break
 		}
 	}
-	if sinceErr != nil || !isAnew {
-		t.Errorf("MessagesSince the tail's page = anew %t, %v; want the view to take the page anew", isAnew, sinceErr)
+	if sinceErr != nil || isAnew || len(changed) != 0 {
+		t.Errorf("MessagesSince the tail's page = %d changed, anew %t, %v; want nothing sent again", len(changed), isAnew, sinceErr)
 	}
 	if againErr != nil || !reflect.DeepEqual(again.Messages, newest.Messages) {
 		t.Errorf("the newest page once read whole = %+v, %v\nwant the tail's page %+v", again.Messages, againErr, newest.Messages)
@@ -241,6 +249,58 @@ func TestALongConversationReadsTheSameOnceReadWhole(t *testing.T) {
 		if _, data, err := reader.MessagePicture(path, tc.message.Pictures[0].ID); err != nil || string(data) != tc.want {
 			t.Errorf("MessagePicture(%s) = %q, %v; want %q", tc.message.Pictures[0].ID, data, err, tc.want)
 		}
+	}
+}
+
+// A message written while a long conversation is read whole comes to a view
+// of its tail's page as a change, the same as one written later, whichever
+// read finds it.
+func TestAMessageWrittenWhileTheWholeIsReadComesAsAChange(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	path := conversation(t, home, longConversation()...)
+	reader := Reader{Home: home}
+	newest, cursor, err := reader.MessagePage(path, -1)
+	if err != nil || len(newest.Messages) == 0 {
+		t.Fatalf("MessagePage = %d messages, %v; want the newest page", len(newest.Messages), err)
+	}
+	appendLines(t, path, prompted("u-new", "written meanwhile"))
+
+	// Act
+	_, _, olderErr := reader.MessagePage(path, newest.Messages[0].Seq)
+	changed, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+
+	// Assert
+	if olderErr != nil || sinceErr != nil || isAnew || len(changed) != 1 || changed[0].ID != "u-new" {
+		t.Errorf("MessagesSince = %+v, anew %t, %v, %v; want the prompt written meanwhile alone", changed, isAnew, sinceErr, olderErr)
+	}
+}
+
+// A long conversation whose tail begins no message, an answer begun before
+// it and nothing after, shows nothing from the tail and has a view take the
+// newest page anew once the whole is read.
+func TestALongConversationWhoseTailHoldsNoMessageIsPagedAnew(t *testing.T) {
+	// Arrange
+	home := t.TempDir()
+	entries := append([]any{prompted("u1", "map the repo"), answer("a1", "msg_1", textBlock("Reading it."))}, beyondTheTail()...)
+	path := conversation(t, home, append(entries, answer("a2", "msg_1", textBlock("It holds two packages.")))...)
+	reader := Reader{Home: home}
+	tail, cursor, err := reader.MessagePage(path, -1)
+
+	// Act
+	_, _, beforeErr := reader.MessagePage(path, 0)
+	_, _, isAnew, sinceErr := reader.MessagesSince(path, cursor)
+	whole, _, wholeErr := reader.MessagePage(path, -1)
+
+	// Assert
+	if err != nil || len(tail.Messages) != 0 || !tail.More {
+		t.Errorf("the tail's page = %+v, more %t, %v; want no message and more", tail.Messages, tail.More, err)
+	}
+	if beforeErr != nil || sinceErr != nil || !isAnew {
+		t.Errorf("MessagesSince once read whole = anew %t, %v, %v; want the view to take the page anew", isAnew, sinceErr, beforeErr)
+	}
+	if wholeErr != nil || len(whole.Messages) != 2 || whole.More || len(whole.Messages[1].Blocks) != 2 {
+		t.Errorf("the newest page once read whole = %+v, more %t, %v; want the prompt and its whole answer", whole.Messages, whole.More, wholeErr)
 	}
 }
 
