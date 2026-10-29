@@ -182,6 +182,83 @@ func TestPlacedLeavesABrowserALinkOpenedToTheOverlord(t *testing.T) {
 	}
 }
 
+// The supervisor is the fleet's own service, and nothing it runs is an
+// owner's start. On 2026-10-25 the start watch woke the CFO for its
+// terminal's loop of no-mistakes axi sync --check: the supervisor's own
+// gate-status reads, under a supervisor an update the CFO's terminal ran had
+// started. Its console host still carried that terminal's mark, and a read
+// in a goblin's worktree is that goblin's by its place, so whichever of them
+// answers first took the supervisor's whole tree (#1499). A supervisor that a
+// tool call of the CFO's still runs above is no work of the call's either.
+func TestPlacedPlacesNothingTheSupervisorRuns(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		owners map[int]string
+	}{
+		{"its console carries the CFO terminal's mark", map[int]string{801: "cfo", 802: "tree", 812: "tree"}},
+		{"its console carries no mark", map[int]string{802: "tree", 812: "tree"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			launched := at.Add(-time.Hour)
+			later := func(minutes int) time.Time { return launched.Add(time.Duration(minutes) * time.Minute) }
+			processes := append(goblinProcesses(launched, 0),
+				Process{PID: 600, ParentPID: 1, Exe: "claude.exe", Created: 60, Started: launched},
+				// A supervisor whose starter has exited, with its console and a
+				// gate-status read in the goblin's worktree.
+				Process{PID: 800, ParentPID: 908, Exe: "goblins.exe", Created: 80, Started: later(40)},
+				Process{PID: 801, ParentPID: 800, Exe: "conhost.exe", Created: 81, Started: later(40)},
+				Process{PID: 802, ParentPID: 800, Exe: "no-mistakes.exe", Created: 82, Started: later(50)},
+				Process{PID: 803, ParentPID: 802, Exe: "no-mistakes.exe", Created: 83, Started: later(50)},
+				// An update the CFO's tool call still runs, and the supervisor it
+				// started reading the same.
+				Process{PID: 610, ParentPID: 600, Exe: "bash.exe", Created: 61, Started: later(45)},
+				Process{PID: 611, ParentPID: 610, Exe: "goblins.exe", Created: 62, Started: later(45)},
+				Process{PID: 811, ParentPID: 611, Exe: "goblins.exe", Created: 63, Started: later(46)},
+				Process{PID: 812, ParentPID: 811, Exe: "no-mistakes.exe", Created: 64, Started: later(50)},
+			)
+			commands := maps.Clone(goblinCommands)
+			commands[800] = `C:\dev\code-goblins\bin\goblins.exe serve --listen 127.0.0.1:4310`
+			commands[801] = `\??\C:\WINDOWS\system32\conhost.exe 0x4`
+			commands[802] = `no-mistakes axi sync --check`
+			commands[803] = `no-mistakes --update-check`
+			commands[610] = `bash -c "eval 'goblins update'"`
+			commands[611] = `C:\dev\code-goblins\bin\goblins.exe update`
+			commands[811] = `C:\dev\code-goblins\update\previous-goblins.exe serve --listen 127.0.0.1:4310`
+			commands[812] = `no-mistakes axi sync --check`
+			reader := Reader{
+				Processes:   func() ([]Process, error) { return processes, nil },
+				CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+				Owner:       func(pid int) string { return test.owners[pid] },
+			}
+			owners := []Goblin{
+				{Meta: state.TaskMeta{ID: "tree"}, HarnessPID: 100},
+				{Meta: state.TaskMeta{ID: "cfo"}, HarnessPID: 600},
+			}
+
+			// Act
+			placed, err := reader.Placed(owners)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := map[int]string{}
+			for _, process := range placed {
+				owner[process.PID] = process.Owner
+			}
+			for _, pid := range []int{800, 801, 802, 803, 811, 812} {
+				if mine, isPlaced := owner[pid]; isPlaced {
+					t.Errorf("process %d (%s) placed as %s's, want the supervisor's own work placed as nobody's", pid, commands[pid], mine)
+				}
+			}
+			if owner[610] != "cfo" || owner[611] != "cfo" || owner[107] != "tree" {
+				t.Errorf("placed = %v, want the CFO's update call and the goblin's own work still placed", owner)
+			}
+		})
+	}
+}
+
 // The Overlord's browser a link opened under a goblin's harness is his, so
 // its memory is none of the goblin's either, though the opener that started
 // it is the goblin's job and still runs (#1007).

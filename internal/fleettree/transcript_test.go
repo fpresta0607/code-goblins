@@ -1,11 +1,14 @@
 package fleettree
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 // On 2026-09-29 the monitor woke the CFO about two native Codex goblins with
@@ -83,5 +86,37 @@ func TestSessionTranscriptFindsEachHarnessTranscript(t *testing.T) {
 		if got := SessionTranscript(home, test.harness, test.session); (got != "") != test.want {
 			t.Errorf("SessionTranscript(%s, %q) = %q, want found %v", test.harness, test.session, got, test.want)
 		}
+	}
+}
+
+// A goblin's Claude Code conversation is read from the folder Claude Code
+// keeps for its worktree, and no other folder is looked in: on 2026-10-28 a
+// look in each of the 1,273 folders took 10,196 file operations, for each of
+// 13 live goblins every 15 seconds (#1716). A file of the same name another
+// folder holds is not taken for it, even written later, and a conversation
+// its own folder does not hold is still found wherever it is.
+func TestAGoblinsConversationIsReadFromItsWorktreesOwnFolder(t *testing.T) {
+	// Arrange: the worktree's folder holds conversation a1b2, another folder
+	// a file of the same name written an hour later, and conversation c3d4.
+	home := t.TempDir()
+	projects := filepath.Join(home, ".claude", "projects")
+	own := filepath.Join(projects, "D--Goblins-worktrees-code-goblins-olive-task", "a1b2.jsonl")
+	elsewhere := filepath.Join(projects, "C--dev-elsewhere", "c3d4.jsonl")
+	writeFile(t, own, "{}\n", at)
+	writeFile(t, filepath.Join(projects, "C--dev-elsewhere", "a1b2.jsonl"), "{}\n", at.Add(time.Hour))
+	writeFile(t, elsewhere, "{}\n", at)
+	reader := &Reader{Home: home}
+	for _, test := range []struct{ session, want string }{{"a1b2", own}, {"c3d4", elsewhere}} {
+		t.Run(test.session, func(t *testing.T) {
+			goblin := Goblin{Meta: state.TaskMeta{ID: "olive-task", Harness: "claude", Worktree: `D:\Goblins\worktrees\code-goblins\olive-task`}, Session: test.session}
+
+			// Act
+			got := reader.Conversation(context.Background(), goblin)
+
+			// Assert
+			if got != test.want {
+				t.Errorf("conversation %s read from %q, want %q", test.session, got, test.want)
+			}
+		})
 	}
 }
