@@ -50,6 +50,7 @@ test("a waiting row says what it waits for in a few words, at the queued dot", (
     ["a task, by its goblin's name", [{ kind: "task", target: "other-task" }], "Waits for Nina - Bug Hunter"],
     ["a task the board does not show, by its id", [{ kind: "task", target: "later-task" }], "Waits for later-task"],
     ["a pull request", [{ kind: "pr", target: "https://github.com/o/r/pull/7" }], "Waits for PR #7 to merge"],
+    ["a hold", [{ kind: "hold", target: "Wait for the current board task to land" }], "Held: Wait for the current board task to land"],
     ["a wait it cannot read", [{ kind: "task", target: "quiet-night", problem: "No task is named \"quiet-night\"" }], "No task is named \"quiet-night\""],
     ["more than one wait", [{ kind: "memory", target: "memory 12 GB", bytes: 12 * GB }, { kind: "task", target: "other-task" }], "Waits for 12 GB free, and 1 more"],
   ];
