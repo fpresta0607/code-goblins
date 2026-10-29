@@ -132,11 +132,15 @@ test.describe("his messages in the chat's one scroll", () => {
   }
 
   // Two messages of the same words are two messages: the record's one row
-  // reads the first, and the second waits for a row of its own.
-  test("one record row reads one of two waiting messages of the same words, and the other keeps waiting with its controls", async ({ page }) => {
+  // reads the first, whether the board still has it on its way or has settled
+  // it, and the second waits for a row of its own. The first was typed into
+  // the working goblin; its gate then took the branch and holds the second.
+  test("one record row reads one of two messages of the same words, and the other keeps waiting with its controls once the first settles", async ({ page }) => {
     // Arrange
     const words = "yes, go ahead";
-    const relay = await open(page, snapshot({ actions: [queued({ id: "q1", text: words, created_at: "2026-10-22T09:01:00Z" }), queued({ id: "q2", text: words, created_at: "2026-10-22T09:02:00Z" })] }));
+    const first = queued({ id: "q1", text: words, status: "running", message: "Typed into the terminal.", awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z" }, created_at: "2026-10-22T09:01:00Z" });
+    const second = queued({ id: "q2", text: words, created_at: "2026-10-22T09:02:00Z" });
+    const relay = await open(page, snapshot({ actions: [first, second] }));
     await openGoblin(page);
     relay.say({ type: "screen", asking: false, open: false, working: true });
     await expect(entry(page)).toHaveCount(2);
@@ -149,6 +153,54 @@ test.describe("his messages in the chat's one scroll", () => {
     // Assert
     await expect(log(page).locator(".message-prompt", { hasText: words }).locator(".message-state")).toHaveText(await readAt(page, taken));
     await expect(entry(page)).toHaveCount(1);
+    await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+    for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
+
+    // Act: the board sees the take and settles the first.
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [{ ...first, status: "succeeded", awaiting: undefined }, second] }));
+
+    // Assert: the row is still the first's, and the second still waits.
+    await expect(page.locator(".queued-message.pane[data-queued=q1]")).toHaveCount(0);
+    await expect(page.locator(".queued-message.pane[data-queued=q2]")).toBeVisible();
+    await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+    for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
+    await expect(log(page).getByText(words, { exact: true })).toHaveCount(2);
+  });
+
+  // The record keeps a shell command he typed without its "!", as Claude Code
+  // writes it, and the row shows it as he typed it.
+  test("a shell command he typed while the session works is read by its command row", async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({ actions: [queued({ text: "!git status", status: "running", message: "Typed into the terminal.", awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z" }, created_at: "2026-10-22T09:01:00Z" })] }));
+    await openGoblin(page);
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(entry(page)).toBeVisible();
+
+    // Act
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+      { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: "2026-10-22T09:05:00Z", kind: "prompt", source: "shell", text: "git status", output: "On branch main" }] });
+
+    // Assert
+    await expect(log(page).locator(".message-prompt.shell")).toContainText("On branch main");
+    await expect(entry(page)).toHaveCount(0);
+    await expect(log(page).getByText("!git status", { exact: true })).toHaveCount(1);
+  });
+
+  // A row the CFO typed into the goblin is the CFO's, even in his words.
+  test("a later row of the CFO's in the same words does not read his waiting message", async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({ actions: [queued({ text: "merge main", created_at: "2026-10-22T09:01:00Z" })] }));
+    await openGoblin(page);
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(entry(page)).toBeVisible();
+
+    // Act: the CFO steers the goblin, "CFO: merge main".
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+      { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: "2026-10-22T09:05:00Z", kind: "prompt", source: "cfo", text: "merge main" }] });
+
+    // Assert
+    await expect(log(page).locator(".message-prompt.cfo", { hasText: "merge main" })).toBeVisible();
+    await expect(entry(page)).toBeVisible();
     await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
   });

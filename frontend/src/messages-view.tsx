@@ -51,11 +51,12 @@ const UNREAD = "The session's messages cannot be read";
 // query names the session as /api/messages takes it (messagesQuery), name is
 // whose replies they are, task is the goblin whose baby goblins its calls
 // open, absent for the CFO, terminal is the key of the session's terminal,
-// whose link stops a turn, and box is the message box under the
-// conversation.
-export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
+// whose link stops a turn, sent is every message of his to the session the
+// board knows, pending those of them that still wait, and box is the message
+// box under the conversation.
+export function MessagesView({ query, instance, name, task, terminal, harness, model, effort, isWorking, sent, pending, subscriptions, spend, shown, visible, onChild, onComposerDock, box }: {
   query: string; instance: string; name: string; task?: Task; terminal: string; harness: string; model: string; effort: string; isWorking: boolean;
-  pending: Action[];
+  sent: Action[]; pending: Action[];
   subscriptions?: SubscriptionUsage[]; spend?: KeySpend[];
   shown: boolean; visible: boolean; onChild: (child: TreeNode, source: HTMLElement) => void; box?: (model: string, history: string[], effort: string, usage: ReactNode) => ReactNode;
   onComposerDock?: (node: HTMLDivElement | null) => void;
@@ -420,23 +421,26 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     return () => document.removeEventListener("pointerdown", away);
   }, []);
   const readings = usageReadings(harness, held.usage, subscriptions, spend);
-  // What he sent the session himself, oldest first, which Up in the box
-  // brings back as the terminal's history does.
-  const history = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [(message.source === "shell" ? "!" : "") + message.text] : []);
+  // What he sent the session himself, oldest first, in the words he typed:
+  // Up in the box brings them back as the terminal's history does.
+  const his = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [{ at: message.at, text: (message.source === "shell" ? "!" : "") + message.text }] : []);
+  const history = his.map((row) => row.text);
   const ends = turnEnds(held.messages, isWorking);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
-  // whichever of the two arrives first. Each row is one message, the oldest
-  // still waiting, so a second message of the same words waits for its own
-  // row. A send the board has not taken yet names no time, so an earlier
-  // message of the same words never hides it.
-  const rows = held.messages.filter((message) => message.kind === "prompt");
+  // whichever of the two arrives first. Each row of his is one message, the
+  // oldest the board took of the same words, settled or still waiting, so a
+  // second message of the same words waits for its own row; a row the CFO or
+  // the fleet wrote is never his. A send the board has not taken yet names no
+  // time, so an earlier message of the same words never hides it.
+  const rows = [...his];
   const waiting = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
     parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
   const read = new Set<string>();
-  for (const action of waiting.filter((action) => action.created_at).sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
-    const row = rows.findIndex((message) => Date.parse(message.at) >= Date.parse(action.created_at) && sameWords(message.text, action.text));
+  const owners = sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
+  for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
+    const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && sameWords(each.text, action.text));
     if (row < 0) continue;
     rows.splice(row, 1);
     read.add(action.id);
