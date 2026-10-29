@@ -512,7 +512,7 @@ The turn-on question focuses Cancel, and a switch that cannot be read shows off,
 The [README](../README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the row's end, over the conversation, so it neither widens the row nor moves the conversation down.
 On a panel at its narrowest the row cuts the CFO's name short and puts the panel's other controls in More rather than cover or hide the toggle, so it is there at every width.
 The name, the harness's mark and a goblin's task id are cut at the edge of their own part of the row, which never narrows past the session's picture, so none of them is drawn under the Chat and Task switch.
-While AFK mode is off and his page of the last stretch is in his Command Center, **Open your last AFK report** at the top of the CFO's Task view opens that page again, from the snapshot's `afk.page`.
+While AFK mode is off and his page of the last stretch is in his Command Center, **Open your last AFK report** in the CFO's Task view opens that page again, from the snapshot's `afk.page`.
 The status at the top of the panel's Task view is the one place the panel says the task's state (`frontend/src/task-words.ts` translates what the fleet wrote, at display time, and changes no record).
 A resume or stop whose lifecycle record failed reads Resume failed or Stop failed, whatever the goblin's own last report says, on its card, node and panel alike.
 A failed resume whose goblin then reports from the session the resume started, working, waiting, asking or done, took its instruction after all: the supervisor's next reading finishes its record as running, under the task's lifecycle lock, so the card reads what the goblin reports.
@@ -532,7 +532,7 @@ Its header details keep the link to a goblin this one waits on, both beside the 
 A tall Task fold scrolls within the panel while the messages or terminal below it keep room.
 The same task-list instance moves between placements, so unsaved harness choices and nested disclosures survive resizing, maximizing and closing the outer Task fold.
 Under those details the task list has one action row, the task's own controls as labelled buttons, the only place they are: Start and Remove for a queued task, and Pause and Stop for a task that has started, or Resume and Stop for a paused one; a waiting goblin offers no Resume, and a completed one none of them.
-A queued task is edited in its header, where its task line under the goblin's name carries a small pencil named Edit task (the Overlord, 2026-10-10: "I get editing pencil a little icon"): the pencil, or a click on the task's text, turns that line into a box in the same type holding the task's title and detail, which grows with its text.
+A queued task is edited at the top of its Task view, where its task line carries a small pencil named Edit task (the Overlord, 2026-10-10: "I get editing pencil a little icon"): the pencil, or a click on the task's text, turns that line into a box in the same type holding the task's title and detail, which grows with its text.
 The pencil is the one button on that line, for the keyboard and a screen reader, and closing the box hands the keyboard back to it.
 Enter or the check saves it through `POST /api/tasks/adjust` on the revision the box opened on, Shift+Enter adds a line, and Escape or the cross puts the line back unchanged.
 While it saves the box shows that it is busy, and a refused save keeps the box and its text and says why under it for a moment, on the board's shared notice.

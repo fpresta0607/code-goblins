@@ -191,6 +191,35 @@ for (const { where, viewport, pane, corner } of PRESSED) {
   });
 }
 
+// What a press in the CFO's header could not do lies over the conversation
+// from the row's right end, and on the 360 px panel beside the board it is cut
+// to the panel's room, so neither its border nor its first words are hidden
+// at the panel's left edge.
+test("on a 360 px panel beside the board, Restart PC's notice and the AFK refusal lie inside the panel", async ({ page }) => {
+  // Arrange: AFK on, a restart that stopped short, and AFK's press refused.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("cfo-pane-width", "360"));
+  await open(page, snapshot({
+    afk: { state: "on", since: new Date().toISOString(), from: "his own board", decided: 0, held: [] },
+    pc_restart: { state: "stopped", problem: "not every working goblin paused", at: new Date().toISOString() },
+  }));
+  await page.route("**/api/afk", (route) => route.fulfill({ status: 403, json: { error: "Switch AFK in the Code Goblins window, or run cfo afk on in PowerShell." } }));
+  await openCfo(page);
+  const panel = await box(page.locator(".context-pane"));
+  const inPanel = async (notice: Locator, what: string) => {
+    const each = await box(notice);
+    expect(each.x, what + " in the panel").toBeGreaterThanOrEqual(panel.x - 0.5);
+    expect(each.x + each.width, what + " in the panel").toBeLessThanOrEqual(panel.x + panel.width + 0.5);
+  };
+  await inPanel(page.locator(".cfo-header-line > .notice"), "Restart PC's notice");
+
+  // Act
+  await header(page).getByRole("switch", { name: "AFK mode", exact: true }).click();
+
+  // Assert
+  await inPanel(header(page).getByRole("alert"), "the AFK refusal");
+});
+
 test("a goblin's name is cut short in the header row, never wrapped, and shows whole in its Task view", async ({ page }) => {
   // Arrange
   await page.setViewportSize({ width: 360, height: 900 });

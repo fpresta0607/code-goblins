@@ -480,8 +480,10 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 .app-shell > .notice { flex: none; }
 /* What Open in terminal met, a refusal of the CFO's AFK switch, and what a
    press of Restart PC or Update met, under its row's end, over what is
-   below, so it never widens the row or pushes the conversation down. */
-.window-feedback, .panel-leading > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); }
+   below, so it never widens the row or pushes the conversation down. In a
+   panel it is no wider than the panel's room, so the panel's edge never
+   cuts it. */
+.window-feedback, .panel-leading > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .notice { flex: 1 0 100%; margin: 0; }

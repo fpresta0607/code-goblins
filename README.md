@@ -620,7 +620,7 @@ Branches stay, and dirty or unpushed work keeps its worktree with the reason sho
 Remove opens a confirmation offering **Remove from queue** and **Cancel**: the task leaves the queue and its brief is kept.
 The board uses the same paths as `cfo pause <id>`, `cfo resume <id>` and `cfo kill <id>`; `cfo stop` still stops the supervisor.
 
-A queued task is edited in its panel's header: the small pencil beside its task, or a click on the task's text, opens a box with its title on the first line and its detail below; a queued card's **Adjust** pencil icon opens that panel.
+A queued task is edited at the top of its panel's Task view: the small pencil beside its task, or a click on the task's text, opens a box with its title on the first line and its detail below; a queued card's **Adjust** pencil icon opens that panel.
 Enter or the check saves it, which updates the task and any existing brief with an adjustment record, and Escape or the cross puts the task back unchanged.
 Titles show without the harness a backlog row names after a semicolon, such as "; Claude Code", since the card's harness mark shows it.
 
@@ -914,7 +914,7 @@ Tap any row and it opens a card with what it stood on: the goblin's own notes, t
 Each step only you can take, such as your own sign-in or a step a tool refused, became one card when AFK mode turned off: a command to run is a run item with one click, run as administrator after Windows asks you when it needs to, and any other step is a question with the CFO's choices, its recommended one marked, and Other, as any question of the CFO's is; your answer settles the step.
 A click anywhere on a row still waiting in your Command Center closes the report and opens the Command Center on that item, with its usual controls to answer or clear it.
 Its green **Go through what needs you** button opens the decision modal, moving to the next pending item after each answer until you are all done.
-The button beside the toggle opens your last report again.
+**Open your last AFK report** in the CFO's Task view opens your last report again.
 `cfo afk status` shows who turned it on and when, what the CFO has decided so far and what waits on you in the Command Center.
 `cfo afk off` prints a text report, `cfo afk report` prints it again, and every decision stays in `state\afk.audit`.
 The text report reads Done, Decided for you and Needs you in order, with each item's current disposition and the allowance and free disk readings at both ends, as in the example below.
