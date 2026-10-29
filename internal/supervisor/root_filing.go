@@ -43,7 +43,8 @@ func (s *Service) fileFoundRoot(project string, root tickets.Root) {
 // fileRepeatedErrors files a root issue on the home's own repository for
 // each class of the lines of err that the supervisor first met at least
 // errorRepeatsAfter ago, once a class in each run of the supervisor: the
-// issue's own dedup turns a later run's filing into a dated comment.
+// issue's own dedup turns a later run's filing into a dated comment. A line
+// that says the network could not be reached is passed over.
 func (s *Service) fileRepeatedErrors(err error, now time.Time) {
 	if err == nil || s.Options.FileRoot == nil {
 		return
@@ -55,7 +56,7 @@ func (s *Service) fileRepeatedErrors(err error, now time.Time) {
 	}
 	for _, line := range strings.Split(err.Error(), "\n") {
 		class := tickets.ErrorClass(line)
-		if class == "" {
+		if class == "" || tickets.IsLostConnection(line) {
 			continue
 		}
 		first, isMet := s.errorClassesMet[class]
