@@ -77,6 +77,59 @@ func TestChildLinesOfASubagentAreItsOwnRecord(t *testing.T) {
 	}
 }
 
+// A sub-agent's record is read again only once its size or write time
+// changed: the tree is read every 15 seconds for every sub-agent a goblin
+// ever started, and a child's terminal every half second, and each read took
+// up to 4 MiB (#1716). Words of the same size written over the record, its
+// write time kept, are what only a new read would show.
+func TestASubagentsRecordIsReadAgainOnlyOnceItChanged(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		shown func(t *testing.T, reader *Reader, goblin Goblin) string
+	}{
+		{"tree", func(t *testing.T, reader *Reader, goblin Goblin) string {
+			tree, err := reader.Read(context.Background(), goblin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return child(t, tree, "subagent:toolu_A").LastLine
+		}},
+		{"terminal", func(t *testing.T, reader *Reader, _ Goblin) string {
+			output, err := reader.ChildOutput("tree", "subagent:toolu_A")
+			if err != nil || len(output.Entries) == 0 {
+				t.Fatalf("ChildOutput = %+v, %v", output, err)
+			}
+			return output.Entries[len(output.Entries)-1].Text
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			home := t.TempDir()
+			goblin, session := claudeGoblin(t, home,
+				call("toolu_A", "Agent", object{"description": "Map", "prompt": "map it"}, at.Add(-time.Minute)),
+				result("toolu_A", "launched", object{"status": "async_launched", "agentId": "a1"}, at.Add(-time.Minute)))
+			record := filepath.Join(session, "subagents", "agent-a1.jsonl")
+			writeLines(t, record, at, said("Reading progress.go", at))
+			reader := &Reader{Home: home, Now: func() time.Time { return at }}
+			if _, err := reader.Read(context.Background(), goblin); err != nil {
+				t.Fatal(err)
+			}
+			first := tc.shown(t, reader, goblin)
+			writeLines(t, record, at, said("Reading progress.gx", at))
+
+			// Act
+			unchanged := tc.shown(t, reader, goblin)
+			appendLines(t, record, said("Reading tree.go", at.Add(time.Second)))
+			grown := tc.shown(t, reader, goblin)
+
+			// Assert
+			if first != "Reading progress.go" || unchanged != first || grown != "Reading tree.go" {
+				t.Errorf("shown %q, then %q over the same size and write time, then %q once it grew; want the first reading kept until the record grew", first, unchanged, grown)
+			}
+		})
+	}
+}
+
 // A Codex child agent's own record is its rollout.
 func TestChildLinesOfACodexChildAreItsRollout(t *testing.T) {
 	// Arrange
@@ -115,13 +168,16 @@ func TestForgetDropsAGoblinsChildRecords(t *testing.T) {
 	if _, err := reader.Read(context.Background(), goblin); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := reader.ChildOutput("tree", "subagent:toolu_A"); err != nil {
+		t.Fatal(err)
+	}
 
 	// Act
 	reader.Forget(map[string]bool{})
 
 	// Assert
-	if output, err := reader.ChildOutput("tree", "subagent:toolu_A"); !errors.Is(err, ErrNoRecord) {
-		t.Errorf("ChildOutput after Forget = %+v, %v; want none kept", output, err)
+	if output, err := reader.ChildOutput("tree", "subagent:toolu_A"); !errors.Is(err, ErrNoRecord) || len(reader.agentOutputs) != 0 {
+		t.Errorf("ChildOutput after Forget = %+v, %v, with %d readings kept; want none kept", output, err, len(reader.agentOutputs))
 	}
 }
 
