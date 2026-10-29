@@ -40,8 +40,10 @@ function harnessScreen(cols: number, rows: number, input: string): string {
 test.use({ ...devices["iPhone 15"], browserName: "webkit" });
 
 // open serves Kip's panel in a chat style with a keyboard the test can raise,
-// and a terminal whose harness redraws its input as it is typed.
-async function open(page: Page, style: "classic" | "modern") {
+// and a terminal whose harness redraws its input as it is typed, and answers
+// the sizes the view asks for, in the order it asked.
+async function open(page: Page, style: "classic" | "modern"): Promise<{ cols: number; rows: number }[]> {
+  const sizes: { cols: number; rows: number }[] = [];
   await page.addInitScript((chatStyle) => {
     localStorage.setItem("cfo-chat-style", chatStyle);
     localStorage.setItem("cfo-voice-hint-v1", "dismissed");
@@ -65,6 +67,7 @@ async function open(page: Page, style: "classic" | "modern") {
         const control: { type?: string; cols?: number; rows?: number } = JSON.parse(data);
         if (control.type !== "resize" || !control.cols || !control.rows) return;
         size = { cols: control.cols, rows: control.rows };
+        sizes.push(size);
         socket.send(JSON.stringify({ type: "size", ...size }));
       } else input += Buffer.from(data).toString();
       socket.send(Buffer.from(harnessScreen(size.cols, size.rows, input)));
@@ -75,9 +78,21 @@ async function open(page: Page, style: "classic" | "modern") {
   const board = page.getByRole("button", { name: "Board", exact: true });
   if (await board.isVisible()) await board.click();
   await page.locator(".task-board .task-card-shell").filter({ hasText: "Kip - Ledger Scout" }).locator(".task-card").click();
+  return sizes;
 }
 
 const keyboard = (page: Page, height: number) => page.evaluate((height) => (window as unknown as { keyboard: (height: number) => void }).keyboard(height), height);
+
+// settled waits until the terminal stops asking for sizes, as it refits to
+// the room the keyboard left it.
+async function settled(sizes: { cols: number; rows: number }[]) {
+  let seen = -1;
+  await expect.poll(() => {
+    const isQuiet = sizes.length > 0 && sizes.length === seen;
+    seen = sizes.length;
+    return isQuiet;
+  }, { intervals: [400] }).toBe(true);
+}
 
 // writing returns where the line being written ends, and the lowest point
 // the page shows of it: the visual viewport's foot, or a clipping box's.
@@ -105,7 +120,7 @@ for (const [view, style] of [["the terminal view", "classic"], ["Modern's box", 
   test(`on an iPhone with the keyboard up, the line being written in ${view} stays in sight as the message grows`, async ({ page }, testInfo) => {
     // Arrange: WebKit draws the terminal again for every word.
     test.slow();
-    await open(page, style);
+    const sizes = await open(page, style);
     const header = page.locator(".goblin-panel > .panel-header");
     if (style === "classic") {
       const terminal = page.getByRole("region", { name: "Goblin terminal" });
@@ -118,6 +133,7 @@ for (const [view, style] of [["the terminal view", "classic"], ["Modern's box", 
 
     // Act: the keyboard opens and the message grows past the room.
     await keyboard(page, KEYBOARD);
+    await settled(sizes);
     const seen: { line: number; shown: number; isAtEnd: boolean }[] = [];
     for (const [index, word] of MESSAGE.entries()) {
       await page.keyboard.insertText(word + " ");
