@@ -237,3 +237,48 @@ func TestARowWhoseWaitCanNeverClearSaysWhy(t *testing.T) {
 		})
 	}
 }
+
+// Issue #1548: a queued row tasks-axi hold put on hold, which tasks-axi show
+// reports held, started anyway because the scheduler read only blocked-by.
+// A row on hold waits until tasks-axi unhold clears it, or until its
+// hold-until date begins, as tasks-axi reads it; its card says so.
+func TestTheSchedulerNeverStartsARowTasksAxiHolds(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name, tags string
+		isCleared  bool
+	}{
+		{"an external hold", "(hold: Wait for the current board task to land) (hold-kind: external)", false},
+		{"a hold until a date ahead", "(hold: Wait for the current board task to land) (hold-kind: future) (hold-until: " + now.AddDate(0, 0, 1).Format(time.DateOnly) + ")", false},
+		{"a hold until a date begun", "(hold: Wait for the current board task to land) (hold-kind: future) (hold-until: " + now.Format(time.DateOnly) + ")", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			handler, h := startBoard(t, 16*gigabyte, spawner)
+			queueBriefedTask(t, h, "- [ ] next-task - Ship it (repo: code-goblins) (since 2026-10-26) "+c.tags, plainBrief)
+
+			// Act
+			if err := handler.Service.checkFleet(t.Context(), now.UTC()); err != nil {
+				t.Fatal(err)
+			}
+			starts := 0
+			if c.isCleared {
+				starts = 1
+			}
+			calls := awaitCalls(t, spawner, starts)
+			awaitSettled(t, handler.Service)
+			card := cardOf(t, handler, "next-task")
+
+			// Assert
+			isStarted := slices.ContainsFunc(calls, func(call []string) bool { return len(call) > 1 && call[0] == "spawn" && call[1] == "next-task" })
+			if isStarted != c.isCleared {
+				t.Fatalf("dispatches=%v, want next-task started %t", calls, c.isCleared)
+			}
+			if !c.isCleared && (len(card.Waits) != 1 || card.Waits[0].Kind != "hold" || card.Waits[0].Target != "Wait for the current board task to land") {
+				t.Errorf("card waits = %+v, want its hold", card.Waits)
+			}
+		})
+	}
+}

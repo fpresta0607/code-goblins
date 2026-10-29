@@ -23,7 +23,11 @@ var (
 	urlPattern         = regexp.MustCompile(`https?://[^\s\)\]"<>]+`)
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)
-	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind|harness|model|effort|mode)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
+	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind|hold-until|harness|model|effort|mode)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
+	// holdTag and holdUntilTag are the hold tasks-axi hold writes on a row:
+	// (hold: reason), and (hold-until: date) when it ends by itself.
+	holdTag      = regexp.MustCompile(`(?i)\(\s*hold\s*:\s*([^()]*)\)`)
+	holdUntilTag = regexp.MustCompile(`(?i)\(\s*hold-until\s*:\s*([^()]*)\)`)
 	// blockerToken is a blocked-by and what it waits for: an amount of free
 	// memory, a time or memory as one word after its keyword, or one word.
 	blockerToken     = regexp.MustCompile(`(?i)\bblocked-by:\s*(memory\s+\d+(?:\.\d+)?\s*gb\b|(?:until|memory)\s+[^\s\)]+|[^\s\)]+)`)
@@ -64,7 +68,8 @@ type BacklogRow struct {
 	BlockedBy     string   `json:"blocked_by"`
 	BlockedByIDs  []string `json:"blocked_by_ids"`
 	BlockedReason string   `json:"blocked_reason"`
-	// Blockers is what each blocked-by on the row waits for, in its order.
+	// Blockers is what each blocked-by on the row waits for, in its order,
+	// then its hold.
 	Blockers []Blocker `json:"blockers"`
 	Artifact string    `json:"artifact"`
 	// Harness, Model, Effort and Mode are what a row names for its spawn,
@@ -83,9 +88,11 @@ func (row BacklogRow) HasSetting(key string) bool {
 
 // Blocker is one thing a queued row waits for, as a blocked-by on its title
 // line names it: a time (until 2026-10-10T00:00Z), free memory (memory 12
-// GB), a pull request merging (its GitHub URL) or a task delivering (its id).
-// Target is the words as written. Problem says, in plain words, why the
-// scheduler cannot read it, and a blocker with a problem never clears.
+// GB), a pull request merging (its GitHub URL) or a task delivering (its id);
+// or its hold, as tasks-axi hold writes it (hold: reason), which waits until
+// tasks-axi unhold clears it or its (hold-until: date) begins. Target is the
+// words as written, a hold's reason for a hold. Problem says, in plain words,
+// why the scheduler cannot read it, and a blocker with a problem never clears.
 type Blocker struct {
 	Kind    string    `json:"kind"`
 	Target  string    `json:"target"`
@@ -187,6 +194,9 @@ func parseBacklogRow(line string) BacklogRow {
 	if len(blockedByIDs) > 0 {
 		blockedBy = blockedByIDs[0]
 	}
+	if hold, isHeld := parseHold(rest); isHeld {
+		blockers = append(blockers, hold)
+	}
 	return BacklogRow{
 		Structured:    true,
 		ID:            strings.TrimSpace(match[1]),
@@ -268,6 +278,26 @@ func parseBlocker(target string) Blocker {
 		return Blocker{Kind: "task", Target: target, Problem: `Cannot read "` + target + `" as a task`}
 	}
 	return Blocker{Kind: "task", Target: target}
+}
+
+// parseHold is the hold tasks-axi hold put on a row, if any. A hold-until
+// date ends it once that date begins on this machine, as tasks-axi reads it.
+func parseHold(text string) (Blocker, bool) {
+	reason := holdTag.FindStringSubmatch(text)
+	if reason == nil {
+		return Blocker{}, false
+	}
+	hold := Blocker{Kind: "hold", Target: strings.TrimSpace(reason[1])}
+	if until := holdUntilTag.FindStringSubmatch(text); until != nil {
+		date := strings.TrimSpace(until[1])
+		at, err := time.ParseInLocation(time.DateOnly, date, time.Local)
+		if err != nil {
+			hold.Problem = `Cannot read "` + date + `" as a hold date`
+			return hold, true
+		}
+		hold.Until = at.UTC()
+	}
+	return hold, true
 }
 
 func backlogTitle(rest string) string {

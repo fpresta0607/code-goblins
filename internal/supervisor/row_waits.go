@@ -38,7 +38,8 @@ func (s *Service) rowReading(now time.Time, memory *Memory) rowReading {
 // rowWaits is what a queued row still waits for at reading: each blocker on
 // it that has not cleared. A time clears once it passes, free memory once the
 // reading has that much memory and commit free, or with no memory read, a
-// task once its outcome says it delivered and a pull request once it merged.
+// task once its outcome says it delivered, a pull request once it merged,
+// and a hold once its date begins, never by itself without one.
 // A blocker the scheduler cannot read never clears and says why, and so does
 // one that can never clear, which would otherwise hold its row unseen: a
 // task the home never heard of or that stopped without delivering, and a pull
@@ -50,6 +51,10 @@ func rowWaits(h home.Home, backlog fleet.BacklogRows, row fleet.BacklogRow, read
 		case blocker.Problem != "":
 		case blocker.Kind == "time":
 			if !reading.now.Before(blocker.Until) {
+				continue
+			}
+		case blocker.Kind == "hold":
+			if !blocker.Until.IsZero() && !reading.now.Before(blocker.Until) {
 				continue
 			}
 		case blocker.Kind == "memory":
@@ -106,6 +111,9 @@ func waitRefusal(id string, row fleet.BacklogRow, waits []fleet.Blocker) StartRe
 			return StartRefusal{Reason: wait.Problem, Waits: true}
 		}
 		targets[index] = wait.Target
+		if wait.Kind == "hold" {
+			targets[index] = "its hold: " + wait.Target
+		}
 	}
 	reason := id + " waits for " + strings.Join(targets, ", ")
 	if row.BlockedReason != "" {
