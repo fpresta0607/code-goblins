@@ -324,6 +324,7 @@ export interface Action {
   file: string;
   line: number;
   side: string;
+  created_at: string;
   updated_at: string;
 }
 export interface Decision {
@@ -770,6 +771,7 @@ export function parseAction(value: unknown): Action {
     file: string(v.file),
     line: number(v.line),
     side: string(v.side),
+    created_at: string(v.created_at),
     updated_at: string(v.updated_at),
   };
 }

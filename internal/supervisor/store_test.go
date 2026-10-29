@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
+	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
@@ -1026,7 +1027,7 @@ func TestFullActionQueueDropsTheOldestUnconfirmedDelivery(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
-			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task-1", Generation: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: overlordWords + "use the staging database"}); err != nil {
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: "task-1", Generation: "g1", Operation: "pause-1", Action: "pause", Phase: "paused", ResumeNote: routing.BoardMessagePrefix + "use the staging database"}); err != nil {
 				t.Fatal(err)
 			}
 			start := time.Now().UTC().Add(-time.Hour)

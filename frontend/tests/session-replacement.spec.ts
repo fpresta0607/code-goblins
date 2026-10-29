@@ -46,7 +46,7 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       const conversation = page.locator(".messages-view:not([hidden]) .conversation");
       await expect(conversation).toBeVisible();
       await expect(field(page)).toHaveValue("keep my draft");
-      await expect(page.locator(".messages-view:not([hidden]) .conversation-queue").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(page.locator(".messages-view:not([hidden]) [role=log] .queued-message").getByText(pending.text, { exact: true })).toBeVisible();
       // The queue pinned above the box already lists what waits, so the box does not repeat it.
       await expect(box(page, NAME).locator(".composer-sent-text")).toHaveCount(0);
       const before = await conversation.evaluate((element) => element.scrollTop);
@@ -161,7 +161,7 @@ for (const style of ["classic", "modern"] as const) {
     await expect(page.locator(".terminal-foot.box")).toHaveCount(0);
     if (style === "modern") {
       await expect(field(page, "CFO")).toHaveValue("keep the CFO draft");
-      await expect(page.locator(".messages-view:not([hidden]) .conversation-queue").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(page.locator(".messages-view:not([hidden]) [role=log] .queued-message").getByText(pending.text, { exact: true })).toBeVisible();
       // The queue pinned above the box already lists what waits, so the box does not repeat it.
       await expect(box(page, "CFO").locator(".composer-sent-text")).toHaveCount(0);
       await field(page, "CFO").press("Enter");
@@ -209,7 +209,7 @@ for (const style of ["classic", "modern"] as const) {
     // Modern keeps its conversation and the queue pinned above its box; Classic keeps the
     // terminal alone, which says typing is paused.
     if (style === "modern") {
-      await expect(page.locator(".messages-view:not([hidden]) .conversation-queue").getByText(pending.text, { exact: true })).toBeVisible();
+      await expect(page.locator(".messages-view:not([hidden]) [role=log] .queued-message").getByText(pending.text, { exact: true })).toBeVisible();
       await expect(field(page)).toBeInViewport();
     } else await expect(page.locator(".context-pane").getByText("Typing is paused.", { exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`${style}-codex-replaced-pi.png`) });

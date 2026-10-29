@@ -716,7 +716,8 @@ const WakePrefix = "cfo watcher wake: "
 
 // promptSource is where a prompt of text came from and the words it shows:
 // a task notice's summary, the fleet's own typed wake line, a command as it
-// was typed, and the CFO's words without the stamp the CFO's lines carry.
+// was typed, the CFO's words without the stamp the CFO's lines carry, and his
+// own words where the board typed them into a goblin behind both stamps.
 func promptSource(text string) (string, string) {
 	if strings.HasPrefix(text, "<task-notification>") {
 		return FromNotice, notice(text)
@@ -743,6 +744,11 @@ func promptSource(text string) (string, string) {
 	}
 	words, isStamped := strings.CutPrefix(text, routing.SteerPrefix)
 	if isStamped {
+		// A message he typed to a goblin on the board is his, so the board
+		// can show it as his and read it as delivered.
+		if his, isHis := strings.CutPrefix(words, routing.BoardMessagePrefix); isHis {
+			return FromOverlord, his
+		}
 		if runEndedNotice.MatchString(words) || helperNotice.MatchString(words) {
 			return FromNotice, words
 		}

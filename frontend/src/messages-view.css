@@ -30,8 +30,7 @@
 .message-bubble { min-width: 0; max-width: 100%; padding: .55em .95em; border-radius: 1.125em; background: #15232b; overflow-wrap: anywhere; }
 .message-prompt.cfo .message-bubble { background: #101b21; box-shadow: 0 0 0 1px var(--glass-border) inset; }
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
-.message-origin { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
-.message-queued { justify-self: end; color: var(--muted); font-size: .8125em; }
+.message-origin, .message-state, .queued-state { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
 /* What a command printed scrolls a long line sideways inside its own box. */
 .message-output { justify-self: stretch; max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre; }
 /* A long message or print shows its first lines, fading out over Show more. */
@@ -148,7 +147,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .messages-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); pointer-events: none; }
 @media (max-width: 40rem) {
   .conversation { padding: 12px 12px 10px; }
-  .conversation-queue { padding: 0 12px 8px; }
   .message-prompt, .queued-message.pane { max-width: 88%; }
   .disclosure.message-call > .disclosure-content { padding-left: .5em; }
 }
@@ -159,11 +157,12 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .composer-dock .composer { padding: 0; border-top: 0; background: transparent; }
 .composer-dock .composer-input { background: var(--box-fill); backdrop-filter: blur(14px); }
 .composer-dock .composer-sent { max-height: 10rem; overflow: auto; padding: 8px 10px; border: 1px solid var(--glass-border); border-radius: 14px; background: #0b171ce6; }
-/* A message the board still holds for delivery, in the conversation. */
-/* His queued messages, pinned under the conversation in its column, the
-   newest by the box; a long queue scrolls in its own room. */
-.conversation-queue { display: flex; flex: none; flex-direction: column; gap: .75em; width: 100%; max-width: calc(48em + 44px); max-height: 40cqh; margin-inline: auto; padding: 0 22px 10px; overflow: hidden auto; color: #e3ecef; line-height: 1.55; }
-.queued-message.pane { display: grid; grid-template-columns: minmax(0, 1fr); align-self: flex-end; gap: .35em; max-width: min(78%, 46em); }
+/* His messages not yet in the session's record, at the conversation's end
+   as wide as his sent ones: dimmed while they wait, whole, with a few words
+   under each, and solid once sent. */
+.queued-message.pane { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: end; align-self: flex-end; gap: .35em; max-width: min(80%, 40em); }
+.queued-bubble { white-space: pre-wrap; }
+.queued-bubble.waiting { opacity: .55; }
 .queued-message.pane > :is(.message-pictures, .queued-bubble, .queued-problem) { grid-column: 1 / -1; }
 .queued-message.pane > .message-pictures { justify-content: flex-end; }
 

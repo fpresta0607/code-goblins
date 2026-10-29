@@ -375,7 +375,8 @@ export function App() {
   // the CFO's own harness, with no change pending and no problem.
   const cfoEngine = snapshot?.cfo_engine;
   const panelEffort = cfoShown || !task ? (cfoEngine && !cfoEngine.pending && !cfoEngine.problem && cfoEngine.harness === snapshot?.cfo_harness ? cfoEngine.effort : "") : task.effort || "";
-  const panelPending = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "").filter(isPendingMessage) : [];
+  const panelSent = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "") : [];
+  const panelPending = panelSent.filter(isPendingMessage);
   // A session the board reads as messages shows them, with its terminal laid
   // out behind them in the same box for its box to type through. The terminal steps into their place, with the keyboard,
   // when what the box sent opens a screen of the harness's own before a turn
@@ -578,7 +579,7 @@ export function App() {
         <PanelStage hidden={!terminalShown && !messagesShown} isSteppedIn={isSteppedIn && !classicInPlace} onBack={stepOut}>
           {snapshot && messagesSource && messagesSource === messagesOpened && <MessagesView key={messagesSource} query={messagesSource} instance={snapshot.instance}
             name={cfoShown || !task ? "CFO" : goblinName(task)} task={cfoShown ? undefined : task} terminal={terminalKey} harness={panelHarness} model={panelModel} effort={panelEffort}
-            isWorking={isWorking} pending={panelPending}
+            isWorking={isWorking} sent={panelSent} pending={panelPending}
             subscriptions={snapshot.subscriptions} spend={snapshot.key_spend} shown={messagesShown} visible={connected}
             onChild={(baby, source) => { if (task) select(childSelection(task, baby), source); }} onComposerDock={setMessageDock}
             box={(model, history, effort, usage) => createPortal(<Composer isWorking={isWorking} history={history} usage={usage} snapshot={snapshot} task={cfoShown ? undefined : task} name={cfoShown || !task ? "CFO" : goblinName(task)} terminal={terminalKey} hasConversation={!queuedBox} isShown={boxOnScreen} model={model} effort={effort} onActive={reportComposerActivity} isTerminalShown={terminalShown}

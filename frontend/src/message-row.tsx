@@ -21,6 +21,13 @@ function sentAt(at: string): string {
   return time.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+// readAt says when the session read his message: the time its own record
+// shows it at (the Overlord, 2026-10-29: "the label becomes Read 6:45 AM").
+function readAt(at: string): string {
+  const time = at && !at.startsWith("0001") ? new Date(at) : null;
+  return time && !Number.isNaN(time.getTime()) ? "Read " + time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "Read";
+}
+
 // One message of a session as the Messages view draws it: a prompt in a
 // quiet bubble on the right, a slash or ! command as typed with what it
 // printed; a reply as plain prose with its thinking folded to one line that
@@ -96,6 +103,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
     {kept.text && <div className="message-bubble"><LongText isLong={isLongText(kept.text)} {...fold("more")}>
       {command ? <code>{(message.source === "shell" ? "!" : "") + kept.text}</code> : <MessageText text={kept.text} />}
     </LongText></div>}
+    {(message.source === "overlord" || command) && <p className="message-state">{readAt(message.at)}</p>}
     {message.source === "answer" && <p className="message-origin">Answered on the board</p>}
     {message.source === "page" && <p className="message-origin">Answered on the page</p>}
     {printed && <LongText isLong={isLongText(printed)} {...fold("output")}><pre className="message-output">{printed}</pre></LongText>}
