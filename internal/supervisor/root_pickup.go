@@ -30,6 +30,9 @@ type RootIssues struct {
 	// OpenRoots reads a repository's open ops-root issues.
 	OpenRoots  func(ctx context.Context, repository string) ([]tickets.OpenRoot, error)
 	IssueState func(ctx context.Context, repository string, number int) (string, error)
+	// ClosingPullRequests reads the open pull requests that close an issue,
+	// whose tasks own it.
+	ClosingPullRequests func(ctx context.Context, repository string, number int) ([]string, error)
 }
 
 const (
@@ -92,9 +95,12 @@ func (s *Service) keepPickingUpRoots(ctx context.Context, every time.Duration) {
 // from the issue, until rootsHeldPerRepository of the repository's picked-up
 // issues wait or run. It takes an issue only when its author is trusted, no
 // one is assigned to it, no Code Goblins state label is on it (a ticket
-// holds it), it is not on record as picked up already, and no queued or live
-// task of the project names it. A project with no checkout here or no GitHub
-// repository is passed over. It returns what it could not read or write.
+// holds it), it is not on record as picked up already, no queued or live
+// task of the project names it, no live task filed it and no open pull
+// request closes it: a task given a follow-up files its issue after it was
+// spawned, and its pull request comes later still. A project with no
+// checkout here or no GitHub repository is passed over. It returns what it
+// could not read or write.
 func (s *Service) pickUpRoots(ctx context.Context, now time.Time) error {
 	roots := s.Options.RootIssues
 	h := s.Store.Home
@@ -110,6 +116,10 @@ func (s *Service) pickUpRoots(ctx context.Context, now time.Time) error {
 		return err
 	}
 	backlog, err := fleet.ReadBacklog(h)
+	if err != nil {
+		return err
+	}
+	filers, err := liveRootFilers(h)
 	if err != nil {
 		return err
 	}
@@ -161,7 +171,15 @@ func (s *Service) pickUpRoots(ctx context.Context, now time.Time) error {
 			isPicked := slices.ContainsFunc(picked, func(earlier rootPickup) bool {
 				return strings.EqualFold(earlier.Repository, repository) && earlier.Number == issue.Number
 			})
-			if isPicked || named[issue.Number] || !mayPickUp(issue) {
+			if isPicked || named[issue.Number] || !mayPickUp(issue) || filers[strings.ToLower(issue.URL)] != "" {
+				continue
+			}
+			closing, err := roots.ClosingPullRequests(ctx, repository, issue.Number)
+			if err != nil {
+				problems = errors.Join(problems, fmt.Errorf("root issues of %s: %w", name, err))
+				continue
+			}
+			if len(closing) > 0 {
 				continue
 			}
 			id := rootTaskID(repository, issue.Number)
@@ -236,6 +254,26 @@ func issuesNamedInProject(h home.Home, backlog fleet.BacklogRows, name, checkout
 		}
 	}
 	return named
+}
+
+// liveRootFilers are the live tasks that filed root issues with cfo issue
+// file, by each issue's address in lower case. A task that files an issue
+// may be taking it up itself, so the issue is its own while it runs.
+func liveRootFilers(h home.Home) (map[string]string, error) {
+	filers := map[string]string{}
+	for _, meta := range liveTasks(h.State) {
+		if meta.TaskTmp == "" {
+			continue
+		}
+		filed, err := tickets.FiledRoots(meta.TaskTmp)
+		if err != nil {
+			return nil, fmt.Errorf("read the root issues %s filed: %w", meta.ID, err)
+		}
+		for _, url := range filed {
+			filers[strings.ToLower(url)] = meta.ID
+		}
+	}
+	return filers, nil
 }
 
 // rootTaskID is the task a repository's root issue becomes, such as

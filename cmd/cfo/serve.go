@@ -172,7 +172,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
 		github := tickets.GitHub{Commands: execx.OSRunner{}}
-		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState}
+		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState, ClosingPullRequests: github.OpenClosingPullRequests}
 	}
 	// The board looks for a newer release of Code Goblins; an example board
 	// looks only at a release source it is pointed at.
