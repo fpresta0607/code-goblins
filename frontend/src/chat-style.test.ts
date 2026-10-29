@@ -12,10 +12,10 @@ function browser(entries: Map<string, string> | null): void {
   };
 }
 
-test("a saved chat style reads as Classic only when it says Classic", () => {
-  assert.equal(chatStyle(null), "modern", "a session the board reads as messages opens on its conversation");
-  assert.equal(chatStyle("classic"), "classic");
-  assert.equal(chatStyle("anything else"), "modern");
+test("a saved chat style reads as Modern only when it says Modern", () => {
+  assert.equal(chatStyle(null), "classic", "a conversation opens on the harness's own terminal");
+  assert.equal(chatStyle("modern"), "modern");
+  assert.equal(chatStyle("anything else"), "classic");
 });
 
 test("the board keeps the chosen chat style for this browser", () => {
@@ -24,12 +24,12 @@ test("the board keeps the chosen chat style for this browser", () => {
   browser(entries);
 
   // Act and Assert
-  assert.equal(storedChatStyle(), "modern", "Modern is the choice before he makes one");
-  saveChatStyle("classic");
-  assert.equal(entries.get(CHAT_STYLE_KEY), "classic");
-  assert.equal(storedChatStyle(), "classic", "the choice survives a reload");
+  assert.equal(storedChatStyle(), "classic", "Classic is the choice before he makes one");
   saveChatStyle("modern");
-  assert.equal(storedChatStyle(), "modern");
+  assert.equal(entries.get(CHAT_STYLE_KEY), "modern");
+  assert.equal(storedChatStyle(), "modern", "the choice survives a reload");
+  saveChatStyle("classic");
+  assert.equal(storedChatStyle(), "classic");
 });
 
 test("a browser that keeps no storage still draws a conversation", () => {
@@ -37,7 +37,7 @@ test("a browser that keeps no storage still draws a conversation", () => {
   browser(null);
 
   // Act and Assert
-  assert.equal(storedChatStyle(), "modern");
-  saveChatStyle("classic");
-  assert.equal(storedChatStyle(), "modern", "nothing is saved where the browser refuses storage");
+  assert.equal(storedChatStyle(), "classic");
+  saveChatStyle("modern");
+  assert.equal(storedChatStyle(), "classic", "nothing is saved where the browser refuses storage");
 });
