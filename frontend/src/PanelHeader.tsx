@@ -58,7 +58,7 @@ export function PanelHeader({ task, node, snapshot, compact, isDetails = false, 
   const { text: status, phase } = owner ? taskStatus(task, snapshot)
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
- const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
+  const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
   const helped = owner && task.parent ? snapshot.tasks.find((other) => other.id === task.parent) : undefined;
