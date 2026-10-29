@@ -138,6 +138,43 @@ test("holding the microphone dictates into the box for a paused goblin, through 
   expect(posted, "dictating sends nothing by itself").toEqual([]);
 });
 
+// The Overlord, 2026-10-29, of "Nothing was heard." as a line under the box:
+// it should be "a little banner right above the chat input that is only
+// temporary, goes away slightly and doesn't move the screen up".
+test("a hold with nothing said in it says Nothing was heard over the box, for a moment, and moves nothing", async ({ page }) => {
+  // Arrange: the microphone hears silence, in which the speech model hears no
+  // words.
+  const { box } = await openBernie(page, bernie(["i can message?"]));
+  await page.route("**/api/dictation", (route) => route.request().method() === "GET"
+    ? route.fulfill({ json: { engine: "test-model", state: "ready" } })
+    : route.fulfill({ json: { text: "", engine: "test-model" } }));
+  await page.evaluate(() => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const context = new AudioContext();
+      await context.resume();
+      return context.createMediaStreamDestination().stream;
+    };
+  });
+  const draft = box.getByRole("textbox", { name: "Message Bernie - Merge Maestro" });
+  await draft.fill("please");
+  const before = await draft.boundingBox();
+
+  // Act
+  await box.getByRole("button", { name: "Hold to dictate" }).hover();
+  await page.mouse.down();
+  await expect(box.getByRole("button", { name: "Listening" })).toHaveClass(/recording/);
+  await page.waitForTimeout(1200);
+  await page.mouse.up();
+
+  // Assert: the banner says it over the box, the box stays where it was, and
+  // the banner goes by itself.
+  const banner = box.locator(".composer-banner");
+  await expect(banner).toHaveText("Nothing was heard.");
+  expect(await draft.boundingBox()).toEqual(before);
+  await expect(draft).toHaveValue("please");
+  await expect(banner).toHaveCount(0, { timeout: 8000 });
+});
+
 for (const style of ["classic", "modern"]) {
   for (const hasHistory of [false, true]) {
     test(`${style}, history ${hasHistory}: a message his resume will carry has a delete button, which withdraws it, and one already delivered has none`, async ({ page }) => {
