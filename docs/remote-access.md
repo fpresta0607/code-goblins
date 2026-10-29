@@ -204,9 +204,10 @@ everywhere, a program already running on the PC is inside this boundary.
 
 The gate checks browser Origin before translating it to the local board and
 retains the existing mutation and terminal WebSocket token checks. Forwarding
-headers remain attached, so credential entry, turning AFK mode on and other
-existing PC-only actions remain PC-only. AFK mode turns off from the private
-board, since an off, even a forged one, hands no one the owner's authority
+headers remain attached, so credential entry and other existing PC-only
+actions remain PC-only. AFK mode turns on and off from the private board, and
+a service grant card grants from it, as the owner decided on 2026-10-29
+knowing those headers can be forged on the PC
 ([native board guide](native-board.md#afk-mode)). The local process trust
 boundary is unchanged: this does not authenticate against a process already
 running on the PC. Do not point a different reverse proxy or Funnel at the

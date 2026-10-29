@@ -15,8 +15,8 @@ import (
 // board. Host and Origin are translated only after authentication, preserving
 // the board's CSRF and WebSocket token checks. Proxy/identity headers stay in
 // place so credential entry and other PC-only actions remain PC-only. What it
-// admits it marks (Admitted), for the AFK switch, which turns off from his
-// private board too.
+// admits it marks (Admitted), for what the Overlord chose to allow from his
+// private board too: AFK mode's switch and a service grant card's Grant.
 type Gate struct {
 	manager *Manager
 	parent  context.Context
@@ -34,7 +34,8 @@ type admittedKey struct{}
 // private connection: Tailscale's identity named his login for this PC's
 // private name, from his private origin. Those are headers, which a program
 // on this PC can send itself or have a Serve route of its own carry, so a
-// caller grants on them only what is safe from anyone.
+// caller grants on them only what is safe from anyone, or what the Overlord
+// chose to allow knowing that.
 func Admitted(r *http.Request) bool {
 	isAdmitted, _ := r.Context().Value(admittedKey{}).(bool)
 	return isAdmitted
