@@ -811,3 +811,92 @@ func TestEvaluationNamesTheGateStep(t *testing.T) {
 		}
 	}
 }
+
+// #1611: the snapshot carried every session the store keeps, up to 512, though
+// the board draws only the CFO's and each task's own, so sub-agents' and
+// retired goblins' sessions were 290 KB of every board's first snapshot.
+func TestTheSnapshotCarriesOnlyTheSessionsTheBoardDraws(t *testing.T) {
+	// Arrange: task-1's goblin in its generation g1 under a CFO, a sub-agent
+	// of that goblin, the goblin of an earlier generation and one of a task
+	// gone from the board.
+	store, _ := testStore(t)
+	s := &Service{Store: store}
+	store.mu.Lock()
+	for _, node := range []Session{
+		{ID: "codex/cfo", Harness: "codex", Role: "cfo"},
+		{ID: "codex/goblin", Harness: "codex", Role: "goblin", TaskID: "task-1", Generation: "g1", Parent: "codex/cfo"},
+		{ID: "claude/sub-agent", Harness: "claude", Role: "subagent", TaskID: "task-1", Generation: "g1", Parent: "codex/goblin"},
+		{ID: "codex/earlier", Harness: "codex", Role: "goblin", TaskID: "task-1", Generation: "g0", Parent: "codex/cfo"},
+		{ID: "codex/retired", Harness: "codex", Role: "goblin", TaskID: "task-gone", Generation: "g1", Parent: "codex/cfo"},
+	} {
+		store.db.Sessions[node.ID] = node
+	}
+	store.db.TaskSessions["task-1"] = "codex/goblin"
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := s.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	var carried []string
+	for _, node := range snapshot.Sessions {
+		carried = append(carried, node.ID)
+	}
+	slices.Sort(carried)
+	if !slices.Equal(carried, []string{"codex/cfo", "codex/goblin"}) {
+		t.Errorf("the snapshot carries the sessions %v, want the CFO's and task-1's goblin's alone", carried)
+	}
+}
+
+// #1611: the snapshot carried the 128 newest activity events the store keeps,
+// 43 KB of every board's first snapshot, though the board plays a message or
+// a start only for ten seconds and shows a presentation only while it runs.
+func TestTheSnapshotCarriesOnlyTheActivityTheBoardShows(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	s := &Service{Store: store}
+	now := time.Now().UTC()
+	cases := []struct {
+		name      string
+		event     BoardActivity
+		isCarried bool
+	}{
+		{"a message a second ago", BoardActivity{Kind: "message", State: "accepted", At: now.Add(-time.Second)}, true},
+		{"a message two minutes ago", BoardActivity{Kind: "message", State: "accepted", At: now.Add(-2 * time.Minute)}, false},
+		{"a goblin's start two minutes ago", BoardActivity{Kind: "created", State: "accepted", At: now.Add(-2 * time.Minute)}, false},
+		{"a presentation running for an hour", BoardActivity{Kind: "browser", State: "active", At: now.Add(-time.Hour), Until: now.Add(time.Hour)}, true},
+		{"a presentation that ran out", BoardActivity{Kind: "review", State: "active", At: now.Add(-2 * time.Hour), Until: now.Add(-time.Hour)}, false},
+		{"a presentation its presenter ended", BoardActivity{Kind: "browser", State: "ended", At: now.Add(-2 * time.Hour), Until: now.Add(time.Hour)}, false},
+	}
+	store.mu.Lock()
+	for _, each := range cases {
+		each.event.ID, each.event.TaskID, each.event.Generation, each.event.Target = each.name, "task-1", "g1", "codex/goblin"
+		store.db.Activity = append(store.db.Activity, each.event)
+	}
+	err := store.save()
+	store.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	snapshot, err := s.Snapshot()
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, each := range cases {
+		isCarried := slices.ContainsFunc(snapshot.Activity, func(event BoardActivity) bool { return event.ID == each.name })
+		if isCarried != each.isCarried {
+			t.Errorf("%s: carried %t, want %t", each.name, isCarried, each.isCarried)
+		}
+	}
+}

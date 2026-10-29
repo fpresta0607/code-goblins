@@ -25,12 +25,12 @@ const WORKING = [
   task("working-stalled", "working", { progress: { at: ago(23), source: "push" } }),
 ];
 const machine = (available: number) => ({ available: available * GB, total: 32 * GB, commit_available: 20 * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, floor: 4 * GB, next: 5 * GB, holders: [] });
-const DURATIONS = [12, 13, 15].map((minutes, index) => ({ repository: "o/r", kind: "ci", name: "test", url: "https://github.com/o/r/actions/runs/" + (100 + index), duration_seconds: minutes * 60, finished_at: ago(60) }));
+const USUAL = [{ repository: "o/r", kind: "ci", seconds: 13 * 60 }];
 
 async function open(page: Page, memory: object, tasks: object[]) {
   // The board reads the clock the fixture's times count back from.
   await page.clock.setFixedTime(now);
-  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, ci_durations: DURATIONS, tasks });
+  await holdStream(page, { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, ci_usual: USUAL, tasks });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "No fixture for this resource" } }));
   await page.goto("/");
   await expect(page.locator(".board-column").first()).toBeVisible();

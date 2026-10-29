@@ -258,8 +258,9 @@ export interface PoolGrowth { tag: string; pool: string; grown: number; holds: n
 // fleet stops, restarting once Windows was asked to, and stopped when it
 // stopped short, with the problem.
 export interface PCRestart { state: "stopping" | "restarting" | "stopped"; problem: string; at: string }
-// CIDuration is how long one finished CI run or deploy took in a repository.
-export interface CIDuration { repository: string; kind: string; seconds: number }
+// CIUsual is how long a repository's finished CI runs or deploys of one kind
+// took, the median of those measured.
+export interface CIUsual { repository: string; kind: string; seconds: number }
 // CommitHolder is one app's commit: its first process and every process it
 // started.
 export interface CommitHolder { name: string; commit: number }
@@ -445,7 +446,7 @@ export interface Snapshot {
   memory: Memory | null;
   // pc_restart is absent until the Overlord's Restart PC began one.
   pc_restart: PCRestart | null;
-  ci_durations: CIDuration[];
+  ci_usual: CIUsual[];
   // disk is absent on a board that cannot read it.
   disk: Disk | null;
   // processors and gpu are each absent on a board that cannot read them.
@@ -943,7 +944,7 @@ export function parseSnapshot(value: unknown): Snapshot {
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
     pc_restart: v.pc_restart == null ? null : ((restart) => ({ state: pcRestartState(restart.state), problem: string(restart.problem), at: string(restart.at) }))(object(v.pc_restart)),
-    ci_durations: array(v.ci_durations).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.duration_seconds) }; }),
+    ci_usual: array(v.ci_usual).map((value) => { const d = object(value); return { repository: string(d.repository), kind: string(d.kind), seconds: number(d.seconds) }; }),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
       drive: string(drive), free: number(free), total: number(total), floor: number(floor), wake: number(wake),
     }))(object(v.disk)),

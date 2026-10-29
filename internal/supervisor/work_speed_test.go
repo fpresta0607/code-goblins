@@ -919,7 +919,7 @@ func TestSnapshotDoesNotReadProgressOrDurationsBeforeTheCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.CIDurations) != 0 {
+	if len(snapshot.CIUsual) != 0 {
 		t.Fatal("snapshot read durations before the cycle refreshed them")
 	}
 	for _, task := range snapshot.Tasks {
@@ -957,8 +957,8 @@ func TestSnapshotRefreshesProgressAndDurationsWhenTheCycleReadsTheirRecord(t *te
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(snapshot.CIDurations) != 1 || snapshot.CIDurations[0].Seconds != test.seconds {
-			t.Fatalf("durations=%+v, want the changed record's %d seconds", snapshot.CIDurations, test.seconds)
+		if len(snapshot.CIUsual) != 1 || snapshot.CIUsual[0].Seconds != float64(test.seconds) {
+			t.Fatalf("usual CI times=%+v, want the changed record's %d seconds", snapshot.CIUsual, test.seconds)
 		}
 		index := slices.IndexFunc(snapshot.Tasks, func(task Task) bool { return task.ID == "progress-task" })
 		if index < 0 {

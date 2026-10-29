@@ -1,4 +1,4 @@
-import type { CIDuration, PauseCondition, Task, Wait } from "./types.ts";
+import type { CIUsual, PauseCondition, Task, Wait } from "./types.ts";
 import { cardDate } from "./cards.ts";
 
 // What the board says about a task, in words a person reads: the goblins and
@@ -177,7 +177,7 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
 // how long the repository's runs usually take. A pause on a goblin names the
 // goblin alone, as Paused until Benny delivers, without its title (the CFO's
 // decision 1008011, 2026-10-17).
-export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], durations: CIDuration[], parent?: Task): string {
+export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], usual: CIUsual[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
     case "memory": return "Paused for memory";
@@ -185,8 +185,8 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], du
     case "overlord": return parent ? "Paused with " + (parent.goblin_name || goblinName(parent)) : "Paused by you";
     case "question": return "Paused until you answer";
     case "ci": case "deploy": {
-      const usual = usualMinutes(durations, repositoryOf(target.split("@")[0]), pause.reason);
-      return "Paused until " + (pause.reason === "ci" ? "CI" : "its deploy") + " finishes" + (usual ? `, usually ${usual} min` : "");
+      const minutes = usualMinutes(usual, repositoryOf(target.split("@")[0]), pause.reason);
+      return "Paused until " + (pause.reason === "ci" ? "CI" : "its deploy") + " finishes" + (minutes ? `, usually ${minutes} min` : "");
     }
     case "dependency": {
       if (kind === "pr") return "Paused until " + plainText(target).replace(/\.$/, "") + " merges";
@@ -224,14 +224,11 @@ function repositoryOf(url: string): string {
   return owner ? owner + "/" + name : "";
 }
 
-// The median minutes of a repository's measured runs of one kind, or 0 when
-// none is measured.
-function usualMinutes(durations: CIDuration[], repository: string, kind: string): number {
-  const seconds = durations.filter((run) => run.repository === repository && run.kind === kind).map((run) => run.seconds).sort((left, right) => left - right);
-  if (!seconds.length) return 0;
-  const middle = seconds.length >> 1;
-  const median = seconds.length % 2 ? seconds[middle] : (seconds[middle - 1] + seconds[middle]) / 2;
-  return Math.max(1, Math.round(median / 60));
+// The minutes a repository's runs of one kind usually take, or 0 when none is
+// measured.
+function usualMinutes(usual: CIUsual[], repository: string, kind: string): number {
+  const measured = usual.find((each) => each.repository === repository && each.kind === kind);
+  return measured ? Math.max(1, Math.round(measured.seconds / 60)) : 0;
 }
 
 const FAILED_ACTION: Record<string, string> = {
