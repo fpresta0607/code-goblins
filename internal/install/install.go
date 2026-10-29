@@ -139,6 +139,9 @@ func (s Service) Install(out io.Writer) error {
 	if err := s.layOutData(report); err != nil {
 		return err
 	}
+	if err := s.refreshPiHooks(report); err != nil {
+		return err
+	}
 	if err := s.setHome(report); err != nil {
 		return err
 	}
@@ -236,6 +239,24 @@ func (s Service) removeDictation(report *reporter) error {
 		return fmt.Errorf("install: remove dictation's speech engine and model, moved to %s: %w", aside, err)
 	}
 	report.change("dictation", "removed dictation's speech engine and model in "+dir)
+	return nil
+}
+
+// refreshPiHooks brings the board's pi extension, where `cfo hooks install
+// pi` put one, up to this build, so an update reaches every pi session
+// started after it.
+func (s Service) refreshPiHooks(report *reporter) error {
+	root, ok := s.Harnesses.Harness("pi")
+	if !ok {
+		return nil
+	}
+	changed, err := nativehook.RefreshPi(nativehook.InstallConfig{ConfigDir: root.Path, Executable: filepath.Join(s.bin(), "cfo.exe"), Home: s.Root, State: filepath.Join(s.Root, "state")})
+	if err != nil {
+		return fmt.Errorf("install: refresh the board's pi extension in %s: %w", root.Path, err)
+	}
+	if changed {
+		report.change("native", "brought the board's pi extension in "+root.Path+" up to this build")
+	}
 	return nil
 }
 

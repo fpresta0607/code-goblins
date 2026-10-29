@@ -174,6 +174,29 @@ func writeOwned(path, content string) error {
 	return fsx.AtomicWriteFile(path, []byte(content))
 }
 
+// RefreshPi rewrites the pi extension Install wrote under c.ConfigDir as
+// this build writes it, and reports whether that changed it. Nothing else
+// rewrites it, so without this a fix to it never reached a machine: on
+// 2026-10-24 one an install of 2026-10-16 wrote still ended its hook after
+// 2.5 s, not 30, and reported a hook that had recorded its event as one that
+// could not. With none there, or a file Install did not write, it writes
+// nothing.
+func RefreshPi(c InstallConfig) (bool, error) {
+	c.Harness = "pi"
+	prior, err := fsx.ReadFile(filepath.Join(c.ConfigDir, "extensions", "cfo-native.ts"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !owned(prior) || string(prior) == piExtension(c) {
+		return false, nil
+	}
+	_, err = Install(c)
+	return err == nil, err
+}
+
 // owned reports whether a helper file's content is one Install wrote.
 func owned(content []byte) bool {
 	return bytes.HasPrefix(content, []byte(ownedMarker)) || bytes.HasPrefix(content, []byte("// CFO native hooks v1"))
