@@ -153,7 +153,11 @@ const clipboard = async (page: Page) => (await page.evaluate(() => navigator.cli
 const streams = (page: Page) => page.evaluate(() => (window as unknown as { messageStreams: unknown[] }).messageStreams.length);
 const olderPage = (url: URL) => url.pathname === "/api/messages" && url.searchParams.has("before");
 
+// The switch key reaches the CFO only once the board shows the supervisor's
+// snapshot, which after a reload can come after the page has loaded, and a
+// key pressed before it is lost (#1546).
 async function openCfo(page: Page) {
+  await expect(page.locator(".board-column").first()).toBeVisible();
   await page.keyboard.press("Control+Alt+1");
   await expect(page.locator("#panel-title")).toHaveText("CFO");
 }
