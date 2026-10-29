@@ -426,12 +426,21 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
-  // whichever of the two arrives first. A send the board has not taken yet
-  // names no time, so an earlier message of the same words never hides it.
-  const recorded = held.messages.filter((message) => message.kind === "prompt");
-  const queued = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
-    parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))]
-    .filter((action) => !action.created_at || !recorded.some((message) => message.at >= action.created_at && sameWords(message.text, action.text)));
+  // whichever of the two arrives first. Each row is one message, the oldest
+  // still waiting, so a second message of the same words waits for its own
+  // row. A send the board has not taken yet names no time, so an earlier
+  // message of the same words never hides it.
+  const rows = held.messages.filter((message) => message.kind === "prompt");
+  const waiting = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
+    parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
+  const read = new Set<string>();
+  for (const action of waiting.filter((action) => action.created_at).sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
+    const row = rows.findIndex((message) => Date.parse(message.at) >= Date.parse(action.created_at) && sameWords(message.text, action.text));
+    if (row < 0) continue;
+    rows.splice(row, 1);
+    read.add(action.id);
+  }
+  const queued = waiting.filter((action) => !read.has(action.id));
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -464,7 +473,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" isWorking={isWorking} />)}
         </div>
       </div>
-      {phase === "live" && !held.messages.length && <p className="messages-empty" role="status">No messages yet</p>}
+      {phase === "live" && !held.messages.length && !queued.length && <p className="messages-empty" role="status">No messages yet</p>}
       {/* A touch that stops the conversation gliding after a flick is one
           the browser gives no click, and the button shows the moment he
           leaves the end, while it glides, so a touch's lift takes him there

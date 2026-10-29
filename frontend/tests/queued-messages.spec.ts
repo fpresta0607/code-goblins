@@ -38,7 +38,9 @@ const readAt = (page: Page, when: string) => page.evaluate((when) => "Read " + n
 // message he typed while the session works is his own bubble at the chat's
 // end, dimmed, waiting for its next step with its controls, and turns solid
 // with Read and the time in place once the harness takes it, as its record
-// shows; one sent while it is idle is solid with Sent until then.
+// shows; one sent while it is idle is solid with Sent until then. A goblin's
+// record reads the stamps the board types his words behind as his, so its
+// row is his own words, as a CFO's is.
 test.describe("his messages in the chat's one scroll", () => {
   const LONG = Array.from({ length: 30 }, (_, line) => "line " + (line + 1) + " of the plan he wrote while it worked").join("\n");
 
@@ -112,9 +114,10 @@ test.describe("his messages in the chat's one scroll", () => {
   });
 
   // His record already holds "Read the brief" from 09:00. Sent again later,
-  // or still on its way with no time of its own, it is a new message.
-  for (const created of ["2026-10-22T09:10:00Z", ""]) {
-    test(`a message of the same words as one the session read earlier still waits${created ? "" : " while it reaches the board"}`, async ({ page }) => {
+  // even five milliseconds later, or still on its way with no time of its
+  // own, it is a new message.
+  for (const [created, when] of [["2026-10-22T09:10:00Z", ""], ["2026-10-22T09:00:00.005Z", " five milliseconds later"], ["", " while it reaches the board"]]) {
+    test(`a message of the same words as one the session read earlier still waits${when}`, async ({ page }) => {
       // Arrange
       const relay = await open(page, snapshot({ actions: [queued({ text: "Read the brief", created_at: created, updated_at: created })] }));
       await openGoblin(page);
@@ -127,6 +130,43 @@ test.describe("his messages in the chat's one scroll", () => {
       await expect(log(page).getByText("Read the brief", { exact: true })).toHaveCount(2);
     });
   }
+
+  // Two messages of the same words are two messages: the record's one row
+  // reads the first, and the second waits for a row of its own.
+  test("one record row reads one of two waiting messages of the same words, and the other keeps waiting with its controls", async ({ page }) => {
+    // Arrange
+    const words = "yes, go ahead";
+    const relay = await open(page, snapshot({ actions: [queued({ id: "q1", text: words, created_at: "2026-10-22T09:01:00Z" }), queued({ id: "q2", text: words, created_at: "2026-10-22T09:02:00Z" })] }));
+    await openGoblin(page);
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+    await expect(entry(page)).toHaveCount(2);
+
+    // Act: the harness takes the first.
+    const taken = "2026-10-22T09:05:00Z";
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+      { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: taken, kind: "prompt", source: "overlord", queued: true, text: words }] });
+
+    // Assert
+    await expect(log(page).locator(".message-prompt", { hasText: words }).locator(".message-state")).toHaveText(await readAt(page, taken));
+    await expect(entry(page)).toHaveCount(1);
+    await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+    for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
+  });
+
+  test("a message waiting in a conversation that holds nothing yet shows with no No messages yet over it", async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({ actions: [queued()] }));
+    await openGoblin(page);
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+
+    // Act: the session's record holds nothing.
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: [], more: false });
+
+    // Assert
+    await expect(log(page).locator("[data-message]")).toHaveCount(0);
+    await expect(entry(page)).toBeVisible();
+    await expect(page.locator(".messages-view:not([hidden])").getByText("No messages yet", { exact: true })).toHaveCount(0);
+  });
 
   // The Overlord, 2026-10-29: a message he typed for the CFO the day before
   // still sat as queued, and its Cancel said "that queued message is no
