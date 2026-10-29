@@ -315,6 +315,31 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
 });
 
+// A message that arrives while he reads up is not drawn, so the list keeps it
+// a room of an estimated height; Jump to latest draws it at its own (#1753).
+test("Jump to latest lands at the end of a reply taller than its estimate that arrived while he read up", async ({ page }) => {
+  // Arrange
+  await open(page);
+  await openCfo(page);
+  const talk = list(page, "CFO");
+  await expect(talk).toContainText("Answer 99");
+  await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
+  const jump = page.getByRole("button", { name: "Jump to latest" });
+  await expect(jump).toBeVisible();
+  const { end: was } = await scroll(talk);
+  const findings = Array.from({ length: 30 }, (_, at) => `Finding ${at + 1} of the review`);
+  await send(page, "messages", [reply(100, { kind: "text", text: ["Answer 100", ...findings].join("\n\n") })]);
+  await expect.poll(async () => (await scroll(talk)).end).toBeGreaterThan(was);
+
+  // Act
+  await jump.click();
+
+  // Assert
+  await expect(talk.locator("[data-message]").last()).toContainText("Finding 30 of the review");
+  await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
+  await expect(jump).toHaveCount(0);
+});
+
 test("older messages are read a page at a time as he reads up, and his place is kept", async ({ page }) => {
   const board = await open(page);
   // The older page waits until his place is measured, so the place is the
