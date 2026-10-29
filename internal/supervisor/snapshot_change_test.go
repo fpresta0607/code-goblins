@@ -58,6 +58,7 @@ func applied(held any, c boardChange) (any, error) {
 		if c.Order != nil {
 			order = c.Order
 		}
+		order = append(slices.DeleteFunc(slices.Clone(order), func(id string) bool { return slices.Contains(c.Removed, id) }), c.Appended...)
 		after := []any{}
 		for _, id := range order {
 			item, isHeld := byID[id]
@@ -95,6 +96,10 @@ func TestAChangeCarriesOnlyWhatChangedAndGivesTheNextValue(t *testing.T) {
 		{"an item that changed is sent alone by its id", `[{"id":"x","n":1},{"id":"y","n":1}]`, `[{"id":"x","n":1},{"id":"y","n":2}]`, `{"items":{"y":{"keys":{"n":{"value":2}}}}}`},
 		{"an item that came is sent whole with every id in order", `[{"id":"x"}]`, `[{"id":"y","n":1},{"id":"x"}]`, `{"order":["y","x"],"items":{"y":{"value":{"id":"y","n":1}}}}`},
 		{"an item that went leaves every id in order", `[{"id":"x"},{"id":"y"}]`, `[{"id":"y"}]`, `{"order":["y"]}`},
+		{"an item that went from among more is named alone", `[{"id":"x"},{"id":"y"},{"id":"z"}]`, `[{"id":"x"},{"id":"z"}]`, `{"removed":["y"]}`},
+		{"an item that came at the end is named alone", `[{"id":"x"},{"id":"y"}]`, `[{"id":"x"},{"id":"y"},{"id":"z","n":1}]`, `{"appended":["z"],"items":{"z":{"value":{"id":"z","n":1}}}}`},
+		{"the oldest item that went and one that came at the end are named alone", `[{"id":"w"},{"id":"x"},{"id":"y"}]`, `[{"id":"x"},{"id":"y"},{"id":"z"}]`, `{"removed":["w"],"appended":["z"],"items":{"z":{"value":{"id":"z"}}}}`},
+		{"an item that came at the end while others moved leaves every id in order", `[{"id":"x"},{"id":"y"}]`, `[{"id":"y"},{"id":"x"},{"id":"z"}]`, `{"order":["y","x","z"],"items":{"z":{"value":{"id":"z"}}}}`},
 		{"items that moved are sent as their order", `[{"id":"x"},{"id":"y"}]`, `[{"id":"y"},{"id":"x"}]`, `{"order":["y","x"]}`},
 		{"a list whose items have no ids is sent whole", `[1,2]`, `[1,3]`, `{"value":[1,3]}`},
 		{"a list whose ids repeat is sent whole", `[{"id":"x","n":1},{"id":"x","n":2}]`, `[{"id":"x","n":1},{"id":"x","n":3}]`, `{"value":[{"id":"x","n":1},{"id":"x","n":3}]}`},

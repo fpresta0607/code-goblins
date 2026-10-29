@@ -4,8 +4,9 @@ import { array, object, string } from "./types.ts";
 // one after its first snapshot, carrying only what moved since it last sent
 // (internal/supervisor/snapshot_change.go): a value whole, or an object's
 // keys that changed and those it lost, or the items of a list that changed by
-// id, with every id in order when items came, went or moved. A change that
-// does not fit what the board holds throws.
+// id, with every id in order when items came, went or moved, or only the ids
+// that went and those that came at its end. A change that does not fit what
+// the board holds throws.
 export function applyChange(held: unknown, change: unknown): unknown {
   const each = object(change);
   if ("value" in each) return each.value;
@@ -19,7 +20,8 @@ export function applyChange(held: unknown, change: unknown): unknown {
   if (!Array.isArray(held)) throw new Error("Invalid snapshot change");
   const byID = new Map(held.map((item) => [string(object(item).id), item]));
   const items = each.items == null ? {} : object(each.items);
-  const order = each.order == null ? [...byID.keys()] : array(each.order).map(string);
+  const removed = new Set(array(each.removed).map(string));
+  const order = [...(each.order == null ? [...byID.keys()] : array(each.order).map(string)).filter((id) => !removed.has(id)), ...array(each.appended).map(string)];
   return order.map((id) => {
     if (Object.hasOwn(items, id)) return applyChange(byID.get(id), items[id]);
     if (!byID.has(id)) throw new Error("Invalid snapshot change");
