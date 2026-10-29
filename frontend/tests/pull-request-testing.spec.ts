@@ -55,7 +55,8 @@ const board = (page: Page) => page.locator(".task-board");
 const progress = (page: Page) => board(page).getByRole("region", { name: "In progress", exact: true });
 const pausedSection = (page: Page) => board(page).getByRole("region", { name: "Paused", exact: true });
 const card = (page: Page, name: string) => board(page).locator(".task-card-shell").filter({ has: page.locator(".card-title").filter({ hasText: name }) });
-const header = (page: Page) => page.locator(".goblin-panel .panel-header");
+// A goblin's status is said at the top of its panel's Task view.
+const details = (page: Page) => page.locator(".goblin-panel .panel-header-details");
 // What the panel shows in place of a terminal whose session is not running.
 const ended = (page: Page) => page.locator(".deck-slot:not([hidden]) .ended-session");
 
@@ -130,12 +131,12 @@ test.describe("in his window", () => {
 
     // Act
     await select(page, "Sid - Memory Keeper");
-    const panelStatus = await read(header(page).locator(".panel-status"));
+    const panelStatus = await read(details(page).locator(".panel-status"));
     const paneTitle = await ended(page).locator("h2").textContent();
     const detailsHeader = await openTaskList(page);
     const panelChip = await read(detailsHeader.locator("a.hosted-checks"));
     await detailsHeader.locator(".raw-details > summary").click();
-    const details = await detailsHeader.locator(".raw-details-text").innerText();
+    const rawDetails = await detailsHeader.locator(".raw-details-text").innerText();
     await expect(detailsHeader.locator(".panel-activity")).toHaveCount(0);
     const controls = await page.locator(".goblin-panel").getByRole("group", { name: "Controls for Keep the memory floor" }).getByRole("button").allTextContents();
     await page.getByRole("button", { name: "Orchestration", exact: true }).click();
@@ -149,7 +150,7 @@ test.describe("in his window", () => {
     expect(panelStatus.color).not.toBe(AMBER);
     expect(panelChip).toMatchObject({ text: "Testing", href: TRAIN_PR });
     expect(paneTitle).toBe("Session paused");
-    expect(details).toBe("It resumes by itself when PR #512 merges.");
+    expect(rawDetails).toBe("It resumes by itself when PR #512 merges.");
     expect(controls).toEqual(["Resume", "Stop"]);
     await expect(node("Sid - Memory Keeper")).toHaveCount(0);
   });
@@ -159,7 +160,7 @@ test.describe("in his window", () => {
 
     await select(page, "Otis - Ledger Clerk");
 
-    await expect(header(page).locator(".panel-status")).toHaveText("Paused for memory");
+    await expect(details(page).locator(".panel-status")).toHaveText("Paused for memory");
     await expect(ended(page).locator("h2")).toHaveText("Session paused");
   });
 
@@ -169,7 +170,7 @@ test.describe("in his window", () => {
     await select(page, "Mae - Bug Hunter");
     const detailsHeader = await openTaskList(page);
 
-    await expect(header(page).locator(".panel-status")).toHaveText("Testing");
+    await expect(details(page).locator(".panel-status")).toHaveText("Testing");
     await expect(detailsHeader.locator("a.hosted-checks")).toHaveAttribute("href", RUN);
   });
 });

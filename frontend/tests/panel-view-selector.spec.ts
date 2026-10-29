@@ -41,7 +41,7 @@ async function expectIconsInTheHeaderRow(page: Page, who: string) {
     expect(box.x + box.width, part + " inside the screen").toBeLessThanOrEqual(page.viewportSize()!.width);
   };
   await onTheRow(":scope > .panel-view-switch");
-  if (who === "CFO") await onTheRow(":scope > .afk-header");
+  if (who === "CFO") await onTheRow(".afk-header");
 }
 
 for (const who of ["goblin", "CFO"]) {

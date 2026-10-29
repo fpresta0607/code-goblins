@@ -81,7 +81,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
         // Assert
         await expect(header.locator("h2"), state).toHaveText(title);
-        await expect(header.locator(".panel-status"), state).toHaveText(status);
+        await expect(detailsHeader.locator(".panel-status"), state).toHaveText(status);
         if (isQuiet || !sentence) await expect(detailsHeader.locator(".panel-activity"), state).toHaveCount(0);
         else await expect(detailsHeader.locator(".panel-activity"), state).toHaveText(sentence);
         expect(text.split(status).length - 1, state + ": the status is said once").toBe(1);
@@ -129,12 +129,11 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
 
       // Act: open the waiting task.
       const detailsHeader = await select(page, blocked);
-      const header = panel(page).locator(".panel-header");
 
       // Assert: its status says what it waits for, with no line and nothing
       // folded under it (2026-10-10, "the [More] dropdown is not really
       // necessary"): the CFO's note on the wait is not on the board.
-      await expect(header.locator(".panel-status")).toHaveText("Waits for 12 GB free");
+      await expect(detailsHeader.locator(".panel-status")).toHaveText("Waits for 12 GB free");
       await expect(detailsHeader.locator(".panel-activity")).toHaveCount(0);
       await expect(detailsHeader.locator("details")).toHaveCount(0);
       await expect(panel(page)).not.toContainText("default first-open layout");

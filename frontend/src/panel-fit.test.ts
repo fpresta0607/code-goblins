@@ -20,7 +20,6 @@ test("a wider corner leaves less room for controls", () => {
   assert.deepEqual(rowFit({ ...goblin, width: 199 }), { shown: 0 });
   assert.deepEqual(rowFit({ ...goblin, count: 5, width: 252 }), { shown: 2 });
   assert.deepEqual(rowFit({ ...goblin, count: 1, width: 148 }), { shown: 1 });
-  assert.deepEqual(rowFit({ ...goblin, count: 1, width: 147 }), { shown: 0 });
 });
 
 test("a panel with no controls needs only its corner button", () => {
@@ -29,4 +28,8 @@ test("a panel with no controls needs only its corner button", () => {
 
 test("a row too narrow for any control keeps its corner and puts controls in More", () => {
   for (const width of [0, 95, 147]) assert.deepEqual(rowFit({ ...goblin, width }), { shown: 0 });
+});
+
+test("a row too narrow even for More keeps a lone control, which takes More's room", () => {
+  for (const width of [0, 95, 147]) assert.deepEqual(rowFit({ ...goblin, count: 1, width }), { shown: 1 });
 });

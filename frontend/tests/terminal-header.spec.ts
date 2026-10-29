@@ -11,7 +11,11 @@ import { expect, holdStream, openTaskList, type Page, test } from "./site";
 // Chat and Task switch, which sits in the header's row (the Overlord,
 // 2026-10-28: "chat and task doesn't need to be full width, it can fit inline
 // with cfo and afk and just be the icons"): the rest are in its Task view.
-// The supervisor is played by one held snapshot.
+// Since 2026-10-29 the header is one short row ("Minimize height and maximize
+// the space"), its picture, name and task id beside the switch, and its
+// status line is the first thing in its Task view: the working line in the
+// conversation says what it does. The supervisor is played by one held
+// snapshot.
 const REPO = "https://github.com/fpresta0607/household-assistant";
 const at = new Date(Date.now() - 20 * 60_000).toISOString();
 const FRANK = {
@@ -43,30 +47,34 @@ async function openTerminal(page: Page, goblin: Record<string, unknown>) {
 test.use({ viewport: { width: 1707, height: 1067 }, deviceScaleFactor: 1.5 });
 
 for (const [state, fields, status, phase] of STATES) {
-  test(`a goblin ${state} heads its terminal with its picture, name, task id and one status line, and no buttons but the Chat and Task switch`, async ({ page }, testInfo) => {
+  test(`a goblin ${state} heads its panel with its picture, name and task id on one row, and says its status atop its Task view`, async ({ page }, testInfo) => {
     // Arrange
     const header = await openTerminal(page, { ...FRANK, ...fields });
 
     // Act
     await header.screenshot({ path: testInfo.outputPath(`terminal-header-${state.replaceAll(" ", "-")}.png`) });
-    const rows = await header.evaluate((element) => ["#panel-title", ".panel-goblin-task", ".panel-status"].map((selector) => {
-      const part = element.querySelector<HTMLElement>(selector)!, box = part.getBoundingClientRect();
-      return { top: Math.round(box.top), bottom: Math.round(box.bottom), lines: Math.round(box.height / parseFloat(getComputedStyle(part).lineHeight)) };
+    const parts = await header.evaluate((element) => [".goblin-avatar", "#panel-title", ".panel-goblin-task"].map((selector) => {
+      const box = element.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+      return { top: box.top, bottom: box.bottom, middle: box.top + box.height / 2 };
     }));
+    const details = await openTaskList(page);
 
-    // Assert
+    // Assert: the row holds no status, no description and no buttons but
+    // the switch and the panel's own controls.
     await expect(header.locator(".goblin-avatar")).toBeVisible();
     await expect(header.locator("#panel-title")).toHaveText("Frank - Chat Captain");
     await expect(header.locator(".panel-goblin-task")).toHaveText(FRANK.id);
-    await expect(header.locator(".panel-status")).toHaveText(status);
-    await expect(header.locator(".panel-status")).toHaveClass(new RegExp("phase-" + phase));
+    await expect(header.locator(".panel-status")).toHaveCount(0);
+    await expect(details.locator(".panel-status")).toHaveText(status);
+    await expect(details.locator(".panel-status")).toHaveClass(new RegExp("phase-" + phase));
     await expect(header).not.toContainText(FRANK.title);
     await expect(header.locator(".panel-actions, .panel-activity, .project-line, a")).toHaveCount(0);
-    await expect(header.getByRole("button")).toHaveCount(2);
+    await expect(header.locator(".panel-identity").getByRole("button")).toHaveCount(0);
     await expect(header.getByRole("group", { name: "Panel view" }).getByRole("button")).toHaveCount(2);
-    expect(rows.map((row) => row.lines)).toEqual([1, 1, 1]);
-    expect(rows[1].top).toBeGreaterThanOrEqual(rows[0].bottom - 1);
-    expect(rows[2].top).toBeGreaterThanOrEqual(rows[1].bottom - 1);
+    for (const part of parts.slice(1)) {
+      expect(part.middle, "on the picture's row").toBeGreaterThan(parts[0].top);
+      expect(part.middle, "on the picture's row").toBeLessThan(parts[0].bottom);
+    }
   });
 }
 

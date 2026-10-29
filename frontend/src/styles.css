@@ -478,8 +478,12 @@ button:focus:not(:focus-visible), summary:focus:not(:focus-visible), [tabindex]:
 /* A notice above the board, as a newer board served or the line after a
    restart, keeps its height. */
 .app-shell > .notice { flex: none; }
-/* What Open in terminal met, under the panel row's end, over what is below. */
-.window-feedback { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw); }
+/* What Open in terminal met, a refusal of the CFO's AFK switch, and what a
+   press of Restart PC or Update met, under its row's end, over what is
+   below, so it never widens the row or pushes the conversation down. In a
+   panel it is no wider than the panel's room, so the panel's edge never
+   cuts it. */
+.window-feedback, .panel-leading > .notice, .cfo-header-line > .notice { position: absolute; top: calc(100% + 6px); right: 0; z-index: 4; width: max-content; max-width: min(360px, 80vw, calc(100cqi - 16px)); }
 .dev-drive-setting { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 16px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .dev-drive-setting > button { flex: none; white-space: nowrap; }
 .dev-drive-setting > p, .dev-drive-setting > .notice { flex: 1 0 100%; margin: 0; }
@@ -668,7 +672,7 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
    above the keyboard and take the room back when it closes; the viewport's
    height and top come from use-visual-viewport.ts. */
 .app-shell.fills-phone { position: fixed; inset: var(--visual-top, 0px) 0 auto; height: var(--visual-height, 100dvh); min-height: 0; padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); gap: 6px; }
-.fills-phone .context-pane { flex: 1; min-height: 0; max-height: none; container: phone-panel / size; }
+.fills-phone .context-pane { flex: 1; min-height: 0; max-height: none; }
 /* There the Terminal view's header keeps its picture, name, task and status
    at smaller sizes, so the terminal keeps the room above the keyboard. */
 .fills-phone .panel-header.compact { gap: 2px 12px; padding: 6px 14px 8px; }
@@ -676,13 +680,6 @@ button.line-number { min-height: 32px; display: flex; align-items: flex-start; j
 .fills-phone .panel-header.compact h2 { font-size: 1.125rem; }
 .fills-phone .panel-header.compact .panel-identity { gap: 0; }
 .fills-phone .panel-header.compact :is(.panel-goblin-task, .panel-status) { font-size: .9375rem; line-height: 1.35; }
-/* An iPhone's keyboard leaves the panel about 320 px, too little for the name
-   block over the box or the terminal, so a panel under 30rem puts it away
-   until the keyboard closes and the line being written stays above the
-   keyboard as the message grows. Back and the view switch stay. */
-@container phone-panel (max-height: 30rem) {
-  .goblin-panel > .panel-header { display: none; }
-}
 /* VS Code and a task's folder open on the PC, so a small screen has neither,
    and a row of the panel's buttons left with nothing in it takes no room. */
 @media (max-width: 40rem) {
@@ -781,11 +778,6 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .panel-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 14px 20px; padding: 18px 28px 20px; flex: none; }
 .panel-header .goblin-avatar { width: 88px; height: 88px; }
 .panel-identity { display: grid; gap: 4px; min-width: 0; }
-/* A goblin's name and task take the room first: its buttons stay beside them
-   only while all fit on one row, and otherwise take a row of their own under
-   them, starting where they start. */
-.panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; min-width: 0; }
-.panel-heading > .panel-identity { flex: 1 1 auto; }
 /* The name and a named goblin's task, under it, show whole, wrapping
    between words and breaking one only when it is wider than the line. */
 .panel-header h2 { font-size: clamp(1.625rem, 2.4vw, 2rem); line-height: 1.2; overflow-wrap: anywhere; }
@@ -822,8 +814,8 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .task-edit textarea:focus-visible { outline: none; }
 .task-edit[aria-busy="true"] textarea { opacity: .6; cursor: progress; }
 .task-edit-actions { display: flex; gap: 8px; margin-left: auto; }
-.panel-header .project-label { font-size: 1.0625rem; }
-.panel-header .muted { color: var(--muted); }
+:is(.panel-header, .panel-header-details) .project-label { font-size: 1.0625rem; }
+:is(.panel-header, .panel-header-details) .muted { color: var(--muted); }
 .panel-status { font-size: 1.0625rem; }
 /* The one sentence under a task's status, in full, then what it leaves out
    behind Details and, for a failure, its log, on one line that wraps. */
@@ -844,7 +836,7 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .show-more-toggle:hover, .text-button:hover { text-decoration: underline; }
 .text-link { color: var(--mint); font-size: .9375rem; font-weight: 700; }
 .panel-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.panel-header .workspace-outcome { grid-column: 1 / -1; margin: 0; }
+:is(.panel-header, .panel-header-details) .workspace-outcome { grid-column: 1 / -1; margin: 0; }
 .pill-link { width: auto; min-width: 44px; padding: 0 14px 0 10px; border-radius: 999px; display: inline-flex; gap: 6px; color: #dff7ee; font-weight: 800; }
 .panel-header.compact { gap: 10px 14px; padding: 10px 18px 12px; }
 .panel-header.compact .goblin-avatar { width: 48px; height: 48px; }
@@ -1401,14 +1393,44 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 /* The panel's own header takes what it needs, and the stage under it takes
    the rest of the panel. */
 .goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
+/* The session panel's header is one short row (the Overlord, 2026-10-29:
+   "Minimize height and maximize the space"): its small picture, its name, its
+   harness's mark and a goblin's task id, cut short when the row is narrow,
+   the task id first, then the selector, then the panel's controls. The
+   identity, the picture with it, and the controls share the room either side
+   of the selector equally, so it sits in the middle while both fit. Past
+   that the controls keep what they show (see PanelRow), and give a control to
+   More only once the name is down to its first letters, and never what always
+   shows: the AFK switch, More and Close or Back. The identity never narrows
+   past its picture, and cuts the name and the mark at its own edge, so
+   neither is drawn under the selector. */
+.panel-header.one-row { display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
+.panel-header.one-row .panel-identity > .goblin-avatar { flex: none; width: 32px; height: 32px; }
+.one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
+.one-row h2 { flex: 0 1 auto; min-width: 0; font-size: 1.25rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.one-row .panel-identity > .mark { flex: none; width: 26px; height: 26px; }
+.one-row .panel-identity > .mark :is(svg, .icon) { width: 15px; height: 15px; }
+.one-row .panel-goblin-task { flex: 0 100 auto; min-width: 0; color: var(--muted); font-size: .875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.one-row > .panel-top { flex: 1 1 0; padding: 0; }
+.one-row .panel-leading { display: flex; flex: none; }
+.fills-phone .panel-header.one-row { padding: 4px 6px; }
+.fills-phone .one-row .panel-identity > .mark { width: 22px; height: 22px; }
+.fills-phone .one-row .panel-identity > .mark :is(svg, .icon) { width: 13px; height: 13px; }
+/* The CFO's rare states, Restart PC, Update and the words for a switch that
+   cannot be read, take a line of their own under its header's row, at the
+   row's end, and the line takes no room while none of them shows. */
+.cfo-header-line { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 8px; }
+.cfo-header-line:has(> :is(button, .muted)) { padding-block: 6px; }
+.fills-phone .cfo-header-line { margin-inline: 6px; }
+/* The goblin's whole name and task id, which the row may cut short, open its
+   Task view. */
+.panel-whole-name { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
 /* The selector between the panel's conversation and its task panel: a
-   segmented control of two icons in the header's own row, at the row's end
-   or before the CFO's controls, never a fold, a dropdown or a row of its own. */
+   segmented control of two icons in the header's own row, never a fold, a
+   dropdown or a row of its own. */
 .panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 3px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
-.panel-header:has(> .panel-view-switch) { grid-template-columns: auto minmax(0, 1fr) auto; }
-.panel-header > .panel-view-switch { margin-left: auto; }
 .goblin-panel > .panel-top { order: 0; }
-.goblin-panel > .panel-header { order: 1; }
+.goblin-panel > :is(.panel-header, .cfo-header-line) { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
 .panel-view-switch > button { display: inline-grid; place-items: center; width: 38px; min-height: 34px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }
@@ -1439,10 +1461,11 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .terminal-deck.behind { visibility: hidden; }
 .deck-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 .deck-slot { display: flex; flex: 1; min-width: 0; min-height: 0; }
-/* The handle between the board and the panel. */
+/* The handle between the board and the panel, always drawn, so the panel's
+   edge shows it can be dragged (the Overlord, 2026-10-29: "more drag based"). */
 .pane-divider { display: flex; cursor: col-resize; touch-action: none; outline: none; }
-.pane-divider::after { content: ""; width: 3px; height: 56px; margin: auto; border-radius: 3px; background: var(--glass-border-hover); opacity: 0; transition: opacity .12s ease; }
-.pane-divider:hover::after, .pane-divider:focus-visible::after { opacity: 1; background: var(--mint); }
+.pane-divider::after { content: ""; width: 3px; height: 56px; margin: auto; border-radius: 3px; background: var(--glass-border-hover); }
+.pane-divider:hover::after, .pane-divider:focus-visible::after { background: var(--mint); }
 @media (max-width: 50rem) { .pane-divider { display: none; } }
 
 .board-column { container-type: inline-size; }

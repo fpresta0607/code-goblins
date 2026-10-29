@@ -5,24 +5,10 @@
    The board's stylesheet loads after this one, so a rule here that changes
    one of its own names the element twice. */
 
-/* The toggle: a small switch with its label, at the end of the header's first
-   row beside the CFO's status. The header that carries it wraps, so on a panel
-   too narrow for both the toggle drops under the status and is still there at
-   every width. On wears the board's green. */
-.panel-header.panel-header:has(> .afk-header) { display: flex; flex-wrap: wrap; }
-.panel-header:has(> .afk-header) > .goblin-avatar { flex: none; }
-.panel-header:has(> .afk-header) > .panel-heading { flex: 1 1 0; min-width: min-content; }
-.afk-header { display: flex; align-items: center; gap: 8px; flex: none; margin-left: auto; }
-.panel-header > .panel-view-switch + .afk-header { margin-left: 0; }
-/* On a phone the CFO's header is one row: its picture, its name and status,
-   the panel's Chat and Task icons and the toggle, with closer gaps, and a
-   status too long for what is left ends in an ellipsis rather than wrapping
-   the row (the Overlord, 2026-10-28: "it can fit inline with cfo and afk"). */
-.fills-phone .panel-header.panel-header:has(> .afk-header) { column-gap: 8px; }
-.fills-phone .panel-header:has(> .afk-header) > .panel-heading { min-width: 0; }
-.fills-phone .panel-header:has(> .afk-header) .panel-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.afk-header .icon-button { width: 36px; height: 36px; min-height: 36px; }
-.afk-header .icon-button .icon { width: 18px; height: 18px; }
+/* The toggle: a small switch with its label, leading the panel's controls
+   in the CFO panel's one header row, so it is there at every width. On
+   wears the board's green. */
+.afk-header { display: flex; align-items: center; gap: 8px; flex: none; }
 .afk-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 8px 4px 12px; border-radius: 999px; background: var(--field-bg); color: var(--muted); font-family: var(--font-display); font-size: 1rem; white-space: nowrap; }
 .afk-toggle:hover:not(:disabled) { color: #edf4f3; border-color: var(--glass-border-hover); }
 .afk-toggle-track { position: relative; flex: none; width: 34px; height: 20px; border: 1px solid var(--glass-border-hover); border-radius: 999px; background: var(--ghost-bg); transition: background .15s ease, border-color .15s ease; }
@@ -31,10 +17,9 @@
 .afk-toggle[aria-checked="true"] .afk-toggle-track { border-color: var(--accent-green); background: var(--accent-green); }
 .afk-toggle[aria-checked="true"] .afk-toggle-thumb { transform: translateX(14px); background: #03130c; }
 @media (prefers-reduced-motion: reduce) { .afk-toggle-track, .afk-toggle-thumb { transition: none; } }
-.afk-toggle .card-start-spinner { flex: none; }
-/* A refusal of his switch, or the CFO's pending update, takes a row of its
-   own under the header; in a dialog a refusal sits under its words. */
-.panel-header > .notice { flex: 1 0 100%; margin: 8px 0 0; }
+.afk-toggle-track > .card-start-spinner { position: absolute; top: 2px; left: 2px; }
+.afk-toggle[aria-checked="true"] .afk-toggle-track > .card-start-spinner { left: 16px; }
+/* In a dialog a refusal of his switch sits under its words. */
 .afk-dialog > .notice { margin: 16px 0 0; }
 
 /* A button that waits on the supervisor says so: its spinner, then what it
