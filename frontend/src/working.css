@@ -1,8 +1,16 @@
-/* The halftone uses the indicator's font size, including its compact form. */
+/* Both shapes use the indicator's font size, including its compact form. Their
+   animations are working-indicator.tsx's. */
 .working-indicator { position: relative; display: inline-block; width: 1em; height: 1em; font-size: 24px; flex: none; color: currentColor; }
-.working-dither { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: .0417em; animation: working-breath 1.6s infinite ease-in-out; }
-.working-dither > i { background: currentColor; }
-@keyframes working-breath { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.working-helix, .working-dither { position: absolute; inset: 0; display: block; }
+.working-dither { display: grid; grid-template-columns: repeat(4, 1fr); gap: .0417em; }
+.working-helix-row { position: absolute; left: 50%; width: .1667em; height: .1667em; }
+/* Each dot is centred on its row by its offset, so its keyframes in
+   working-indicator.tsx move it by lengths alone; a transform by a share of
+   its own size, as the shimmer's, would stay on the compositor all the same. */
+.working-helix-row > i { position: absolute; left: -.0833em; width: .1667em; height: .1667em; border-radius: 50%; background: currentColor; }
+.working-dither > i { background: currentColor; opacity: .1; }
 @media (prefers-reduced-motion: reduce) {
-  .working-dither { animation: none; }
+  .working-dither { display: none; }
+  .working-helix-row > i { transform: translateX(.25em); }
+  .working-helix-row > i.b { transform: translateX(-.25em); }
 }

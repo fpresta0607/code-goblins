@@ -4,7 +4,24 @@
    keyboard is on it; a touch screen, which cannot point, always shows it. */
 .reply-working { display: flex; align-items: center; gap: .5em; min-width: 0; min-height: 32px; margin-top: -.375em; }
 .reply-working > .working-indicator { font-size: 20px; }
-.reply-doing { min-width: 0; overflow: hidden; color: var(--muted); font-size: .9375em; text-overflow: ellipsis; white-space: nowrap; }
+/* The words take their widest word's room, every word laid in the one cell,
+   and a word wider than the row ends in an ellipsis. Each word's window sits
+   past it, so the word is unseen until its turn slides the window over it to
+   type it while the word stays put. The shimmer is a lit copy of the word in
+   the word's own box, seen through a soft band that slides across it as the
+   copy slides back, so it lights the letters alone. */
+.reply-doing { display: grid; grid-template-columns: minmax(0, auto); min-width: 0; overflow: hidden; color: var(--muted); font-size: .9375em; white-space: nowrap; }
+.reply-doing > * { grid-area: 1 / 1; }
+.working-shine > span::before { content: attr(data-word); }
+.working-word, .working-shine { justify-self: start; max-width: 100%; overflow: hidden; }
+.working-word > span, .working-shine > span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.working-word { transform: translateX(-100%); }
+.working-word > span { transform: translateX(100%); }
+.working-shine { color: var(--bone); mask-image: linear-gradient(90deg, transparent 30%, #000 50%, transparent 70%); transform: translateX(-100%); pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .working-shine { display: none; }
+  .working-word:first-child, .working-word:first-child > span { transform: none; }
+}
 .reply-stop { display: inline-grid; flex: none; place-items: center; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; box-shadow: none; }
 .reply-stop > .icon { width: 20px; height: 20px; color: var(--bone); opacity: 0; transition: opacity .12s ease; }
 .reply-stop:is(:hover, :focus-visible) { background: var(--glass-bg-hover); }

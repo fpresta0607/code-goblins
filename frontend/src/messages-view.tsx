@@ -471,7 +471,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {phase === "live" && isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
+          {shown && phase === "live" && isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued

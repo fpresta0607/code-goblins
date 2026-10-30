@@ -1378,11 +1378,17 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a still halftone of sixteen cells lit in Bayer order, which breathes as one every 1.6 seconds.
-That breath is the one animation Modern Chat runs, of opacity alone, which the compositor draws without the page's main thread.
-The helix and the sixteen cells that each animated before it ran 32 animations and kept the main thread 44 percent busy in a panel at rest (the Overlord, 2026-10-28: "32 animations??? remvoe like all but the streaming one").
-The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
-It carries an accessible name, and reduced motion keeps it still.
+Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix of seven rows of two dots that fades into sixteen cells lighting in Bayer order and back every 8 seconds (the Overlord, 2026-10-30: "i prefered the helix").
+Every part of it moves by transform and opacity alone, which the compositor draws without the page's main thread, and it runs only while a turn runs and its conversation shows, never behind the terminal or the Task view.
+For a while it was a still halftone that breathed as one, after a panel at rest kept the main thread 44 percent busy (2026-10-28: "32 animations??? remvoe like all but the streaming one").
+Measured on that build with a snapshot each second, about 30 of the 36 ms of main-thread work each second came from its 32 CSS animations, 50 style recalculations a second, and about 5 from the one-second clock that drew the working spot again and the redraws of the queued messages on every snapshot, which stay gone.
+The animations reached the main thread because Chrome wakes it at every turn of a CSS animation while anything in the page listens for animationiteration, as React's root always does, so the indicator animates by element.animate, which raises no such event.
+render-budget.spec.ts holds a working panel at rest under 40 style recalculations in 3 seconds; the CSS helix took 138.
+The colour is the ink of the harness's own mark: Claude Code's orange, Codex's light ink and pi's moss (2026-10-30: "make color of the helix match teh harnes icon coloring").
+Beside it, the words the harness says it is doing, or Working when it says none, type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn, one every 3 seconds, typed the same way (2026-10-30: "make twitsting and teh verbs rotate in a type writere hroiztonal shimmer").
+The typing slides a window over the word to each letter's edge, and the shimmer is a light band crossing it, both by transform alone.
+Every word is in the page from the start, laid unseen in the one place, and shows in its turn by its own animations, which come round again while the turn runs, so nothing in the page changes as the words rotate (the CFO, 2026-10-30: "nothing moves when nothing runs"): a working panel at rest recalculates the page's style 2 or 3 times in 3 seconds, and React draws nothing again.
+It carries an accessible name, the harness's own words or Working, and reduced motion keeps the helix still and shows those words whole.
 Working cards, tree rows and a panel's Task view show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
 The CFO's own panel shows the indicator at its reply's end while it works, as a goblin's does.
@@ -1449,7 +1455,7 @@ A full-screen program owns its native history, so Shift+PageUp/Down follows its 
 While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference (#1584), and Classic in its box's Style menu returns the terminal.
 The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
 While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
-It reads no clock, so it is not drawn again while the session works: a hint that counted how long it had worked drew it every second.
+It reads no clock, so React does not draw it again while the session works: a hint that counted how long it had worked drew it every second.
 Pointing at it, or reaching it with Tab, shows Stop on it, and a touch screen always shows it: a press sends Escape through the session's terminal link, as the box's Stop does, and shows no terminal.
 A goblin whose messages queue through the board, or one whose typing is held, shows the indicator without Stop.
 The indicator is drawn only while the conversation reaches its end.

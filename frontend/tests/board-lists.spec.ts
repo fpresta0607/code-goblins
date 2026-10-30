@@ -163,7 +163,7 @@ test("a board of 30 goblins in progress shows them all and runs no animation onc
   await page.mouse.up();
   await expect.poll(() => posted.length).toBe(1);
   // The drop's own slide ends within a quarter of a second.
-  await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !(animation as CSSAnimation).animationName?.startsWith("working-")).length)).toBe(0);
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !animation.id.startsWith("working-")).length)).toBe(0);
   const asked = (await page.evaluate(() => window.framesAsked))!;
   await page.waitForTimeout(500);
   expect((await page.evaluate(() => window.framesAsked))! - asked).toBeLessThan(5);

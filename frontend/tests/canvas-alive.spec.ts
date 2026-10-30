@@ -14,10 +14,10 @@ async function open(page: Page) {
 }
 const step = (page: Page, name: Step, goblin: string) => page.evaluate(([name, goblin]) => (window as Window & { canvasStep?: (name: string, goblin: string) => void }).canvasStep!(name, goblin), [name, goblin]);
 // The animations running anywhere on the page.
-const running = (page: Page) => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !(animation as CSSAnimation).animationName?.startsWith("working-")).length);
+const running = (page: Page) => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !animation.id.startsWith("working-")).length);
 const settled = async (page: Page, timeout = 3000) => expect.poll(() => running(page), { timeout }).toBe(0);
 // The properties the running animations on the page move.
-const animated = (page: Page) => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !(animation as CSSAnimation).animationName?.startsWith("working-"))
+const animated = (page: Page) => page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && !animation.id.startsWith("working-"))
   .flatMap((animation) => animation.effect instanceof KeyframeEffect ? animation.effect.getKeyframes().flatMap((frame) => Object.keys(frame)) : [])
   .filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)));
 
