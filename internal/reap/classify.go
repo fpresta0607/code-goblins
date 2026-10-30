@@ -611,6 +611,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 	desktop := descendants(inv.Processes, rootsMatching(inv.Processes, isDesktopApp))
 	gates := descendants(inv.Processes, rootsMatching(inv.Processes, isGateProcess))
 	own := overlordsSessions(inv.Processes)
+	browser := descendants(inv.Processes, rootsMatching(inv.Processes, isNativeMessagingHost))
 	byPID := make(map[int]Process, len(inv.Processes))
 	for _, process := range inv.Processes {
 		byPID[process.PID] = process
@@ -625,7 +626,7 @@ func classifyProcesses(inv Inventory, supervised, fleet map[int]bool, tasks map[
 		}
 		switch {
 		case isHarness(process):
-			if isNonFleetHarness(process, desktop, gates, own) {
+			if isNonFleetHarness(process, desktop, gates, own, browser) {
 				// Not a fleet process at all, so not this sweep's business:
 				// reporting it would wake the CFO for something no action of
 				// its own could ever be right about.
@@ -1556,8 +1557,9 @@ const unidentifiedHold = "could not determine what this process belongs to: it h
 // alone entirely: forcing one closes the application the Overlord is using or
 // ends a review round for a goblin that is working. So must his own sessions
 // in a terminal: on 2026-10-07 two of them were held as unidentified orphans
-// on every sweep for a day.
-func isNonFleetHarness(process Process, desktopApp, gateAgents, overlords map[int]bool) bool {
+// on every sweep for a day. So must the host of a browser's extension: on
+// 2026-10-27 the one the Claude extension starts woke the CFO as an orphan.
+func isNonFleetHarness(process Process, desktopApp, gateAgents, overlords, browserHosts map[int]bool) bool {
 	switch {
 	case desktopApp[process.PID]:
 		// The packaged application, by its own install path or an ancestor's.
@@ -1567,6 +1569,9 @@ func isNonFleetHarness(process Process, desktopApp, gateAgents, overlords map[in
 		return true
 	case overlords[process.PID]:
 		// A session the Overlord started in a terminal of his own.
+		return true
+	case browserHosts[process.PID]:
+		// A native messaging host of his browser, which spends no tokens.
 		return true
 	}
 	return false
@@ -1609,6 +1614,30 @@ func overlordsSessions(processes []Process) map[int]bool {
 func isDesktopApp(process Process) bool {
 	image := normalizePath(program(process))
 	return slices.ContainsFunc(desktopAppMarkers, func(marker string) bool { return strings.Contains(image, marker) })
+}
+
+// nativeHostFlag is the whole of what Claude Code's chrome-native-host.bat
+// passes claude.exe, and nativeMessagingPipe begins the name of the pipe every
+// Chromium browser redirects a host's standard input from.
+const (
+	nativeHostFlag      = "--chrome-native-host"
+	nativeMessagingPipe = `\\.\pipe\chrome.nativeMessaging.in.`
+)
+
+// isNativeMessagingHost matches the Claude extension's host by its whole
+// command, so a harness that also names the flag is a harness still, and the
+// cmd.exe a browser starts any host through by the redirect it was started
+// with, which outside quotes is an argument of its own. What that cmd.exe
+// starts is found as its descendant.
+func isNativeMessagingHost(process Process) bool {
+	args := commandArgs(process.CommandLine)
+	switch executableName(process.Name) {
+	case "claude":
+		return len(args) == 2 && args[1] == nativeHostFlag
+	case "cmd":
+		return slices.ContainsFunc(args, func(argument string) bool { return strings.HasPrefix(argument, nativeMessagingPipe) })
+	}
+	return false
 }
 
 // isGateProcess matches no-mistakes, whose children are the agents of a round
