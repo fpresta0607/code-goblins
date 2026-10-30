@@ -101,8 +101,8 @@ A task frozen before the fallback was named takes it with `cfo pipeline migrate 
 Policy v6 needs a no-mistakes build that applies launch selections.
 That is the fork at `https://github.com/fpresta0607/no-mistakes` with its pull request 5, and with pull request 4, b05697a, which v5's Codex arguments already need.
 A pi gate needs one more, the fork's pull request 10, which teaches the launch assertion to prove a `pi` selection, so a build without it accepts the Codex and Claude Code chains only.
-The install puts in the build of that fork `install.ps1` pins, commit `f23a641`, the head of the fork's main, and each release builds and signs it beside its own programs.
-That main carries pull requests 4 to 10, the fix that gives a gate daemon a temporary directory of its own that outlives the goblin that started it (pull request 32), and the fix that hands the Test step's correction turn the whole response an agent refused, not a snippet of it (pull request 31).
+The install puts in the build of that fork `install.ps1` pins, commit `f91cd37`, the head of the fork's main, and each release builds and signs it beside its own programs.
+That main carries pull requests 4 to 10, the fix that gives a gate daemon a temporary directory of its own that outlives the goblin that started it (pull request 32), and the fix that hands the Test step's correction turn the whole response an agent refused, not a snippet of it (pull request 31), and the fix that makes a review with no answer text name what pi ended on and rerun once, not twice (pull request 34).
 The checked-in `config/pipeline.json` stays at v5, so a fresh install gates as before until the policy moves to v6.
 no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any other harness has no gate under v6: `cfo spawn` refuses such a task in `no-mistakes` mode there, and `cfo pipeline run` refuses one switched to it.
 
