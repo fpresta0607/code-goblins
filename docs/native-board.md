@@ -769,7 +769,10 @@ Until the first frame is drawn a plain line under the terminal's box says the te
 The terminal carries no options menu or help text; xterm's default input mode accepts InsertText and IME Unicode, and paste works.
 Text written into the terminal's hidden text box without a key, as a phone's dictation, an emoji picker or a keyboard's suggestion writes it, is sent as the change it made to the box: what it added is typed, and what it replaced is erased with Backspace back to where the change began and typed again, never erasing text before a key typed after it.
 A phone's dictation writes each partial result over the one before it, and until 21 October 2026 xterm sent each as new keys, so one dictated sentence reached the program about forty times, each a little longer (`frontend/tests/dictated-input.spec.ts`).
-Keys, pastes and an input method's composition are sent as xterm sends them.
+A native Codex view sends End before an unmodified, non-composing Enter following pasted or mirrored text, flushing its pending paste burst before submitting.
+Modern Chat's direct submission and the terminal's Stop and send also flush with End before Enter.
+The view uses the current harness after a switch and skips End while a picker is open so Enter keeps its selection (`frontend/tests/dictated-input.spec.ts`, `frontend/tests/touch-dictation.spec.ts`, `frontend/tests/codex-chat.spec.ts`).
+Other keys, pastes and an input method's composition keep xterm's handling.
 On a touch screen that text box lies, unseen, over the terminal's whole screen, so a long press offers the phone's own Paste and a tap brings up its keyboard; elsewhere xterm keeps it off the screen, and until 21 October 2026 it did on a phone too, so nothing under a finger could be typed into and a long press offered no Paste (`frontend/tests/phone-paste.spec.ts`).
 There the box is drawn at 2% opacity with nothing in it to see, since an iPhone offers no Paste in a box it reads as transparent, under 1% opacity, which is how xterm leaves it; until 22 October 2026 a long press on an iPhone offered none (the Overlord, 2026-10-22, "i cant paste").
 A touch screen also has Paste, Add a picture and Copy text beside the terminal's microphone, in the CFO's terminal and every goblin's, native or Herdr (`frontend/tests/phone-terminal-tools.spec.ts`).
@@ -938,13 +941,13 @@ Nothing brings such a terminal back, and a new session or terminal is one the bo
 Every other refusal closes as refused (1008) and keeps Reconnect, with its reason beside it; until 22 October 2026 the button showed alone.
 A paste goes as it is typed, in pieces of at most 64 KiB, in order.
 
-Every key typed in a native terminal goes to its program as xterm sends it, the bytes of a plain terminal, in the CFO's terminal and a goblin's alike, whether the program is idle, busy or on a full screen of its own.
+Native terminal keys use xterm's byte encoding, with the Codex submission handling described above, for the CFO and goblins alike whether the program is idle, busy or on a full screen of its own.
 That is Enter, Escape, Tab and Shift+Tab, Space, Backspace, Insert and Delete, the arrows, Home, End, Page Up and Page Down, F1 to F12, letters, digits and punctuation, Ctrl with a letter, Alt with a letter, and the arrows, Home, End and the page keys with Shift, Alt or Ctrl.
 A program that asked for application cursor keys is sent the arrows, Home and End in that form.
 Claude Code and pi read those bytes as they are.
 A program that reads key records, as Codex does, never sees the bytes: the pseudo console makes of each the key Windows names for it, with its character and its Alt, Ctrl and Shift.
 Bytes cannot tell a few keys from another, as in any terminal that sends bytes, and such a program reads Ctrl+H as Ctrl+Backspace, Ctrl+I as Tab, Ctrl+M as Enter, Ctrl+J as Ctrl+Enter and Ctrl+Space as Ctrl+Shift+2.
-Shift+Enter is the one key sent per harness, as the line break of its composer: a line feed to Claude Code, the Ctrl+J key event to Codex, and Enter to anything else.
+Shift+Enter sends the line break of the current harness's composer: a line feed to Claude Code, the Ctrl+J key event to Codex, and Enter to anything else.
 The board keeps these keys for itself:
 
 | Key | What the board does with it |
@@ -1486,7 +1489,7 @@ What the board could not parse goes to the CFO.
 
 Under the conversation is the session's message box, in place of its terminal's input, which shows only stepped in.
 The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
-Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
+Send, or Enter, submits what he wrote through the terminal view's input handling described above, and Shift+Enter starts a new line.
 While the harness works and the box is empty, the send button is Stop, which presses Escape in its terminal, as Esc in the box does; with the box's own pane, Speech history or style menu open, Escape closes that instead and reaches neither the harness nor its screen.
 Busy, held or reconnecting sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.
 While the harness's own screen says it is in a turn, or a screen of its own is open that is no list to choose from, such as its words for a usage limit, Send types nothing into the terminal and sends a `message` action, which the board holds as his queued entry until the harness's input is empty; it holds on what the screen says, not on the task being under way, which a goblin's is while its harness waits at an empty prompt.
