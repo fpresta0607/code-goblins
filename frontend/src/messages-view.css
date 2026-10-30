@@ -30,7 +30,7 @@
 .message-bubble { min-width: 0; max-width: 100%; padding: .55em .95em; border-radius: 1.125em; background: #15232b; overflow-wrap: anywhere; }
 .message-prompt.cfo .message-bubble { background: #101b21; box-shadow: 0 0 0 1px var(--glass-border) inset; }
 .message-prompt.slash .message-bubble > code, .message-prompt.shell .message-bubble > code { font: .9375em/1.5 var(--font-mono); white-space: pre-wrap; }
-.message-origin, .message-state, .queued-state { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
+.message-origin, .queued-state { justify-self: end; margin: 0; color: var(--muted); font-size: .75em; }
 /* What a command printed scrolls a long line sideways inside its own box. */
 .message-output { justify-self: stretch; max-height: 24em; margin: 0; padding: .5em .75em; overflow: auto; border: 1px solid var(--border); border-radius: 12px; background: #071015; color: #b3c5d1; font: .8125em/1.5 var(--font-mono); white-space: pre; }
 /* A long message or print shows its first lines, fading out over Show more. */
@@ -168,7 +168,6 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 
 .queued-message.pane .queued-actions { justify-content: flex-end; }
 .queued-line { display: flex; flex-wrap: wrap; gap: .25em .6em; margin: 0; color: var(--muted); font-size: .8125em; }
-.queued-line strong { color: var(--amber); }
 .queued-actions { display: flex; flex-wrap: wrap; gap: .35em; }
 .queued-actions .labelled-button { min-height: 30px; padding: 2px 10px; font-size: .8125em; }
 .queued-actions .icon { width: 15px; height: 15px; }

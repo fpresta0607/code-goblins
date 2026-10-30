@@ -29,7 +29,7 @@ func skipBoard(t *testing.T) (*Service, state.TaskMeta, Run, *[]string) {
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	told := &[]string{}
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		*told = append(*told, text)
 		return nil
 	}

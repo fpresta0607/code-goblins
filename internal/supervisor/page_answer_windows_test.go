@@ -704,7 +704,7 @@ func TestANoteOnAClosedItemIsKeptBeforeItsTurnToBeTold(t *testing.T) {
 	deliver := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = deliver })
 	typing, release := make(chan struct{}, 8), make(chan struct{})
-	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool) error {
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error {
 		typing <- struct{}{}
 		<-release
 		return nil

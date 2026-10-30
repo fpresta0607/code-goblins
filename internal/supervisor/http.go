@@ -546,7 +546,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	// A queued message's Send now asks for it where it waits, and is never
 	// queued as a delivery of its own.
 	if a.Kind == "message_now" {
-		if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
+		if err := h.Service.sendMessageNow(r.Context(), a.Target, a.TaskID); err != nil {
 			apiError(w, 409, err.Error())
 			return
 		}

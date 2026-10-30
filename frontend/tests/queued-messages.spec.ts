@@ -29,16 +29,21 @@ async function openWith(page: Page, action: object) {
 
 const entry = (page: Page) => page.locator(".queued-message.pane");
 const log = (page: Page) => page.getByRole("log");
-const WAITING = "Waiting for the goblin's next step";
-const readAt = (page: Page, when: string) => page.evaluate((when) => "Read " + new Date(when).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }), when);
+const WAITING = "Queued";
+// A row of his says nothing under its bubble once the harness has taken it;
+// its date, time and Copy are in the line that shows on a hover or a tap (the
+// Overlord, 2026-10-30: "we dont need read 8:26 only and th copy tomestamp
+// hover line").
+const unlabelled = (row: ReturnType<Page["locator"]>) => expect(row.locator(":scope > p")).toHaveCount(0);
 
 // The Overlord, 2026-10-29: "the user can't really tell what's been sent and
 // what's getting sent. And the double scrolls and having its own little
 // scroll for queued messages doesn't really work." One scroll, the chat's: a
 // message he typed while the session works is his own bubble at the chat's
-// end, dimmed, waiting for its next step with its controls, and turns solid
-// with Read and the time in place once the harness takes it, as its record
-// shows; one sent while it is idle is solid with Sent until then. A goblin's
+// end, dimmed, with Queued and its controls under it, and turns solid with
+// no label in place once the harness takes it, as its record shows; one sent
+// while it is idle is solid with Sent until then (the Overlord, 2026-10-30:
+// "id ratehr it just say qeued"). A goblin's
 // record reads the stamps the board types his words behind as his, so its
 // row is his own words, as a CFO's is.
 test.describe("his messages in the chat's one scroll", () => {
@@ -66,7 +71,7 @@ test.describe("his messages in the chat's one scroll", () => {
     expect(scrolls).toEqual(["log"]);
   });
 
-  test("taken by the harness, his waiting message turns solid with Read and the time, its controls gone, shown once", async ({ page }) => {
+  test("taken by the harness, his waiting message turns solid with no label, its time and Copy in its hover line, its controls gone, shown once", async ({ page }) => {
     // Arrange
     const words = "check the deploy before you merge";
     const relay = await open(page, snapshot({ actions: [queued({ text: words })] }));
@@ -80,11 +85,15 @@ test.describe("his messages in the chat's one scroll", () => {
     await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
       { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: taken, kind: "prompt", source: "overlord", queued: true, text: words }] });
 
-    // Assert: his one bubble, solid, read, with nothing to do with it.
+    // Assert: his one bubble, solid, with no label under it and nothing to
+    // do with it but what any message of his has.
     const mine = log(page).locator(".message-prompt", { hasText: words });
     await expect(mine).toHaveCount(1);
     await expect(log(page).getByText(words, { exact: true })).toHaveCount(1);
-    await expect(mine.locator(".message-state")).toHaveText(await readAt(page, taken));
+    await unlabelled(mine);
+    await mine.hover();
+    await expect(mine.locator(".message-actions time")).toHaveAttribute("datetime", taken);
+    await expect(mine.locator(".message-actions").getByRole("button", { name: "Copy", exact: true })).toBeVisible();
     await expect(entry(page)).toHaveCount(0);
 
     // Act and Assert: the board's own record catches up, and nothing changes.
@@ -93,7 +102,7 @@ test.describe("his messages in the chat's one scroll", () => {
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(page.locator(".messages-view:not([hidden])").getByRole("button", { name, exact: true })).toHaveCount(0);
   });
 
-  test("a message sent while the session is idle is solid with Sent as it goes, and Read once its record shows it", async ({ page }) => {
+  test("a message sent while the session is idle is solid with Sent as it goes, and has no label once its record shows it", async ({ page }) => {
     // Arrange
     const words = "start on the invoices";
     await open(page, snapshot({ actions: [queued({ text: words, status: "running", message: "Typing it into the terminal." })] }, { phase: "settled" }));
@@ -109,7 +118,8 @@ test.describe("his messages in the chat's one scroll", () => {
       { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at, kind: "prompt", source: "overlord", text: words }] });
 
     // Assert
-    await expect(log(page).locator(".message-prompt", { hasText: words }).locator(".message-state")).toHaveText(await readAt(page, at));
+    await unlabelled(log(page).locator(".message-prompt", { hasText: words }));
+    await expect(entry(page)).toHaveCount(0);
     await expect(log(page).getByText(words, { exact: true })).toHaveCount(1);
   });
 
@@ -151,7 +161,7 @@ test.describe("his messages in the chat's one scroll", () => {
       { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: taken, kind: "prompt", source: "overlord", queued: true, text: words }] });
 
     // Assert
-    await expect(log(page).locator(".message-prompt", { hasText: words }).locator(".message-state")).toHaveText(await readAt(page, taken));
+    await unlabelled(log(page).locator(".message-prompt", { hasText: words }));
     await expect(entry(page)).toHaveCount(1);
     await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(entry(page).getByRole("button", { name, exact: true })).toBeVisible();
@@ -185,14 +195,14 @@ test.describe("his messages in the chat's one scroll", () => {
       { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: taken, kind: "prompt", source: "overlord", queued: true, text: "yes" }] });
 
     // Assert
-    await expect(log(page).locator(".message-prompt", { hasText: "yes" }).locator(".message-state")).toHaveText(await readAt(page, taken));
+    await unlabelled(log(page).locator(".message-prompt", { hasText: "yes" }));
     await expect(entry(page)).toHaveCount(0);
     await expect(log(page).getByText("yes", { exact: true })).toHaveCount(1);
   });
 
   // The record keeps a shell command he typed without its "!", as Claude Code
   // writes it, and the row shows it as he typed it, read as his words are.
-  test("a shell command he typed while the session works is read by its command row, which says Read and the time", async ({ page }) => {
+  test("a shell command he typed while the session works is read by its command row, which has no label", async ({ page }) => {
     // Arrange
     const relay = await open(page, snapshot({ actions: [queued({ text: "!git status", status: "running", message: "Typed into the terminal.", awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z" }, created_at: "2026-10-22T09:01:00Z" })] }));
     await openGoblin(page);
@@ -206,7 +216,7 @@ test.describe("his messages in the chat's one scroll", () => {
 
     // Assert
     await expect(log(page).locator(".message-prompt.shell")).toContainText("On branch main");
-    await expect(log(page).locator(".message-prompt.shell .message-state")).toHaveText(await readAt(page, taken));
+    await unlabelled(log(page).locator(".message-prompt.shell"));
     await expect(entry(page)).toHaveCount(0);
     await expect(log(page).getByText("!git status", { exact: true })).toHaveCount(1);
   });
@@ -352,21 +362,37 @@ test("Send now and Cancel each reach the board once, however often he presses th
   expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
-// One already typed is the harness's to take: the board can no longer send
-// it, take it back or cancel it, so it offers none of them.
-test("a message already typed into a working session says the turn takes it, and offers nothing to do with it", async ({ page }) => {
-  // Arrange
-  const relay = await open(page, snapshot({ actions: [queued({ status: "running", awaiting: { task: "cg-touch" }, message: "Typed while it was working; it takes the message at its next tool call, or as its current turn ends." })] }));
-  await openGoblin(page);
+// One already typed waits in its harness's own queue, out of the board's
+// reach to take back or cancel, so it offers Send now alone, which has the
+// harness take it at once by its own key, and only where the harness has one:
+// Claude Code's Ctrl+X Ctrl+S (the Overlord, 2026-10-30: "when sent now it
+// actually sends now same way termianl expereince down with ctrl x crtl s").
+for (const [harness, canSendNow] of [["Claude Code", true], ["Codex or pi", false]] as const) {
+  test(`a message already typed into a working ${harness} session says the turn takes it, and offers ${canSendNow ? "Send now alone" : "nothing to do with it"}`, async ({ page }) => {
+    // Arrange
+    const relay = await open(page, snapshot({ actions: [queued({ status: "running", awaiting: { task: "cg-touch" }, can_send_now: canSendNow, send_now_why: "", message: "Typed while it was working; it takes the message at its next tool call, or as its current turn ends." })] }));
+    const posts: string[] = [];
+    await page.route("**/api/actions", (route) => {
+      posts.push((route.request().postDataJSON() as { kind: string }).kind);
+      return route.fulfill({ status: 202, json: { status: "ok" } });
+    });
+    await openGoblin(page);
 
-  // Act
-  relay.say({ type: "screen", asking: false, open: false, working: true });
+    // Act
+    relay.say({ type: "screen", asking: false, open: false, working: true });
 
-  // Assert
-  await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
-  await expect(entry(page).locator(".queued-bubble")).toHaveAccessibleDescription(/takes the message at its next tool call/);
-  await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
-});
+    // Assert
+    await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+    await expect(entry(page).locator(".queued-bubble")).toHaveAccessibleDescription(/takes the message at its next tool call/);
+    if (!canSendNow) {
+      await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
+      return;
+    }
+    await expect(entry(page).locator(".queued-actions").getByRole("button")).toHaveCount(1);
+    await entry(page).getByRole("button", { name: "Send now", exact: true }).click();
+    await expect.poll(() => posts).toEqual(["message_now"]);
+  });
+}
 
 // The Overlord, 2026-10-28: "send now should be an option with all queued
 // messages". One that cannot go now says why when pressed, and asks nothing.

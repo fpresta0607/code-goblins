@@ -227,12 +227,13 @@ func (s *Store) followsEarlierMessage(i int) bool {
 
 // waitBehind gives each queued message to action i's session after it, which
 // waits behind it, what it waits on and whether he may send it now, unless he
-// asked for one now already. The caller holds s.mu.
+// asked for one now already or it is a command. The caller holds s.mu.
 func (s *Store) waitBehind(i int) {
 	held := s.db.Actions[i]
 	for j := i + 1; j < len(s.db.Actions); j++ {
 		if later := &s.db.Actions[j]; later.Kind == "message" && later.TaskID == held.TaskID && later.Status == "queued" && !later.IsSentNow {
 			later.Message, later.CanSendNow, later.SendNowWhy = held.Message, held.CanSendNow, held.SendNowWhy
+			later.holdCommand()
 		}
 	}
 }

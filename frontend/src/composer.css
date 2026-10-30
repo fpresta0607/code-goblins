@@ -76,9 +76,10 @@
 .composer-style-popover button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
 /* A notice of the box, a small banner over what is just above it that fades
    a few seconds after it shows (composer-banner.tsx). It moves nothing and
-   takes no press, so whatever is under it stays as it was. */
+   takes no press, so whatever is under it stays as it was. A refusal looks
+   the same, never drawn as a warning (the Overlord, 2026-10-30: "i ahte the
+   yeyllow warnings"). */
 .composer-banner { position: absolute; bottom: calc(100% + 6px); left: 50%; z-index: 3; width: max-content; max-width: calc(100% - 16px); margin: 0; padding: 6px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); color: #edf4f3; font-size: .875rem; overflow-wrap: anywhere; translate: -50% 0; pointer-events: none; transition: opacity .4s ease; }
-.composer-banner.refusal { border-color: var(--amber); }
 .composer-banner.leaving { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .composer-banner { transition: none; } }
 /* Send, and Stop in its place, sits at the end of the line he writes on, as

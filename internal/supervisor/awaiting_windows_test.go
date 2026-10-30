@@ -262,6 +262,48 @@ func TestAGoblinsDeliveryInItsTurnAwaitsItsRecord(t *testing.T) {
 	}
 }
 
+// A goblin's message reaches its turn only by Send now, whose delivery presses
+// its harness's send-now key itself, so what was typed into a Claude Code
+// goblin's turn offers no Send now of its own.
+func TestAGoblinsDeliveryInItsTurnOffersNoSendNow(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	s := &Service{Store: store}
+	meta := makeNative(t, h.State, "task-1")
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	sent := s.behindGoblinsTurn("task-1", time.Now().UTC(), "Use the grid.", "Submitted while it was working.")
+
+	// Assert
+	if sent.Awaiting == nil || sent.CanSendNow {
+		t.Errorf("a Claude Code goblin's delivery in its turn = %+v, want it awaiting the goblin's record with no Send now", sent)
+	}
+}
+
+// A delivery the CFO has not picked up for deliveryQuiet is no longer on its
+// way, so, as every other settling of a delivery does, it takes Send now away.
+func TestADeliveryNeverPickedUpNoLongerOffersSendNow(t *testing.T) {
+	// Arrange
+	store, _ := testStore(t)
+	since := time.Now().UTC().Add(-deliveryQuiet - time.Minute)
+	store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", Text: "stop and rebase", Status: "running", CreatedAt: since, UpdatedAt: since, Awaiting: &Awaiting{Host: "cfo", Harness: "claude", Since: since, QuietSince: since}, CanSendNow: true})
+
+	// Act
+	err := store.settleDeliveries(time.Now().UTC(), func(Awaiting) terminalLook { return terminalLook{} })
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled := actionOf(store, "m1"); settled.Status != "uncertain" || settled.CanSendNow {
+		t.Errorf("a delivery never picked up = %+v, want it uncertain with no Send now", settled)
+	}
+}
+
 // An answer to a goblin's review item typed during the goblin's turn is
 // sent, not delivered: the item reads delivered only once the goblin's record
 // shows it taken.

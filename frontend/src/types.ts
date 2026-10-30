@@ -317,7 +317,8 @@ export interface Action {
   awaiting: "" | "the CFO" | "the goblin";
   advice: string;
   // can_send_now is whether he may ask for a queued message to be typed now,
-  // and send_now_why says why not when it is off.
+  // or for one typed into a turn to be taken at once by its harness's
+  // send-now key, and send_now_why says why not when it is off.
   can_send_now: boolean;
   send_now_why: string;
   text: string;

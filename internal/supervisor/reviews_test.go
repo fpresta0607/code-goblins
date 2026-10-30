@@ -179,7 +179,7 @@ func TestACommandCenterClearOfAWaitIsAuditedAndTold(t *testing.T) {
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	var told []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		told = append(told, text)
 		return nil
 	}
@@ -262,7 +262,7 @@ func TestACommandCenterClearOfAnItemThatIsNoWaitTellsNoOne(t *testing.T) {
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
 			var told []string
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				told = append(told, text)
 				return nil
 			}

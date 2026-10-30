@@ -73,6 +73,11 @@ type Screens struct {
 	// permission mode, its first group the mode, for a harness that cycles
 	// modes with Shift+Tab.
 	Modes *regexp.Regexp
+	// SendNow is the key that has the harness take what waits in its own
+	// queue at once, during a turn, rather than at its next tool call. Codex
+	// and pi have none, so each takes a line typed during a turn at its next
+	// tool call, as Codex 0.160 did live on 2026-10-06.
+	SendNow string
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -126,8 +131,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Working:   regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 			Pasted:    []string{"[Pasted text #"},
 			Resubmits: 1,
-			// Claude Code 2.1.288 encloses its bare prompt between rules.
-			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
+			// Claude Code 2.1.288 encloses its bare prompt between rules, and
+			// 2.1.314 draws a hint on it while a message waits in its queue.
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)?$`),
 			RuledComposer: true,
 			// Claude Code 2.1.302 asks permission for a call under its
 			// diff, as in "Do you want to create nine.txt?", over
@@ -136,6 +142,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// mark is > where its terminal draws no Unicode.
 			Choice:  regexp.MustCompile(`^\s*[❯>] \d+\. \S`),
 			Choices: regexp.MustCompile(`^\s{2,}\d+\. \S`),
+			// Claude Code 2.1.275's chat:sendNow chord, Ctrl+X Ctrl+S: a
+			// message it queued during a turn is sent "right away, as its key
+			// does" (its changelog for the click on that hint).
+			SendNow: "\x18\x13",
 		}, true
 	case Codex:
 		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
@@ -207,6 +217,18 @@ func NativeScreens(kind Kind) (Screens, bool) {
 		}, true
 	}
 	return Screens{}, false
+}
+
+// cutShort returns a pattern for text as a terminal draws it, whole or cut
+// under an ellipsis wherever its width falls, as Claude Code 2.1.314 cut its
+// hint to "Press up to edit queued …" at 27 columns. A line that only starts
+// like text does not match: that is words somebody typed.
+func cutShort(text string) string {
+	cuts := []string{regexp.QuoteMeta(text)}
+	for end := 1; end < len(text); end++ {
+		cuts = append(cuts, regexp.QuoteMeta(text[:end])+"…")
+	}
+	return strings.Join(cuts, "|")
 }
 
 // Dialog returns the dialog screen shows, if any.

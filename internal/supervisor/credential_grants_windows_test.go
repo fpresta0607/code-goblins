@@ -38,7 +38,7 @@ func TestTaskCredentialSaveGrantsOnlyItsRequestingTask(t *testing.T) {
 	s.Options.CFO = &CFOConnection{State: stateDir}
 	previousSender := typeIntoGoblin
 	var notices []string
-	typeIntoGoblin = func(_ context.Context, directory string, task state.TaskMeta, line string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, directory string, task state.TaskMeta, line string, _, _ bool) error {
 		if directory != stateDir || task.ID != meta.ID || task.SpawnGen != meta.SpawnGen {
 			t.Error("the re-source notice targeted another task generation")
 		}
