@@ -47,7 +47,7 @@ const (
 	sentNowInTurn = "Typed while it was working and sent now."
 )
 
-// commandWaits is why a slash, dollar or bang command offers no Send now.
+// commandWaits is why a slash or bang command offers no Send now.
 const commandWaits = "A command runs when its turn ends."
 
 const (
@@ -183,7 +183,8 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 // queue, is taken at once by that harness's send-now key, as the key does in
 // its terminal (the Overlord, 2026-10-30: "when sent now it actually sends now
 // same way termianl expereince down with ctrl x crtl s"). A goblin's message
-// reaches its turn only by Send now, which pressed the key already. The typed
+// reaches its turn only by Send now, whose delivery pressed the key once the
+// message was in its harness's queue, or says it could not. The typed
 // message is claimed before its key is pressed, so the key goes once however
 // often he presses, and given back when it could not be pressed.
 func (s *Service) sendMessageNow(ctx context.Context, id, task string) error {

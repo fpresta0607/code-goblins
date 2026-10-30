@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/actionsbilling"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/axi"
 	"github.com/fpresta0607/code-goblins/internal/connections"
@@ -147,7 +148,8 @@ type Options struct {
 	// it no key spend is shown. It is read on the supervisor's own timers,
 	// never while a board is built, and each source is read with the profile
 	// and environment its session started with.
-	KeySpend func(ctx context.Context, source openrouter.Source) openrouter.Reading
+	KeySpend     func(ctx context.Context, source openrouter.Source) openrouter.Reading
+	ActionsSpend func(ctx context.Context, now time.Time) actionsbilling.Reading
 	// UserEnvironment is the environment Windows gives a new process of this
 	// user, which every goblin's terminal starts from and which names Pi's
 	// own profile and any key in it; nil is this machine's, read the way a
@@ -407,9 +409,11 @@ type Service struct {
 	// live Pi sessions use, by source key; keySpendPlan is what the last
 	// snapshot found live sessions using, which the dials' timer reads, and
 	// keySpendReadAt is when it last began.
-	keySpendReadings map[string]openrouter.Reading
-	keySpendPlan     keySpendPlan
-	keySpendReadAt   time.Time
+	keySpendReadings    map[string]openrouter.Reading
+	keySpendPlan        keySpendPlan
+	keySpendReadAt      time.Time
+	actionsSpendReading actionsbilling.Reading
+	actionsSpendReadAt  time.Time
 	// allowance is the last reading quota-axi gave of each provider's
 	// allowance, which AFK mode's switch takes rather than reading its own.
 	allowance map[string]keptAllowance
@@ -1617,7 +1621,8 @@ type Snapshot struct {
 	Subscriptions []SubscriptionUsage `json:"subscriptions"`
 	// KeySpend is the spend of the API key a harness bills by rather than by
 	// a subscription window, as OpenRouter does for Pi.
-	KeySpend []KeySpend `json:"key_spend"`
+	KeySpend     []KeySpend              `json:"key_spend"`
+	ActionsSpend *actionsbilling.Reading `json:"actions_spend,omitempty"`
 	// AFK is AFK mode, the Overlord's switch for running the fleet while he
 	// is away, as the board shows it.
 	AFK AFKView `json:"afk"`
@@ -2163,5 +2168,9 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	})
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	out.KeySpend = s.keySpendUsage(cfo, out)
+	if s.Options.ActionsSpend != nil && !s.Options.Example {
+		reading := s.actionsSpendUsage(out.At)
+		out.ActionsSpend = &reading
+	}
 	return out, nil
 }

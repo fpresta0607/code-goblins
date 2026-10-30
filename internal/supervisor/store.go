@@ -655,7 +655,7 @@ func (s *Store) markTypedMessageSent(id string) error {
 // waits for its turn to end whatever he presses, and says so in place of what
 // it was given.
 func (a *Action) holdCommand() {
-	if a.CanSendNow && fleet.IsCommand(strings.TrimSpace(a.Text)) {
+	if a.CanSendNow && isHarnessCommand(a.Text) {
 		a.CanSendNow, a.SendNowWhy, a.Message = false, commandWaits, "Queued. "+commandWaits
 	}
 }

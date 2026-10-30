@@ -40,10 +40,18 @@ const messageWait = 10 * time.Minute
 // plain words (the Overlord, 2026-10-26).
 func fromOverlord(text string) string {
 	trimmed := strings.TrimSpace(text)
-	if strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "!") {
+	if isHarnessCommand(trimmed) {
 		return trimmed
 	}
 	return routing.BoardMessagePrefix + trimmed
+}
+
+// isHarnessCommand reports whether text from the Overlord is a command for
+// the session's harness, a slash or bang command, rather than words for the
+// session; a line starting with $ is words.
+func isHarnessCommand(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "!")
 }
 
 func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, error) {
@@ -127,11 +135,12 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
 			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, !a.IsSentNow, a.IsSentNow)
-			// A harness with a send-now key takes a message sent now at once;
-			// one without takes it at its next tool call.
+			// A message whose harness's send-now key went is taken at once;
+			// one whose key never went, or whose harness has none, at its next
+			// tool call.
 			screens, _ := harness.NativeScreens(harness.Kind(meta.Harness))
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {
-				if screens.SendNow == "" {
+				if !errors.Is(err, spawn.ErrSentNow) {
 					return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
 				}
 				result := s.behindGoblinsTurn(a.TaskID, sent, text, sentNowInTurn)

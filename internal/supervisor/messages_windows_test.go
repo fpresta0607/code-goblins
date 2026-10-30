@@ -1795,16 +1795,19 @@ func TestSendNowTypesAHeldMessageIntoTheGoblinsTurnToBeTakenAtOnce(t *testing.T)
 
 // A message held for a goblin's turn says what Send now does for its
 // harness: one with a send-now key, as Claude Code's Ctrl+X Ctrl+S, has the
-// goblin take it at once, and once sent now it says so; one with none, as pi,
-// takes it at its next tool call, as it always said.
+// goblin take it at once, and once its key has gone it says so; one whose key
+// never went, as one with none, as pi, says the goblin takes it at its next
+// tool call.
 func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 	for _, test := range []struct {
-		harness, wantHeld, wantSent string
+		name, harness, wantHeld, wantSent string
+		queued                            error
 	}{
-		{harness: "claude", wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
-		{harness: "pi", wantHeld: "Queued until task-1's turn ends. Send now types it for the goblin to take at its next tool call.", wantSent: sentToGoblin},
+		{name: "claude", harness: "claude", queued: spawn.ErrSentNow, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: "Typed while it was working and sent now."},
+		{name: "claude whose key never went", harness: "claude", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now has it take the message at once.", wantSent: sentToGoblin},
+		{name: "pi", harness: "pi", queued: fleet.ErrQueuedForToolCall, wantHeld: "Queued until task-1's turn ends. Send now types it for the goblin to take at its next tool call.", wantSent: sentToGoblin},
 	} {
-		t.Run(test.harness, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			store, h := testStore(t)
 			meta := makeNative(t, h.State, "task-1")
@@ -1822,7 +1825,7 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 				if shouldRefuseTurn {
 					return fmt.Errorf("spawn: native terminal %s: %w: %w", meta.ID, fleet.ErrNotTyped, spawn.ErrInTurn)
 				}
-				return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", meta.ID, fleet.ErrQueuedForToolCall)
+				return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", meta.ID, test.queued)
 			}
 
 			// Act
@@ -1859,7 +1862,6 @@ func TestACommandForAGoblinInATurnOffersNoSendNow(t *testing.T) {
 	}{
 		{name: "a bang command in a turn", text: "!git status", refusal: spawn.ErrInTurn},
 		{name: "a slash command in a turn", text: "/compact", refusal: spawn.ErrInTurn},
-		{name: "a dollar command in a turn", text: "$deploy", refusal: spawn.ErrInTurn},
 		{name: "a command its terminal is not ready for", text: "!git status", refusal: ErrDeferred},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -1894,6 +1896,35 @@ func TestACommandForAGoblinInATurnOffersNoSendNow(t *testing.T) {
 				t.Errorf("Send now = %v; want it refused with its reason", pressed)
 			}
 		})
+	}
+}
+
+// A line starting with $ is words for the goblin, stamped as his like any
+// other, not a command for its harness, so held for a turn it keeps Send now
+// and its promise.
+func TestALineStartingWithADollarKeepsSendNow(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta := makeNative(t, h.State, "task-1")
+	meta.Harness = "claude"
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	gitWorktree(t, meta.Worktree)
+	goblinTerminal(t, h.State, meta.ID)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+	messageTo(t, store, meta, "message-1", "$40k a month is too much, stop the migration")
+	previous := typeIntoGoblin
+	t.Cleanup(func() { typeIntoGoblin = previous })
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { return spawn.ErrInTurn }
+
+	// Act
+	err := store.ProcessOne(t.Context(), service.execute)
+	held := actionOf(store, "message-1")
+
+	// Assert
+	if !errors.Is(err, ErrDeferred) || !held.CanSendNow || held.Message != "Queued until task-1's turn ends. Send now has it take the message at once." {
+		t.Errorf("delivery = %v, action = %+v; want it held with Send now and its promise", err, held)
 	}
 }
 
