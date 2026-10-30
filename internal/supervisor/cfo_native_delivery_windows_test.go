@@ -188,22 +188,24 @@ func TestSendNowOnHisMessageInABusyClaudeCFOsQueuePressesItsKeyOnce(t *testing.T
 	if lines := terminal.waitForLines(t, 3); len(lines) != 3 {
 		t.Errorf("terminal input = %q; want Ctrl+X Ctrl+S pressed once", lines)
 	}
-	if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" {
-		t.Errorf("after Send now = %+v; want it on its way, sent now, and Send now gone", sent)
+	if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" || sent.Message != "Typed while it was working and sent now." {
+		t.Errorf("after Send now = %+v; want it on its way, sent now and saying so, and Send now gone", sent)
 	}
 }
 
-// Send now on a typed message is refused in plain words, with nothing pressed
-// and nothing marked sent, where words he typed into the CFO's own prompt line
-// would go with it, or where the CFO's harness has no key that takes it
+// Send now on a typed message is refused in plain words, with nothing pressed,
+// nothing marked sent and its words as they were, where words he typed into
+// the CFO's own prompt line would go with it, where it is a command, which
+// runs when its turn ends, or where the CFO's harness has no key that takes it
 // sooner, as Codex has none: it takes a line typed during a turn at once.
 func TestSendNowOnATypedMessageIsRefusedWithItsReason(t *testing.T) {
 	for _, test := range []struct {
-		name, mode, draft, want string
-		wantCanSendNow          bool
+		name, mode, text, draft, want string
+		wantCanSendNow                bool
 	}{
-		{name: "his words in its prompt line", mode: "claude-busy", draft: "and the", want: "Its prompt line holds words that were never sent.", wantCanSendNow: true},
-		{name: "a harness with no such key", mode: "busy", want: "has no key that takes it sooner"},
+		{name: "his words in its prompt line", mode: "claude-busy", text: "stop and rebase", draft: "and the", want: "Its prompt line holds words that were never sent.", wantCanSendNow: true},
+		{name: "a command", mode: "claude-busy", text: "/compact", want: "A command runs when its turn ends."},
+		{name: "a harness with no such key", mode: "busy", text: "stop and rebase", want: "has no key that takes it sooner"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -211,7 +213,7 @@ func TestSendNowOnATypedMessageIsRefusedWithItsReason(t *testing.T) {
 			store, home := testStore(t)
 			terminal := nativeCFOComposer(t, home.State, test.mode)
 			service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
-			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: test.text}); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
@@ -253,8 +255,8 @@ func TestSendNowOnATypedMessageIsRefusedWithItsReason(t *testing.T) {
 			if lines := terminal.waitForLines(t, 2); slices.Contains(lines, "sent now") {
 				t.Errorf("terminal input = %q; want no key pressed", lines)
 			}
-			if sent := store.Snapshot().Actions[0]; sent.IsSentNow || sent.CanSendNow != test.wantCanSendNow {
-				t.Errorf("after a refused Send now = %+v; want it not sent now, and Send now offered %v", sent, test.wantCanSendNow)
+			if sent := store.Snapshot().Actions[0]; sent.IsSentNow || sent.CanSendNow != test.wantCanSendNow || sent.Message != sentToCFO {
+				t.Errorf("after a refused Send now = %+v; want it not sent now, its words kept, and Send now offered %v", sent, test.wantCanSendNow)
 			}
 		})
 	}
@@ -262,13 +264,13 @@ func TestSendNowOnATypedMessageIsRefusedWithItsReason(t *testing.T) {
 
 // typedIntoCFOsTurn saves his message id on the store as one typed into a
 // Claude Code CFO's terminal that waits there, in status, with Send now
-// offered as canSendNow says.
-func typedIntoCFOsTurn(t *testing.T, store *Store, id, status string, canSendNow bool) {
+// offered.
+func typedIntoCFOsTurn(t *testing.T, store *Store, id, status string) {
 	t.Helper()
 	at := time.Now().UTC()
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.db.Actions = append(store.db.Actions, Action{ID: id, Kind: "message", Text: "stop and rebase", Status: status, CreatedAt: at, UpdatedAt: at, Awaiting: &Awaiting{Host: "cfo", Harness: "claude", Since: at, QuietSince: at}, CanSendNow: canSendNow})
+	store.db.Actions = append(store.db.Actions, Action{ID: id, Kind: "message", Text: "stop and rebase", Status: status, CreatedAt: at, UpdatedAt: at, Awaiting: &Awaiting{Host: "cfo", Harness: "claude", Since: at, QuietSince: at}, CanSendNow: true})
 	if err := store.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +296,7 @@ func standInForSendNowKey(t *testing.T, press func(count int32) error) *atomic.I
 func TestSendNowPressedTwiceAtOnceOnATypedMessagePressesItsKeyOnce(t *testing.T) {
 	// Arrange
 	store, home := testStore(t)
-	typedIntoCFOsTurn(t, store, "m1", "running", true)
+	typedIntoCFOsTurn(t, store, "m1", "running")
 	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
 	pressing, release := make(chan struct{}), make(chan struct{})
 	presses := standInForSendNowKey(t, func(count int32) error {
@@ -335,7 +337,7 @@ func TestSendNowPressedTwiceAtOnceOnATypedMessagePressesItsKeyOnce(t *testing.T)
 func TestSendNowWhoseKeyCouldNotGoOffersItAgain(t *testing.T) {
 	// Arrange
 	store, home := testStore(t)
-	typedIntoCFOsTurn(t, store, "m1", "running", true)
+	typedIntoCFOsTurn(t, store, "m1", "running")
 	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
 	presses := standInForSendNowKey(t, func(count int32) error {
 		if count == 1 {
@@ -364,40 +366,51 @@ func TestSendNowWhoseKeyCouldNotGoOffersItAgain(t *testing.T) {
 	}
 }
 
-// Send now on his typed message that waits in no harness's queue presses
-// nothing and says why, even from a board that still offers it: one typed
-// into an idle CFO, which started its turn with it, and one the CFO never
-// picked up, which is no longer on its way.
-func TestSendNowOnATypedMessageInNoQueuePressesNothing(t *testing.T) {
-	for _, test := range []struct {
-		name, status string
-		canSendNow   bool
-		want         string
-	}{
-		{name: "typed into an idle CFO", status: "running", want: "It was not typed into a turn."},
-		{name: "never picked up", status: "uncertain", canSendNow: true, want: "that message is no longer waiting"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			store, home := testStore(t)
-			typedIntoCFOsTurn(t, store, "m1", test.status, test.canSendNow)
-			service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
-			presses := standInForSendNowKey(t, func(int32) error { return nil })
+// Send now on his typed message the CFO never picked up, which is no longer on
+// its way, presses nothing and says why, even from a board that still offers
+// it.
+func TestSendNowOnATypedMessageNeverPickedUpPressesNothing(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	typedIntoCFOsTurn(t, store, "m1", "uncertain")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
+	presses := standInForSendNowKey(t, func(int32) error { return nil })
 
-			// Act
-			response := sendNow(service, "", "m1")
+	// Act
+	response := sendNow(service, "", "m1")
 
-			// Assert
-			if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), test.want) {
-				t.Fatalf("Send now answered %d %q; want it refused with %q", response.Code, response.Body, test.want)
-			}
-			if count := presses.Load(); count != 0 {
-				t.Errorf("Ctrl+X Ctrl+S pressed %d times, want never", count)
-			}
-			if sent := actionOf(store, "m1"); sent.IsSentNow {
-				t.Errorf("after a refused Send now = %+v; want it not sent now", sent)
-			}
-		})
+	// Assert
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "that message is no longer waiting") {
+		t.Fatalf("Send now answered %d %q; want it refused as no longer waiting", response.Code, response.Body)
+	}
+	if count := presses.Load(); count != 0 {
+		t.Errorf("Ctrl+X Ctrl+S pressed %d times, want never", count)
+	}
+	if sent := actionOf(store, "m1"); sent.IsSentNow {
+		t.Errorf("after a refused Send now = %+v; want it not sent now", sent)
+	}
+}
+
+// A message the CFO takes while its Send now key is being pressed keeps the
+// words of that take: the key's own words are for a message still waiting.
+func TestSendNowOnAMessageTakenDuringThePressKeepsTheWordsOfTheTake(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	typedIntoCFOsTurn(t, store, "m1", "running")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
+	standInForSendNowKey(t, func(int32) error {
+		return store.settleDeliveries(time.Now().UTC(), func(Awaiting) terminalLook { return terminalLook{Took: true} })
+	})
+
+	// Act
+	response := sendNow(service, "", "m1")
+
+	// Assert
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("Send now answered %d %q; want it accepted", response.Code, response.Body)
+	}
+	if sent := actionOf(store, "m1"); sent.Status != "succeeded" || sent.Message != "Taken by the CFO, as its own record of the conversation shows." {
+		t.Errorf("after the take = %+v; want it delivered, saying so", sent)
 	}
 }
 
@@ -409,7 +422,7 @@ func TestSendNowOnATypedMessageWaitsForTheCFOsPromptLine(t *testing.T) {
 	// Arrange
 	store, home := testStore(t)
 	terminal := nativeCFOComposer(t, home.State, "busy")
-	typedIntoCFOsTurn(t, store, "m1", "running", true)
+	typedIntoCFOsTurn(t, store, "m1", "running")
 	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
 
 	// Act

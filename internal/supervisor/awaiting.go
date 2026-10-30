@@ -39,12 +39,16 @@ type Awaiting struct {
 	QuietSince time.Time `json:"quiet_since"`
 }
 
-// sentToCFO and sentToGoblin are what a delivery that awaits its reader
-// says.
+// sentToCFO and sentToGoblin are what a delivery that awaits its reader says,
+// and sentNowInTurn what one says once its harness's send-now key went.
 const (
-	sentToCFO    = "Sent. The CFO takes it at its next tool call, or as its current turn ends."
-	sentToGoblin = "Sent. The goblin takes it at its next tool call, or as its current turn ends."
+	sentToCFO     = "Sent. The CFO takes it at its next tool call, or as its current turn ends."
+	sentToGoblin  = "Sent. The goblin takes it at its next tool call, or as its current turn ends."
+	sentNowInTurn = "Typed while it was working and sent now."
 )
+
+// commandWaits is why a slash, dollar or bang command offers no Send now.
+const commandWaits = "A command runs when its turn ends."
 
 const (
 	// deliveryQuiet is how long a terminal may show no turn, with no report
@@ -191,10 +195,7 @@ func (s *Service) sendMessageNow(ctx context.Context, id, task string) error {
 	case typed.IsSentNow:
 		return nil
 	case !typed.CanSendNow:
-		if screens, _ := harness.NativeScreens(harness.Kind(typed.Awaiting.Harness)); screens.SendNow != "" {
-			return errors.New("It was not typed into a turn.")
-		}
-		return errors.New("Its harness has no key that takes it sooner.")
+		return errors.New(typed.SendNowWhy)
 	}
 	if err == nil {
 		err = pressSendNow(ctx, s, *typed.Awaiting)
@@ -202,18 +203,16 @@ func (s *Service) sendMessageNow(ctx context.Context, id, task string) error {
 	if err != nil {
 		return errors.Join(err, s.Store.releaseTypedMessage(id))
 	}
-	return nil
+	return s.Store.markTypedMessageSent(id)
 }
 
 // pressSendNow presses the send-now key of the CFO's harness for a message
 // typed into its turn, once its composer shows empty. It is a variable so a
 // test can stand in for the terminal.
 var pressSendNow = func(ctx context.Context, s *Service, waiting Awaiting) error {
-	if s.Options.CFO != nil {
-		// Nothing else types into the CFO while its key is pressed.
-		s.Options.CFO.typing.Lock()
-		defer s.Options.CFO.typing.Unlock()
-	}
+	// Nothing else types into the CFO while its key is pressed.
+	s.Options.CFO.typing.Lock()
+	defer s.Options.CFO.typing.Unlock()
 	record, err := host.ReadRecord(s.Store.Home.State, waiting.Host)
 	if err != nil || !host.Running(record) {
 		return errors.New("Its terminal is not running.")

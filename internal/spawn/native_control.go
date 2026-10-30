@@ -63,10 +63,12 @@ func (s Service) SendNow(ctx context.Context, record host.Record, screens harnes
 		return err
 	}
 	switch {
+	case screens.IsOpen(screen):
+		return fmt.Errorf("spawn: native terminal %s is waiting on its own screen: %w", record.ID, fleet.ErrNotTyped)
 	case screens.ComposerHoldsText(screen):
 		return ErrUnsentWords
-	case screens.IsOpen(screen) || !screens.ComposerEmpty(screen):
-		return fmt.Errorf("spawn: native terminal %s shows no empty prompt line to take its send-now key: %w", record.ID, fleet.ErrNotTyped)
+	case !screens.ComposerEmpty(screen):
+		return fmt.Errorf("spawn: native terminal %s shows no prompt line that can be read: %w", record.ID, fleet.ErrNotTyped)
 	}
 	return pressNativeKeys(record, "send now", screens.SendNow)
 }

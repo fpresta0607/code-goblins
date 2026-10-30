@@ -1849,6 +1849,100 @@ func TestAHeldGoblinMessageSaysWhatSendNowDoesForItsHarness(t *testing.T) {
 	}
 }
 
+// A command waits for its turn to end in any harness, so one held for a goblin
+// offers no Send now and its words promise nothing sooner, however it came to
+// wait, and a press says why.
+func TestACommandForAGoblinInATurnOffersNoSendNow(t *testing.T) {
+	for _, test := range []struct {
+		name, text string
+		refusal    error
+	}{
+		{name: "a bang command in a turn", text: "!git status", refusal: spawn.ErrInTurn},
+		{name: "a slash command in a turn", text: "/compact", refusal: spawn.ErrInTurn},
+		{name: "a dollar command in a turn", text: "$deploy", refusal: spawn.ErrInTurn},
+		{name: "a command its terminal is not ready for", text: "!git status", refusal: ErrDeferred},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			gitWorktree(t, meta.Worktree)
+			goblinTerminal(t, h.State, meta.ID)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			messageTo(t, store, meta, "message-1", test.text)
+			previous := typeIntoGoblin
+			t.Cleanup(func() { typeIntoGoblin = previous })
+			typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { return test.refusal }
+
+			// Act
+			err := store.ProcessOne(t.Context(), service.execute)
+			held := actionOf(store, "message-1")
+			_, pressed := store.SendQueuedMessageNow("message-1", meta.ID)
+
+			// Assert
+			if !errors.Is(err, ErrDeferred) || held.Status != "queued" {
+				t.Fatalf("delivery = %v, action = %+v; want it held", err, held)
+			}
+			if held.CanSendNow || held.SendNowWhy != "A command runs when its turn ends." || held.Message != "Queued. A command runs when its turn ends." {
+				t.Errorf("held command = %+v; want no Send now, its reason, and words that promise nothing sooner", held)
+			}
+			if pressed == nil || pressed.Error() != "A command runs when its turn ends." {
+				t.Errorf("Send now = %v; want it refused with its reason", pressed)
+			}
+		})
+	}
+}
+
+// What a message held for a goblin's turn gives those behind it stops at a
+// command: one queued behind a held message takes neither its Send now nor
+// its promise, and a message behind a held command can still go now.
+func TestACommandTakesNoSendNowFromTheMessageItWaitsBehind(t *testing.T) {
+	for _, test := range []struct {
+		name, first, second string
+		wantCanSendNow      bool
+		wantMessage         string
+	}{
+		{name: "a command behind a message", first: "check the train", second: "/compact", wantMessage: "Queued. A command runs when its turn ends."},
+		{name: "a message behind a command", first: "!git status", second: "check the train", wantCanSendNow: true, wantMessage: "Queued until task-1's turn ends. Send now has it take the message at once."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta := makeNative(t, h.State, "task-1")
+			meta.Harness = "claude"
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			gitWorktree(t, meta.Worktree)
+			goblinTerminal(t, h.State, meta.ID)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
+			isWorking := true
+			inTurnGoblin(t, &isWorking)
+			messageTo(t, store, meta, "message-1", test.first)
+			if err := store.ProcessOne(t.Context(), service.execute); !errors.Is(err, ErrDeferred) {
+				t.Fatalf("delivery = %v, want the first held for the turn", err)
+			}
+
+			// Act
+			messageTo(t, store, meta, "message-2", test.second)
+			store.deferredUntil["message-1"] = time.Now().Add(-time.Second)
+			err := store.ProcessOne(t.Context(), service.execute)
+
+			// Assert
+			if !errors.Is(err, ErrDeferred) {
+				t.Fatalf("delivery = %v, want the first still held for the turn", err)
+			}
+			if second := actionOf(store, "message-2"); second.CanSendNow != test.wantCanSendNow || second.Message != test.wantMessage {
+				t.Errorf("the second = %+v; want Send now %v and words %q", second, test.wantCanSendNow, test.wantMessage)
+			}
+		})
+	}
+}
+
 // Messages he sends while a goblin works reach it alone and in the order he
 // sent them, even when the later one's wait runs out first as its turn ends:
 // each held message waits a second of its own between looks.

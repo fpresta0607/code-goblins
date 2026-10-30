@@ -625,8 +625,8 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "cfo" || result.Reason != sentToCFO || result.CanSendNow {
-		t.Errorf("Send = %+v, %v; want it sent and awaiting the CFO's hook, with no Send now, not an error", result, err)
+	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "cfo" || result.Reason != sentToCFO || result.CanSendNow || result.SendNowWhy != "It was not typed into a turn." {
+		t.Errorf("Send = %+v, %v; want it sent and awaiting the CFO's hook, with no Send now and why, not an error", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration and then the message once", typed)

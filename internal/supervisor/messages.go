@@ -134,9 +134,8 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 				if screens.SendNow == "" {
 					return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
 				}
-				const sentNow = "Typed while it was working and sent now."
-				result := s.behindGoblinsTurn(a.TaskID, sent, text, sentNow)
-				result.Reason = sentNow
+				result := s.behindGoblinsTurn(a.TaskID, sent, text, sentNowInTurn)
+				result.Reason = sentNowInTurn
 				return result, nil
 			}
 			// A goblin in a turn is not typed into: its message waits, where he

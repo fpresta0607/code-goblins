@@ -432,7 +432,8 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // as a harness's startup is given, and its time to show itself working counts
 // from the last press. With ShouldSendNow, a harness in a turn that queued
 // the instruction gets its send-now key once, as soon as its composer shows
-// the instruction gone into that queue, and takes it at once.
+// the instruction gone into that queue with no screen of its own over it, and
+// takes it at once.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, session, instruction string, isStartup bool) error {
 	recoveries := 0
 	recoverStartup := func() error {
@@ -509,7 +510,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		if !busy && screens.IsWorking(screen) {
 			return nil
 		}
-		if busy && s.ShouldSendNow && !isSentNow && screens.SendNow != "" && screens.ComposerEmpty(screen) {
+		if busy && s.ShouldSendNow && !isSentNow && screens.SendNow != "" && !screens.IsOpen(screen) && screens.ComposerEmpty(screen) {
 			if err := pressNativeKeys(record, "send now", screens.SendNow); err != nil {
 				return err
 			}
@@ -567,8 +568,32 @@ func pressNativeKeys(record host.Record, name, keys string) error {
 		return fmt.Errorf("spawn: press %s in native terminal %s: %w", name, record.ID, err)
 	}
 	defer client.Close()
-	if err := client.Input([]byte(keys)); err != nil {
+	if err := pressKeys(client, keys); err != nil {
 		return fmt.Errorf("spawn: press %s in native terminal %s: %w", name, record.ID, err)
+	}
+	return nil
+}
+
+// chordGap is how long a chord's second key follows its first: long enough
+// for a harness to read two keys, as fingers press them, and well inside the
+// time it waits for the second.
+const chordGap = 50 * time.Millisecond
+
+// keyInput is what takes the keys pressed in a native terminal.
+type keyInput interface {
+	Input(keys []byte) error
+}
+
+// pressKeys presses keys on input one write each, chordGap apart, so a chord
+// such as Claude Code's Ctrl+X Ctrl+S never reaches a harness as one input.
+func pressKeys(input keyInput, keys string) error {
+	for i, key := range []byte(keys) {
+		if i > 0 {
+			time.Sleep(chordGap)
+		}
+		if err := input.Input([]byte{key}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -258,16 +258,18 @@ func TestADeliveryThatRefusesATurnTypesNothingIntoOne(t *testing.T) {
 func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 	for _, test := range []struct {
 		name          string
+		proof         time.Duration
 		shouldSendNow bool
+		wantErr       error
 		wantSentNow   []string
 	}{
-		{name: "sent now", shouldSendNow: true, wantSentNow: []string{"use the staging database"}},
-		{name: "queued", shouldSendNow: false},
+		{name: "sent now", proof: 30 * time.Second, shouldSendNow: true, wantSentNow: []string{"use the staging database"}},
+		{name: "queued", proof: 500 * time.Millisecond, wantErr: fleet.ErrQueuedForToolCall},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newNativeFixture(t, harness.Claude, "claude-queues")
-			nativeQueuedProof = 500 * time.Millisecond
+			nativeQueuedProof = test.proof
 			t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
 			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
 				t.Fatalf("Spawn: %v", err)
@@ -277,22 +279,62 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.service.ShouldSendNow = test.shouldSendNow
+			f.service.Took = func(context.Context, state.TaskMeta, string, string, time.Time) bool {
+				return len(named(f.events(t), "sent now")) > 0
+			}
 
 			// Act
 			err = f.service.SendNative(t.Context(), meta, "use the staging database")
 
 			// Assert
-			if !errors.Is(err, fleet.ErrQueuedForToolCall) {
-				t.Fatalf("SendNative = %v, want it typed into the turn with nothing yet proving it taken", err)
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("SendNative = %v, want %v", err, test.wantErr)
 			}
-			events := f.events(t)
-			if queued := named(events, "queued"); len(queued) != 1 || queued[0].Text != "use the staging database" {
-				t.Errorf("queued = %+v, want the line queued once", queued)
+			if queued := recordedLines(t, f, "queued", 1); !slices.Equal(queued, []string{"use the staging database"}) {
+				t.Errorf("queued = %q, want the line queued once", queued)
 			}
-			if sentNow := sentNowLines(t, f, len(test.wantSentNow)); !slices.Equal(sentNow, test.wantSentNow) {
+			if sentNow := recordedLines(t, f, "sent now", len(test.wantSentNow)); !slices.Equal(sentNow, test.wantSentNow) {
 				t.Errorf("sent now = %q, want %q", sentNow, test.wantSentNow)
 			}
 		})
+	}
+}
+
+// A screen of its own drawn over a Claude Code's turn takes no send-now key
+// from a delivery, even with an empty prompt line above it, since the key
+// would go to that screen rather than the composer.
+func TestADeliverySentNowPressesNoKeyOverAScreenOfItsOwn(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Claude, "claude-queues")
+	nativeQueuedProof = 500 * time.Millisecond
+	t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := strings.Repeat("─", 80)
+	f.service.ShouldSendNow = true
+	f.service.ReadScreen = func(record host.Record) ([]string, error) {
+		screen, err := host.ReadScreen(record)
+		if len(named(f.events(t), "queued")) > 0 {
+			return []string{"✽ Reticulating… (esc to interrupt)", rule, ">", rule, " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. No", ""}, err
+		}
+		return screen, err
+	}
+
+	// Act
+	err = f.service.SendNative(t.Context(), meta, "use the staging database")
+
+	// Assert
+	if !errors.Is(err, fleet.ErrQueuedForToolCall) {
+		t.Fatalf("SendNative = %v, want the line queued with nothing proving it taken", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if sentNow := recordedLines(t, f, "sent now", 0); len(sentNow) != 0 {
+		t.Errorf("sent now = %q, want no key pressed over the prompt", sentNow)
 	}
 }
 
@@ -305,6 +347,7 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 	claude, _ := harness.NativeScreens(harness.Claude)
 	codex, _ := harness.NativeScreens(harness.Codex)
+	rule := strings.Repeat("─", 80)
 	for _, test := range []struct {
 		name        string
 		screens     harness.Screens
@@ -316,6 +359,7 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 		{name: "an empty composer", screens: claude, wantSentNow: []string{"use the staging database"}},
 		{name: "his own words in the composer", screens: claude, draft: "and the", wantErr: ErrUnsentWords},
 		{name: "a permission prompt in its turn", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", "", "Do you want to create nine.txt?", "❯ 1. Yes", "  2. Yes, and don't ask again this session", "  3. No"}, wantErr: fleet.ErrNotTyped},
+		{name: "a permission prompt under a solid rule of its turn's", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", rule, "  Ran the tests", rule, " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. Yes, and don't ask again this session", "   3. No", ""}, wantErr: fleet.ErrNotTyped},
 		{name: "a turn with no prompt line it can read", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", "> use the staging database"}, wantErr: fleet.ErrNotTyped},
 		{name: "a harness with no such key", screens: codex, wantErr: ErrNoSendNow},
 	} {
@@ -337,6 +381,15 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 			record, err := host.ReadRecord(f.stateDir, meta.ID)
 			if err != nil {
 				t.Fatal(err)
+			}
+			for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+				screen, err := f.service.readNativeScreen(t.Context(), record)
+				if err == nil && len(named(f.events(t), "queued")) == 1 && claude.ComposerEmpty(screen) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("the line never went into the queue, leaving the composer empty: %v", err)
+				}
 			}
 			if test.draft != "" {
 				if err := pressNativeKeys(record, "his draft", test.draft); err != nil {
@@ -365,28 +418,84 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("SendNow = %v, want %v", err, test.wantErr)
 			}
-			if sentNow := sentNowLines(t, f, len(test.wantSentNow)); !slices.Equal(sentNow, test.wantSentNow) {
+			if sentNow := recordedLines(t, f, "sent now", len(test.wantSentNow)); !slices.Equal(sentNow, test.wantSentNow) {
 				t.Errorf("sent now = %q, want %q", sentNow, test.wantSentNow)
 			}
 		})
 	}
 }
 
-// sentNowLines waits for at least n lines the fake harness recorded as sent
-// now and returns them.
-func sentNowLines(t *testing.T, f *nativeFixture, n int) []string {
+// recordedLines waits for at least n lines the fake harness recorded as name
+// and returns them.
+func recordedLines(t *testing.T, f *nativeFixture, name string, n int) []string {
 	t.Helper()
-	var sentNow []string
+	var lines []string
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		sentNow = sentNow[:0]
-		for _, event := range named(f.events(t), "sent now") {
-			sentNow = append(sentNow, event.Text)
+		lines = lines[:0]
+		for _, event := range named(f.events(t), name) {
+			lines = append(lines, event.Text)
 		}
-		if len(sentNow) >= n {
+		if len(lines) >= n {
 			break
 		}
 	}
-	return sentNow
+	return lines
+}
+
+// keyRecorder stands in for a terminal's input: it keeps each write apart,
+// with when it came, and answers each with err.
+type keyRecorder struct {
+	writes []string
+	at     []time.Time
+	err    error
+}
+
+func (r *keyRecorder) Input(keys []byte) error {
+	r.writes = append(r.writes, string(keys))
+	r.at = append(r.at, time.Now())
+	return r.err
+}
+
+// Ctrl+X Ctrl+S is two keys, which fingers press one after the other, so it
+// reaches a harness as two writes, in that order and 50 ms apart, never as
+// one input it might not read as a chord. The stand-in harnesses read input a
+// rune at a time and cannot tell the two forms apart, so the writes themselves
+// are what is checked. A key alone is one write, and a key that fails ends the
+// press, leaving the next key unsent.
+func TestKeysReachATerminalOneWriteEachAndApart(t *testing.T) {
+	claude, _ := harness.NativeScreens(harness.Claude)
+	failed := errors.New("the terminal went away")
+	for _, test := range []struct {
+		name       string
+		keys       string
+		failure    error
+		wantWrites []string
+	}{
+		{name: "Claude Code's send-now chord", keys: claude.SendNow, wantWrites: []string{"\x18", "\x13"}},
+		{name: "Enter", keys: "\r", wantWrites: []string{"\r"}},
+		{name: "a chord whose first key fails", keys: claude.SendNow, failure: failed, wantWrites: []string{"\x18"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			recorder := &keyRecorder{err: test.failure}
+
+			// Act
+			err := pressKeys(recorder, test.keys)
+
+			// Assert
+			if !errors.Is(err, test.failure) {
+				t.Fatalf("pressKeys = %v, want %v", err, test.failure)
+			}
+			if !slices.Equal(recorder.writes, test.wantWrites) {
+				t.Fatalf("writes = %q, want %q", recorder.writes, test.wantWrites)
+			}
+			for i := 1; i < len(recorder.at); i++ {
+				if gap := recorder.at[i].Sub(recorder.at[i-1]); gap < 50*time.Millisecond {
+					t.Errorf("write %d came %s after the one before it, want at least 50ms", i, gap)
+				}
+			}
+		})
+	}
 }
 
 // A harness in a turn reports a prompt through its hook when it queues the

@@ -23,5 +23,5 @@ export function ComposerBanner({ text, isRefusal }: { text: string; isRefusal: b
     return () => { clearTimeout(leave); clearTimeout(gone); };
   }, [text]);
   if (!text || stage === "gone") return null;
-  return <p className={"composer-banner" + (isRefusal ? " refusal" : "") + (stage === "leaving" ? " leaving" : "")} role={isRefusal ? "alert" : undefined} aria-hidden={isRefusal ? undefined : true}>{text}</p>;
+  return <p className={"composer-banner" + (stage === "leaving" ? " leaving" : "")} role={isRefusal ? "alert" : undefined} aria-hidden={isRefusal ? undefined : true}>{text}</p>;
 }
