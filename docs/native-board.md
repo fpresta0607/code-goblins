@@ -1454,7 +1454,7 @@ A full-screen program owns its native history, so Shift+PageUp/Down follows its 
 While such a terminal cannot accept input, scrolling back opens its recorded conversation without typing or changing the saved Classic preference (#1584), and Classic in its box's Style menu returns the terminal.
 The terminal decides that before xterm sees the wheel, since xterm's own scroll bar takes a wheel first whenever it has room to scroll, as for a moment after the terminal's box changes size.
 While the session works, the end of the reply in progress, where a finished reply shows its time, carries the harness's working indicator in the harness's colour (`frontend/src/reply-working.tsx`); with no reply yet it sits at the reply's place under his message.
-It reads no clock, so it is not drawn again while the session works: a hint that counted how long it had worked drew it every second.
+It reads no clock, so React does not draw it again while the session works: a hint that counted how long it had worked drew it every second.
 Pointing at it, or reaching it with Tab, shows Stop on it, and a touch screen always shows it: a press sends Escape through the session's terminal link, as the box's Stop does, and shows no terminal.
 A goblin whose messages queue through the board, or one whose typing is held, shows the indicator without Stop.
 The indicator is drawn only while the conversation reaches its end.
