@@ -81,6 +81,28 @@ test("a CFO engine the CFO cannot take yet shows as pending with its reason", as
   await expect(engine.locator(".engine-pending")).toHaveText("Pending: next-model low · " + waiting);
 });
 
+// The server takes harness, model and effort only and refuses any other key,
+// so a saved engine's pending, problem and waiting never ride along (#1581).
+for (const change of [
+  { combobox: "Model", option: "current-model", body: { harness: "codex", model: "current-model", effort: "high" } },
+  { combobox: "Effort", option: "high", body: { harness: "codex", model: "next-model", effort: "high" } },
+] as const) {
+  test(`a saved CFO engine's ${change.combobox.toLowerCase()} change posts only its harness, model and effort`, async ({ page }) => {
+    // Arrange
+    const posts = await open(page, [], { cfo_engine: { harness: "codex", model: "next-model", effort: "low", pending: false, problem: "", waiting: "" } });
+    await openCfo(page);
+    await harness(page).locator("> summary").click();
+    const engine = harness(page).getByRole("group", { name: "CFO engine" });
+
+    // Act
+    await engine.getByRole("combobox", { name: change.combobox }).selectOption(change.option);
+    await engine.getByRole("button", { name: "Save" }).click();
+
+    // Assert
+    await expect.poll(() => posts).toEqual([{ path: "/api/cfo/engine", body: change.body }]);
+  });
+}
+
 for (const who of ["goblin", "CFO"] as const) {
   for (const transition of ["breakpoint", "maximize", "disclosure"] as const) {
     test(`${who} keeps its unsaved harness choice through ${transition}`, async ({ page }) => {
