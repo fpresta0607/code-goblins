@@ -4,14 +4,16 @@
    keyboard is on it; a touch screen, which cannot point, always shows it. */
 .reply-working { display: flex; align-items: center; gap: .5em; min-width: 0; min-height: 32px; margin-top: -.375em; }
 .reply-working > .working-indicator { font-size: 20px; }
-/* The words take their longest word's room, and their window slides over
-   the word to type it while the word stays put; the shimmer crosses them,
-   lightening the letters more than the ground. */
+/* The words take their widest word's room, every word laid unseen in the
+   one cell, and a word wider than the row ends in an ellipsis. Their window
+   slides over the word to type it while the word stays put; the shimmer
+   crosses them, lightening the letters more than the ground. */
 .reply-doing { display: grid; grid-template-columns: minmax(0, auto); min-width: 0; overflow: hidden; color: var(--muted); font-size: .9375em; white-space: nowrap; }
-.reply-doing::before { content: attr(data-room); grid-area: 1 / 1; visibility: hidden; }
 .reply-doing > * { grid-area: 1 / 1; }
-.working-word { justify-self: start; overflow: hidden; }
-.working-word > span { display: inline-block; }
+.working-room { visibility: hidden; }
+.working-room::before { content: attr(data-word); }
+.working-word { justify-self: start; max-width: 100%; overflow: hidden; }
+.working-word > span { display: block; overflow: hidden; text-overflow: ellipsis; }
 .working-shine { background: linear-gradient(90deg, transparent 30%, rgb(255 255 255 / .5) 50%, transparent 70%); mix-blend-mode: color-dodge; transform: translateX(-100%); pointer-events: none; }
 @media (prefers-reduced-motion: reduce) {
   .working-shine { display: none; }

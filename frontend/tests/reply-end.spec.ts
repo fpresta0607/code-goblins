@@ -328,6 +328,36 @@ test("with no words of its harness's own, Working types out first and gives way 
   await expect(word).toHaveText("Conjuring");
 });
 
+// The words keep the room of the widest as drawn, which is not always the
+// one of most letters: Rummaging's nine letters are drawn wider than
+// Scavenging's ten in most faces. So as they rotate the row keeps its width,
+// and nothing after it moves.
+test("the words keep the room of the widest as drawn while they rotate, so nothing after them moves", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+  relay.say(screen(true));
+  await expect(working(page).locator(".working-word")).toHaveText("Working");
+
+  // Act: Working, then each of the eleven verbs in turn.
+  const seen: { word: string; drawn: number; room: number }[] = [];
+  for (let turn = 0; turn < 12; turn++) {
+    seen.push(await working(page).locator(".reply-doing").evaluate((doing) => {
+      const letters = doing.querySelector(".working-word > span")!;
+      const range = document.createRange();
+      range.selectNodeContents(letters);
+      return { word: letters.textContent ?? "", drawn: range.getBoundingClientRect().width, room: doing.getBoundingClientRect().width };
+    }));
+    await page.clock.runFor(3_000);
+  }
+
+  // Assert
+  expect(new Set(seen.map((each) => each.word)).size).toBe(12);
+  expect(new Set(seen.map((each) => each.room)).size, JSON.stringify(seen)).toBe(1);
+  expect(seen.filter((each) => each.drawn > each.room + 0.5), "every word fits its room").toEqual([]);
+});
+
 test.describe("under reduced motion", () => {
   test.use({ reducedMotion: "reduce" });
 
@@ -379,6 +409,36 @@ test.describe("on a phone", () => {
 
     // Assert
     await expect.poll(() => typed(relay)).toBe("\x1b");
+  });
+
+  // A heading Codex names its step by, which the relay cuts at 48 letters,
+  // is wider than a phone's row: it types out to the row's end and ends
+  // there in an ellipsis, before Stop.
+  test("a heading wider than the row types to the row's end and ends in an ellipsis before Stop", async ({ page }) => {
+    // Arrange
+    const heading = "Tracing how the phone terminal turns each swipe…";
+    const relay = await open(page, snapshot({}, { phase: "settled", harness: "codex" }), "", TALK);
+    await openGoblin(page);
+
+    // Act
+    relay.say(screen(true, heading));
+
+    // Assert
+    const letters = working(page).locator(".working-word > span");
+    await expect(letters).toHaveText(heading);
+    const drawn = await letters.evaluate((element) => ({ isCut: element.scrollWidth > element.clientWidth, overflow: getComputedStyle(element).textOverflow, width: element.getBoundingClientRect().width }));
+    expect(drawn.isCut, "the heading is wider than the row").toBe(true);
+    expect(drawn.overflow).toBe("ellipsis");
+    const typing = await typingOf(page);
+    expect(typing.shifts).toHaveLength(heading.length + 1);
+    expect(typing.shifts[0], "the window starts at the row's end, not the heading's").toBeLessThanOrEqual(drawn.width + 0.5);
+    expect(typing.shifts.every((shift, at) => at === 0 || shift <= typing.shifts[at - 1]), JSON.stringify(typing.shifts)).toBe(true);
+    expect(typing.shifts.at(-1)).toBe(0);
+    const [words, stop] = await Promise.all([".reply-doing", ".reply-stop"].map((selector) => working(page).locator(selector).boundingBox()));
+    expect(words && stop, "both drawn").toBeTruthy();
+    if (!words || !stop) return;
+    expect(words.x + words.width, "the words end before Stop").toBeLessThanOrEqual(stop.x);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
   });
 });
 

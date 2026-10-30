@@ -1,16 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 // The whimsical verbs a turn's words rotate through after the harness's own,
 // goblin flavoured (the Overlord, 2026-10-29: "replaced with multiple
 // different, not just working, but a bunch of synonyms, really cool,
 // whimsical synonyms").
-export const WORKING_WORDS = ["Conjuring", "Tinkering", "Scheming", "Rummaging", "Brewing", "Cobbling", "Scavenging", "Plotting", "Burrowing", "Smithing", "Muttering"];
+const WORKING_WORDS = ["Conjuring", "Tinkering", "Scheming", "Rummaging", "Brewing", "Cobbling", "Scavenging", "Plotting", "Burrowing", "Smithing", "Muttering"];
 // How long each letter takes to type, how long the shimmer takes to cross,
 // and how long each word shows before the next.
 const LETTER_MS = 55;
 const SHIMMER_MS = 900;
-export const WORD_MS = 3000;
-const LONGEST_WORD = ["Working", ...WORKING_WORDS].reduce((wide, word) => word.length > wide.length ? word : wide);
+const WORD_MS = 3000;
 
 // WorkingWord says what a turn does beside its helix: said, the harness's own
 // words, or Working when it names nothing, then each of WORKING_WORDS in turn
@@ -20,16 +19,17 @@ const LONGEST_WORD = ["Working", ...WORKING_WORDS].reduce((wide, word) => word.l
 // compositor draws: the typing slides a window over the word to each letter's
 // edge, measured once as the word comes. It writes each word into the page
 // itself, so React draws nothing again while a turn runs. The room it takes
-// is its longest word's, so nothing after it moves. Under reduced motion it
-// shows said, or Working, whole and still.
+// is its widest word's as drawn, every word laid unseen in the one place, so
+// nothing after it moves, and a word wider than the row ends in an ellipsis.
+// Under reduced motion it shows said, or Working, whole and still.
 export function WorkingWord({ said }: { said: string }) {
   const shown = useRef<HTMLSpanElement>(null);
   const letters = useRef<HTMLSpanElement>(null);
   const shine = useRef<HTMLSpanElement>(null);
+  const words = useMemo(() => [said || "Working", ...WORKING_WORDS.filter((word) => word !== said)], [said]);
   useEffect(() => {
     const [frame, text, light] = [shown.current, letters.current, shine.current];
     if (!frame || !text || !light) return;
-    const words = [said || "Working", ...WORKING_WORDS.filter((word) => word !== said)];
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
       text.textContent = words[0];
       return;
@@ -56,25 +56,26 @@ export function WorkingWord({ said }: { said: string }) {
       window.clearTimeout(timer);
       running.forEach((animation) => animation.cancel());
     };
-  }, [said]);
-  return <span className="reply-doing" data-room={said.length > LONGEST_WORD.length ? said : LONGEST_WORD} aria-hidden="true">
+  }, [words]);
+  return <span className="reply-doing" aria-hidden="true">
+    {words.map((word) => <span className="working-room" data-word={word} key={word} />)}
     <span className="working-word" ref={shown}><span ref={letters} /></span>
     <span className="working-shine" ref={shine} />
   </span>;
 }
 
 // letterEdges reads where each letter of element's one text ends, measured
-// from its left edge.
+// from its left edge; a letter its ellipsis hides ends at its right edge.
 function letterEdges(element: HTMLElement): number[] {
   const node = element.firstChild;
   if (!node) return [];
-  const left = element.getBoundingClientRect().left;
+  const { left, right } = element.getBoundingClientRect();
   const range = document.createRange();
   let end = 0;
   return Array.from(node.textContent ?? "", (letter) => {
     end += letter.length;
     range.setStart(node, 0);
     range.setEnd(node, end);
-    return range.getBoundingClientRect().right - left;
+    return Math.min(range.getBoundingClientRect().right, right) - left;
   });
 }

@@ -1,4 +1,4 @@
-import { expect, openTaskList, test, type Page } from "./site";
+import { expect, openChat, openTaskList, test, type Page } from "./site";
 import { GOBLIN, open as openSession, openGoblin, snapshot } from "./session-board";
 
 // The board's render budget (#1599, #1580). The Overlord, 2026-10-27: "every
@@ -299,4 +299,30 @@ test("a working goblin's helix keeps the page's main thread still while nothing 
 
   // Assert
   expect(await recalcs() - before).toBeLessThan(40);
+});
+
+// The helix's animations, made by element.animate, run on behind a hidden
+// view, where CSS animations stopped: a target with no box cannot go to the
+// compositor, so the main thread would draw them every frame. While the
+// panel shows its Task view the conversation runs none of them, and back on
+// Chat they run again.
+test("a working goblin's helix runs nothing while the panel shows its Task view and runs again back on Chat", async ({ page }) => {
+  // Arrange
+  await openSession(page, snapshot({}, { ...GOBLIN, runtime: { state: "working" } }));
+  await openGoblin(page);
+  const helix = () => page.evaluate(() => document.getAnimations().filter((animation) => animation.id.startsWith("working-")).length);
+  await expect.poll(helix).toBeGreaterThan(0);
+  const shown = await helix();
+
+  // Act
+  await openTaskList(page);
+
+  // Assert
+  await expect.poll(helix).toBe(0);
+
+  // Act
+  await openChat(page);
+
+  // Assert
+  await expect.poll(helix).toBe(shown);
 });

@@ -4,9 +4,9 @@
 .working-helix, .working-dither { position: absolute; inset: 0; display: block; }
 .working-dither { display: grid; grid-template-columns: repeat(4, 1fr); gap: .0417em; }
 .working-helix-row { position: absolute; left: 50%; width: .1667em; height: .1667em; }
-/* Each dot is centred on its row by its offset, never by a share of its own
-   size: Chrome draws a transform that depends on its element's size on the
-   page's main thread, every frame. */
+/* Each dot is centred on its row by its offset, so its keyframes in
+   working-indicator.tsx move it by lengths alone; a transform by a share of
+   its own size, as the shimmer's, would stay on the compositor all the same. */
 .working-helix-row > i { position: absolute; left: -.0833em; width: .1667em; height: .1667em; border-radius: 50%; background: currentColor; }
 .working-dither > i { background: currentColor; opacity: .1; }
 @media (prefers-reduced-motion: reduce) {

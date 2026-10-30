@@ -1379,7 +1379,7 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 ### The working indicator
 
 Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix of seven rows of two dots that fades into sixteen cells lighting in Bayer order and back every 8 seconds (the Overlord, 2026-10-30: "i prefered the helix").
-Every part of it moves by transform and opacity alone, which the compositor draws without the page's main thread, and it runs only while a turn runs.
+Every part of it moves by transform and opacity alone, which the compositor draws without the page's main thread, and it runs only while a turn runs and its conversation shows, never behind the terminal or the Task view.
 For a while it was a still halftone that breathed as one, after a panel at rest kept the main thread 44 percent busy (2026-10-28: "32 animations??? remvoe like all but the streaming one").
 Measured on that build with a snapshot each second, about 30 of the 36 ms of main-thread work each second came from its 32 CSS animations, 50 style recalculations a second, and about 5 from the one-second clock that drew the working spot again and the redraws of the queued messages on every snapshot, which stay gone.
 The animations reached the main thread because Chrome wakes it at every turn of a CSS animation while anything in the page listens for animationiteration, as React's root always does, so the indicator animates by element.animate, which raises no such event.

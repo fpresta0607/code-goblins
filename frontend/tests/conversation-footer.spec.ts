@@ -22,19 +22,24 @@ test("a settled session shows no working animation and no time fact under his me
   await expect(page.locator(".reply-working")).toHaveCount(0);
 });
 
-test("the reply in progress ends with the harness's working animation while the session works", async ({ page }, testInfo) => {
-  // Arrange
-  await open(page, snapshot({}, { ...MEMORY, runtime: { state: "working" } }), "rebase onto main", PAGE_WITH_USAGE);
-  await openGoblin(page);
+// The Overlord, 2026-10-30: "make color of the helix match teh harnes icon
+// coloring". Each harness's helix takes the ink of its own mark: Claude
+// Code's orange, Codex's light ink and pi's moss.
+for (const [harness, name, ink] of [["claude", "Claude Code", "rgb(217, 119, 87)"], ["codex", "Codex", "rgb(232, 238, 242)"], ["pi", "pi", "rgb(134, 179, 107)"]]) {
+  test(`the reply in progress ends with ${name}'s working animation in its ink while the session works`, async ({ page }, testInfo) => {
+    // Arrange
+    await open(page, snapshot({}, { ...MEMORY, harness, tree: { ...MEMORY.tree, harness }, runtime: { state: "working" } }), "rebase onto main", PAGE_WITH_USAGE);
+    await openGoblin(page);
 
-  // Assert
-  const working = page.locator(".reply-working .working-indicator");
-  await expect(working).toBeVisible();
-  // The indicator takes Claude Code's own ink from the board's mark.
-  await expect(working).toHaveCSS("color", "rgb(217, 119, 87)");
-  await expect(page.locator(".context-pane .working-indicator:visible")).toHaveCount(1);
-  await testInfo.attach("footer-working.png", { body: await page.screenshot(), contentType: "image/png" });
-});
+    // Assert
+    const working = page.locator(".reply-working .working-indicator");
+    await expect(working).toBeVisible();
+    await expect(working).toHaveCSS("color", ink);
+    await expect(working.locator(".working-helix-row > i").first()).toHaveCSS("background-color", ink);
+    await expect(page.locator(".context-pane .working-indicator:visible")).toHaveCount(1);
+    await testInfo.attach(`footer-working-${harness}.png`, { body: await page.screenshot(), contentType: "image/png" });
+  });
+}
 
 // The Overlord, 2026-10-28, on a panel at rest that ran 32 animations and was
 // drawn again four times a second: "32 animations??? remvoe like all but the
