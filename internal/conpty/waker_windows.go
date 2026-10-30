@@ -213,7 +213,7 @@ func (w *waker) relay(typed, done, closing <-chan struct{}) {
 			// An answer for a large screen is one long line.
 			line, err := w.lines.ReadString('\n')
 			if line = strings.TrimRight(line, "\r\n"); line != "" && !w.take(line) && !w.takeUnread(line) {
-				fmt.Fprintln(os.Stderr, "conpty: "+line)
+				fmt.Fprintf(os.Stderr, "%s conpty: %s\n", time.Now().UTC().Format(time.RFC3339Nano), line)
 			}
 			if err != nil {
 				return
@@ -229,7 +229,7 @@ func (w *waker) relay(typed, done, closing <-chan struct{}) {
 				case <-done:
 				case <-closing:
 				default:
-					fmt.Fprintf(os.Stderr, "conpty: the console's input waker stopped listening, so input left unread is no longer woken: %v\n", err)
+					fmt.Fprintf(os.Stderr, "%s conpty: the console's input waker stopped listening, so input left unread is no longer woken: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 				}
 				return
 			}

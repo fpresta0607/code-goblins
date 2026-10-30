@@ -56,7 +56,7 @@ func (s *jobScheduling) monitor() {
 		// Job messages carry an integer PID in lpOverlapped, not a Go pointer.
 		result, _, err := getQueuedCompletionStatus.Call(uintptr(s.port), uintptr(unsafe.Pointer(&message)), uintptr(unsafe.Pointer(&key)), uintptr(unsafe.Pointer(&pid)), windows.INFINITE)
 		if result == 0 {
-			fmt.Fprintf(os.Stderr, "conpty: scheduling monitor: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%s conpty: scheduling monitor: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 			return
 		}
 		if key == 0 {
@@ -64,7 +64,7 @@ func (s *jobScheduling) monitor() {
 		}
 		if message == JOB_OBJECT_MSG_NEW_PROCESS {
 			if err := s.scheduleProcess(uint32(pid)); err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintf(os.Stderr, "%s %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 			}
 		}
 	}
