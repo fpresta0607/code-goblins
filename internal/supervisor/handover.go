@@ -26,6 +26,9 @@ const legacyExitWait = 5 * time.Second
 // between the supervisor it stopped and the one it starts and hands it to
 // that one, so a build older than the handover never meets a watcher.
 func AcquireWatchLock(stateDir string) error {
+	if err := os.MkdirAll(stateDir, 0700); err != nil {
+		return err
+	}
 	for try := 1; ; try++ {
 		_, err := lock.AcquireExclusiveNamed(stateDir, watchLock)
 		if err == nil {
