@@ -15,7 +15,8 @@ import ts from "typescript";
 // ("this yellow text i hate. as an error"), and, under a key card's row, why
 // the board refused the value he pasted, so the row stays open, which he
 // approved with the key card on 2026-10-12, and a failed Send beside its kept
-// draft, which must stay actionable even while input is held (2026-10-27).
+// draft, which must stay actionable even while input is held (2026-10-27), in
+// the banner over the box that fades by itself (2026-10-29).
 // This reads the board's source for
 // every other way of showing him an error, and for a line explaining where a
 // number came from or how fresh it is.
@@ -24,6 +25,7 @@ const FEEDBACK = "click-feedback.tsx";
 const REFUSAL = "afk-refusal.tsx";
 const KEY_CARD = "credential-card.tsx";
 const KEY_REFUSAL = "credential-refusal";
+const BOX_BANNER = "composer-banner.tsx";
 
 // The roles and classes the board used for error boxes and warning lines.
 const ERROR_CLASSES = /\b(warning-text|task-action-problem|error-box|terminal-error|connections-error|order-error|afk-problem|connection-banner|layout-notice|lineage-warning|card-stalled|windows-teardown|memory-warning|card-silent|window-error)\b/;
@@ -53,8 +55,7 @@ function findingsIn(file: string, code: string): Finding[] {
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText(source), value = node.initializer && ts.isStringLiteral(node.initializer) ? node.initializer.text : node.initializer?.getText(source) || "";
       const keyRefusal = path.basename(file) === KEY_CARD && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === KEY_REFUSAL);
-      const isComposerRefusal = path.basename(file) === "composer.tsx" && node.parent.properties.some((other) => ts.isJsxAttribute(other) && other.name.getText(source) === "className" && !!other.initializer && ts.isStringLiteral(other.initializer) && other.initializer.text === "composer-refusal");
-      if (name === "role" && /alert/.test(value) && !keyRefusal && !isComposerRefusal) at(node, 'role="alert"');
+      if (name === "role" && /alert/.test(value) && !keyRefusal && path.basename(file) !== BOX_BANNER) at(node, 'role="alert"');
       if (name === "className" && ERROR_CLASSES.test(value)) at(node, "className " + value);
     }
     const text = ts.isJsxText(node) ? node.getText(source).trim()

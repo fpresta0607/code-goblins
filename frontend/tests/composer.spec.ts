@@ -129,14 +129,14 @@ test("Shift+Enter starts a new line, and the lines go as one paste", async ({ pa
 test("busy, held and reconnecting sessions save messages in the durable queue", async ({ page }) => {
   const relay = await open(page);
   await openGoblin(page);
-  const note = box(page).locator(".composer-note");
+  const note = box(page).locator(".composer-banner");
   await field(page).fill("merge it");
   const actions: object[] = [];
   await page.route("**/api/actions", (route) => { actions.push(route.request().postDataJSON()); return route.fulfill({ status: 202, json: {} }); });
 
   relay.say({ type: "unread", unread: true });
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveText("");
+  expect(await note.count()).toBe(0);
   await expect(send(page)).toBeEnabled();
   await field(page).press("Enter");
   await expect.poll(() => actions.length).toBe(1);
@@ -144,7 +144,8 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await expect(field(page)).toHaveValue("");
   await field(page).fill("merge it");
   relay.say({ type: "unread", unread: false });
-  await expect(note).toHaveText("");
+  await expect(box(page)).not.toHaveAttribute("data-queues", "");
+  expect(await note.count()).toBe(0);
   await expect(send(page)).toBeEnabled();
   await expect(field(page)).toHaveValue("merge it");
   relay.say({ type: "held", reason: "pipeline owns this task" });
@@ -152,7 +153,7 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   // usable, and no note says so: he assumes it (the Overlord, 2026-10-28:
   // "this text not needed on working goblins resumes are assumed").
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveText("");
+  expect(await note.count()).toBe(0);
   await expect(send(page)).toBeEnabled();
   relay.say({ type: "held", reason: "" });
   await expect(send(page)).toBeEnabled();
@@ -167,8 +168,9 @@ test("busy, held and reconnecting sessions save messages in the durable queue", 
   await send(page).click();
 
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveText("");
   await expect(field(page)).toHaveValue("");
+  await expect(field(page)).toBeEnabled();
+  expect(await note.count()).toBe(0);
   expect(actions).toHaveLength(2);
   expect(actions[1]).toMatchObject({ kind: "message", task_id: GOBLIN.id, text: "merge it" });
   await page.waitForTimeout(1500);
@@ -393,7 +395,7 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
-  const note = box(page).locator(".composer-note");
+  const note = box(page).locator(".composer-banner");
 
   // Act: the check fails, the way it did on his screenshot.
   relay.say({ type: "held", reason: "pipeline: native custody status check failed" });
@@ -402,7 +404,7 @@ test("a failing custody check shows no banner over the conversation and keeps th
   // usable so the message is queued.
   await expect(page.locator(".terminal-held")).toHaveCount(0);
   await expect(box(page)).toHaveAttribute("data-queues", "");
-  await expect(note).toHaveText("");
+  expect(await note.count()).toBe(0);
   await expect(field(page)).toBeVisible();
   await field(page).fill("send this while the check fails");
   await expect(send(page)).toBeEnabled();
@@ -428,7 +430,8 @@ test("a failing custody check shows no banner over the conversation and keeps th
   relay.say({ type: "held", reason: "" });
 
   // Assert: the note is clear again and the message has not been typed twice.
-  await expect(note).toHaveText("");
+  await expect(box(page)).not.toHaveAttribute("data-queues", "");
+  expect(await note.count()).toBe(0);
   expect(typed(relay), "a queued message is not typed on release by this path").toEqual(before);
 });
 
@@ -493,6 +496,27 @@ test("a picture the board cannot keep says so in the box rather than disappearin
   await expect(field(page)).toHaveValue("");
   await expect(box(page).getByRole("list", { name: "Attached files" })).toHaveCount(0);
   await expect(box(page).getByRole("alert")).toHaveText("That picture was not added: The file could not be kept: no room");
+});
+
+// A refusal that comes as the note of the files it was added with ends shows
+// over the box for its whole moment, even under a note that stays there.
+test("a file the board cannot keep says so over the box under a detached worktree's note", async ({ page }) => {
+  // Arrange: typing is held on a detached worktree, whose note shows over the
+  // box, and the board keeps no file.
+  const relay = await open(page);
+  await page.route("**/api/composer/file**", (route) => route.fulfill({ status: 500, json: { error: "The file could not be kept: no room" } }));
+  await openGoblin(page);
+  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
+  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+
+  // Act
+  await box(page).locator('input[type="file"]').setInputFiles({ name: "design.txt", mimeType: "text/plain", buffer: Buffer.from("Keep this") });
+
+  // Assert: the refusal shows over the box, and the note stays on the box's
+  // status line.
+  await expect(box(page).getByRole("alert")).toHaveText("That file was not added: The file could not be kept: no room");
+  await expect(box(page).getByRole("status")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  await expect(box(page).getByRole("list", { name: "Attached files" })).toHaveCount(0);
 });
 
 test("Alt+V pastes the clipboard's text into the box, as Ctrl+V does", async ({ page }) => {

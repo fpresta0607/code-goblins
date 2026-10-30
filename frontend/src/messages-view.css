@@ -163,7 +163,7 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .queued-message.pane { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: end; align-self: flex-end; gap: .35em; max-width: min(80%, 40em); }
 .queued-bubble { white-space: pre-wrap; }
 .queued-bubble.waiting { opacity: .55; }
-.queued-message.pane > :is(.message-pictures, .queued-bubble, .queued-problem) { grid-column: 1 / -1; }
+.queued-message.pane > :is(.message-pictures, .queued-bubble) { grid-column: 1 / -1; }
 .queued-message.pane > .message-pictures { justify-content: flex-end; }
 
 .queued-message.pane .queued-actions { justify-content: flex-end; }
@@ -173,10 +173,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .queued-actions .labelled-button { min-height: 30px; padding: 2px 10px; font-size: .8125em; }
 .queued-actions .icon { width: 15px; height: 15px; }
 .queued-actions .icon-button { border: 0; background: transparent; }
-.queued-problem { margin: 0; color: var(--amber); font-size: .8125em; }
 .queued-message.queue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .25em .6em; }
 .queued-message.queue .composer-sent-text { grid-column: 1 / -1; }
-.queued-message.queue .queued-line, .queued-message.queue .queued-actions, .queued-message.queue .queued-problem { grid-column: 1 / -1; }
+.queued-message.queue .queued-line, .queued-message.queue .queued-actions { grid-column: 1 / -1; }
 /* Each of his messages keeps Copy and when it was sent in a small row under
    it, hidden until he taps the message or points at it, and closed when he
    taps away. On a touch screen only the tap opens it. */

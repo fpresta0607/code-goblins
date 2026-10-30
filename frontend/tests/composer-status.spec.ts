@@ -39,10 +39,9 @@ for (const style of ["modern"]) {
         // Act and Assert: routine waiting is shown once, beside its one input.
         await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
         await expect(send(page)).toBeInViewport();
-        expect(await box(page).locator(".composer-note").evaluate((note) => getComputedStyle(note).color)).toBe(await box(page).locator(".composer-control").first().evaluate((control) => getComputedStyle(control).color));
 
         // Act: a genuine failure must take priority over the hold.
         await send(page).click();
@@ -64,11 +63,12 @@ for (const style of ["modern"]) {
 
         // Assert
         await expect(field(page)).toHaveValue("");
+        await expect(field(page)).toBeEnabled();
         expect(requests).toHaveLength(2);
         expect(requests[1]).toEqual(requests[0]);
         expect(requests[0]).toMatchObject({ text: sentText });
-        await expect(box(page).getByRole("alert")).toHaveCount(0);
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        expect(await box(page).getByRole("alert").count()).toBe(0);
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         expect(typed(relay)).toBe(before);
 
         // Act: the durable entry remains after the hold changes.
@@ -129,7 +129,7 @@ for (const style of ["modern"]) {
         await field(page).fill("Read this after the current turn");
         await expect(page.getByText("Program busy. Typed keys are waiting.").filter({ visible: true })).toHaveCount(0);
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(1);
@@ -145,7 +145,7 @@ for (const style of ["modern"]) {
         await expect(field(page)).toBeVisible();
         await expect(field(page)).toHaveValue("Keep this through the reconnect");
         await expect(box(page)).toHaveAttribute("data-queues", "");
-        await expect(box(page).locator(".composer-note")).toHaveText("");
+        expect(await box(page).locator(".composer-banner").count()).toBe(0);
         await send(page).click();
         await expect(field(page)).toHaveValue("");
         expect(requests).toHaveLength(2);
@@ -218,7 +218,8 @@ for (const style of ["modern"]) {
             expect(retry).toEqual(submission);
           } else {
             await expect(field(page)).toHaveValue("");
-            await expect(box(page).getByRole("alert")).toHaveCount(0);
+            await expect(field(page)).toBeEnabled();
+            expect(await box(page).getByRole("alert").count()).toBe(0);
           }
           expect(typed(relay)).toBe(before);
         }
@@ -378,6 +379,9 @@ for (const style of ["modern"]) {
       await expect.poll(() => relay.views).toBeGreaterThan(0);
       relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
       await expect(field(page)).toBeVisible();
+      // Why messages queue shows once over the box, and goes by itself.
+      const note = box(page).locator(".composer-banner");
+      await expect(note).toHaveText("Detached worktree. Send to queue until a branch is ready.");
       const draft = "A draft to retain while the branch is recovered. ".repeat(18);
       await field(page).fill(draft);
       await field(page).focus();
@@ -387,7 +391,6 @@ for (const style of ["modern"]) {
         keyboard(300, 20);
       });
 
-      const note = box(page).locator(".composer-note");
       const screenshot = testInfo.outputPath("detached-keyboard-surface.png");
       await page.screenshot({ path: screenshot });
       await testInfo.attach("detached-keyboard-surface", { path: screenshot, contentType: "image/png" });
@@ -404,7 +407,6 @@ for (const style of ["modern"]) {
       expect(geometry.right).toBeLessThanOrEqual(geometry.viewport);
       expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.viewport);
       expect(geometry.sendBottom).toBeLessThanOrEqual(geometry.visualBottom);
-      await expect(note).toHaveText("Detached worktree. Send to queue until a branch is ready.");
       await expect(page.locator(".terminal-foot.line:visible")).toHaveCount(0);
       await expect(page.locator(".voice-bubble:visible")).toHaveCount(1);
       await expect(send(page)).toBeInViewport();
@@ -433,7 +435,8 @@ for (const style of ["modern"]) {
       await page.keyboard.type("recovery");
       relay.say({ type: "held", reason: "pipeline owns this task; use cfo pipeline respond" });
       await expect(box(page)).toHaveAttribute("data-queues", "");
-      await expect(note).toHaveText("");
+      await expect(box(page).getByRole("status")).toHaveText("");
+      expect(await note.count()).toBe(0);
       relay.say({ type: "held", reason: "" });
       await expect(field(page)).toHaveValue("Keep this until recovery");
       expect(typed(relay)).toBe("");
@@ -443,3 +446,28 @@ for (const style of ["modern"]) {
     });
   }
 }
+
+// A note that starts while the box is off screen shows over it once he comes
+// back to it, rather than fading where he could not see it.
+test("a detached hold said while the Task view shows says so over the box when he comes back to the chat", async ({ page }) => {
+  // Arrange: Zeke's conversation was opened once, and the panel then shows his
+  // Task view, while the relay says his worktree is detached.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  const relay = await open(page);
+  await openGoblin(page);
+  const views = page.locator(".panel-view-switch");
+  await views.getByRole("button", { name: "Task", exact: true }).click();
+  await expect(box(page)).toBeHidden();
+  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
+  await expect(page.locator(`section[aria-label="Messages to ${NAME}"] [role="status"]`)).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  // He stays on the Task view longer than a banner lasts, 4 s and its fade.
+  await page.waitForTimeout(5000);
+
+  // Act
+  await views.getByRole("button", { name: "Chat", exact: true }).click();
+
+  // Assert
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+});
