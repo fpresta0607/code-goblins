@@ -762,7 +762,8 @@ The configured repository command and its actual exit code remain unchanged.
 Use this binding for a trusted `uv run` command that must reuse an existing environment without dependency resolution, installation or interpreter downloads; it does not constrain an arbitrary repository command that explicitly overrides those settings.
 No environment is created, synchronized or repaired by the binding.
 An unavailable, invalid or mismatched required binding refuses execution with exit 126 and an actionable explanation; the native wrapper parks that as an unexecuted command, never a passing baseline.
-Repair and verify the existing environment or its project setting, then request the same Test command again through `cfo pipeline respond <task> --action fix`; do not approve the refusal as a pass.
+Repair and verify the existing environment or its project setting, then request the same Test command again through `cfo pipeline respond <task> --action fix --findings test-command-no-turn`.
+`cfo pipeline respond` refuses approval of a recorded required-environment refusal, even with `--accept` or `--reason` and after the project setting changes; a successful Test retry is required.
 Projects with no `test_environment` keep their existing runner environment.
 The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CFO build, including `--gate-run {run}`; the managed preflight refuses a required binding without that argument.
 Apply the reviewed wrapper setting through the CFO's normal idle configuration window.

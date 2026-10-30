@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -32,31 +31,46 @@ func (reader Reader) CommandSource(ctx context.Context, directory, runID string)
 	if err := reader.query(ctx, query, &rows); err != nil {
 		return RunSource{}, err
 	}
-	if len(rows) != 1 || !gateIdentity.MatchString(rows[0].Repository) || !filepath.IsAbs(rows[0].Project) || rows[0].Branch == "" ||
+	if len(rows) != 1 || !gateIdentity.MatchString(rows[0].Repository) || !gateCommit.MatchString(rows[0].Base) || !filepath.IsAbs(rows[0].Project) || rows[0].Branch == "" ||
 		!fsx.SamePath(rows[0].Worktree, filepath.Join(reader.Root, "worktrees", rows[0].Repository, runID)) {
 		return RunSource{}, errors.New("pipeline: configured-command run source could not be verified")
 	}
 	source := rows[0]
-	if fsx.SamePath(directory, source.Worktree) {
-		return source.RunSource, nil
+	managed, err := reader.gateRunWorktree(ctx, runID, source.Repository)
+	if err != nil || !fsx.SamePath(managed, source.Worktree) {
+		return RunSource{}, fmt.Errorf("pipeline: configured-command managed checkout could not be verified for run %s", runID)
 	}
-	for _, check := range []struct {
+	origin, err := reader.runGit(ctx, source.Project, false, "remote", "get-url", "origin")
+	originURL := strings.TrimSpace(string(origin.Stdout))
+	if err != nil || origin.ExitCode != 0 || originURL == "" {
+		return RunSource{}, errors.New("pipeline: configured-command source origin could not be verified")
+	}
+	type sourceCheck struct {
+		dir    string
 		args   []string
 		want   string
 		isPath bool
-	}{
-		{[]string{"rev-parse", "--show-toplevel"}, directory, true},
-		{[]string{"remote", "get-url", "origin"}, source.Worktree, true},
-		{[]string{"rev-parse", "HEAD"}, source.Base, false},
-	} {
-		result, err := reader.Commands.Run(ctx, execx.Request{Dir: directory, Name: "git", Args: check.args})
+	}
+	checks := []sourceCheck{
+		{managed, []string{"remote", "get-url", "origin"}, originURL, false},
+		{managed, []string{"rev-parse", "--verify", source.Base + "^{commit}"}, source.Base, false},
+	}
+	if !fsx.SamePath(directory, managed) {
+		checks = append(checks,
+			sourceCheck{directory, []string{"rev-parse", "--show-toplevel"}, directory, true},
+			sourceCheck{directory, []string{"remote", "get-url", "origin"}, managed, true},
+			sourceCheck{directory, []string{"rev-parse", "HEAD"}, source.Base, false},
+		)
+	}
+	for _, check := range checks {
+		result, err := reader.runGit(ctx, check.dir, false, check.args...)
 		actual := strings.TrimSpace(string(result.Stdout))
 		isMatch := actual != "" && actual == check.want
 		if check.isPath {
 			isMatch = filepath.IsAbs(actual) && fsx.SamePath(actual, check.want)
 		}
 		if err != nil || result.ExitCode != 0 || !isMatch {
-			return RunSource{}, fmt.Errorf("pipeline: configured-command base clone does not match run %s (%s)", runID, strings.Join(check.args, " "))
+			return RunSource{}, fmt.Errorf("pipeline: configured-command checkout provenance does not match run %s (%s)", runID, strings.Join(check.args, " "))
 		}
 	}
 	return source.RunSource, nil

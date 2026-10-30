@@ -433,8 +433,9 @@ func (r Reader) RunBranch(ctx context.Context, project, run string) (string, err
 // is the operator's rationale, which only an approved Test exception keeps.
 type Response struct{ Action, Findings, Instructions, Accept, Reason string }
 type finding struct {
-	ID     string `json:"id"`
-	Action string `json:"action"`
+	ID          string `json:"id"`
+	Action      string `json:"action"`
+	Description string `json:"description"`
 }
 
 func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
@@ -452,6 +453,7 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	}
 	var report struct {
 		Findings *[]finding `json:"findings"`
+		Summary  string     `json:"summary"`
 	}
 	if err := json.Unmarshal([]byte(gate.Findings), &report); err != nil || report.Findings == nil {
 		return nil, errors.New("pipeline: missing or invalid findings evidence")
@@ -460,10 +462,14 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	actions := map[string]string{}
 	var open []string
 	unresolved, blank := false, false
+	baseRefusal, _, _ := strings.Cut(report.Summary, "\n")
+	isRequiredEnvironmentRefused := strings.HasPrefix(baseRefusal, "Base attribution unavailable (test command was given no turn on the base checkout:") && strings.Contains(baseRefusal, "required test environment")
 	for _, f := range *report.Findings {
 		if f.ID == "" {
 			return nil, errors.New("pipeline: invalid or duplicate finding ID")
 		}
+		_, wrapperRefusal, _ := strings.Cut(f.Description, "The wrapper reported: ")
+		isRequiredEnvironmentRefused = isRequiredEnvironmentRefused || f.ID == "test-command-no-turn" && strings.Contains(wrapperRefusal, "required test environment")
 		switch f.Action {
 		case "no-op":
 			// Native selection includes all matching IDs; informational rows
@@ -488,6 +494,9 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	args := []string{"axi", "respond", "--step", gate.Step, "--action", response.Action}
 	switch response.Action {
 	case "approve":
+		if gate.Step == "test" && isRequiredEnvironmentRefused {
+			return nil, fmt.Errorf("pipeline: a recorded required test environment refusal cannot be approved; repair the binding, then retry with --action fix --findings %s and require a successful Test", strings.Join(open, ","))
+		}
 		if response.Reason != "" {
 			// The native engine keeps a reason only for an approved Test
 			// exception, and a reason it drops would leave the run reading as

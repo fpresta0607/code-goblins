@@ -176,7 +176,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	executor.IsConsoleShared = true
 	boundEnvironment, err := gateTestEnvironment(ctx, dir, request.gateRun, runtime)
 	if err != nil {
-		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %s\n", oneLine(err))
+		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: required test environment refused: %s\n", oneLine(err))
 		tell(exitNotStarted)
 		return exitNotStarted
 	}
@@ -192,7 +192,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	executor.Ready = func(ctx context.Context) error {
 		current, err := gateTestEnvironment(ctx, dir, request.gateRun, runtime)
 		if err != nil {
-			return err
+			return fmt.Errorf("required test environment refused: %w", err)
 		}
 		if !slices.Equal(current, boundEnvironment) {
 			return errors.New("required test environment changed while waiting; verify the project binding and retry")

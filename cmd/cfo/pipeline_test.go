@@ -1711,6 +1711,44 @@ func TestPipelineTestExceptionReasonIsHonouredOnlyFromTheRegisteredCFO(t *testin
 			}
 		})
 	}
+	t.Run("a required environment refusal after configuration changes", func(t *testing.T) {
+		for _, configuration := range []string{"required", "changed", "removed"} {
+			t.Run(configuration, func(t *testing.T) {
+				gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`}
+				h, nm, runner := registeredCFOStage(t, "cfo", gate)
+				h.Data = filepath.Join(h.Root, "data")
+				manifest := filepath.Join(h.Data, "projects", "project", "project.json")
+				if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(manifest, []byte(`{"project":"project","test_environment":{"python_version":"3.12.10"}}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				switch configuration {
+				case "changed":
+					if err := os.WriteFile(manifest, []byte(`{"project":"project","test_environment":{"python_version":"3.12.11"}}`), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				case "removed":
+					if err := os.Remove(manifest); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for _, flags := range [][]string{nil, {"--accept", "test-command-no-turn"}, {"--reason", "the environment is repaired"}, {"--accept", "test-command-no-turn", "--reason", "the environment is repaired"}} {
+					err := pipelineCommand(t.Context(), h, nm, runner, append([]string{"respond", "task", "--action", "approve"}, flags...), &bytes.Buffer{})
+					lines, _ := state.TailStatus(h.State, "task", 10)
+					if err == nil || !strings.Contains(err.Error(), "--action fix --findings test-command-no-turn") || len(runner.native) != 0 || len(lines) != 0 {
+						t.Fatalf("flags=%v err=%v native calls=%d status=%q; want refusal without an approval or audit", flags, err, len(runner.native), lines)
+					}
+				}
+
+				err := pipelineCommand(t.Context(), h, nm, runner, []string{"respond", "task", "--action", "fix", "--findings", "test-command-no-turn"}, &bytes.Buffer{})
+				if err != nil || len(runner.native) != 1 || strings.Join(runner.native[0].Args, " ") != "axi respond --step test --action fix --findings test-command-no-turn" {
+					t.Fatalf("retry err=%v native calls=%d; want the existing concrete retry", err, len(runner.native))
+				}
+			})
+		}
+	})
 	t.Run("a gate the engine would drop it from", func(t *testing.T) {
 		// Arrange
 		h, nm, runner := registeredCFOStage(t, "cfo", pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"note","action":"no-op"}]}`})
