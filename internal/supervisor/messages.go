@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/routing"
@@ -125,15 +126,27 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
-			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, !a.IsSentNow)
+			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, !a.IsSentNow, a.IsSentNow)
+			// A harness with a send-now key takes a message sent now at once;
+			// one without takes it at its next tool call.
+			screens, _ := harness.NativeScreens(harness.Kind(meta.Harness))
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {
-				return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
+				if screens.SendNow == "" {
+					return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
+				}
+				result := s.behindGoblinsTurn(a.TaskID, sent, text, sentNowInTurn)
+				result.Reason = sentNowInTurn
+				return result, nil
 			}
 			// A goblin in a turn is not typed into: its message waits, where he
 			// can edit, send now or cancel it, until the turn ends, unless he
 			// asked for it now.
 			if errors.Is(err, spawn.ErrInTurn) {
-				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. Send now types it for the goblin to take at its next tool call.", CanSendNow: true}, ErrDeferred
+				sendNow := "Send now types it for the goblin to take at its next tool call."
+				if screens.SendNow != "" {
+					sendNow = "Send now has it take the message at once."
+				}
+				return Evaluation{Reason: "Queued until " + a.TaskID + "'s turn ends. " + sendNow, CanSendNow: true}, ErrDeferred
 			}
 			if errors.Is(err, spawn.ErrUnsentWords) {
 				return Evaluation{Reason: "Queued until " + a.TaskID + "'s prompt line is empty. It holds words that were never sent, and nothing is typed onto them.", SendNowWhy: "Its prompt line holds words that were never sent."}, ErrDeferred

@@ -69,6 +69,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 	// claudeRead bytes and keys after them, and a turn's queue then keeps
 	// only the keys, as the live CFO's did on 2026-10-29 (#1740).
 	paste, readAsPaste, isPasting := "", "", false
+	hasQueued := false
 	composer := func() string { return paste + readAsPaste + line }
 	draw := func(isWorking bool) {
 		rows := []string{}
@@ -94,6 +95,11 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			if paste != "" || readAsPaste != "" {
 				shown = "[Pasted text #1]" + line
 			}
+			// Claude Code 2.1.314 drew this hint in its empty prompt line while a
+			// line waited in its queue, live, on 2026-10-30.
+			if shown == "" && hasQueued {
+				shown = "Press up to edit queued messages"
+			}
 			rows = append(rows, rule, "❯ "+shown, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
 		} else {
 			text := line
@@ -112,6 +118,14 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			return
 		}
 		switch key {
+		case '\x18':
+			// Claude Code's chat:sendNow chord, Ctrl+X Ctrl+S, sends what its
+			// turn has queued at once.
+			if next, _, err := reader.ReadRune(); err == nil && next == '\x13' {
+				record("sent now")
+				hasQueued = false
+				draw(false)
+			}
 		case '\x1b':
 			// A key sent as a control sequence, such as End before Codex's
 			// submit, ends a paste and leaves the line as it is.
@@ -158,6 +172,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			if mode == "busy" {
 				queued := paste + line
 				record("queued " + queued)
+				hasQueued = true
 				go func(text string) {
 					for {
 						if _, err := os.Stat(events + ".accept"); err == nil {

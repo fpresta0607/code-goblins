@@ -147,6 +147,11 @@ type Service struct {
 	// ErrInTurn: the supervisor's wake line, which is never typed mid-turn,
 	// and a board message held until its session's turn ends.
 	ShouldRefuseTurn bool
+	// ShouldSendNow has a native harness that queued the text, typed during a
+	// turn, take it at once with its own send-now key (harness.Screens
+	// SendNow) once its composer shows it gone into that queue: a board
+	// message he asked for now.
+	ShouldSendNow bool
 	// EndLeft ends the processes a task's ended terminal left running, for a
 	// relaunch, once no terminal runs for the task and before its next
 	// harness starts, and names them: lifecycle.EndLeft in production. Nil

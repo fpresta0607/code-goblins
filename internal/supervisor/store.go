@@ -75,7 +75,8 @@ type Evaluation struct {
 	// waits for its harness to report taking it; its action keeps it.
 	Awaiting *Awaiting `json:"-"`
 	// CanSendNow is whether a queued message could be typed into its session
-	// on a retry, and SendNowWhy says why not when it could not.
+	// on a retry, or one typed into a turn taken at once by its harness's
+	// send-now key, and SendNowWhy says why not when it could not.
 	CanSendNow bool   `json:"-"`
 	SendNowWhy string `json:"-"`
 }
@@ -111,11 +112,13 @@ type Action struct {
 	// for its harness to report taking it.
 	Awaiting *Awaiting `json:"awaiting,omitempty"`
 	// CanSendNow is whether he may ask for a queued message to be typed now,
-	// and SendNowWhy says why not, in plain words.
+	// or for one typed into a turn to be taken at once by its harness's
+	// send-now key, and SendNowWhy says why not, in plain words.
 	CanSendNow bool   `json:"can_send_now,omitempty"`
 	SendNowWhy string `json:"send_now_why,omitempty"`
 	// IsSentNow says he asked for a queued message now, so its delivery types
-	// it even into a turn, for the harness to take at its next tool call.
+	// it even into a turn, for the harness to take at once where it has a
+	// send-now key, and otherwise at its next tool call.
 	IsSentNow bool `json:"sent_now,omitempty"`
 	// Advice is what the Overlord should do about a delivery that never
 	// arrived, in his words; the board shows it as written.
@@ -594,6 +597,69 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 	return *a, nil
 }
 
+// claimTypedMessage claims Send now on the message action id names for task
+// that was typed into its session's turn and still waits in its harness's own
+// queue: one that can be sent now is marked sent now under the store's lock,
+// so however often he presses, its key is pressed once. It returns the message
+// as it stood before the claim, and whether there is one.
+func (s *Store) claimTypedMessage(id, task string) (Action, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := slices.IndexFunc(s.db.Actions, func(typed Action) bool {
+		return typed.ID == id && typed.TaskID == task && typed.Kind == "message" && typed.Status == "running" && typed.Awaiting != nil
+	})
+	if at < 0 {
+		return Action{}, false, nil
+	}
+	typed := &s.db.Actions[at]
+	claimed := *typed
+	if typed.IsSentNow || !typed.CanSendNow {
+		return claimed, true, nil
+	}
+	typed.IsSentNow, typed.CanSendNow, typed.UpdatedAt = true, false, time.Now().UTC()
+	return claimed, true, s.save()
+}
+
+// releaseTypedMessage gives back the claim on the typed message id whose key
+// could not be pressed: it is not sent now, and Send now is offered again
+// while it still waits.
+func (s *Store) releaseTypedMessage(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := slices.IndexFunc(s.db.Actions, func(sent Action) bool { return sent.ID == id })
+	if at < 0 {
+		return nil
+	}
+	sent := &s.db.Actions[at]
+	sent.IsSentNow, sent.CanSendNow, sent.UpdatedAt = false, sent.Status == "running" && sent.Awaiting != nil, time.Now().UTC()
+	return s.save()
+}
+
+// markTypedMessageSent says on the claimed message id, while it still waits,
+// that its key went. One settled meanwhile keeps the words it settled with.
+func (s *Store) markTypedMessageSent(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := slices.IndexFunc(s.db.Actions, func(sent Action) bool {
+		return sent.ID == id && sent.Status == "running" && sent.Awaiting != nil
+	})
+	if at < 0 {
+		return nil
+	}
+	sent := &s.db.Actions[at]
+	sent.Message, sent.UpdatedAt = sentNowInTurn, time.Now().UTC()
+	return s.save()
+}
+
+// holdCommand takes Send now off a queued message that is a command, which
+// waits for its turn to end whatever he presses, and says so in place of what
+// it was given.
+func (a *Action) holdCommand() {
+	if a.CanSendNow && fleet.IsCommand(strings.TrimSpace(a.Text)) {
+		a.CanSendNow, a.SendNowWhy, a.Message = false, commandWaits, "Queued. "+commandWaits
+	}
+}
+
 // queueUnlessEvaluating queues a reconcile's evaluation only while no
 // evaluation of its task is queued or running. It is the second of two
 // checks: the reconcile's snapshot catches an evaluation that finishes while
@@ -1001,6 +1067,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 			completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
 			if a.Kind == "message" {
 				s.waitBehind(i)
+				completed.holdCommand()
 			}
 			if s.deferredUntil == nil {
 				s.deferredUntil = make(map[string]time.Time)
@@ -1032,6 +1099,9 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 				awaiting.QuietSince = awaiting.Since
 			}
 			completed.Awaiting, completed.Message = &awaiting, result.Reason
+			if a.Kind == "message" {
+				completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
+			}
 		} else {
 			completed.Status = "succeeded"
 			completed.Message = result.Reason

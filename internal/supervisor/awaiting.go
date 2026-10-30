@@ -2,14 +2,17 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -36,12 +39,16 @@ type Awaiting struct {
 	QuietSince time.Time `json:"quiet_since"`
 }
 
-// sentToCFO and sentToGoblin are what a delivery that awaits its reader
-// says.
+// sentToCFO and sentToGoblin are what a delivery that awaits its reader says,
+// and sentNowInTurn what one says once its harness's send-now key went.
 const (
-	sentToCFO    = "Sent. The CFO takes it at its next tool call, or as its current turn ends."
-	sentToGoblin = "Sent. The goblin takes it at its next tool call, or as its current turn ends."
+	sentToCFO     = "Sent. The CFO takes it at its next tool call, or as its current turn ends."
+	sentToGoblin  = "Sent. The goblin takes it at its next tool call, or as its current turn ends."
+	sentNowInTurn = "Typed while it was working and sent now."
 )
+
+// commandWaits is why a slash, dollar or bang command offers no Send now.
+const commandWaits = "A command runs when its turn ends."
 
 const (
 	// deliveryQuiet is how long a terminal may show no turn, with no report
@@ -110,7 +117,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 		case !looked:
 			continue
 		case seen.Took:
-			a.Status, a.Awaiting, a.Advice = "succeeded", nil, ""
+			a.Status, a.Awaiting, a.Advice, a.CanSendNow = "succeeded", nil, "", false
 			a.Message = "Taken by " + who + ", as its own record of the conversation shows."
 			s.deliveredReview(a.ID, waiting.Task)
 		case a.Status != "running":
@@ -118,9 +125,9 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 			if now.Sub(waiting.Since) < deliveryForget {
 				continue
 			}
-			a.Awaiting = nil
+			a.Awaiting, a.CanSendNow = nil, false
 		case seen.Gone:
-			a.Status, a.Awaiting = "uncertain", nil
+			a.Status, a.Awaiting, a.CanSendNow = "uncertain", nil, false
 			a.Advice = "The terminal of " + who + " closed before it took your answer. Give " + who + " your answer once it is running again."
 			a.Message = a.Advice
 		case seen.Working:
@@ -130,7 +137,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 			waiting.QuietSince = now
 			a.Awaiting = &waiting
 		case now.Sub(waiting.QuietSince) >= deliveryQuiet:
-			a.Status = "uncertain"
+			a.Status, a.CanSendNow = "uncertain", false
 			a.Advice = "Your answer was typed for " + who + ", which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to " + who + "."
 			a.Message = a.Advice
 		default:
@@ -168,6 +175,57 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 		return Evaluation{Reason: unwatched}
 	}
 	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
+}
+
+// sendMessageNow has a message he asked for now go at once: one the board
+// holds is typed at its next safe moment, as Store.SendQueuedMessageNow says,
+// and one already typed into the CFO's turn, which waits in its harness's own
+// queue, is taken at once by that harness's send-now key, as the key does in
+// its terminal (the Overlord, 2026-10-30: "when sent now it actually sends now
+// same way termianl expereince down with ctrl x crtl s"). A goblin's message
+// reaches its turn only by Send now, which pressed the key already. The typed
+// message is claimed before its key is pressed, so the key goes once however
+// often he presses, and given back when it could not be pressed.
+func (s *Service) sendMessageNow(ctx context.Context, id, task string) error {
+	typed, isTyped, err := s.Store.claimTypedMessage(id, task)
+	switch {
+	case !isTyped:
+		_, err := s.Store.SendQueuedMessageNow(id, task)
+		return err
+	case typed.IsSentNow:
+		return nil
+	case !typed.CanSendNow:
+		return errors.New(typed.SendNowWhy)
+	}
+	if err == nil {
+		err = pressSendNow(ctx, s, *typed.Awaiting)
+	}
+	if err != nil {
+		return errors.Join(err, s.Store.releaseTypedMessage(id))
+	}
+	return s.Store.markTypedMessageSent(id)
+}
+
+// pressSendNow presses the send-now key of the CFO's harness for a message
+// typed into its turn, once its composer shows empty. It is a variable so a
+// test can stand in for the terminal.
+var pressSendNow = func(ctx context.Context, s *Service, waiting Awaiting) error {
+	// Nothing else types into the CFO while its key is pressed.
+	s.Options.CFO.typing.Lock()
+	defer s.Options.CFO.typing.Unlock()
+	record, err := host.ReadRecord(s.Store.Home.State, waiting.Host)
+	if err != nil || !host.Running(record) {
+		return errors.New("Its terminal is not running.")
+	}
+	screens, _ := harness.NativeScreens(harness.Kind(waiting.Harness))
+	err = spawn.Service{StateDir: s.Store.Home.State}.SendNow(ctx, record, screens)
+	switch {
+	case errors.Is(err, spawn.ErrUnsentWords):
+		return errors.New("Its prompt line holds words that were never sent.")
+	case errors.Is(err, fleet.ErrNotTyped):
+		return errors.New("Its terminal is not ready to take it yet.")
+	}
+	return err
 }
 
 // awaitingGoblinDelivery is the delivery of text, typed into meta's native
