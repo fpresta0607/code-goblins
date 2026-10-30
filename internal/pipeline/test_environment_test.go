@@ -19,10 +19,11 @@ func TestProjectTestEnvironmentVerifiesTheInterpreterAndReturnsOnlyFixedUVSettin
 	data, checkout, worktree, python := existingEnvironmentFixture(t)
 	t.Setenv("UV_PROJECT_ENVIRONMENT", t.TempDir())
 	t.Setenv("ARBITRARY_CLIENT_TOKEN", "client-only-sentinel")
+	serial := 0
 	var requests []execx.Request
 	commands := runnerFunc(func(_ context.Context, request execx.Request) (execx.Result, error) {
 		requests = append(requests, request)
-		return execx.Result{Stdout: environmentIdentity(t, python, filepath.Dir(filepath.Dir(python)), checkout, "3.12.10")}, nil
+		return execx.Result{Stdout: environmentIdentity(t, python, filepath.Dir(filepath.Dir(python)), checkout, "3.12.10", "final", &serial)}, nil
 	})
 
 	// Act
@@ -48,6 +49,7 @@ func TestProjectTestEnvironmentRefusesInvalidOrUnavailableBindings(t *testing.T)
 			// Arrange
 			data, checkout, worktree, python := existingEnvironmentFixture(t)
 			prefix, executable, version := filepath.Dir(filepath.Dir(python)), python, "3.12.10"
+			serial := 0
 			var hasProbed bool
 			switch scenario {
 			case "missing venv":
@@ -88,7 +90,7 @@ func TestProjectTestEnvironmentRefusesInvalidOrUnavailableBindings(t *testing.T)
 				if scenario == "invalid output" {
 					return execx.Result{Stdout: []byte("not JSON")}, nil
 				}
-				return execx.Result{Stdout: environmentIdentity(t, executable, prefix, base, version)}, nil
+				return execx.Result{Stdout: environmentIdentity(t, executable, prefix, base, version, "final", &serial)}, nil
 			})
 
 			// Act
@@ -100,6 +102,43 @@ func TestProjectTestEnvironmentRefusesInvalidOrUnavailableBindings(t *testing.T)
 			}
 			if strings.HasPrefix(scenario, "missing") && hasProbed {
 				t.Fatal("started a probe for a missing environment")
+			}
+		})
+	}
+}
+
+func TestProjectTestEnvironmentRequiresTheExactFinalPythonRelease(t *testing.T) {
+	zero, positive, negative := 0, 3, -1
+	for _, identity := range []struct {
+		name, version, releaseLevel string
+		serial                      *int
+		isValid                     bool
+	}{
+		{"stable final", "3.12.10", "final", &zero, true},
+		{"alpha", "3.14.0", "alpha", &positive, false},
+		{"beta", "3.14.0", "beta", &positive, false},
+		{"release candidate", "3.14.0", "candidate", &positive, false},
+		{"nonzero final serial", "3.12.10", "final", &positive, false},
+		{"negative final serial", "3.12.10", "final", &negative, false},
+		{"empty release level", "3.12.10", "", &zero, false},
+		{"null serial", "3.12.10", "final", nil, false},
+	} {
+		t.Run(identity.name, func(t *testing.T) {
+			data, checkout, worktree, python := existingEnvironmentFixture(t)
+			writeEnvironmentManifest(t, data, checkout, `{"project":"`+filepath.Base(checkout)+`","test_environment":{"python_version":"`+identity.version+`"}}`)
+			commands := runnerFunc(func(context.Context, execx.Request) (execx.Result, error) {
+				return execx.Result{Stdout: environmentIdentity(t, python, filepath.Dir(filepath.Dir(python)), checkout, identity.version, identity.releaseLevel, identity.serial)}, nil
+			})
+
+			variables, err := ProjectTestEnvironment(t.Context(), commands, data, checkout, worktree)
+
+			if identity.isValid {
+				want := []string{"UV_PROJECT_ENVIRONMENT=" + filepath.Dir(filepath.Dir(python)), "UV_PYTHON=" + python, "UV_NO_SYNC=1", "UV_OFFLINE=1", "UV_PYTHON_DOWNLOADS=never"}
+				if err != nil || !slices.Equal(variables, want) {
+					t.Fatalf("variables=%q error=%v; want the exact final release bound", variables, err)
+				}
+			} else if err == nil || variables != nil || !strings.Contains(err.Error(), "exact version") {
+				t.Fatalf("variables=%q error=%v; want invalid release identity refused", variables, err)
 			}
 		})
 	}
@@ -153,9 +192,16 @@ func writeEnvironmentManifest(t *testing.T, data, checkout, contents string) {
 	}
 }
 
-func environmentIdentity(t *testing.T, executable, prefix, base, version string) []byte {
+func environmentIdentity(t *testing.T, executable, prefix, base, version, releaseLevel string, serial *int) []byte {
 	t.Helper()
-	data, err := json.Marshal(map[string]string{"executable": executable, "prefix": prefix, "base_prefix": base, "version": version})
+	data, err := json.Marshal(struct {
+		Executable   string `json:"executable"`
+		Prefix       string `json:"prefix"`
+		BasePrefix   string `json:"base_prefix"`
+		Version      string `json:"version"`
+		ReleaseLevel string `json:"releaselevel"`
+		Serial       *int   `json:"serial"`
+	}{executable, prefix, base, version, releaseLevel, serial})
 	if err != nil {
 		t.Fatal(err)
 	}

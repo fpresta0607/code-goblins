@@ -131,7 +131,14 @@ func gateEnvironmentFixture(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(environment, "pyvenv.cfg"), []byte("home = existing\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	identity, err := json.Marshal(map[string]string{"executable": python, "prefix": environment, "base_prefix": project, "version": "3.12.10"})
+	identity, err := json.Marshal(struct {
+		Executable   string `json:"executable"`
+		Prefix       string `json:"prefix"`
+		BasePrefix   string `json:"base_prefix"`
+		Version      string `json:"version"`
+		ReleaseLevel string `json:"releaselevel"`
+		Serial       int    `json:"serial"`
+	}{python, environment, project, "3.12.10", "final", 0})
 	if err != nil {
 		t.Fatal(err)
 	}

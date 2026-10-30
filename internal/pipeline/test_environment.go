@@ -16,7 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/project"
 )
 
-const pythonEnvironmentProbe = `import json,sys; print(json.dumps({"executable":sys.executable,"prefix":sys.prefix,"base_prefix":sys.base_prefix,"version":".".join(map(str,sys.version_info[:3]))}))`
+const pythonEnvironmentProbe = `import json,sys; print(json.dumps({"executable":sys.executable,"prefix":sys.prefix,"base_prefix":sys.base_prefix,"version":".".join(map(str,sys.version_info[:3])),"releaselevel":sys.version_info.releaselevel,"serial":sys.version_info.serial}))`
 
 // ProjectTestEnvironment binds only the registered source task's existing
 // .venv. The daemon's wrapper calls it again after admission, before starting
@@ -63,16 +63,18 @@ func ProjectTestEnvironment(ctx context.Context, commands execx.Runner, data, ch
 		return refuse("the existing Python interpreter could not complete its isolated identity probe")
 	}
 	var identity struct {
-		Executable string `json:"executable"`
-		Prefix     string `json:"prefix"`
-		BasePrefix string `json:"base_prefix"`
-		Version    string `json:"version"`
+		Executable   string `json:"executable"`
+		Prefix       string `json:"prefix"`
+		BasePrefix   string `json:"base_prefix"`
+		Version      string `json:"version"`
+		ReleaseLevel string `json:"releaselevel"`
+		Serial       *int   `json:"serial"`
 	}
 	if err := json.Unmarshal(result.Stdout, &identity); err != nil {
 		return refuse("Python identity probe returned invalid JSON")
 	}
 	base, baseError := fsx.Canonical(identity.BasePrefix)
-	if identity.Version != manifest.TestEnvironment.PythonVersion || baseError != nil ||
+	if identity.Version != manifest.TestEnvironment.PythonVersion || identity.ReleaseLevel != "final" || identity.Serial == nil || *identity.Serial != 0 || baseError != nil ||
 		!filepath.IsAbs(identity.Executable) || !filepath.IsAbs(identity.Prefix) || !filepath.IsAbs(identity.BasePrefix) ||
 		!fsx.SamePath(identity.Executable, python) || !fsx.SamePath(identity.Prefix, environment) || fsx.SamePath(base, environment) {
 		return refuse("Python executable, environment prefix or exact version does not match the required binding")
