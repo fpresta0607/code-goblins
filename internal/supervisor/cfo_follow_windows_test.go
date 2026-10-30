@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -301,6 +303,87 @@ func TestARunningRunThatFinishesAfterTheCFORestartedIsRead(t *testing.T) {
 	want := "Run item cfo-run-0003 (Run cfo-run-0003) finished with exit code 0. The output ends: migration 42 applied"
 	if typed := cfo.lines(t); !slices.ContainsFunc(typed, func(line string) bool { return strings.Contains(line, want) }) {
 		t.Errorf("the reopened CFO received %q, want %q", typed, want)
+	}
+}
+
+func TestRunCardKeepsItsOutcomeAcrossCFORestartAndBoardReload(t *testing.T) {
+	for _, test := range []struct {
+		name, receipt, state string
+		isStopped            bool
+	}{
+		{name: "completed switch", receipt: "0", state: "succeeded"},
+		{name: "failed switch", receipt: "7", state: "failed"},
+		{name: "command still running", state: "running"},
+		{name: "previously stopped switch", state: "stopped", isStopped: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			primary, identity, _, connection := primaryFixture(t, store)
+			launcher := &fakeRunLauncher{started: liveStart(t)}
+			s := &Service{Store: store, Options: Options{CFO: connection, Runs: launcher}}
+			r := readyRun(t, store, identity, "switch-cfo-1", "powershell", false, time.Now().UTC())
+			pressRun(t, s, r, "press-switch")
+			r = store.Snapshot().Runs[0]
+			dir := runDir(h.State, r)
+			if err := os.WriteFile(filepath.Join(dir, "output.log"), []byte("CFO restarted as Codex"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if test.isStopped {
+				if err := s.endRun(context.Background(), r, "stopped", nil, "the Overlord stopped it"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reopened := reregisterCFO(t, store, primary)
+			if err := store.followCFO(reopened); err != nil {
+				t.Fatal(err)
+			}
+			if test.receipt != "" {
+				if err := os.WriteFile(filepath.Join(dir, "exit.txt"), []byte(test.receipt), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			reloaded, err := Open(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.Store = reloaded
+			if err := s.finishRuns(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			server := runBoard(t, s)
+			client := &http.Client{Timeout: 5 * time.Second}
+			response, err := client.Get(server.URL + "/api/runs/" + r.ID + "/output")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			var card struct{ State, Output string }
+			if err := json.NewDecoder(response.Body).Decode(&card); err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if response.StatusCode != http.StatusOK || card.State != test.state || card.Output != "CFO restarted as Codex" {
+				t.Fatalf("card = %d %+v, want %s with the command output", response.StatusCode, card, test.state)
+			}
+			finished := reloaded.Snapshot().Runs[0]
+			if test.receipt != "" {
+				if finished.ExitCode == nil || strconv.Itoa(*finished.ExitCode) != test.receipt || finished.FinishedAt == nil {
+					t.Fatalf("run lost its completion receipt: %+v", finished)
+				}
+			} else if finished.ExitCode != nil {
+				t.Fatal("a command without a receipt acquired an exit code")
+			}
+			if test.isStopped && finished.Reason != "the Overlord stopped it" {
+				t.Fatalf("stopped history changed: %+v", finished)
+			}
+			if len(launcher.all()) != 1 || runDir(h.State, finished) != dir {
+				t.Fatal("reload relaunched the command or changed its history directory")
+			}
+		})
 	}
 }
 

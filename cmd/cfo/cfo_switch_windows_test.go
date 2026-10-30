@@ -372,6 +372,7 @@ func TestGoblinsResumeSwitchesHarnessAndTheBoardSwitchesBack(t *testing.T) {
 	f.runtime.resolveHome = func() (home.Home, error) { return h, nil }
 	f.runtime.restartCFO = restartCFO
 	f.runtime.nativeTerminalRuns = supervisor.NativeTerminalRuns
+	t.Setenv(host.IDVariable, "run")
 
 	// Act
 	exit, stdout, stderr := f.launch("resume", "--harness", "codex")
@@ -379,6 +380,9 @@ func TestGoblinsResumeSwitchesHarnessAndTheBoardSwitchesBack(t *testing.T) {
 	// Assert
 	if exit != 0 || !strings.Contains(stdout, "restarted as Codex on a new conversation") {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout, stderr)
+	}
+	if len(f.screens) != 0 || len(f.nativeAttached) != 0 {
+		t.Fatalf("resume in a run card opened the replacement CFO: screens=%v attached=%q", f.screens, f.nativeAttached)
 	}
 	if host.Running(before) {
 		t.Fatal("the earlier Claude CFO still runs")

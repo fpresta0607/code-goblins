@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
@@ -133,6 +134,12 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, rest
 				list.Note(comeback.id + ": " + comeback.said)
 			}
 		}
+	}
+	// A command card must return to its runner to record the exit code;
+	// attaching the CFO here would keep the card running for its whole session.
+	if restart && os.Getenv(host.IDVariable) == "run" {
+		list.End()
+		return 0
 	}
 	heading := "Your CFO is running"
 	if started {
