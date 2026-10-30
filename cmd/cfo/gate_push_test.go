@@ -364,6 +364,7 @@ func TestGatePrepushFailsABrowserCaseThatFailedBeforeTheTimeLimit(t *testing.T) 
 	runtime := boardRun(
 		`  ok  86 [board] › tests\run-terminal.spec.ts:4:1 › a case that passed (1.2s)`,
 		`  x   87 [board] › tests\run-terminal.spec.ts:12:1 › a case that failed (23ms)`,
+		`cfo gate case: unexpected [board] tests/run-terminal.spec.ts:12:1 › a case that failed`,
 	)
 
 	// Act
@@ -410,6 +411,32 @@ func TestGatePrepushLeavesABrowserCheckTheLimitCutWithNoFailureToCI(t *testing.T
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout %q lacks %q", stdout.String(), want)
 		}
+	}
+}
+
+// A browser case declared with test.fail that failed as expected before the
+// time limit is no failure, though the list reporter marks it x as it marks a
+// case that failed: the check is left to CI as one whose cases all passed
+// (issue 1587). tests/site.spec.ts declares such a case.
+func TestGatePrepushLeavesABrowserCaseThatFailedAsExpectedToCI(t *testing.T) {
+	// Arrange
+	boardChange(t)
+	runtime := boardRun(
+		`  ok  86 [board] › tests\site.spec.ts:57:1 › in CI, which runs nothing else, a test never waits (1.2s)`,
+		`  x   87 [board] › tests\site.spec.ts:67:8 › with no memory free › a test does not start (23ms)`,
+	)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr, "--limit", "2s")
+
+	// Assert
+	if exit != 0 {
+		t.Fatalf("exit = %d, want 0; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	want := "left to CI, since the time limit of 2s passed while check 4 ran:\n- 1 browser spec (the change touched or names them)\n"
+	if !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout %q lacks %q", stdout.String(), want)
 	}
 }
 
@@ -587,14 +614,14 @@ func TestGatePrepushPlanPrintsThePickAndRunsNothing(t *testing.T) {
 	for _, want := range []string{
 		"cfo gate prepush: 1 file changed since ",
 		"1. the board's type check (a file under frontend changed)\n   would run in frontend: npm run typecheck\n",
-		"4. 1 browser spec (the change touched or names them)\n   - tests/run-finishes.spec.ts (named like the changed src/RunCard.tsx)\n   would run in frontend: npx playwright test --reporter=list tests/run-finishes.spec.ts\n",
+		"4. 1 browser spec (the change touched or names them)\n   - tests/run-finishes.spec.ts (named like the changed src/RunCard.tsx)\n   would run in frontend: npx playwright test --reporter=list,./tests/gate-cases.ts tests/run-finishes.spec.ts\n",
 		"left to CI:\n- the 1 other browser spec (the change touched no file of theirs and names none of them)\n",
 	} {
 		if !strings.Contains(plan.String(), want) {
 			t.Errorf("--plan printed %q, which lacks %q", plan.String(), want)
 		}
 	}
-	wantRan := []string{"frontend: npm run typecheck", "frontend: npm run lint", "frontend: npm test", "frontend: npx playwright test --reporter=list tests/run-finishes.spec.ts"}
+	wantRan := []string{"frontend: npm run typecheck", "frontend: npm run lint", "frontend: npm test", "frontend: npx playwright test --reporter=list,./tests/gate-cases.ts tests/run-finishes.spec.ts"}
 	if exit != 0 || !slices.Equal(ran, wantRan) {
 		t.Errorf("exit = %d and the run ran %q, want 0 and %q\nstdout=%s stderr=%s", exit, ran, wantRan, stdout.String(), stderr.String())
 	}
