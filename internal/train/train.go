@@ -206,6 +206,14 @@ type Run struct {
 	OnceTests  []string      `json:"failed_once_tests,omitempty"`
 	OnceUnread string        `json:"failed_once_unread,omitempty"`
 	OwnRun     string        `json:"own_run,omitempty"`
+	Passed     Checks        `json:"passed_checks,omitempty"`
+	// MergeAttempts is spent before each merge call, including one whose
+	// answer is lost; polling and holds never replenish it.
+	MergeAttempts   int      `json:"merge_attempts,omitempty"`
+	MergeFailures   []string `json:"merge_failures,omitempty"`
+	MergeHold       string   `json:"merge_hold,omitempty"`
+	MergeReadiness  string   `json:"merge_readiness,omitempty"`
+	IsMergeNotified bool     `json:"merge_notified,omitempty"`
 }
 
 // FailedCheck is a check that ended red: its name and its page.

@@ -14,6 +14,17 @@ import (
 // the next run, saying why in the note. The record says first that a build
 // is due, so a step cut short anywhere in it is built again by the next one.
 func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
+	changed, err := e.recheck(ctx, t)
+	if err != nil {
+		return err
+	}
+	if len(changed) > 0 {
+		t.endRun(RunChanged, "")
+		why = strings.TrimPrefix(why+"; "+strings.Join(changed, "; "), "; ")
+	}
+	if len(t.carsIn(CarRiding)) == 0 {
+		return e.finish(ctx, t, StateStopped, "no eligible pull request left to test; "+why)
+	}
 	if t.DeployHold != nil {
 		t.DeployHold, t.Note = nil, ""
 	}

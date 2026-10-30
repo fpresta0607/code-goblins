@@ -49,6 +49,11 @@ type trainProject struct {
 	// out, and baseTimeouts how many more reads of the base's head on it.
 	originTimeouts int
 	baseTimeouts   int
+	mergeRefusal   string
+	mergeAttempts  int
+	ciConclusion   string
+	reruns         int
+	trainPushes    int
 }
 
 func newTrainProject(t *testing.T) *trainProject {
@@ -129,6 +134,9 @@ func (p *trainProject) merged() []string {
 // does not hold yet as open; any other gh call is unexpected.
 func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
+		if len(request.Args) > 0 && request.Args[0] == "push" && slices.Contains(request.Args, "--force") {
+			p.trainPushes++
+		}
 		if slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) && p.originTimeouts > 0 {
 			p.originTimeouts--
 			return execx.Result{}, context.DeadlineExceeded
@@ -139,16 +147,24 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 		}
 		return execx.OSRunner{}.Run(ctx, request)
 	}
-	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "pr" && p.created > 0 {
+	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "pr" {
 		switch {
 		case args[1] == "view":
-			view, err := json.Marshal(map[string]any{"state": "OPEN", "headRefOid": p.git(p.remote, "rev-parse", "refs/heads/"+p.branch), "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}})
+			conclusion := p.ciConclusion
+			if conclusion == "" {
+				conclusion = "SUCCESS"
+			}
+			view, err := json.Marshal(map[string]any{"state": "OPEN", "headRefOid": p.git(p.remote, "rev-parse", "refs/heads/"+p.branch), "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: conclusion, DetailsURL: "https://github.com/o/r/actions/runs/101/job/1011"}}, "mergeStateStatus": "CLEAN"})
 			return execx.Result{Stdout: view}, err
 		case args[1] == "list":
 			merged := p.merged()
 			open, err := json.Marshal(slices.DeleteFunc(slices.Clone(p.pulls), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))
 			return execx.Result{Stdout: open}, err
 		case args[1] == "merge" && args[2] == "https://github.com/o/r/pull/900":
+			p.mergeAttempts++
+			if p.mergeRefusal != "" {
+				return execx.Result{ExitCode: 1, Stderr: []byte(p.mergeRefusal)}, nil
+			}
 			p.landed, p.subject = args[slices.Index(args, "--match-head-commit")+1], args[slices.Index(args, "--subject")+1]
 			p.git(p.pusher, "fetch", "-q", "origin")
 			p.git(p.pusher, "checkout", "-q", "-B", "main", "origin/main")
@@ -160,6 +176,15 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 			return execx.Result{}, nil
 		case args[1] == "edit" && slices.Contains(p.labels, args[slices.Index(args, "--add-label")+1]):
 			p.wears = append(p.wears, args[slices.Index(args, "--add-label")+1])
+			return execx.Result{}, nil
+		}
+	}
+	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "run" {
+		switch request.Args[1] {
+		case "view":
+			return execx.Result{Stdout: []byte(`{"attempt":1,"status":"completed","conclusion":"cancelled"}`)}, nil
+		case "rerun":
+			p.reruns++
 			return execx.Result{}, nil
 		}
 	}

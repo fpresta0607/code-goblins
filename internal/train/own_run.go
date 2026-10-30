@@ -170,6 +170,10 @@ func (e Engine) mergeOwnRun(ctx context.Context, t *Train, car Car, run Run) err
 	if err == nil {
 		return nil
 	}
+	t.openRun().MergeFailures = append(t.openRun().MergeFailures, err.Error())
+	if saveErr := e.save(t); saveErr != nil {
+		return errors.Join(err, saveErr)
+	}
 	onBase, checkErr := e.isOnBase(ctx, *t, car.Head)
 	switch {
 	case checkErr != nil:
@@ -178,7 +182,7 @@ func (e Engine) mergeOwnRun(ctx context.Context, t *Train, car Car, run Run) err
 		return nil
 	}
 	t.Landing = false
-	return errors.Join(fmt.Errorf("its pull request %s did not merge: %w", car.URL, err), e.save(t))
+	return errors.Join(fmt.Errorf("%w: its pull request %s did not merge: %w", errMergeRefused, car.URL, err), e.save(t))
 }
 
 // ownRunEvidence says what the landing of car on its own CI run stands on.

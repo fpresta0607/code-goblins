@@ -40,7 +40,8 @@ var (
 	// ErrRunning says a train is already running on the repository.
 	ErrRunning = errors.New("a merge train is already running on this repository")
 	// ErrBusy says another process is taking the train's next step.
-	ErrBusy = errors.New("another process is moving this merge train")
+	ErrBusy         = errors.New("another process is moving this merge train")
+	errMergeRefused = errors.New("the tested pull request did not merge")
 )
 
 // Repository is where a train runs: the GitHub repository as owner/name, a
@@ -152,8 +153,8 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 // it had. A run on a base that moved since is built again on the
 // new base and tested again, since what it proved is not what would land.
 // A step that fails leaves the train as recorded and counts against it, and
-// the train stops once maxErrors steps in a row failed. Another process
-// taking the train's step is ErrBusy.
+// the train stops once maxErrors steps in a row failed, unless it keeps green
+// proof on a merge hold. Another process taking the train's step is ErrBusy.
 func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	t, err := Read(e.StateDir, id)
 	if err != nil || t.IsFinished() {
@@ -169,7 +170,7 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	}
 	stepErr := e.step(ctx, &t)
 	if stepErr == nil {
-		if t.Errors > 0 {
+		if run := t.openRun(); t.Errors > 0 && (run == nil || run.MergeHold == "") {
 			t.Errors = 0
 			return t, e.save(&t)
 		}
@@ -185,6 +186,10 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 		return kept, errors.Join(stepErr, err)
 	}
 	kept.Errors++
+	if run := kept.openRun(); run != nil && len(run.Passed) > 0 && (kept.Errors >= maxErrors || errors.Is(stepErr, errMergeRefused) && strings.Contains(stepErr.Error(), "base branch policy prohibits the merge")) {
+		err = e.holdMerge(ctx, &kept, stepErr.Error(), run.MergeReadiness)
+		return kept, err
+	}
 	if kept.Errors < maxErrors {
 		return kept, errors.Join(stepErr, e.save(&kept))
 	}
@@ -198,13 +203,28 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 
 // step takes the train's next step from what its record says.
 func (e Engine) step(ctx context.Context, t *Train) error {
-	if run := t.openRun(); t.Landing || run != nil && run.OwnRun != "" {
-		return e.land(ctx, t)
+	run := t.openRun()
+	if t.Landing && len(t.carsIn(CarRiding)) == 0 {
+		return e.recordLanding(ctx, t)
 	}
-	if t.Head == "" || t.PR == "" {
+	if t.Landing || run != nil && run.MergeAttempts > 0 {
+		commit := t.Head
+		if run != nil && run.OwnRun != "" {
+			commit = t.Cars[t.carsIn(CarRiding)[0]].Head
+		}
+		onBase, err := e.isOnBase(ctx, *t, commit)
+		if err != nil {
+			return err
+		}
+		if onBase {
+			return e.recordLanding(ctx, t)
+		}
+		t.Landing = false
+	}
+	if t.Head == "" || t.PR == "" && (run == nil || run.OwnRun == "") {
 		return e.rebuild(ctx, t, "")
 	}
-	outcome, failed, err := e.ci(ctx, *t)
+	outcome, checks, readiness, err := e.ci(ctx, *t)
 	if err != nil {
 		return err
 	}
@@ -214,8 +234,19 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 			return err
 		}
 	}
+	if run != nil && len(run.Passed) > 0 && outcome != "passed" && outcome != "closed" {
+		changed, err := e.recheck(ctx, t)
+		if err != nil {
+			return err
+		}
+		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
+			return e.rebuild(ctx, t, "the green proof no longer applies, since "+strings.Join(changed, "; "))
+		}
+		return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
+	}
 	if outcome == "failed" {
-		if outcome, err = e.secondTry(ctx, t, failed); err != nil {
+		if outcome, err = e.secondTry(ctx, t, checks); err != nil {
 			return err
 		}
 	}
@@ -230,12 +261,24 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	case outcome == "pending" && waited >= RunDeadline:
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI on its pull request %s did not finish within %s of the push", t.PR, RunDeadline))
 	case outcome == "passed":
+		if run != nil {
+			if len(run.Passed) == 0 {
+				run.Passed = checks
+				if err := e.save(t); err != nil {
+					return err
+				}
+			} else if !sameChecks(run.Passed, checks) {
+				return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
+			}
+		}
 		if err := e.noteFailedOnce(ctx, t); err != nil {
 			return err
 		}
-		return e.land(ctx, t)
+		return e.land(ctx, t, readiness)
 	case outcome == "failed":
-		return e.halve(ctx, t, failed)
+		return e.halve(ctx, t, checks)
+	case outcome == "changed":
+		return e.rebuild(ctx, t, t.Note)
 	}
 	return nil
 }
@@ -243,28 +286,40 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 // ci reads the CI of the train's pull request at its head: "stale" until
 // GitHub shows the head, "none" while no check on it ran, "pending" until
 // every check on it concluded, "closed" once the pull request is not open,
-// else "passed" or "failed" with the checks that failed.
-func (e Engine) ci(ctx context.Context, t Train) (string, []Check, error) {
-	out, err := e.run(ctx, t.Checkout, "gh", "pr", "view", t.PR, "--json", "state,headRefOid,statusCheckRollup")
+// else "passed" with its green checks or "failed" with the checks that failed.
+// It also returns GitHub's current merge readiness.
+func (e Engine) ci(ctx context.Context, t Train) (string, []Check, string, error) {
+	url, head := t.PR, t.Head
+	if run := t.openRun(); run != nil && run.OwnRun != "" {
+		url, head = run.PR, t.Cars[t.carsIn(CarRiding)[0]].Head
+	}
+	out, err := e.run(ctx, t.Checkout, "gh", "pr", "view", url, "--json", "state,headRefOid,statusCheckRollup,mergeStateStatus")
 	if err != nil {
-		return "", nil, fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
+		return "", nil, "", fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
 	}
 	var view struct {
 		State      string `json:"state"`
 		HeadRefOid string `json:"headRefOid"`
 		Checks     Checks `json:"statusCheckRollup"`
+		Readiness  string `json:"mergeStateStatus"`
 	}
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
-		return "", nil, fmt.Errorf("merge train %s: gh reported its CI in a shape it cannot read: %w", t.ID, err)
+		return "", nil, "", fmt.Errorf("merge train %s: gh reported its CI in a shape it cannot read: %w", t.ID, err)
+	}
+	if view.State != "OPEN" && view.State != "CLOSED" && view.State != "MERGED" || view.HeadRefOid == "" {
+		return "", nil, view.Readiness, fmt.Errorf("merge train %s: GitHub did not identify its pull request state and head", t.ID)
 	}
 	if view.State != "OPEN" {
-		return "closed", nil, nil
+		return "closed", nil, view.Readiness, nil
 	}
-	if view.HeadRefOid != t.Head {
-		return "stale", nil, nil
+	if view.HeadRefOid != head {
+		return "stale", nil, view.Readiness, nil
 	}
 	outcome, failed := checksOutcome(view.Checks)
-	return outcome, failed, nil
+	if outcome == "passed" {
+		return outcome, view.Checks, view.Readiness, nil
+	}
+	return outcome, failed, view.Readiness, nil
 }
 
 func (e Engine) save(t *Train) error {

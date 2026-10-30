@@ -105,8 +105,11 @@ func TestDeployHoldEndsWhenTheTrainResumesTestingOrCloses(t *testing.T) {
 			s.step(engine, started.ID)
 
 			// Assert
-			if resumed.DeployHold != nil || strings.Contains(resumed.Note, "holds its merge") || len(s.cfo) != notices {
+			if resumed.DeployHold != nil || strings.Contains(resumed.Note, "Deploy site") || len(s.cfo) != notices {
 				t.Fatalf("train %+v, CFO told %q: want the old hold and its reminders ended", resumed, s.cfo)
+			}
+			if ending == "CI runs again" && (resumed.IsFinished() || resumed.History[0].MergeHold == "") {
+				t.Fatalf("train %+v: want the earlier green proof retained while its checks change", resumed)
 			}
 		})
 	}

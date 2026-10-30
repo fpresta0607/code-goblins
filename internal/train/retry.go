@@ -67,14 +67,23 @@ func (e Engine) secondTry(ctx context.Context, t *Train, failed []Check) (string
 	if len(due) == 0 {
 		return "pending", nil
 	}
-	if run := t.openRun(); run != nil && len(run.FailedOnce) == 0 {
-		run.FailedOnce = failedChecks(failed)
-	}
-	t.Note = fmt.Sprintf("CI failed once on %s (%s), so its failed checks run again before any pull request is blamed", t.numbers(t.carsIn(CarRiding)), checkNames(failed))
-	if err := e.save(t); err != nil {
-		return "", err
-	}
 	for _, id := range due {
+		changed, err := e.recheck(ctx, t)
+		if err != nil {
+			return "", err
+		}
+		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
+			t.Note = "CI was not retried, since " + strings.Join(changed, "; ")
+			return "changed", e.save(t)
+		}
+		if run := t.openRun(); run != nil && len(run.FailedOnce) == 0 {
+			run.FailedOnce = failedChecks(failed)
+		}
+		t.Note = fmt.Sprintf("CI failed once on %s (%s), so its failed checks run again before any pull request is blamed", t.numbers(t.carsIn(CarRiding)), checkNames(failed))
+		if err := e.save(t); err != nil {
+			return "", err
+		}
 		if _, err := e.run(ctx, t.Checkout, "gh", "run", "rerun", id, "--failed", "--repo", t.Repository); err != nil {
 			return "", fmt.Errorf("merge train %s: run the failed jobs of workflow run %s again: %w", t.ID, id, err)
 		}

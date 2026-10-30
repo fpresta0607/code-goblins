@@ -372,10 +372,9 @@ func TestATrainAnOlderBuildStartedLandsByMergingItsPullRequest(t *testing.T) {
 	}
 }
 
-// An older build merged each rider by itself, so an install can find a
-// landing half done: #11 merged, #12 not. Merging the train's pull request
-// lands the rest, and main ends at the tree CI tested.
-func TestALandingAnOlderBuildLeftHalfDoneIsFinishedByMergingTheTrain(t *testing.T) {
+// A partially completed landing has a different base, so the remaining
+// source is validated there before it merges.
+func TestAPartialLandingValidatesTheNewBaseBeforeMergingTheRest(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	s := newScratch(t)
@@ -396,11 +395,15 @@ func TestALandingAnOlderBuildLeftHalfDoneIsFinishedByMergingTheTrain(t *testing.
 	})
 
 	// Act
+	rebuilt := s.step(engine, started.ID)
+	if rebuilt.Runs != 2 || rebuilt.State != StateTesting || !slices.Equal(gh.merged, []int{11}) {
+		t.Fatalf("train %+v, merged %v: want the new base validated before the rest lands", rebuilt, gh.merged)
+	}
 	landed := s.step(engine, started.ID)
 
 	// Assert
-	if got := carStates(landed); landed.State != StateLanded || !slices.Equal(got, []string{"#11=landed", "#12=landed"}) || landed.Runs != 1 {
-		t.Fatalf("train %s after %d runs: cars %v, want the rest landed with no new CI run", landed.State, landed.Runs, got)
+	if got := carStates(landed); landed.State != StateLanded || !slices.Equal(got, []string{"#11=landed", "#12=landed"}) || landed.Runs != 2 {
+		t.Fatalf("train %s after %d runs: cars %v, want the rest landed after validation on its actual base", landed.State, landed.Runs, got)
 	}
 	if !slices.Equal(gh.merged, []int{11, 12}) || len(gh.closed) != 0 || gh.reads(gh.trainURL) != "MERGED" || s.tree("refs/heads/main") != s.tree(started.Head) {
 		t.Fatalf("merged %v, closed %v, its pull request reads %s: want #12 merged by the train's pull request and main at the tested tree", gh.merged, gh.closed, gh.reads(gh.trainURL))

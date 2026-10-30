@@ -239,7 +239,8 @@ type fakeGitHub struct {
 	// that deletes head branches by itself does.
 	deletesBranches bool
 	// refuse refuses the merge of a pull request URL with this text.
-	refuse map[string]string
+	refuse    map[string]string
+	readiness string
 	// unanswered is how many of a call, "merge <url>", "view" or "create",
 	// get no answer at all, as when the network drops, before one does; lost
 	// does the call and then loses its answer, once.
@@ -290,9 +291,10 @@ type fakeGitHub struct {
 // workflow is one workflow run of the train's CI: the head it tests, how
 // often it was tried, and whether its first try fails by chance.
 type workflow struct {
-	id, tries int
-	head      string
-	isFlaky   bool
+	id, tries  int
+	head       string
+	isFlaky    bool
+	conclusion string
 }
 
 // pull is a pull request as the fake GitHub holds it.
@@ -479,7 +481,7 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 		if p.isMerged {
 			p.late--
 		}
-		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), IsDraft: p.isDraft}
+		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: "main", IsDraft: p.isDraft, Mergeable: "MERGEABLE", Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
 		if p.isHeld {
 			pr.Labels = []Label{{Name: HoldLabel}}
 		}
@@ -506,6 +508,9 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.isRed(w, try) {
 		check.Conclusion = "FAILURE"
 	}
+	if w.conclusion != "" {
+		check.Conclusion = strings.ToUpper(w.conclusion)
+	}
 	if f.pending > 0 && !isLagging {
 		f.pending--
 		check.Status, check.Conclusion = "IN_PROGRESS", ""
@@ -520,7 +525,7 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.noChecks {
 		checks = []Check{}
 	}
-	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks})
+	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks, "mergeStateStatus": cmp.Or(f.readiness, "CLEAN")})
 	return execx.Result{Stdout: data}, err
 }
 
@@ -594,6 +599,9 @@ func (f *fakeGitHub) runView(id string) (execx.Result, error) {
 		view["status"], view["conclusion"] = "in_progress", ""
 	case f.isRed(w, w.tries):
 		view["conclusion"] = "failure"
+	}
+	if w.conclusion != "" {
+		view["conclusion"] = w.conclusion
 	}
 	if f.noAttempt {
 		delete(view, "attempt")

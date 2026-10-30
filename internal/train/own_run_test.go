@@ -30,7 +30,13 @@ func (f *fakeGitHub) riderView(url string) (execx.Result, error) {
 	own := f.ownRuns[url]
 	head := f.s.git(f.s.remote, "rev-parse", "refs/heads/"+f.pulls[url].branch)
 	checks := append([]Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: cmp.Or(own.conclusion, "SUCCESS"), DetailsURL: fmt.Sprintf("https://github.com/o/r/actions/runs/%d/job/%d", own.run, own.run*10)}}, own.extra...)
-	data, err := json.Marshal(map[string]any{"headRefOid": head, "statusCheckRollup": checks})
+	state := "OPEN"
+	if f.pulls[url].isClosed {
+		state = "CLOSED"
+	} else if f.pulls[url].isMerged {
+		state = "MERGED"
+	}
+	data, err := json.Marshal(map[string]any{"state": state, "headRefOid": head, "statusCheckRollup": checks, "mergeStateStatus": cmp.Or(f.readiness, "CLEAN")})
 	return execx.Result{Stdout: data}, err
 }
 
@@ -137,8 +143,9 @@ func mergeBody(gh *fakeGitHub, url string) string {
 func TestALoneRiderWhoseOwnRunDoesNotProveTheTreeThatWouldLandGetsATrainRun(t *testing.T) {
 	t.Parallel()
 	cases := map[string]struct {
-		isOptedOut bool
-		arrange    func(s *scratch, gh *fakeGitHub, pr PullRequest)
+		isOptedOut   bool
+		isIneligible bool
+		arrange      func(s *scratch, gh *fakeGitHub, pr PullRequest)
 	}{
 		"its repository leaves it off": {isOptedOut: true},
 		"its merge ref's first parent is an older main": {arrange: func(s *scratch, _ *fakeGitHub, _ PullRequest) {
@@ -157,7 +164,7 @@ func TestALoneRiderWhoseOwnRunDoesNotProveTheTreeThatWouldLandGetsATrainRun(t *t
 		"a check no workflow run stands behind sits beside it": {arrange: func(_ *scratch, gh *fakeGitHub, pr PullRequest) {
 			gh.ownRuns[pr.URL].extra = []Check{{Kind: "StatusContext", Context: "scan", State: "SUCCESS", TargetURL: "https://scan.example/report"}}
 		}},
-		"its head moved since its run": {arrange: func(s *scratch, _ *fakeGitHub, pr PullRequest) {
+		"its head moved since its run": {isIneligible: true, arrange: func(s *scratch, _ *fakeGitHub, pr PullRequest) {
 			s.extend(pr.HeadRefName, "more.txt", "more\n")
 		}},
 	}
@@ -181,6 +188,12 @@ func TestALoneRiderWhoseOwnRunDoesNotProveTheTreeThatWouldLandGetsATrainRun(t *t
 			// Assert
 			if err != nil {
 				t.Fatal(err)
+			}
+			if c.isIneligible {
+				if gh.created != 0 || started.Runs != 0 || started.Cars[0].State != CarReturned || len(gh.mergeCalls()) != 0 {
+					t.Fatalf("train %+v, PRs %d, merges %v: want the moved source returned before compute", started, gh.created, gh.mergeCalls())
+				}
+				return
 			}
 			if gh.created != 1 || started.PR != gh.trainURL || !s.hasBranch(started.Branch) || started.History[0].OwnRun != "" {
 				t.Fatalf("opened %d pull requests, run %+v: want a train run pushed and opened, standing on nothing else", gh.created, started.History)

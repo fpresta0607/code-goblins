@@ -145,7 +145,7 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "view" && args[2] == f.trainURL:
 		head := gitIn(f.t, f.remote, "rev-parse", "refs/heads/"+f.branch)
-		return answer(map[string]any{"state": "OPEN", "headRefOid": head, "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}})
+		return answer(map[string]any{"state": "OPEN", "headRefOid": head, "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}, "mergeStateStatus": "CLEAN"})
 	case args[0] == "pr" && args[1] == "merge" && args[2] == f.trainURL:
 		f.landed, f.subject = args[slices.Index(args, "--match-head-commit")+1], args[slices.Index(args, "--subject")+1]
 		gitIn(f.t, f.github, "fetch", "-q", "origin")

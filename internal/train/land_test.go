@@ -173,7 +173,7 @@ func TestAMergeGitHubRefusesLandsNothingAndTheNextStepReadsMainAgain(t *testing.
 	}
 }
 
-func TestAMergeGitHubKeepsRefusingStopsTheTrainOnceItsErrorBudgetIsSpent(t *testing.T) {
+func TestAMergeGitHubKeepsRefusingHoldsItsGreenProofOnceItsErrorBudgetIsSpent(t *testing.T) {
 	t.Parallel()
 	// Arrange
 	s := newScratch(t)
@@ -201,22 +201,25 @@ func TestAMergeGitHubKeepsRefusingStopsTheTrainOnceItsErrorBudgetIsSpent(t *test
 	if retryErr == nil || retried.State != StateTesting || retried.Landing || retried.Errors != 1 {
 		t.Fatalf("first refusal: train %+v, error %v, want it testing with one error counted", retried, retryErr)
 	}
-	if err != nil || failed.State != StateFailed || len(gh.merged) != 0 || s.main() != main {
-		t.Fatalf("train = %s (%v), merged %v, main moved %v: want it failed with nothing merged", failed.State, err, gh.merged, s.main() != main)
+	if err != nil || failed.IsFinished() || failed.Errors != maxErrors || len(gh.merged) != 0 || s.main() != main {
+		t.Fatalf("train = %s (%v), merged %v, main moved %v: want it held with the exhausted budget and nothing merged", failed.State, err, gh.merged, s.main() != main)
 	}
-	if got := carStates(failed); !slices.Equal(got, []string{"#11=returned", "#12=returned", "#13=returned"}) {
+	if got := carStates(failed); !slices.Equal(got, []string{"#11=riding", "#12=riding", "#13=riding"}) {
 		t.Fatalf("car states = %v", got)
 	}
-	for _, want := range []string{"failed 5 times in a row", gh.trainURL + " did not merge", "a required review is missing"} {
+	for _, want := range []string{"holds its merge after 5 attempt(s)", gh.trainURL + " did not merge", "a required review is missing"} {
 		if !strings.Contains(failed.Note, want) {
 			t.Fatalf("note = %q, want %q", failed.Note, want)
 		}
 	}
-	if strings.Contains(failed.Note, "stopped while landing") || !slices.Equal(gh.closed, []string{gh.trainURL}) || !strings.Contains(gh.comments[0], "a required review is missing") {
-		t.Fatalf("note %q, closed %v saying %q: want no landing left in doubt, and its pull request closed with why", failed.Note, gh.closed, gh.comments)
+	for range 3 {
+		failed = s.step(s.engine(gh), started.ID)
 	}
-	if len(s.cfo) != 2 || !strings.Contains(s.cfo[1], "failed") {
-		t.Fatalf("CFO told %q, want the failure", s.cfo)
+	if len(gh.closed) != 0 || !s.hasBranch(started.Branch) || len(gh.mergeCalls()) != maxErrors || len(failed.History[0].MergeFailures) != maxErrors || failed.History[0].MergeAttempts != maxErrors || failed.Errors != maxErrors {
+		t.Fatalf("train %+v, closed %v, merges %v: want no discarded proof or renewed attempts", failed, gh.closed, gh.mergeCalls())
+	}
+	if len(s.cfo) != 2 || !strings.Contains(s.cfo[1], "holds its merge") {
+		t.Fatalf("CFO told %q, want one hold notice", s.cfo)
 	}
 }
 

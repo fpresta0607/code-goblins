@@ -27,7 +27,7 @@ import (
 // on the base whether it went through. The pull request that merges wears
 // the train's label, which is made sure of here: an older build opened one
 // without it, and a label can be taken off by hand.
-func (e Engine) land(ctx context.Context, t *Train) error {
+func (e Engine) land(ctx context.Context, t *Train, readiness string) error {
 	if !t.Landing {
 		base, err := e.baseSHA(ctx, *t)
 		if err != nil {
@@ -62,7 +62,18 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 			t.endRun(RunChanged, "")
 			return e.rebuild(ctx, t, "nothing merged, since "+strings.Join(changed, "; ")+", so the rest is tested again without it")
 		}
+		if run := t.openRun(); run != nil && run.OwnRun != "" {
+			car := t.Cars[t.carsIn(CarRiding)[0]]
+			proof, merge, isProven := e.ownRun(ctx, *t, car, base)
+			if !isProven || merge != run.Head || proof != run.OwnRun {
+				return e.holdMerge(ctx, t, "the rider's own run no longer proves the merge", readiness)
+			}
+		}
+		if isAllowed, err := e.mayMerge(ctx, t, readiness); err != nil || !isAllowed {
+			return err
+		}
 		t.Landing = true
+		t.openRun().MergeAttempts++
 		if err := e.save(t); err != nil {
 			return err
 		}
@@ -75,6 +86,12 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 		} else if err := e.landTrainRun(ctx, t, riders); err != nil {
 			return err
 		}
+	}
+	return e.recordLanding(ctx, t)
+}
+
+func (e Engine) recordLanding(ctx context.Context, t *Train) error {
+	if riders := t.carsIn(CarRiding); len(riders) > 0 {
 		matches, landed, err := e.holdsTheRun(ctx, *t)
 		if err != nil {
 			return err
@@ -146,8 +163,19 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
 				why = "it became a draft"
 			case isHeld(pr):
 				why = "it was labelled " + HoldLabel
+			case pr.IsCrossRepository || pr.BaseRefName != t.Base:
+				why = "it no longer targets this repository's " + t.Base
+			case pr.Mergeable == "CONFLICTING":
+				why = "it conflicts with " + t.Base
+			case pr.ReviewDecision == "CHANGES_REQUESTED" || pr.ReviewDecision == "REVIEW_REQUIRED":
+				why = "it waits on a review"
+			case pr.Mergeable != "MERGEABLE":
+				return nil, fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number)
 			default:
 				why = ""
+				if outcome, _ := checksOutcome(pr.Checks); outcome != "passed" {
+					why = "its checks no longer pass"
+				}
 			}
 		}
 		if why != "" {
@@ -161,7 +189,7 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
 // openPulls reads the open pull requests into the train's base as GitHub has
 // them now.
 func (e Engine) openPulls(ctx context.Context, t Train) ([]PullRequest, error) {
-	out, err := e.run(ctx, t.Checkout, "gh", "pr", "list", "--repo", t.Repository, "--state", "open", "--base", t.Base, "--limit", "100", "--json", "url,headRefOid,isDraft,labels")
+	out, err := e.run(ctx, t.Checkout, "gh", "pr", "list", "--repo", t.Repository, "--state", "open", "--base", t.Base, "--limit", "100", "--json", "url,headRefOid,baseRefName,isDraft,isCrossRepository,mergeable,reviewDecision,labels,statusCheckRollup")
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +231,10 @@ func (e Engine) mergeTrain(ctx context.Context, t *Train, riders []int) error {
 	if err == nil {
 		return nil
 	}
+	t.openRun().MergeFailures = append(t.openRun().MergeFailures, err.Error())
+	if saveErr := e.save(t); saveErr != nil {
+		return errors.Join(err, saveErr)
+	}
 	onBase, checkErr := e.isOnBase(ctx, *t, t.Head)
 	switch {
 	case checkErr != nil:
@@ -211,7 +243,7 @@ func (e Engine) mergeTrain(ctx context.Context, t *Train, riders []int) error {
 		return nil
 	}
 	t.Landing = false
-	return errors.Join(fmt.Errorf("its pull request %s did not merge: %w", t.PR, err), e.save(t))
+	return errors.Join(fmt.Errorf("%w: its pull request %s did not merge: %w", errMergeRefused, t.PR, err), e.save(t))
 }
 
 // confirmMerged reads that GitHub shows each rider of the run that landed as
