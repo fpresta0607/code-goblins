@@ -325,6 +325,46 @@ func TestRestartCFOStartsTheCFOAgainOnItsConversation(t *testing.T) {
 	}
 }
 
+// Issue #1582: a CFO started as claude over a saved codex engine came back
+// from a harness Update, which restarts it naming no harness, as codex on a
+// new conversation. A restart that names no harness keeps the harness the CFO
+// runs, on its conversation, and a later start that names none keeps it too.
+func TestRestartCFONamingNoHarnessKeepsTheHarnessAnExplicitStartChose(t *testing.T) {
+	// Arrange
+	h := fakeClaudeHome(t)
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	selection := `{"harness":"codex","model":"selected-model","effort":"xhigh"}`
+	if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(selection), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := nativeCFORunning(t, h, "a1b2c3d4-session")
+	if err := os.Remove(filepath.Join(h.Root, fakeClaudeArguments)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	conversation, fresh, err := restartCFO(h, "")
+
+	// Assert
+	if err != nil || fresh != "" || conversation.Harness != "claude" || conversation.Session != "a1b2c3d4-session" {
+		t.Fatalf("restartCFO = %+v, %q, %v; want the claude CFO resumed on its conversation", conversation, fresh, err)
+	}
+	if _, alive := proc.StartTime(before.ChildPID); alive {
+		t.Errorf("the CFO's earlier program, pid %d, still runs", before.ChildPID)
+	}
+	if got := waitForFakeClaudeArguments(t, h.Root, nil); !slices.Equal(got, []string{"--resume", "a1b2c3d4-session", cfoBackPrompt("claude", restartedWhy, "", true)}) {
+		t.Errorf("the restarted CFO started with %q, want --resume and its conversation, without the codex selection's flags", got)
+	}
+	if harness, err := cfoHarness(h.State); err != nil || harness != "claude" {
+		t.Errorf("the next start that names no harness starts as %q (%v), want claude", harness, err)
+	}
+	if choice, err := supervisor.ReadCFOEngine(h.State); err != nil || choice.Harness != "codex" || choice.Model != "selected-model" || choice.Effort != "xhigh" {
+		t.Errorf("saved selection = %+v, %v; want the codex selection kept for when the CFO runs as codex again", choice, err)
+	}
+}
+
 // A restarted CFO whose harness ends at once, as one that cannot resume its
 // conversation does, is started again there on a new conversation, so the
 // fleet is never left without a CFO.
