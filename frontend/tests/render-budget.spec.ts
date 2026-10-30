@@ -161,13 +161,16 @@ test("orchestration redraws no node for a meter reading", async ({ page }) => {
   await open(page, fleet(WORKING));
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
   await expect(page.locator(".flow-node")).toHaveCount(8);
+  await openTaskList(page);
+  const line = page.getByRole("group", { name: "Memory" }).locator(":scope > .memory-line");
+  await expect(line).toHaveText("Memory free6.0 GB");
   await reset(page);
 
   // Act
-  await read(page, { revision: 2, memory: { ...memory, available: memory.available - 2 ** 20 } });
-  await page.waitForTimeout(500);
+  await read(page, { keys: { revision: { value: 2 }, memory: { keys: { available: { value: 5.5 * 2 ** 30 } } } } });
 
   // Assert
+  await expect(line).toHaveText("Memory free5.5 GB");
   const counts = await counted(page);
   expect(counts.rendered["flow-avatar"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
   expect(counts.rendered["card-clock"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);

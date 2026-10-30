@@ -62,6 +62,67 @@ test("showing a terminal and returning to Chat keep one connection and stop its 
   await expect.poll(() => typed(relay)).toBe(pasted("Continue after switching back") + "\r");
 });
 
+for (const isCfo of [true, false]) {
+  for (const completion of ["repaint", "fallback"] as const) {
+    test(`${isCfo ? "CFO" : "goblin"} terminal reopens after its first ${completion} completes while hidden`, async ({ page }) => {
+      const relay = await open(page, snapshot(), "", undefined, "> ready\r\n", false);
+      if (isCfo) await page.keyboard.press("Control+Alt+1");
+      else await openGoblin(page);
+      await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+      await page.evaluate(() => document.fonts.ready);
+      relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Continue?"], choices: [{ text: "Yes", number: 1, focused: true }] } });
+      const show = page.getByRole("button", { name: "Show the terminal", exact: true });
+      await expect(show).toBeVisible();
+      const connections = relay.views;
+      const now = new Date("2026-10-27T12:00:05Z");
+      await page.clock.install({ time: now });
+      await page.clock.pauseAt(now);
+
+      await show.click({ force: true });
+      await page.clock.runFor(200);
+      await expect.poll(() => relay.resizes.length).toBeGreaterThan(0);
+      await expect(page.locator(".terminal-view.staged")).toHaveCount(1);
+      await page.getByRole("button", { name: "Back to messages", exact: true }).click({ force: true });
+      await expect(page.locator(".xterm")).toHaveCount(0);
+      if (completion === "repaint") relay.write("First repaint complete\r\n");
+      await page.clock.runFor(800);
+      const sizes = relay.resizes.length;
+      await show.click({ force: true });
+      await page.clock.runFor(200);
+
+      const input = page.getByRole("textbox", { name: "Terminal input", exact: true });
+      await expect(page.locator(".xterm")).toBeVisible();
+      await expect(input).toBeFocused();
+      await page.keyboard.type("x");
+      await expect.poll(() => typed(relay)).toBe("x");
+      expect(relay.resizes).toHaveLength(sizes);
+      expect(relay.views).toBe(connections);
+    });
+  }
+
+  test(`${isCfo ? "CFO" : "goblin"} terminal first opens its replayed screen after the connection closes`, async ({ page }) => {
+    const relay = await open(page);
+    if (isCfo) await page.keyboard.press("Control+Alt+1");
+    else await openGoblin(page);
+    await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+    relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Continue?"], choices: [{ text: "Yes", number: 1, focused: true }] } });
+    const show = page.getByRole("button", { name: "Show the terminal", exact: true });
+    await expect(show).toBeVisible();
+    const connections = relay.views;
+
+    relay.end();
+    await expect(page.locator(".terminal-foot.box")).toHaveText("No terminal is running for this task.");
+    await show.click();
+
+    await expect(page.locator(".xterm")).toBeVisible();
+    await expect(page.locator(".terminal-view.staged")).toHaveCount(0);
+    await expect(page.locator(".terminal-foot.box")).toBeVisible();
+    await expect(page.locator(".terminal-connecting")).toHaveCount(0);
+    expect(relay.resizes).toEqual([]);
+    expect(relay.views).toBe(connections);
+  });
+}
+
 test("Chat consumes and acknowledges a large native replay without mounting or resizing a terminal", async ({ page }) => {
   // Arrange
   const output = "A line from native history\r\n".repeat(4000);

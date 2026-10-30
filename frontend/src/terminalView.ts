@@ -399,7 +399,7 @@ export class TerminalView {
   private markReady(): void {
     if (this.disposed) return;
     clearTimeout(this.fallback);
-    if (this.isReady) { if (this.isShown && this.element.classList.contains("staged")) this.promote(); return; }
+    if (this.isReady) { this.promote(); return; }
     this.isReady = true;
     requestAnimationFrame(() => { if (!this.disposed && this.socket.readyState === WebSocket.OPEN) this.events.ready(); });
   }
@@ -424,7 +424,7 @@ export class TerminalView {
     const size = panelFit(panel.width, panel.height, this.cell(), PADDING);
     if (!size || !this.term.element) return;
     this.term.element.style.padding = `${size.top}px ${size.right}px ${size.bottom}px ${size.left}px`;
-    if (this.socket.readyState === WebSocket.CLOSED) { this.resizeGrid(size.cols, size.rows); return; }
+    if (this.socket.readyState === WebSocket.CLOSED) { this.resizeGrid(size.cols, size.rows); this.promote(); return; }
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (this.sized && this.owner && size.cols === this.claimed?.cols && size.rows === this.claimed.rows) return;
     this.owner = true;

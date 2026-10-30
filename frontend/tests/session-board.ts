@@ -43,7 +43,7 @@ export interface Relay {
   accept: () => void;
 }
 
-export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n"): Promise<Relay> {
+export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n", shouldRepaint = true): Promise<Relay> {
   const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], acknowledged: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
   let isRefused = false;
   let goblinSpoke = false;
@@ -142,7 +142,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       relay.resizes.push(size);
       socket.send(JSON.stringify({ type: "size", ...size }));
       // A program that turned bracketed paste on, as Claude Code does.
-      print("\x1b[?2004h" + output);
+      if (shouldRepaint) print("\x1b[?2004h" + output);
     });
   });
   await page.goto("/");
