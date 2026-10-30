@@ -252,9 +252,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 	// A brief that names a service the manifest does not declare is a
 	// mistake in the brief, which no override clears: the task would start
-	// without what its brief says it needs. A helper is given what its
-	// parent's record names, and a name the manifest dropped since is only
-	// left out.
+	// without what its brief says it needs. A helper's brief selects from
+	// what its parent carries, which spawnNeed has checked, and a name the
+	// manifest dropped since is only left out.
 	if req.Parent == "" && len(preflight.Grant.Unknown) > 0 {
 		return Result{}, fmt.Errorf("spawn: the brief's Authentication section names a service the task cannot be given: %s. Name its services as the manifest does, or write credentials: %s", auth.UnknownLine(project, preflight.Grant), auth.NoServices)
 	}

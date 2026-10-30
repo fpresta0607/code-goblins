@@ -588,6 +588,83 @@ func TestASpawnRefusesAHelperBriefThatWouldWidenItsAccess(t *testing.T) {
 	}
 }
 
+// newOlderParentHelperFixture is newHelperFixture whose parent an older build
+// spawned: its record names no service and no MCP server, so its terminals
+// carry the manifest's default service, source, and nothing else.
+func newOlderParentHelperFixture(t *testing.T) *nativeFixture {
+	t.Helper()
+	f := newHelperFixture(t, "ready")
+	parent, err := state.ReadTaskMeta(f.stateDir, "task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent.Credentials, parent.HasCredentials, parent.MCPServers = nil, false, nil
+	writeParent(t, f.stateDir, parent)
+	return f
+}
+
+// The build that spawned a parent whose record names no service gave its
+// terminal every credential stored for its project, and its terminals now
+// carry only the manifest's default services. A helper of it narrows those,
+// so a brief that names a service the manifest does not give by default is
+// refused, and the refusal names the default as what the parent carries.
+func TestASpawnRefusesAHelperOfAnOlderParentANonDefaultService(t *testing.T) {
+	// Arrange
+	f := newOlderParentHelperFixture(t)
+	helperBriefWith(t, f, "credentials: database")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	_, err := f.service.Spawn(ctx, f.request)
+
+	// Assert
+	if err == nil {
+		t.Fatal("Spawn = nil, want the helper refused the service database its parent does not carry")
+	}
+	for _, want := range []string{"names the service database", "never widens it", "its credentials line names some of source"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Spawn = %v, want %q", err, want)
+		}
+	}
+	holdsNoStandInValue(t, "the refusal", err.Error())
+	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Errorf("the refused start left its task record: %v", readErr)
+	}
+	if _, readErr := host.ReadRecord(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Errorf("the refused start launched a terminal: %v", readErr)
+	}
+}
+
+// A helper of a parent an older build spawned whose brief states no line
+// carries what that parent carries, the manifest's default service alone,
+// and never every service its project declares.
+func TestAHelperOfAnOlderParentWhoseBriefStatesNoLineCarriesOnlyTheDefault(t *testing.T) {
+	// Arrange
+	f := newOlderParentHelperFixture(t)
+	helperBriefWith(t, f, "")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	result, err := f.service.Spawn(ctx, f.request)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if got := carriedBy(named(f.events(t), "env")[0]); !slices.Equal(got, []string{standInSource}) {
+		t.Errorf("the helper's terminal carries %v, want only %s", got, standInSource)
+	}
+	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"source"}) {
+		t.Errorf("the helper's record names %v (recorded %v), want source alone", result.Meta.Credentials, result.Meta.HasCredentials)
+	}
+	if want := "withheld 2 of app's services (database, payments)"; !strings.Contains(result.Output, want) {
+		t.Errorf("output = %q, want %q", result.Output, want)
+	}
+	holdsNoStandInValue(t, "the helper's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
+}
+
 // A helper's narrowed scope is its record's, not its parent's: a later switch
 // and resume carry what it selected, though its parent and its own brief both
 // name more by then.
