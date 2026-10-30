@@ -1378,11 +1378,13 @@ Each conversation is read under a lock of its own, apart from the trees, so a vi
 
 ### The working indicator
 
-Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a still halftone of sixteen cells lit in Bayer order, which breathes as one every 1.6 seconds.
-That breath is the one animation Modern Chat runs, of opacity alone, which the compositor draws without the page's main thread.
-The helix and the sixteen cells that each animated before it ran 32 animations and kept the main thread 44 percent busy in a panel at rest (the Overlord, 2026-10-28: "32 animations??? remvoe like all but the streaming one").
-The colour comes from the board's marks: Claude Code's orange, Codex's light ink and pi's moss.
-It carries an accessible name, and reduced motion keeps it still.
+Modern Chat's working spot, the end of the reply in progress, draws a session's working state as one indicator, drawn in the board's own CSS in the harness's colour: a helix of seven rows of two dots that fades into sixteen cells lighting in Bayer order and back every 8 seconds (the Overlord, 2026-10-30: "i prefered the helix").
+Every part of it moves by transform and opacity alone, which the compositor draws without the page's main thread, and it runs only while a turn runs.
+For a while it was a still halftone that breathed as one, after a panel at rest kept the main thread 44 percent busy (2026-10-28: "32 animations??? remvoe like all but the streaming one"); that work came from a one-second clock that drew the working spot again and from redraws of the queued messages on every snapshot, which stay gone.
+The colour is the ink of the harness's own mark: Claude Code's orange, Codex's light ink and pi's moss (2026-10-30: "make color of the helix match teh harnes icon coloring").
+Beside it, the words the harness says it is doing, or Working when it says none, type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn, one every 3 seconds, typed the same way (2026-10-30: "make twitsting and teh verbs rotate in a type writere hroiztonal shimmer").
+The typing slides a window over the word to each letter's edge, and the shimmer is a light band crossing it, both by transform alone; each word is written into the page directly, so React draws nothing again while a turn runs.
+It carries an accessible name, the harness's own words or Working, and reduced motion keeps the helix still and shows those words whole.
 Working cards, tree rows and a panel's Task view show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
 The CFO's own panel shows the indicator at its reply's end while it works, as a goblin's does.

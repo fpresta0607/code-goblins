@@ -259,6 +259,95 @@ test("a working session's dither carries the harness's own words for what it doe
   await expect(page.getByRole("log")).not.toContainText(/Cogitating|Sautéing/);
 });
 
+// The Overlord, 2026-10-30: "make twitsting and teh verbs rotate in a type
+// writere hroiztonal shimmer". typingOf reads how the word beside the helix
+// is typed: the steps its window slides through, one a letter, and the
+// properties the typing and the shimmer move, which the compositor draws.
+const typingOf = (page: Page) => page.evaluate(() => {
+  const effectOn = (selector: string) => document.getAnimations()
+    .map((animation) => animation.effect)
+    .find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && effect.target === document.querySelector(selector));
+  const typing = effectOn(".working-word > span"), shimmer = effectOn(".working-shine");
+  const moved = (effect?: KeyframeEffect) => [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key));
+  return {
+    shifts: (typing?.getKeyframes() ?? []).map((frame) => Number(/translateX\((-?[\d.]+)px\)/.exec(String(frame.transform))?.[1])),
+    typingMoves: moved(typing),
+    shimmerMoves: moved(shimmer),
+  };
+});
+
+test("the harness's words type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+  const word = working(page).locator(".working-word");
+
+  // Act
+  relay.say(screen(true, "Twisting"));
+
+  // Assert: Twisting, typed in eight steps that each show one more letter,
+  // and crossed by a shimmer, both by transform alone.
+  await expect(word).toHaveText("Twisting");
+  const typing = await typingOf(page);
+  expect(typing.shifts).toHaveLength("Twisting".length + 1);
+  expect(typing.shifts.every((shift, at) => at === 0 || shift < typing.shifts[at - 1]), JSON.stringify(typing.shifts)).toBe(true);
+  expect(typing.shifts.at(-1)).toBe(0);
+  expect(typing.typingMoves).toEqual(["transform"]);
+  expect(typing.shimmerMoves).toEqual(["transform"]);
+
+  // Act
+  await page.clock.runFor(3_000);
+
+  // Assert: the next verb, typed the same way.
+  await expect(word).toHaveText("Conjuring");
+  expect((await typingOf(page)).shifts).toHaveLength("Conjuring".length + 1);
+
+  // Act
+  await page.clock.runFor(3_000);
+
+  // Assert
+  await expect(word).toHaveText("Tinkering");
+  await expect(working(page).getByRole("status", { name: "Twisting" })).toBeVisible();
+});
+
+test("with no words of its harness's own, Working types out first and gives way to the whimsical verbs", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+  const word = working(page).locator(".working-word");
+
+  // Act
+  relay.say(screen(true));
+
+  // Assert
+  await expect(word).toHaveText("Working");
+  expect((await typingOf(page)).shifts).toHaveLength("Working".length + 1);
+  await page.clock.runFor(3_000);
+  await expect(word).toHaveText("Conjuring");
+});
+
+test.describe("under reduced motion", () => {
+  test.use({ reducedMotion: "reduce" });
+
+  test("the harness's words show whole and stay, and nothing beside them moves", async ({ page }) => {
+    // Arrange
+    await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
+    const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+    await openGoblin(page);
+
+    // Act
+    relay.say(screen(true, "Twisting"));
+    await expect(working(page).locator(".working-word")).toHaveText("Twisting");
+    await page.clock.runFor(10_000);
+
+    // Assert
+    await expect(working(page).locator(".working-word")).toHaveText("Twisting");
+    expect(await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane")).length)).toBe(0);
+  });
+});
+
 // The Overlord, 2026-10-28, from his phone: "dither stream on mobile stop icon
 // is automatically displayed however on mobile put the button on the end of
 // it". On a touch screen Stop shows at the end of the dither's row, after its

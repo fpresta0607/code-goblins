@@ -38,11 +38,13 @@ test("the reply in progress ends with the harness's working animation while the 
 
 // The Overlord, 2026-10-28, on a panel at rest that ran 32 animations and was
 // drawn again four times a second: "32 animations??? remvoe like all but the
-// streaming one". A working session's conversation runs one animation, of
-// opacity alone, which the compositor draws, and React draws nothing again
-// while nothing happens: the working spot's clock drew it every second. React's
-// own devtools hook counts each commit.
-test("a working session's conversation runs one opacity animation and redraws nothing at rest", async ({ page }) => {
+// streaming one", and 2026-10-30, of the still halftone that replaced it:
+// "this one is boring i prefered the helix". A working session's conversation
+// runs the helix, and every animation in it moves by transform and opacity
+// alone, which the compositor draws with no work on the main thread; React
+// draws nothing again while nothing happens, as the working spot's clock once
+// drew it every second. React's own devtools hook counts each commit.
+test("a working session's conversation runs the helix by transform and opacity alone and redraws nothing at rest", async ({ page }) => {
   // Arrange: the clock stands five seconds into a minute.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
   await page.addInitScript(() => {
@@ -69,11 +71,12 @@ test("a working session's conversation runs one opacity animation and redraws no
   const animations = await page.evaluate(() => document.getAnimations()
     .filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane"))
     .map((animation) => ({
-      name: (animation as CSSAnimation).animationName,
+      name: animation instanceof CSSAnimation ? animation.animationName : "the typed word",
       properties: [...new Set((animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)),
     })));
   expect.soft(commits, "React commits while nothing happened").toBe(0);
-  expect(animations).toEqual([{ name: "working-breath", properties: ["opacity"] }]);
+  expect(new Set(animations.map((animation) => animation.name).filter((name) => name !== "the typed word"))).toEqual(new Set(["working-helix-morph", "working-helix-a", "working-helix-b", "working-dither-morph", "working-dither"]));
+  expect(animations.filter((animation) => animation.properties.some((property) => property !== "transform" && property !== "opacity"))).toEqual([]);
 });
 
 test("the conversation draws no speaker name and no harness icon above a message", async ({ page }) => {
