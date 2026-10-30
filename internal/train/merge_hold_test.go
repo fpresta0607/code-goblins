@@ -281,7 +281,7 @@ func TestHeldTrainDeliversAHoldWhoseFirstNotificationFailed(t *testing.T) {
 	}
 	github.refuse[started.PR] = "the base branch policy prohibits the merge"
 	engine := s.engine(github)
-	engine.TellCFO = func(context.Context, string) error { return errors.New("wake queue unavailable") }
+	engine.TellCFO = func(context.Context, string, string) error { return errors.New("wake queue unavailable") }
 
 	// Act
 	_, notificationError := engine.Advance(context.Background(), started.ID)

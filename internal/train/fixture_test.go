@@ -160,7 +160,7 @@ func (s *scratch) engine(gh *fakeGitHub) Engine {
 			s.told = append(s.told, task+": "+text)
 			return nil
 		},
-		TellCFO: func(_ context.Context, text string) error {
+		TellCFO: func(_ context.Context, _ string, text string) error {
 			s.cfo = append(s.cfo, text)
 			return nil
 		},

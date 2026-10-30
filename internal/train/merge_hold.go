@@ -41,7 +41,8 @@ func (e Engine) notifyMergeHold(ctx context.Context, t *Train) error {
 	if run.IsMergeNotified || e.TellCFO == nil {
 		return nil
 	}
-	if err := e.TellCFO(ctx, fmt.Sprintf("merge_train: %s train %s holds its merge: %s; keeps the green proof on %s at %s, built on %s at %s", t.Repository, t.ID, run.MergeHold, run.PR, short(run.Head), t.Base, short(run.Base))); err != nil {
+	identity := fmt.Sprintf("train-merge-hold:%s:%d", t.ID, run.Number)
+	if err := e.TellCFO(ctx, identity, fmt.Sprintf("merge_train: %s train %s holds its merge: %s; keeps the green proof on %s at %s, built on %s at %s", t.Repository, t.ID, run.MergeHold, run.PR, short(run.Head), t.Base, short(run.Base))); err != nil {
 		return err
 	}
 	run.IsMergeNotified = true

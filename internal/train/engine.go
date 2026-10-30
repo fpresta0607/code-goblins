@@ -77,9 +77,9 @@ type Engine struct {
 	// Wait pauses before GitHub is read again for what a run landed.
 	Wait func(time.Duration)
 	// TellGoblin types text into a goblin's terminal, and TellCFO reaches
-	// the CFO.
+	// the CFO. A nonempty identity denotes a durable one-time notice.
 	TellGoblin func(ctx context.Context, task, text string) error
-	TellCFO    func(ctx context.Context, text string) error
+	TellCFO    func(ctx context.Context, identity, text string) error
 	// Landed, when set, hears of each pull request the train merged, once it
 	// is recorded: AFK mode's log keeps what merged while he is away.
 	Landed func(ctx context.Context, t Train, car Car)

@@ -156,6 +156,6 @@ func checkNames(failed []Check) string {
 
 func (e Engine) tellCFO(ctx context.Context, text string) {
 	if e.TellCFO != nil {
-		_ = e.TellCFO(ctx, text)
+		_ = e.TellCFO(ctx, "", text)
 	}
 }

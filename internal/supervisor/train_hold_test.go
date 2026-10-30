@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/train"
@@ -41,6 +42,45 @@ func TestSupervisorRestartsKeepAGreenRefusedTrainWithoutDuplicateCI(t *testing.T
 	}
 	if notices := prWakes(t, h, "merge_train"); len(notices) != 2 {
 		t.Fatalf("notices %+v: want one start and one durable hold", notices)
+	}
+}
+
+func TestSupervisorPublishesOneHoldWhenItsAcknowledgementIsLost(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := newTrainProject(t)
+	first, second := project.pull(11), project.pull(12)
+	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
+	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
+	if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+		t.Fatal(err)
+	}
+	trains, err := train.List(h.State)
+	if err != nil || len(trains) != 1 {
+		t.Fatalf("trains %+v (%v): want one train", trains, err)
+	}
+	project.mergeRefusal = "the base branch policy prohibits the merge"
+	engine := service.trainEngine(project, "o/r")
+	publish := engine.TellCFO
+	engine.TellCFO = func(ctx context.Context, identity, text string) error {
+		if err := publish(ctx, identity, text); err != nil {
+			return err
+		}
+		return errors.New("the publication acknowledgement was lost")
+	}
+
+	// Act
+	_, lostError := engine.Advance(context.Background(), trains[0].ID)
+	for range 3 {
+		restarted := &Service{Store: service.Store}
+		if err := restarted.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if notices := prWakes(t, h, "merge_train"); lostError == nil || len(notices) != 2 || project.mergeAttempts != 1 {
+		t.Fatalf("notices %+v, lost error %v, merges %d: want one start and one hold despite the lost acknowledgement", notices, lostError, project.mergeAttempts)
 	}
 }
 

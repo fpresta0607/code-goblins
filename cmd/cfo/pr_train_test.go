@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // trainForge is a GitHub repository o/r on a scratch remote: the project's
@@ -42,10 +43,12 @@ type trainForge struct {
 	closed  bool
 	// labels are the labels the repository has, and wears the ones on the
 	// train's pull request.
-	labels   []string
-	wears    []string
-	calls    []string
-	onceTest string
+	labels          []string
+	wears           []string
+	calls           []string
+	onceTest        string
+	isPolicyBlocked bool
+	ciViews         int
 }
 
 // merged names the pull requests GitHub shows merged, in the order they were
@@ -144,9 +147,17 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 		f.wears = append(f.wears, args[slices.Index(args, "--add-label")+1])
 		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "view" && args[2] == f.trainURL:
+		f.ciViews++
+		state := "OPEN"
+		if f.isPolicyBlocked && f.ciViews > 1 {
+			state = "CLOSED"
+		}
 		head := gitIn(f.t, f.remote, "rev-parse", "refs/heads/"+f.branch)
-		return answer(map[string]any{"state": "OPEN", "headRefOid": head, "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}, "mergeStateStatus": "CLEAN"})
+		return answer(map[string]any{"state": state, "headRefOid": head, "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}, "mergeStateStatus": "CLEAN"})
 	case args[0] == "pr" && args[1] == "merge" && args[2] == f.trainURL:
+		if f.isPolicyBlocked {
+			return execx.Result{ExitCode: 1, Stderr: []byte("the base branch policy prohibits the merge")}, nil
+		}
 		f.landed, f.subject = args[slices.Index(args, "--match-head-commit")+1], args[slices.Index(args, "--subject")+1]
 		gitIn(f.t, f.github, "fetch", "-q", "origin")
 		gitIn(f.t, f.github, "checkout", "-q", "-B", "main", "origin/main")
@@ -399,5 +410,27 @@ func TestPRTrainAsksNothingOfTheSupervisorWhileAFKModeIsOff(t *testing.T) {
 	// Assert
 	if code != 0 || asked != 0 {
 		t.Errorf("cfo pr train = %d, asked %d times, want it to land and ask nothing with AFK mode off", code, asked)
+	}
+}
+
+func TestPRTrainPublishesADurableHoldBeyondItsConsoleOutput(t *testing.T) {
+	// Arrange: the operator closes the refused PR on the second CI read.
+	forge := newTrainForge(t)
+	h := testHome(t)
+	first, second := forge.pull(71, "feat/a", "a.txt"), forge.pull(72, "feat/b", "b.txt")
+	doneGoblin(t, h, "g71", forge.project, first)
+	doneGoblin(t, h, "g72", forge.project, second)
+	forge.isPolicyBlocked = true
+	runtime := testCommandRuntimeForHome(h)
+	runtime.trainEvery = time.Millisecond
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	code := runPR("train", []string{forge.project}, &stdout, &stderr, forge, runtime)
+	notices, err := wake.Pending(h.State)
+
+	// Assert
+	if code != 1 || err != nil || len(notices) != 1 || notices[0].Kind != "pr" || notices[0].Key != "train:o/r" || notices[0].Once == "" || !strings.Contains(notices[0].Detail, "holds its merge") {
+		t.Fatalf("exit %d, notices %+v (%v), stderr %s: want a durable hold even once the console wait ends", code, notices, err, stderr.String())
 	}
 }

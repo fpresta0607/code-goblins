@@ -21,7 +21,7 @@ func TestDeployHoldRepeatsAfterHalfHour(t *testing.T) {
 	// Arrange
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	var notices []string
-	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCFO: func(_ context.Context, text string) error {
+	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCFO: func(_ context.Context, _ string, text string) error {
 		notices = append(notices, text)
 		return nil
 	}}
@@ -48,7 +48,7 @@ func TestDeployHoldChangeWakesImmediately(t *testing.T) {
 	// Arrange
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	var notices []string
-	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCFO: func(_ context.Context, text string) error {
+	engine := Engine{StateDir: t.TempDir(), Now: func() time.Time { return now }, TellCFO: func(_ context.Context, _ string, text string) error {
 		notices = append(notices, text)
 		return nil
 	}}
