@@ -306,9 +306,10 @@ Then it brings back every goblin whose terminal ended, as a reboot or sign-out e
 A goblin paused or stopped on purpose, one whose latest report is `done` with a pull request and that took no prompt since, which waits on its merge, or one still running, is left as it is, and one the machine has no room for yet waits, with the reason, rather than starting.
 After a restart or sign-out the supervisor does all of this by itself as soon as it starts, as [Opening, closing and restarting](#opening-closing-and-restarting) says, so `goblins resume` is for the times in between.
 A CFO already running is never started twice: one registered in a native terminal is shown in this terminal, one whose registration names a live process in Herdr is brought to the front there, and with no CFO registered, a CFO already running in native terminal `cfo`, which may not have registered yet, is shown.
-Every run ends on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.
+Launches from your own terminal end on one screen: the CFO's home and the board's link, which Ctrl+click opens, above two choices.
 **Open the CFO terminal**, the one Enter takes, attaches this terminal to the CFO, to Herdr with the CFO in front or to its native terminal; run inside Herdr, it only brings the CFO to the front.
 **Open the board**, or B, opens the board in your browser.
+For `resume` launched from a Command Center card, see [Run items](docs/native-board.md#run-items).
 `goblins --board` finds or starts the supervisor the same way and opens the board in your browser every time, and starts or shows no CFO in the terminal.
 `goblins --window` does the same with [the desktop app](#the-desktop-app) in place of the browser, where `goblins-window.exe` sits beside `goblins`, and says so and exits 1 where it does not; `goblins --window --background` keeps the window in its tray.
 In an attached terminal every key goes to the CFO, Ctrl-C included, and Ctrl-] leaves the terminal running.

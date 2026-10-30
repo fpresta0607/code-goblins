@@ -206,6 +206,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   if (item && !kept.has(item.key)) setKept(new Set([...kept, item.key]));
   const showing = !!item || !!changeQuestion;
   const shownKey = item ? item.key + ":" + publicationKey(item) : "";
+  const shouldFocusAnswer = item?.kind === "question" && item.question.options.length === 0;
   useEffect(() => {
     if (!done || sent.has(done)) return;
     const timer = setTimeout(() => setLeaving(done), DONE_MS);
@@ -238,7 +239,11 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }, [showing]);
   // Each item shows from its top; within one item the scroll stays where he
   // puts it.
-  useEffect(() => { if (shownKey && dialog.current) dialog.current.scrollTop = 0; }, [shownKey]);
+  useEffect(() => {
+    if (!shownKey || !dialog.current) return;
+    dialog.current.scrollTop = 0;
+    if (shouldFocusAnswer) dialog.current.querySelector<HTMLTextAreaElement>(".question-card textarea")?.focus({ preventScroll: true });
+  }, [shownKey, shouldFocusAnswer]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
     setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); setChanging("");

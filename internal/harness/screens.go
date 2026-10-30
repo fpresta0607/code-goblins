@@ -180,7 +180,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			PasteTakesEnter: true,
 			Undrawn:         true,
 			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
-			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+) (minimal|low|medium|high|xhigh)\s*$)`),
+			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+)(?: \S+)* (minimal|low|medium|high|xhigh)(\s*$| · \S))`),
 		}, true
 	case Pi:
 		return Screens{

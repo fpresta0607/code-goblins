@@ -113,7 +113,7 @@ func Run(stateDir string, spec Spec) error {
 		// Cores that cannot be read hold no terminal back: it runs on every
 		// one, as the start rule starts on processors it cannot read.
 		if processors, err = processor.MachineFleetThreads(); err != nil {
-			fmt.Fprintf(os.Stderr, "host: the terminal runs on every processor core, since this machine's cannot be read: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%s host: the terminal runs on every processor core, since this machine's cannot be read: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 		}
 	}
 	if spec.IsStream {
@@ -128,9 +128,9 @@ func Run(stateDir string, spec Spec) error {
 		return err
 	}
 	if problem := conpty.ConsoleHostProblem(); problem != nil {
-		fmt.Fprintf(os.Stderr, "host: %v\n", problem)
+		fmt.Fprintf(os.Stderr, "%s host: %v\n", time.Now().UTC().Format(time.RFC3339Nano), problem)
 		if err := reportConsoleHostProblem(stateDir, problem); err != nil {
-			fmt.Fprintf(os.Stderr, "host: tell the CFO the terminal runs on the system conhost: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%s host: tell the CFO the terminal runs on the system conhost: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 		}
 	}
 	record, pipe, err := announce(stateDir, spec.ID, console.PID(), hex.EncodeToString(proof[:]), false)
@@ -222,7 +222,7 @@ func Run(stateDir string, spec Spec) error {
 	// the terminal ended finds how.
 	end := End{ID: spec.ID, HostPID: record.HostPID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: console.ExitCode(), Closed: isClosed}
 	if err := writeEnd(stateDir, end); err != nil {
-		fmt.Fprintf(os.Stderr, "host: record how terminal %s ended: %v\n", spec.ID, err)
+		fmt.Fprintf(os.Stderr, "%s host: record how terminal %s ended: %v\n", time.Now().UTC().Format(time.RFC3339Nano), spec.ID, err)
 	}
 	farewell := make(chan struct{})
 	go func() {

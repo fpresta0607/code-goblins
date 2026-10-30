@@ -74,6 +74,111 @@ func queueWake(t *testing.T, stateDir, kind, key, detail string) {
 	}
 }
 
+func TestCapturedIdleCodexCFORecoversPendingWakesAfterRestart(t *testing.T) {
+	// Arrange
+	screen := []string{
+		"  Worked for 1m 48s • 7:58 AM", "", "", "› Ask Codex to do anything", "",
+		"  GPT-6.1 Terra xhigh · C:\\dev\\code-goblins · Register CFO and handle …",
+		"  ? for shortcuts                            ⚠ 8 warnings · f2 to view", "",
+	}
+	service, stateDir, typed, _ := typedWakeCFO(t, "codex", screen)
+	now := time.Now().UTC()
+	for index := range 7 {
+		queueWake(t, stateDir, "notify", fmt.Sprintf("task-%d", index), "working")
+	}
+	pending, err := wake.Pending(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, offset := range []time.Duration{0, cfoWakeStuckAfter + cfoWakeSteady} {
+		if err := service.untoldWakes(pending, cfoWakeSkip{Why: "its screen does not show it waiting at an empty prompt"}, now.Add(offset)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if items := service.Store.Snapshot().Runs; len(items) != 1 || items[0].State != "ready" {
+		t.Fatalf("restart warning = %+v; want one actionable warning before recovery", items)
+	}
+
+	// Act
+	err = service.wakeCFO(context.Background(), now.Add(10*time.Minute))
+	service.Options.CFO = &CFOConnection{State: stateDir, ReadScreen: service.Options.CFO.ReadScreen, Deliver: service.Options.CFO.Deliver}
+	retryErr := service.wakeCFO(context.Background(), now.Add(11*time.Minute))
+
+	// Assert
+	if err != nil || retryErr != nil || len(*typed) != 1 {
+		t.Fatalf("wake/restart = %v, %v, typed %q; want all seven pending wakes covered once", err, retryErr, *typed)
+	}
+	pending, err = wake.Pending(stateDir)
+	if err != nil || !strings.Contains((*typed)[0], "7 queued wakes") || len(pending) != 7 {
+		t.Fatalf("wake = %q; want seven covered records kept pending until the CFO acknowledges them", *typed)
+	}
+	if items := service.Store.Snapshot().Runs; len(items) != 1 || items[0].State != "withdrawn" {
+		t.Fatalf("restart warning = %+v; want its history retained and action withdrawn after delivery", items)
+	}
+}
+
+func TestNativeCodexWakeRecoversTheStartupQueueOnceAcrossCFOAndSupervisorRestart(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	for index := range 7 {
+		queueWake(t, home.State, "notify", fmt.Sprintf("task-%d", index), "working")
+	}
+	now := time.Now().UTC()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := service.wakeCFO(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if covered, _, err := readCFOWoken(home.State); err != nil || covered != 0 {
+		t.Fatalf("before startup covered = %d, %v; want nothing covered", covered, err)
+	}
+	terminal := nativeCFOComposer(t, home.State, "display-model")
+
+	// Act
+	err := service.wakeCFO(ctx, now.Add(time.Minute))
+	record, readErr := host.ReadRecord(home.State, "cfo")
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	client, dialErr := host.Dial(record)
+	if dialErr != nil {
+		t.Fatal(dialErr)
+	}
+	if closeErr := errors.Join(client.CloseTerminal(), client.Close()); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	select {
+	case <-terminal.ended:
+	case <-ctx.Done():
+		t.Fatal("the original CFO terminal did not end")
+	}
+	replacement := nativeCFOComposer(t, home.State, "display-model")
+	reopened, openErr := Open(home)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	restarted := &Service{Store: reopened, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	retryErr := restarted.wakeCFO(ctx, now.Add(2*time.Minute))
+
+	// Assert
+	input := terminal.lines(t)
+	if err != nil || retryErr != nil || len(input) != 2 || !strings.HasPrefix(input[1], "accepted cfo watcher wake: 7 queued wakes") {
+		t.Fatalf("wake/restart = %v, %v, input %q; want one accepted wake covering the startup queue", err, retryErr, input)
+	}
+	if replacementInput := replacement.lines(t); len(replacementInput) != 1 || !strings.HasPrefix(replacementInput[0], "registered ") {
+		t.Fatalf("replacement CFO input = %q; want registration alone without replaying the wake", replacementInput)
+	}
+	pending, err := wake.Pending(home.State)
+	if err != nil || len(pending) != 7 {
+		t.Fatalf("pending = %d, %v; want all seven records retained until acknowledged", len(pending), err)
+	}
+	covered, _, err := readCFOWoken(home.State)
+	if err != nil || covered != pending[len(pending)-1].Seq {
+		t.Fatalf("covered = %d, %v; want exactly the accepted batch", covered, err)
+	}
+}
+
 // A Codex or pi CFO has no Stop hook to wake it, so the supervisor types one
 // wake line into its terminal while it sits idle at an empty composer: once
 // for the records it covers, and not again within the gap.
@@ -121,12 +226,15 @@ func TestNoWakeIsTypedMidTurnOrOverUnsentText(t *testing.T) {
 				agent   string
 				screens [][]string
 			}{
-				"codex in a turn":        {"codex", [][]string{{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}}},
-				"codex holding text":     {"codex", [][]string{{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}}},
-				"codex at a dialog":      {"codex", [][]string{{"  Hooks need review", "› 1. Review hooks", "  3. Continue without trusting (hooks won't run)", "› Ask Codex to do anything"}}},
-				"pi holding text":        {"pi", [][]string{{"Done.", cfoRule, " merge it ", cfoRule, "0.8%/1.0M (auto)"}}},
-				"pi in a turn":           {"pi", [][]string{{"── ⠸ Working ──", "  ", cfoRule, "0.8%/1.0M (auto)"}}},
-				"busy on second reading": {"codex", [][]string{idleCodexCFO, {"• Working (0s • esc to interrupt)", "› Ask Codex to do anything"}}},
+				"codex in a turn":                     {"codex", [][]string{{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything"}}},
+				"codex holding text":                  {"codex", [][]string{{"• ok", "› run the full test suite", "  gpt-6-astra high · work"}}},
+				"codex display model draft":           {"codex", [][]string{{"› unfinished draft", "", "  GPT-6.1 Terra xhigh · C:\\work", "  ? for shortcuts"}}},
+				"codex display model multiline draft": {"codex", [][]string{{"› Ask Codex to do anything", "", "continued draft", "", "  GPT-6.1 Terra xhigh · C:\\work", "  ? for shortcuts"}}},
+				"codex display model in a turn":       {"codex", [][]string{{"• Working (5s • esc to interrupt)", "› Ask Codex to do anything", "", "  GPT-6.1 Terra xhigh · C:\\work", "  ? for shortcuts"}}},
+				"codex at a dialog":                   {"codex", [][]string{{"  Hooks need review", "› 1. Review hooks", "  3. Continue without trusting (hooks won't run)", "› Ask Codex to do anything"}}},
+				"pi holding text":                     {"pi", [][]string{{"Done.", cfoRule, " merge it ", cfoRule, "0.8%/1.0M (auto)"}}},
+				"pi in a turn":                        {"pi", [][]string{{"── ⠸ Working ──", "  ", cfoRule, "0.8%/1.0M (auto)"}}},
+				"busy on second reading":              {"codex", [][]string{idleCodexCFO, {"• Working (0s • esc to interrupt)", "› Ask Codex to do anything"}}},
 			} {
 				t.Run(name, func(t *testing.T) {
 					s, stateDir, typed, _ := typedWakeCFO(t, test.agent, test.screens...)

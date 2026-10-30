@@ -617,6 +617,8 @@ INSERT INTO runs VALUES(` + sqlString(run) + `,` + sqlString(repo) + `,` + sqlSt
 // anchors the head and stamps custody returned without moving the gate branch.
 type recordedHeadRunner struct {
 	database, work, run string
+	bare                string
+	syncRun, pushedHead string
 	recoveries          int
 }
 
@@ -653,12 +655,46 @@ func (r *recordedHeadRunner) Run(ctx context.Context, request execx.Request) (ex
 		return execx.Result{Stdout: []byte("custody returned\n")}, nil
 	case "axi sync --check":
 		state, safety, action, exitCode := "pipeline_owned", "blocked_recover_manual_reconciliation", "no-mistakes axi status", 1
+		relation := "equal"
 		if isReturned {
 			state, safety, action, exitCode = "custody_returned", "custody_returned", `no-mistakes axi run --intent "<what the user set out to accomplish>"`, 0
+			if head != recorded {
+				ancestry, err := execx.OSRunner{}.Run(ctx, execx.Request{Dir: r.work, Name: "git", Args: []string{"merge-base", "--is-ancestor", recorded, head}})
+				if err != nil {
+					return execx.Result{}, err
+				}
+				relation = "ahead"
+				if ancestry.ExitCode == 1 {
+					relation, safety, action, exitCode = "diverged", "recovery_required", "no-mistakes axi sync --adopt-published", 1
+					if r.bare != "" {
+						gate, err := exec.Command("git", "--git-dir="+r.bare, "rev-parse", "refs/heads/"+recoveryBranch).Output()
+						if err != nil {
+							return execx.Result{}, err
+						}
+						if strings.TrimSpace(string(gate)) == head {
+							safety, action, exitCode = "gate_ready", `no-mistakes axi run --intent "<what the user set out to accomplish>"`, 0
+						}
+					}
+				} else if ancestry.ExitCode != 0 {
+					return execx.Result{}, fmt.Errorf("ancestry exited %d", ancestry.ExitCode)
+				}
+			}
 		} else if head == recorded {
 			safety, action = "blocked_pipeline_owned_recoverable", "no-mistakes axi sync --recover"
 		}
-		return execx.Result{ExitCode: exitCode, Stdout: []byte("branch_sync:\n  state: " + state + "\n  safety: " + safety + "\n  local:\n    head: " + head + "\n    clean: true\n  pipeline:\n    run: \"" + r.run + "\"\n    submitted_head: " + submitted + "\n    current_head: " + recorded + "\n  next_action:\n    command: '" + action + "'\n")}, nil
+		status, err := exec.Command("git", "-C", r.work, "status", "--porcelain", "--untracked-files=all").Output()
+		if err != nil {
+			return execx.Result{}, err
+		}
+		run := r.run
+		if r.syncRun != "" {
+			run = r.syncRun
+		}
+		actionCode := "run_pipeline"
+		if safety == "recovery_required" {
+			actionCode = "adopt_published"
+		}
+		return execx.Result{ExitCode: exitCode, Stdout: []byte(fmt.Sprintf("branch_sync:\n  state: %s\n  safety: %s\n  relation: %s\n  local:\n    head: %s\n    clean: %t\n  pipeline:\n    run: %q\n    submitted_head: %s\n    current_head: %s\n    pushed_head: %q\n  next_action:\n    code: %s\n    command: '%s'\n", state, safety, relation, head, len(status) == 0, run, submitted, recorded, r.pushedHead, actionCode, action))}, nil
 	}
 	return execx.Result{}, errors.New("unexpected command: " + recoveryRequestCommand(request))
 }

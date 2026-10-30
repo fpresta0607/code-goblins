@@ -34,9 +34,10 @@ type recoveryRecord struct {
 }
 
 type recoverySync struct {
-	State  string `yaml:"state"`
-	Safety string `yaml:"safety"`
-	Local  struct {
+	State    string `yaml:"state"`
+	Safety   string `yaml:"safety"`
+	Relation string `yaml:"relation"`
+	Local    struct {
 		Head  string `yaml:"head"`
 		Clean bool   `yaml:"clean"`
 	} `yaml:"local"`
@@ -44,8 +45,10 @@ type recoverySync struct {
 		Run           string `yaml:"run"`
 		SubmittedHead string `yaml:"submitted_head"`
 		CurrentHead   string `yaml:"current_head"`
+		PushedHead    string `yaml:"pushed_head"`
 	} `yaml:"pipeline"`
 	NextAction struct {
+		Code    string `yaml:"code"`
 		Command string `yaml:"command"`
 	} `yaml:"next_action"`
 	// WorktreeEdits is the commit the driver preserved the run's unfinished
@@ -260,6 +263,21 @@ func (r Reader) alignReturned(ctx context.Context, worktree, branch string, env 
 			}
 		} else if err := r.requireNativeRecoveryHead(ctx, worktree, bare, nativeAnchor, run.RecordedHead); err != nil {
 			return RecoveryResult{}, fmt.Errorf("pipeline: returned pipeline head is not anchored: %w", err)
+		}
+	}
+	if status.Safety == "recovery_required" || status.Safety == "gate_ready" {
+		// Native requires published adoption for a divergent returned branch.
+		// An unpublished follow-up must instead descend from this run's preserved pipeline head.
+		preserved, found, err := r.recoveryHead(ctx, bare, "refs/no-mistakes/recovery/"+run.RunID+"/recorded", true)
+		if err != nil {
+			return RecoveryResult{}, err
+		}
+		if !found {
+			return RecoveryResult{}, errors.New("pipeline: divergent recovery requires the preserved pipeline head")
+		}
+		ancestry, err := r.runGit(ctx, worktree, false, "merge-base", "--is-ancestor", preserved, status.Local.Head)
+		if err != nil || ancestry.ExitCode != 0 {
+			return RecoveryResult{}, errors.New("pipeline: divergent recovery head does not descend from the preserved pipeline head")
 		}
 	}
 	if headsAligned {
@@ -481,7 +499,13 @@ func (s recoverySync) released(run recoveryRecord, state string) bool {
 }
 
 func (s recoverySync) recoverableCustodyReturned(run recoveryRecord) bool {
-	return s.custodyReturned(run, false)
+	if s.custodyReturned(run, false) {
+		return true
+	}
+	if !s.released(run, "custody_returned") || s.Relation != "diverged" || !s.Local.Clean || s.Local.Head == "" || s.Pipeline.PushedHead != "" {
+		return false
+	}
+	return s.Safety == "recovery_required" && s.NextAction.Command == "no-mistakes axi sync --adopt-published" || s.Safety == "gate_ready" && s.NextAction.Code == "run_pipeline"
 }
 
 // recoverableAtRecordedHead reports a failed or cancelled run holding pipeline

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,6 +82,51 @@ func TestRunHookPretoolSubagentDeniesInPrimaryHome(t *testing.T) {
 	}
 	if !strings.Contains(envelope.SystemMessage, `delegation-shaped on "agent"`) {
 		t.Errorf("systemMessage = %q, want it to contain %q", envelope.SystemMessage, `delegation-shaped on "agent"`)
+	}
+}
+
+func TestRunHookPretoolSubagentAllowsOnlyWebFetch(t *testing.T) {
+	newCFOHome(t)
+	t.Setenv("CFO_ALLOW_SUBAGENT", "")
+	for _, test := range []struct {
+		name     string
+		tool     string
+		input    string
+		wantExit int
+	}{
+		{name: "web fetch", tool: "Agent", input: `{"subagent_type":"web-fetch"}`},
+		{name: "other agent", tool: "Agent", input: `{"subagent_type":"general-purpose"}`, wantExit: 2},
+		{name: "missing type", tool: "Agent", input: `{}`, wantExit: 2},
+		{name: "null type", tool: "Agent", input: `{"subagent_type":null}`, wantExit: 2},
+		{name: "empty type", tool: "Agent", input: `{"subagent_type":""}`, wantExit: 2},
+		{name: "uppercase type", tool: "Agent", input: `{"subagent_type":"WEB-FETCH"}`, wantExit: 2},
+		{name: "leading space", tool: "Agent", input: `{"subagent_type":" web-fetch"}`, wantExit: 2},
+		{name: "trailing space", tool: "Agent", input: `{"subagent_type":"web-fetch "}`, wantExit: 2},
+		{name: "type prefix", tool: "Agent", input: `{"subagent_type":"custom-web-fetch"}`, wantExit: 2},
+		{name: "type suffix", tool: "Agent", input: `{"subagent_type":"web-fetch-custom"}`, wantExit: 2},
+		{name: "other delegation tool", tool: "SendMessage", input: `{"subagent_type":"web-fetch"}`, wantExit: 2},
+		{name: "legacy task tool", tool: "Task", input: `{"subagent_type":"web-fetch"}`, wantExit: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"session_id":"s","tool_name":%q,"tool_input":%s}`, test.tool, test.input)
+			var stdout, stderr bytes.Buffer
+
+			exit := runHook("pretool-subagent", strings.NewReader(payload), &stdout, &stderr)
+
+			if exit != test.wantExit {
+				t.Fatalf("exit = %d, want %d; stderr=%s", exit, test.wantExit, stderr.String())
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want empty", stdout.String())
+			}
+			var wantStderr bytes.Buffer
+			if test.wantExit == 2 {
+				runHook("pretool-subagent", strings.NewReader(fmt.Sprintf(`{"session_id":"s","tool_name":%q}`, test.tool)), io.Discard, &wantStderr)
+			}
+			if stderr.String() != wantStderr.String() {
+				t.Errorf("stderr = %q, want unchanged refusal %q", stderr.String(), wantStderr.String())
+			}
+		})
 	}
 }
 
