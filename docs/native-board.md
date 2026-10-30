@@ -34,6 +34,7 @@ The detached `serve` listens on the board's address, which is the same every tim
 An address already in use is never replaced with another: `goblins` starts nothing and says who holds it.
 It asks the listener's `/api/alive`, which a supervisor answers with its pid and its home, so the message names the Code Goblins fleet of another home by its folder, an older supervisor, which answers with no home, by its pid alone, and says "another program" for anything else.
 Only this home's own supervisor, started a moment ago by another `goblins` and not yet recorded, is waited for instead.
+`serve` takes `.watch.lock` before it listens, so only the supervisor that holds the lock ever holds the address: a `serve` a second `goblins` starts on a free port, having read the silent listener of this home's starting supervisor as another program, finds the lock held and exits, and that `goblins` waits for the board.
 This home's own supervisor that holds the address but records no board within that wait is named by its pid, with the PowerShell line that ends it (`Stop-Process -Id <pid>`), since `goblins stop` decides from the record that is missing.
 `cfo serve` without `--listen` uses the same address.
 `cfo update` restarts the supervisor on the address the one it stops was serving, read from the record, so a home on an address of its own keeps it whatever shell runs the update; with no supervisor running it uses the board's address.
