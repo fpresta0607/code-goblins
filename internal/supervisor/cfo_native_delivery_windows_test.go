@@ -230,7 +230,8 @@ func TestHisNextMessageIsTypedBehindOneInABusyClaudeCFOsQueue(t *testing.T) {
 // nothing marked sent and its words as they were, where words he typed into
 // the CFO's own prompt line would go with it, where it is a command, which
 // runs when its turn ends, or where the CFO's harness has no key that takes it
-// sooner, as Codex has none: it takes a line typed during a turn at once.
+// sooner, as Codex has none: it takes a line typed during a turn at its next
+// tool call.
 func TestSendNowOnATypedMessageIsRefusedWithItsReason(t *testing.T) {
 	for _, test := range []struct {
 		name, mode, text, draft, want string
