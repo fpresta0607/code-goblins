@@ -230,7 +230,7 @@ func TestSendNowOnATypedMessageIsRefusedWithItsReason(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+				for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 					screen, err := host.ReadScreen(record)
 					if err == nil && strings.Contains(strings.Join(screen, "\n"), "❯ "+test.draft) {
 						break

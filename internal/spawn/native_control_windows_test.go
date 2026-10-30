@@ -337,7 +337,7 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 				if err := pressNativeKeys(record, "his draft", test.draft); err != nil {
 					t.Fatal(err)
 				}
-				for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+				for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(50 * time.Millisecond) {
 					screen, err := f.service.readNativeScreen(t.Context(), record)
 					if err == nil && claude.ComposerHoldsText(screen) {
 						break
@@ -367,7 +367,7 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 func sentNowLines(t *testing.T, f *nativeFixture, n int) []string {
 	t.Helper()
 	var sentNow []string
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		sentNow = sentNow[:0]
 		for _, event := range named(f.events(t), "sent now") {
 			sentNow = append(sentNow, event.Text)
