@@ -26,9 +26,10 @@ import (
 // runQuickstart is goblins with no command, with --harness, and
 // goblins setup. It finds the supervisor or starts one, which never opens the
 // board; one Enter at a time it makes the agent the CFO runs on ready; it
-// starts the CFO in the Code Goblins home when none runs; and it ends on one
-// screen: Enter shows the CFO's terminal here, and the board's link or B
-// opens the board, B in the desktop window where one sits beside this binary.
+// starts the CFO in the Code Goblins home when none runs; and launches from
+// the user's terminal end on one screen: Enter shows the CFO's terminal here,
+// and the board's link or B opens the board, B in the desktop window where
+// one sits beside this binary.
 // It asks for no project, since the CFO works across every
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
