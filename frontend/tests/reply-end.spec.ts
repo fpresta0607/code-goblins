@@ -34,6 +34,9 @@ const working = (page: Page) => page.locator(".reply-working");
 // screen tells the board's view of the terminal whether the harness works,
 // and what its turn row says it is doing.
 const screen = (isWorking: boolean, doing = "") => ({ type: "screen", asking: false, open: false, working: isWorking, ...doing ? { doing } : {} });
+// Every word beside the dither is in the page from the start, laid unseen in
+// the one place; firstWord is the one shown first.
+const firstWord = (page: Page) => working(page).locator(".working-word").first();
 // follows says whether what after matches comes after what before matches,
 // in the page's order.
 const follows = (page: Page, before: string, after: string) => page.evaluate(([before, after]) => {
@@ -236,20 +239,20 @@ test("a working session's dither carries the harness's own words for what it doe
 
   // Assert
   await expect(working(page)).toHaveCount(1);
-  await expect(working(page).locator(".reply-doing")).toHaveText("Cogitating");
+  await expect(firstWord(page)).toHaveText("Cogitating");
   await expect(working(page).getByRole("status", { name: "Cogitating" })).toBeVisible();
 
   // Act: the harness names another.
   relay.say(screen(true, "Sautéing"));
 
   // Assert
-  await expect(working(page).locator(".reply-doing")).toHaveText("Sautéing");
+  await expect(firstWord(page)).toHaveText("Sautéing");
 
   // Act: a turn row with no words of its own.
   relay.say(screen(true));
 
   // Assert
-  await expect(working(page).locator(".reply-doing")).toHaveText("Working");
+  await expect(firstWord(page)).toHaveText("Working");
 
   // Act: the turn ends.
   relay.say(screen(false));
@@ -260,36 +263,55 @@ test("a working session's dither carries the harness's own words for what it doe
 });
 
 // The Overlord, 2026-10-30: "make twitsting and teh verbs rotate in a type
-// writere hroiztonal shimmer". typingOf reads how the word beside the helix
-// is typed: the steps its window slides through, one a letter, and the
-// properties the typing and the shimmer move, which the compositor draws.
-const typingOf = (page: Page) => page.evaluate(() => {
-  const effectOn = (selector: string) => document.getAnimations()
-    .map((animation) => animation.effect)
-    .find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && effect.target === document.querySelector(selector));
-  const typing = effectOn(".working-word > span"), shimmer = effectOn(".working-shine");
+// writere hroiztonal shimmer". Each word shows in its turn by its own
+// animations, which come round again while the turn runs. shownAt holds them
+// ms into that rotation and reads the word whose window is open then: its
+// letters as drawn, the room the words take, the steps of its turn its window
+// slides through, from unseen to whole a letter at a time, and the properties
+// its typing and its shimmer move, which the compositor draws.
+const shownAt = (page: Page, ms: number) => page.evaluate((ms) => {
+  const doing = document.querySelector(".reply-doing");
+  if (!doing) throw new Error("no words beside the dither");
+  const effects = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
+  for (const animation of effects) {
+    animation.pause();
+    animation.currentTime = ms;
+  }
+  const room = doing.getBoundingClientRect();
+  const frame = [...doing.querySelectorAll(":scope > .working-word")].find((each) => {
+    const { left, right } = each.getBoundingClientRect();
+    return Math.min(right, room.right) - Math.max(left, room.left) > 0.5;
+  });
+  const letters = frame?.querySelector(":scope > span");
+  const effectOn = (target?: Element | null) => effects.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && !!target && effect.target === target);
+  const typing = effectOn(letters), shimmer = effectOn(frame?.nextElementSibling);
   const moved = (effect?: KeyframeEffect) => [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key));
+  const range = document.createRange();
+  if (letters) range.selectNodeContents(letters);
   return {
-    shifts: (typing?.getKeyframes() ?? []).map((frame) => Number(/translateX\((-?[\d.]+)px\)/.exec(String(frame.transform))?.[1])),
+    word: letters?.textContent ?? "",
+    drawn: letters ? range.getBoundingClientRect().width : 0,
+    room: room.width,
+    // Its last two keyframes take it away at its turn's end.
+    shifts: (typing?.getKeyframes() ?? []).slice(0, -2).map((frame) => Number(/translateX\((-?[\d.]+)px\)/.exec(String(frame.transform))?.[1])),
     typingMoves: moved(typing),
     shimmerMoves: moved(shimmer),
   };
-});
+}, ms);
 
 test("the harness's words type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn", async ({ page }) => {
   // Arrange
-  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
-  const word = working(page).locator(".working-word");
 
   // Act
   relay.say(screen(true, "Twisting"));
+  await expect(firstWord(page)).toHaveText("Twisting");
+  const typing = await shownAt(page, 1_500);
 
   // Assert: Twisting, typed in eight steps that each show one more letter,
   // and crossed by a shimmer, both by transform alone.
-  await expect(word).toHaveText("Twisting");
-  const typing = await typingOf(page);
+  expect(typing.word).toBe("Twisting");
   expect(typing.shifts).toHaveLength("Twisting".length + 1);
   expect(typing.shifts.every((shift, at) => at === 0 || shift < typing.shifts[at - 1]), JSON.stringify(typing.shifts)).toBe(true);
   expect(typing.shifts.at(-1)).toBe(0);
@@ -297,18 +319,45 @@ test("the harness's words type out a letter at a time, a shimmer crosses them, a
   expect(typing.shimmerMoves).toEqual(["transform"]);
 
   // Act
-  await page.clock.runFor(3_000);
+  const next = await shownAt(page, 4_500);
 
   // Assert: the next verb, typed the same way.
-  await expect(word).toHaveText("Conjuring");
-  expect((await typingOf(page)).shifts).toHaveLength("Conjuring".length + 1);
+  expect(next.word).toBe("Conjuring");
+  expect(next.shifts).toHaveLength("Conjuring".length + 1);
+
+  // Act and Assert
+  expect((await shownAt(page, 7_500)).word).toBe("Tinkering");
+  await expect(working(page).getByRole("status", { name: "Twisting" })).toBeVisible();
+});
+
+// The CFO, 2026-10-30, of a conversation that changed in the page every
+// time a verb came: "nothing moves when nothing runs". The words rotate by
+// their own animations, so as the next verb shows nothing in the page
+// changes.
+test("the next verb shows in its turn with nothing in the page changed", async ({ page }) => {
+  // Arrange
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+  relay.say(screen(true, "Twisting"));
+  await expect(firstWord(page)).toHaveText("Twisting");
+  await working(page).evaluate((spot) => {
+    const changes: string[] = [];
+    new MutationObserver((records) => changes.push(...records.map((record) => record.type + ":" + (record.attributeName ?? "")))).observe(spot, { subtree: true, childList: true, characterData: true, attributes: true });
+    Object.assign(window, { changes });
+  });
+  const shown = () => working(page).locator(".reply-doing").evaluate((doing) => {
+    const room = doing.getBoundingClientRect();
+    return [...doing.querySelectorAll(":scope > .working-word")].filter((frame) => {
+      const { left, right } = frame.getBoundingClientRect();
+      return Math.min(right, room.right) - Math.max(left, room.left) > 0.5;
+    }).map((frame) => frame.textContent).join();
+  });
 
   // Act
-  await page.clock.runFor(3_000);
+  await expect.poll(shown, { timeout: 10_000 }).toBe("Conjuring");
 
   // Assert
-  await expect(word).toHaveText("Tinkering");
-  await expect(working(page).getByRole("status", { name: "Twisting" })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { changes: string[] }).changes)).toEqual([]);
 });
 
 // The shimmer is light on the letters alone: the live check of 2026-10-30
@@ -320,12 +369,16 @@ test("the harness's words type out a letter at a time, a shimmer crosses them, a
 // lies a pixel or more from the letters' ink, past their smoothed edges.
 const shimmerAt = (page: Page, share: number) => page.evaluate((share) => {
   const words = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
-  const shimmer = words.find((animation) => (animation.effect as KeyframeEffect).target === document.querySelector(".working-shine"));
-  if (!shimmer?.effect) throw new Error("no shimmer crosses the words");
-  const { delay = 0, duration } = shimmer.effect.getComputedTiming();
+  const shimmer = words.map((animation) => animation.effect).find((effect): effect is KeyframeEffect => effect instanceof KeyframeEffect && effect.target === document.querySelector(".working-shine"));
+  if (!shimmer) throw new Error("no shimmer crosses the words");
+  // It crosses in the one stretch of its rotation that eases.
+  const frames = shimmer.getKeyframes();
+  const crossing = frames.findIndex((frame) => frame.easing === "ease-in-out");
+  const [from, to] = [frames[crossing], frames[crossing + 1]].map((frame) => Number(frame.computedOffset));
+  const rotation = Number(shimmer.getComputedTiming().duration);
   for (const animation of words) {
     animation.pause();
-    animation.currentTime = delay + Number(duration) * share;
+    animation.currentTime = rotation * (from + (to - from) * share);
   }
 }, share);
 const lightOf = async (page: Page) => {
@@ -363,11 +416,10 @@ const lightOf = async (page: Page) => {
 
 test("the shimmer lightens the letters and leaves the ground about them as it was, past the word too", async ({ page }) => {
   // Arrange: Twisting, narrower than its room.
-  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
   relay.say(screen(true, "Twisting"));
-  await expect(working(page).locator(".working-word")).toHaveText("Twisting");
+  await expect(firstWord(page)).toHaveText("Twisting");
 
   // Act: halfway across.
   await shimmerAt(page, .5);
@@ -387,19 +439,18 @@ test("the shimmer lightens the letters and leaves the ground about them as it wa
 
 test("with no words of its harness's own, Working types out first and gives way to the whimsical verbs", async ({ page }) => {
   // Arrange
-  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
-  const word = working(page).locator(".working-word");
 
   // Act
   relay.say(screen(true));
+  await expect(firstWord(page)).toHaveText("Working");
+  const first = await shownAt(page, 1_500);
 
   // Assert
-  await expect(word).toHaveText("Working");
-  expect((await typingOf(page)).shifts).toHaveLength("Working".length + 1);
-  await page.clock.runFor(3_000);
-  await expect(word).toHaveText("Conjuring");
+  expect(first.word).toBe("Working");
+  expect(first.shifts).toHaveLength("Working".length + 1);
+  expect((await shownAt(page, 4_500)).word).toBe("Conjuring");
 });
 
 // The words keep the room of the widest as drawn, which is not always the
@@ -408,22 +459,16 @@ test("with no words of its harness's own, Working types out first and gives way 
 // and nothing after it moves.
 test("the words keep the room of the widest as drawn while they rotate, so nothing after them moves", async ({ page }) => {
   // Arrange
-  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
   relay.say(screen(true));
-  await expect(working(page).locator(".working-word")).toHaveText("Working");
+  await expect(firstWord(page)).toHaveText("Working");
 
   // Act: Working, then each of the eleven verbs in turn.
   const seen: { word: string; drawn: number; room: number }[] = [];
   for (let turn = 0; turn < 12; turn++) {
-    seen.push(await working(page).locator(".reply-doing").evaluate((doing) => {
-      const letters = doing.querySelector(".working-word > span")!;
-      const range = document.createRange();
-      range.selectNodeContents(letters);
-      return { word: letters.textContent ?? "", drawn: range.getBoundingClientRect().width, room: doing.getBoundingClientRect().width };
-    }));
-    await page.clock.runFor(3_000);
+    const { word, drawn, room } = await shownAt(page, turn * 3_000 + 1_500);
+    seen.push({ word, drawn, room });
   }
 
   // Assert
@@ -443,11 +488,11 @@ test.describe("under reduced motion", () => {
 
     // Act
     relay.say(screen(true, "Twisting"));
-    await expect(working(page).locator(".working-word")).toHaveText("Twisting");
+    await expect(firstWord(page)).toHaveText("Twisting");
     await page.clock.runFor(10_000);
 
-    // Assert
-    await expect(working(page).locator(".working-word")).toHaveText("Twisting");
+    // Assert: Twisting shows whole, and no other word.
+    expect((await shownAt(page, 4_500)).word).toBe("Twisting");
     expect(await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane")).length)).toBe(0);
   });
 });
@@ -498,12 +543,13 @@ test.describe("on a phone", () => {
     relay.say(screen(true, heading));
 
     // Assert
-    const letters = working(page).locator(".working-word > span");
+    const letters = firstWord(page).locator(":scope > span");
     await expect(letters).toHaveText(heading);
     const drawn = await letters.evaluate((element) => ({ isCut: element.scrollWidth > element.clientWidth, overflow: getComputedStyle(element).textOverflow, width: element.getBoundingClientRect().width }));
     expect(drawn.isCut, "the heading is wider than the row").toBe(true);
     expect(drawn.overflow).toBe("ellipsis");
-    const typing = await typingOf(page);
+    const typing = await shownAt(page, 2_900);
+    expect(typing.word).toBe(heading);
     expect(typing.shifts).toHaveLength(heading.length + 1);
     expect(typing.shifts[0], "the window starts at the row's end, not the heading's").toBeLessThanOrEqual(drawn.width + 0.5);
     expect(typing.shifts.every((shift, at) => at === 0 || shift <= typing.shifts[at - 1]), JSON.stringify(typing.shifts)).toBe(true);

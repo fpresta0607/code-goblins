@@ -46,9 +46,10 @@ for (const [harness, name, ink] of [["claude", "Claude Code", "rgb(217, 119, 87)
 // streaming one", and 2026-10-30, of the still halftone that replaced it:
 // "this one is boring i prefered the helix". A working session's conversation
 // runs the helix, and every animation in it moves by transform and opacity
-// alone, which the compositor draws with no work on the main thread; React
-// draws nothing again while nothing happens, as the working spot's clock once
-// drew it every second. React's own devtools hook counts each commit.
+// alone, which the compositor draws with no work on the main thread, the
+// words beside it rotating among them; React draws nothing again while
+// nothing happens, as the working spot's clock once drew it every second.
+// React's own devtools hook counts each commit.
 test("a working session's conversation runs the helix by transform and opacity alone and redraws nothing at rest", async ({ page }) => {
   // Arrange: the clock stands five seconds into a minute.
   await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
@@ -76,11 +77,11 @@ test("a working session's conversation runs the helix by transform and opacity a
   const animations = await page.evaluate(() => document.getAnimations()
     .filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane"))
     .map((animation) => ({
-      name: animation.id || "the typed word",
+      name: animation.id,
       properties: [...new Set((animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)),
     })));
   expect.soft(commits, "React commits while nothing happened").toBe(0);
-  expect(new Set(animations.map((animation) => animation.name).filter((name) => name !== "the typed word"))).toEqual(new Set(["working-helix-morph", "working-helix-a", "working-helix-b", "working-dither-morph", "working-dither"]));
+  expect(new Set(animations.map((animation) => animation.name))).toEqual(new Set(["working-helix-morph", "working-helix-a", "working-helix-b", "working-dither-morph", "working-dither", "working-word"]));
   expect(animations.filter((animation) => animation.properties.some((property) => property !== "transform" && property !== "opacity"))).toEqual([]);
 });
 

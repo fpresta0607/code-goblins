@@ -1386,7 +1386,8 @@ The animations reached the main thread because Chrome wakes it at every turn of 
 render-budget.spec.ts holds a working panel at rest under 40 style recalculations in 3 seconds; the CSS helix took 138.
 The colour is the ink of the harness's own mark: Claude Code's orange, Codex's light ink and pi's moss (2026-10-30: "make color of the helix match teh harnes icon coloring").
 Beside it, the words the harness says it is doing, or Working when it says none, type out a letter at a time, a shimmer crosses them, and whimsical verbs follow in turn, one every 3 seconds, typed the same way (2026-10-30: "make twitsting and teh verbs rotate in a type writere hroiztonal shimmer").
-The typing slides a window over the word to each letter's edge, and the shimmer is a light band crossing it, both by transform alone; each word is written into the page directly, so React draws nothing again while a turn runs.
+The typing slides a window over the word to each letter's edge, and the shimmer is a light band crossing it, both by transform alone.
+Every word is in the page from the start, laid unseen in the one place, and shows in its turn by its own animations, which come round again while the turn runs, so nothing in the page changes as the words rotate (the CFO, 2026-10-30: "nothing moves when nothing runs"): a working panel at rest recalculates the page's style 2 or 3 times in 3 seconds, and React draws nothing again.
 It carries an accessible name, the harness's own words or Working, and reduced motion keeps the helix still and shows those words whole.
 Working cards, tree rows and a panel's Task view show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
