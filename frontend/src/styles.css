@@ -1183,10 +1183,10 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .question-card h3:focus { outline: none; }
 /* A goblin's name and title wrap onto further lines rather than ending in an
    ellipsis, and so does its project. A task with no goblin yet keeps its
-   title to one line, in full in its tip. */
+   title to two lines, in full in its tip. */
 .task-card .browser-indicator { font-size: 1rem; }
-.task-card .card-title { flex: 1 1 8rem; min-width: 0; overflow-wrap: anywhere; font-size: 1rem; font-weight: 700; line-height: 1.4; }
-.task-card .card-task-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.task-card .card-title { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; font-size: 1rem; font-weight: 700; line-height: 1.4; }
+.task-card .card-task-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .card-repo { min-width: 0; overflow-wrap: anywhere; }
 /* A card's project sits under its status, past the portrait, and GitHub's
    mark beside it opens the repository; a press anywhere else on the line
@@ -1237,6 +1237,10 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .memory > .disk-meter:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .task-meters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
 .task-meters .memory { flex: 1 1 160px; min-width: 0; margin: 0; }
+@media (max-width: 40rem) {
+  .board-column:has(> .task-meters) { display: flex; flex-direction: column; }
+  .board-column > .task-meters { order: 1; margin: 14px 0 0; }
+}
 .subscription-dial { display: flex; align-items: center; gap: 6px; min-width: 96px; border-radius: var(--radius); cursor: help; }
 .subscription-dial:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
 .subscription-ring { display: block; flex: none; width: 48px; height: 48px; }
