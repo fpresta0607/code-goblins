@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { expect, openChat, openTaskList, test, type Page } from "./site";
 import { GOBLIN, open as openSession, openGoblin, snapshot } from "./session-board";
 
@@ -39,6 +40,8 @@ async function open(page: Page, snapshot: Record<string, unknown>) {
       let host = fiber.child;
       while (host && host.tag !== 5) host = host.child;
       const element = host?.stateNode instanceof Element ? host.stateNode : null;
+      if (fiber.child?.tag === 5 && element?.classList.contains("goblin-avatar") && element.closest(".flow-node")) return "flow-avatar";
+      if (fiber.child?.tag === 5 && element?.classList.contains("baby-goblin") && element.closest(".tree-branches")) return "flow-baby";
       return element ? element.getAttribute("class")?.split(" ")[0] || element.tagName.toLowerCase() : "none";
     };
     Object.assign(window, {
@@ -73,8 +76,12 @@ async function open(page: Page, snapshot: Record<string, unknown>) {
     });
     class HeldStream extends EventTarget {
       onerror: (() => void) | null = null;
-      constructor() {
+      constructor(address: string) {
         super();
+        if (new URL(address, location.href).pathname === "/api/messages") {
+          setTimeout(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify({ messages: [], more: false }) })));
+          return;
+        }
         streams.push(this);
         setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data: JSON.stringify(first) })));
       }
@@ -92,6 +99,111 @@ const counted = (page: Page) => page.evaluate(() => (window as unknown as { coun
 const push = (page: Page, snapshot: unknown) => page.evaluate((next) => (window as unknown as { push: (next: unknown) => void }).push(next), snapshot);
 const read = (page: Page, readings: unknown) => page.evaluate((next) => (window as unknown as { read: (next: unknown) => void }).read(next), readings);
 const total = (counts: Counts) => Object.values(counts.rendered).reduce((sum, count) => sum + count, 0);
+
+test("orchestration helper content redraws only when its rendered values change", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const child = { id: "helper", kind: "helper", label: "Review logs", model: "model-one", state: "working", memory: 1024 ** 2, started: since, last_activity: since, last_line: "" };
+  const report = (revision: number, updated: typeof child) => ({ ...fleet(WORKING.map((task, index) => index < 2 ? { ...task,
+    title: revision > 1 && index === 0 ? "Updated report" : task.title,
+    tree: { task_id: task.id, generation: task.generation, harness: "claude", children: [{ ...(index === 0 ? updated : child), id: "helper-" + index }, ...(index === 0 ? [{ ...child, id: "steady-helper", label: "Keep branch active" }] : [])] },
+  } : task)), revision });
+  await open(page, report(1, child));
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await expect(page.locator(".tree-branches .tree-child")).toHaveCount(3);
+  await reset(page);
+
+  // Act: replace a helper's report and the click closure without changing its face.
+  let updated = { ...child, last_line: "A new report with the same rendered values" };
+  await push(page, report(2, updated));
+  await expect(page.locator(".flow-node", { hasText: "Updated report" })).toHaveCount(1);
+
+  // Assert
+  expect((await counted(page)).rendered["flow-baby"] ?? 0).toBe(0);
+  const changed = page.locator(".tree-branches .tree-child").first();
+  for (const [index, { change, selector, text }] of [
+    { change: { model: "model-two" }, selector: ".tree-child-model", text: "model-two" },
+    { change: { state: "waiting" }, selector: ".state-chip-text", text: "Idle 3h 0m" },
+    { change: { memory: 512 * 1024 ** 2 }, selector: ".tree-memory", text: "512 MB" },
+    { change: { label: "Inspect queues" }, selector: "strong", text: "Inspect queues" },
+    { change: { last_activity: "2026-10-27T11:59:00Z" }, selector: ".state-chip-text", text: "Idle 1m" },
+  ].entries()) {
+    await reset(page);
+    updated = { ...updated, ...change };
+    await push(page, report(index + 3, updated));
+    await expect(changed.locator(selector)).toHaveText(text);
+    expect((await counted(page)).rendered["flow-baby"] ?? 0, JSON.stringify(change)).toBe(1);
+  }
+});
+
+test("orchestration redraws only the goblin whose report changed", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  const snapshot = fleet(WORKING);
+  await open(page, snapshot);
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await expect(page.locator(".flow-node")).toHaveCount(8);
+  await reset(page);
+
+  // Act
+  await push(page, { ...snapshot, revision: 2, tasks: [{ ...WORKING[0], title: "working-1 renamed" }, ...WORKING.slice(1)] });
+  await expect(page.locator(".flow-node", { hasText: "working-1 renamed" })).toHaveCount(1);
+
+  // Assert
+  const counts = await counted(page);
+  expect(counts.rendered["flow-avatar"] ?? 0, JSON.stringify(counts.rendered)).toBe(1);
+  expect(counts.rendered["card-clock"] ?? 0, JSON.stringify(counts.rendered)).toBeLessThanOrEqual(2);
+});
+
+test("orchestration redraws no node for a meter reading", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  await open(page, fleet(WORKING));
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await expect(page.locator(".flow-node")).toHaveCount(8);
+  await reset(page);
+
+  // Act
+  await read(page, { revision: 2, memory: { ...memory, available: memory.available - 2 ** 20 } });
+  await page.waitForTimeout(500);
+
+  // Assert
+  const counts = await counted(page);
+  expect(counts.rendered["flow-avatar"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
+  expect(counts.rendered["card-clock"] ?? 0, JSON.stringify(counts.rendered)).toBe(0);
+});
+
+test("orchestration with seven goblins and Chat stays within its idle budget", async ({ page }, testInfo) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  await page.routeWebSocket("**/api/terminal/native?*", () => {});
+  await open(page, { ...fleet(WORKING), cfo_terminal: "fixture-terminal", cfo_harness: "claude" });
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await expect(page.locator(".messages-view")).toBeVisible();
+  await page.waitForTimeout(1000);
+  await page.evaluate(() => {
+    let mutations = 0;
+    const observer = new MutationObserver((records) => { mutations += records.length; });
+    observer.observe(document.querySelector(".workspace")!, { childList: true, subtree: true, attributes: true, characterData: true });
+    Object.assign(window, { idleMutations: () => { observer.disconnect(); return mutations; } });
+  });
+  await reset(page);
+
+  // Act
+  await page.clock.runFor(8000);
+
+  // Assert
+  const counts = await counted(page);
+  const mutations = await page.evaluate(() => (window as unknown as { idleMutations: () => number }).idleMutations());
+  const report = testInfo.outputPath("idle-budget.json");
+  await writeFile(report, JSON.stringify({ seconds: 8, commits: counts.commits, mutations, commitsPerSecond: counts.commits / 8, mutationsPerSecond: mutations / 8 }));
+  await testInfo.attach("idle-budget", { path: report, contentType: "application/json" });
+  expect(counts.commits, JSON.stringify(counts.rendered)).toBeLessThanOrEqual(8);
+  expect(mutations).toBeLessThan(40);
+  await expect(page.locator(".xterm")).toHaveCount(0);
+  const spinners = await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running" && (animation as CSSAnimation).animationName === "terminal-spin").length);
+  expect(spinners).toBe(0);
+});
 
 test("an idle board draws nothing between its minutes", async ({ page }) => {
   // Arrange: the clock stands five seconds into a minute.

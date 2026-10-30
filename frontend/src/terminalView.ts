@@ -65,18 +65,18 @@ export interface ViewEvents {
   history?: () => void;
 }
 
-// TerminalView is one connection to a native terminal and the xterm that
-// draws it. It is staged, laid out but invisible, while it replays the host's
-// history and the repaint its first size asks for, so the panel never shows a
-// blank or half-drawn screen. It draws on the GPU where it can (drawOnGpu) and
-// writes a whole redraw at a time.
+// TerminalView keeps one parser and connection to a native terminal. Chat
+// uses its input link without opening xterm's visual surface. When first
+// shown, that surface stays staged until its size's repaint is drawn; later
+// hides detach it and keep the same parser, connection and reading position.
 export class TerminalView {
   readonly element: HTMLDivElement;
   private readonly term: Terminal;
   private readonly socket: WebSocket;
   private readonly frames: FrameWriter;
   private readonly resize: ResizeObserver;
-  private readonly rendered: IDisposable;
+  private rendered: IDisposable | undefined;
+  private readonly presentation = document.createDocumentFragment();
   private readonly encoder = new TextEncoder();
   private readonly events: ViewEvents;
   // history is how many output bytes replay the terminal's history, once the
@@ -105,6 +105,7 @@ export class TerminalView {
   // view has not been told.
   private screenState: ScreenState | null = null;
   private isShown = false;
+  private shouldFocus = false;
   private fit: FitState = { isDrawn: true, isClaimPending: false };
   private disposed = false;
   private frame = 0;
@@ -118,7 +119,7 @@ export class TerminalView {
   private readonly stopFollowing: () => void;
   private readonly stopZooming: () => void;
   private readonly stopSwiping: () => void;
-  private readonly detachDictatedInput: () => void;
+  private detachDictatedInput: (() => void) | undefined;
 
   constructor(container: HTMLElement, url: URL, fontSize: number, events: ViewEvents) {
     this.events = events;
@@ -127,9 +128,6 @@ export class TerminalView {
     container.append(this.element);
     const nonce = document.querySelector<HTMLMetaElement>('meta[name="cfo-style-nonce"]')?.content || "";
     this.term = new Terminal({ documentOverride: terminalDocument(nonce), fontSize, fontFamily: FALLBACK_FONT, lineHeight: LINE_HEIGHT, scrollback: 5000, cursorBlink: false, theme: THEME, linkHandler: { activate: () => {} } });
-    this.term.open(this.element);
-    drawOnGpu(this.term);
-    this.term.textarea?.setAttribute("aria-label", "Terminal input");
     this.term.parser.registerOscHandler(52, () => true);
     this.pin = new PinnedLine(this.element);
     for (const [final, isShown] of [["h", true], ["l", false]] as const) {
@@ -157,10 +155,8 @@ export class TerminalView {
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
-    this.detachDictatedInput = attachDictatedInput(this.term, (keys) => { if (this.isSendable()) this.term.input(keys, true); });
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
-    this.term.element?.addEventListener("wheel", this.wheelHistory, { capture: true, passive: false });
     this.term.attachCustomKeyEventHandler((event) => this.key(event));
     let wheelRest = 0;
     this.term.attachCustomWheelEventHandler((event) => {
@@ -171,7 +167,6 @@ export class TerminalView {
       event.preventDefault();
       return false;
     });
-    this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); this.repin(); });
     this.resize = new ResizeObserver(() => this.refit());
     this.resize.observe(this.element);
     // A size chosen in any terminal, by the keys, the right button and the
@@ -193,17 +188,35 @@ export class TerminalView {
   // coming into sight is fitted to the panel and drawn again whole.
   show(shown: boolean): void {
     this.isShown = shown;
-    if (!shown) return;
+    if (!shown) {
+      this.shouldFocus = false;
+      this.presentation.append(...this.element.childNodes);
+      return;
+    }
+    this.element.append(this.presentation);
+    if (!this.term.element) {
+      clearTimeout(this.fallback);
+      this.fallback = undefined;
+      this.element.classList.add("staged");
+      this.term.open(this.element);
+      drawOnGpu(this.term);
+      this.term.textarea?.setAttribute("aria-label", "Terminal input");
+      this.detachDictatedInput = attachDictatedInput(this.term, (keys) => { if (this.isSendable()) this.term.input(keys, true); });
+      this.rendered = this.term.onRender(() => { if (this.step("draw")) this.refit(); this.repin(); });
+    }
+    this.term.element?.addEventListener("wheel", this.wheelHistory, { capture: true, passive: false });
     this.claim();
     this.term.refresh(0, this.term.rows - 1);
   }
 
   promote(): void {
     this.element.classList.remove("staged");
+    if (this.shouldFocus && this.isShown) { this.shouldFocus = false; this.term.focus(); }
   }
 
   focus(): void {
-    this.term.focus();
+    this.shouldFocus = this.element.classList.contains("staged");
+    if (!this.shouldFocus) this.term.focus();
   }
 
   // paste types text into the terminal the way a paste does, so a program
@@ -211,7 +224,12 @@ export class TerminalView {
   // was sent.
   paste(text: string): boolean {
     if (!this.isSendable()) return false;
-    this.term.paste(stripPasteEscapes(text));
+    const clean = stripPasteEscapes(text);
+    if (this.term.textarea) this.term.paste(clean);
+    else {
+      const normalized = clean.replace(/\r?\n/g, "\r");
+      this.term.input(this.term.modes.bracketedPasteMode && !this.term.options.ignoreBracketedPasteMode ? "\x1b[200~" + normalized + "\x1b[201~" : normalized, true);
+    }
     return true;
   }
 
@@ -302,12 +320,12 @@ export class TerminalView {
     this.stopFollowing();
     this.stopZooming();
     this.stopSwiping();
-    this.detachDictatedInput();
+    this.detachDictatedInput?.();
     this.pin.dispose();
     clearTimeout(this.settle);
     clearTimeout(this.fallback);
     this.resize.disconnect();
-    this.rendered.dispose();
+    this.rendered?.dispose();
     this.frames.dispose();
     this.element.removeEventListener("pointerdown", this.startCopy);
     this.element.removeEventListener("paste", this.pasteClipboard, true);
@@ -326,13 +344,13 @@ export class TerminalView {
   private receive(data: ArrayBuffer | string): void {
     if (typeof data === "string") {
       const history = parseHistory(data);
-      if (history !== null) { this.history = history; return; }
+      if (history !== null) { this.history = history; this.readyIfDrawn(); return; }
       const unread = parseUnread(data);
       if (unread !== null) { this.isUnread = unread; this.events.unread(unread); return; }
       const held = parseHeld(data);
       if (held !== null) { this.heldReason = held; this.events.held(held); return; }
       const screen = parseScreen(data);
-      if (screen !== null) { this.screenState = screen; this.events.screen(screen); return; }
+      if (screen !== null) { this.screenState = screen; this.events.screen(screen); this.readyIfDrawn(); return; }
       // The terminal took a size here in its output. xterm parses writes in
       // order and calls back after each, so the grid changes once the output
       // before the size is drawn, and before the output after it.
@@ -352,6 +370,14 @@ export class TerminalView {
   // The screen is whole once live output after the terminal took the view's
   // size, the repaint, is drawn and no synchronized update holds it back.
   private readyIfDrawn(): void {
+    // Chat needs the input link after replay, without opening a renderer or
+    // claiming the native terminal's size. Give its initial screen reading
+    // the same bounded wait as a visible view's first repaint.
+    if (!this.term.element && this.history >= 0 && this.consumed >= this.history && !this.frames.updating) {
+      if (this.screenState) this.markReady();
+      else this.fallback ??= setTimeout(() => this.markReady(), READY_FALLBACK_MS);
+      return;
+    }
     if (this.claimedAt >= 0 && this.history >= 0 && this.consumed > Math.max(this.history, this.claimedAt) && !this.frames.updating) this.markReady();
   }
 
@@ -371,13 +397,15 @@ export class TerminalView {
   // with a cursor reads as a program at work where its closing says why (a
   // goblin whose host a restart ended, 2026-10-20).
   private markReady(): void {
-    if (this.isReady || this.disposed) return;
+    if (this.disposed) return;
     clearTimeout(this.fallback);
+    if (this.isReady) { if (this.isShown && this.element.classList.contains("staged")) this.promote(); return; }
     this.isReady = true;
     requestAnimationFrame(() => { if (!this.disposed && this.socket.readyState === WebSocket.OPEN) this.events.ready(); });
   }
 
   private refit(): void {
+    if (!this.isShown) return;
     cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => this.claim());
   }
@@ -414,7 +442,7 @@ export class TerminalView {
   // repin draws the pinned line and tells where the history ends once a
   // frame, after whatever moved the screen, the cursor or the scroll.
   private repin(): void {
-    if (this.pinFrame) return;
+    if (!this.isShown || this.pinFrame) return;
     this.pinFrame = requestAnimationFrame(() => {
       this.pinFrame = 0;
       if (this.disposed) return;

@@ -204,7 +204,7 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   }, [link, phase, reconnecting, visible, isUnread, heldWhy, screen, dictation.listening, dictation.stop, dictation.note, feedback]);
   const closed = <Notice form="box" icon="terminal" className={hasScreen ? "terminal-foot" : undefined}
     actions={!isEnded && <button className="primary" disabled={!visible} onClick={() => { retries.current = 0; setUnsent(false); setPhase(current.current ? "live" : "connecting"); setReconnecting(!!current.current); setAttempt((prior) => prior + 1); }}>Reconnect</button>}>{closedWhy}</Notice>;
-  return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} aria-label={label}>
+  return <section className={"native-terminal host-terminal" + (hasComposer ? " has-composer" : "")} hidden={!shown} aria-label={label}>
     <div className="terminal-surface" ref={surface} />
     {/* Connecting is a plain line under the terminal's box, never a cover over
         it: he types into that box while it connects, and the loader must sit

@@ -361,10 +361,14 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node-foot .icon-button + .card-harness { margin-left: 0; }
 .flow-node-foot .mark, .flow-node-foot .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .flow-node-foot .mark svg, .flow-node-foot .mark .icon, .flow-node-foot .icon-button svg { width: 16px; height: 16px; }
-.flow-node-foot .subscription-dials { display: flex; gap: 10px; min-width: 0; }
-.flow-node-foot .subscription-dial { min-width: 0; gap: 4px; }
+.flow-node-foot:has(.subscription-dials) { height: auto; }
+.flow-node-foot .subscription-dials { display: flex; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.flow-node-foot .subscription-dial { flex: none; min-width: 0; gap: 4px; }
+.flow-node-foot .card-harness, .flow-node-foot .icon-button { flex-shrink: 0; }
 .flow-node-foot .subscription-ring { width: 28px; height: 28px; }
 .flow-node-foot .subscription-percent { font-size: .9375rem; }
+.flow-node:has(.subscription-dial ~ .subscription-dial) .flow-node-main { padding-bottom: 90px; }
+.flow-world.compact-dials .subscription-dials:has(.subscription-dial ~ .subscription-dial) :is(.subscription-percent, .key-spend-budget) { display: none; }
 .flow-node-main:active { cursor: grabbing; }
 .flow-node .goblin-avatar { width: 72px; height: 72px; }
 .flow-node .card-copy { gap: 2px; max-height: 100%; overflow: clip; overflow-clip-margin: 3px; }
@@ -1260,9 +1264,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .key-spend-spent { font-size: 1rem; font-variant-numeric: tabular-nums; }
 .key-spend-budget { color: var(--muted); font-size: .8125rem; white-space: nowrap; }
 .key-spend-dial.unknown .key-spend-spent { color: var(--muted); }
-/* The canvas card's foot is one row of 28px marks, so the dollars and the
-   budget they count against sit on one line there rather than two. */
-.flow-node-foot .key-spend-values { flex-direction: row; align-items: baseline; gap: 4px; }
+.flow-node-foot .key-spend-values { align-items: flex-start; }
 .flow-node-foot .key-spend-budget { font-size: .8125rem; }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
