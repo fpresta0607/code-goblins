@@ -1,7 +1,40 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { renderToStaticMarkup } from "react-dom/server";
+import { inlineElements } from "./messageText.ts";
 import { questionChoices, questionAnswer, questionSelection } from "./questionChoices.ts";
 import { parseSnapshot, parseAction } from "./types.ts";
+
+test("formatted choices render inline and keep the exact answer value", () => {
+  // Arrange
+  const options = ["**Mark incident 37780310 a false positive in GitGuardian and keep history**", "Run `git status`", "Keep history"];
+  const question = parseSnapshot({ healthy: true, questions: [{ id: "incident", identity: "incident-1", options, recommended: options[0] }] }).questions![0];
+
+  // Act
+  const choices = questionChoices(question);
+  const rendered = choices.map((choice) => renderToStaticMarkup(inlineElements(choice.text)));
+
+  // Assert
+  assert.deepEqual(rendered, ["<strong>Mark incident 37780310 a false positive in GitGuardian and keep history</strong>", "Run <code>git status</code>", "Keep history"]);
+  assert.deepEqual(choices.filter((choice) => choice.recommended).map((choice) => choice.value), [options[0]]);
+  for (const choice of choices) assert.equal(questionAnswer(question, "option:" + choice.value, "")?.text, choice.value);
+});
+
+for (const draft of [undefined, { selection: "", written: "" }, { selection: "", written: "Keep the history" }]) {
+  test(`a pending question without options selects its written answer with ${draft ? JSON.stringify(draft) : "no draft"}`, () => {
+    // Arrange
+    const question = parseSnapshot({ healthy: true, questions: [{ id: "written", identity: "written-1", status: "pending", options: [] }] }).questions![0];
+
+    // Act
+    const selected = questionSelection(question, draft);
+
+    // Assert
+    assert.deepEqual(selected, { selection: "other", written: draft?.written || "" });
+    assert.equal(questionAnswer(question, selected.selection, selected.written)?.text ?? null, draft?.written || null);
+    assert.deepEqual(questionSelection({ ...question, status: "superseded" }, draft), { selection: "", written: "" });
+    assert.deepEqual(questionSelection({ ...question, options: ["Keep it"] }, draft), draft || { selection: "", written: "" });
+  });
+}
 
 test("each choice is the answer itself with no letter; the recommendation moves first without changing answer identity; Other stays explicit", () => {
   const q = parseSnapshot({ healthy:true, questions: [{id:"question-1", identity:"cfo-1", options:["Stay", "Isolate", "Wait"], recommended:"Isolate"}] }).questions![0];
