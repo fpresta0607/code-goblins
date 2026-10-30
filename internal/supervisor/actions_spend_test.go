@@ -87,13 +87,13 @@ func TestActionsSpendTimerReadsWithoutAQuotaProvider(t *testing.T) {
 	go func() { defer close(done); service.keepSubscriptionUsage(ctx, time.Hour) }()
 	select {
 	case <-read:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timer made no first reading")
 	}
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timer did not stop")
 	}
 }

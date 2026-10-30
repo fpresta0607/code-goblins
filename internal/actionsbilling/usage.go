@@ -70,11 +70,14 @@ func (r Reader) Read(ctx context.Context, now time.Time) Reading {
 			continue
 		}
 		date, err := time.Parse("2006-01-02", item.Date)
+		if err != nil {
+			date, err = time.Parse(time.RFC3339, item.Date)
+		}
 		if err != nil || item.NetAmount == nil {
 			reading.Detail = "GitHub returned an invalid Actions usage item."
 			return reading
 		}
-		if date.Format("2006-01") != reading.Month || *item.NetAmount == 0 {
+		if date.UTC().Format("2006-01") != reading.Month || *item.NetAmount == 0 {
 			continue
 		}
 		if strings.TrimSpace(item.Repository) == "" {

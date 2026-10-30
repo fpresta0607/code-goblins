@@ -124,3 +124,15 @@ func TestReadFiltersZeroNetAfterSummingTheRepository(t *testing.T) {
 		t.Fatalf("reading = %+v", reading)
 	}
 }
+
+func TestReadAcceptsBillingTimestampsAndDocumentedDates(t *testing.T) {
+	for _, date := range []string{"2026-10-02", "2026-10-02T00:00:00Z", "2026-10-02T00:00:00.000Z", "2026-11-01T00:30:00+02:00"} {
+		t.Run(date, func(t *testing.T) {
+			runner := &billingRunner{usage: `{"usageItems":[{"date":"` + date + `","product":"Actions","repositoryName":"example-user/fern","netAmount":2.25}]}`}
+			reading := (Reader{Commands: runner}).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC))
+			if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != 2.25 {
+				t.Fatalf("reading = %+v", reading)
+			}
+		})
+	}
+}

@@ -23,7 +23,7 @@ export function ActionsSpendPanel({ usage, month, onClose }: { usage?: ActionsSp
     <p className="actions-spend-total">{hasTotal ? DOLLARS.format(amount) : "Spend unavailable"}</p>
     <p className="muted">This month, after included minutes. USD.</p>
     {usage?.status === "stale" && <p className="actions-spend-old">Old reading</p>}
-    {detail && <p className="actions-spend-problem" role="alert">{detail}</p>}
+    {detail && <p className="actions-spend-problem">{detail}</p>}
     {hasTotal && (usage.repositories.length > 0 ? <table>
       <thead><tr><th scope="col">Repository</th><th scope="col">Spend</th></tr></thead>
       <tbody>{usage.repositories.map((repository) => <tr key={repository.name}><td>{repository.name}</td><td>{DOLLARS.format(repository.spent_usd)}</td></tr>)}</tbody>
