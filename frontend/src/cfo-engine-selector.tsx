@@ -18,7 +18,9 @@ export function CfoEngineSelector({ snapshot }: { snapshot: Snapshot }) {
   const [draft, setDraft] = useState<EngineSelection | null>(null);
   const [isSaving, setSaving] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
-  const choice = draft || received || { harness: snapshot.cfo_harness, model: "", effort: "" };
+  // The selection only: the received engine's pending, problem and waiting
+  // are its status, and the server refuses them in a selection it is sent.
+  const choice: EngineSelection = draft || (received ? { harness: received.harness, model: received.model, effort: received.effort } : { harness: snapshot.cfo_harness, model: "", effort: "" });
   const harness = catalog.data?.find((item) => item.id === choice.harness);
   const model = harness?.models.find((item) => item.id === choice.model);
   const unavailable = harness?.reason
