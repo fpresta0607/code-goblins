@@ -193,6 +193,39 @@ func TestSendNowOnHisMessageInABusyClaudeCFOsQueuePressesItsKeyOnce(t *testing.T
 	}
 }
 
+// A line waiting in Claude Code's queue leaves its prompt line empty but for
+// the hint it draws there, which is nothing he left unsent, so his next message
+// is typed into the turn behind it and not held back as if it were.
+func TestHisNextMessageIsTypedBehindOneInABusyClaudeCFOsQueue(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	for _, id := range []string{"m1", "m2"} {
+		if _, err := store.Queue(Action{ID: id, Kind: "message", Text: "from " + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Act
+	err := errors.Join(store.ProcessOne(context.Background(), service.execute), store.ProcessOne(context.Background(), service.execute))
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := terminal.waitForLines(t, 3)
+	if len(lines) != 3 || !strings.HasSuffix(lines[1], "from m1") || !strings.HasSuffix(lines[2], "from m2") {
+		t.Fatalf("terminal input = %q; want both messages queued in turn", lines)
+	}
+	for _, sent := range store.Snapshot().Actions {
+		if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
+			t.Errorf("%s = %+v; want it typed into the turn, awaiting the CFO", sent.ID, sent)
+		}
+	}
+}
+
 // Send now on a typed message is refused in plain words, with nothing pressed,
 // nothing marked sent and its words as they were, where words he typed into
 // the CFO's own prompt line would go with it, where it is a command, which

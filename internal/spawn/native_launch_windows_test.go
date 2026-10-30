@@ -639,7 +639,9 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 // and submits it. An Enter that submits the text starts a turn that never
 // ends. In "claude-queues" that turn goes on showing above the composer, as
 // Claude Code 2.1.275's does, and a line submitted during it is queued, shown
-// above the composer, until Ctrl+X Ctrl+S sends what is queued at once.
+// above the composer, until Ctrl+X Ctrl+S sends what is queued at once. While
+// one waits its empty prompt line shows the hint Claude Code 2.1.314 drew
+// there, live, on 2026-10-30.
 func claudeComposer(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
 	rule := strings.Repeat("─", 80)
 	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
@@ -702,6 +704,9 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 			line.WriteString(key)
 		}
 		rows := []string{"> " + line.String()}
+		if line.Len() == 0 && len(queued) > 0 {
+			rows = []string{"> Press up to edit queued messages"}
+		}
 		for range lost {
 			rows = append(rows, "")
 		}

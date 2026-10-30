@@ -774,6 +774,46 @@ func TestClaudesCapturedComposerReadsEmptyWithoutMistakingADraft(t *testing.T) {
 	}
 }
 
+// Claude Code 2.1.314, live on 2026-10-30: while a message waits in its queue
+// its empty prompt line shows a hint, whole from 34 columns up and cut under an
+// ellipsis below that, which is nothing anyone typed. Words that only start or
+// end like that hint are a draft, and go unsent.
+func TestClaudesQueuedHintReadsEmptyWithoutMistakingADraft(t *testing.T) {
+	rule := strings.Repeat("─", 33)
+	footer := "  ⏵⏵ auto mode on (shift+tab to"
+	screens, _ := NativeScreens(Claude)
+	for name, test := range map[string]struct {
+		rows  []string
+		empty bool
+	}{
+		"whole":                     {[]string{"❯ Press up to edit queued messages"}, true},
+		"cut at 33 columns":         {[]string{"❯ Press up to edit queued messag…"}, true},
+		"cut at 32 columns":         {[]string{"❯ Press up to edit queued messa…"}, true},
+		"cut at 27 columns":         {[]string{"❯ Press up to edit queued …"}, true},
+		"ascii prompt":              {[]string{"> Press up to edit queued messages"}, true},
+		"draft after the hint":      {[]string{"❯ Press up to edit queued messages and retry"}, false},
+		"draft before the hint":     {[]string{"❯ Now Press up to edit queued messages"}, false},
+		"draft that starts as it":   {[]string{"❯ Press up to edit the file"}, false},
+		"draft of its first words":  {[]string{"❯ Press up to edit queued"}, false},
+		"draft with its own ending": {[]string{"❯ Press up to edit the file…"}, false},
+		"draft of an ellipsis":      {[]string{"❯ …"}, false},
+		"hint over more rows":       {[]string{"❯ Press up to edit queued messages", "  continued draft"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screen := append(append([]string{"* Billowing… (2s · ↓ 9 tokens)", rule}, test.rows...), rule, footer)
+
+			// Act
+			empty, holds := screens.ComposerEmpty(screen), screens.ComposerHoldsText(screen)
+
+			// Assert
+			if empty != test.empty || holds == test.empty {
+				t.Fatalf("ComposerEmpty = %v, ComposerHoldsText = %v; want empty %v", empty, holds, test.empty)
+			}
+		})
+	}
+}
+
 // Claude Code that takes the Enter ending typed text as a new line leaves the
 // text in its composer over the empty row that Enter added, as a resumed
 // goblin's was on a loaded machine on 2026-10-20. Text that shows over no new

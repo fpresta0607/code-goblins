@@ -131,8 +131,9 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			Working:   regexp.MustCompile(`^[·✢✳*✶✻✽] \S.*…`),
 			Pasted:    []string{"[Pasted text #"},
 			Resubmits: 1,
-			// Claude Code 2.1.288 encloses its bare prompt between rules.
-			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*$`),
+			// Claude Code 2.1.288 encloses its bare prompt between rules, and
+			// 2.1.314 draws a hint on it while a message waits in its queue.
+			Empty:         regexp.MustCompile(`^[>❯][ \x{00a0}]*(` + cutShort("Press up to edit queued messages") + `)?$`),
 			RuledComposer: true,
 			// Claude Code 2.1.302 asks permission for a call under its
 			// diff, as in "Do you want to create nine.txt?", over
@@ -216,6 +217,18 @@ func NativeScreens(kind Kind) (Screens, bool) {
 		}, true
 	}
 	return Screens{}, false
+}
+
+// cutShort returns a pattern for text as a terminal draws it, whole or cut
+// under an ellipsis wherever its width falls, as Claude Code 2.1.314 cut its
+// hint to "Press up to edit queued …" at 27 columns. A line that only starts
+// like text does not match: that is words somebody typed.
+func cutShort(text string) string {
+	cuts := []string{regexp.QuoteMeta(text)}
+	for end := 1; end < len(text); end++ {
+		cuts = append(cuts, regexp.QuoteMeta(text[:end])+"…")
+	}
+	return strings.Join(cuts, "|")
 }
 
 // Dialog returns the dialog screen shows, if any.
