@@ -78,6 +78,26 @@ for (const backend of ["native", "herdr"] as const) {
   });
 }
 
+for (const role of ["cfo", "goblin"]) {
+  test(`Codex ${role} microphone completion flushes its paste once after each harness switch`, async ({ page }) => {
+    // Arrange
+    const terminal = await openTerminal(page, "native", role);
+    let expected = "";
+    for (const harness of ["codex", "claude", "codex"]) {
+      await page.evaluate((value) => (window as unknown as { reportHarness: (harness: string) => void }).reportHarness(value), harness);
+
+      // Act
+      await page.getByRole("button", { name: "Dictate", exact: true }).tap();
+      await page.waitForTimeout(1200);
+      await page.getByRole("button", { name: "Stop and send", exact: true }).tap();
+
+      // Assert
+      expected += "\x1b[200~" + WORDS + "\x1b[201~" + (harness === "codex" ? "\x1b[F\r" : "\r");
+      await expect.poll(terminal.typed).toBe(expected);
+    }
+  });
+}
+
 // The Overlord, 2026-10-22: "it only records like the first few sentences
 // when I'm using dictation on mobile", "It's like a timer or something". A
 // dictation ends when the page is hidden, and speaking touches nothing, so

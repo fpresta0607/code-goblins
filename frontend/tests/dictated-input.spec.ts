@@ -60,6 +60,43 @@ for (const backend of ["native", "herdr"] as const) {
 
     const typed = () => Buffer.concat(inputs).toString("utf8");
 
+    if (backend === "native") {
+      test("Codex completion flushes dictated text once after each harness switch", async ({ page }) => {
+        for (const harness of ["codex", "claude", "codex"]) {
+          // Arrange
+          await page.evaluate((value) => (window as unknown as { reportHarness: (harness: string) => void }).reportHarness(value), harness);
+          inputs.length = 0;
+
+          // Act
+          await dictate(page, PARTIALS);
+          await page.keyboard.press("Enter");
+
+          // Assert
+          await expect.poll(typed).toBe(PARTIALS.at(-1) + (harness === "codex" ? "\x1b[F\r" : "\r"));
+        }
+      });
+
+      test("Enter in a Codex picker keeps its selection after dictated input", async ({ page }) => {
+        // Arrange
+        await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
+          socket.send(JSON.stringify({ type: "history", bytes: 0 }));
+          socket.send(Buffer.from("\x1b[2J\x1b[HSelect Model and Effort\r\n"));
+          socket.send(JSON.stringify({ type: "screen", submission: "", asking: false, open: true, working: false }));
+          socket.onMessage((data) => { if (typeof data !== "string") inputs.push(data); });
+        });
+        await page.goto("/tests/fixtures/terminal-input.html?harness=codex#native");
+        await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
+        inputs.length = 0;
+
+        // Act
+        await dictate(page, PARTIALS);
+        await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Enter");
+
+        // Assert
+        await expect.poll(typed).toBe(PARTIALS.at(-1) + "\r");
+      });
+    }
+
     test("a dictation's growing partial results reach the program once, as its final words", async ({ page }) => {
       // Act
       await dictate(page, PARTIALS);

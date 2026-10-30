@@ -39,7 +39,7 @@ for (const who of ["CFO", "goblin"] as const) {
     // sent one clears it, so Enter again only while the draft is there.
     await expect(async () => {
       if (await field(page, name).inputValue() === "continue from this draft") await field(page, name).press("Enter");
-      expect(typed(relay)).toContain(pasted("continue from this draft") + "\r");
+      expect(typed(relay)).toContain(pasted("continue from this draft") + "\x1b[F\r");
     }).toPass({ timeout: 20_000 });
     relay.drop();
     await expect.poll(() => relay.views).toBe(2);

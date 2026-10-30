@@ -104,6 +104,7 @@ export class TerminalView {
   // What the relay last said of the harness's screen, or null while this
   // view has not been told.
   private screenState: ScreenState | null = null;
+  private hasBulkInput = false;
   private isShown = false;
   private fit: FitState = { isDrawn: true, isClaimPending: false };
   private disposed = false;
@@ -157,7 +158,11 @@ export class TerminalView {
       for (const piece of inputMessages(this.encoder.encode(data))) this.send(piece);
     });
     this.term.onBinary((data) => this.send(Uint8Array.from(data, (character) => character.charCodeAt(0) & 255)));
-    this.detachDictatedInput = attachDictatedInput(this.term, (keys) => { if (this.isSendable()) this.term.input(keys, true); });
+    this.detachDictatedInput = attachDictatedInput(this.term, (keys) => {
+      if (!this.isSendable()) return;
+      this.hasBulkInput = true;
+      this.term.input(keys, true);
+    });
     this.element.addEventListener("pointerdown", this.startCopy);
     this.element.addEventListener("paste", this.pasteClipboard, true);
     this.term.element?.addEventListener("wheel", this.wheelHistory, { capture: true, passive: false });
@@ -211,6 +216,7 @@ export class TerminalView {
   // was sent.
   paste(text: string): boolean {
     if (!this.isSendable()) return false;
+    this.hasBulkInput = true;
     this.term.paste(stripPasteEscapes(text));
     return true;
   }
@@ -219,7 +225,8 @@ export class TerminalView {
   // after typing its words, and says whether it was sent.
   enter(): boolean {
     if (!this.isSendable()) return false;
-    this.term.input("\r", true);
+    this.term.input(this.events.harness() === "codex" && !this.screenState?.isOpen ? "\x1b[F\r" : "\r", true);
+    this.hasBulkInput = false;
     return true;
   }
 
@@ -490,6 +497,11 @@ export class TerminalView {
     }
     const shortcut = terminalKey(event, this.term, this.copy);
     if (shortcut !== null) return shortcut;
+    if (down && event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing) {
+      // End flushes Codex's paste burst before xterm submits and clears its text box.
+      if (this.hasBulkInput && this.events.harness() === "codex" && !this.screenState?.isOpen && this.isSendable()) this.term.input("\x1b[F", true);
+      this.hasBulkInput = false;
+    }
     if (event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.isComposing) {
       // Claude reads LF as Ctrl+J. Codex's Windows reader needs the native
       // Ctrl+J key down/up records: a bare LF loses its key identity in ConPTY.
