@@ -578,9 +578,9 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     # publishes it beside them, and the install takes it from there, so no
     # unsigned program reaches a machine and moving the pin moves every
     # machine the next release installs.
-    $noMistakesVersion = "1.88.0-25-gf1de785"
+    $noMistakesVersion = "1.88.0-51-gf23a641"
     $noMistakesRepository = "fpresta0607/no-mistakes"
-    $noMistakesCommit = "f1de78567fae80fd1ad6a39d7d27f2cb33d430a3"
+    $noMistakesCommit = "f23a6414d8d481b73150b8dd793eab24125a38f9"
     # Every package this install fetches from npm, the skills CLI among
     # them, is pinned to an exact version, so a release upstream reaches
     # users only when it is pinned here. On 2026-10-06 the skills CLI 1.7.1
