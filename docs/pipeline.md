@@ -298,6 +298,12 @@ With no `--level` the step runs `fast`, which is what the gate runs.
 Running the required level here as well ran the slowest packages twice, once on this machine and once in CI: from 2026-10-05 to 2026-10-07 every such local run took a median of 33 minutes, where CI tested every package in 11.
 A level asked for runs instead, such as `affected` to reproduce what CI found; a run at a level narrower than the change requires exits 0 when its checks pass, and its last line and its report name the level the change requires, which CI's run checks.
 Before a push, `cfo gate prepush` runs more than the fast level and picks the tests of a slow package itself, so nobody runs tests by a name they guessed ([Before a push](#before-a-push)).
+
+The plan reads the checkout before anything runs, which is `go list` opening every Go file one after another.
+That read takes a second with the file cache warm, and waits on the disk when it is not: for hours after a reboot, a read that reaches the disk can take seconds.
+A plan gets 15 minutes.
+One that outlasts them tested nothing, so `cfo gate test` and `cfo gate prepush` exit 125 with a last line that starts `nothing was tested, since the plan stalled`, as `cfo gate turn` does for a run that took no turn, and `cfo verify` records that command as `not_run`.
+Nothing about the change failed, and the next run starts from a warmer file cache.
 The plan prints why each package is in it (`changed`, `imports <package>`, or a contract's reason with the file that changed) and every test run the level left to a broader one, with why.
 It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed:
 

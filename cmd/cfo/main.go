@@ -297,7 +297,8 @@ type commandRuntime struct {
 	// the tests of a level may run, and gateRun runs one of the step's
 	// commands in dir and returns its exit code, with an error unless it
 	// passed. gateProgress is how often a run that holds a turn says beside
-	// it how far its tests are.
+	// it how far its tests are, and gatePlanLimit how long a plan may read
+	// the checkout.
 	availableMemory func() (supervisor.Memory, error)
 	// gateDisk reads the free disk a gate test run in a folder has beside its
 	// floor; nil reads the machine's.
@@ -306,6 +307,7 @@ type commandRuntime struct {
 	gateBudget    func(gatetest.Level) time.Duration
 	gateRun       func(command []string, dir string, env []string, stdout, stderr io.Writer) (int, error)
 	gateProgress  time.Duration
+	gatePlanLimit time.Duration
 	// pushRun runs one check of cfo gate prepush in dir and returns its exit
 	// code, ending the check when its context ends. pushMemoryPoll is how
 	// often a run that waits for the memory floor reads memory again, and
@@ -514,6 +516,7 @@ func defaultCommandRuntime() commandRuntime {
 		gateBudget:      gateBudget,
 		gateRun:         runGateCommand,
 		gateProgress:    5 * time.Second,
+		gatePlanLimit:   planLimit,
 		pushRun:         runPushCommand,
 		pushMemoryPoll:  2 * time.Second,
 		pushAgain:       5 * time.Minute,

@@ -62,6 +62,11 @@ type PackageResult struct {
 	Unfinished []string `json:"unfinished,omitempty"`
 }
 
+// ExitNoResult is the exit code of a command that tested nothing and so says
+// nothing of what it would have tested, as cfo gate turn given no turn or cfo
+// gate test whose plan stalled. A caller asks no one to repair it.
+const ExitNoResult = 125
+
 type Runner struct{ Commands execx.Runner }
 
 // measuredRunner runs each command as a measured execution whose limit
@@ -130,6 +135,11 @@ func (r Runner) Run(ctx context.Context, commands []project.Command, scope, task
 		rr.ExitCode = res.ExitCode
 		rr.Output = string(res.Stdout)
 		rr.Status = "passed"
+		if res.ExitCode == ExitNoResult {
+			rr.Status = "not_run"
+			out = append(out, rr)
+			return out, fmt.Errorf("verify %s gave no result, so nothing was tested", c[0])
+		}
 		if res.ExitCode != 0 {
 			rr.Status = "failed"
 		}

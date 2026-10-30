@@ -374,6 +374,57 @@ func TestGateTestPlanPrintsThePlanAndRunsNothing(t *testing.T) {
 	}
 }
 
+// A plan that outlasts its limit says nothing about the change: for hours
+// after a reboot a read of the disk can take seconds, and 19 plans ended so
+// on 2026-10-27 and 28 read as failed checks. It says the plan stalled, as
+// the last line of what it wrote for a gate and for cfo verify, which reads
+// standard output, and exits 125, which a caller reads as no result.
+func TestGateTestSaysAPlanThatOutlastsItsLimitStalledAndGivesNoResult(t *testing.T) {
+	for _, args := range [][]string{{}, {"--plan"}} {
+		t.Run(strings.Join(append([]string{"gate test"}, args...), " "), func(t *testing.T) {
+			// Arrange
+			dir := testStepModule(t, nil, map[string]string{"c/c.go": "package c\n\n// changed\n"})
+			t.Chdir(dir)
+			runtime := standIn()
+			runtime.gatePlanLimit = time.Nanosecond
+
+			// Act
+			var stdout, stderr bytes.Buffer
+			exit := gateTestWith(runtime, &stdout, &stderr, args...)
+
+			// Assert
+			if exit != exitNoTurn {
+				t.Fatalf("exit = %d, want %d, which says no test result; stdout=%s stderr=%s", exit, exitNoTurn, stdout.String(), stderr.String())
+			}
+			const want = "cfo gate test: nothing was tested, since the plan stalled"
+			for name, said := range map[string]string{"stdout": stdout.String(), "stderr": stderr.String()} {
+				lines := strings.Split(strings.TrimSpace(said), "\n")
+				if !strings.HasPrefix(lines[len(lines)-1], want) {
+					t.Errorf("the last line of %s is %q, want it to start %q", name, lines[len(lines)-1], want)
+				}
+			}
+			if reports, _ := filepath.Glob(filepath.Join(os.Getenv("CFO_VERIFY_DIR"), "reports", "*", "*")); len(reports) != 0 {
+				t.Errorf("a plan that never finished left %q in the store; want nothing", reports)
+			}
+		})
+	}
+}
+
+// A plan gets past what the disk made it wait: the slowest that finished took
+// 255 seconds on 2026-10-11, and two minutes ended the plans of 2026-10-27.
+func TestGateTestPlanLimitOutlastsAnEpisodeOfSlowReads(t *testing.T) {
+	// Arrange
+	const slowestSeen = 255 * time.Second
+
+	// Act
+	limit := defaultCommandRuntime().gatePlanLimit
+
+	// Assert
+	if limit < 2*slowestSeen {
+		t.Errorf("a plan may read for %s, want at least twice the %s the slowest took", limit, slowestSeen)
+	}
+}
+
 // The full level asked for takes every package whatever the change reaches,
 // and the plan still says what the change itself requires.
 func TestGateTestPlansEveryPackageAtTheFullLevel(t *testing.T) {
