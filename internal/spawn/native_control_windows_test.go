@@ -254,16 +254,20 @@ func TestADeliveryThatRefusesATurnTypesNothingIntoOne(t *testing.T) {
 // composer shows the line gone into that queue, so it takes the line at once
 // (the Overlord, 2026-10-30: "when sent now it actually sends now same way
 // termianl expereince down with ctrl x crtl s"). Without that ask the line
-// waits in the queue for the harness's next tool call.
+// waits in the queue for the harness's next tool call. A line whose key went
+// but which nothing yet shows taken says its key went (ErrSentNow), and one
+// whose key never went says only that it is queued.
 func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 	for _, test := range []struct {
 		name          string
 		proof         time.Duration
 		shouldSendNow bool
+		isTakeSeen    bool
 		wantErr       error
 		wantSentNow   []string
 	}{
-		{name: "sent now", proof: 30 * time.Second, shouldSendNow: true, wantSentNow: []string{"use the staging database"}},
+		{name: "sent now", proof: 30 * time.Second, shouldSendNow: true, isTakeSeen: true, wantSentNow: []string{"use the staging database"}},
+		{name: "sent now with its take not seen yet", proof: 30 * time.Second, shouldSendNow: true, wantErr: ErrSentNow, wantSentNow: []string{"use the staging database"}},
 		{name: "queued", proof: 500 * time.Millisecond, wantErr: fleet.ErrQueuedForToolCall},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -280,7 +284,7 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 			}
 			f.service.ShouldSendNow = test.shouldSendNow
 			f.service.Took = func(context.Context, state.TaskMeta, string, string, time.Time) bool {
-				return len(named(f.events(t), "sent now")) > 0
+				return test.isTakeSeen && len(named(f.events(t), "sent now")) > 0
 			}
 
 			// Act
@@ -289,6 +293,9 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 			// Assert
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("SendNative = %v, want %v", err, test.wantErr)
+			}
+			if errors.Is(err, ErrSentNow) != (test.wantErr == ErrSentNow) {
+				t.Errorf("SendNative = %v, want it to say its key went only when it did", err)
 			}
 			if queued := recordedLines(t, f, "queued", 1); !slices.Equal(queued, []string{"use the staging database"}) {
 				t.Errorf("queued = %q, want the line queued once", queued)
@@ -302,7 +309,8 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 
 // A screen of its own drawn over a Claude Code's turn takes no send-now key
 // from a delivery, even with an empty prompt line above it, since the key
-// would go to that screen rather than the composer.
+// would go to that screen rather than the composer, and the delivery says
+// only that the line is queued, never that its key went.
 func TestADeliverySentNowPressesNoKeyOverAScreenOfItsOwn(t *testing.T) {
 	// Arrange
 	f := newNativeFixture(t, harness.Claude, "claude-queues")
@@ -329,8 +337,8 @@ func TestADeliverySentNowPressesNoKeyOverAScreenOfItsOwn(t *testing.T) {
 	err = f.service.SendNative(t.Context(), meta, "use the staging database")
 
 	// Assert
-	if !errors.Is(err, fleet.ErrQueuedForToolCall) {
-		t.Fatalf("SendNative = %v, want the line queued with nothing proving it taken", err)
+	if !errors.Is(err, fleet.ErrQueuedForToolCall) || errors.Is(err, ErrSentNow) {
+		t.Fatalf("SendNative = %v, want the line queued with nothing proving it taken and no key gone", err)
 	}
 	time.Sleep(500 * time.Millisecond)
 	if sentNow := recordedLines(t, f, "sent now", 0); len(sentNow) != 0 {
@@ -341,9 +349,9 @@ func TestADeliverySentNowPressesNoKeyOverAScreenOfItsOwn(t *testing.T) {
 // A message already typed into a Claude Code in a turn waits in its queue
 // until SendNow presses the harness's send-now key, which it does only at an
 // empty composer, so words typed into the terminal itself never go with it.
-// A terminal showing a screen of its own, or no prompt line it can read, is
-// not ready for the key, which is not words never sent, and a harness with no
-// such key is told so, with nothing pressed.
+// A terminal showing a screen of its own, no prompt line it can read, or no
+// screen at all, is not ready for the key, which is not words never sent, and
+// a harness with no such key is told so, with nothing pressed.
 func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 	claude, _ := harness.NativeScreens(harness.Claude)
 	codex, _ := harness.NativeScreens(harness.Codex)
@@ -353,6 +361,7 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 		screens     harness.Screens
 		draft       string
 		screen      []string
+		readErr     error
 		wantErr     error
 		wantSentNow []string
 	}{
@@ -361,6 +370,7 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 		{name: "a permission prompt in its turn", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", "", "Do you want to create nine.txt?", "❯ 1. Yes", "  2. Yes, and don't ask again this session", "  3. No"}, wantErr: fleet.ErrNotTyped},
 		{name: "a permission prompt under a solid rule of its turn's", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", rule, "  Ran the tests", rule, " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. Yes, and don't ask again this session", "   3. No", ""}, wantErr: fleet.ErrNotTyped},
 		{name: "a turn with no prompt line it can read", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", "> use the staging database"}, wantErr: fleet.ErrNotTyped},
+		{name: "a terminal whose screen cannot be read", screens: claude, readErr: errors.New("the terminal's screen could not be read"), wantErr: fleet.ErrNotTyped},
 		{name: "a harness with no such key", screens: codex, wantErr: ErrNoSendNow},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -409,6 +419,12 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 			service := f.service
 			if test.screen != nil {
 				service.ReadScreen = func(host.Record) ([]string, error) { return test.screen, nil }
+			}
+			if test.readErr != nil {
+				previous := nativeReadGrace
+				nativeReadGrace = 200 * time.Millisecond
+				t.Cleanup(func() { nativeReadGrace = previous })
+				service.ReadScreen = func(host.Record) ([]string, error) { return nil, test.readErr }
 			}
 
 			// Act

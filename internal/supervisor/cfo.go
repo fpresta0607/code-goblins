@@ -677,7 +677,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 			switch {
 			case !busy:
 				sendNowWhy = "It was not typed into a turn."
-			case fleet.IsCommand(instruction):
+			case isHarnessCommand(instruction):
 				sendNowWhy = commandWaits
 			case screens.SendNow == "":
 				sendNowWhy = "Its harness has no key that takes it sooner."
