@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { message, reportToCfo, request, useResource } from "./api";
 import { object, parseAction, parseClosedItems, string, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
@@ -488,8 +489,10 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     </details>
     {/* A click on the dimmed board around the card lands on the dialog
         itself, outside its box, and closes the Command Center; a press that
-        starts inside the card and ends there keeps it open. */}
-    <dialog ref={dialog} className="question-modal" aria-labelledby="command-center-heading"
+        starts inside the card and ends there keeps it open. The dialog lives
+        in the page's body, so it opens even while the bar that holds its
+        button is put away, as on a phone a panel fills (#1583). */}
+    {createPortal(<dialog ref={dialog} className="question-modal" aria-labelledby="command-center-heading"
       onCancel={(event) => { event.preventDefault(); if (gallery !== null) setGallery(null); else close(); }} onKeyDown={(event) => event.stopPropagation()}
       onPointerDown={(event) => { pressedOutside.current = outsideDialog(event); }}
       onClick={(event) => { if (pressedOutside.current && outsideDialog(event)) close(); }}>
@@ -553,6 +556,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
                 onAnswer={(text) => void post(item.key, { kind: "review_answer", review_id: item.review.id, generation: item.review.identity, text })} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
       </>}
-    </dialog>
+    </dialog>, document.body)}
   </>;
 }

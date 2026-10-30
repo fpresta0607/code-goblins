@@ -252,3 +252,22 @@ test("a goblin's panel offers Answer on the CFO's question for her, and Answer o
   // Assert
   await expect(card(page).getByRole("form", { name: question.text })).toBeVisible();
 });
+
+// On a phone her panel fills the screen and the header banner is put away,
+// and Answer there still opens the decision in the Command Center (#1583).
+test("on a phone, Answer on a goblin's panel that fills the screen opens the Command Center", async ({ page, context }) => {
+  // Arrange
+  await page.setViewportSize({ width: 390, height: 844 });
+  await standInStream(context);
+  const question = { id: "pd-connector-parity-20261017", identity: "c".repeat(64), task: "", for_task: wanda.id, status: "pending", created_at: "2026-10-17T18:16:04Z", text: "Build connector tools for the 63 parity routes?", options: ["Build them", "End her task here"] };
+  await boardAsked(page, { questions: [question], reviews: [{ ...followUp, follows: question.id }] });
+  await page.getByRole("main", { name: "Board" }).getByRole("button", { name: /^Wanda - API Ace ,/ }).click();
+  const header = await openTaskList(page);
+  await expect(page.locator(".topbar"), "the panel fills the phone").toBeHidden();
+
+  // Act
+  await header.getByRole("button", { name: "Answer: " + question.text }).click();
+
+  // Assert
+  await expect(card(page).getByRole("form", { name: question.text })).toBeVisible();
+});
