@@ -311,6 +311,80 @@ test("the harness's words type out a letter at a time, a shimmer crosses them, a
   await expect(working(page).getByRole("status", { name: "Twisting" })).toBeVisible();
 });
 
+// The shimmer is light on the letters alone: the live check of 2026-10-30
+// found it greyed the ground about them, and past a word narrower than its
+// room drew a hard-edged grey bar before Stop. shimmerAt holds the words'
+// typing and shimmer at a share of the shimmer's crossing; lightOf reads how
+// much the shimmer lightens the letters there, and the ground, against the
+// same words with no shimmer and the ground with neither. The ground is what
+// lies a pixel or more from the letters' ink, past their smoothed edges.
+const shimmerAt = (page: Page, share: number) => page.evaluate((share) => {
+  const words = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".reply-doing"));
+  const shimmer = words.find((animation) => (animation.effect as KeyframeEffect).target === document.querySelector(".working-shine"));
+  if (!shimmer?.effect) throw new Error("no shimmer crosses the words");
+  const { delay = 0, duration } = shimmer.effect.getComputedTiming();
+  for (const animation of words) {
+    animation.pause();
+    animation.currentTime = delay + Number(duration) * share;
+  }
+}, share);
+const lightOf = async (page: Page) => {
+  const doing = working(page).locator(".reply-doing");
+  const hide = (selectors: string[]) => doing.evaluate((element, selectors) => {
+    for (const each of element.querySelectorAll<HTMLElement>(".working-shine, .working-word")) each.style.visibility = selectors.some((selector) => each.matches(selector)) ? "hidden" : "";
+  }, selectors);
+  const shown = await doing.screenshot();
+  await hide([".working-shine"]);
+  const unlit = await doing.screenshot();
+  await hide([".working-shine", ".working-word"]);
+  const ground = await doing.screenshot();
+  await hide([]);
+  return page.evaluate(async (shots) => {
+    const [shown, unlit, ground] = await Promise.all(shots.map(async (base64) => {
+      const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), (letter) => letter.charCodeAt(0))], { type: "image/png" }));
+      const context = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
+      context.drawImage(bitmap, 0, 0);
+      return context.getImageData(0, 0, bitmap.width, bitmap.height);
+    }));
+    const { width, height } = shown;
+    const channelsAt = (x: number, y: number) => [0, 1, 2].map((channel) => (y * width + x) * 4 + channel);
+    const isInk = (x: number, y: number) => x >= 0 && y >= 0 && x < width && y < height && channelsAt(x, y).some((channel) => Math.abs(unlit.data[channel] - ground.data[channel]) > 2);
+    const light = { letters: 0, ground: 0 };
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const lifts = channelsAt(x, y).map((channel) => shown.data[channel] - unlit.data[channel]);
+        if (isInk(x, y)) light.letters = Math.max(light.letters, ...lifts);
+        else if (![-1, 0, 1].some((across) => [-1, 0, 1].some((down) => isInk(x + across, y + down)))) light.ground = Math.max(light.ground, ...lifts.map(Math.abs));
+      }
+    }
+    return light;
+  }, [shown, unlit, ground].map((shot) => shot.toString("base64")));
+};
+
+test("the shimmer lightens the letters and leaves the ground about them as it was, past the word too", async ({ page }) => {
+  // Arrange: Twisting, narrower than its room.
+  await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
+  const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
+  await openGoblin(page);
+  relay.say(screen(true, "Twisting"));
+  await expect(working(page).locator(".working-word")).toHaveText("Twisting");
+
+  // Act: halfway across.
+  await shimmerAt(page, .5);
+  const halfway = await lightOf(page);
+
+  // Assert
+  expect(halfway.letters, "the letters are lit").toBeGreaterThan(30);
+  expect(halfway.ground, "the ground stays as it was").toBeLessThanOrEqual(2);
+
+  // Act: most of the way, where a light the width of the room lay past
+  // the word.
+  await shimmerAt(page, .7);
+
+  // Assert
+  expect((await lightOf(page)).ground, "the ground past the word stays as it was").toBeLessThanOrEqual(2);
+});
+
 test("with no words of its harness's own, Working types out first and gives way to the whimsical verbs", async ({ page }) => {
   // Arrange
   await page.clock.install({ time: new Date("2026-10-22T09:10:00Z") });
