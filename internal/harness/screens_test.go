@@ -709,6 +709,31 @@ func TestAComposerReadsEmptyOnlyWhileItHoldsNothing(t *testing.T) {
 	}
 }
 
+func TestCodexDisplayNameFooterDoesNotBecomeAnUnsentDraft(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, footer := range []string{
+		"  GPT-6.1 Terra xhigh \u00b7 C:\\proof \u00b7 Register CFO and handle messages",
+		"  GPT-6.1 Sol high \u00b7 C:\\proof \u00b7 A follow-up",
+	} {
+		t.Run(footer, func(t *testing.T) {
+			// Arrange
+			rows := []string{"\u203a Ask Codex to do anything", "", footer, "  ? for shortcuts                  \u26a0 8 warnings \u00b7 f2 to view"}
+
+			// Act and assert
+			if !screens.ComposerEmpty(rows) || screens.ComposerHoldsText(rows) {
+				t.Fatal("the empty live Codex composer reads as holding an unsent draft")
+			}
+			rows[0] = "\u203a preserve my unfinished thought"
+			if screens.ComposerEmpty(rows) || !screens.ComposerHoldsText(rows) {
+				t.Fatal("an actual draft was not preserved")
+			}
+			if !screens.ComposerMatches(rows, "preserve my unfinished thought") {
+				t.Fatal("the display footer was included in the draft")
+			}
+		})
+	}
+}
+
 // A composer that cannot be read, or one a startup dialog covers, proves no
 // draft: only a readable composer showing text is refused, so a recoverable
 // dialog or an unreadable footer is left to the delivery that answers it.

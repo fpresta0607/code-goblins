@@ -82,6 +82,55 @@ func TestGoblinsResumeSaysTheRestartedCFOStartedANewConversation(t *testing.T) {
 	}
 }
 
+func TestResumeFromARunCardReturnsWithoutOpeningTheCFO(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		isGoblins  bool
+		fresh      string
+		restartErr error
+		wantExit   int
+	}{
+		{name: "switch", isGoblins: true, fresh: "The CFO starts a new conversation in codex because its harness changed."},
+		{name: "restart", isGoblins: true},
+		{name: "cfo resume"},
+		{name: "failed switch", isGoblins: true, restartErr: errors.New("the CFO stopped but did not start again"), wantExit: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSessionFixture(t)
+			f.runtime.goblins = test.isGoblins
+			f.nativeCFO = supervisor.NativeCFOTerminal
+			f.restartSession = "current-session"
+			f.restartFresh = test.fresh
+			f.restartErr = test.restartErr
+			t.Setenv(host.IDVariable, "run")
+			arguments := []string{"resume"}
+			wantHarness := ""
+			if test.isGoblins {
+				arguments = append(arguments, "--harness", "codex")
+				wantHarness = "codex"
+			}
+
+			// Act
+			exit, stdout, stderr := f.launch(arguments...)
+
+			// Assert
+			if exit != test.wantExit || f.restarts != 1 || f.restartHarness != wantHarness {
+				t.Fatalf("exit=%d restarts=%d harness=%q stderr=%q", exit, f.restarts, f.restartHarness, stderr)
+			}
+			if len(f.screens) != 0 || len(f.nativeAttached) != 0 || len(f.attached) != 0 || len(f.opened) != 0 || len(f.windows) != 0 {
+				t.Errorf("resume opened a viewer: screens=%v native=%q herdr=%q browser=%q windows=%q", f.screens, f.nativeAttached, f.attached, f.opened, f.windows)
+			}
+			if test.wantExit == 0 && !strings.Contains(stdout, "CFO        restarted") {
+				t.Errorf("stdout=%q, want the completed restart reported", stdout)
+			}
+			if test.restartErr != nil && !strings.Contains(stderr, test.restartErr.Error()) {
+				t.Errorf("stderr=%q, want the launch failure reported", stderr)
+			}
+		})
+	}
+}
+
 // A restarted CFO can end while its startup dialogs are answered, as a fresh
 // one can; goblins resume then reports it ended rather than saying it was
 // restarted, and offers no terminal to attach to.
