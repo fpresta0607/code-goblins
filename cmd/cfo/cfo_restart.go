@@ -24,7 +24,9 @@ var errNoRunningCFO = errors.New("no CFO runs in native terminal cfo")
 // restartCFO stops the CFO running in native terminal cfo, its screen frozen
 // or not, and starts it again in that terminal, on its conversation where it
 // can, and returns the conversation it last registered with and, when it did
-// not come back on that conversation, why it started a new one. Restart
+// not come back on that conversation, why it started a new one. A restart
+// that names no harness keeps the one the CFO runs, as a harness Update and
+// goblins resume do, even where a saved selection names another. Restart
 // always restarts the CFO (the Overlord, 2026-10-09: "this makes no sense" of
 // a refusal): a conversation it cannot resume, one past the size a CFO
 // resumes, one of a harness that resumes none, or one not registered for the
@@ -38,11 +40,6 @@ var errNoRunningCFO = errors.New("no CFO runs in native terminal cfo")
 // would end before it started the CFO again. Closing the terminal ends the harness and everything it started;
 // goblins, each in a terminal of its own, keep running.
 func restartCFO(h home.Home, harness string) (supervisor.CFOConversation, string, error) {
-	// A selection the fleet cannot read names no harness to restart onto: the
-	// board reports it, and the restart goes ahead as harness was asked for.
-	if choice, err := supervisor.ReadCFOEngine(h.State); err == nil && harness == "" {
-		harness = choice.Harness
-	}
 	if harness != "" && !slices.Contains(cfoHarnesses, harness) {
 		return supervisor.CFOConversation{}, "", fmt.Errorf("harness %q is not claude, codex or pi, so the CFO is left running", harness)
 	}
