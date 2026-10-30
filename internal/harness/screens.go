@@ -74,9 +74,9 @@ type Screens struct {
 	// modes with Shift+Tab.
 	Modes *regexp.Regexp
 	// SendNow is the key that has the harness take what waits in its own
-	// queue at once, during a turn, rather than at its next tool call. None
-	// for a harness without one: Codex takes a line typed during a turn at
-	// once, and pi only after its current tool call.
+	// queue at once, during a turn, rather than at its next tool call. Codex
+	// and pi have none, so each takes a line typed during a turn at its next
+	// tool call, as Codex 0.160 did live on 2026-10-06.
 	SendNow string
 }
 
