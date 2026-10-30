@@ -58,7 +58,7 @@ func TestPushPicksTheBoardsChecksAndTheSpecsThatCoverTheChange(t *testing.T) {
 		{"npm", "run", "typecheck"},
 		{"npm", "run", "lint"},
 		{"npm", "test"},
-		{"npx", "playwright", "test", "--reporter=list", "tests/afk.spec.ts", "tests/tips.spec.ts", "tests/panel-row.spec.ts", "tests/goblin-run.spec.ts", "tests/run-finishes.spec.ts", "tests/run-terminal.spec.ts"},
+		{"npx", "playwright", "test", "--reporter=list,./tests/gate-cases.ts", "tests/afk.spec.ts", "tests/tips.spec.ts", "tests/panel-row.spec.ts", "tests/goblin-run.spec.ts", "tests/run-finishes.spec.ts", "tests/run-terminal.spec.ts"},
 	}
 	if len(boards) != len(wantCommands) {
 		t.Fatalf("push picks %d checks of the board, want %d:\n%s", len(boards), len(wantCommands), strings.Join(whats(pick), "\n"))
