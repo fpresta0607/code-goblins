@@ -48,7 +48,7 @@ export const TaskCard = memo(function TaskCard({ task, status, phase, repository
   const card = useRef<HTMLButtonElement>(null);
   const measure = (event: SyntheticEvent<HTMLElement>) => {
     const title = event.currentTarget.querySelector<HTMLElement>(".card-title");
-    setClipped(!!title && title.scrollWidth > title.clientWidth + 1);
+    setClipped(!!title && (title.scrollWidth > title.clientWidth + 1 || title.scrollHeight > title.clientHeight + 1));
   };
   const isNamed = task.goblin_name !== "";
   const name = isNamed ? goblinName(task) : taskName(task);
