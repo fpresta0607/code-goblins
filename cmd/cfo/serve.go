@@ -302,6 +302,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		RefreshCredentials: boardCredentialRefresh(runtime),
 		Quota:              runtime.quota,
 		KeySpend:           runtime.keySpend,
+		ActionsSpend:       runtime.actionsSpend,
 		UserEnvironment:    spawn.UserEnvironment,
 		Comeback:           comeback,
 		StartAtLogin:       startAtLogin,

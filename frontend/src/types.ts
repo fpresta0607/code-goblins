@@ -380,7 +380,17 @@ export interface KeySpend {
   // detail says in a few words why the status is what it is.
   detail: string;
 }
+export interface ActionsSpend {
+  status: "available" | "stale" | "unavailable";
+  month: string;
+  total_usd: number | null;
+  repositories: { name: string; spent_usd: number }[];
+  read_at: string;
+  checked_at: string;
+  detail: string;
+}
 export interface Snapshot {
+  actions_spend?: ActionsSpend;
   subscriptions?: SubscriptionUsage[];
   key_spend?: KeySpend[];
   activity?: BoardActivity[];
@@ -943,6 +953,15 @@ export function parseReadings(v: Record<string, unknown>): Readings {
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
+    actions_spend: v.actions_spend == null ? undefined : ((usage): ActionsSpend => {
+      const total = usage.total_usd;
+      return {
+        status: usage.status === "available" || usage.status === "stale" ? usage.status : "unavailable",
+        month: string(usage.month), total_usd: typeof total === "number" && Number.isFinite(total) ? total : null,
+        repositories: array(usage.repositories).map((value) => { const repository = object(value); return { name: string(repository.name), spent_usd: number(repository.spent_usd) }; }),
+        read_at: string(usage.read_at), checked_at: string(usage.checked_at), detail: string(usage.detail),
+      };
+    })(object(v.actions_spend)),
     key_spend: array(v.key_spend).flatMap((value) => { const spend = parseKeySpend(value); return spend ? [spend] : []; }),
     subscriptions: array(v.subscriptions).flatMap((value): SubscriptionUsage[] => {
       const usage = object(value);
