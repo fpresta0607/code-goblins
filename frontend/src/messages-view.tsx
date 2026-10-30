@@ -65,7 +65,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const sending = usePendingSends();
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<MessagePage>({ messages: [], more: false });
+  const [held, setHeld] = useState<MessagePage & { isWorking: boolean }>({ messages: [], more: false, isWorking });
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
@@ -87,6 +87,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // how far its top lies below the list's, which stays put. pinnedTo is the
   // scroll top the list last put itself at to show its end.
   const following = useRef(true);
+  useLayoutEffect(() => {
+    if (latest.current.isWorking === isWorking) return;
+    latest.current = { ...latest.current, isWorking };
+    if (following.current) setHeld(latest.current);
+  }, [isWorking]);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const pinnedTo = useRef(-1);
   // The page holds only the rows within reach of where he reads
@@ -176,7 +181,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
       heard();
-      latest.current = change(latest.current);
+      latest.current = { ...change(latest.current), isWorking: latest.current.isWorking };
       if (following.current) setHeld(latest.current);
       setReconnecting(false);
       setPhase("live");
@@ -235,16 +240,16 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const readOlder = useCallback(() => {
     const first = heldValue.current.messages[0];
     const failed = olderFailures.current;
-    if (readingOlder.current || !heldValue.current.more || !first || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
+    if (readingOlder.current || !heldValue.current.more || !first || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
     readingOlder.current = true;
     request(address({ before: String(first.seq) })).then((value) => {
       const page = parsePage(value);
       readingOlder.current = false;
       olderFailures.current = { count: 0, at: 0 };
       // A page of a conversation the view no longer shows is dropped.
-      if (heldValue.current.messages[0]?.id !== first.id) return;
-      if (latest.current.messages.some((message) => message.id === first.id && message.seq === first.seq)) latest.current = olderMessages(latest.current, page);
-      setHeld((prior) => prior.messages[0]?.id === first.id ? olderMessages(prior, page) : prior);
+      if (heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || !latest.current.messages.some((message) => message.id === first.id && message.seq === first.seq)) return;
+      latest.current = { ...latest.current, ...olderMessages(latest.current, page) };
+      setHeld((prior) => prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq && latest.current.messages.some((message) => message.id === first.id && message.seq === first.seq) ? { ...prior, ...olderMessages(prior, page) } : prior);
     }).catch((error: unknown) => {
       readingOlder.current = false;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
@@ -443,7 +448,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // Up in the box brings them back as the terminal's history does.
   const his = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [{ at: message.at, text: (message.source === "shell" ? "!" : "") + message.text }] : []);
   const history = his.map((row) => row.text);
-  const ends = turnEnds(held.messages, isWorking);
+  const ends = turnEnds(held.messages, held.isWorking);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
@@ -467,6 +472,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
+  const queuedIDs = queued.map((action) => action.id).join("\0");
+  useLayoutEffect(() => {
+    const observer = new ResizeObserver(settle);
+    for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
+    settle();
+    return () => observer.disconnect();
+  }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
   return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -489,14 +501,14 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && phase === "live" && isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
+          {shown && phase === "live" && held.isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
               messages doesn't really work"), so whatever the session prints
               comes before them and the list, following its end, keeps them
               right above the box. */}
-          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" isWorking={isWorking} />)}
+          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" isWorking={held.isWorking} />)}
         </div>
       </div>
       {phase === "live" && !held.messages.length && !queued.length && <p className="messages-empty" role="status">No messages yet</p>}

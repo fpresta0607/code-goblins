@@ -54,6 +54,136 @@ const reading = (talk: Locator) => talk.evaluate(async (element) => {
   throw new Error("The reading position did not settle within 120 frames");
 });
 
+for (const reset of ["before request", "during old response", "during new response"]) {
+  test(`reset pagination keeps conversations separate: ${reset}`, async ({ page }) => {
+    const newest = { messages: LONG.messages.slice(50, 100), more: true };
+    const resetPage = { messages: newest.messages.map((message) => ({ ...message, id: "new-" + message.id })), more: true };
+    await open(page, snapshot(), "", newest);
+    let release = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const requests: string[] = [];
+    let isReset = false;
+    await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), async (route) => {
+      requests.push(route.request().url());
+      const isOldResponse = reset === "during old response" && requests.length === 1;
+      await held;
+      const messages = LONG.messages.slice(0, 50).map((message) => ({ ...message, id: isReset && !isOldResponse ? "new-" + message.id : message.id }));
+      await route.fulfill({ json: { messages, more: false } });
+    });
+    await openGoblin(page);
+    const talk = log(page);
+    await expect(talk).toContainText("Answer 99");
+    await reading(talk);
+    await talk.evaluate((element) => { element.scrollTop -= 1000; });
+    await reading(talk);
+    if (reset !== "before request") {
+      await talk.evaluate((element) => { element.scrollTop = 0; });
+      await expect.poll(() => requests.length).toBe(1);
+      await reading(talk);
+    }
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), resetPage);
+    isReset = true;
+    await reading(talk);
+    if (reset === "before request") {
+      await talk.evaluate((element) => { element.scrollTop = 0; });
+      await reading(talk);
+      expect(requests).toEqual([]);
+      release();
+    } else {
+      const place = await reading(talk);
+      await watch(page);
+      const response = page.waitForResponse((response) => new URL(response.url()).searchParams.has("before"));
+      release();
+      await response;
+      expect(await reading(talk)).toEqual(place);
+      expect(await changes(page)).toEqual([]);
+    }
+    await expect(talk.locator('[data-message="m50"]')).toBeVisible();
+    await expect(talk.locator('[data-message^="new-"]')).toHaveCount(0);
+    await page.getByRole("button", { name: "Jump to latest" }).click();
+    await expect(talk.locator('[data-message="new-m99"]')).toBeInViewport();
+    const response = page.waitForResponse((response) => new URL(response.url()).searchParams.has("before"));
+    await talk.evaluate((element) => { element.scrollTop = 0; });
+    await response;
+    await reading(talk);
+    await expect(talk.locator('[data-message="new-m50"]')).toBeInViewport();
+    await talk.evaluate((element) => { element.scrollTop = 0; });
+    await expect(talk.locator('[data-message="new-m0"]')).toBeVisible();
+    await expect(talk.locator('[data-message="m0"]')).toHaveCount(0);
+    expect(requests).toHaveLength(reset === "before request" ? 1 : 2);
+  });
+}
+
+for (const owner of ["CFO", "goblin"]) {
+  for (const isWorking of [true, false]) {
+    test(`${owner}: working metadata stays frozen near the end when ${isWorking ? "finishing" : "starting"}`, async ({ page }) => {
+      const action = { id: "working-tail", kind: "message", task_id: owner === "CFO" ? "" : GOBLIN.id, text: "Waiting for this turn", status: "running", awaiting: { task: owner === "CFO" ? "" : GOBLIN.id }, can_send_now: true, at };
+      const board = (isBusy: boolean, revision: number) => snapshot({ revision, actions: [action], cfo_session: "cfo-1", sessions: [{ id: "cfo-1", role: "cfo", harness: "claude", phase: isBusy ? "working" : "idle" }] }, { phase: isBusy ? "working" : "idle" });
+      await open(page, board(isWorking, 1), "", LONG);
+      if (owner === "CFO") await page.keyboard.press("Control+Alt+1");
+      else await openGoblin(page);
+      const talk = page.getByRole("log", { name: "Messages of " + (owner === "CFO" ? "CFO" : NAME) });
+      await expect(talk).toContainText("Answer 999");
+      await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
+      await reading(talk);
+      await talk.evaluate((element) => { element.scrollTop -= 30; });
+      const place = await reading(talk);
+      await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+      await watch(page);
+
+      await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), board(!isWorking, 2));
+      expect(await reading(talk)).toEqual(place);
+      expect(await changes(page)).toEqual([]);
+      await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
+      await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 0 : 1);
+      await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText(isWorking ? "Queued" : "Sent");
+      await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(isWorking ? 1 : 0);
+
+      await page.getByRole("button", { name: "Jump to latest" }).click();
+      await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 0 : 1);
+      await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 1 : 0);
+      await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText(isWorking ? "Sent" : "Queued");
+      await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(isWorking ? 0 : 1);
+      await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+    });
+  }
+}
+
+test("following settles queued rows, delayed pictures and working-indicator geometry", async ({ page }) => {
+  await open(page, snapshot({}, { phase: "idle" }), "", LONG);
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/composer/file?*", async (route) => {
+    await held;
+    await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="240"><rect width="300" height="240" fill="blue"/></svg>' });
+  });
+  await openGoblin(page);
+  const talk = log(page);
+  await expect(talk).toContainText("Answer 999");
+  await reading(talk);
+  const distance = () => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight);
+  const action = { id: "tail", kind: "message", task_id: GOBLIN.id, text: "Queued picture\n/fixture/composer-files/pasted-picture.png", status: "queued", at };
+
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, actions: [action] }, { phase: "idle" }));
+  const queued = talk.locator('[data-queued="tail"]');
+  await expect(queued).toBeInViewport();
+  await expect.poll(distance).toBeLessThanOrEqual(1);
+  const height = await queued.evaluate((element) => element.getBoundingClientRect().height);
+  release();
+  await expect.poll(() => queued.locator("img").evaluate((image) => image.naturalHeight)).toBe(240);
+  await expect.poll(() => queued.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(height + 200);
+  await expect.poll(distance).toBeLessThanOrEqual(1);
+
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 3, actions: [action] }));
+  await expect(talk.locator(".reply-working")).toHaveCount(1);
+  await expect.poll(distance).toBeLessThanOrEqual(1);
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 4 }, { phase: "idle" }));
+  await expect(queued).toHaveCount(0);
+  await expect(talk.locator(".reply-working")).toHaveCount(0);
+  await expect.poll(distance).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+});
+
 for (const owner of ["CFO", "goblin"]) {
   for (const resume of ["jump", "scroll"]) {
     test(`${owner}: streaming leaves the history untouched after a fast scroll, then coalesces on ${resume}`, async ({ page }, info) => {
