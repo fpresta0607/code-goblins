@@ -394,6 +394,41 @@ for (const [harness, canSendNow] of [["Claude Code", true], ["Codex or pi", fals
   });
 }
 
+// A Send now the supervisor refuses, as over words he typed into the
+// terminal's own prompt line, is a refusal of his click: it is said over the
+// box, and the CFO is not woken for it, since the supervisor answered. One
+// that never reached the supervisor is the board's own failure, and the CFO
+// hears of that one.
+test("a Send now the supervisor refuses is said over the box and not reported to the CFO, while one that never reached it is", async ({ page }) => {
+  // Arrange
+  const REFUSED = "Its prompt line holds words that were never sent.";
+  const relay = await open(page, snapshot({ actions: [queued({ status: "running", awaiting: { task: "cg-touch" }, can_send_now: true, send_now_why: "", message: "Sent. The goblin takes it at its next tool call, or as its current turn ends." })] }));
+  const reports: string[] = [];
+  await page.route("**/api/cfo/report", (route) => {
+    const report = route.request().postDataJSON() as { where: string; text: string };
+    if (report.where.startsWith("a queued message to ")) reports.push(report.text);
+    return route.fulfill({ status: 202, json: { reported: true } });
+  });
+  let isAnswered = true;
+  await page.route("**/api/actions", (route) => isAnswered ? route.fulfill({ status: 409, json: { error: REFUSED } }) : route.abort("connectionrefused"));
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  const banner = box(page).locator(".composer-banner");
+  const sendNow = entry(page).getByRole("button", { name: "Send now", exact: true });
+
+  // Act: one press the supervisor refuses, then one that never reaches it.
+  await sendNow.click();
+  await expect(banner).toHaveText(REFUSED);
+  isAnswered = false;
+  await sendNow.click();
+  await expect(banner).not.toHaveText(REFUSED);
+  const lost = await banner.textContent();
+
+  // Assert
+  expect(lost).toBeTruthy();
+  await expect.poll(() => reports).toEqual([lost]);
+});
+
 // The Overlord, 2026-10-28: "send now should be an option with all queued
 // messages". One that cannot go now says why when pressed, and asks nothing.
 // And 2026-10-29, of notices such as "that queued message is no longer

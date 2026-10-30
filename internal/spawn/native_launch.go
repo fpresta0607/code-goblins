@@ -84,6 +84,13 @@ var ErrInTurn = errors.New("its harness was in a turn")
 // that were never sent, which what it typed would join, so nothing was typed.
 var ErrUnsentWords = errors.New("its prompt line holds words that were never sent")
 
+// ErrSentNow says a delivery into a turn pressed its harness's send-now key
+// once the text had gone into the harness's queue, so the harness takes it at
+// once rather than at its next tool call. Nothing proves it taken yet, so it
+// is still ErrQueuedForToolCall; a delivery whose key never went, or could
+// not be pressed, returns ErrQueuedForToolCall alone.
+var ErrSentNow = fmt.Errorf("its send-now key went: %w", fleet.ErrQueuedForToolCall)
+
 // launchNativeHost starts the harness in a native terminal of its own, the
 // task's id, and returns its host's record, the zero record when it launched
 // none. It is the last step of a start's turn: from here the host counts as a
@@ -512,7 +519,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		}
 		if busy && s.ShouldSendNow && !isSentNow && screens.SendNow != "" && !screens.IsOpen(screen) && screens.ComposerEmpty(screen) {
 			if err := pressNativeKeys(record, "send now", screens.SendNow); err != nil {
-				return err
+				return fmt.Errorf("spawn: native terminal %s has the text submitted, and its send-now key could not be pressed: %w: %w", record.ID, err, fleet.ErrQueuedForToolCall)
 			}
 			isSentNow = true
 		}
@@ -545,6 +552,9 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 			atPress, pressed, presses = screen, time.Now(), presses+1
 		}
 		if time.Now().After(deadline) {
+			if busy && isSentNow {
+				return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", record.ID, ErrSentNow)
+			}
 			if busy {
 				return fmt.Errorf("spawn: native terminal %s has the text submitted: %w", record.ID, fleet.ErrQueuedForToolCall)
 			}

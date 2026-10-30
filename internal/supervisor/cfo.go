@@ -18,7 +18,6 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/awake"
 	"github.com/fpresta0607/code-goblins/internal/custody"
-	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -591,7 +590,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 	}
 	instruction := oneLine(line)
 	typed := instruction
-	if primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !fleet.IsCommand(instruction) {
+	if primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !isHarnessCommand(instruction) {
 		typed = herdr.CleanPaste("\x1b[200~" + instruction + "\x1b[201~")
 		instruction = strings.TrimSuffix(strings.TrimPrefix(typed, "\x1b[200~"), "\x1b[201~")
 	}
@@ -677,7 +676,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 			switch {
 			case !busy:
 				sendNowWhy = "It was not typed into a turn."
-			case fleet.IsCommand(instruction):
+			case isHarnessCommand(instruction):
 				sendNowWhy = commandWaits
 			case screens.SendNow == "":
 				sendNowWhy = "Its harness has no key that takes it sooner."
