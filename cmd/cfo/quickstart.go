@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/onboarding"
@@ -25,9 +26,10 @@ import (
 // runQuickstart is goblins with no command, with --harness, and
 // goblins setup. It finds the supervisor or starts one, which never opens the
 // board; one Enter at a time it makes the agent the CFO runs on ready; it
-// starts the CFO in the Code Goblins home when none runs; and it ends on one
-// screen: Enter shows the CFO's terminal here, and the board's link or B
-// opens the board, B in the desktop window where one sits beside this binary.
+// starts the CFO in the Code Goblins home when none runs; and launches from
+// the user's terminal end on one screen: Enter shows the CFO's terminal here,
+// and the board's link or B opens the board, B in the desktop window where
+// one sits beside this binary.
 // It asks for no project, since the CFO works across every
 // project from its home. The agent steps are skipped while a CFO runs and
 // nothing asks for them: rerun, which goblins setup sets, or a harness named
@@ -133,6 +135,12 @@ func runQuickstart(stdout, stderr io.Writer, runtime commandRuntime, rerun, rest
 				list.Note(comeback.id + ": " + comeback.said)
 			}
 		}
+	}
+	// A command card must return to its runner to record the exit code;
+	// attaching the CFO here would keep the card running for its whole session.
+	if restart && os.Getenv(host.IDVariable) == "run" {
+		list.End()
+		return 0
 	}
 	heading := "Your CFO is running"
 	if started {
