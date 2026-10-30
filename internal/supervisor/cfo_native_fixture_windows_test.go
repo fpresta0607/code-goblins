@@ -23,6 +23,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		return
 	}
 	stateDir, events, mode := arguments[1], arguments[2], arguments[3]
+	hasDisplayModel := mode == "display-model"
 	harness := "codex"
 	if strings.HasPrefix(mode, "claude-") {
 		harness, mode = "claude", strings.TrimPrefix(mode, "claude-")
@@ -106,7 +107,12 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			if text == "" {
 				text = "Ask Codex to do anything"
 			}
-			rows = append(rows, "› "+text, "100% context left")
+			rows = append(rows, "› "+text)
+			if hasDisplayModel {
+				rows = append(rows, "", "  GPT-6.1 Terra xhigh · C:\\work · Register CFO and handle …", "  ? for shortcuts                            ⚠ 8 warnings · f2 to view")
+			} else {
+				rows = append(rows, "100% context left")
+			}
 		}
 		fmt.Print("\x1b[2J\x1b[H" + strings.Join(rows, "\r\n"))
 	}
@@ -242,7 +248,7 @@ func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 			t.Fatal(err)
 		}
 		screen, err := host.ReadScreen(record)
-		if err == nil && (strings.Contains(strings.Join(screen, " "), "100% context left") || strings.Contains(strings.Join(screen, " "), "bypass permissions on")) {
+		if err == nil && (strings.Contains(strings.Join(screen, " "), "100% context left") || strings.Contains(strings.Join(screen, " "), "bypass permissions on") || mode == "display-model" && strings.Contains(strings.Join(screen, " "), "? for shortcuts")) {
 			return terminal
 		}
 		if time.Now().After(deadline) {
