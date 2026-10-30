@@ -8,9 +8,7 @@ import (
 )
 
 // The rows a browser check writes are read as its cases, in the order they
-// failed, with the reporter's own mark for a case drawn without color and with
-// its symbols as it draws one with color, and the output still reaches the run
-// unchanged.
+// failed, and the output still reaches the run unchanged.
 func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
@@ -18,17 +16,17 @@ func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
 	rows := strings.Join([]string{
 		`  ok  87 [board] › tests\composer-status.spec.ts:10:7 › classic keeps held queue status compact (3.8s)`,
 		`  x   88 [board] › tests\composer-status.spec.ts:85:7 › classic gives a held send failure priority (23ms)`,
-		`  ✓  89 [stepped-in] › tests\afk.spec.ts:12:3 › the bar says since when (1.2m)`,
+		`cfo gate case: unexpected [board] tests/composer-status.spec.ts:85:7 › classic gives a held send failure priority`,
 		`  ✘  90 [stepped-in] › tests\afk.spec.ts:19:3 › a waiting goblin says so once (4s)`,
+		`cfo gate case: unexpected [stepped-in] tests/afk.spec.ts:19:3 › a waiting goblin says so once`,
 		`  -  91 [iphone] › tests\iphone-terminal.spec.ts:5:1 › a case the run skipped (0ms)`,
-		`x 12 of 1603 cases did not pass`,
-		`  x   92 [board] › tests\run-terminal.spec.ts:31:1 › a title with no time`,
+		`cfo gate case: unexpected [board] tests/run-terminal.spec.ts:31:1 › a describe › a title`,
 		"",
 	}, "\n")
 	want := []string{
 		"[board] tests/composer-status.spec.ts:85:7 › classic gives a held send failure priority",
 		"[stepped-in] tests/afk.spec.ts:19:3 › a waiting goblin says so once",
-		"[board] tests/run-terminal.spec.ts:31:1 › a title with no time",
+		"[board] tests/run-terminal.spec.ts:31:1 › a describe › a title",
 	}
 
 	// Act
@@ -45,58 +43,55 @@ func TestBrowserReportNamesTheCasesThatFailed(t *testing.T) {
 	}
 }
 
-// A transcript captured from `npx playwright test --reporter=list` on the
-// board's @playwright/test 1.63.0 names the case that failed. The same run
-// under the line reporter writes a row per case with no mark, so it cannot say
-// which case failed: the list reporter is the one the pick must run.
-func TestBrowserReportReadsTheListReportersTranscriptNotTheLineReporters(t *testing.T) {
+// A case declared with test.fail that failed as expected is no failure, though
+// the list reporter marks it x as it marks a case that failed (issue 1587).
+// The rows are from a run of `npx playwright test
+// --reporter=list,./tests/gate-cases.ts` on the board's @playwright/test
+// 1.63.0, with retries off as at a desk, of a case that passed, a case
+// declared with test.fail that failed, one declared with test.fail that
+// passed, a case that failed and a skipped one.
+func TestBrowserReportDropsACaseThatFailedAsExpected(t *testing.T) {
 	// Arrange
-	list := `Running 2 tests using 1 worker
+	var out bytes.Buffer
+	report := NewBrowserReport(&out)
+	transcript := `Running 5 tests using 1 worker
 
-  ok 1 [board] › tests\failing.spec.ts:3:1 › a case that passed (11ms)
-  x  2 [board] › tests\failing.spec.ts:7:1 › a case that failed (6ms)
+  ok 1 [board] › tests\cases.spec.ts:2:1 › passes (1ms)
+  x  2 [board] › tests\cases.spec.ts:3:6 › a test does not start (4ms)
+  ok 3 [board] › tests\cases.spec.ts:4:6 › an expected failure that passes (0ms)
+cfo gate case: unexpected [board] tests/cases.spec.ts:4:6 › an expected failure that passes
+  x  4 [board] › tests\cases.spec.ts:5:1 › fails (6ms)
+cfo gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails
+  -  5 [board] › tests\cases.spec.ts:8:6 › skipped
 
 
-  1) [board] › tests\failing.spec.ts:7:1 › a case that failed ──────────────────────────────────────
+  1) [board] › tests\cases.spec.ts:4:6 › an expected failure that passes ───────────────────────────
+
+    Expected to fail, but passed.
+
+  2) [board] › tests\cases.spec.ts:5:1 › fails ─────────────────────────────────────────────────────
 
     Error: expect(received).toBe(expected) // Object.is equality
 
-  1 failed
-    [board] › tests\failing.spec.ts:7:1 › a case that failed ───────────────────────────────────────
-  1 passed (649ms)
+  2 failed
+    [board] › tests\cases.spec.ts:4:6 › an expected failure that passes ────────────────────────────
+    [board] › tests\cases.spec.ts:5:1 › fails ──────────────────────────────────────────────────────
+  1 skipped
+  2 passed (1.1s)
 `
-	line := `Running 2 tests using 1 worker
-
-[1/2] [board] › tests\failing.spec.ts:3:1 › a case that passed
-[2/2] [board] › tests\failing.spec.ts:7:1 › a case that failed
-  1) [board] › tests\failing.spec.ts:7:1 › a case that failed ──────────────────────────────────────
-  1 failed
-  1 passed (1.1s)
-`
-	tests := []struct {
-		name       string
-		transcript string
-		want       []string
-	}{
-		{"list", list, []string{"[board] tests/failing.spec.ts:7:1 › a case that failed"}},
-		{"line", line, nil},
+	want := []string{
+		"[board] tests/cases.spec.ts:4:6 › an expected failure that passes",
+		"[board] tests/cases.spec.ts:5:1 › fails",
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var out bytes.Buffer
-			report := NewBrowserReport(&out)
+	// Act
+	if _, err := report.Write([]byte(transcript)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
 
-			// Act
-			if _, err := report.Write([]byte(test.transcript)); err != nil {
-				t.Fatalf("write: %v", err)
-			}
-
-			// Assert
-			if got := report.Failed(); !slices.Equal(got, test.want) {
-				t.Errorf("failed cases are %q, want %q", got, test.want)
-			}
-		})
+	// Assert
+	if got := report.Failed(); !slices.Equal(got, want) {
+		t.Errorf("failed cases are %q, want %q", got, want)
 	}
 }
 
@@ -107,7 +102,7 @@ func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T)
 	// Arrange
 	var out bytes.Buffer
 	report := NewBrowserReport(&out)
-	row := `  x   88 [board] › tests\afk.spec.ts:85:7 › a case that failed (23ms)`
+	row := `cfo gate case: unexpected [board] tests/afk.spec.ts:85:7 › a case that failed`
 	want := []string{"[board] tests/afk.spec.ts:85:7 › a case that failed"}
 
 	// Act
@@ -126,10 +121,10 @@ func TestBrowserReportReadsRowsSplitAcrossWritesAndWithoutANewline(t *testing.T)
 	}
 }
 
-// A case that failed and passed when the run tried it again is no failure:
-// the reporter writes one row per try and puts the retry's number in the name
-// of the row a retry wrote, so a case is what its last row said. The rows are a
-// transcript of `npx playwright test --reporter=list` on the board's
+// A case that failed and passed when the run tried it again is no failure: the
+// reporter writes a row per try that failed and a flaky row for the retry that
+// passed it, so a case is what its last row said. The rows are a transcript of
+// `npx playwright test --reporter=list,./tests/gate-cases.ts` on the board's
 // @playwright/test 1.63.0, with `retries: 1`, of a case that passes on its
 // retry and one that fails both tries.
 func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
@@ -139,16 +134,14 @@ func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
 	rows := strings.Join([]string{
 		`Running 2 tests using 1 worker`,
 		``,
-		`  x  1 [board] › tests\flaky.spec.ts:2:1 › a flaky case (5ms)`,
-		`  ok 2 [board] › tests\flaky.spec.ts:2:1 › a flaky case (retry #1) (5ms)`,
-		`  x  3 [board] › tests\flaky.spec.ts:5:1 › a case that always fails (2ms)`,
-		`  x  4 [board] › tests\flaky.spec.ts:5:1 › a case that always fails (retry #1) (6ms)`,
-		``,
-		``,
-		`  1 failed`,
-		`    [board] › tests\flaky.spec.ts:5:1 › a case that always fails ─────────────────────────────────`,
-		`  1 flaky`,
-		`    [board] › tests\flaky.spec.ts:2:1 › a flaky case ───────────────────────────────────────────────`,
+		`  x  1 [board] › tests\cases.spec.ts:5:1 › fails (6ms)`,
+		`cfo gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails`,
+		`  x  2 [board] › tests\cases.spec.ts:5:1 › fails (retry #1) (6ms)`,
+		`cfo gate case: unexpected [board] tests/cases.spec.ts:5:1 › fails`,
+		`  x  3 [board] › tests\cases.spec.ts:7:1 › flaky (7ms)`,
+		`cfo gate case: unexpected [board] tests/cases.spec.ts:7:1 › flaky`,
+		`  ok 4 [board] › tests\cases.spec.ts:7:1 › flaky (retry #1) (5ms)`,
+		`cfo gate case: flaky [board] tests/cases.spec.ts:7:1 › flaky`,
 		"",
 	}, "\n")
 
@@ -158,24 +151,26 @@ func TestBrowserReportDropsACaseThatPassedOnARetry(t *testing.T) {
 	}
 
 	// Assert
-	want := []string{"[board] tests/flaky.spec.ts:5:1 › a case that always fails"}
+	want := []string{"[board] tests/cases.spec.ts:5:1 › fails"}
 	if got := report.Failed(); !slices.Equal(got, want) {
 		t.Errorf("failed cases are %q, want %q", got, want)
 	}
 }
 
-// A line that is not one of the reporter's rows is no case, whatever it holds:
-// a check's own output can say "x" without a case having failed.
-func TestBrowserReportReadsOnlyTheReportersRows(t *testing.T) {
+// A line that is not one of the gate reporter's rows is no case, whatever it
+// holds: a check's own output can say "x" or "unexpected" without a case
+// having failed, and the list reporter's x is no failure by itself.
+func TestBrowserReportReadsOnlyTheGateReportersRows(t *testing.T) {
 	// Arrange
 	var out bytes.Buffer
 	report := NewBrowserReport(&out)
 	for _, line := range []string{
+		`  x   88 [board] › tests\composer-status.spec.ts:85:7 › a title (23ms)`,
 		"x 12 of 1603 cases did not pass",
-		"x  3 cases failed",
-		"  ok",
-		"  x   ",
-		"  x   88 [board] ",
+		"cfo gate case: unexpected",
+		"cfo gate case: unexpected tests/afk.spec.ts:3:1 › no project",
+		"cfo gate case: expected [board] tests/afk.spec.ts:3:1 › a title",
+		"  cfo gate case: unexpected [board] tests/afk.spec.ts:3:1 › an indented row",
 		"  3 failed",
 		"",
 	} {
