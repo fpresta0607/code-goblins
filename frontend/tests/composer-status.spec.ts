@@ -446,3 +446,28 @@ for (const style of ["modern"]) {
     });
   }
 }
+
+// A note that starts while the box is off screen shows over it once he comes
+// back to it, rather than fading where he could not see it.
+test("a detached hold said while the Task view shows says so over the box when he comes back to the chat", async ({ page }) => {
+  // Arrange: Zeke's conversation was opened once, and the panel then shows his
+  // Task view, while the relay says his worktree is detached.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "modern"));
+  const relay = await open(page);
+  await openGoblin(page);
+  const views = page.locator(".panel-view-switch");
+  await views.getByRole("button", { name: "Task", exact: true }).click();
+  await expect(box(page)).toBeHidden();
+  relay.say({ type: "held", reason: "HEAD is detached at eb020be993b5, and no gate custody can be read for a detached HEAD, so typing is held" });
+  await expect(page.locator(`section[aria-label="Messages to ${NAME}"] [role="status"]`)).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+  // He stays on the Task view longer than a banner lasts, 4 s and its fade.
+  await page.waitForTimeout(5000);
+
+  // Act
+  await views.getByRole("button", { name: "Chat", exact: true }).click();
+
+  // Assert
+  await expect(box(page)).toHaveAttribute("data-queues", "");
+  await expect(box(page).locator(".composer-banner")).toHaveText("Detached worktree. Send to queue until a branch is ready.");
+});

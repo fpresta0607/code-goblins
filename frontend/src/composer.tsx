@@ -162,7 +162,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // of its queued messages, or one of its notes, which goes when that note
   // ends. The latest shows, and each is counted, so the same words show again
   // for a second press.
-  const [notice, setNotice] = useState<{ text: string; from: "box" | "queued" | NoteSource; count: number }>({ text: "", from: "box", count: 0 });
+  const [notice, setNotice] = useState<{ text: string; from: "box" | "queued" | NoteSource; count: number; isUnseen?: boolean }>({ text: "", from: "box", count: 0 });
   const setUnsent = (text: string) => {
     setUnsentText(text);
     setNotice((prior) => text ? { text, from: "box", count: prior.count + 1 } : prior.from === "box" && prior.text ? { ...prior, text: "" } : prior);
@@ -720,9 +720,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   if (NOTE_SOURCES.some((source) => notes[source] !== heard[source])) {
     setHeard(notes);
     const started = NOTE_SOURCES.find((source) => notes[source] && (source === "adding" ? !heard.adding : notes[source] !== heard[source]));
-    if (started) setNotice((prior) => ({ text: notes[started], from: started, count: prior.count + 1 }));
+    if (started) setNotice((prior) => ({ text: notes[started], from: started, count: prior.count + 1, isUnseen: !isShown }));
     else setNotice((prior) => prior.from !== "box" && prior.from !== "queued" && prior.text && !notes[prior.from] ? { ...prior, text: "" } : prior);
   }
+  if (isShown && notice.isUnseen) setNotice((prior) => prior.isUnseen ? { ...prior, count: prior.count + 1, isUnseen: false } : prior);
   // Without a conversation, even a Modern panel needs the queue here.
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
