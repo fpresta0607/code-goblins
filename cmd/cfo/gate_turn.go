@@ -16,6 +16,9 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
@@ -30,15 +33,15 @@ const (
 	// it could start, or the line ended the command for the machine's
 	// memory.
 	exitNoTurn = verify.ExitNoResult
-	// exitNotStarted says a turn was taken and given back, and the command
-	// could not be started.
+	// exitNotStarted says the command could not be started, including a
+	// required environment binding refused before admission.
 	exitNotStarted = 126
 )
 
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--gate-run <run-id>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
@@ -171,6 +174,31 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	}
 	executor.Stdin, executor.Stdout, executor.Stderr = os.Stdin, commandOutput, commandErrors
 	executor.IsConsoleShared = true
+	boundEnvironment, err := gateTestEnvironment(ctx, dir, request.gateRun, runtime)
+	if err != nil {
+		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: %s\n", oneLine(err))
+		tell(exitNotStarted)
+		return exitNotStarted
+	}
+	environment := os.Environ()
+	for _, entry := range boundEnvironment {
+		name, _, _ := strings.Cut(entry, "=")
+		environment = slices.DeleteFunc(environment, func(existing string) bool {
+			existingName, _, _ := strings.Cut(existing, "=")
+			return strings.EqualFold(existingName, name)
+		})
+		environment = append(environment, entry)
+	}
+	executor.Ready = func(ctx context.Context) error {
+		current, err := gateTestEnvironment(ctx, dir, request.gateRun, runtime)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(current, boundEnvironment) {
+			return errors.New("required test environment changed while waiting; verify the project binding and retry")
+		}
+		return nil
+	}
 	// A run given a wait takes its turn within it or runs nothing. Whichever
 	// comes first, the wait running out or the turn, decides once: a turn
 	// taken first is never cut by the wait, so the command runs until it
@@ -205,7 +233,7 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 			}
 		}
 	}
-	result, record, runError := executor.RunWithin(waiting, execx.Request{Dir: dir, Name: command[0], Args: command[1:]}, 0)
+	result, record, runError := executor.RunWithin(waiting, execx.Request{Dir: dir, Name: command[0], Args: command[1:], Env: environment}, 0)
 	// A command whose cleanup was not confirmed keeps the machine's line
 	// until it is, and this process is its only owner.
 	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -264,6 +292,52 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	return exit
 }
 
+func gateTestEnvironment(ctx context.Context, dir, runID string, runtime commandRuntime) ([]string, error) {
+	worktrees := filepath.Dir(filepath.Dir(dir))
+	if runID == "" && !strings.EqualFold(filepath.Base(worktrees), "worktrees") {
+		return nil, nil
+	}
+	h, err := runtime.resolveHome()
+	if err != nil {
+		return nil, err
+	}
+	if runID == "" && slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool { return fsx.SamePath(worktrees, root) }) {
+		return nil, nil
+	}
+	reader := pipeline.Reader{Root: filepath.Dir(worktrees), Commands: execx.OSRunner{}}
+	var source pipeline.RunSource
+	if runID == "" {
+		source, err = reader.WorktreeSource(ctx, dir)
+	} else {
+		reader.Root, err = pipeline.DefaultRoot()
+		if err == nil {
+			source, err = reader.CommandSource(ctx, dir, runID)
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("required test environment: cannot verify the gate's source project: %w", err)
+	}
+	manifest, _, err := projectcfg.LoadForCheckout(h.Data, source.Project)
+	if errors.Is(err, os.ErrNotExist) || err == nil && manifest.TestEnvironment == nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("required test environment: %w", err)
+	}
+	if runID == "" {
+		return nil, errors.New("required test environment: add --gate-run {run} before -- in the machine's test_command_wrapper.command; the native run identity is required for both head and base commands")
+	}
+	id, err := gateTask(source.Worktree, runtime)
+	if err != nil {
+		return nil, fmt.Errorf("required test environment: cannot verify the gate's source task: %w", err)
+	}
+	meta, err := state.ReadTaskMeta(h.State, id)
+	if err != nil {
+		return nil, err
+	}
+	return pipeline.ProjectTestEnvironment(ctx, execx.OSRunner{}, h.Data, meta.Project, meta.Worktree)
+}
+
 // oneLine is err's text on one line, the errors it joins separated by commas.
 func oneLine(err error) string {
 	return strings.ReplaceAll(err.Error(), "\n", ", ")
@@ -271,6 +345,7 @@ func oneLine(err error) string {
 
 // gateTurnRequest is what cfo gate turn's arguments ask for.
 type gateTurnRequest struct {
+	gateRun string
 	// as is the name the run goes by in the line, empty for its command's.
 	as string
 	// wait, when set, bounds the wait for the turn.
@@ -355,6 +430,14 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			request.as = args[at]
 		case args[at] == "--as":
 			return gateTurnRequest{}, errors.New("--as is given no name")
+		case args[at] == "--gate-run" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
+			at++
+			if request.gateRun != "" {
+				return gateTurnRequest{}, errors.New("--gate-run is given twice")
+			}
+			request.gateRun = args[at]
+		case args[at] == "--gate-run":
+			return gateTurnRequest{}, errors.New("--gate-run is given no run identity")
 		case args[at] == "--wait":
 			return gateTurnRequest{}, errors.New("--wait is given no duration")
 		case args[at] == "--execution-limit":
@@ -403,6 +486,9 @@ func parseMemory(text string) (uint64, error) {
 // flag.
 func detachedArguments(request gateTurnRequest) []string {
 	args := []string{"--detached"}
+	if request.gateRun != "" {
+		args = append(args, "--gate-run", request.gateRun)
+	}
 	if request.as != "" {
 		args = append(args, "--as="+request.as)
 	}

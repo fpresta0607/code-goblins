@@ -1293,6 +1293,53 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 	}
 }
 
+func TestPipelineRunRefusesAMissingRequiredEnvironmentBeforeStartingTheGate(t *testing.T) {
+	// Arrange
+	policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := policy.Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+	nativeRoot, temporary, checkout := filepath.Join(root, "native"), filepath.Join(h.State, "tasktmp", "task"), filepath.Join(root, "project")
+	worktree := filepath.Join(checkout, ".worktrees", "gb-task")
+	for _, directory := range []string{nativeRoot, temporary, worktree, filepath.Join(h.Data, "projects", "project")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(temporary, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Project: checkout, Worktree: worktree, TaskTmp: temporary, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeRoot, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "projects", "project", "project.json"), []byte(`{"project":"project","test_environment":{"python_version":"3.12.10"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: worktree}
+
+	// Act
+	err = pipelineCommand(context.Background(), h, nativeRoot, runner, []string{"run", "task", "--intent", "reuse the verified environment"}, &bytes.Buffer{})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "required test environment") || len(runner.native) != 0 {
+		t.Fatalf("error=%v native launches=%v; want refusal before native launch", err, runner.native)
+	}
+}
+
 // taskWorktreesRunner answers git in each directory of branches as the top
 // level of a checkout with that branch checked out, the native database's run
 // lookup with runBranch and its custody record with recovery; every other

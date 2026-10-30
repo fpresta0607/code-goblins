@@ -562,7 +562,7 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 | Exit code | Last line on standard error | What happened |
 | --- | --- | --- |
 | 125 | `cfo gate turn: this run takes no turn: <reason>`, `cfo gate turn: run it without cfo gate turn: <command>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the wait was interrupted, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
-| 126 | `cfo gate turn: the command did not start: <error>` | A turn was taken and given back, and `<program>` could not be started, or the run's custody of it could not be recorded first. |
+| 126 | `cfo gate turn: the command did not start: <error>` | A required environment binding was refused before admission, or a turn was taken and given back and `<program>` could not be started, or the run's custody of it could not be recorded first. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
 A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s unless the run named what its command left running or why it ended the command.
@@ -714,14 +714,14 @@ The fork's side, as task cg-gate-fork-minutes built it, is a setting in the mach
 
 ```yaml
 test_command_wrapper:
-  command: ["C:\\dev\\code-goblins\\bin\\cfo.exe", "gate", "turn", "--as", "{repo} {branch}, run {run_short}", "--"]
+  command: ["C:\\dev\\code-goblins\\bin\\cfo.exe", "gate", "turn", "--gate-run", "{run}", "--as", "{repo} {branch}, run {run_short}", "--"]
   refusal_prefix: "cfo gate turn: "
 ```
 
-The fork fills `{repo}`, `{branch}` and `{run_short}` once, then starts nine arguments with no shell in front:
+The fork fills `{repo}`, `{branch}`, `{run}` and `{run_short}` once, then starts these arguments with no shell in front:
 
 ```text
-C:\dev\code-goblins\bin\cfo.exe  gate  turn  --as  "PrecisionDocs feat/x, run 01M4FG7F"  --  C:\WINDOWS\system32\cmd.exe  /c  <the command string, as one argument>
+C:\dev\code-goblins\bin\cfo.exe  gate  turn  --gate-run  <full run id>  --as  "PrecisionDocs feat/x, run 01M4FG7F"  --  C:\WINDOWS\system32\cmd.exe  /c  <the command string, as one argument>
 ```
 
 The full path to `cfo.exe` keeps the gate daemon's `PATH` from choosing which `cfo` runs.
@@ -739,6 +739,34 @@ commands:
   prepare: "pnpm install --frozen-lockfile"
   test: "pnpm run build && pnpm test"
 ```
+
+An existing verified Python environment can be required by the project's machine-local `data/projects/<checkout folder>/project.json`:
+
+```json
+"test_environment": { "python_version": "3.12.10" }
+```
+
+This binding selects only `.venv` in the registered source task's primary worktree.
+The wrapper's `--gate-run {run}` argument identifies the full native run in the daemon's own home.
+The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task through the source repository's worktree list, and checks the task's recorded project and worktree against the home's allowed locations.
+The command must run in that run's managed checkout or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the run's recorded base commit.
+It never selects an environment from a client variable or another project's record.
+The interpreter must already exist, and an isolated Python probe must report that executable, the selected environment prefix, a distinct existing base prefix and the exact configured version.
+The environment directory must resolve inside the registered source worktree.
+Python environments with system site packages are supported.
+
+`cfo pipeline run <task> --intent-file <file>` checks a required binding before starting or reattaching to a gate.
+The daemon's existing Test wrapper checks it before admission and again after waiting, then starts the original program and arguments with `UV_PROJECT_ENVIRONMENT` and `UV_PYTHON` set to the verified paths, `UV_NO_SYNC=1`, `UV_OFFLINE=1` and `UV_PYTHON_DOWNLOADS=never`.
+These are fixed binding settings, with no arbitrary client environment forwarding and no shared daemon environment change.
+The configured repository command and its actual exit code remain unchanged.
+Use this binding for a trusted `uv run` command that must reuse an existing environment without dependency resolution, installation or interpreter downloads; it does not constrain an arbitrary repository command that explicitly overrides those settings.
+No environment is created, synchronized or repaired by the binding.
+An unavailable, invalid or mismatched required binding refuses execution with exit 126 and an actionable explanation; the native wrapper parks that as an unexecuted command, never a passing baseline.
+Repair and verify the existing environment or its project setting, then request the same Test command again through `cfo pipeline respond <task> --action fix`; do not approve the refusal as a pass.
+Projects with no `test_environment` keep their existing runner environment.
+The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CFO build, including `--gate-run {run}`; the managed preflight refuses a required binding without that argument.
+Apply the reviewed wrapper setting through the CFO's normal idle configuration window.
+The native engine already supports the `{run}` placeholder, so no native-engine patch is required.
 
 What the test command leaves running is ended ten seconds after it exits, and after a baseline that passed the test agent still gathers live evidence, outside the line.
 

@@ -3,8 +3,11 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 
+	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -12,6 +15,51 @@ type RunSource struct {
 	Project  string `json:"project"`
 	Branch   string `json:"branch"`
 	Worktree string `json:"worktree"`
+}
+
+// CommandSource verifies the daemon's run identity for either its managed
+// checkout or its separate clone of the recorded base commit.
+func (reader Reader) CommandSource(ctx context.Context, directory, runID string) (RunSource, error) {
+	if !gateIdentity.MatchString(runID) {
+		return RunSource{}, errors.New("pipeline: invalid configured-command run identity")
+	}
+	var rows []struct {
+		RunSource
+		Repository string `json:"repository"`
+		Base       string `json:"base"`
+	}
+	query := `SELECT repos.working_path AS project,runs.branch,runs.worktree_dir AS worktree,runs.repo_id AS repository,runs.base_sha AS base FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(runID)
+	if err := reader.query(ctx, query, &rows); err != nil {
+		return RunSource{}, err
+	}
+	if len(rows) != 1 || !gateIdentity.MatchString(rows[0].Repository) || !filepath.IsAbs(rows[0].Project) || rows[0].Branch == "" ||
+		!fsx.SamePath(rows[0].Worktree, filepath.Join(reader.Root, "worktrees", rows[0].Repository, runID)) {
+		return RunSource{}, errors.New("pipeline: configured-command run source could not be verified")
+	}
+	source := rows[0]
+	if fsx.SamePath(directory, source.Worktree) {
+		return source.RunSource, nil
+	}
+	for _, check := range []struct {
+		args   []string
+		want   string
+		isPath bool
+	}{
+		{[]string{"rev-parse", "--show-toplevel"}, directory, true},
+		{[]string{"remote", "get-url", "origin"}, source.Worktree, true},
+		{[]string{"rev-parse", "HEAD"}, source.Base, false},
+	} {
+		result, err := reader.Commands.Run(ctx, execx.Request{Dir: directory, Name: "git", Args: check.args})
+		actual := strings.TrimSpace(string(result.Stdout))
+		isMatch := actual != "" && actual == check.want
+		if check.isPath {
+			isMatch = filepath.IsAbs(actual) && fsx.SamePath(actual, check.want)
+		}
+		if err != nil || result.ExitCode != 0 || !isMatch {
+			return RunSource{}, fmt.Errorf("pipeline: configured-command base clone does not match run %s (%s)", runID, strings.Join(check.args, " "))
+		}
+	}
+	return source.RunSource, nil
 }
 
 func (reader Reader) WorktreeSource(ctx context.Context, worktree string) (RunSource, error) {

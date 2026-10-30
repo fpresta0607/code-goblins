@@ -69,6 +69,20 @@ func loadText(t *testing.T, s string) (Manifest, error) {
 	os.WriteFile(p, []byte(s), 0600)
 	return Load(p)
 }
+
+func TestManifestRequiresAnExactExistingEnvironmentPythonVersion(t *testing.T) {
+	for _, version := range []string{"3.12.10", "3.14.3", "", "3.12", "python", "3.12.*", "3.12.10\n", "03.12.10"} {
+		t.Run(version, func(t *testing.T) {
+			// Act
+			manifest, err := loadText(t, fmt.Sprintf(`{"project":"p","test_environment":{"python_version":%q}}`, version))
+			// Assert
+			isValid := version == "3.12.10" || version == "3.14.3"
+			if (err == nil) != isValid || isValid && manifest.TestEnvironment.PythonVersion != version {
+				t.Fatalf("version=%q manifest=%+v error=%v", version, manifest, err)
+			}
+		})
+	}
+}
 func TestManifestValidAndArbitraryProvider(t *testing.T) {
 	m, e := loadText(t, `{"project":"p","services":[{"name":"db","kind":"database","provider":"weird-cloud","env":["DATABASE_URL"]},{"name":"api","kind":"backend","depends_on":["db"]}],"deployment":{"required":true,"targets":[{"name":"api","provider":"fly","command":["flyctl","deploy"],"verify":["curl","-f","https://x/health"]}]}}`)
 	if e != nil {
