@@ -154,6 +154,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // What Send sends: his words, then the path of each file he added.
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
+  const [isReplacing, setReplacing] = useState(false);
   // Why the last Send found no terminal to type into, or why a paste could
   // not be kept, until the draft changes.
   const [unsent, setUnsentText] = useState("");
@@ -250,13 +251,14 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   };
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
   const clear = () => {
+    setReplacing(true);
     dictation.discard();
     write(() => "");
     storeDraft(draftKey, "");
     setCaret(0);
     field.current?.focus();
   };
-  const isActive = !!(adding || isSending || unsent || dictation.listening);
+  const isActive = !!(adding || isSending || unsent || dictation.listening || isReplacing);
   useEffect(() => {
     onActive?.(terminal, isActive);
     return () => onActive?.(terminal, false);
@@ -394,6 +396,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     for (const send of sending) if (snapshot.actions.some((action) => action.id === send.id)) removePendingSend(send.id);
   }, [sending, snapshot.actions]);
   const afterSend = () => {
+    setReplacing(false);
     setDraft("");
     setAttached([]);
     setUnsent("");
@@ -741,7 +744,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
-  return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
+  return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}
+    onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setReplacing(false); }}>
     {/* A screen reader hears the note from this line, which stays as its
         words change, and a refusal from its banner at once. */}
     <p className="sr-only" role="status">{note}</p>

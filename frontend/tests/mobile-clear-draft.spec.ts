@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, boxMenu, field, GOBLIN, NAME, open, openGoblin, snapshot, typed } from "./session-board";
+import { box, boxMenu, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
 
 test.use({
   viewport: { width: 360, height: 800 }, hasTouch: true, isMobile: true,
@@ -59,6 +59,74 @@ for (const who of ["CFO", "goblin"] as const) {
     await expect(input).toHaveValue("Replacement text");
     expect(typed(relay)).toBe("");
   });
+
+  for (const activity of ["recording", "failed send"] as const) {
+    test(`phone Classic Clear message keeps the ${who} replacement field after ${activity}`, async ({ page }) => {
+      const name = who === "CFO" ? "CFO" : NAME;
+      const task = who === "CFO" ? "" : GOBLIN.id;
+      const actions: object[] = [];
+      await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
+      const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued" }] }));
+      await page.route("**/api/actions", async (route) => { actions.push(route.request().postDataJSON()); await route.fulfill({ json: {} }); });
+      if (who === "goblin") await card(page, NAME).tap();
+      else await page.keyboard.press("Control+Alt+1");
+      await expect.poll(() => relay.addresses.some((address) => who === "goblin" ? new URL(address).searchParams.get("task") === GOBLIN.id : new URL(address).searchParams.has("cfo"))).toBe(true);
+      const composer = box(page, name);
+      const input = field(page, name);
+      const modern = page.locator(".context-pane").getByRole("button", { name: "Switch to Modern chat", exact: true });
+      await expect(modern).toBeVisible();
+      await expect(composer).toBeHidden();
+      await modern.tap();
+      await input.fill("Unsent first line\nUnsent second line");
+      if (activity === "recording") {
+        await composer.getByRole("button", { name: "Dictate", exact: true }).tap();
+        await expect(composer.getByRole("button", { name: "Stop dictating", exact: true })).toHaveAttribute("aria-pressed", "true");
+      } else {
+        relay.end();
+        await expect(page.locator(".terminal-foot.box")).toHaveCount(1);
+        await send(page, name).tap();
+        await expect(composer.getByRole("alert")).toHaveText("Not sent. The terminal is closed.");
+      }
+      await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+      await expect(input).toBeVisible();
+      await expect(input).toBeFocused();
+
+      await composer.getByRole("button", { name: "Clear message", exact: true }).tap();
+
+      await expect(input).toBeVisible();
+      await expect(input).toHaveValue("");
+      await expect(input).toBeFocused();
+      await expect(composer.getByRole("button", { name: "Clear message", exact: true })).toBeDisabled();
+      await expect(composer.getByRole("alert")).toHaveCount(0);
+      await expect(composer.getByRole("button", { name: "Dictate", exact: true })).toHaveAttribute("aria-pressed", "false");
+      expect(await page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith("cfo-draft:")))).toEqual([]);
+      await page.keyboard.insertText("Replacement text");
+      await expect(input).toHaveValue("Replacement text");
+      await (await boxMenu(page, name)).getByRole("button", { name: "Style: classic", exact: true }).press("Escape");
+      await expect(input).toBeVisible();
+      await expect(composer.locator('.queued-message[data-queued="q1"]')).toContainText("Already queued");
+      expect(typed(relay)).toBe("");
+      expect(relay.submissions).toEqual([]);
+      expect(actions).toEqual([]);
+
+      if (activity === "recording") {
+        await input.focus();
+        await page.keyboard.press("Enter");
+        await expect(composer).toBeHidden();
+        await expect.poll(() => typed(relay)).toBe(pasted("Replacement text") + "\r");
+        expect(relay.submissions).toHaveLength(1);
+      } else {
+        await modern.focus();
+        await expect(composer).toBeHidden();
+        await modern.tap();
+        await expect(input).toHaveValue("Replacement text");
+        await composer.getByRole("button", { name: "Clear message", exact: true }).tap();
+        await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+        await expect(input).toHaveValue("");
+        await expect(input).toBeFocused();
+      }
+    });
+  }
 }
 
 for (const state of ["recording", "awaiting transcription"] as const) {
