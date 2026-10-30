@@ -476,7 +476,10 @@ const anyFreePort = "127.0.0.1:0"
 // never stops on a box about the port; goblins finds that board through its
 // record. The usual address held by this home's own supervisor, started a
 // moment ago and not yet recorded, is its boardAddressTaken, which the
-// launcher waits on.
+// launcher waits on. That supervisor answers only once it has started, so
+// until then it reads here as another program; it holds the watcher lock
+// before it listens, so the serve started on a free port finds the lock held
+// and exits, and the launcher waits for that supervisor's board.
 func serveAddress(ctx context.Context, h home.Home, chosen, usual string) (string, error) {
 	if chosen != "" {
 		if !loopbackAddress(chosen) {

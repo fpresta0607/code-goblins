@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +17,8 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
+	"github.com/fpresta0607/code-goblins/internal/watch"
 )
 
 // stalledBoard answers as the recorded supervisor but never sends the
@@ -190,6 +194,93 @@ func TestServeReportsTheBoardAlreadyServingThisHome(t *testing.T) {
 
 	if exit != 1 || !strings.Contains(stderr, "already serves this home's board at "+board) {
 		t.Fatalf("exit=%d stderr=%q, want the live board named", exit, stderr)
+	}
+}
+
+// After the Windows restart of 2026-10-27 a serve held the usual address
+// before it held the watcher lock, a second goblins read that silent listener
+// as another program and started a supervisor on a free port, and that one won
+// the lock, so the board came back on a random port (#1592). A serve that does
+// not hold the lock yet leaves the address free.
+func TestServeLeavesTheBoardsAddressFreeUntilItHoldsTheWatcherLock(t *testing.T) {
+	// Arrange
+	defer func(wait, alive time.Duration) { watch.HandoverWait, aliveTimeout = wait, alive }(watch.HandoverWait, aliveTimeout)
+	watch.HandoverWait, aliveTimeout = 3*time.Second, 300*time.Millisecond
+	f, _ := newCommandFixture(t)
+	if _, err := lock.AcquireNamedOwner(f.home.State, ".watch.lock", startLiveForeignProcess(t).Process.Pid, watch.WatcherSession); err != nil {
+		t.Fatal(err)
+	}
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := free.Addr().String()
+	if err := free.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	type served struct {
+		exit   int
+		stderr string
+	}
+	ended := make(chan served, 1)
+	go func() {
+		exit, _, stderr := f.command("serve", "--listen", address)
+		ended <- served{exit, stderr}
+	}()
+	request := filepath.Join(f.home.State, "serve.handover")
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(request); err == nil {
+			break
+		}
+		select {
+		case result := <-ended:
+			t.Fatalf("serve ended without asking the watcher for the lock: exit=%d stderr=%q", result.exit, result.stderr)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("serve never asked the watcher for the lock")
+		}
+	}
+	held := boardAddressFree(context.Background(), address)
+	result := <-ended
+
+	// Assert
+	if held != nil {
+		t.Errorf("while serve waited for the watcher lock, its address: %v, want it free", held)
+	}
+	if result.exit != 1 || !strings.Contains(result.stderr, "existing watch owner must finish before serve") {
+		t.Errorf("exit=%d stderr=%q, want serve refused by the lock's holder", result.exit, result.stderr)
+	}
+}
+
+// A serve that takes the watcher lock and then cannot take the board's address
+// lets the lock go, so the next start finds it free.
+func TestServeLetsTheWatcherLockGoWhenItsAddressIsTaken(t *testing.T) {
+	// Arrange
+	f, _ := newCommandFixture(t)
+	taken, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = taken.Close() })
+
+	// Act
+	exit, _, stderr := f.command("serve", "--listen", taken.Addr().String())
+
+	// Assert
+	if exit != 1 || !strings.Contains(stderr, "bind") {
+		t.Fatalf("exit=%d stderr=%q, want serve refused by the address", exit, stderr)
+	}
+	if _, err := lock.ReadNamed(f.home.State, ".watch.lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the watcher lock after the refusal: %v, want it let go", err)
+	}
+	if err := supervisor.AcquireWatchLock(f.home.State); err != nil {
+		t.Fatalf("the next start could not take the watcher lock: %v", err)
+	}
+	if err := supervisor.ReleaseWatchLock(f.home.State); err != nil {
+		t.Fatal(err)
 	}
 }
 

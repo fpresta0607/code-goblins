@@ -55,7 +55,11 @@ type ProgressReader interface {
 }
 
 type Options struct {
-	RemoteAccess *remoteaccess.Manager
+	// HoldsWatchLock says the caller took the watcher lock with
+	// AcquireWatchLock, as serve does before it listens. Start then keeps it
+	// and lets it go as its own.
+	HoldsWatchLock bool
+	RemoteAccess   *remoteaccess.Manager
 	// Push sends the app badge's pushes to the push services browsers
 	// subscribe through; nil turns the app badge off.
 	Push           *http.Client
@@ -426,11 +430,10 @@ const snapshotRefresh = 15 * time.Second
 // state. The browser, hook writers, and competing serve invocations cannot
 // create a second controller or replay actions outside this lease.
 func Start(ctx context.Context, h home.Home, options Options) (*Service, error) {
-	if err := os.MkdirAll(h.State, 0700); err != nil {
-		return nil, err
-	}
-	if err := AcquireWatchLock(h.State); err != nil {
-		return nil, fmt.Errorf("supervisor: existing watch owner must finish before serve: %w", err)
+	if !options.HoldsWatchLock {
+		if err := AcquireWatchLock(h.State); err != nil {
+			return nil, fmt.Errorf("supervisor: existing watch owner must finish before serve: %w", err)
+		}
 	}
 	clearStopRequest(h.State)
 	store, err := Open(h)
