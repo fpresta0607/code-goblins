@@ -1,0 +1,18 @@
+.actions-spend-header { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 4px 8px; border-color: transparent; background: transparent; color: var(--muted); font-size: .8125rem; font-variant-numeric: tabular-nums; white-space: nowrap; transition: none; }
+.actions-spend-header .icon { width: 16px; height: 16px; }
+.actions-spend-old { color: var(--amber); font-size: .8125rem; }
+.actions-spend-panel { width: min(480px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); margin: auto; padding: 24px; overflow: auto; color: inherit; background: var(--hero-surface); border: 1px solid var(--glass-border-hover); border-radius: var(--radius); box-shadow: var(--glass-shadow); }
+.actions-spend-panel::backdrop { background: #0009; }
+.actions-spend-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.actions-spend-title h2 { margin: 0; font-size: 1.25rem; }
+.actions-spend-month { color: var(--muted); margin: 0 0 16px; }
+.actions-spend-panel .actions-spend-total { margin: 0; font-size: 2rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.actions-spend-panel > .muted { margin-top: 4px; font-size: .875rem; }
+.actions-spend-problem { color: var(--amber); overflow-wrap: anywhere; }
+.actions-spend-panel table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 24px 0; font-size: .9375rem; }
+.actions-spend-panel th, .actions-spend-panel td { border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; overflow-wrap: anywhere; }
+.actions-spend-panel th { color: var(--muted); font-size: .8125rem; font-weight: 600; }
+.actions-spend-panel th:last-child, .actions-spend-panel td:last-child { width: 85px; text-align: right; padding-left: 12px; font-variant-numeric: tabular-nums; }
+.actions-spend-dates { font-size: .8125rem; }
+.actions-spend-dates p { margin: 4px 0; }
+.actions-spend-loading { position: fixed; right: 24px; bottom: 24px; padding: 16px; background: var(--hero-surface); border: 1px solid var(--glass-border); border-radius: var(--radius); }

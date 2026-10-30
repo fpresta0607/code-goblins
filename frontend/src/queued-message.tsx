@@ -59,7 +59,13 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
     setSending(true);
     const id = body.kind === "message_withdraw" ? "withdraw-" + action.id : crypto.randomUUID();
     try { await post({ id, task_id: action.task_id, target: action.id, ...body }); after(); }
-    catch (error: unknown) { refuse(message(error)); reportToCfo("a queued message to " + name, message(error)); }
+    catch (error: unknown) {
+      refuse(message(error));
+      // A press the supervisor answered is refused for a reason he reads over
+      // the box; only one that never had its answer is the board's own
+      // failure, which the CFO hears of.
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("a queued message to " + name, message(error));
+    }
     finally { setSending(false); }
   };
   // A message is typed only once it awaits the turn; one the board is

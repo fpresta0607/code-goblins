@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/actionsbilling"
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/cirunner"
@@ -187,7 +188,8 @@ type commandRuntime struct {
 	quota       func(context.Context) (quota.Report, string)
 	// keySpend reads the spend the OpenRouter key of one Pi credential source
 	// reports at the provider, for the board's dial.
-	keySpend func(context.Context, openrouter.Source) openrouter.Reading
+	keySpend     func(context.Context, openrouter.Source) openrouter.Reading
+	actionsSpend func(context.Context, time.Time) actionsbilling.Reading
 	// now is the clock a quota reading is judged by, so a test's reading
 	// keeps the date it was taken on; nil is the real clock.
 	now func() time.Time
@@ -472,7 +474,8 @@ func defaultCommandRuntime() commandRuntime {
 			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
-		keySpend:     func(ctx context.Context, source openrouter.Source) openrouter.Reading {
+		actionsSpend: actionsbilling.Reader{Commands: execx.OSRunner{}}.Read,
+		keySpend: func(ctx context.Context, source openrouter.Source) openrouter.Reading {
 			return openrouter.Reader{Source: source}.Read(ctx)
 		},
 		projectsRoot: install.MachineProjectsRoot,
