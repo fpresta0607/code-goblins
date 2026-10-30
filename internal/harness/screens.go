@@ -180,7 +180,7 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			PasteTakesEnter: true,
 			Undrawn:         true,
 			Empty:           regexp.MustCompile(`^› (Ask Codex to do anything|Ask a follow-up question)\s*$`),
-			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ \S+ · \S|(?i:gpt-\S+) (minimal|low|medium|high|xhigh)\s*$)`),
+			Footer:          regexp.MustCompile(`^\s*(\? for shortcuts\b|\d+% context left\b|\S+ (minimal|low|medium|high|xhigh|max) · \S|(?i:gpt-\S+) (minimal|low|medium|high|xhigh)\s*$)`),
 		}, true
 	case Pi:
 		return Screens{
@@ -392,6 +392,9 @@ func (s Screens) IsOpen(screen []string) bool {
 		if strings.TrimSpace(screen[i]) != "" {
 			last = append(last, screen[i])
 		}
+	}
+	if len(last) > 0 && s.Footer != nil && s.Footer.MatchString(last[0]) {
+		return false
 	}
 	return len(last) > 0 && !anyRow(last, s.Ready)
 }

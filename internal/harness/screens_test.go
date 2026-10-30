@@ -320,6 +320,34 @@ func TestAHarnessHasItsOwnScreenOpenOnlyWhileItsInputLineIsGone(t *testing.T) {
 	}
 }
 
+func TestCodexDraftIsNotAnOpenPicker(t *testing.T) {
+	screens, _ := NativeScreens(Codex)
+	for _, footer := range []string{
+		"  gpt-5 low · ~\\.no-mistakes\\evidence\\01M66TFE77…",
+		"  gpt-5 low · ~\\.no-mistakes\\evidence…  ⚠ 1 · f2",
+		"  gpt-6-astra max · work",
+		"  custom-model high · work",
+		"  gpt-6.1-sol high",
+		"  ? for shortcuts",
+	} {
+		t.Run(footer, func(t *testing.T) {
+			// Arrange: Codex 0.160.0's captured draft and footer after a dictation pause.
+			rows := []string{"› slow phone completion once", "", footer, "", ""}
+
+			// Act and assert: a draft remains input, never a picker choice.
+			if screens.IsOpen(rows) || !screens.ComposerHoldsText(rows) || screens.ComposerEmpty(rows) {
+				t.Errorf("draft reads as open %v, holds text %v, empty %v", screens.IsOpen(rows), screens.ComposerHoldsText(rows), screens.ComposerEmpty(rows))
+			}
+
+			// A footer retained above the model picker cannot close that picker.
+			rows = []string{footer, "Select Model and Effort", "› 1. GPT-6.1-Sol (current)", "  2. GPT-6-Astra", "enter select · esc back"}
+			if !screens.IsOpen(rows) || screens.ComposerHoldsText(rows) {
+				t.Errorf("model picker reads as open %v, holds text %v", screens.IsOpen(rows), screens.ComposerHoldsText(rows))
+			}
+		})
+	}
+}
+
 // Claude Code's footer names the session's permission mode, which a CFO the
 // Overlord opens chooses for itself, so its composer reads as ready, and its
 // turn as working, in every mode. The rows are Claude Code 2.1.302's, read
