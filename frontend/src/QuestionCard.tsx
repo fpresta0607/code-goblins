@@ -7,7 +7,7 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { answeredBy, answeredLabel, chosenOption, outcomeIcon, questionOutcome } from "./commandQueue";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
-import { messageElements } from "./messageText";
+import { inlineElements, messageElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
@@ -64,7 +64,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
       {choices.map((option) => <label className={"question-choice" + (closed ? (chosen === option.value ? " chosen" : " dimmed") : "")} key={option.value}>
         {closed ? <span className="choice-mark">{chosen === option.value && <Icon name="check" />}</span>
           : <input type="radio" name={"answer-" + question.id} checked={displayed.selection === "option:" + option.value} onChange={() => onDraft({ selection: "option:" + option.value, error: "", receipt: undefined })} />}
-        <span className="question-option"><span>{option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
+        <span className="question-option"><span>{inlineElements(option.text)}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
       </label>)}
       {closed ? question.answer_kind === "other" && <label className="question-choice chosen"><span className="choice-mark"><Icon name="check" /></span><span className="question-option"><span>Other</span><small>{question.answer}</small></span></label>
         : <label className="question-choice"><input type="radio" name={"answer-" + question.id} checked={displayed.selection === "other"} onChange={() => onDraft({ selection: "other", error: "", receipt: undefined })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>}
