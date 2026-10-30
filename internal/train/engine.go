@@ -208,6 +208,12 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	if err != nil {
 		return err
 	}
+	if outcome != "passed" && t.DeployHold != nil {
+		t.DeployHold, t.Note = nil, ""
+		if err := e.save(t); err != nil {
+			return err
+		}
+	}
 	if outcome == "failed" {
 		if outcome, err = e.secondTry(ctx, t, failed); err != nil {
 			return err
