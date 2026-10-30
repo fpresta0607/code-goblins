@@ -18,6 +18,8 @@ const DAY_AND_TIME: Intl.DateTimeFormatOptions = { month: "short", day: "numeric
 // rider groups and earlier trains together, including checks that failed once.
 export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Task[]; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode } }) {
   const look = trainLook(train), cars = batchCars(train), runs = batchRuns(train);
+  const trainURL = safeGitHubLink(train.pr);
+  const status = <><span className="status-dot" />{look.text}</>;
   let runOffset = 0;
   const attempts = [...train.earlier, train].map((record) => {
     const attemptRuns = runs.slice(runOffset, runOffset + record.history.length);
@@ -35,10 +37,12 @@ export function TrainPanel({ train, tasks, row }: { train: MergeTrain; tasks: Ta
       <div className="panel-identity">
         <h2 id="panel-title">Merge train</h2>
         <p className="project-label">{train.repository} into {train.base}</p>
-        <p className={"panel-status train-status train-" + look.tone}><span className="status-dot" />{look.text}</p>
+        {train.state === "testing" && train.deploy_hold && look.url
+          ? <a className={"panel-status train-status train-" + look.tone} href={look.url} target="_blank" rel="noreferrer">{status}</a>
+          : <p className={"panel-status train-status train-" + look.tone}>{status}</p>}
       </div>
-      {look.url && <div className="panel-actions">
-        <a className="icon-button raised pill-link" href={look.url} target="_blank" rel="noreferrer" aria-label="Open the train's pull request"><svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg><span>#{look.url.split("/").at(-1)}</span></a>
+      {trainURL && <div className="panel-actions">
+        <a className="icon-button raised pill-link" href={trainURL} target="_blank" rel="noreferrer" aria-label="Open the train's pull request"><svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg><span>#{trainURL.split("/").at(-1)}</span></a>
       </div>}
     </header>
     <div className="panel-task">
