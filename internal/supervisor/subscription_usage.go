@@ -22,13 +22,14 @@ type SubscriptionUsage struct {
 // the dial showed a reading a minute old as stale. The half minute over keeps
 // a fleet reading that runs late from bringing the dials' own read beside it.
 func (s *Service) keepSubscriptionUsage(ctx context.Context, every time.Duration) {
-	if s.Options.Quota == nil && s.Options.KeySpend == nil {
+	if s.Options.Quota == nil && s.Options.KeySpend == nil && s.Options.ActionsSpend == nil {
 		return
 	}
 	isDue := func(at time.Time) bool { return at.IsZero() || time.Since(at) >= every*3/2 }
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
+		s.readActionsSpend(ctx, time.Now())
 		s.mu.Lock()
 		lastQuota, lastSpend := s.quotaReadAt, s.keySpendReadAt
 		s.mu.Unlock()

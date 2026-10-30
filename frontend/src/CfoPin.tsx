@@ -6,6 +6,7 @@ import { cfoSummary } from "./cfoSummary";
 import { SubscriptionDials } from "./subscription-dials";
 import "./cfo-pin.css";
 import { ReopenCfoButton } from "./reopen-cfo-button";
+import { ActionsSpendHeader } from "./actions-spend-header";
 
 // The CFO pinned above the board's columns: at rest a plain bar, a card like
 // the columns under it, that says how many goblins are at work, with its
@@ -37,6 +38,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
       <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
       <p>{snapshot.cfo_closed ? "The CFO is closed." : "The CFO is not running."}</p>
       <ReopenCfoButton snapshot={snapshot} />
+      <ActionsSpendHeader usage={snapshot.actions_spend} month={new Date(now).toISOString().slice(0, 7)} />
     </div>
   </div>;
   const absent = !snapshot.cfo_runs;
@@ -52,6 +54,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
     <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: terminal, onClick: onOpen }}
       actions={<>
         {dials}
+        <ActionsSpendHeader usage={snapshot.actions_spend} month={new Date(now).toISOString().slice(0, 7)} />
         <button className="pixel-button cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>
         <button className="icon-button pixel-icon" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>
       </>}>
@@ -65,6 +68,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
         : <button className="cfo-rest-portrait" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>}
       {status}
       {dials}
+      <ActionsSpendHeader usage={snapshot.actions_spend} month={new Date(now).toISOString().slice(0, 7)} />
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
       {!absent && waiting > 0 && <button className="pixel-button outline cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {!absent && <button className="icon-button raised" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>}
