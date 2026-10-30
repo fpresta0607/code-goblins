@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 // cfo host needs a state directory and a command to run, and starts nothing
@@ -19,6 +20,10 @@ func TestHostRefusesWithoutAStateDirectoryOrCommand(t *testing.T) {
 
 		if exit != 1 || !strings.Contains(stderr.String(), "--state and a command after -- are required") {
 			t.Errorf("%s: exit=%d stderr=%q, want the refusal", name, exit, stderr.String())
+		}
+		stamp, _, _ := strings.Cut(stderr.String(), " ")
+		if _, err := time.Parse(time.RFC3339Nano, stamp); err != nil {
+			t.Errorf("host error has no UTC date: %q", stderr.String())
 		}
 	}
 }

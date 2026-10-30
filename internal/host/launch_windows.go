@@ -73,6 +73,12 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 		return Record{}, err
 	}
 	defer log.Close()
+	// The waiter outlives Launch and needs its own handle to record a host
+	// that Windows ends before the host can record anything itself.
+	exitLog, err := fsx.OpenAppend(logPath, 0o600)
+	if err != nil {
+		return Record{}, err
+	}
 	args := append(append([]string(nil), command[1:]...), Arguments(stateDir, spec)...)
 	start := func(flags uint32) (*exec.Cmd, error) {
 		cmd := execx.Command(command[0], args...)
@@ -91,14 +97,22 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	if contained {
 		// This process is in a job that forbids breaking away; the host
 		// starts inside it instead.
-		fmt.Fprintf(log, "host: cannot break away from the job of the process that launched it (pid %d), so this host runs inside that job and ends when it closes\n", os.Getpid())
+		fmt.Fprintf(log, "%s host: cannot break away from the job of the process that launched it (pid %d), so this host runs inside that job and ends when it closes\n", time.Now().UTC().Format(time.RFC3339Nano), os.Getpid())
 		cmd, err = start(flags)
 	}
 	if err != nil {
+		exitLog.Close()
 		return Record{}, fmt.Errorf("host: start %s: %w", command[0], err)
 	}
+	fmt.Fprintf(log, "%s host: pid %d started by pid %d\n", time.Now().UTC().Format(time.RFC3339Nano), cmd.Process.Pid, os.Getpid())
 	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
+	go func() {
+		err := cmd.Wait()
+		code := uint32(cmd.ProcessState.ExitCode())
+		fmt.Fprintf(exitLog, "%s host: pid %d ended with exit code %d (0x%08x); wait error: %v\n", time.Now().UTC().Format(time.RFC3339Nano), cmd.Process.Pid, code, code, err)
+		exitLog.Close()
+		exited <- err
+	}()
 	launching, cancelLaunching := awake.WithTimeout(context.Background(), launchTimeout)
 	defer cancelLaunching()
 	for ; launching.Err() == nil; time.Sleep(25 * time.Millisecond) {
@@ -128,7 +142,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	// could not break away, and the phase the host had reached was lost with
 	// it.
 	alive := cmd.ProcessState == nil
-	fmt.Fprintf(log, "host: pid %d had not recorded itself after %s of the %s this launch allows (still running: %t); this launch ends it\n", cmd.Process.Pid, time.Since(launched).Round(time.Millisecond), launchTimeout, alive)
+	fmt.Fprintf(log, "%s host: pid %d had not recorded itself after %s of the %s this launch allows (still running: %t); this launch ends it\n", time.Now().UTC().Format(time.RFC3339Nano), cmd.Process.Pid, time.Since(launched).Round(time.Millisecond), launchTimeout, alive)
 	_ = cmd.Process.Kill()
 	// Kill only asks Windows to end the host, which holds its log and its
 	// terminal's job until it has ended, and on 2026-10-24 still held the log
@@ -139,7 +153,7 @@ func Launch(stateDir string, command, env []string, spec Spec) (Record, error) {
 	defer cancelEnding()
 	select {
 	case <-exited:
-		fmt.Fprintf(log, "host: pid %d ended %s after this launch ended it\n", cmd.Process.Pid, time.Since(killed).Round(time.Millisecond))
+		fmt.Fprintf(log, "%s host: pid %d ended %s after this launch ended it\n", time.Now().UTC().Format(time.RFC3339Nano), cmd.Process.Pid, time.Since(killed).Round(time.Millisecond))
 	case <-ending.Done():
 		return Record{}, fmt.Errorf("host: host pid %d did not record itself within %s, and had not ended %s after this launch ended it; see %s", cmd.Process.Pid, launchTimeout, closeEndWait, logPath)
 	}
