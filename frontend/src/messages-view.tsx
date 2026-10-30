@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
-import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
+import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow } from "./message-window";
 import { takesMessages } from "./messages";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
@@ -67,6 +67,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const items = useRef<HTMLDivElement>(null);
   const [held, setHeld] = useState<MessagePage>({ messages: [], more: false });
   const heldValue = useRef(held);
+  // The stream keeps one latest version while the displayed history stays
+  // where he reads. Returning to the end publishes it once, without replay.
+  const latest = useRef(held);
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
@@ -173,7 +176,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
       heard();
-      setHeld(change);
+      latest.current = change(latest.current);
+      if (following.current) setHeld(latest.current);
       setReconnecting(false);
       setPhase("live");
     };
@@ -216,13 +220,16 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const box = list.current;
     if (!box || !shownValue.current) return;
     if (following.current) {
-      box.scrollTop = box.scrollHeight;
+      box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
       pinnedTo.current = box.scrollTop;
       return;
     }
     const kept = anchor.current;
     const row = kept && [...box.querySelectorAll<HTMLElement>("[data-message]")].find((each) => each.dataset.message === kept.id);
-    if (kept && row) box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - kept.offset;
+    if (kept && row) {
+      const change = row.getBoundingClientRect().top - box.getBoundingClientRect().top - kept.offset;
+      if (Math.abs(change) > .5) box.scrollTop += change;
+    }
   }, []);
 
   const readOlder = useCallback(() => {
@@ -235,6 +242,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       readingOlder.current = false;
       olderFailures.current = { count: 0, at: 0 };
       // A page of a conversation the view no longer shows is dropped.
+      if (heldValue.current.messages[0]?.id !== first.id) return;
+      if (latest.current.messages.some((message) => message.id === first.id && message.seq === first.seq)) latest.current = olderMessages(latest.current, page);
       setHeld((prior) => prior.messages[0]?.id === first.id ? olderMessages(prior, page) : prior);
     }).catch((error: unknown) => {
       readingOlder.current = false;
@@ -245,16 +254,21 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
 
   // The rows drawn: those within reach of where he reads, or of the end while
   // he follows it, each row not measured yet taken at an estimate.
-  const heights = held.messages.map((message) => rowHeights.get(message.id) ?? ESTIMATED_ROW_PX);
+  const rowIndices = useMemo(() => new Map(held.messages.map((message, index) => [message.id, index])), [held.messages]);
+  const offsets = useMemo(() => {
+    const offsets = [0];
+    for (const message of held.messages) offsets.push(offsets[offsets.length - 1] + (rowHeights.get(message.id) ?? ESTIMATED_ROW_PX));
+    return offsets;
+  }, [held.messages, rowHeights]);
   const windowAt = (place: typeof view, isEnd: boolean) => {
-    const anchorAt = held.messages.findIndex((message) => message.id === place.anchor);
-    const readTop = anchorAt < 0 ? place.top : heights.slice(0, anchorAt).reduce((sum, each) => sum + each, 0) - place.offset;
-    return messageWindow(heights, isEnd ? Infinity : readTop, place.height);
+    const anchorAt = rowIndices.get(place.anchor);
+    const readTop = anchorAt === undefined ? place.top : offsets[anchorAt] - place.offset;
+    return messageWindow(offsets, isEnd ? Infinity : readTop, place.height);
   };
   const drawn = windowAt(view, isAtEnd);
-  const rowAt = (id: string) => id ? held.messages.findIndex((message) => message.id === id) : -1;
+  const rowAt = (id: string) => rowIndices.get(id) ?? -1;
   const spans = drawnSpans(drawn, rowAt(selected?.from ?? ""), rowAt(selected?.to ?? ""), selected?.isCollapsed ?? true);
-  const heightOf = (start: number, end: number) => heights.slice(start, end).reduce((sum, each) => sum + each, 0);
+  const heightOf = (start: number, end: number) => offsets[end] - offsets[start];
 
   // remember notes where he reads after he scrolls, draws the rows that come
   // within reach, and reads the older page once he nears the top.
@@ -267,6 +281,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const isEnd = box.scrollHeight - box.scrollTop - box.clientHeight <= AT_END_PX || (following.current && box.scrollTop === pinnedTo.current);
     following.current = isEnd;
     setAtEnd(isEnd);
+    if (isEnd) setHeld(latest.current);
     const top = box.getBoundingClientRect().top;
     const first = [...box.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
     const firstTop = first?.getBoundingClientRect().top ?? Infinity;
@@ -275,10 +290,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       // A jump past the rows drawn finds none of them in view, so the message
       // at the top is read from the rows' heights, where the window places
       // each row.
-      let at = (items.current?.getBoundingClientRect().top ?? top) - top, index = 0;
-      while (index < heights.length - 1 && at + heights[index] <= 0) at += heights[index++];
+      const at = (items.current?.getBoundingClientRect().top ?? top) - top;
+      const index = Math.min(held.messages.length - 1, messageRowAt(offsets, -at));
       const message = held.messages[index];
-      anchor.current = message ? { id: message.id, offset: at } : null;
+      anchor.current = message ? { id: message.id, offset: at + offsets[index] } : null;
     }
     const place = { top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 };
     const next = windowAt(place, isEnd);
@@ -292,30 +307,32 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   useLayoutEffect(() => {
     const box = items.current;
     if (!box) return;
-    const observer = new ResizeObserver((entries) => {
+    const rows = [...box.querySelectorAll<HTMLElement>(":scope > [data-message]")];
+    const measure = () => {
       const gap = parseFloat(getComputedStyle(box).rowGap) || 0;
+      const sizes = rows.map((row) => ({ id: row.dataset.message, size: row.getBoundingClientRect().height }));
       setRowHeights((prior) => {
         let next: Map<string, number> | null = null;
-        for (const entry of entries) {
-          const id = entry.target instanceof HTMLElement ? entry.target.dataset.message : undefined;
-          const size = entry.borderBoxSize[0]?.blockSize ?? 0;
-          if (!id || !size || prior.get(id) === Math.round(size + gap)) continue;
+        for (const { id, size } of sizes) {
+          if (!id || !size || prior.get(id) === size + gap) continue;
           next ??= new Map(prior);
-          next.set(id, Math.round(size + gap));
+          next.set(id, size + gap);
         }
         return next ?? prior;
       });
-    });
-    for (const row of box.querySelectorAll<HTMLElement>(":scope > [data-message]")) observer.observe(row);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const row of rows) observer.observe(row);
     return () => observer.disconnect();
-  }, [held, drawn.start, drawn.end]);
+  }, [held.messages, drawn.start, drawn.end, selected, openFolds, font, shown]);
 
   useLayoutEffect(() => {
     heldValue.current = held;
     settle();
     const box = list.current;
     if (box && shownValue.current && box.scrollTop < OLDER_WITHIN_PX) readOlder();
-  }, [held, settle, readOlder]);
+  }, [held, rowHeights, drawn.start, drawn.end, settle, readOlder]);
   useLayoutEffect(() => {
     shownValue.current = shown;
     settle();
@@ -332,7 +349,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const box = list.current;
       if (box) setView((prior) => prior.height === box.clientHeight ? prior : { ...prior, height: box.clientHeight });
     });
-    for (const box of [list.current, items.current]) if (box) observer.observe(box);
+    if (list.current) observer.observe(list.current);
     return () => observer.disconnect();
   }, [settle]);
   const zoom = useCallback((size: number) => {
@@ -379,7 +396,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     if (!box) return;
     following.current = true;
     setAtEnd(true);
-    box.scrollTop = box.scrollHeight;
+    setHeld(latest.current);
+    box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
     pinnedTo.current = box.scrollTop;
     box.focus({ preventScroll: true });
   };

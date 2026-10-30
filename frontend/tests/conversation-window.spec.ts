@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./site";
+import { expect, test, type Locator, type Page } from "./site";
 import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
 
 // A conversation loads only what it shows (the Overlord, 2026-10-27, 12:40Z:
@@ -38,6 +38,148 @@ const watch = (page: Page) => page.evaluate(() => {
   (window as unknown as { changes: string[] }).changes = changes;
 });
 const changes = (page: Page) => page.evaluate(() => (window as unknown as { changes: string[] }).changes);
+
+const reading = (talk: Locator) => talk.evaluate(async (element) => {
+  let prior = "", quiet = 0;
+  for (let frame = 0; frame < 120; frame++) {
+    await new Promise(requestAnimationFrame);
+    const top = element.getBoundingClientRect().top;
+    const row = [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
+    const place = { id: row?.dataset.message ?? "", offset: (row?.getBoundingClientRect().top ?? top) - top, top: element.scrollTop, height: element.scrollHeight, text: row?.textContent };
+    const next = JSON.stringify(place);
+    quiet = next === prior ? quiet + 1 : 0;
+    if (quiet === 3 && place.id) { Object.assign(window, { keptRow: row }); return place; }
+    prior = next;
+  }
+  throw new Error("The reading position did not settle within 120 frames");
+});
+
+for (const owner of ["CFO", "goblin"]) {
+  for (const resume of ["jump", "scroll"]) {
+    test(`${owner}: streaming leaves the history untouched after a fast scroll, then coalesces on ${resume}`, async ({ page }, info) => {
+      // Arrange
+      await open(page, snapshot(), "", LONG);
+      if (owner === "CFO") await page.keyboard.press("Control+Alt+1");
+      else await openGoblin(page);
+      const talk = page.getByRole("log", { name: "Messages of " + (owner === "CFO" ? "CFO" : NAME) });
+      await expect(talk).toContainText("Answer 999");
+      await talk.hover();
+      for (let step = 0; step < 4; step++) await page.mouse.wheel(0, -700);
+      const place = await reading(talk);
+      await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+      await watch(page);
+
+      // Act: separate stream deliveries revise a visible row and the same
+      // pending reply repeatedly, including an overlapping reconnect page.
+      for (let update = 1; update <= 12; update++) {
+        await page.evaluate(async ({ changed, latest, next, update }) => {
+          window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [next, changed, latest] } }));
+          if (update === 6) window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data: { messages: [latest, next], more: true } } }));
+          await new Promise(requestAnimationFrame);
+        }, { changed: reply(Number(place.id.slice(1)), "Changed history " + update), latest: reply(1000, "Pending answer " + update), next: reply(1001, "Second pending answer " + update), update });
+      }
+      await talk.evaluate(() => new Promise(requestAnimationFrame));
+
+      // Assert: no message or spacer mutation, node replacement or motion.
+      const evidence = await talk.evaluate((element, place) => {
+        const row = element.querySelector(`[data-message="${place.id}"]`)!;
+        return { mutations: (window as unknown as { changes: string[] }).changes, isSameNode: row === (window as unknown as { keptRow: Element }).keptRow,
+          text: row.textContent, offset: row.getBoundingClientRect().top - element.getBoundingClientRect().top, top: element.scrollTop, height: element.scrollHeight };
+      }, place);
+      await info.attach("stream-while-reading", { body: JSON.stringify({ place, evidence }), contentType: "application/json" });
+      expect(evidence).toEqual({ mutations: [], isSameNode: true, text: place.text, offset: place.offset, top: place.top, height: place.height });
+
+      if (resume === "jump") await page.getByRole("button", { name: "Jump to latest" }).click();
+      else await talk.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await expect(talk.locator('[data-message="m1000"]')).toHaveCount(1);
+      await expect(talk.locator('[data-message="m1000"]')).toContainText("Pending answer 12");
+      await expect(talk.locator('[data-message="m1001"]')).toHaveCount(1);
+      await expect(talk.locator('[data-message="m1001"]')).toContainText("Second pending answer 12");
+      expect(await talk.locator("[data-message]").evaluateAll((rows) => rows.slice(-2).map((row) => row.getAttribute("data-message")))).toEqual(["m1000", "m1001"]);
+      await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+      await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+      await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [data] } })), reply(1002, "Following again"));
+      await expect(talk.locator('[data-message="m1002"]')).toBeInViewport();
+      expect(await talk.locator("[data-message]").count()).toBeLessThan(60);
+    });
+  }
+}
+
+test("Jump to latest cancels an active smooth scroll and settles after pending tall replies are measured", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot(), "", LONG);
+  await openGoblin(page);
+  const talk = log(page);
+  await expect(talk).toContainText("Answer 999");
+  await talk.evaluate((element) => { element.scrollTop -= 2500; });
+  await reading(talk);
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data } })),
+    [reply(1000, Array.from({ length: 30 }, (_, line) => "Pending tall line " + line).join("\n\n")), reply(1001, "Actual latest reply")]);
+
+  // Act: press Jump while the browser still has smooth scrolling to do.
+  expect(await talk.evaluate(async (element) => {
+    const before = element.scrollTop;
+    element.scrollTo({ top: 0, behavior: "smooth" });
+    for (let frame = 0; frame < 120; frame++) {
+      await new Promise(requestAnimationFrame);
+      if (element.scrollTop < before - 1 && element.scrollTop > 0) return true;
+    }
+    return false;
+  })).toBe(true);
+  await page.getByRole("button", { name: "Jump to latest" }).click();
+
+  // Assert: after measurement every subsequent frame stays at the live end.
+  await expect(talk.locator('[data-message="m1001"]')).toBeInViewport();
+  await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
+  const distances = await talk.evaluate(async (element) => {
+    const distances: number[] = [];
+    for (let frame = 0; frame < 40; frame++) {
+      await new Promise(requestAnimationFrame);
+      distances.push(element.scrollHeight - element.scrollTop - element.clientHeight);
+    }
+    return distances;
+  });
+  expect(Math.max(...distances)).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
+});
+
+test("fast scrolling measures new rows without painting a displaced reading anchor", async ({ page }, info) => {
+  // Arrange
+  await open(page, snapshot(), "", LONG);
+  await openGoblin(page);
+  const talk = log(page);
+  await expect(talk).toContainText("Answer 999");
+  await reading(talk);
+
+  // Act: every step crosses a window boundary into unmeasured history. Read
+  // the actual anchor at the scroll event and each of the next four paints.
+  const steps = [];
+  for (let step = 0; step < 12; step++) {
+    steps.push(await talk.evaluate((element) => new Promise<{ id: string; offsets: (number | null)[] }>((done) => {
+      element.addEventListener("scroll", async () => {
+        const top = element.getBoundingClientRect().top;
+        const row = [...element.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
+        const id = row?.dataset.message ?? "";
+        const offsets: (number | null)[] = [row ? row.getBoundingClientRect().top - top : null];
+        for (let frame = 0; frame < 4; frame++) {
+          await new Promise(requestAnimationFrame);
+          const anchor = element.querySelector(`[data-message="${id}"]`);
+          offsets.push(anchor ? anchor.getBoundingClientRect().top - element.getBoundingClientRect().top : null);
+        }
+        done({ id, offsets });
+      }, { once: true });
+      element.scrollTop -= 450;
+    })));
+  }
+
+  // Assert
+  await info.attach("fast-scroll-anchors", { body: JSON.stringify(steps), contentType: "application/json" });
+  for (const step of steps) {
+    expect(step.offsets, "no blank frame or removed reading anchor at " + step.id).not.toContain(null);
+    const offsets = step.offsets.filter((value): value is number => value !== null);
+    expect(Math.max(...offsets) - Math.min(...offsets), "anchor movement at " + step.id).toBeLessThanOrEqual(1);
+  }
+});
 
 test("a thousand-message conversation holds only the rows near where he reads, and still reads to its first message", async ({ page }) => {
   // Arrange
@@ -209,6 +351,7 @@ test("a fold he opened stays open after its row leaves the window and comes back
   // Act: read far up, so the row leaves the page, then come back.
   await jumpTo(page, 0);
   await expect(log(page).locator('[data-message="m999"]')).toHaveCount(0);
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [data] } })), reply(1000, "Arrived while the fold was off screen"));
   await jumpTo(page, -1);
 
   // Assert
@@ -261,6 +404,7 @@ test("a selection from an older message to the newest copies every message betwe
   }
   await expect(older).toHaveCount(1);
   await older.evaluate((row) => { document.getSelection()?.collapse(row.querySelector(".message-bubble")?.firstChild ?? row, 0); });
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [data] } })), reply(1000, "Arrived while the selection was held"));
 
   // Act: read down to the end, about 3,000 px, and extend the selection there,
   // as Shift+click does.
