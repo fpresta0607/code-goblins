@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { changeWarning, standingAnswer, standingWho } from "./commandQueue";
 import { questionAnswer, questionChoices } from "./questionChoices";
-import { messageElements } from "./messageText";
+import { inlineElements, messageElements } from "./messageText";
 import { copyValues } from "./CopyValue";
 import { personaFor } from "./workflow";
 import type { Draft } from "./QuestionCard";
@@ -44,7 +44,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
     <fieldset><legend className="sr-only">Choose your answer</legend>
       {questionChoices(question).map((option) => <label className="question-choice" key={option.value}>
         <input type="radio" name={"change-" + question.id} checked={shown.selection === "option:" + option.value} onChange={() => pick("option:" + option.value)} />
-        <span className="question-option"><span>{option.text}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
+        <span className="question-option"><span>{inlineElements(option.text)}</span>{option.recommended && <span className="recommendation">Recommended</span>}</span>
       </label>)}
       <label className="question-choice"><input type="radio" name={"change-" + question.id} checked={shown.selection === "other"} onChange={() => onDraft({ selection: "other", written: shown.selection === "other" ? shown.written : standing.written, error: "" })} /><span className="question-option"><span>Other</span><small>Write your own answer.</small></span></label>
       {shown.selection === "other" && <DictatedAnswer label="Your written answer" placeholder={"Tell " + (question.task ? asker : "the CFO") + " what you prefer..."} value={shown.written} instance={snapshot.instance} onText={(written) => onDraft({ selection: "other", written, error: "" })} onSubmit={() => { if (canChange) onChange(); }} />}
