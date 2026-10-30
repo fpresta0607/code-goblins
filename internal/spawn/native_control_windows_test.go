@@ -346,12 +346,50 @@ func TestADeliverySentNowPressesNoKeyOverAScreenOfItsOwn(t *testing.T) {
 	}
 }
 
+// A delivery whose send-now key cannot be pressed, its terminal gone with the
+// line already in its harness's queue, says the line is queued, never that
+// its key went, rather than an error that leaves the message uncertain.
+func TestADeliverySentNowWhoseKeyCannotBePressedSaysOnlyThatItIsQueued(t *testing.T) {
+	// Arrange
+	f := newNativeFixture(t, harness.Claude, "claude-queues")
+	nativeQueuedProof = 30 * time.Second
+	t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
+	if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, _ := harness.NativeScreens(harness.Claude)
+	f.service.ShouldSendNow = true
+	f.service.ReadScreen = func(record host.Record) ([]string, error) {
+		screen, err := host.ReadScreen(record)
+		if err == nil && len(named(f.events(t), "queued")) > 0 && claude.ComposerEmpty(screen) {
+			return screen, host.Close(f.stateDir, record, nativeCloseWait)
+		}
+		return screen, err
+	}
+
+	// Act
+	err = f.service.SendNative(t.Context(), meta, "use the staging database")
+
+	// Assert
+	if !errors.Is(err, fleet.ErrQueuedForToolCall) || errors.Is(err, ErrSentNow) {
+		t.Fatalf("SendNative = %v, want the line queued with no key gone", err)
+	}
+	if sentNow := recordedLines(t, f, "sent now", 0); len(sentNow) != 0 {
+		t.Errorf("sent now = %q, want no key pressed", sentNow)
+	}
+}
+
 // A message already typed into a Claude Code in a turn waits in its queue
 // until SendNow presses the harness's send-now key, which it does only at an
 // empty composer, so words typed into the terminal itself never go with it.
 // A terminal showing a screen of its own, no prompt line it can read, or no
-// screen at all, is not ready for the key, which is not words never sent, and
-// a harness with no such key is told so, with nothing pressed.
+// screen at all, or one that takes no key, is not ready for the key, which is
+// not words never sent, and a harness with no such key is told so, with
+// nothing pressed.
 func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 	claude, _ := harness.NativeScreens(harness.Claude)
 	codex, _ := harness.NativeScreens(harness.Codex)
@@ -362,6 +400,7 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 		draft       string
 		screen      []string
 		readErr     error
+		isHostGone  bool
 		wantErr     error
 		wantSentNow []string
 	}{
@@ -371,6 +410,7 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 		{name: "a permission prompt under a solid rule of its turn's", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", rule, "  Ran the tests", rule, " Do you want to create nine.txt?", " ❯ 1. Yes", "   2. Yes, and don't ask again this session", "   3. No", ""}, wantErr: fleet.ErrNotTyped},
 		{name: "a turn with no prompt line it can read", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", "> use the staging database"}, wantErr: fleet.ErrNotTyped},
 		{name: "a terminal whose screen cannot be read", screens: claude, readErr: errors.New("the terminal's screen could not be read"), wantErr: fleet.ErrNotTyped},
+		{name: "a terminal that takes no key", screens: claude, isHostGone: true, wantErr: fleet.ErrNotTyped},
 		{name: "a harness with no such key", screens: codex, wantErr: ErrNoSendNow},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -425,6 +465,15 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 				nativeReadGrace = 200 * time.Millisecond
 				t.Cleanup(func() { nativeReadGrace = previous })
 				service.ReadScreen = func(host.Record) ([]string, error) { return nil, test.readErr }
+			}
+			if test.isHostGone {
+				service.ReadScreen = func(record host.Record) ([]string, error) {
+					screen, err := host.ReadScreen(record)
+					if err != nil {
+						return nil, err
+					}
+					return screen, host.Close(f.stateDir, record, nativeCloseWait)
+				}
 			}
 
 			// Act

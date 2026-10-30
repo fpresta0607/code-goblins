@@ -111,41 +111,46 @@ func TestHisLongMultiLineMessageStartsAnIdleClaudeCFOsTurnWholeAndOnce(t *testin
 	}
 }
 
+// A line starting with $ is words, so a long one goes as the paste any other
+// long message does, and its head is not lost as #1740's was.
 func TestHisLongMultiLineMessageToAClaudeCFOInATurnIsTakenWholeOnce(t *testing.T) {
-	// Arrange
-	records := useConversations(t)
-	store, home := testStore(t)
-	terminal := nativeCFOComposer(t, home.State, "claude-busy")
-	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
-	message := longMultiLineMessage()
-	if _, err := store.Queue(Action{ID: "long-message", Kind: "message", Text: message}); err != nil {
-		t.Fatal(err)
-	}
+	for _, message := range []string{longMultiLineMessage(), "$40k a month: " + longMultiLineMessage()} {
+		t.Run(message[:12], func(t *testing.T) {
+			// Arrange
+			records := useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCFOComposer(t, home.State, "claude-busy")
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			if _, err := store.Queue(Action{ID: "long-message", Kind: "message", Text: message}); err != nil {
+				t.Fatal(err)
+			}
 
-	// Act
-	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
-		t.Fatal(err)
-	}
-	sent := store.Snapshot().Actions[0]
-	if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	lines := terminal.waitForLines(t, 3)
-	takenInRecord(t, records, "claude", "session-1", "", strings.TrimPrefix(lines[1], "queued "))
-	if err := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
-		t.Fatal(err)
-	}
-	delivered := store.Snapshot().Actions[0]
+			// Act
+			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+				t.Fatal(err)
+			}
+			sent := store.Snapshot().Actions[0]
+			if err := os.WriteFile(terminal.typed+".accept", nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			lines := terminal.waitForLines(t, 3)
+			takenInRecord(t, records, "claude", "session-1", "", strings.TrimPrefix(lines[1], "queued "))
+			if err := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal); err != nil {
+				t.Fatal(err)
+			}
+			delivered := store.Snapshot().Actions[0]
 
-	// Assert
-	if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO || !sent.CanSendNow {
-		t.Fatalf("send during the turn = %+v; want it sent, awaiting the CFO's next tool call, and sendable now by Claude Code's own key", sent)
-	}
-	if want := []string{"queued " + oneLine(message), "accepted " + oneLine(message)}; len(lines) != 3 || lines[1] != want[0] || lines[2] != want[1] {
-		t.Errorf("terminal input = %q; want the whole message queued once and taken once", lines)
-	}
-	if delivered.Status != "succeeded" || delivered.Awaiting != nil || delivered.CanSendNow {
-		t.Errorf("once the CFO's record shows it taken = %+v; want it delivered with its queued mark and Send now gone", delivered)
+			// Assert
+			if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO || !sent.CanSendNow {
+				t.Fatalf("send during the turn = %+v; want it sent, awaiting the CFO's next tool call, and sendable now by Claude Code's own key", sent)
+			}
+			if want := []string{"queued " + oneLine(message), "accepted " + oneLine(message)}; len(lines) != 3 || lines[1] != want[0] || lines[2] != want[1] {
+				t.Errorf("terminal input = %q; want the whole message queued once and taken once", lines)
+			}
+			if delivered.Status != "succeeded" || delivered.Awaiting != nil || delivered.CanSendNow {
+				t.Errorf("once the CFO's record shows it taken = %+v; want it delivered with its queued mark and Send now gone", delivered)
+			}
+		})
 	}
 }
 
