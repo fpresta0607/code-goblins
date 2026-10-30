@@ -74,9 +74,13 @@
 .composer-style-popover button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
 .composer-style-popover button .icon { width: 16px; height: 16px; color: var(--muted); }
 .composer-style-popover button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
-.composer-note { min-width: 0; margin: 0; padding: 0 10px; color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
-.composer-note:empty { display: none; }
-.composer-refusal { justify-self: start; }
+/* A notice of the box, a small banner over what is just above it that fades
+   a few seconds after it shows (composer-banner.tsx). It moves nothing and
+   takes no press, so whatever is under it stays as it was. */
+.composer-banner { position: absolute; bottom: calc(100% + 6px); left: 50%; z-index: 3; width: max-content; max-width: calc(100% - 16px); margin: 0; padding: 6px 12px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); color: #edf4f3; font-size: .875rem; overflow-wrap: anywhere; translate: -50% 0; pointer-events: none; transition: opacity .4s ease; }
+.composer-banner.refusal { border-color: var(--amber); }
+.composer-banner.leaving { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .composer-banner { transition: none; } }
 /* Send, and Stop in its place, sits at the end of the line he writes on, as
    tall as that line, beside his last line however the box grows (the
    Overlord, 2026-10-28: "place send button in line with message cfo height in

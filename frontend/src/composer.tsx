@@ -3,6 +3,7 @@ import type { Action, Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
 import { useChatStyle } from "./chat-style";
 import { ComposerAttachments } from "./composer-attachments";
+import { ComposerBanner } from "./composer-banner";
 import { DictationButton } from "./dictation-button";
 import { parseEngineCatalog, useEngineCatalog, type EngineModel } from "./engine-catalog";
 import { CODEX_NOT_SENT, driveCodexPicker } from "./codex-picker";
@@ -16,12 +17,11 @@ import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { mentionAt, mentionedFiles, mentionFile, parseFiles } from "./mentions";
 import { cycleMode, MODE_NOT_SENT } from "./mode-cycle";
 import { shortModel } from "./model-name";
-import { Notice } from "./notice";
 import { parseCommands, slashOptions } from "./commands";
 import { addPendingSend, removePendingSend, usePendingSends } from "./pending-sends";
 import { panelKey } from "./panel-keys";
 import { PopupList } from "./popup-list";
-import { QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
+import { QUEUED_NOTICE, QueuedMessage, TAKE_BACK_MESSAGE } from "./queued-message";
 import { RecentDictations } from "./recent-dictations";
 import { TOUCH_SCREEN } from "./small-screen";
 import { useTerminalLink, watchLink } from "./terminal-link";
@@ -42,6 +42,13 @@ const MENTION_WAIT_MS = 120;
 // take a model before the box sets that model's effort, and for its footer to
 // name the mode he picked.
 const CODEX_PICKER_WAIT_MS = 8000;
+// The box's notes, each from its own source, in the order its status line
+// reads the first that says anything: what Open in terminal met, the files
+// being added, the terminal's own feedback, dictation's, and why a goblin's
+// messages wait.
+const NOTE_SOURCES = ["terminal", "adding", "feedback", "dictation", "queue"] as const;
+type NoteSource = typeof NOTE_SOURCES[number];
+const NO_NOTES: Record<NoteSource, string> = { terminal: "", adding: "", feedback: "", dictation: "", queue: "" };
 // What he wrote and has not sent, kept per session for this tab's life, so a
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
@@ -149,7 +156,17 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const [isSending, setSending] = useState(false);
   // Why the last Send found no terminal to type into, or why a paste could
   // not be kept, until the draft changes.
-  const [unsent, setUnsent] = useState("");
+  const [unsent, setUnsentText] = useState("");
+  // What the banner over the box says, and whose it is: a refusal of the
+  // box's own, which goes once the draft changes, a refusal of a press on one
+  // of its queued messages, or one of its notes, which goes when that note
+  // ends. The latest shows, and each is counted, so the same words show again
+  // for a second press.
+  const [notice, setNotice] = useState<{ text: string; from: "box" | "queued" | NoteSource; count: number; isUnseen?: boolean }>({ text: "", from: "box", count: 0 });
+  const setUnsent = (text: string) => {
+    setUnsentText(text);
+    setNotice((prior) => text ? { text, from: "box", count: prior.count + 1 } : prior.from === "box" && prior.text ? { ...prior, text: "" } : prior);
+  };
   const [isRecentOpen, setRecentOpen] = useState(false);
   const [isStyleOpen, setStyleOpen] = useState(false);
   // A touch screen's + opens a menu of its two ways to add a picture.
@@ -604,6 +621,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     window.addEventListener(TAKE_BACK_MESSAGE, takeBack);
     return () => window.removeEventListener(TAKE_BACK_MESSAGE, takeBack);
   });
+  // What a press on one of this session's queued messages could not do says
+  // so over the box, as the box's own refusals do, but only there: it is no
+  // refusal of the draft, so it never keeps the box.
+  useEffect(() => {
+    const refused = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail.task === (task?.id ?? "")) setNotice((prior) => ({ text: event.detail.text, from: "queued", count: prior.count + 1 }));
+    };
+    window.addEventListener(QUEUED_NOTICE, refused);
+    return () => window.removeEventListener(QUEUED_NOTICE, refused);
+  }, [task?.id]);
   // Up in an empty box, or on the first line of a message it recalled,
   // brings back what he sent before, newest first, as the terminal does, and
   // Down walks forward again to the empty box; any edit ends the recall.
@@ -679,7 +706,24 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // "this text not needed on working goblins resumes are assumed"); a goblin
   // with no branch to work on says why its messages wait.
   const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready." : "";
-  const note = terminalFeedback || (adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : live?.feedback || dictation.note || queueNote);
+  const notes: Record<NoteSource, string> = { terminal: terminalFeedback ?? "", adding: adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : "",
+    feedback: live?.feedback ?? "", dictation: dictation.note, queue: queueNote };
+  const note = NOTE_SOURCES.map((source) => notes[source]).find(Boolean) ?? "";
+  // Each note shows over the box as it starts or changes to new words, from
+  // its own source, so more files joining those being added are the same
+  // note, and dictation, which ends its last hold's note as a hold starts,
+  // says each Nothing was heard anew (dictation.ts). A note that ends takes
+  // its own banner with it and brings back no other, nor ever ends a
+  // refusal's, so a refusal shows for its whole moment, one that came as the
+  // note of the files it was added with ended included.
+  const [heard, setHeard] = useState(NO_NOTES);
+  if (NOTE_SOURCES.some((source) => notes[source] !== heard[source])) {
+    setHeard(notes);
+    const started = NOTE_SOURCES.find((source) => notes[source] && (source === "adding" ? !heard.adding : notes[source] !== heard[source]));
+    if (started) setNotice((prior) => ({ text: notes[started], from: started, count: prior.count + 1, isUnseen: !isShown }));
+    else setNotice((prior) => prior.from !== "box" && prior.from !== "queued" && prior.text && !notes[prior.from] ? { ...prior, text: "" } : prior);
+  }
+  if (isShown && notice.isUnseen) setNotice((prior) => prior.isUnseen ? { ...prior, count: prior.count + 1, isUnseen: false } : prior);
   // Without a conversation, even a Modern panel needs the queue here.
   const queueRows = (!hasConversation ? sent : sent.filter((action) => action.status === "failed")).slice(-SHOWN);
   const kept = task?.lifecycle?.kept_messages ?? [];
@@ -691,6 +735,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
   return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
+    {/* A screen reader hears the note from this line, which stays as its
+        words change, and a refusal from its banner at once. */}
+    <p className="sr-only" role="status">{note}</p>
+    <ComposerBanner key={notice.count} text={notice.text} isRefusal={notice.from === "box" || notice.from === "queued"} />
     {panel && !isHeld && !isTerminalShown && !isDriving && <HarnessPanel panel={panel} name={name} onShowTerminal={onShowTerminal}
       onKeys={(keys) => { if (!live?.control(keys)) setUnsent(unsentWhy); field.current?.focus(); }} />}
     {queueRows.length + kept.length > 0 && <ol className="composer-sent">
@@ -758,7 +806,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
           </div>
         </div>
       </div>
-      {unsent ? <Notice tone="warning" role="alert" className="composer-refusal">{unsent}</Notice> : <p className="composer-note" role="status">{note}</p>}
     </div>
   </section>;
 }
