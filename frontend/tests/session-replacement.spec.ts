@@ -194,6 +194,7 @@ for (const style of ["classic", "modern"] as const) {
     await expect.poll(() => relay.addresses.some((address) => new URL(address).searchParams.get("since") === newSince)).toBe(true);
     await expect(page.locator(".terminal-foot.box")).toHaveCount(0);
     if (style === "modern") {
+      await expect(page.locator(".deck-slot:not([hidden]) .terminal-view:not(.staged)")).toHaveCount(1);
       await expect(field(page, "CFO")).toHaveValue("keep the CFO draft");
       await expect(page.locator(".messages-view:not([hidden]) [role=log] .queued-message").getByText(pending.text, { exact: true })).toBeVisible();
       // The queue pinned above the box already lists what waits, so the box does not repeat it.
@@ -229,6 +230,7 @@ for (const style of ["classic", "modern"] as const) {
     await expect(page.getByText("No terminal is running for this task.", { exact: true })).toHaveCount(0);
     relay.write("\r\nCodex is still progressing\r\n");
     if (style === "modern") {
+      await expect(page.locator(".deck-slot:not([hidden]) .terminal-view:not(.staged)")).toHaveCount(1);
       await expect(field(page)).toHaveValue("keep my draft");
       await field(page).press("Enter");
       await expect.poll(() => typed(relay)).toContain(pasted("keep my draft") + "\r");

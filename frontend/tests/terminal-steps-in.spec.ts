@@ -273,14 +273,22 @@ test("a phone's tall task panel scrolls, and the conversation returns with its d
   await expect(field(page)).toBeFocused();
 });
 
-test("stepping in and out asks the terminal for no new size, counted at the relay", async ({ page }) => {
+test("the first terminal request sizes it and later switches keep that size, counted at the relay", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
-  let seen = -1;
-  await expect.poll(() => { const isQuiet = relay.resizes.length > 0 && relay.resizes.length === seen; seen = relay.resizes.length; return isQuiet; }, { intervals: [500] }).toBe(true);
+  expect(relay.resizes).toEqual([]);
+  await expect(page.locator(".xterm")).toHaveCount(0);
 
   // Act
+  relay.say(asking(PANELS.claude));
+  await list(page).getByRole("button", { name: "Show the terminal" }).click();
+  await expect(terminal(page)).toBeFocused();
+  let seen = -1;
+  await expect.poll(() => { const isQuiet = relay.resizes.length > 0 && relay.resizes.length === seen; seen = relay.resizes.length; return isQuiet; }, { intervals: [500] }).toBe(true);
+  relay.say(closed);
+  await expect(messages(page)).toBeVisible();
+  await expect(page.locator(".xterm")).toHaveCount(0);
   relay.say(asking(PANELS.claude));
   await list(page).getByRole("button", { name: "Show the terminal" }).click();
   await expect(back(page)).toBeVisible();
@@ -291,6 +299,7 @@ test("stepping in and out asks the terminal for no new size, counted at the rela
 
   // Assert
   expect(relay.resizes.length).toBe(seen);
+  expect(relay.views).toBe(1);
 });
 
 for (const [label, width, height] of [["desktop", 1440, 960], ["phone", 390, 844]] as const) {
