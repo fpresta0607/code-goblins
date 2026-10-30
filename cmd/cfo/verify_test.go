@@ -102,6 +102,29 @@ func TestVerifySaysWhatTheFailedCheckSaidLast(t *testing.T) {
 	}
 }
 
+// A check whose plan stalled tested nothing. The tier is no pass, it says the
+// line that says why, and what it saves does not read as a failed check.
+func TestVerifySaysAStalledPlanTestedNothing(t *testing.T) {
+	// Arrange
+	runtime, taskTmp := measuredTask(t, `"verification": {"fast": [["git", "-c", "alias.check=!echo cfo gate test: nothing was tested, since the plan stalled && exit 125", "check"]]}`)
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := runWithRuntime([]string{"verify", "t1"}, &stdout, &stderr, runtime)
+
+	// Assert
+	if exit != 1 {
+		t.Fatalf("exit = %d, want 1; stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	if said := stderr.String(); !strings.Contains(said, "cfo gate test: nothing was tested, since the plan stalled") || !strings.Contains(said, "verify git gave no result, so nothing was tested") {
+		t.Errorf("stderr = %q, want the check's last line and that it gave no result", said)
+	}
+	results := savedResults(t, filepath.Join(taskTmp, "verification-fast.json"))
+	if len(results) != 1 || results[0].Status != "not_run" || results[0].ExitCode != verify.ExitNoResult {
+		t.Fatalf("results = %+v, want one with status not_run and exit %d", results, verify.ExitNoResult)
+	}
+}
+
 // A tier that passes prints the file that holds what its checks said, and
 // nothing else.
 func TestVerifyPrintsOnlyItsRecordWhenTheTierPasses(t *testing.T) {

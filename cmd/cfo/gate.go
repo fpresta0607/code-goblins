@@ -141,9 +141,13 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		asked, defaulted = level, false
 	}
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), runtime.gatePlanLimit)
 	plan, err := gatetest.Read(ctx, execx.OSRunner{}, dir, asked)
+	isStalled := err != nil && ctx.Err() != nil
 	cancel()
+	if isStalled {
+		return planStalled("cfo gate test", runtime.gatePlanLimit, err, stdout, stderr)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
@@ -312,6 +316,27 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		return 1
 	}
 	return 0
+}
+
+// planLimit bounds a plan's read of the checkout, nearly all of it go list
+// opening every Go file one after another. That read waits on the disk rather
+// than works: from 2026-10-21 to 2026-10-28, for hours after a reboot, reads
+// that reached the disk took up to 26 seconds on the dev drive and 51 on the
+// drive that holds it, where they take 200 microseconds, and the 19 plans that
+// two minutes ended on 2026-10-27 and 28 had used at most 6 seconds of CPU. The
+// slowest plan seen to finish took 255 seconds.
+const planLimit = 15 * time.Minute
+
+// planStalled says a plan ran out its limit, with the error of what it was
+// reading, and returns the exit code of a run that gave no result. Nothing ran,
+// so nothing about the change failed, and a caller asks no one to repair it.
+// The line is the last on standard error, by which a gate tells this run, and
+// the last on standard output, which is what cfo verify shows of a check.
+func planStalled(label string, limit time.Duration, err error, stdout, stderr io.Writer) int {
+	said := fmt.Sprintf("%s: nothing was tested, since the plan stalled: it read the checkout for %s, as a disk that is slow to answer makes it do, and did not finish: %s", label, limit, oneLine(err))
+	fmt.Fprintln(stdout, said)
+	fmt.Fprintln(stderr, said)
+	return exitNoTurn
 }
 
 // runGateCommand runs one of the step's commands as a process in dir with

@@ -58,6 +58,38 @@ func TestTimeoutEvidence(t *testing.T) {
 	}
 }
 
+// exitingFake is a run that ends by itself with its exit code.
+type exitingFake struct{ code int }
+
+func (fake exitingFake) Run(context.Context, execx.Request) (execx.Result, error) {
+	return execx.Result{ExitCode: fake.code}, nil
+}
+
+// A command that exits 125 tested nothing, so the tier is no pass and its
+// result does not read as a test that failed. Any other exit does.
+func TestRunTellsACommandThatGaveNoResultFromOneThatFailed(t *testing.T) {
+	for _, test := range []struct {
+		code int
+		want string
+	}{{125, "not_run"}, {1, "failed"}, {2, "failed"}} {
+		t.Run(test.want, func(t *testing.T) {
+			// Arrange
+			r := Runner{Commands: exitingFake{code: test.code}}
+
+			// Act
+			got, err := r.Run(context.Background(), []project.Command{{"cfo", "gate", "test"}, {"never"}}, "fast", "t", "sha", "", 0)
+
+			// Assert
+			if err == nil {
+				t.Fatal("the tier passed, want an error")
+			}
+			if len(got) != 1 || got[0].Status != test.want || got[0].ExitCode != test.code {
+				t.Fatalf("results %#v, want one with status %s and exit %d", got, test.want, test.code)
+			}
+		})
+	}
+}
+
 // limitedRunner is a measured runner whose every run fails with failure.
 type limitedRunner struct{ failure error }
 
