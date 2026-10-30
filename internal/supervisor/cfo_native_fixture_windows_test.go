@@ -112,6 +112,12 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			return
 		}
 		switch key {
+		case '\x18':
+			// Claude Code's chat:sendNow chord, Ctrl+X Ctrl+S, sends what its
+			// turn has queued at once.
+			if next, _, err := reader.ReadRune(); err == nil && next == '\x13' {
+				record("sent now")
+			}
 		case '\x1b':
 			// A key sent as a control sequence, such as End before Codex's
 			// submit, ends a paste and leaves the line as it is.

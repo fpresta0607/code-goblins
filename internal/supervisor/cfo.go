@@ -673,7 +673,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}
-			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session}}, nil
+			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session}, CanSendNow: screens.SendNow != ""}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

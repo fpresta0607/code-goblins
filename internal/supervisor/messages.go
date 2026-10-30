@@ -125,7 +125,7 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 	default:
 		if NativeTerminalRuns(stateDir, a.TaskID) {
 			sent := time.Now().UTC()
-			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, !a.IsSentNow)
+			result, err := s.Options.CFO.sendGoblin(ctx, a.TaskID, goblinIdentity(meta), text, !a.IsSentNow, a.IsSentNow)
 			if errors.Is(err, fleet.ErrQueuedForToolCall) {
 				return s.behindGoblinsTurn(a.TaskID, sent, text, "Typed while it was working; it takes the message at its next tool call, or as its current turn ends."), nil
 			}

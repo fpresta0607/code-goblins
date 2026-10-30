@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -134,14 +137,125 @@ func TestHisLongMultiLineMessageToAClaudeCFOInATurnIsTakenWholeOnce(t *testing.T
 	delivered := store.Snapshot().Actions[0]
 
 	// Assert
-	if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO {
-		t.Fatalf("send during the turn = %+v; want it sent and awaiting the CFO's next tool call", sent)
+	if sent.Status != "running" || sent.Awaiting == nil || sent.Message != sentToCFO || !sent.CanSendNow {
+		t.Fatalf("send during the turn = %+v; want it sent, awaiting the CFO's next tool call, and sendable now by Claude Code's own key", sent)
 	}
 	if want := []string{"queued " + oneLine(message), "accepted " + oneLine(message)}; len(lines) != 3 || lines[1] != want[0] || lines[2] != want[1] {
 		t.Errorf("terminal input = %q; want the whole message queued once and taken once", lines)
 	}
-	if delivered.Status != "succeeded" || delivered.Awaiting != nil {
-		t.Errorf("once the CFO's record shows it taken = %+v; want it delivered with its queued mark gone", delivered)
+	if delivered.Status != "succeeded" || delivered.Awaiting != nil || delivered.CanSendNow {
+		t.Errorf("once the CFO's record shows it taken = %+v; want it delivered with its queued mark and Send now gone", delivered)
+	}
+}
+
+// sendNow presses Send now on message id of task in the board, which asks the
+// action API, with the board's token, to send it now.
+func sendNow(service *Service, task, id string) *httptest.ResponseRecorder {
+	return boardRequest(NewHTTP(service, "board.local", nil), "POST", "/api/actions", fmt.Sprintf(`{"id":"now-%s","kind":"message_now","task_id":%q,"generation":"","target":%q}`, id, task, id))
+}
+
+// The Overlord, 2026-10-30: "when sent now it actually sends now same way
+// termianl expereince down with ctrl x crtl s". His message typed into a
+// Claude Code CFO in a turn waits in Claude Code's own queue, and Send now
+// presses Claude Code's own key for it, Ctrl+X Ctrl+S, once however often he
+// presses, and offers it no more.
+func TestSendNowOnHisMessageInABusyClaudeCFOsQueuePressesItsKeyOnce(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	first := sendNow(service, "", "m1")
+	second := sendNow(service, "", "m1")
+
+	// Assert
+	if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
+		t.Fatalf("Send now answered %d %q, then %d %q; want both accepted", first.Code, first.Body, second.Code, second.Body)
+	}
+	if lines := terminal.waitForLines(t, 3); len(lines) != 3 || !strings.HasPrefix(lines[1], "queued ") || !strings.HasSuffix(lines[1], "stop and rebase") || lines[2] != "sent now" {
+		t.Fatalf("terminal input = %q; want the message queued and then sent now", lines)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if lines := terminal.waitForLines(t, 3); len(lines) != 3 {
+		t.Errorf("terminal input = %q; want Ctrl+X Ctrl+S pressed once", lines)
+	}
+	if sent := store.Snapshot().Actions[0]; !sent.IsSentNow || sent.CanSendNow || sent.Status != "running" {
+		t.Errorf("after Send now = %+v; want it on its way, sent now, and Send now gone", sent)
+	}
+}
+
+// Send now on a typed message is refused in plain words, with nothing pressed
+// and nothing marked sent, where words he typed into the CFO's own prompt line
+// would go with it, or where the CFO's harness has no key that takes it
+// sooner, as Codex has none: it takes a line typed during a turn at once.
+func TestSendNowOnATypedMessageIsRefusedWithItsReason(t *testing.T) {
+	for _, test := range []struct {
+		name, mode, draft, want string
+		wantCanSendNow          bool
+	}{
+		{name: "his words in its prompt line", mode: "claude-busy", draft: "and the", want: "Its prompt line holds words that were never sent.", wantCanSendNow: true},
+		{name: "a harness with no such key", mode: "busy", want: "has no key that takes it sooner"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCFOComposer(t, home.State, test.mode)
+			service := &Service{Store: store, Instance: "instance-1", Options: Options{CFO: &CFOConnection{State: home.State}}}
+			if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+				t.Fatal(err)
+			}
+			if test.draft != "" {
+				record, err := host.ReadRecord(home.State, "cfo")
+				if err != nil {
+					t.Fatal(err)
+				}
+				client, err := host.Dial(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = client.Input([]byte(test.draft))
+				client.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+					screen, err := host.ReadScreen(record)
+					if err == nil && strings.Contains(strings.Join(screen, "\n"), "❯ "+test.draft) {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("the CFO's prompt line never showed his words: %v", err)
+					}
+				}
+			}
+
+			// Act
+			response := sendNow(service, "", "m1")
+
+			// Assert
+			if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), test.want) {
+				t.Fatalf("Send now answered %d %q; want it refused with %q", response.Code, response.Body, test.want)
+			}
+			time.Sleep(500 * time.Millisecond)
+			if lines := terminal.waitForLines(t, 2); slices.Contains(lines, "sent now") {
+				t.Errorf("terminal input = %q; want no key pressed", lines)
+			}
+			if sent := store.Snapshot().Actions[0]; sent.IsSentNow || sent.CanSendNow != test.wantCanSendNow {
+				t.Errorf("after a refused Send now = %+v; want it not sent now, and Send now offered %v", sent, test.wantCanSendNow)
+			}
+		})
 	}
 }
 

@@ -98,14 +98,14 @@ func TestAMessageRefusedBeforeTypingStaysQueuedUntilTheComposerReturns(t *testin
 	messageTo(t, store, meta, "message-1", "keep this through the picker")
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
-	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool) error { return fleet.ErrNotTyped }
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { return fleet.ErrNotTyped }
 
 	err := store.ProcessOne(t.Context(), service.execute)
 	if !errors.Is(err, ErrDeferred) || actionOf(store, "message-1").Status != "queued" {
 		t.Fatalf("delivery = %v, action = %+v, want durable queue", err, actionOf(store, "message-1"))
 	}
 	var received []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		received = append(received, text)
 		return nil
 	}
@@ -1701,20 +1701,24 @@ func TestACommandKeepsItsLeadingSlashOrBang(t *testing.T) {
 
 // inTurnGoblin stands in for a goblin's terminal: while *isWorking its harness
 // is in a turn, so a delivery that refuses one types nothing and says so, as
-// spawn's SendNative does, and every other delivery is typed, in order.
-func inTurnGoblin(t *testing.T, isWorking *bool) *[]string {
+// spawn's SendNative does, and every other delivery is typed, in order, those
+// it was asked to send now among the second.
+func inTurnGoblin(t *testing.T, isWorking *bool) (received, sentNow *[]string) {
 	t.Helper()
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
-	var received []string
-	typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string, shouldRefuseTurn bool) error {
+	received, sentNow = &[]string{}, &[]string{}
+	typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string, shouldRefuseTurn, shouldSendNow bool) error {
 		if *isWorking && shouldRefuseTurn {
 			return fmt.Errorf("spawn: native terminal %s: %w: %w", meta.ID, fleet.ErrNotTyped, spawn.ErrInTurn)
 		}
-		received = append(received, text)
+		*received = append(*received, text)
+		if shouldSendNow {
+			*sentNow = append(*sentNow, text)
+		}
 		return nil
 	}
-	return &received
+	return received, sentNow
 }
 
 // A message to a goblin in a turn is not typed into it: it waits where he can
@@ -1730,7 +1734,7 @@ func TestAMessageToAGoblinInATurnWaitsForTheTurnToEnd(t *testing.T) {
 	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "check the flaky test first")
 	isWorking := true
-	received := inTurnGoblin(t, &isWorking)
+	received, _ := inTurnGoblin(t, &isWorking)
 
 	// Act: the goblin is in a turn.
 	err := store.ProcessOne(t.Context(), service.execute)
@@ -1754,9 +1758,11 @@ func TestAMessageToAGoblinInATurnWaitsForTheTurnToEnd(t *testing.T) {
 	}
 }
 
-// Send now types a message held for a goblin's turn into that turn, for the
-// harness to take at its next tool call.
-func TestSendNowTypesAHeldMessageIntoTheGoblinsTurn(t *testing.T) {
+// Send now types a message held for a goblin's turn into that turn and has
+// its harness take it at once, as its own send-now key does in its terminal
+// (the Overlord, 2026-10-30: "when sent now it actually sends now same way
+// termianl expereince down with ctrl x crtl s").
+func TestSendNowTypesAHeldMessageIntoTheGoblinsTurnToBeTakenAtOnce(t *testing.T) {
 	// Arrange
 	store, h := testStore(t)
 	meta := makeNative(t, h.State, "task-1")
@@ -1765,7 +1771,7 @@ func TestSendNowTypesAHeldMessageIntoTheGoblinsTurn(t *testing.T) {
 	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	messageTo(t, store, meta, "message-1", "stop and rebase")
 	isWorking := true
-	received := inTurnGoblin(t, &isWorking)
+	received, sentNow := inTurnGoblin(t, &isWorking)
 	if err := store.ProcessOne(t.Context(), service.execute); !errors.Is(err, ErrDeferred) {
 		t.Fatalf("delivery = %v, want it held for the turn", err)
 	}
@@ -1782,6 +1788,9 @@ func TestSendNowTypesAHeldMessageIntoTheGoblinsTurn(t *testing.T) {
 	if len(*received) != 1 || !strings.Contains((*received)[0], "stop and rebase") || actionOf(store, "message-1").Status != "succeeded" {
 		t.Fatalf("delivered %q, action = %+v, want it typed into the turn once", *received, actionOf(store, "message-1"))
 	}
+	if !slices.Equal(*sentNow, *received) {
+		t.Fatalf("sent now %q of %q, want it sent now", *sentNow, *received)
+	}
 }
 
 // Messages he sends while a goblin works reach it alone and in the order he
@@ -1795,7 +1804,7 @@ func TestMessagesHeldForAGoblinsTurnAreDeliveredInTheOrderSent(t *testing.T) {
 	goblinTerminal(t, h.State, meta.ID)
 	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: h.State}, Gate: fakeProgress{err: pipeline.ErrNoProgress}}}
 	isWorking := true
-	received := inTurnGoblin(t, &isWorking)
+	received, _ := inTurnGoblin(t, &isWorking)
 	messageTo(t, store, meta, "message-1", "first, check the train")
 	if err := store.ProcessOne(t.Context(), service.execute); !errors.Is(err, ErrDeferred) {
 		t.Fatalf("delivery = %v, want the first message held for the turn", err)

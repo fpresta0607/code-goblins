@@ -249,6 +249,136 @@ func TestADeliveryThatRefusesATurnTypesNothingIntoOne(t *testing.T) {
 	}
 }
 
+// A board message he asked for now reaches a Claude Code in a turn the way
+// its terminal sends one now: typed and queued, then Ctrl+X Ctrl+S once its
+// composer shows the line gone into that queue, so it takes the line at once
+// (the Overlord, 2026-10-30: "when sent now it actually sends now same way
+// termianl expereince down with ctrl x crtl s"). Without that ask the line
+// waits in the queue for the harness's next tool call.
+func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		shouldSendNow bool
+		wantSentNow   []string
+	}{
+		{name: "sent now", shouldSendNow: true, wantSentNow: []string{"use the staging database"}},
+		{name: "queued", shouldSendNow: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newNativeFixture(t, harness.Claude, "claude-queues")
+			nativeQueuedProof = 500 * time.Millisecond
+			t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.service.ShouldSendNow = test.shouldSendNow
+
+			// Act
+			err = f.service.SendNative(t.Context(), meta, "use the staging database")
+
+			// Assert
+			if !errors.Is(err, fleet.ErrQueuedForToolCall) {
+				t.Fatalf("SendNative = %v, want it typed into the turn with nothing yet proving it taken", err)
+			}
+			events := f.events(t)
+			if queued := named(events, "queued"); len(queued) != 1 || queued[0].Text != "use the staging database" {
+				t.Errorf("queued = %+v, want the line queued once", queued)
+			}
+			if sentNow := sentNowLines(t, f, len(test.wantSentNow)); !slices.Equal(sentNow, test.wantSentNow) {
+				t.Errorf("sent now = %q, want %q", sentNow, test.wantSentNow)
+			}
+		})
+	}
+}
+
+// A message already typed into a Claude Code in a turn waits in its queue
+// until SendNow presses the harness's send-now key, which it does only at an
+// empty composer, so words typed into the terminal itself never go with it.
+// A harness with no such key is told so, with nothing pressed.
+func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
+	claude, _ := harness.NativeScreens(harness.Claude)
+	codex, _ := harness.NativeScreens(harness.Codex)
+	for _, test := range []struct {
+		name        string
+		screens     harness.Screens
+		draft       string
+		wantErr     error
+		wantSentNow []string
+	}{
+		{name: "an empty composer", screens: claude, wantSentNow: []string{"use the staging database"}},
+		{name: "his own words in the composer", screens: claude, draft: "and the", wantErr: ErrUnsentWords},
+		{name: "a harness with no such key", screens: codex, wantErr: ErrNoSendNow},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newNativeFixture(t, harness.Claude, "claude-queues")
+			nativeQueuedProof = 500 * time.Millisecond
+			t.Cleanup(func() { nativeQueuedProof = 5 * time.Second })
+			if _, err := f.service.Spawn(context.Background(), f.request); err != nil {
+				t.Fatalf("Spawn: %v", err)
+			}
+			meta, err := state.ReadTaskMeta(f.stateDir, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.service.SendNative(t.Context(), meta, "use the staging database"); !errors.Is(err, fleet.ErrQueuedForToolCall) {
+				t.Fatalf("SendNative = %v, want the line queued", err)
+			}
+			record, err := host.ReadRecord(f.stateDir, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.draft != "" {
+				if err := pressNativeKeys(record, "his draft", test.draft); err != nil {
+					t.Fatal(err)
+				}
+				for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+					screen, err := f.service.readNativeScreen(t.Context(), record)
+					if err == nil && claude.ComposerHoldsText(screen) {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("the composer never showed his draft: %v", err)
+					}
+				}
+			}
+
+			// Act
+			err = f.service.SendNow(t.Context(), record, test.screens)
+
+			// Assert
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("SendNow = %v, want %v", err, test.wantErr)
+			}
+			if sentNow := sentNowLines(t, f, len(test.wantSentNow)); !slices.Equal(sentNow, test.wantSentNow) {
+				t.Errorf("sent now = %q, want %q", sentNow, test.wantSentNow)
+			}
+		})
+	}
+}
+
+// sentNowLines waits for at least n lines the fake harness recorded as sent
+// now and returns them.
+func sentNowLines(t *testing.T, f *nativeFixture, n int) []string {
+	t.Helper()
+	var sentNow []string
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		sentNow = sentNow[:0]
+		for _, event := range named(f.events(t), "sent now") {
+			sentNow = append(sentNow, event.Text)
+		}
+		if len(sentNow) >= n {
+			break
+		}
+	}
+	return sentNow
+}
+
 // A harness in a turn reports a prompt through its hook when it queues the
 // text, not when it takes it: Claude Code 2.1.292 ran UserPromptSubmit for a
 // steer typed during a tool call ten seconds before it took the steer into

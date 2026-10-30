@@ -57,8 +57,10 @@ const (
 // by default a turn never ends. With "exitmenu", /exit opens the menu Claude
 // Code shows over background work before it exits. With "claude-lost-enter"
 // it is Claude Code's composer taking the first Enter that ends typed text
-// as a new line, with "claude-enters-lost" every one, and with
-// "claude-late-enter" taking the first seconds late. With "pi-starting" it is
+// as a new line, with "claude-enters-lost" every one, with
+// "claude-late-enter" taking the first seconds late, and with
+// "claude-queues" queueing a line submitted during its turn until Ctrl+X
+// Ctrl+S sends it at once. With "pi-starting" it is
 // pi 0.85.1 at its editor while its startup completes for a few seconds,
 // with "pi-stuck" one whose startup never completes, and with "pi-stale" one
 // whose first turn ends with the startup row still in its chat and which then
@@ -206,7 +208,7 @@ func fakeHarness() {
 		piStartup(startup, mode == "pi-stale", keys, record, draw) // stall-accepted: the stand-in pi's startup refuses the first Enter however short a stall cuts it, so a test that needs a refusal still gets one.
 		return
 	}
-	if mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" {
+	if mode == "claude-lost-enter" || mode == "claude-enters-lost" || mode == "claude-late-enter" || mode == "claude-queues" {
 		claudeComposer(mode, keys, record, draw)
 		return
 	}
@@ -635,18 +637,47 @@ func piStartup(startup time.Duration, isTurnEnding bool, keys <-chan string, rec
 // "claude-late-enter" the first Enter that ends typed text is taken seconds
 // after it arrived, the text showing in the composer as it was until then,
 // and submits it. An Enter that submits the text starts a turn that never
-// ends.
+// ends. In "claude-queues" that turn goes on showing above the composer, as
+// Claude Code 2.1.275's does, and a line submitted during it is queued, shown
+// above the composer, until Ctrl+X Ctrl+S sends what is queued at once.
 func claudeComposer(mode string, keys <-chan string, record func(codexEvent), draw func(rows ...string)) {
 	rule := strings.Repeat("─", 80)
 	footer := "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+	var above []string
 	composer := func(rows ...string) {
-		draw(append(append([]string{"", rule}, rows...), rule, footer)...)
+		draw(append(append(append(append([]string{}, above...), "", rule), rows...), rule, footer)...)
 	}
 	composer(">")
 	var line strings.Builder
 	lost, isLate := 0, mode == "claude-late-enter"
+	var queued []string
+	turn := func(text string) {
+		above = []string{"", "> " + text, "", "✽ Reticulating… (esc to interrupt)"}
+		for _, waiting := range queued {
+			above = append(above, "  "+waiting)
+		}
+	}
+	isChord := false
 	for key := range keys {
 		switch {
+		case mode == "claude-queues" && key == "\x18":
+			isChord = true
+			continue
+		case mode == "claude-queues" && isChord && key == "\x13":
+			isChord = false
+			for _, waiting := range queued {
+				record(codexEvent{Event: "sent now", Text: waiting})
+			}
+			if len(queued) > 0 {
+				text := strings.Join(queued, "\n")
+				queued = nil
+				turn(text)
+			}
+		case mode == "claude-queues" && above != nil && key == "\r" && line.Len() > 0:
+			record(codexEvent{Event: "queued", Text: line.String()})
+			queued = append(queued, line.String())
+			line.Reset()
+			turn(strings.TrimPrefix(above[1], "> "))
 		case key == "\r" && line.Len() > 0 && (mode == "claude-enters-lost" || (mode == "claude-lost-enter" && lost == 0)):
 			lost++
 			record(codexEvent{Event: "enter taken as a new line", Text: line.String()})
@@ -656,6 +687,11 @@ func claudeComposer(mode string, keys <-chan string, record func(codexEvent), dr
 				isLate = false
 			}
 			record(codexEvent{Event: "submitted", Text: line.String()})
+			if mode == "claude-queues" {
+				turn(line.String())
+				line.Reset()
+				break
+			}
 			draw("", "> "+line.String(), "", "✽ Reticulating… (esc to interrupt)", rule, ">", rule, footer)
 			line.Reset()
 			continue

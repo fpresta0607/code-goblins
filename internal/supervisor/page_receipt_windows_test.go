@@ -110,7 +110,7 @@ func TestPageReceiptRecoversGroupingAfterRestart(t *testing.T) {
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
 			var sent []string
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				sent = append(sent, text)
 				return nil
 			}
@@ -154,7 +154,7 @@ func TestPageReceiptsStayOrderedAndNeverRetypeADeliveryTheSupervisorStoppedDurin
 	release, typing, drained := make(chan struct{}), make(chan struct{}, 1), make(chan struct{})
 	var mu sync.Mutex
 	var sent []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		mu.Lock()
 		sent = append(sent, text)
 		mu.Unlock()
@@ -278,7 +278,7 @@ func TestClosedPageKeepsPollingBehindBusyDelivery(t *testing.T) {
 	}
 	previous := typeIntoGoblin
 	release := make(chan struct{})
-	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool) error { <-release; return nil }
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { <-release; return nil }
 	ctx, cancel := context.WithCancel(context.Background())
 	polledAgain := make(chan string, 1)
 	polls := 0
@@ -314,7 +314,7 @@ func TestPageSweepKeepsPollingBehindBusyDelivery(t *testing.T) {
 	meta, _, connection, page := pageOfAGoblin(t, store)
 	previous := typeIntoGoblin
 	release := make(chan struct{})
-	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool) error { <-release; return nil }
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { <-release; return nil }
 	s := &Service{Store: store, Options: Options{CFO: connection}}
 	polledAgain := make(chan string, 1)
 	polls := 0
@@ -414,7 +414,7 @@ func TestPageReceiptRecoveryLeavesRepublishedVersionOpen(t *testing.T) {
 			}
 			previous := typeIntoGoblin
 			sent := make(chan string, 2)
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				sent <- text
 				return nil
 			}
@@ -485,7 +485,7 @@ func TestPageReceiptRecoveryDoesNotGroupAcrossVersions(t *testing.T) {
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	var sent []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		sent = append(sent, text)
 		return nil
 	}
@@ -871,7 +871,7 @@ func TestPageNotesWaitForAGoblinBetweenSessionsAndArriveOnceInOrder(t *testing.T
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	isAway, tries := true, 0
 	var typed []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		tries++
 		if isAway {
 			return fmt.Errorf("send: native task %s has no running terminal: %w", meta.ID, fleet.ErrNotTyped)
@@ -938,7 +938,7 @@ func TestAPageNoteWaitsWhileItsGoblinIsPausedResumedOrRelaunched(t *testing.T) {
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
 			var typed []string
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				typed = append(typed, text)
 				return nil
 			}
@@ -1003,7 +1003,7 @@ func TestAPageNoteOfAnEarlierTaskNeverReachesTheGoblinThatReusesItsID(t *testing
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	var typed []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		typed = append(typed, text)
 		return nil
 	}
@@ -1039,7 +1039,7 @@ func TestAPageNoteReachesItsGoblinResumedUnderALaterGeneration(t *testing.T) {
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	var typed []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		typed = append(typed, text)
 		return nil
 	}
@@ -1076,7 +1076,7 @@ func TestHisNotesAndSendAndEndReachTheGoblinInOrderBusyOrPaused(t *testing.T) {
 			var mu sync.Mutex
 			var typed []string
 			isAway, refused := false, 0
-			typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, text string, _, _ bool) error {
 				mu.Lock()
 				defer mu.Unlock()
 				if isAway && errors.Is(away, fleet.ErrNotTyped) {
@@ -1158,7 +1158,7 @@ func TestAPageNoteTypedButUnconfirmedWaitsForTheGoblinsRecord(t *testing.T) {
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	var typed []string
-	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+	typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 		typed = append(typed, text)
 		if len(typed) == 1 {
 			return fmt.Errorf("spawn: native terminal %s never showed its harness working on the instruction", meta.ID)
@@ -1213,7 +1213,7 @@ func TestAPageNoteTheGoblinsRecordNeverShowsReachesTheCFOAndTheNextGoes(t *testi
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
 			var typed []string
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				typed = append(typed, text)
 				return nil
 			}
@@ -1290,7 +1290,7 @@ func TestAStoppingSupervisorLeavesWaitingPageNotesForItsNextStart(t *testing.T) 
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
 			var tried []string
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				tried = append(tried, text)
 				if len(tried) == 1 {
 					return test.refusal
@@ -1363,7 +1363,7 @@ func TestAWaitingPageNoteDoesNotRewriteTheJournalEachCycle(t *testing.T) {
 			}
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
-			typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, _ string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, meta state.TaskMeta, _ string, _, _ bool) error {
 				return fmt.Errorf("send: native task %s has no running terminal: %w", meta.ID, fleet.ErrNotTyped)
 			}
 			written := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -1409,7 +1409,7 @@ func TestPageDeliveryDoesNotRetrySendingAfterAResultSaveFailure(t *testing.T) {
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
 	attempts := 0
-	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool) error { attempts++; return nil }
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { attempts++; return nil }
 	s := &Service{Store: store, Options: Options{CFO: connection}}
 
 	// Act
@@ -1467,7 +1467,7 @@ func TestPageReceiptReportsQueuedDeliveryWithoutClaimingItWasRead(t *testing.T) 
 	meta, _, connection, _ := pageOfAGoblin(t, store)
 	previous := typeIntoGoblin
 	t.Cleanup(func() { typeIntoGoblin = previous })
-	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool) error { return fleet.ErrQueuedForToolCall }
+	typeIntoGoblin = func(context.Context, string, state.TaskMeta, string, bool, bool) error { return fleet.ErrQueuedForToolCall }
 	scrawl := newScrawlPage(0)
 	scrawl.send(approvedAsShown)
 	s := &Service{Store: store, Options: Options{CFO: connection, PollPage: scrawl.poll}}
@@ -1512,7 +1512,7 @@ func TestPageReceiptsRecoverQueuedAndNotifyingOnce(t *testing.T) {
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
 			var sent []string
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				sent = append(sent, text)
 				return nil
 			}
@@ -1724,7 +1724,7 @@ func TestPageReceiptRecoversLatestGroupAroundReadableWrite(t *testing.T) {
 			previous := typeIntoGoblin
 			t.Cleanup(func() { typeIntoGoblin = previous })
 			var sent []string
-			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _ bool) error {
+			typeIntoGoblin = func(_ context.Context, _ string, _ state.TaskMeta, text string, _, _ bool) error {
 				sent = append(sent, text)
 				return nil
 			}

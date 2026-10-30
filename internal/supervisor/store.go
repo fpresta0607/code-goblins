@@ -594,6 +594,35 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 	return *a, nil
 }
 
+// typedMessage is the message action id names for task that was typed into
+// its session's turn and waits in its harness's own queue, and whether there
+// is one.
+func (s *Store) typedMessage(id, task string) (Action, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := slices.IndexFunc(s.db.Actions, func(typed Action) bool {
+		return typed.ID == id && typed.TaskID == task && typed.Kind == "message" && typed.Awaiting != nil
+	})
+	if at < 0 {
+		return Action{}, false
+	}
+	return s.db.Actions[at], true
+}
+
+// markSentNow records that the typed message id was sent now, so Send now is
+// not offered for it again.
+func (s *Store) markSentNow(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := slices.IndexFunc(s.db.Actions, func(sent Action) bool { return sent.ID == id })
+	if at < 0 {
+		return nil
+	}
+	sent := &s.db.Actions[at]
+	sent.IsSentNow, sent.CanSendNow, sent.UpdatedAt = true, false, time.Now().UTC()
+	return s.save()
+}
+
 // queueUnlessEvaluating queues a reconcile's evaluation only while no
 // evaluation of its task is queued or running. It is the second of two
 // checks: the reconcile's snapshot catches an evaluation that finishes while
@@ -1032,6 +1061,7 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 				awaiting.QuietSince = awaiting.Since
 			}
 			completed.Awaiting, completed.Message = &awaiting, result.Reason
+			completed.CanSendNow = a.Kind == "message" && result.CanSendNow && !a.IsSentNow
 		} else {
 			completed.Status = "succeeded"
 			completed.Message = result.Reason

@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
+	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -110,7 +112,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 		case !looked:
 			continue
 		case seen.Took:
-			a.Status, a.Awaiting, a.Advice = "succeeded", nil, ""
+			a.Status, a.Awaiting, a.Advice, a.CanSendNow = "succeeded", nil, "", false
 			a.Message = "Taken by " + who + ", as its own record of the conversation shows."
 			s.deliveredReview(a.ID, waiting.Task)
 		case a.Status != "running":
@@ -118,9 +120,9 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 			if now.Sub(waiting.Since) < deliveryForget {
 				continue
 			}
-			a.Awaiting = nil
+			a.Awaiting, a.CanSendNow = nil, false
 		case seen.Gone:
-			a.Status, a.Awaiting = "uncertain", nil
+			a.Status, a.Awaiting, a.CanSendNow = "uncertain", nil, false
 			a.Advice = "The terminal of " + who + " closed before it took your answer. Give " + who + " your answer once it is running again."
 			a.Message = a.Advice
 		case seen.Working:
@@ -167,7 +169,60 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
-	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
+	screens, _ := harness.NativeScreens(harness.Kind(meta.Harness))
+	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text), CanSendNow: screens.SendNow != ""}
+}
+
+// sendMessageNow has a message he asked for now go at once: one the board
+// holds is typed at its next safe moment, as Store.SendQueuedMessageNow says,
+// and one already typed into a turn, which waits in its harness's own queue,
+// is taken at once by that harness's send-now key, as the key does in its
+// terminal (the Overlord, 2026-10-30: "when sent now it actually sends now
+// same way termianl expereince down with ctrl x crtl s").
+func (s *Service) sendMessageNow(ctx context.Context, id, task string) error {
+	typed, isTyped := s.Store.typedMessage(id, task)
+	if !isTyped {
+		_, err := s.Store.SendQueuedMessageNow(id, task)
+		return err
+	}
+	if typed.IsSentNow {
+		return nil
+	}
+	if !typed.CanSendNow {
+		return errors.New("Its harness has no key that takes it sooner.")
+	}
+	if err := pressSendNow(ctx, s, *typed.Awaiting); err != nil {
+		return err
+	}
+	return s.Store.markSentNow(id)
+}
+
+// pressSendNow presses the send-now key of the harness a typed message waits
+// in, once its composer shows empty. It is a variable so a test can stand in
+// for the terminal.
+var pressSendNow = func(ctx context.Context, s *Service, waiting Awaiting) error {
+	id := waiting.Host
+	if waiting.Task != "" {
+		meta, err := state.ReadTaskMeta(s.Store.Home.State, waiting.Task)
+		if err != nil || meta.SpawnGen != waiting.Generation {
+			return errors.New("Its goblin restarted or ended.")
+		}
+		id = meta.ID
+	} else if s.Options.CFO != nil {
+		// Nothing else types into the CFO while its key is pressed.
+		s.Options.CFO.typing.Lock()
+		defer s.Options.CFO.typing.Unlock()
+	}
+	record, err := host.ReadRecord(s.Store.Home.State, id)
+	if err != nil || !host.Running(record) {
+		return errors.New("Its terminal is not running.")
+	}
+	screens, _ := harness.NativeScreens(harness.Kind(waiting.Harness))
+	err = spawn.Service{StateDir: s.Store.Home.State}.SendNow(ctx, record, screens)
+	if errors.Is(err, spawn.ErrUnsentWords) {
+		return errors.New("Its prompt line holds words that were never sent.")
+	}
+	return err
 }
 
 // awaitingGoblinDelivery is the delivery of text, typed into meta's native

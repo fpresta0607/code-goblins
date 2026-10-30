@@ -430,7 +430,9 @@ func (s Service) answerDialog(ctx context.Context, record host.Record, dialog ha
 // composer, has not taken it: while its screen says so, and did not already
 // say so before the submit, Enter is pressed again until it does, for as long
 // as a harness's startup is given, and its time to show itself working counts
-// from the last press.
+// from the last press. With ShouldSendNow, a harness in a turn that queued
+// the instruction gets its send-now key once, as soon as its composer shows
+// the instruction gone into that queue, and takes it at once.
 func (s Service) deliverNativeInstruction(ctx context.Context, record host.Record, screens harness.Screens, meta state.TaskMeta, session, instruction string, isStartup bool) error {
 	recoveries := 0
 	recoverStartup := func() error {
@@ -481,6 +483,7 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 	deadline := time.Now().Add(within)
 	pressed, presses := time.Now(), 0
 	var startingSince, startingPressed time.Time
+	isSentNow := false
 	for {
 		if busy && s.Took != nil && s.Took(ctx, meta, session, instruction, submitted) {
 			return nil
@@ -505,6 +508,12 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 		}
 		if !busy && screens.IsWorking(screen) {
 			return nil
+		}
+		if busy && s.ShouldSendNow && !isSentNow && screens.SendNow != "" && screens.ComposerEmpty(screen) {
+			if err := pressNativeKeys(record, "send now", screens.SendNow); err != nil {
+				return err
+			}
+			isSentNow = true
 		}
 		if !busy && !screens.IsStarting(before) && screens.IsStarting(screen) && !screens.ComposerEmpty(screen) {
 			if startingSince.IsZero() {
@@ -548,13 +557,18 @@ func (s Service) deliverNativeInstruction(ctx context.Context, record host.Recor
 
 // pressNativeEnter presses Enter in native terminal record.
 func pressNativeEnter(record host.Record) error {
+	return pressNativeKeys(record, "Enter", "\r")
+}
+
+// pressNativeKeys presses keys, which name names, in native terminal record.
+func pressNativeKeys(record host.Record, name, keys string) error {
 	client, err := host.Dial(record)
 	if err != nil {
-		return fmt.Errorf("spawn: press Enter in native terminal %s: %w", record.ID, err)
+		return fmt.Errorf("spawn: press %s in native terminal %s: %w", name, record.ID, err)
 	}
 	defer client.Close()
-	if err := client.Input([]byte("\r")); err != nil {
-		return fmt.Errorf("spawn: press Enter in native terminal %s: %w", record.ID, err)
+	if err := client.Input([]byte(keys)); err != nil {
+		return fmt.Errorf("spawn: press %s in native terminal %s: %w", name, record.ID, err)
 	}
 	return nil
 }

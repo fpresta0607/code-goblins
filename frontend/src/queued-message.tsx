@@ -26,15 +26,21 @@ export const QUEUED_NOTICE = "cfo-queued-notice";
 // it as his own bubble at the conversation's end, in its one scroll, the
 // pictures the box kept for it above its bubble in place of their paths as his
 // sent message shows them; queue in the message box's own list. In pane it
-// waits dimmed, with a few words under it, while the board holds it or the
-// session works, and is solid with Sent once it goes to an idle session, until
-// the session's record shows it read (the Overlord, 2026-10-29: "the user
-// can't really tell what's been sent and what's getting sent"). What it waits
-// on is its description for a screen reader. Every message the board still
-// holds offers Send now (the Overlord, 2026-10-28: "send now should be an
-// option with all queued messages"): one that cannot go now says why over the
-// box when pressed, as whatever else a press could not do does. One already typed into the terminal is the harness's to take,
-// so the board offers nothing to do with it.
+// waits dimmed, with Queued under it, while the board holds it or the session
+// works, and is solid with Sent once it goes to an idle session, until the
+// session's record shows it and his own row takes its place (the Overlord,
+// 2026-10-29: "the user can't really tell what's been sent and what's getting
+// sent", and 2026-10-30: "id ratehr it just say qeued"). What it waits on is
+// its description for a screen reader, and nothing about it is drawn as a
+// warning. Every message the board still holds offers Send now (the
+// Overlord, 2026-10-28: "send now should be an option with all queued
+// messages"): one that cannot go now says why over the box when pressed, as
+// whatever else a press could not do does. One already typed into a turn
+// waits in its harness's own queue, out of the board's reach to edit or
+// cancel, so it offers Send now alone, which presses the harness's own key
+// for it, and only where the harness has one (the Overlord, 2026-10-30: "when
+// sent now it actually sends now same way termianl expereince down with ctrl
+// x crtl s").
 export const QueuedMessage = memo(function QueuedMessage({ action, instance, name, variant, isWorking = false, onDeleted }: QueuedProps) {
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
@@ -62,9 +68,9 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
   const isTyped = action.status === "running" && !!action.awaiting;
   const isPending = isHeld || isTyped;
   const isWaiting = action.status === "queued" || isPending && isWorking;
-  const state = variant === "pane" ? (isWaiting ? "Waiting for " + (action.task_id ? "the goblin's" : "the CFO's") + " next step" : "Sent")
-    : isHeld ? "Queued" : isTyped ? "Typed, awaiting the turn" : messageState(action);
+  const state = variant === "pane" ? (isWaiting ? "Queued" : "Sent") : isPending ? "Queued" : messageState(action);
   const canAct = isHeld && (variant === "queue" || isWaiting);
+  const canSendTyped = isTyped && !!action.can_send_now && (variant === "queue" || isWaiting);
   const reason = isPending ? action.message : "";
   const kept = keptPictures(action.text);
   const why = "queued-why-" + action.id;
@@ -75,13 +81,15 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
     {variant === "queue" && <span className="composer-sent-text" aria-describedby={why}>{action.text}</span>}
     {variant === "queue" && <p className="queued-line"><strong>{state}</strong></p>}
     <p className="sr-only" id={why}>{reason || state}</p>
-    {canAct && asked !== "withdrawn" && <div className="queued-actions">
+    {(canAct || canSendTyped) && asked !== "withdrawn" && <div className="queued-actions">
       <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"}
         onClick={() => action.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : refuse(action.send_now_why || "It cannot be typed into its session now.")}><Icon name="arrow-up" /></button>
-      <button type="button" className="icon-button" aria-label="Edit" disabled={isSending}
-        onClick={() => window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id }))}><Icon name="edit" /></button>
-      <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
-        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
+      {canAct && <>
+        <button type="button" className="icon-button" aria-label="Edit" disabled={isSending}
+          onClick={() => window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id }))}><Icon name="edit" /></button>
+        <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
+          onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
+      </>}
     </div>}
   </div>;
 }, isSameQueued);

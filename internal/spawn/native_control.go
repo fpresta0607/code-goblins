@@ -2,6 +2,7 @@ package spawn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -42,6 +43,27 @@ func (s Service) SendNative(ctx context.Context, meta state.TaskMeta, text strin
 		return err
 	}
 	return fmt.Errorf("send: %q was typed into native terminal %s and submitted once, but nothing on its screen confirms a command ran; check it with cfo peek %s rather than sending it again", text, meta.ID, meta.ID)
+}
+
+// ErrNoSendNow says a harness has no key that takes what waits in its queue
+// at once.
+var ErrNoSendNow = errors.New("its harness has no key that sends a queued message at once")
+
+// SendNow presses the send-now key of the harness in native terminal record,
+// so it takes what waits in its own queue at once. The composer must be
+// empty, so words typed into the terminal itself never go with it.
+func (s Service) SendNow(ctx context.Context, record host.Record, screens harness.Screens) error {
+	if screens.SendNow == "" {
+		return ErrNoSendNow
+	}
+	screen, err := s.readNativeScreen(ctx, record)
+	if err != nil {
+		return err
+	}
+	if !screens.ComposerEmpty(screen) {
+		return ErrUnsentWords
+	}
+	return pressNativeKeys(record, "send now", screens.SendNow)
 }
 
 // nativeKeys are the keys cfo send --key names, as a console reads them.

@@ -73,6 +73,11 @@ type Screens struct {
 	// permission mode, its first group the mode, for a harness that cycles
 	// modes with Shift+Tab.
 	Modes *regexp.Regexp
+	// SendNow is the key that has the harness take what waits in its own
+	// queue at once, during a turn, rather than at its next tool call. None
+	// for a harness without one: Codex takes a line typed during a turn at
+	// once, and pi only after its current tool call.
+	SendNow string
 }
 
 // Dialog is one startup prompt. A spawn answers it only while one of Markers
@@ -136,6 +141,10 @@ func NativeScreens(kind Kind) (Screens, bool) {
 			// mark is > where its terminal draws no Unicode.
 			Choice:  regexp.MustCompile(`^\s*[❯>] \d+\. \S`),
 			Choices: regexp.MustCompile(`^\s{2,}\d+\. \S`),
+			// Claude Code 2.1.275's chat:sendNow chord, Ctrl+X Ctrl+S: a
+			// message it queued during a turn is sent "right away, as its key
+			// does" (its changelog for the click on that hint).
+			SendNow: "\x18\x13",
 		}, true
 	case Codex:
 		hookMenu := `(?m)^[ \t]*(?:› )?1\. Review hooks[ \t]*\n[ \t]*(?:› )?2\. Trust all and continue[ \t]*\n[ \t]*(?:› )?3\. Continue without trusting(?: \(hooks won't run\))?[ \t]*\n[ \t\n]*`
