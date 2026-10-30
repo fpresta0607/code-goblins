@@ -189,6 +189,40 @@ func TestDeployHoldPersistsAndRemindsUntilItEnds(t *testing.T) {
 	}
 }
 
+func TestDeployHoldClearsEvenWhenReadingRidersFails(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	repository := newScratch(t)
+	github := newFakeGitHub(repository)
+	pullRequest := github.open(11, "feat/a", repository.branch("feat/a", "a.txt", "a\n"))
+	riders, _ := Riders([]PullRequest{pullRequest}, "main", fleetAccount, goblinsFor(pullRequest), nil)
+	engine := repository.engine(github)
+	started, err := engine.Start(context.Background(), repository.repository(), riders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	github.mainRuns = "[" + pushRun(31, "Deploy site", started.BaseSHA, "completed", "failure") + "]"
+	repository.step(engine, started.ID)
+	github.mainRuns = "[" + pushRun(31, "Deploy site", started.BaseSHA, "completed", "success") + "]"
+	github.unanswered["list"] = 1
+
+	// Act
+	_, advanceError := engine.Advance(context.Background(), started.ID)
+	saved, readError := Read(repository.state, started.ID)
+
+	// Assert
+	if advanceError == nil || readError != nil || saved.Errors != 1 || len(github.mergeCalls()) != 0 {
+		t.Fatalf("advance error %v, read error %v, train %+v: want the rider read failure kept without merging", advanceError, readError, saved)
+	}
+	if saved.DeployHold != nil || strings.Contains(saved.Note, "holds its merge") {
+		t.Fatalf("train %+v: want the successful deploy to clear the board's hold before reading riders", saved)
+	}
+	landed := repository.step(engine, started.ID)
+	if landed.State != StateLanded || !slices.Equal(github.merged, []int{11}) {
+		t.Fatalf("train %+v, merged %v: want the next successful rider read to land the train", landed, github.merged)
+	}
+}
+
 // On 2026-10-22 a train landed at 01:52Z, its push started main's production
 // deploy, and at 02:02Z the supervisor started the next train, which merges,
 // and starts a second deploy, as soon as its run passes, whether or not the
