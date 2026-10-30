@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -132,7 +133,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 			waiting.QuietSince = now
 			a.Awaiting = &waiting
 		case now.Sub(waiting.QuietSince) >= deliveryQuiet:
-			a.Status = "uncertain"
+			a.Status, a.CanSendNow = "uncertain", false
 			a.Advice = "Your answer was typed for " + who + ", which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to " + who + "."
 			a.Message = a.Advice
 		default:
@@ -169,58 +170,61 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 	if err != nil {
 		return Evaluation{Reason: unwatched}
 	}
-	screens, _ := harness.NativeScreens(harness.Kind(meta.Harness))
-	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text), CanSendNow: screens.SendNow != ""}
+	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
 }
 
 // sendMessageNow has a message he asked for now go at once: one the board
 // holds is typed at its next safe moment, as Store.SendQueuedMessageNow says,
-// and one already typed into a turn, which waits in its harness's own queue,
-// is taken at once by that harness's send-now key, as the key does in its
-// terminal (the Overlord, 2026-10-30: "when sent now it actually sends now
-// same way termianl expereince down with ctrl x crtl s").
+// and one already typed into the CFO's turn, which waits in its harness's own
+// queue, is taken at once by that harness's send-now key, as the key does in
+// its terminal (the Overlord, 2026-10-30: "when sent now it actually sends now
+// same way termianl expereince down with ctrl x crtl s"). A goblin's message
+// reaches its turn only by Send now, which pressed the key already. The typed
+// message is claimed before its key is pressed, so the key goes once however
+// often he presses, and given back when it could not be pressed.
 func (s *Service) sendMessageNow(ctx context.Context, id, task string) error {
-	typed, isTyped := s.Store.typedMessage(id, task)
-	if !isTyped {
+	typed, isTyped, err := s.Store.claimTypedMessage(id, task)
+	switch {
+	case !isTyped:
 		_, err := s.Store.SendQueuedMessageNow(id, task)
 		return err
-	}
-	if typed.IsSentNow {
+	case typed.IsSentNow:
 		return nil
-	}
-	if !typed.CanSendNow {
+	case !typed.CanSendNow:
+		if screens, _ := harness.NativeScreens(harness.Kind(typed.Awaiting.Harness)); screens.SendNow != "" {
+			return errors.New("It was not typed into a turn.")
+		}
 		return errors.New("Its harness has no key that takes it sooner.")
 	}
-	if err := pressSendNow(ctx, s, *typed.Awaiting); err != nil {
-		return err
+	if err == nil {
+		err = pressSendNow(ctx, s, *typed.Awaiting)
 	}
-	return s.Store.markSentNow(id)
+	if err != nil {
+		return errors.Join(err, s.Store.releaseTypedMessage(id))
+	}
+	return nil
 }
 
-// pressSendNow presses the send-now key of the harness a typed message waits
-// in, once its composer shows empty. It is a variable so a test can stand in
-// for the terminal.
+// pressSendNow presses the send-now key of the CFO's harness for a message
+// typed into its turn, once its composer shows empty. It is a variable so a
+// test can stand in for the terminal.
 var pressSendNow = func(ctx context.Context, s *Service, waiting Awaiting) error {
-	id := waiting.Host
-	if waiting.Task != "" {
-		meta, err := state.ReadTaskMeta(s.Store.Home.State, waiting.Task)
-		if err != nil || meta.SpawnGen != waiting.Generation {
-			return errors.New("Its goblin restarted or ended.")
-		}
-		id = meta.ID
-	} else if s.Options.CFO != nil {
+	if s.Options.CFO != nil {
 		// Nothing else types into the CFO while its key is pressed.
 		s.Options.CFO.typing.Lock()
 		defer s.Options.CFO.typing.Unlock()
 	}
-	record, err := host.ReadRecord(s.Store.Home.State, id)
+	record, err := host.ReadRecord(s.Store.Home.State, waiting.Host)
 	if err != nil || !host.Running(record) {
 		return errors.New("Its terminal is not running.")
 	}
 	screens, _ := harness.NativeScreens(harness.Kind(waiting.Harness))
 	err = spawn.Service{StateDir: s.Store.Home.State}.SendNow(ctx, record, screens)
-	if errors.Is(err, spawn.ErrUnsentWords) {
+	switch {
+	case errors.Is(err, spawn.ErrUnsentWords):
 		return errors.New("Its prompt line holds words that were never sent.")
+	case errors.Is(err, fleet.ErrNotTyped):
+		return errors.New("Its terminal is not ready to take it yet.")
 	}
 	return err
 }

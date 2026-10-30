@@ -610,7 +610,8 @@ func TestANativeCFOsSendFromAProcessWhoseParentHasExitedNamesItAsSender(t *testi
 // A delivery to a native CFO whose screen turns to work but whose prompt hook
 // has not reported taking it, its input still showing the message, is sent,
 // not delivered, since Enter may have chosen a dialog's option instead: it
-// waits for the hook's report.
+// waits for the hook's report. Typed into no turn, it waits in no queue its
+// harness's send-now key could take it from, so it offers no Send now.
 func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDelivered(t *testing.T) {
 	stateDir := t.TempDir()
 	cfo := hostTerminal(t, stateDir, "cfo")
@@ -624,8 +625,8 @@ func TestADeliveryToANativeCFOWhoseScreenTurnsToWorkWithoutItsHookIsSentNotDeliv
 
 	result, err := (&CFOConnection{State: stateDir}).Send(context.Background(), registrationIdentity(t, stateDir), "hello")
 
-	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "cfo" || result.Reason != sentToCFO {
-		t.Errorf("Send = %+v, %v; want it sent and awaiting the CFO's hook, not an error", result, err)
+	if err != nil || result.Awaiting == nil || result.Awaiting.Host != "cfo" || result.Reason != sentToCFO || result.CanSendNow {
+		t.Errorf("Send = %+v, %v; want it sent and awaiting the CFO's hook, with no Send now, not an error", result, err)
 	}
 	if typed := cfo.exit(t); len(typed) != 2 || typed[1] != "Overlord: hello" {
 		t.Errorf("the terminal received %q, want its registration and then the message once", typed)

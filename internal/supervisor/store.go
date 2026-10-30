@@ -594,24 +594,33 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 	return *a, nil
 }
 
-// typedMessage is the message action id names for task that was typed into
-// its session's turn and waits in its harness's own queue, and whether there
-// is one.
-func (s *Store) typedMessage(id, task string) (Action, bool) {
+// claimTypedMessage claims Send now on the message action id names for task
+// that was typed into its session's turn and still waits in its harness's own
+// queue: one that can be sent now is marked sent now under the store's lock,
+// so however often he presses, its key is pressed once. It returns the message
+// as it stood before the claim, and whether there is one.
+func (s *Store) claimTypedMessage(id, task string) (Action, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	at := slices.IndexFunc(s.db.Actions, func(typed Action) bool {
-		return typed.ID == id && typed.TaskID == task && typed.Kind == "message" && typed.Awaiting != nil
+		return typed.ID == id && typed.TaskID == task && typed.Kind == "message" && typed.Status == "running" && typed.Awaiting != nil
 	})
 	if at < 0 {
-		return Action{}, false
+		return Action{}, false, nil
 	}
-	return s.db.Actions[at], true
+	typed := &s.db.Actions[at]
+	claimed := *typed
+	if typed.IsSentNow || !typed.CanSendNow {
+		return claimed, true, nil
+	}
+	typed.IsSentNow, typed.CanSendNow, typed.UpdatedAt = true, false, time.Now().UTC()
+	return claimed, true, s.save()
 }
 
-// markSentNow records that the typed message id was sent now, so Send now is
-// not offered for it again.
-func (s *Store) markSentNow(id string) error {
+// releaseTypedMessage gives back the claim on the typed message id whose key
+// could not be pressed: it is not sent now, and Send now is offered again
+// while it still waits.
+func (s *Store) releaseTypedMessage(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	at := slices.IndexFunc(s.db.Actions, func(sent Action) bool { return sent.ID == id })
@@ -619,7 +628,7 @@ func (s *Store) markSentNow(id string) error {
 		return nil
 	}
 	sent := &s.db.Actions[at]
-	sent.IsSentNow, sent.CanSendNow, sent.UpdatedAt = true, false, time.Now().UTC()
+	sent.IsSentNow, sent.CanSendNow, sent.UpdatedAt = false, sent.Status == "running" && sent.Awaiting != nil, time.Now().UTC()
 	return s.save()
 }
 

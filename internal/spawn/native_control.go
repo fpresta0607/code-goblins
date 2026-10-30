@@ -51,7 +51,9 @@ var ErrNoSendNow = errors.New("its harness has no key that sends a queued messag
 
 // SendNow presses the send-now key of the harness in native terminal record,
 // so it takes what waits in its own queue at once. The composer must be
-// empty, so words typed into the terminal itself never go with it.
+// empty, so words typed into the terminal itself never go with it
+// (ErrUnsentWords), and a terminal waiting on a screen of its own, or whose
+// composer cannot be read, takes no key (fleet.ErrNotTyped).
 func (s Service) SendNow(ctx context.Context, record host.Record, screens harness.Screens) error {
 	if screens.SendNow == "" {
 		return ErrNoSendNow
@@ -60,8 +62,11 @@ func (s Service) SendNow(ctx context.Context, record host.Record, screens harnes
 	if err != nil {
 		return err
 	}
-	if !screens.ComposerEmpty(screen) {
+	switch {
+	case screens.ComposerHoldsText(screen):
 		return ErrUnsentWords
+	case screens.IsOpen(screen) || !screens.ComposerEmpty(screen):
+		return fmt.Errorf("spawn: native terminal %s shows no empty prompt line to take its send-now key: %w", record.ID, fleet.ErrNotTyped)
 	}
 	return pressNativeKeys(record, "send now", screens.SendNow)
 }

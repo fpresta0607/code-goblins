@@ -299,7 +299,9 @@ func TestSendNowHasAClaudeCodeInATurnTakeTheLineAtOnce(t *testing.T) {
 // A message already typed into a Claude Code in a turn waits in its queue
 // until SendNow presses the harness's send-now key, which it does only at an
 // empty composer, so words typed into the terminal itself never go with it.
-// A harness with no such key is told so, with nothing pressed.
+// A terminal showing a screen of its own, or no prompt line it can read, is
+// not ready for the key, which is not words never sent, and a harness with no
+// such key is told so, with nothing pressed.
 func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 	claude, _ := harness.NativeScreens(harness.Claude)
 	codex, _ := harness.NativeScreens(harness.Codex)
@@ -307,11 +309,14 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 		name        string
 		screens     harness.Screens
 		draft       string
+		screen      []string
 		wantErr     error
 		wantSentNow []string
 	}{
 		{name: "an empty composer", screens: claude, wantSentNow: []string{"use the staging database"}},
 		{name: "his own words in the composer", screens: claude, draft: "and the", wantErr: ErrUnsentWords},
+		{name: "a permission prompt in its turn", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", "", "Do you want to create nine.txt?", "❯ 1. Yes", "  2. Yes, and don't ask again this session", "  3. No"}, wantErr: fleet.ErrNotTyped},
+		{name: "a turn with no prompt line it can read", screens: claude, screen: []string{"✽ Reticulating… (esc to interrupt)", "> use the staging database"}, wantErr: fleet.ErrNotTyped},
 		{name: "a harness with no such key", screens: codex, wantErr: ErrNoSendNow},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -348,8 +353,13 @@ func TestSendNowPressesTheHarnessKeyOnlyAtAnEmptyComposer(t *testing.T) {
 				}
 			}
 
+			service := f.service
+			if test.screen != nil {
+				service.ReadScreen = func(host.Record) ([]string, error) { return test.screen, nil }
+			}
+
 			// Act
-			err = f.service.SendNow(t.Context(), record, test.screens)
+			err = service.SendNow(t.Context(), record, test.screens)
 
 			// Assert
 			if !errors.Is(err, test.wantErr) {
