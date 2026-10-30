@@ -46,7 +46,7 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 		for {
 			line, length, err := readStreamLine(output)
 			if errors.Is(err, errLineTooLong) {
-				fmt.Fprintf(os.Stderr, "host: left out a %d-byte line of the session, over the %d-byte bound\n", length, maxStreamLine)
+				fmt.Fprintf(os.Stderr, "%s host: left out a %d-byte line of the session, over the %d-byte bound\n", time.Now().UTC().Format(time.RFC3339Nano), length, maxStreamLine)
 				continue
 			}
 			if err != nil {
@@ -57,7 +57,7 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 			}
 			object, err := streamObject(line)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "host: the program wrote a line that is not a JSON object: %.200s\n", line)
+				fmt.Fprintf(os.Stderr, "%s host: the program wrote a line that is not a JSON object: %.200s\n", time.Now().UTC().Format(time.RFC3339Nano), line)
 				continue
 			}
 			lines.add(object, false)
@@ -112,7 +112,7 @@ func runStream(stateDir string, spec Spec, proof string, processors uintptr) err
 	<-outputEnded
 	end := End{ID: spec.ID, HostPID: record.HostPID, ChildPID: record.ChildPID, ChildStart: record.ChildStart, Ended: time.Now().UTC(), Code: program.ExitCode(), Closed: isClosed}
 	if err := writeEnd(stateDir, end); err != nil {
-		fmt.Fprintf(os.Stderr, "host: record how session %s ended: %v\n", spec.ID, err)
+		fmt.Fprintf(os.Stderr, "%s host: record how session %s ended: %v\n", time.Now().UTC().Format(time.RFC3339Nano), spec.ID, err)
 	}
 	farewell := make(chan struct{})
 	go func() {

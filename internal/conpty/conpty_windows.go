@@ -318,7 +318,7 @@ const heldEndingWait = 100 * time.Millisecond
 // otherwise as the key events it stands for.
 func (c *Console) Write(p []byte) (int, error) {
 	if err := c.scheduling.reconcile(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "%s %v\n", time.Now().UTC().Format(time.RFC3339Nano), err)
 	}
 	c.writing.Lock()
 	defer c.writing.Unlock()
