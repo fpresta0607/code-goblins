@@ -191,7 +191,7 @@ export interface Deployment { commit: string; state: string; workflows: string[]
 // history keeps each, and note says what happened last. earlier are the
 // trains before it that landed nothing and whose pull requests it took on,
 // oldest first, so the board shows each batch once.
-export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[]; history: TrainRun[]; earlier: MergeTrain[] }
+export interface MergeTrain { id: string; repository: string; base: string; pr: string; state: string; runs: number; started: string; finished: string; note: string; cars: TrainCar[]; history: TrainRun[]; earlier: MergeTrain[]; deploy_hold?: { workflow: string; status: string; conclusion: string; url: string } }
 // TrainRun is one CI run of a train: its number among the train's runs, the
 // pull requests it tested by number, its base and head commits, when it was
 // pushed, how it ended (landed, failed, moved, changed, repushed or stopped,
@@ -883,6 +883,7 @@ function parseMergeTrain(value: unknown): MergeTrain {
   return {
     id: string(t.id), repository: string(t.repository), base: string(t.base), pr: string(t.pr), state: string(t.state), runs: number(t.runs),
     started: string(t.started), finished: string(t.finished), note: string(t.note),
+    ...(t.deploy_hold == null ? {} : { deploy_hold: ((hold) => ({ workflow: string(hold.workflow), status: string(hold.status), conclusion: string(hold.conclusion), url: string(hold.url) }))(object(t.deploy_hold)) }),
     cars: array(t.cars).map((car) => { const c = object(car); return { number: number(c.number), url: string(c.url), title: string(c.title), task: string(c.task), goblin: string(c.goblin), goblin_title: string(c.goblin_title), head: string(c.head), state: string(c.state), note: string(c.note) }; }),
     history: array(t.history).map((run) => { const r = object(run); return { number: number(r.number), riders: array(r.riders).map(number), base: string(r.base), head: string(r.head), pushed: string(r.pushed), result: string(r.result), link: string(r.link), pr: string(r.pr), failed_once: array(r.failed_once).map((check) => { const c = object(check); return { name: string(c.name), link: string(c.link) }; }) }; }),
     earlier: array(t.earlier).map(parseMergeTrain),

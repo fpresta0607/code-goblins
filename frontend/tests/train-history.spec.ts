@@ -95,6 +95,37 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
   test.describe(viewport.name, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
+    for (const hold of [
+      { status: "completed", conclusion: "failure", text: "Held: main's Deploy site concluded failure", tone: "failed" },
+      { status: "in_progress", conclusion: "", text: "Waiting on main's Deploy site", tone: "pending" },
+    ]) {
+      test(`a ${hold.status} base deploy names the hold on the card and panel and links its run`, async ({ page }, testInfo) => {
+        // Arrange
+        const url = REPO + "/actions/runs/31";
+        await open(page, [{ ...SINGLE, note: "The train merges once main's deploy has finished successfully", deploy_hold: { workflow: "Deploy site", status: hold.status, conclusion: hold.conclusion, url } }]);
+        const trainCard = column(page, "In progress").locator(".train-card");
+
+        // Act
+        const status = trainCard.locator(".train-status");
+
+        // Assert
+        await expect(status).toHaveText(hold.text);
+        await expect(status).toHaveClass(new RegExp("train-" + hold.tone));
+        await expect(status).toHaveAttribute("href", url);
+        await expect(status).toHaveAccessibleName(hold.text + ": open the deploy run");
+        await trainCard.locator(".train-title").click();
+        const panelStatus = panel(page).locator(".train-status");
+        await expect(panelStatus).toHaveText(hold.text);
+        await expect(panelStatus).toHaveClass(new RegExp("train-" + hold.tone));
+        await expect(panelStatus).toHaveAttribute("href", url);
+        await expect(panel(page).getByRole("link", { name: "Open the train's pull request", exact: true })).toHaveAttribute("href", TRAIN_PR);
+        await expect(panel(page).getByRole("region", { name: "Pull requests" }).getByRole("link", { name: "CI passed", exact: true })).toHaveAttribute("href", TRAIN_PR);
+        await expect(panel(page)).not.toContainText("Testing");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath("deploy-hold.png"), fullPage: true });
+      });
+    }
+
     test("one pull request and one run share a primary row with the current run link", async ({ page }) => {
       await open(page, [SINGLE]);
 

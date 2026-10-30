@@ -39,6 +39,14 @@ export function trainLook(train: MergeTrain): TrainLook {
   const runs = batchRunCount(train);
   const onRun = runs > 1 ? " on run " + runs : "";
   if (train.state === "testing") {
+    if (train.deploy_hold) {
+      const hold = train.deploy_hold;
+      return {
+        text: hold.status === "completed" ? `Held: ${train.base}'s ${hold.workflow} concluded ${hold.conclusion}` : `Waiting on ${train.base}'s ${hold.workflow}`,
+        tone: hold.status === "completed" ? "failed" : "pending",
+        url: safeGitHubLink(hold.url),
+      };
+    }
     const riding = train.cars.filter((car) => car.state === "riding");
     const open = train.history.at(-1);
     const again = open?.result === "" && open.failed_once.length > 0 ? " again" : "";
@@ -108,7 +116,7 @@ export function batchRuns(train: MergeTrain): RunLook[] {
     before += each.runs;
     return each.history.map((run) => {
       const words: [string, Tone] = run.failed_once.length > 0 && SECOND_TRY_WORDS[run.result] || RUN_WORDS[run.result] || [run.result, "cancelled"];
-      const [text, tone] = run.result === "moved" ? [capital(each.base) + " moved", "cancelled" as const] : words;
+      const [text, tone] = each.state === "testing" && each.deploy_hold && run.result === "" ? ["CI passed", "passed" as const] : run.result === "moved" ? [capital(each.base) + " moved", "cancelled" as const] : words;
       return {
         number: offset + run.number, riders: run.riders, text, tone, url: run.result === "failed" && safeGitHubLink(run.link) || safeGitHubLink(run.pr) || safeGitHubLink(each.pr),
         once: run.failed_once.map((check) => ({ name: check.name, url: safeGitHubLink(check.link) })),
