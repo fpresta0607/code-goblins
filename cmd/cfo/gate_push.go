@@ -55,8 +55,8 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 	// Beside a working fleet on 2026-10-10 the pick took 2 to 67 seconds
 	// for sixteen pull requests, nearly all of it go list, and over two
 	// minutes once, in a checkout just made while a test run held the
-	// machine.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// machine. A cold read can take far longer (planLimit).
+	ctx, cancel := context.WithTimeout(context.Background(), runtime.gatePlanLimit)
 	pick, err := gatetest.ReadPush(ctx, execx.OSRunner{}, dir, func(module string) gatetest.Times {
 		project = path.Base(module)
 		times, err := verify.Times(project)
@@ -65,7 +65,11 @@ func runGatePrepush(args []string, dir string, stdout, stderr io.Writer, runtime
 		}
 		return times
 	})
+	isStalled := err != nil && ctx.Err() != nil
 	cancel()
+	if isStalled {
+		return planStalled("cfo gate prepush", runtime.gatePlanLimit, err, stdout, stderr)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2

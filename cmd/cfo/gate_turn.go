@@ -29,7 +29,7 @@ const (
 	// never started, as no turn was taken or the run was interrupted before
 	// it could start, or the line ended the command for the machine's
 	// memory.
-	exitNoTurn = 125
+	exitNoTurn = verify.ExitNoResult
 	// exitNotStarted says a turn was taken and given back, and the command
 	// could not be started.
 	exitNotStarted = 126

@@ -874,3 +874,29 @@ func TestGatePrepushWithNothingPickedPasses(t *testing.T) {
 		t.Errorf("exit = %d, ending with %q; want 0, ending with %q", exit, lastLine(stdout.String()), want)
 	}
 }
+
+// A pick reads the checkout as a plan does, so it stalls the same way and
+// says so the same way.
+func TestGatePrepushSaysAPickThatOutlastsItsLimitStalledAndGivesNoResult(t *testing.T) {
+	// Arrange
+	dir := testStepModule(t, nil, map[string]string{"c/c.go": "package c\n\n// changed\n"})
+	t.Chdir(dir)
+	var ran []string
+	runtime := recorded(&ran)
+	runtime.gatePlanLimit = time.Nanosecond
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gatePrepushWith(runtime, &stdout, &stderr)
+
+	// Assert
+	if exit != exitNoTurn {
+		t.Fatalf("exit = %d, want %d, which says no test result; stdout=%s stderr=%s", exit, exitNoTurn, stdout.String(), stderr.String())
+	}
+	if want := "cfo gate prepush: nothing was tested, since the plan stalled"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr %q lacks %q", stderr.String(), want)
+	}
+	if len(ran) != 0 {
+		t.Errorf("ran %q; a pick that stalled runs nothing", ran)
+	}
+}
