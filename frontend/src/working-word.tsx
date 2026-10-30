@@ -17,12 +17,11 @@ const LONGEST_WORD = ["Working", ...WORKING_WORDS].reduce((wide, word) => word.l
 // (the Overlord, 2026-10-30: "make twitsting and teh verbs rotate in a type
 // writere hroiztonal shimmer"). Each word types itself out left to right, a
 // letter at a time, then a shimmer crosses it. Both are transforms the
-// compositor draws, in lengths measured once as the word comes, never in
-// shares of their own size, which Chrome draws on the main thread: the
-// typing slides a window over the word to each letter's edge. It writes each
-// word into the page itself, so React draws nothing again while a turn runs.
-// The room it takes is its longest word's, so nothing after it moves. Under
-// reduced motion it shows said, or Working, whole and still.
+// compositor draws: the typing slides a window over the word to each letter's
+// edge, measured once as the word comes. It writes each word into the page
+// itself, so React draws nothing again while a turn runs. The room it takes
+// is its longest word's, so nothing after it moves. Under reduced motion it
+// shows said, or Working, whole and still.
 export function WorkingWord({ said }: { said: string }) {
   const shown = useRef<HTMLSpanElement>(null);
   const letters = useRef<HTMLSpanElement>(null);
@@ -47,7 +46,7 @@ export function WorkingWord({ said }: { said: string }) {
       running = [
         frame.animate(steps((edge) => edge - width), typing),
         text.animate(steps((edge) => width - edge), typing),
-        light.animate([{ transform: `translateX(${-light.offsetWidth}px)` }, { transform: `translateX(${light.offsetWidth}px)` }], { duration: SHIMMER_MS, delay: typed, easing: "ease-in-out", fill: "backwards" }),
+        light.animate([{ transform: "translateX(-100%)" }, { transform: "translateX(100%)" }], { duration: SHIMMER_MS, delay: typed, easing: "ease-in-out", fill: "backwards" }),
       ];
       next = (next + 1) % words.length;
       timer = window.setTimeout(type, WORD_MS);
