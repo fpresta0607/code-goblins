@@ -132,6 +132,16 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// The watcher lock comes before the address, so the serve that holds the
+	// address is the one supervisor. After the Windows restart of 2026-10-27 a
+	// serve held the usual address without the lock, another goblins read that
+	// silent listener as another program and started a supervisor on a free
+	// port, and that one won the lock (#1592).
+	if err := supervisor.AcquireWatchLock(h.State); err != nil {
+		fmt.Fprintf(stderr, "supervisor: existing watch owner must finish before serve: %v\n", err)
+		return 1
+	}
+	defer releaseWatchLock(h)
 	listener, err := net.Listen("tcp", *address)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -254,6 +264,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		remoteSetting = remote
 	}
 	s, err := supervisor.Start(ctx, h, supervisor.Options{
+		HoldsWatchLock:   true,
 		RemoteAccess:     remoteSetting,
 		Push:             &http.Client{Timeout: 15 * time.Second},
 		Dictation:        dictation,
