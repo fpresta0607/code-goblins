@@ -75,7 +75,8 @@ type Evaluation struct {
 	// waits for its harness to report taking it; its action keeps it.
 	Awaiting *Awaiting `json:"-"`
 	// CanSendNow is whether a queued message could be typed into its session
-	// on a retry, and SendNowWhy says why not when it could not.
+	// on a retry, or one typed into a turn taken at once by its harness's
+	// send-now key, and SendNowWhy says why not when it could not.
 	CanSendNow bool   `json:"-"`
 	SendNowWhy string `json:"-"`
 }
@@ -111,7 +112,8 @@ type Action struct {
 	// for its harness to report taking it.
 	Awaiting *Awaiting `json:"awaiting,omitempty"`
 	// CanSendNow is whether he may ask for a queued message to be typed now,
-	// and SendNowWhy says why not, in plain words.
+	// or for one typed into a turn to be taken at once by its harness's
+	// send-now key, and SendNowWhy says why not, in plain words.
 	CanSendNow bool   `json:"can_send_now,omitempty"`
 	SendNowWhy string `json:"send_now_why,omitempty"`
 	// IsSentNow says he asked for a queued message now, so its delivery types
