@@ -23,6 +23,7 @@ type Payload struct {
 	Source         string
 	ToolName       string
 	Command        string
+	SubagentType   string
 	StopHookActive bool
 	// ToolUseID names the tool call a PostToolUse hook runs after, and
 	// ToolResponse is the JSON text of what that call gave back, as Claude
@@ -33,7 +34,7 @@ type Payload struct {
 
 // rawPayload mirrors Claude's hook JSON field names before the stop-hook
 // two-spelling merge. ToolInput stays raw for a second, targeted unmarshal
-// since it is the only nested field callers need (tool_input.command).
+// since it is the only nested field callers need.
 type rawPayload struct {
 	SessionID           string          `json:"session_id"`
 	Cwd                 string          `json:"cwd"`
@@ -46,10 +47,10 @@ type rawPayload struct {
 	StopHookActiveSnake *bool           `json:"stop_hook_active"`
 }
 
-// toolInput extracts tool_input.command, the only tool_input field any hook
-// consumes.
+// toolInput extracts the tool_input fields hooks consume.
 type toolInput struct {
-	Command string `json:"command"`
+	Command      string `json:"command"`
+	SubagentType string `json:"subagent_type"`
 }
 
 // ReadPayload decodes Claude Code's hook JSON from r. Upstream's stop hooks
@@ -94,6 +95,7 @@ func ReadPayload(r io.Reader) (Payload, bool) {
 		var ti toolInput
 		if err := json.Unmarshal(raw.ToolInput, &ti); err == nil {
 			p.Command = ti.Command
+			p.SubagentType = ti.SubagentType
 		}
 	}
 

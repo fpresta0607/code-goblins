@@ -204,6 +204,9 @@ func hookPretoolSubagent(stdin io.Reader, stdout, stderr io.Writer) int {
 	if os.Getenv("CFO_ALLOW_SUBAGENT") == "1" {
 		return 0
 	}
+	if payload.ToolName == "Agent" && payload.SubagentType == "web-fetch" {
+		return 0
+	}
 	stem, deny := guard.ClassifySubagent(payload.ToolName)
 	if !deny {
 		return 0
