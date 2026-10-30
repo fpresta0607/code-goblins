@@ -17,12 +17,10 @@ import { VoiceBubble } from "./VoiceBubble";
 // A view that keeps dropping stops retrying and says why.
 const MAX_RETRIES = 5;
 
-// A native goblin's terminal: its host's own byte stream drawn by xterm at the
-// panel's size. It stays live while the board is open, shown or not, so
-// switching to it only brings it into sight. A connection is staged out of
-// sight until its screen is whole, and a reconnect keeps the last screen in
-// place until the new one is ready, so the panel is never blank, never
-// cleared and repainted, and never half drawn.
+// A native goblin's terminal: its host's own byte stream parsed by
+// TerminalView, which owns the visual surface's lazy presentation. A
+// reconnect keeps the last screen in place until the replacement is ready,
+// so the panel is never blank, cleared and repainted, or half drawn.
 // query names the terminal to the relay: a task's generation, or the native
 // terminal the CFO runs in. A terminal that ended says how in place of
 // Reconnect. hasMicrophone is false for a command's terminal on its card,
@@ -36,9 +34,9 @@ const MAX_RETRIES = 5;
 export function HostTerminal({ query, harness, label, reportAs, instance, visible, shown, focus, hasMicrophone = true, hasComposer = false, link, onHistory }: { query: string; harness: string; label: string; reportAs: string; instance: string; visible: boolean; shown: boolean; focus: number; hasMicrophone?: boolean; hasComposer?: boolean; link?: string; onHistory?: () => void }) {
   const surface = useRef<HTMLDivElement>(null);
   const current = useRef<TerminalView | null>(null);
-  // staged is a connection still replaying out of sight; it is shown and
-  // hidden with the panel too, so one begun while the terminal was hidden
-  // sizes itself and becomes whole once the terminal is shown.
+  // staged holds a connection until its replay is ready. TerminalView owns
+  // its visual readiness separately, including a first request after Chat
+  // has already accepted the connection.
   const staged = useRef<TerminalView | null>(null);
   const shownValue = useRef(shown);
   const harnessValue = useRef(harness);

@@ -463,7 +463,13 @@ The header switches between two views, one at a time, each with a contextual pan
   The CFO is pinned above the columns in a plain bar that says how many goblins it supervises, with its terminal icon. While something waits on you **Open Command Center** appears on the bar and glows, with how many items wait; the bar says none of what they are.
   While no CFO runs the board shows the first-run screen instead; **Open the board without a CFO** keeps the goblins in view, and the bar then offers **Start the CFO**.
   A goblin's question waits on the CFO, who answers it or publishes the decision he needs from you.
-- **Orchestration** is the live family tree: the CFO above its goblins in progress, working or waiting, with their helpers, so a goblin leaves it the moment it finishes, pauses or retires. The panel shows the selected session's real native terminal and starts on the CFO, whose terminal is shown from its host when the CFO runs in a native terminal. Dragging a card or the canvas, zooming with the wheel where the pointer is, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence; Arrange lays the tree out to the canvas's shape, so the whole of it fits a narrow window. A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another. A brief pulse along a connector marks a real accepted message. Under each goblin, what it runs (its sub-agents, background shells and monitors, its jobs of processes with their memory, and its gate run) hangs on branches as baby goblins, each on a line of its own that lights end to end when you rest on it, which the chevron under its card folds to a count; the goblin's panel lists them under **What's working**, pressing one opens its own panel, where a sub-agent's work reads as a Claude Code terminal draws it, and the goblin's card names a child gone silent with its last line. None of it wakes the CFO.
+- **Orchestration** is the live family tree: the CFO above its goblins in progress, working or waiting, with their helpers, so a goblin leaves it the moment it finishes, pauses or retires.
+  The panel shows the selected session's [Chat or terminal](#the-goblin-panel) and starts on the CFO.
+  Dragging a card or the canvas, zooming with the wheel where the pointer is, **Fit** and **Arrange** change only the layout, because parentage comes from native session evidence; Arrange lays the tree out to the canvas's shape, so the whole of it fits a narrow window.
+  A goblin waiting on another sits under it, joined by a dashed line; only a card you drag keeps its place, and the rest arrange themselves around it without covering one another.
+  A brief pulse along a connector marks a real accepted message.
+  Under each goblin, what it runs (its sub-agents, background shells and monitors, its jobs of processes with their memory, and its gate run) hangs on branches as baby goblins, each on a line of its own that lights end to end when you rest on it, which the chevron under its card folds to a count; the goblin's panel lists them under **What's working**, pressing one opens its own panel, where a sub-agent's work reads as a Claude Code terminal draws it, and the goblin's card names a child gone silent with its last line.
+  None of it wakes the CFO.
 
 <p align="center">
   <img src="docs/images/orchestration.webp" alt="Orchestration view over the goblin workshop at night: the CFO above five goblins in three repositories, a count of what runs under each goblin that runs anything, and the selected goblin's live native terminal in the right panel" width="900" />
@@ -660,7 +666,7 @@ While the session works, or its harness shows a screen with nothing to choose, s
 A harness with no such key takes it at its next tool call.
 Along the box's bottom edge are Add files, the style menu (Modern or Classic, Speech history and Open in Windows Terminal), the permission mode, the model and the effort, each of which lists what the session's harness offers, the microphone and Send; `/` lists the session's commands and `@` its files.
 When the harness opens a screen of its own, a question, a permission prompt or a picker such as `/model`, the box draws it above itself as a list you pick from, with **Cancel** and **Show the terminal**, so nothing needs the terminal to be answered.
-**Show the terminal** brings the live terminal into the messages' place, and **Back to messages** returns; the terminal lies in the messages' own box, so no switch and no step resizes it.
+**Show the terminal** brings the live terminal into the messages' place, and **Back to messages** returns.
 **Classic**, in the style menu, shows the session's native terminal in place of its messages.
 A click on a live goblin's card, or Enter on it, opens its panel there, so the card carries no terminal button of its own.
 A queued task, a task still pausing or stopping, and a merged pull request listed in history without a goblin session have no terminal, so each panel is its task list alone.
@@ -690,13 +696,13 @@ A program that draws inline, such as a PowerShell command on its Command Center 
 Holding the right mouse button and turning the wheel, or turning it with **Ctrl+Shift** held, zooms the text the same steps without zooming the page, and one saved size applies to every terminal on the board, kept per device.
 The monitor supervises it from its terminal as it does a goblin in Herdr, and it asks, reports and receives the Overlord's answers through its own terminal.
 `cfo switch` changes its harness, model or effort in place, and after a reboot, which ends every native terminal, `goblins resume` brings every goblin back in its own session, as `cfo switch <id> --harness <the harness it ran>` does for one.
-Opening it replays the terminal's history out of sight and shows it once its screen is whole, so it never opens blank or half drawn, and a plain line under it says it is connecting without covering the box you type into.
+A plain line under the terminal says it is connecting without covering the box you type into.
 A program's redraw appears as one frame, the way a native terminal shows it, and while the board's own connection is down the last screen stays in place with a Reconnecting note.
 The board and an Open in Windows Terminal window can show the same terminal at once.
 A board view draws every piece of output at the size it was written for.
 The Open window draws on its own window's grid and takes the terminal's size back with its next key.
 Whichever window you type into, or a board view that answers the program's terminal queries, gives the terminal its size.
-The terminal fills the panel, and you pick the goblin on the board; every terminal you open stays live while the board is open, so one you opened before appears at once, already drawn.
+The terminal fills the panel, and you pick the goblin on the board; see [terminal loading and switching](docs/native-board.md#the-message-box) for how it preserves your place.
 **Ctrl+Alt+Up** and **Ctrl+Alt+Down** step through the terminals, the CFO first and then each goblin with a terminal, and **Ctrl+Alt+1** to **Ctrl+Alt+9** jump to one, from anywhere on the board; a switch shows the session on the view its panel opens on and hands that view the keyboard: its message box, or its terminal.
 The first time a browser, an installed web app or the desktop window shows the board of a home whose CFO is running, it opens on the Board with the CFO's panel beside it and the keyboard in its message box, or in its terminal where it has no messages; a phone, or any window 40rem wide or less, shows the board alone and leaves the keyboard alone.
 That happens once: what you arrange afterwards is kept, and a browser that already keeps a panel width or a maximize choice is left as it is.

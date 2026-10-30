@@ -14,10 +14,10 @@ import { messagesQuery } from "./session-messages";
 import { taskStatus } from "./task-status";
 import { goblinName, terminalOf } from "./task-words";
 
-// The terminal deck: every terminal the Overlord opens stays mounted and live
-// while the board is open, so a switch only shows another terminal, with no
-// reconnect, no replay and no blank frame. A native terminal keeps its own
-// socket; Herdr views stay within Herdr's stream limit. The shown terminal
+// The terminal deck keeps opened terminal components and their connections
+// alive while the board is open, so switching does not reconnect or replay.
+// A native terminal keeps its own socket; Herdr views stay within Herdr's
+// stream limit. The shown terminal
 // fills the panel; the Overlord picks the goblin on the board. A goblin's
 // baby goblin (child) shows its own output as its terminal, never its
 // goblin's (the Overlord, 2026-10-13). A goblin's slot whose terminal cannot

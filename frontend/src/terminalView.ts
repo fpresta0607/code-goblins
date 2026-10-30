@@ -27,7 +27,8 @@ const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "C
 const WHEEL_MOUSE_MODES = new Set(["vt200", "drag", "any"]);
 
 export interface ViewEvents {
-  // The screen is whole: the history replayed and the repaint after it drawn.
+  // The input link is ready after replay; an opened surface also waits for
+  // its first repaint or the bounded fallback.
   ready: () => void;
   closed: (code: number, reason: string) => void;
   copied: () => void;
@@ -367,8 +368,8 @@ export class TerminalView {
     });
   }
 
-  // The screen is whole once live output after the terminal took the view's
-  // size, the repaint, is drawn and no synchronized update holds it back.
+  // An unopened view can become input-ready without a rendered screen;
+  // an opened surface also waits for its claimed size's repaint.
   private readyIfDrawn(): void {
     // Chat needs the input link after replay, without opening a renderer or
     // claiming the native terminal's size. Give its initial screen reading
@@ -392,10 +393,10 @@ export class TerminalView {
     this.readyIfDrawn();
   }
 
-  // A view whose connection closed before it was shown is never shown, its
-  // wait for a repaint included: it has no terminal to draw, and an empty one
-  // with a cursor reads as a program at work where its closing says why (a
-  // goblin whose host a restart ended, 2026-10-20).
+  // A closed connection must not replace a current view through ready, but
+  // a replay already accepted for Chat can still be shown after it closes.
+  // Promotion can finish while hidden, so reopening the same size never
+  // waits for another repaint.
   private markReady(): void {
     if (this.disposed) return;
     clearTimeout(this.fallback);
