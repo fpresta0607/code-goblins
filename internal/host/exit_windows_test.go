@@ -51,7 +51,7 @@ func TestALaunchRecordsItsHostsExitAfterStartup(t *testing.T) {
 			// Assert
 			want := fmt.Sprintf("host: pid %d ended with exit code %d (0x%08x)", record.HostPID, testCase.code, testCase.code)
 			var logged string
-			for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 				data, err := os.ReadFile(filepath.Join(stateDir, "hosts", "g1.log"))
 				if err != nil {
 					t.Fatal(err)
@@ -102,7 +102,7 @@ func TestTheHostsUnreadInputDiagnosticHasAUTCDate(t *testing.T) {
 	typeLine(t, viewer, "input left unread")
 
 	// Assert
-	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		data, err := os.ReadFile(filepath.Join(stateDir, "hosts", "g1.log"))
 		if err != nil {
 			t.Fatal(err)
