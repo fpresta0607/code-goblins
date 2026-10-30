@@ -115,6 +115,90 @@ func TestAHarnessOfADesktopApplicationOrAGateIsNotAFinding(t *testing.T) {
 	}
 }
 
+// On 2026-10-27 the sweep raised an orphan wake for the claude.exe the browser's
+// Claude extension starts as its native messaging host. Chromium starts a host
+// through a cmd.exe that redirects it to its pipes, whose command line here is
+// as this machine's process table showed it on 2026-10-30, and the .bat Claude
+// Code writes starts claude.exe with that one flag. Neither a mention of the
+// flag or the pipe nor a parent that came after the process places a harness
+// in the browser.
+func TestTheBrowsersNativeMessagingHostIsNotAFinding(t *testing.T) {
+	const (
+		chrome       = `"C:\Program Files\Google\Chrome\Application\chrome.exe"`
+		launcher     = `C:\WINDOWS\system32\cmd.exe /d /s /c ""C:\Users\op\.claude\chrome\chrome-native-host.bat" chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/ --parent-window=0" < \\.\pipe\chrome.nativeMessaging.in.50ee896f0378bdc8 > \\.\pipe\chrome.nativeMessaging.out.50ee896f0378bdc8`
+		nativeHost   = `"C:\Users\op\.local\bin\claude.exe" "--chrome-native-host"`
+		fleetHarness = `claude --dangerously-skip-permissions`
+	)
+	cases := map[string]struct {
+		processes []Process
+		harness   int
+		reported  bool
+	}{
+		"the extension's claude.exe under the browser's launcher": {
+			processes: []Process{
+				process(33648, 9376, "chrome.exe", chrome, fixtureStart),
+				process(16224, 33648, "cmd.exe", launcher, fixtureLater),
+				process(12692, 16224, "claude.exe", nativeHost, fixtureLatest),
+			},
+			harness: 12692,
+		},
+		"the extension's claude.exe whose launcher has exited": {
+			processes: []Process{
+				process(12692, gonePID, "claude.exe", nativeHost, fixtureLatest),
+			},
+			harness: 12692,
+		},
+		"another program's harness under the browser's launcher": {
+			processes: []Process{
+				process(16224, gonePID, "cmd.exe", launcher, fixtureLater),
+				process(12692, 16224, "codex.exe", `codex.exe app-server --listen stdio://`, fixtureLatest),
+			},
+			harness: 12692,
+		},
+		"a goblin whose prompt names the flag": {
+			processes: []Process{
+				process(31032, gonePID, "claude.exe", fleetHarness+` "stop reporting --chrome-native-host"`, fixtureLatest),
+			},
+			harness:  31032,
+			reported: true,
+		},
+		"a goblin started with the flag among its own": {
+			processes: []Process{
+				process(31032, gonePID, "claude.exe", fleetHarness+` --chrome-native-host`, fixtureLatest),
+			},
+			harness:  31032,
+			reported: true,
+		},
+		"a goblin under a cmd.exe that only names the pipe": {
+			processes: []Process{
+				process(16224, gonePID, "cmd.exe", `cmd.exe /d /s /c "echo \\.\pipe\chrome.nativeMessaging.in.1"`, fixtureLater),
+				process(31032, 16224, "claude.exe", fleetHarness, fixtureLatest),
+			},
+			harness:  31032,
+			reported: true,
+		},
+		"a goblin older than the launcher that took its parent's pid": {
+			processes: []Process{
+				process(16224, gonePID, "cmd.exe", launcher, fixtureLatest),
+				process(31032, 16224, "claude.exe", fleetHarness, fixtureLater),
+			},
+			harness:  31032,
+			reported: true,
+		},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Act
+			orphans := classOf(Classify(Inventory{Processes: test.processes}), OrphanProcess)
+
+			// Assert
+			if reported := reportsPID(orphans, test.harness); reported != test.reported {
+				t.Errorf("pid %d reported = %v, want %v: %v", test.harness, reported, test.reported, lines(orphans))
+			}
+		})
+	}
+}
+
 // The listing reads where each process's program runs from, because a command
 // line need not say: the application starts its app server by a bare name.
 func TestAHarnessIsPlacedByItsImagePathWhenItsCommandLineNamesNone(t *testing.T) {
