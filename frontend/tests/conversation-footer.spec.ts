@@ -71,7 +71,7 @@ test("a working session's conversation runs the helix by transform and opacity a
   const animations = await page.evaluate(() => document.getAnimations()
     .filter((animation) => animation.playState === "running" && animation.effect instanceof KeyframeEffect && !!animation.effect.target?.closest(".context-pane"))
     .map((animation) => ({
-      name: animation instanceof CSSAnimation ? animation.animationName : "the typed word",
+      name: animation.id || "the typed word",
       properties: [...new Set((animation.effect as KeyframeEffect).getKeyframes().flatMap((frame) => Object.keys(frame)))].filter((key) => !["offset", "computedOffset", "easing", "composite"].includes(key)),
     })));
   expect.soft(commits, "React commits while nothing happened").toBe(0);

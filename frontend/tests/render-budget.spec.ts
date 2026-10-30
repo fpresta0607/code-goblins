@@ -1,4 +1,5 @@
 import { expect, openTaskList, test, type Page } from "./site";
+import { GOBLIN, open as openSession, openGoblin, snapshot } from "./session-board";
 
 // The board's render budget (#1599, #1580). The Overlord, 2026-10-27: "every
 // UI change must load intelligently ... An update re-renders only what it
@@ -271,4 +272,31 @@ test("a board with no goblin at work asks for no animation frame and runs no ani
   const running = await page.evaluate(() => document.getAnimations().filter((animation) => animation.playState === "running").map((animation) => (animation as CSSAnimation).animationName || animation.constructor.name));
   expect(counts.frames).toBe(0);
   expect(running).toEqual([]);
+});
+
+// The CFO, 2026-10-30, of the helix's return after Biff's panel at rest held
+// the main thread 44 percent busy: "The helix must come back without the main
+// thread working while nothing changes". Chrome wakes the main thread at
+// every turn of a CSS animation while anything in the page listens for
+// animationiteration, as React's root always does, and the helix's thirty
+// dots, each turning on a phase of its own, recalculated the page's style
+// about 140 times in three seconds of a conversation at rest; with them still
+// it was about 15. Chrome's own counter reads it, past the first seconds, in
+// which the compositor takes the animations over.
+test("a working goblin's helix keeps the page's main thread still while nothing changes", async ({ page }) => {
+  // Arrange
+  await openSession(page, snapshot({}, { ...GOBLIN, runtime: { state: "working" } }));
+  await openGoblin(page);
+  await expect(page.locator(".reply-working .working-indicator")).toBeVisible();
+  await page.waitForTimeout(8000);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  const recalcs = async () => (await cdp.send("Performance.getMetrics")).metrics.find((metric) => metric.name === "RecalcStyleCount")!.value;
+  const before = await recalcs();
+
+  // Act
+  await page.waitForTimeout(3000);
+
+  // Assert
+  expect(await recalcs() - before).toBeLessThan(40);
 });
