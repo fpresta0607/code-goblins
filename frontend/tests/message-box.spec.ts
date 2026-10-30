@@ -218,6 +218,52 @@ for (const press of ["Send", "Cancel"] as const) {
   });
 }
 
+// Each hold says what it heard anew, even while the last hold's Nothing was
+// heard still shows over the box.
+test("a second hold with nothing said in it says Nothing was heard over the box again, in a banner of its own", async ({ page }) => {
+  // Arrange: a first hold heard nothing, and says so over the box.
+  const { box } = await openBernie(page, bernie(["i can message?"]));
+  await hearSilence(page);
+  const banner = box.locator(".composer-banner");
+  await holdMicrophone(page, box);
+  await expect(banner).toHaveText("Nothing was heard.");
+  const first = await banner.elementHandle();
+
+  // Act
+  await holdMicrophone(page, box);
+
+  // Assert: a new banner says it, rather than the first one going on.
+  await expect(banner).toHaveText("Nothing was heard.");
+  expect(await first.evaluate((element) => element.isConnected), "the first hold's banner has gone").toBe(false);
+});
+
+// The note of files being added takes its banner with it when they are in,
+// and brings back no note that showed before them.
+test("a file added while Nothing was heard shows does not bring that notice back over the box once it is in", async ({ page }) => {
+  // Arrange: a hold heard nothing and says so over the box, and the board
+  // keeps the next file only when the test lets it.
+  const { box } = await openBernie(page, bernie(["i can message?"]));
+  await hearSilence(page);
+  let keep: () => Promise<void> = async () => { throw new Error("No file is being kept"); };
+  await page.route("**/api/composer/file**", (route) => {
+    keep = () => route.fulfill({ status: 201, json: { path: "C:/session-files/design.txt" } });
+  });
+  const banner = box.locator(".composer-banner");
+  await holdMicrophone(page, box);
+  await expect(banner).toHaveText("Nothing was heard.");
+  await box.locator('input[type="file"]').setInputFiles({ name: "design.txt", mimeType: "text/plain", buffer: Buffer.from("Keep this") });
+  await expect(banner).toHaveText("Adding the file…");
+
+  // Act
+  await keep();
+
+  // Assert: the file is in and the status line says Nothing was heard again,
+  // while no banner over the box says it a second time.
+  await expect(box.getByRole("list", { name: "Attached files" })).toContainText("design.txt");
+  await expect(box.getByRole("status")).toHaveText("Nothing was heard.");
+  expect(await banner.count()).toBe(0);
+});
+
 for (const style of ["classic", "modern"]) {
   for (const hasHistory of [false, true]) {
     test(`${style}, history ${hasHistory}: a message his resume will carry has a delete button, which withdraws it, and one already delivered has none`, async ({ page }) => {
