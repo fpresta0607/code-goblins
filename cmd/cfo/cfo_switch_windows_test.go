@@ -124,7 +124,7 @@ func TestAnExplicitHarnessStartsWithoutTheSavedEnginesFlags(t *testing.T) {
 			t.Fatalf("started as codex with the saved selection's flags: %s", data)
 		}
 		choice, err := supervisor.ReadCFOEngine(h.State)
-		if err != nil || choice.Harness != "pi" || choice.Model != "selected-model" || choice.Pending || !strings.Contains(choice.Problem, "started as codex") {
+		if err != nil || choice.Harness != "pi" || choice.Model != "selected-model" || choice.Pending || !strings.Contains(choice.Problem, "started as codex") || choice.Overridden != "codex" {
 			t.Fatalf("saved selection = %+v, %v", choice, err)
 		}
 		return
@@ -152,7 +152,7 @@ func TestACFOStartAsTheSavedEnginesHarnessClearsItsProblem(t *testing.T) {
 			if err := os.MkdirAll(h.State, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			selection := `{"harness":"pi","model":"selected-model","effort":"xhigh","problem":"The CFO started as codex, not as the pi its saved engine names; the selection is used when the CFO runs as pi again"}`
+			selection := `{"harness":"pi","model":"selected-model","effort":"xhigh","problem":"The CFO started as codex, not as the pi its saved engine names; the selection is used when the CFO runs as pi again","overridden":"codex"}`
 			if err := os.WriteFile(filepath.Join(h.State, "cfo-engine.json"), []byte(selection), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -165,8 +165,8 @@ func TestACFOStartAsTheSavedEnginesHarnessClearsItsProblem(t *testing.T) {
 
 			// Assert
 			choice, err := supervisor.ReadCFOEngine(h.State)
-			if err != nil || choice.Harness != "pi" || choice.Model != "selected-model" || choice.Effort != "xhigh" || choice.Pending || (choice.Problem != "") != test.shouldKeepProblem {
-				t.Fatalf("saved selection = %+v, %v; want its problem kept %v", choice, err, test.shouldKeepProblem)
+			if err != nil || choice.Harness != "pi" || choice.Model != "selected-model" || choice.Effort != "xhigh" || choice.Pending || (choice.Problem != "") != test.shouldKeepProblem || (choice.Overridden != "") != test.shouldKeepProblem {
+				t.Fatalf("saved selection = %+v, %v; want its problem and the harness that overrode it kept %v", choice, err, test.shouldKeepProblem)
 			}
 		})
 	}

@@ -29,6 +29,10 @@ type CFOEngine struct {
 	Since   time.Time `json:"since,omitzero"`
 	Problem string    `json:"problem,omitempty"`
 	Waiting string    `json:"waiting,omitempty"`
+	// Overridden is the harness an explicit start chose over this selection,
+	// which every later start that names no harness keeps until the CFO
+	// starts as the selection's own harness or a selection is saved again.
+	Overridden string `json:"overridden,omitempty"`
 }
 
 func writeCFOEngine(stateDir string, choice CFOEngine) error {
@@ -201,7 +205,8 @@ func ReadCFOEngine(stateDir string) (CFOEngine, error) {
 	if err := json.Unmarshal(data, &choice); err != nil {
 		return CFOEngine{}, fmt.Errorf("the CFO's selected engine in %s is unreadable: %w", path, err)
 	}
-	if !slices.Contains([]string{"claude", "codex", "pi"}, choice.Harness) || !engineValue(choice.Model) || !engineValue(choice.Effort) {
+	harnesses := []string{"claude", "codex", "pi"}
+	if !slices.Contains(harnesses, choice.Harness) || !engineValue(choice.Model) || !engineValue(choice.Effort) || (choice.Overridden != "" && !slices.Contains(harnesses, choice.Overridden)) {
 		return CFOEngine{}, fmt.Errorf("the CFO's selected engine in %s names no harness, model and effort the fleet can start: choose the CFO's engine again on the board, or delete it", path)
 	}
 	return choice, nil
@@ -216,9 +221,12 @@ func engineValue(value string) bool {
 
 // NoteCFOEngineOverridden records that the CFO started as started rather than
 // as the harness its saved selection names, which a start with an explicit
-// harness does and which the board reports beside the selection. The selection
-// stays saved for when the CFO runs as its own harness again, and nothing is
-// written when it already names started or when no selection is saved.
+// harness does and which the board reports beside the selection, and keeps
+// started as the harness a later start that names none runs, so a harness
+// Update or goblins resume brings the CFO back on its own conversation. The
+// selection stays saved for when the CFO runs as its own harness again, and
+// nothing is written when it already names started or when no selection is
+// saved.
 func NoteCFOEngineOverridden(stateDir, started string) error {
 	choice, err := ReadCFOEngine(stateDir)
 	if err != nil {
@@ -229,22 +237,23 @@ func NoteCFOEngineOverridden(stateDir, started string) error {
 	if choice.Harness == started {
 		return nil
 	}
-	choice.Pending = false
+	choice.Pending, choice.Overridden = false, started
 	choice.Problem = fmt.Sprintf("The CFO started as %s, not as the %s its saved engine names; the selection is used when the CFO runs as %s again", started, choice.Harness, choice.Harness)
 	return writeCFOEngine(stateDir, choice)
 }
 
 // NoteCFOEngineApplied records that the CFO started as started with its saved
 // selection's model and effort, so a problem an earlier start or apply left on
-// the selection no longer holds. Whether a change is pending stays as it is,
-// and nothing is written when the selection names another harness, carries no
-// problem, or none is saved.
+// the selection, and a harness an explicit start chose over it, no longer
+// hold. Whether a change is pending stays as it is, and nothing is written
+// when the selection names another harness, carries neither, or none is
+// saved.
 func NoteCFOEngineApplied(stateDir, started string) error {
 	choice, err := ReadCFOEngine(stateDir)
-	if err != nil || choice.Harness != started || choice.Problem == "" {
+	if err != nil || choice.Harness != started || (choice.Problem == "" && choice.Overridden == "") {
 		return nil
 	}
-	choice.Problem = ""
+	choice.Problem, choice.Overridden = "", ""
 	return writeCFOEngine(stateDir, choice)
 }
 

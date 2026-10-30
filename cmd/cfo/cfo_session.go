@@ -27,12 +27,16 @@ func cfoHarnessPath(stateDir string) string {
 }
 
 // cfoHarness is the harness goblins starts the CFO as: the harness of the
-// saved CFO engine where one is saved and can be read, else the one last chosen
-// with --harness, else claude. A selection the fleet cannot read names no
-// harness, so the home starts as it last ran and the board reports the
-// selection's own problem rather than a CFO that cannot start.
+// saved CFO engine where one is saved and can be read, or the one an explicit
+// start chose over it since, else the one last chosen with --harness, else
+// claude. A selection the fleet cannot read names no harness, so the home
+// starts as it last ran and the board reports the selection's own problem
+// rather than a CFO that cannot start.
 func cfoHarness(stateDir string) (string, error) {
 	choice, err := supervisor.ReadCFOEngine(stateDir)
+	if err == nil && choice.Overridden != "" {
+		return choice.Overridden, nil
+	}
 	if err == nil {
 		return choice.Harness, nil
 	}
