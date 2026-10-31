@@ -92,17 +92,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // how far its top lies below the list's, which stays put. pinnedTo is the
   // scroll top the list last put itself at to show its end.
   const following = useRef(true);
-  useLayoutEffect(() => {
-    latest.current = { ...latest.current, isWorking, said, canStop, isLive: phase === "live", task, sent, pending, sending };
-    if (following.current) setHeld(latest.current);
-    else setHeld((prior) => {
-      const localIDs = new Set([...prior.sending, ...sending].map((send) => send.id));
-      const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
-      return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
-    });
-  }, [isWorking, said, canStop, phase, task, sent, pending, sending]);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const pinnedTo = useRef(-1);
+  const observedTop = useRef<number | null>(null);
+  const reconcile = useRef<() => void>(() => {});
   // The page holds only the rows within reach of where he reads
   // (message-window.ts): rowHeights is each drawn row's measured height with
   // the gap after it, by its message's id, and view where he reads, kept only
@@ -191,6 +184,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       failures = 0;
       heard();
       latest.current = { ...latest.current, ...change(latest.current) };
+      reconcile.current();
       if (following.current) setHeld(latest.current);
       setReconnecting(false);
       setPhase("live");
@@ -233,9 +227,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const settle = useCallback(() => {
     const box = list.current;
     if (!box || !shownValue.current) return;
+    reconcile.current();
     if (following.current) {
       box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
       pinnedTo.current = box.scrollTop;
+      observedTop.current = box.scrollTop;
       return;
     }
     const kept = anchor.current;
@@ -244,6 +240,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const change = row.getBoundingClientRect().top - box.getBoundingClientRect().top - kept.offset;
       if (Math.abs(change) > .5) box.scrollTop += change;
     }
+    observedTop.current = box.scrollTop;
   }, []);
 
   const readOlder = useCallback(() => {
@@ -258,6 +255,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       olderFailures.current = { count: 0, at: 0 };
       // A page of a conversation the view no longer shows is dropped.
       if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq) return;
+      reconcile.current();
       latest.current = { ...latest.current, ...olderMessages(latest.current, page) };
       setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);
     }).catch((error: unknown) => {
@@ -287,9 +285,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
 
   // remember notes where he reads after he scrolls, draws the rows that come
   // within reach, and reads the older page once he nears the top.
-  const remember = () => {
+  const rememberPosition = () => {
     const box = list.current;
     if (!box || !shownValue.current) return;
+    observedTop.current = box.scrollTop;
     // A scroll that finds the list where it put itself is its own and keeps
     // it following: Jump to latest's lands before the rows it draws at the end
     // are measured, and those taller than their estimate push the end on.
@@ -313,8 +312,30 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const place = { top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 };
     const next = windowAt(place, isEnd);
     if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView(place);
+  };
+  const remember = () => {
+    rememberPosition();
+    const box = list.current;
+    if (!box || !shownValue.current) return;
     if (box.scrollTop < OLDER_WITHIN_PX) readOlder();
   };
+
+  useLayoutEffect(() => {
+    reconcile.current = () => {
+      const box = list.current;
+      if (shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
+    };
+  });
+  useLayoutEffect(() => {
+    latest.current = { ...latest.current, isWorking, said, canStop, isLive: phase === "live", task, sent, pending, sending };
+    reconcile.current();
+    if (following.current) setHeld(latest.current);
+    else setHeld((prior) => {
+      const localIDs = new Set([...prior.sending, ...sending].map((send) => send.id));
+      const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
+      return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
+    });
+  }, [isWorking, said, canStop, phase, task, sent, pending, sending]);
 
   // Each drawn row is measured as it lays out and again whenever it changes,
   // as a picture loads or a call unfolds; a row the hidden view lays out at
@@ -350,6 +371,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   }, [held, rowHeights, drawn.start, drawn.end, settle, readOlder]);
   useLayoutEffect(() => {
     shownValue.current = shown;
+    if (shown && list.current) observedTop.current = list.current.scrollTop;
     settle();
   }, [shown, settle]);
   useLayoutEffect(() => {
@@ -414,6 +436,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     setHeld(latest.current);
     box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
     pinnedTo.current = box.scrollTop;
+    observedTop.current = box.scrollTop;
     box.focus({ preventScroll: true });
   };
   const keys = (event: KeyboardEvent<HTMLElement>) => {

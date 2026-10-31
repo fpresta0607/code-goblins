@@ -1,0 +1,130 @@
+import { expect, test, type Locator, type Page } from "./site";
+import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
+import { delayedScroll } from "./conversation-scroll-race";
+
+for (const owner of ["CFO", "goblin"] as const) {
+  for (const movement of ["keyboard", "wheel"] as const) {
+    for (const update of ["stream", "board"] as const) {
+      test(`${owner} keeps its place after ${movement} before scroll delivery during a ${update} update`, async ({ page }) => {
+        await delayedScroll(page, owner, movement, update);
+      });
+    }
+  }
+}
+
+test("older history keeps the reading anchor when its response precedes scroll delivery", async ({ page }) => {
+  const reply = (seq: number) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\nMore to read." }] });
+  const conversation = "fixture-conversation";
+  await open(page, snapshot(), "", { conversation, messages: Array.from({ length: 50 }, (_, index) => reply(index + 50)), more: true });
+  let release = () => {};
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const requests: string[] = [];
+  await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), async (route) => {
+    requests.push(route.request().url());
+    await waiting;
+    await route.fulfill({ json: { conversation, messages: Array.from({ length: 50 }, (_, index) => reply(index)), more: false } });
+  });
+  await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(talk.locator('[data-message="m99"]')).toBeVisible();
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect.poll(() => requests.length).toBe(1);
+  await talk.evaluate(async (element) => {
+    element.scrollTop = element.scrollHeight;
+    for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+  });
+  const before = await talk.evaluate((element) => {
+    const guard = (event: Event) => { if (event.target === element) event.stopImmediatePropagation(); };
+    window.addEventListener("scroll", guard, true);
+    Object.assign(window, { releaseScroll: () => window.removeEventListener("scroll", guard, true) });
+    element.scrollTop -= 80;
+    const top = element.getBoundingClientRect().top;
+    const row = [...element.querySelectorAll<HTMLElement>("[data-message]")].find((item) => item.getBoundingClientRect().bottom > top)!;
+    Object.assign(window, { raceRow: row });
+    return { id: row.dataset.message!, offset: row.getBoundingClientRect().top - top, text: row.textContent, height: element.scrollHeight };
+  });
+  const response = page.waitForResponse((value) => new URL(value.url()).searchParams.has("before"));
+  release();
+  await (await response).finished();
+  await expect.poll(() => talk.evaluate((element) => element.scrollHeight)).toBeGreaterThan(before.height + 1000);
+  const after = await talk.evaluate((element, id) => {
+    const row = element.querySelector<HTMLElement>(`[data-message="${id}"]`);
+    return { same: row === (window as unknown as { raceRow: Element }).raceRow, text: row?.textContent,
+      offset: row && row.getBoundingClientRect().top - element.getBoundingClientRect().top };
+  }, before.id);
+  expect(after).toEqual({ same: true, text: before.text, offset: before.offset });
+});
+
+async function raceTalk(page: Page, actions: object[] = [], setup?: () => Promise<void>) {
+  const messages = Array.from({ length: 1000 }, (_, seq) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\nMore to read." }] }));
+  await open(page, snapshot({ actions }), "", { conversation: "fixture-conversation", messages, more: false });
+  await setup?.();
+  await openGoblin(page);
+  const talk = page.getByRole("log", { name: "Messages of " + NAME });
+  await expect(talk.locator('[data-message="m999"]')).toBeVisible();
+  await talk.evaluate(async () => { for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame); });
+  return talk;
+}
+
+async function holdMovement(talk: Locator, distance: number) {
+  return talk.evaluate((element, distance) => {
+    const guard = (event: Event) => { if (event.target === element) event.stopImmediatePropagation(); };
+    window.addEventListener("scroll", guard, true);
+    element.scrollTop -= distance;
+    const top = element.getBoundingClientRect().top;
+    const row = [...element.querySelectorAll<HTMLElement>("[data-message]")].find((item) => item.getBoundingClientRect().bottom > top)!;
+    Object.assign(window, { raceRow: row });
+    return { id: row.dataset.message!, offset: row.getBoundingClientRect().top - top, text: row.textContent, top: element.scrollTop };
+  }, distance);
+}
+
+async function expectPlace(talk: Locator, before: { id: string; offset: number; text: string | null; top: number }) {
+  const after = await talk.evaluate((element, id) => {
+    const row = element.querySelector<HTMLElement>(`[data-message="${id}"]`);
+    return { same: row === (window as unknown as { raceRow: Element }).raceRow, text: row?.textContent,
+      offset: row && row.getBoundingClientRect().top - element.getBoundingClientRect().top, top: element.scrollTop };
+  }, before.id);
+  expect(after).toEqual({ same: true, text: before.text, offset: before.offset, top: before.top });
+}
+
+test("a queued picture loading before scroll delivery keeps the reading position", async ({ page }) => {
+  const action = { id: "q-image", kind: "message", task_id: GOBLIN.id, generation: GOBLIN.generation, status: "queued", text: "Picture\nC:\\goblin\\composer-files\\pasted-1.png", created_at: at, updated_at: at };
+  let release = () => {};
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const requests: string[] = [];
+  const talk = await raceTalk(page, [action], async () => {
+    await page.route("**/api/composer/file?**", async (route) => {
+      requests.push(route.request().url());
+      await waiting;
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="160"><rect width="120" height="160" fill="blue"/></svg>' });
+    });
+  });
+  const picture = talk.locator('[data-queued="q-image"] img');
+  await expect(picture).toHaveCount(1);
+  await expect.poll(() => requests.length).toBe(1);
+  const before = await holdMovement(talk, 160);
+  release();
+  await expect.poll(() => picture.evaluate((image: HTMLImageElement) => image.naturalHeight)).toBe(160);
+  await talk.evaluate(async () => { for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame); });
+  await expectPlace(talk, before);
+});
+
+for (const alreadyReading of [false, true]) {
+  test(`${alreadyReading ? "a second reading movement" : "movement from the end"} survives a viewport resize before scroll delivery`, async ({ page }) => {
+    const talk = await raceTalk(page);
+    if (alreadyReading) {
+      await talk.evaluate(async (element) => {
+        element.scrollTop -= 240;
+        for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+      });
+      await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+    }
+    const before = await holdMovement(talk, 160);
+    const viewport = page.viewportSize()!;
+    const height = await talk.evaluate((element) => element.clientHeight);
+    await page.setViewportSize({ width: viewport.width, height: viewport.height - 100 });
+    await expect.poll(() => talk.evaluate((element) => element.clientHeight)).toBeLessThan(height);
+    await talk.evaluate(async () => { for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame); });
+    await expectPlace(talk, before);
+  });
+}
