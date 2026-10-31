@@ -254,7 +254,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       readingOlder.current = false;
       olderFailures.current = { count: 0, at: 0 };
       // A page of a conversation the view no longer shows is dropped.
-      if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq) return;
+      if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq) return;
       reconcile.current();
       latest.current = { ...latest.current, ...olderMessages(latest.current, page) };
       setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);

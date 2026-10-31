@@ -295,3 +295,85 @@ test("a disjoint reconnect replaces the latest page and makes the missing histor
   await expect(talk.locator('[data-message="m50"]')).toBeVisible();
   await expect(talk.locator('[data-message="m49"]')).toHaveCount(0);
 });
+
+test("an older response spanning a disjoint reconnect cannot hide missing history", async ({ page }) => {
+  await open(page, snapshot(), "", pageOf(messages.slice(50, 100), conversation, true));
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const requests: number[] = [];
+  await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), async (route) => {
+    const before = Number(new URL(route.request().url()).searchParams.get("before"));
+    requests.push(before);
+    if (requests.length === 1) await held;
+    await route.fulfill({ json: pageOf(messages.slice(before - 50, before), conversation, before > 50) });
+  });
+  await openGoblin(page);
+  const talk = talkOf(page);
+  await expect(talk.locator('[data-message="m99"]')).toBeVisible();
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect.poll(() => requests.length).toBe(1);
+  const place = await reading(talk);
+  const rows = await captureRows(talk);
+  await sendPage(page, pageOf(messages.slice(150, 200), conversation, true));
+  const response = page.waitForResponse((value) => new URL(value.url()).searchParams.get("before") === "50");
+  release();
+  await (await response).finished();
+  expect(await reading(talk)).toEqual(place);
+  expect(await currentRows(talk)).toEqual({ sameNodes: true, rows });
+  await page.getByRole("button", { name: "Jump to latest" }).click();
+  await expect(talk.locator('[data-message="m199"]')).toBeVisible();
+  for (const [index, before] of [150, 100, 50].entries()) {
+    await reading(talk);
+    const older = page.waitForResponse((value) => new URL(value.url()).searchParams.get("before") === String(before));
+    await talk.evaluate((element) => { element.scrollTop = 0; });
+    await expect.poll(() => requests.length).toBe(index + 2);
+    expect(requests[index + 1]).toBe(before);
+    await (await older).finished();
+    await reading(talk);
+  }
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect(talk.locator('[data-message="m0"]')).toBeVisible();
+  const seen = await talk.evaluate(async (element) => {
+    const ids = new Set<string>();
+    for (;;) {
+      for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+      const rows = [...element.querySelectorAll<HTMLElement>("[data-message]")].map((row) => row.dataset.message!);
+      if (new Set(rows).size !== rows.length || rows.some((id, index) => index > 0 && Number(id.slice(1)) <= Number(rows[index - 1].slice(1)))) throw new Error("Messages are duplicated or out of order");
+      for (const id of rows) ids.add(id);
+      const top = element.scrollTop;
+      element.scrollTop += Math.max(1, element.clientHeight / 2);
+      if (element.scrollTop === top) break;
+    }
+    return [...ids].sort((left, right) => Number(left.slice(1)) - Number(right.slice(1)));
+  });
+  expect(seen).toEqual(Array.from({ length: 200 }, (_, index) => "m" + index));
+  expect(requests).toEqual([50, 150, 100, 50]);
+});
+
+test("an older response remains valid when the latest page retains its first cursor", async ({ page }) => {
+  await open(page, snapshot(), "", pageOf(messages.slice(50, 100), conversation, true));
+  let release = () => {};
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const requests: string[] = [];
+  await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), async (route) => {
+    requests.push(route.request().url());
+    await held;
+    await route.fulfill({ json: pageOf(messages.slice(0, 50), conversation, false) });
+  });
+  await openGoblin(page);
+  const talk = talkOf(page);
+  await expect(talk.locator('[data-message="m99"]')).toBeVisible();
+  const response = page.waitForResponse((value) => new URL(value.url()).searchParams.get("before") === "50");
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect.poll(() => requests.length).toBe(1);
+  const place = await reading(talk);
+  await sendPage(page, pageOf([...messages.slice(50, 99), reply(99, "Updated answer"), prompt(100)], conversation, true));
+  release();
+  await (await response).finished();
+  await expect.poll(() => talk.evaluate((element) => element.scrollHeight)).toBeGreaterThan(place.height);
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect(talk.locator('[data-message="m0"]')).toBeVisible();
+  await page.getByRole("button", { name: "Jump to latest" }).click();
+  await expect(talk.locator('[data-message="m100"]')).toBeVisible();
+  await expect(talk.locator('[data-message="m99"]')).toContainText("Updated answer");
+});

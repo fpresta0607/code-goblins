@@ -112,6 +112,12 @@ test("a queued picture loading before scroll delivery keeps the reading position
 for (const alreadyReading of [false, true]) {
   test(`${alreadyReading ? "a second reading movement" : "movement from the end"} survives a viewport resize before scroll delivery`, async ({ page }) => {
     const talk = await raceTalk(page);
+    await talk.evaluate(async (element) => {
+      element.scrollTop -= 2 * element.clientHeight;
+      for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame);
+    });
+    await page.getByRole("button", { name: "Jump to latest" }).click();
+    await talk.evaluate(async () => { for (let frame = 0; frame < 4; frame++) await new Promise(requestAnimationFrame); });
     if (alreadyReading) {
       await talk.evaluate(async (element) => {
         element.scrollTop -= 240;
