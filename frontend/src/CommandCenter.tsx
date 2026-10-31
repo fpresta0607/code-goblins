@@ -66,8 +66,8 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // supervisor refused it.
 export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
-  const returnFocus = useRef<HTMLElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const pressedOutside = useRef(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -224,26 +224,41 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [inbox]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = dialog.current;
-    if (!element) return;
-    if (showing && !element.open) {
-      returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      element.showModal();
-      // Start on the question itself, not the close button, with the
-      // Command Center at its top however it was left.
-      element.scrollTop = 0;
-      element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3")?.focus({ preventScroll: true });
-    }
-    if (!showing && element.open) { element.close(); returnFocus.current?.focus(); }
+    if (!showing || !element) return;
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const viewport = window.visualViewport;
+    const followViewport = () => {
+      if (!viewport) return;
+      element.style.setProperty("--visual-height", viewport.height + "px");
+      element.style.setProperty("--visual-top", viewport.offsetTop + "px");
+      const focused = document.activeElement;
+      if (element.contains(focused) && (focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement)) focused.scrollIntoView({ block: "nearest" });
+    };
+    followViewport();
+    viewport?.addEventListener("resize", followViewport);
+    viewport?.addEventListener("scroll", followViewport);
+    element.showModal();
+    // Start on the question itself, not the close button, with the
+    // Command Center at its top however it was left.
+    if (content.current) content.current.scrollTop = 0;
+    (element.querySelector<HTMLElement>(".question-card .question-body, .question-card h3") || content.current)?.focus({ preventScroll: true });
+    return () => {
+      viewport?.removeEventListener("resize", followViewport);
+      viewport?.removeEventListener("scroll", followViewport);
+      element.close();
+      element.style.removeProperty("--visual-height");
+      element.style.removeProperty("--visual-top");
+      returnFocus?.focus({ preventScroll: true });
+    };
   }, [showing]);
   // Each item shows from its top; within one item the scroll stays where he
   // puts it.
   useEffect(() => {
-    if (!shownKey || !dialog.current) return;
-    dialog.current.scrollTop = 0;
-    if (shouldFocusAnswer) dialog.current.querySelector<HTMLTextAreaElement>(".question-card textarea")?.focus({ preventScroll: true });
-  }, [shownKey, shouldFocusAnswer]);
+    if (content.current) content.current.scrollTop = 0;
+    if (shouldFocusAnswer) content.current?.querySelector<HTMLTextAreaElement>(".question-card textarea")?.focus({ preventScroll: true });
+  }, [shownKey, shouldFocusAnswer, changeQuestion?.id]);
   const close = () => {
     if (finishing) setSent((prior) => new Set([...prior, item.key]));
     setOpen(false); setKept(new Set()); setGallery(null); setAllDone(false); setChanging("");
@@ -507,6 +522,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
           <h2 id="command-center-heading">Supreme Overlord<span>Command Center</span></h2>
           <button type="button" className="icon-button question-close" aria-label="Close the Command Center" onClick={close}><Icon name="close" /></button>
         </header>
+        <div ref={content} className="command-center-content" role="region" aria-label="Command Center content" tabIndex={-1}>
         {changeQuestion
           ? <div className="card-stage">
             <ChangeCard key={"change:" + changeQuestion.id} question={changeQuestion} snapshot={snapshot} connected={connected} draft={changeDraft(changeQuestion)}
@@ -560,6 +576,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
                 onDraft={(changes) => update(item.key, changes)} onSend={() => send(item)} onClear={() => clear(item.review)}
                 onAnswer={(text) => void post(item.key, { kind: "review_answer", review_id: item.review.id, generation: item.review.identity, text })} onOpen={show} onImage={setGallery} pager={pager} />}
           </div>}
+        </div>
       </>}
     </dialog>, document.body)}
   </>;
