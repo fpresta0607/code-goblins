@@ -161,7 +161,12 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	if !parseFlags(fs, args[1:]) {
 		return 2
 	}
-	meta, m, e := taskManifest(runtime, args[0])
+	h, e := runtime.resolveHome()
+	if e != nil {
+		fmt.Fprintln(stderr, e)
+		return 1
+	}
+	meta, e := state.ReadTaskMeta(h.State, args[0])
 	if e != nil {
 		fmt.Fprintln(stderr, e)
 		return 1
@@ -171,8 +176,15 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, e)
 		return 1
 	}
+	m := projectcfg.Manifest{Project: filepath.Base(filepath.Clean(meta.Project))}
 	if delivery != nil {
 		m.Verification = delivery.Verification
+	} else {
+		m, e = projectcfg.Load(projectcfg.Path(h.Data, m.Project))
+		if e != nil {
+			fmt.Fprintln(stderr, e)
+			return 1
+		}
 	}
 	var cmds []projectcfg.Command
 	seconds := m.Verification.MaxFastSeconds

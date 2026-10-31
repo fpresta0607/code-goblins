@@ -1,6 +1,7 @@
 package spawn
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/project"
@@ -15,13 +16,21 @@ func TestSpawnPersistsDeliveryBeforeTheWorkerStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.request.Delivery = &selection
+	isReadBeforeLaunch := false
 	fixture.request.BeforeLaunch = func() error {
 		meta, err := state.ReadTaskMeta(fixture.stateDir, fixture.request.ID)
 		if err != nil {
 			return err
 		}
-		_, err = state.ReadTaskDelivery(meta)
-		return err
+		frozen, err := state.ReadTaskDelivery(meta)
+		if err != nil {
+			return err
+		}
+		if frozen == nil || meta.DeliveryHash == "" || frozen.Mode != selection.Mode {
+			return errors.New("delivery selection was not frozen before launch")
+		}
+		isReadBeforeLaunch = true
+		return nil
 	}
 
 	// Act
@@ -36,7 +45,7 @@ func TestSpawnPersistsDeliveryBeforeTheWorkerStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	frozen, err := state.ReadTaskDelivery(meta)
-	if err != nil || meta.DeliveryHash == "" || frozen == nil || frozen.Mode != "no-mistakes" || result.Meta.DeliveryHash != meta.DeliveryHash {
+	if err != nil || !isReadBeforeLaunch || meta.DeliveryHash == "" || frozen == nil || frozen.Mode != "no-mistakes" || result.Meta.DeliveryHash != meta.DeliveryHash {
 		t.Fatalf("meta=%+v selection=%+v error=%v", meta, frozen, err)
 	}
 }

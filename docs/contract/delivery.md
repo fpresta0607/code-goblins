@@ -10,8 +10,9 @@ The brief's Delivery section records `surface: internal|product|mixed|unknown`, 
 Internal means tooling, automation or contributor and operator process; a directory or project name does not establish that classification.
 The conditional posture chooses direct-PR only for known internal, low-risk work with defined project checks; product work uses no-mistakes.
 Mixed, unknown or malformed assessments, missing or unreadable policy, credentials, authorization, state recovery, migrations and high-risk publication use no-mistakes.
-A simple posture still needs a known surface, low risk, concrete reason and defined checks.
-Only a concrete Overlord exception may narrow that selection, recorded with `--delivery-exception` and an explicit mode at brief and spawn.
+An explicitly configured direct-PR or local-only posture is standing Overlord authority for assessed low-risk internal or product work with a concrete reason and defined checks.
+It does not narrow the strict boundaries for sensitive, mixed, unknown or malformed work.
+Only a concrete separate Overlord exception may narrow the selection beyond that standing posture, recorded with `--delivery-exception` and an explicit mode at brief and spawn.
 An explicit no-mistakes mode can always increase rigor.
 
 `cfo brief` and `cfo spawn` use the same resolver.

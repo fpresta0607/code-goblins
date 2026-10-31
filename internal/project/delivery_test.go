@@ -31,13 +31,17 @@ func TestDeliverySelectionUsesPostureAndConcreteRisk(t *testing.T) {
 	}{
 		{"no-mistakes-prod-only", "internal", "low", "", "direct-PR", false},
 		{"no-mistakes-prod-only", "product", "low", "", "no-mistakes", false},
+		{"direct-PR", "internal", "low", "", "direct-PR", false},
 		{"direct-PR", "product", "low", "", "direct-PR", false},
 		{"local-only", "internal", "low", "", "local-only", false},
+		{"local-only", "product", "low", "", "local-only", false},
 		{"no-mistakes", "internal", "low", "", "no-mistakes", false},
 		{"", "internal", "low", "", "no-mistakes", false},
 		{"invalid", "internal", "low", "", "no-mistakes", false},
 		{"direct-PR", "mixed", "low", "", "no-mistakes", false},
 		{"direct-PR", "unknown", "low", "", "no-mistakes", false},
+		{"local-only", "mixed", "low", "", "no-mistakes", false},
+		{"local-only", "unknown", "low", "", "no-mistakes", false},
 		{"direct-PR", "internal", "credentials", "", "no-mistakes", false},
 		{"direct-PR", "internal", "publication", "", "no-mistakes", false},
 		{"direct-PR", "internal", "authorization", "", "no-mistakes", false},
@@ -64,14 +68,40 @@ func TestDeliverySelectionUsesPostureAndConcreteRisk(t *testing.T) {
 }
 
 func TestDeliverySelectionRejectsMalformedOrUnprovedSimpleIntake(t *testing.T) {
-	for _, brief := range []string{
-		"", "## Delivery\nsurface: internal\nrisk: low\n",
-		"## Delivery\nsurface: internal\nsurface: product\nrisk: low\nreason: report output\n",
-		"## Delivery\nsurface: internal\nrisk: low\nreason: report output\n## Delivery\n",
-	} {
-		selection, err := SelectDelivery(Manifest{Delivery: DeliveryPolicy{Posture: "direct-PR"}, Verification: Verification{Fast: []Command{{"git", "status"}}}}, brief, "", "")
-		if err != nil || selection.Mode != "no-mistakes" {
-			t.Fatalf("uncertain intake selected %+v, %v", selection, err)
+	for _, posture := range []string{"no-mistakes-prod-only", "direct-PR", "local-only"} {
+		for _, surface := range []string{"internal", "product"} {
+			for _, brief := range []string{
+				"", fmt.Sprintf("## Delivery\nsurface: %s\nrisk: low\n", surface),
+				fmt.Sprintf("## Delivery\nsurface: %s\nsurface: product\nrisk: low\nreason: report output\n", surface),
+				fmt.Sprintf("## Delivery\nsurface: %s\nrisk: low\nreason: report output\n## Delivery\n", surface),
+			} {
+				selection, err := SelectDelivery(Manifest{Delivery: DeliveryPolicy{Posture: posture}, Verification: Verification{Fast: []Command{{"git", "status"}}}}, brief, "", "")
+				if err != nil || selection.Mode != "no-mistakes" {
+					t.Fatalf("posture=%s surface=%s uncertain intake selected %+v, %v", posture, surface, selection, err)
+				}
+			}
+		}
+	}
+}
+
+func TestDeliverySelectionKeepsSensitiveAndUncertainChangesStrict(t *testing.T) {
+	for _, posture := range []string{"no-mistakes", "no-mistakes-prod-only", "direct-PR", "local-only"} {
+		for _, surface := range []string{"internal", "product", "mixed", "unknown"} {
+			for _, risk := range []string{"credentials", "authorization", "state-recovery", "migration", "publication", "high", "unknown"} {
+				t.Run(posture+"/"+surface+"/"+risk, func(t *testing.T) {
+					// Arrange
+					manifest := Manifest{Delivery: DeliveryPolicy{Posture: posture}, Verification: Verification{Fast: []Command{{"git", "status"}}}}
+					brief := fmt.Sprintf("## Delivery\nsurface: %s\nrisk: %s\nreason: change the approved report output\n", surface, risk)
+
+					// Act
+					selection, err := SelectDelivery(manifest, brief, "", "")
+
+					// Assert
+					if err != nil || selection.Mode != "no-mistakes" || !selection.RequiresCI {
+						t.Fatalf("sensitive or uncertain intake selected %+v, %v", selection, err)
+					}
+				})
+			}
 		}
 	}
 }
