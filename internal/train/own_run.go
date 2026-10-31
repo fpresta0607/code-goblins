@@ -37,28 +37,26 @@ const maxJobsRead = 3
 // ownRun is the proof that car's own CI run tested car's head merged onto
 // base as GitHub would land it now: the pages of the workflow runs behind its
 // checks, and the merge commit they tested, which the checkout then holds.
-// isProven is false when anything about it does not hold, or could not be
-// read, so the train then runs CI as it would without.
-func (e Engine) ownRun(ctx context.Context, t Train, car Car, base string) (proof, merge string, isProven bool) {
+func (e Engine) ownRun(ctx context.Context, t Train, car Car, base string) (proof, merge string, checks Checks) {
 	out, err := e.run(ctx, t.Checkout, "gh", "pr", "view", car.URL, "--json", "headRefOid,statusCheckRollup")
 	if err != nil {
-		return "", "", false
+		return "", "", nil
 	}
 	var view struct {
 		HeadRefOid string `json:"headRefOid"`
 		Checks     Checks `json:"statusCheckRollup"`
 	}
 	if json.Unmarshal([]byte(out), &view) != nil || view.HeadRefOid != car.Head {
-		return "", "", false
+		return "", "", nil
 	}
 	if outcome, _ := checksOutcome(view.Checks); outcome != "passed" {
-		return "", "", false
+		return "", "", nil
 	}
 	var runs []string
 	for _, check := range view.Checks {
 		found := actionsRun.FindStringSubmatch(check.link())
 		if check.Kind != "CheckRun" || found == nil {
-			return "", "", false
+			return "", "", nil
 		}
 		if !slices.Contains(runs, found[1]) {
 			runs = append(runs, found[1])
@@ -67,28 +65,28 @@ func (e Engine) ownRun(ctx context.Context, t Train, car Car, base string) (proo
 	ref := fmt.Sprintf("refs/pull/%d/merge", car.Number)
 	listed, err := e.run(ctx, t.Checkout, "git", "ls-remote", "origin", ref)
 	if err != nil {
-		return "", "", false
+		return "", "", nil
 	}
 	merge, _, _ = strings.Cut(listed, "\t")
 	if merge == "" {
-		return "", "", false
+		return "", "", nil
 	}
 	if _, err := e.run(ctx, t.Checkout, "git", "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", ref); err != nil {
-		return "", "", false
+		return "", "", nil
 	}
 	parents, err := e.run(ctx, t.Checkout, "git", "rev-list", "--parents", "-n", "1", merge)
 	if err != nil || parents != merge+" "+base+" "+car.Head {
-		return "", "", false
+		return "", "", nil
 	}
 	var pages []string
 	for _, id := range runs {
 		tested, err := e.checkedOut(ctx, t, id, car.Number)
 		if err != nil || tested != merge {
-			return "", "", false
+			return "", "", nil
 		}
 		pages = append(pages, "https://github.com/"+t.Repository+"/actions/runs/"+id)
 	}
-	return strings.Join(pages, ", "), merge, true
+	return strings.Join(pages, ", "), merge, view.Checks
 }
 
 // StandsOnOwnRun says whether car, riding a train alone onto repo's base as
@@ -104,8 +102,8 @@ func (e Engine) StandsOnOwnRun(ctx context.Context, repo Repository, car Car) bo
 	if err != nil {
 		return false
 	}
-	_, _, isProven := e.ownRun(ctx, t, car, base)
-	return isProven
+	_, _, checks := e.ownRun(ctx, t, car, base)
+	return len(checks) > 0
 }
 
 // checkedOut reads the merge commit of pull request number that workflow
@@ -152,11 +150,11 @@ func (e Engine) checkedOut(ctx context.Context, t Train, id string, number int) 
 // standOnOwnRun records the run of a train of one rider, car, that stands on
 // car's own CI run, which tested merge, car's head merged onto base: no
 // branch is pushed and no pull request opened, and the next step lands it.
-func (e Engine) standOnOwnRun(t *Train, car Car, base, merge, proof string) error {
+func (e Engine) standOnOwnRun(t *Train, car Car, base, merge, proof string, checks Checks) error {
 	t.BaseSHA, t.Head, t.Pushed = base, merge, e.Now().UTC()
 	t.Runs++
 	t.endRun(RunRepushed, "")
-	t.History = append(t.History, Run{Number: t.Runs, Riders: []int{car.Number}, Base: base, Head: merge, Pushed: t.Pushed, PR: car.URL, OwnRun: proof})
+	t.History = append(t.History, Run{Number: t.Runs, Riders: []int{car.Number}, Base: base, Head: merge, Pushed: t.Pushed, PR: car.URL, OwnRun: proof, Passed: checks})
 	return e.save(t)
 }
 

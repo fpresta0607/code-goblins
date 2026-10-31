@@ -121,8 +121,19 @@ func (t Train) passedOnSecondTry() string {
 		default:
 			continue
 		}
+		checks := run.RetryChecks
+		if len(run.Passed) > 0 {
+			checks = run.Passed
+		}
 		for _, check := range run.FailedOnce {
-			if !slices.ContainsFunc(run.Failed, func(again FailedCheck) bool { return again.Name == check.Name }) {
+			if slices.ContainsFunc(checks, func(again Check) bool {
+				if again.name() != check.Name || !again.isConcluded() || !again.isPassed() || !again.hasRun() {
+					return false
+				}
+				firstRun := actionsRun.FindStringSubmatch(check.Link)
+				nextRun := actionsRun.FindStringSubmatch(again.link())
+				return firstRun != nil && nextRun != nil && firstRun[0] == nextRun[0]
+			}) {
 				passed = append(passed, fmt.Sprintf("%s in run %d", check, run.Number))
 			}
 		}

@@ -193,20 +193,21 @@ type Car struct {
 // workflow runs behind its checks, PR is the rider's own pull request, and
 // Head the merge commit GitHub made of it, which those runs tested.
 type Run struct {
-	Number     int           `json:"number"`
-	Riders     []int         `json:"riders"`
-	Base       string        `json:"base"`
-	Head       string        `json:"head"`
-	Pushed     time.Time     `json:"pushed"`
-	Result     string        `json:"result,omitempty"`
-	Link       string        `json:"link,omitempty"`
-	PR         string        `json:"pr,omitempty"`
-	FailedOnce []FailedCheck `json:"failed_once,omitempty"`
-	Failed     []FailedCheck `json:"failed,omitempty"`
-	OnceTests  []string      `json:"failed_once_tests,omitempty"`
-	OnceUnread string        `json:"failed_once_unread,omitempty"`
-	OwnRun     string        `json:"own_run,omitempty"`
-	Passed     Checks        `json:"passed_checks,omitempty"`
+	Number      int           `json:"number"`
+	Riders      []int         `json:"riders"`
+	Base        string        `json:"base"`
+	Head        string        `json:"head"`
+	Pushed      time.Time     `json:"pushed"`
+	Result      string        `json:"result,omitempty"`
+	Link        string        `json:"link,omitempty"`
+	PR          string        `json:"pr,omitempty"`
+	FailedOnce  []FailedCheck `json:"failed_once,omitempty"`
+	Failed      []FailedCheck `json:"failed,omitempty"`
+	RetryChecks Checks        `json:"retry_checks,omitempty"`
+	OnceTests   []string      `json:"failed_once_tests,omitempty"`
+	OnceUnread  string        `json:"failed_once_unread,omitempty"`
+	OwnRun      string        `json:"own_run,omitempty"`
+	Passed      Checks        `json:"passed_checks,omitempty"`
 	// MergeAttempts is spent before each merge call, including one whose
 	// answer is lost; polling and holds never replenish it.
 	MergeAttempts   int      `json:"merge_attempts,omitempty"`

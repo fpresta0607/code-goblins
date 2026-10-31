@@ -28,9 +28,6 @@ func (e Engine) halve(ctx context.Context, t *Train, failed []Check) error {
 	}
 	t.Moved = 0
 	riders := t.carsIn(CarRiding)
-	if run := t.openRun(); run != nil {
-		run.Failed = failedChecks(failed)
-	}
 	t.endRun(RunFailed, firstLink(failed))
 	if red != "" {
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI failed on %s (%s), and %s's own push CI is red at %s (%s), so no pull request is blamed: fix %s first", t.numbers(riders), checkNames(failed), t.Base, short(t.BaseSHA), red, t.Base))

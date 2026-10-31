@@ -168,6 +168,9 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	if t, err = Read(e.StateDir, id); err != nil || t.IsFinished() {
 		return t, err
 	}
+	if err := e.notifyMergeHold(ctx, &t); err != nil {
+		return t, err
+	}
 	stepErr := e.step(ctx, &t)
 	if stepErr == nil {
 		if run := t.openRun(); t.Errors > 0 && (run == nil || run.MergeHold == "") {
@@ -207,7 +210,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	if t.Landing && len(t.carsIn(CarRiding)) == 0 {
 		return e.recordLanding(ctx, t)
 	}
-	if t.Landing || run != nil && run.MergeAttempts > 0 {
+	if t.Landing || run != nil && len(run.Passed) > 0 {
 		commit := t.Head
 		if run != nil && run.OwnRun != "" {
 			commit = t.Cars[t.carsIn(CarRiding)[0]].Head
@@ -217,6 +220,10 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 			return err
 		}
 		if onBase {
+			t.Landing = true
+			if err := e.save(t); err != nil {
+				return err
+			}
 			return e.recordLanding(ctx, t)
 		}
 		t.Landing = false
@@ -246,7 +253,17 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 		return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
 	}
 	if outcome == "failed" {
-		if outcome, err = e.secondTry(ctx, t, checks); err != nil {
+		_, failed := checksOutcome(checks)
+		if run != nil {
+			run.Failed = failedChecks(failed)
+			if len(run.FailedOnce) > 0 {
+				run.RetryChecks = checks
+			}
+			if err := e.save(t); err != nil {
+				return err
+			}
+		}
+		if outcome, err = e.secondTry(ctx, t, failed); err != nil {
 			return err
 		}
 	}
@@ -264,6 +281,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 		if run != nil {
 			if len(run.Passed) == 0 {
 				run.Passed = checks
+				run.Failed = nil
 				if err := e.save(t); err != nil {
 					return err
 				}
@@ -276,7 +294,8 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 		}
 		return e.land(ctx, t, readiness)
 	case outcome == "failed":
-		return e.halve(ctx, t, checks)
+		_, failed := checksOutcome(checks)
+		return e.halve(ctx, t, failed)
 	case outcome == "changed":
 		return e.rebuild(ctx, t, t.Note)
 	}
@@ -286,7 +305,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 // ci reads the CI of the train's pull request at its head: "stale" until
 // GitHub shows the head, "none" while no check on it ran, "pending" until
 // every check on it concluded, "closed" once the pull request is not open,
-// else "passed" with its green checks or "failed" with the checks that failed.
+// else "passed" or "failed", with the observed checks.
 // It also returns GitHub's current merge readiness.
 func (e Engine) ci(ctx context.Context, t Train) (string, []Check, string, error) {
 	url, head := t.PR, t.Head
@@ -315,11 +334,8 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, string, error
 	if view.HeadRefOid != head {
 		return "stale", nil, view.Readiness, nil
 	}
-	outcome, failed := checksOutcome(view.Checks)
-	if outcome == "passed" {
-		return outcome, view.Checks, view.Readiness, nil
-	}
-	return outcome, failed, view.Readiness, nil
+	outcome, _ := checksOutcome(view.Checks)
+	return outcome, view.Checks, view.Readiness, nil
 }
 
 func (e Engine) save(t *Train) error {

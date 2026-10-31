@@ -130,6 +130,54 @@ func TestALoneRiderWhoseOwnRunTestedTodaysMainLandsWithNoTrainRun(t *testing.T) 
 	}
 }
 
+func TestOwnRunKeepsInitialCheckCustodyBeforeItsFirstAdvance(t *testing.T) {
+	for _, observation := range []string{"read failures", "red checks", "changed green identity"} {
+		t.Run(observation, func(t *testing.T) {
+			s := newScratch(t)
+			github := newFakeGitHub(s)
+			pr := provenRider(s, github, 5)
+			riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+			started, err := s.engine(github).Start(context.Background(), landsLoneRider(s), riders)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proof := Checks{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: "https://github.com/o/r/actions/runs/705/job/7050"}}
+			kept, err := Read(s.state, started.ID)
+			if err != nil || !slices.Equal(kept.History[0].Passed, proof) {
+				t.Fatalf("initial own-run check proof was not persisted: %+v, %v", kept, err)
+			}
+			github.readiness = "BLOCKED"
+			switch observation {
+			case "read failures":
+				github.unanswered["view"] = maxErrors + 2
+			case "red checks":
+				github.ownRuns[pr.URL].conclusion = "FAILURE"
+			case "changed green identity":
+				github.ownRuns[pr.URL].run++
+			}
+
+			for range maxErrors + 2 {
+				_, _ = s.engine(github).Advance(context.Background(), started.ID)
+			}
+			kept, err = Read(s.state, started.ID)
+
+			if err != nil || kept.IsFinished() || kept.Runs != 1 || kept.Cars[0].State != CarRiding || kept.Head != started.Head || kept.BaseSHA != started.BaseSHA || kept.History[0].MergeHold == "" || !slices.Equal(kept.History[0].Passed, proof) {
+				t.Fatalf("initial proof was lost during %s: %+v, %v", observation, kept, err)
+			}
+			if len(github.mergeCalls()) != 0 || len(github.rerunCalls()) != 0 || github.created != 0 || len(s.told) != 0 {
+				t.Fatalf("initial proof triggered fresh work or blame: merges %v, reruns %v, created %d, blame %q", github.mergeCalls(), github.rerunCalls(), github.created, s.told)
+			}
+			if observation == "read failures" {
+				errors := kept.Errors
+				kept = s.step(s.engine(github), started.ID)
+				if kept.Errors != errors || !slices.Equal(kept.History[0].Passed, proof) {
+					t.Fatalf("successful polling reset held custody or error budget: %+v", kept)
+				}
+			}
+		})
+	}
+}
+
 // mergeBody is the body gh was asked to merge the pull request at url with.
 func mergeBody(gh *fakeGitHub, url string) string {
 	for _, args := range gh.calls {

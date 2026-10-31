@@ -113,8 +113,8 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	}
 	if t.LandsLoneRider && len(riders) == 1 {
 		car := t.Cars[riders[0]]
-		if proof, merge, isProven := e.ownRun(ctx, *t, car, base); isProven {
-			return e.standOnOwnRun(t, car, base, merge, proof)
+		if proof, merge, checks := e.ownRun(ctx, *t, car, base); len(checks) > 0 {
+			return e.standOnOwnRun(t, car, base, merge, proof, checks)
 		}
 	}
 	if t.hasMerged() {

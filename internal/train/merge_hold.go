@@ -37,25 +37,30 @@ func (e Engine) holdMerge(ctx context.Context, t *Train, reason, readiness strin
 }
 
 func (e Engine) notifyMergeHold(ctx context.Context, t *Train) error {
-	run := t.openRun()
-	if run.IsMergeNotified || e.TellCFO == nil {
+	if e.TellCFO == nil {
 		return nil
 	}
-	identity := fmt.Sprintf("train-merge-hold:%s:%d", t.ID, run.Number)
-	if err := e.TellCFO(ctx, identity, fmt.Sprintf("merge_train: %s train %s holds its merge: %s; keeps the green proof on %s at %s, built on %s at %s", t.Repository, t.ID, run.MergeHold, run.PR, short(run.Head), t.Base, short(run.Base))); err != nil {
-		return err
+	for i := range t.History {
+		run := &t.History[i]
+		if run.MergeHold == "" || run.IsMergeNotified {
+			continue
+		}
+		identity := fmt.Sprintf("train-merge-hold:%s:%d", t.ID, run.Number)
+		if err := e.TellCFO(ctx, identity, fmt.Sprintf("merge_train: %s train %s holds its merge: %s; keeps the green proof on %s at %s, built on %s at %s", t.Repository, t.ID, run.MergeHold, run.PR, short(run.Head), t.Base, short(run.Base))); err != nil {
+			return err
+		}
+		run.IsMergeNotified = true
+		if err := e.save(t); err != nil {
+			return err
+		}
 	}
-	run.IsMergeNotified = true
-	return e.save(t)
+	return nil
 }
 
 func (e Engine) mayMerge(ctx context.Context, t *Train, readiness string) (bool, error) {
 	run := t.openRun()
 	isReady := readiness == "CLEAN" || readiness == "HAS_HOOKS"
 	if run.MergeHold != "" {
-		if err := e.notifyMergeHold(ctx, t); err != nil {
-			return false, err
-		}
 		previous := run.MergeReadiness
 		run.MergeReadiness = readiness
 		if err := e.save(t); err != nil {

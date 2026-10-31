@@ -295,6 +295,7 @@ type workflow struct {
 	head       string
 	isFlaky    bool
 	conclusion string
+	extra      []Check
 }
 
 // pull is a pull request as the fake GitHub holds it.
@@ -521,7 +522,7 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.skipped {
 		check.Status, check.Conclusion = "COMPLETED", "SKIPPED"
 	}
-	checks := []Check{check}
+	checks := append([]Check{check}, w.extra...)
 	if f.noChecks {
 		checks = []Check{}
 	}

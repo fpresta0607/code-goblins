@@ -64,8 +64,8 @@ func (e Engine) land(ctx context.Context, t *Train, readiness string) error {
 		}
 		if run := t.openRun(); run != nil && run.OwnRun != "" {
 			car := t.Cars[t.carsIn(CarRiding)[0]]
-			proof, merge, isProven := e.ownRun(ctx, *t, car, base)
-			if !isProven || merge != run.Head || proof != run.OwnRun {
+			proof, merge, checks := e.ownRun(ctx, *t, car, base)
+			if len(checks) == 0 || merge != run.Head || proof != run.OwnRun || !sameChecks(run.Passed, checks) {
 				return e.holdMerge(ctx, t, "the rider's own run no longer proves the merge", readiness)
 			}
 		}
