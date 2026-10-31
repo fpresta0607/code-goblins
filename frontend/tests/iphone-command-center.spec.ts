@@ -85,12 +85,41 @@ test("keyboard resize and rotation keep the focused answer and actions reachable
   const action = await send.boundingBox();
   expect(action!.y + action!.height).toBeLessThanOrEqual(440);
   expect(await dialog.evaluate((element) => element.scrollTop)).toBe(0);
+  await page.setViewportSize({ width: 852, height: 393 });
+  await page.evaluate(() => {
+    const viewport = window.visualViewport!;
+    Object.defineProperties(viewport, { height: { configurable: true, value: 180 }, offsetTop: { configurable: true, value: 0 } });
+    viewport.dispatchEvent(new Event("resize"));
+    viewport.dispatchEvent(new Event("scroll"));
+  });
+  const content = dialog.locator(".command-center-content");
+  await expect.poll(() => content.evaluate((element) => element.clientHeight)).toBeGreaterThanOrEqual(action!.height);
+  const shortShell = await dialog.boundingBox();
+  expect(shortShell!.y).toBeGreaterThanOrEqual(0);
+  expect(shortShell!.y + shortShell!.height).toBeLessThanOrEqual(180);
+  const heading = dialog.locator(".command-center-heading");
+  const shortHeader = await heading.boundingBox();
+  await expect(answer).toBeFocused();
+  await answer.tap();
+  await answer.press("End");
+  await page.keyboard.type(" after rotation");
+  await expect(answer).toHaveValue("Use the fixed shell after rotation");
+  await send.scrollIntoViewIfNeeded();
+  // WebKit rounds a fully visible button's intersection a fraction below one.
+  await expect(send).toBeInViewport({ ratio: 0.99 });
+  await page.screenshot({ path: testInfo.outputPath("keyboard-rotation-command-center.png") });
+  await page.route("**/api/actions", (route) => route.fulfill({ status: 503, json: { error: "Rotation request received" } }));
+  await send.tap();
+  await expect(dialog.getByText("Rotation request received.", { exact: true })).toBeVisible();
+  expect(await heading.boundingBox()).toEqual(shortHeader);
+  expect(await dialog.evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
   await page.evaluate(() => {
     const viewport = window.visualViewport!;
     Reflect.deleteProperty(viewport, "height");
     Reflect.deleteProperty(viewport, "offsetTop");
   });
-  await page.setViewportSize({ width: 852, height: 393 });
+  await page.evaluate(() => window.visualViewport!.dispatchEvent(new Event("resize")));
   const rotated = await dialog.boundingBox();
   expect(rotated!.y).toBeGreaterThanOrEqual(0);
   expect(rotated!.y + rotated!.height).toBeLessThanOrEqual(393);
