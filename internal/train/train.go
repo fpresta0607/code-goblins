@@ -245,7 +245,7 @@ const foundOnBase = "already on "
 // last run.
 func (t Train) LandingEvidence(car Car) string {
 	if strings.HasPrefix(car.Note, foundOnBase) {
-		return fmt.Sprintf("merge train %s found %s already on %s, landed by an earlier run of the train or an earlier train", t.ID, car.URL, t.Base)
+		return fmt.Sprintf("merge train %s found %s already on %s (selected head %s)", t.ID, car.URL, t.Base, short(car.Head))
 	}
 	for _, run := range t.History {
 		if run.Result == RunLanded && run.OwnRun != "" && slices.Contains(run.Riders, car.Number) {

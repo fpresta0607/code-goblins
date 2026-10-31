@@ -14,6 +14,9 @@ import (
 // the next run, saying why in the note. The record says first that a build
 // is due, so a step cut short anywhere in it is built again by the next one.
 func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
+	if _, err := e.branchHead(ctx, *t); err != nil {
+		return err
+	}
 	changed, err := e.recheck(ctx, t)
 	if err != nil {
 		return err
@@ -41,18 +44,18 @@ func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 			}
 		}
 	}()
-	t.Head, t.Landing = "", false
+	t.Landing = false
+	t.endRun(RunRepushed, "")
 	if err := e.save(t); err != nil {
 		return err
 	}
 	if err := e.build(ctx, t); err != nil {
-		t.Head = ""
 		return errors.Join(err, e.save(t))
 	}
 	if len(t.carsIn(CarRiding)) == 0 {
 		return e.finish(ctx, t, StateStopped, "no pull request left to test merged cleanly onto "+t.Base)
 	}
-	return e.save(t)
+	return nil
 }
 
 func (e Engine) rebuildOnMovedBase(ctx context.Context, t *Train, base string) error {
@@ -129,10 +132,8 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	if t.hasMerged() {
 		t.PR = ""
 	}
-	isResumed := t.PR == "" && t.Runs > 0
 	t.BaseSHA, t.Head, t.Pushed = base, head, e.Now().UTC()
 	t.Runs++
-	t.endRun(RunRepushed, "")
 	run := Run{Number: t.Runs, Base: base, Head: head, Pushed: t.Pushed}
 	for _, i := range riders {
 		run.Riders = append(run.Riders, t.Cars[i].Number)
@@ -141,10 +142,23 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	if err := e.save(t); err != nil {
 		return err
 	}
-	if _, err := e.run(ctx, t.Checkout, "git", "push", "--quiet", "--force", "origin", head+":refs/heads/"+t.Branch); err != nil {
+	return e.publish(ctx, t)
+}
+
+func (e Engine) publish(ctx context.Context, t *Train) error {
+	head, err := e.branchHead(ctx, *t)
+	if err != nil {
 		return err
 	}
-	if t.PR == "" && isResumed {
+	if head != t.Head {
+		if _, err := e.run(ctx, t.Checkout, "git", "push", "--quiet", "--force-with-lease=refs/heads/"+t.Branch+":"+head, "origin", t.Head+":refs/heads/"+t.Branch); err != nil {
+			actual, readError := e.branchHead(ctx, *t)
+			if readError != nil || actual != t.Head {
+				return errors.Join(err, readError)
+			}
+		}
+	}
+	if t.PR == "" {
 		// A build cut short after it opened the pull request left it
 		// unrecorded: it is found by its branch rather than opened twice.
 		found, err := e.run(ctx, t.Checkout, "gh", "pr", "list", "--repo", t.Repository, "--head", t.Branch, "--state", "open", "--json", "url", "--jq", ".[0].url")
@@ -158,7 +172,7 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 			return err
 		}
 		t.openRun().PR = t.PR
-		return nil
+		return e.save(t)
 	}
 	title, body := t.words()
 	out, err := e.runWithBody(ctx, t.Checkout, body, "pr", "create", "--repo", t.Repository, "--base", t.Base, "--head", t.Branch, "--title", title)
@@ -173,7 +187,38 @@ func (e Engine) build(ctx context.Context, t *Train) error {
 	}
 	t.openRun().PR = t.PR
 	e.wear(ctx, *t)
-	return nil
+	return e.save(t)
+}
+
+func (e Engine) branchHead(ctx context.Context, t Train) (string, error) {
+	ref := "refs/heads/" + t.Branch
+	out, err := e.run(ctx, t.Checkout, "git", "ls-remote", "origin", ref)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errBranchCustody, err)
+	}
+	head := ""
+	if out != "" {
+		fields := strings.Fields(out)
+		if len(fields) != 2 || fields[1] != ref {
+			return "", fmt.Errorf("%w: origin did not identify %s", errBranchCustody, t.Branch)
+		}
+		head = fields[0]
+	}
+	for i := len(t.History) - 1; i >= 0; i-- {
+		run := t.History[i]
+		if run.OwnRun == "" {
+			if head == run.Head || head == "" && run.Result == RunLanded {
+				return head, nil
+			}
+			if run.PR != "" {
+				return "", fmt.Errorf("%w: %s no longer holds recorded head %s", errBranchCustody, t.Branch, short(run.Head))
+			}
+		}
+	}
+	if head != "" {
+		return "", fmt.Errorf("%w: %s already holds an unrecorded head", errBranchCustody, t.Branch)
+	}
+	return head, nil
 }
 
 // words are the title and the body of the train's pull request for the run

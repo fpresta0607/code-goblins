@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 // land takes a green run to the base by merging the train's own pull
@@ -139,13 +142,42 @@ func (e Engine) landTrainRun(ctx context.Context, t *Train, riders []int) error 
 // recheck reads the riders as GitHub has them now and returns each one that
 // may no longer land as it rode, with why, after returning it to the queue.
 func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
+	if len(t.carsIn(CarRiding)) == 0 {
+		return nil, nil
+	}
 	open, err := e.openPulls(ctx, *t)
 	if err != nil {
 		return nil, err
 	}
+	base, err := e.baseSHA(ctx, *t)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := e.run(ctx, t.Checkout, "git", "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", "refs/heads/"+t.Base); err != nil {
+		return nil, err
+	}
 	var changed []string
+	if t.BaseSHA != "" && base != t.BaseSHA {
+		changed = append(changed, t.Base+" moved during the rider recheck")
+	}
 	for _, i := range t.carsIn(CarRiding) {
 		car := &t.Cars[i]
+		isLanded, err := e.isOnFetchedBase(ctx, *t, car.Head, base)
+		if err != nil {
+			return nil, err
+		}
+		if isLanded {
+			t.endRun(RunChanged, "")
+			car.State, car.Note = CarLanded, foundOnBase+t.Base
+			if err := e.save(t); err != nil {
+				return nil, err
+			}
+			if e.Landed != nil {
+				e.Landed(ctx, *t, *car)
+			}
+			changed = append(changed, fmt.Sprintf("#%d %s", car.Number, car.Note))
+			continue
+		}
 		why := "it is no longer open"
 		for _, pr := range open {
 			if pr.URL != car.URL {
@@ -301,7 +333,23 @@ func (e Engine) isOnBase(ctx context.Context, t Train, commit string) (bool, err
 	if _, err := e.run(ctx, t.Checkout, "git", "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", "refs/heads/"+t.Base); err != nil {
 		return false, err
 	}
-	return e.isAncestor(ctx, t.Checkout, commit, base)
+	return e.isOnFetchedBase(ctx, t, commit, base)
+}
+
+func (e Engine) isOnFetchedBase(ctx context.Context, t Train, commit, base string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	result, err := e.Commands.Run(ctx, execx.Request{Dir: t.Checkout, Name: "git", Args: []string{"rev-parse", "--verify", "--quiet", commit + "^{commit}"}})
+	if err != nil {
+		return false, err
+	}
+	switch result.ExitCode {
+	case 0:
+		return e.isAncestor(ctx, t.Checkout, commit, base)
+	case 1:
+		return false, nil
+	}
+	return false, fmt.Errorf("git rev-parse exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 }
 
 // holdsTheRun says whether the base as origin has it now holds the tree of

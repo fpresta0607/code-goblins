@@ -2,6 +2,7 @@ package train
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,9 @@ import (
 // half that passed merged its own. The branch is the train's own, and it is
 // already gone where GitHub deletes a merged pull request's branch itself.
 func (e Engine) finish(ctx context.Context, t *Train, state, note string) error {
+	if _, err := e.branchHead(ctx, *t); err != nil {
+		return err
+	}
 	t.DeployHold = nil
 	t.State, t.Note, t.Finished, t.Landing = state, note, e.Now().UTC(), false
 	t.endRun(RunStopped, "")
@@ -71,11 +75,18 @@ func (e Engine) finish(ctx context.Context, t *Train, state, note string) error 
 // removeBranch deletes the train's branch from origin, unless origin no
 // longer has it.
 func (e Engine) removeBranch(ctx context.Context, t Train) error {
-	found, err := e.run(ctx, t.Checkout, "git", "ls-remote", "origin", "refs/heads/"+t.Branch)
-	if err != nil || found == "" {
+	head, err := e.branchHead(ctx, t)
+	if err != nil || head == "" {
 		return err
 	}
-	_, err = e.run(ctx, t.Checkout, "git", "push", "--quiet", "origin", "--delete", t.Branch)
+	_, err = e.run(ctx, t.Checkout, "git", "push", "--quiet", "--force-with-lease=refs/heads/"+t.Branch+":"+head, "origin", ":refs/heads/"+t.Branch)
+	if err != nil {
+		actual, readError := e.run(ctx, t.Checkout, "git", "ls-remote", "origin", "refs/heads/"+t.Branch)
+		if readError != nil || actual != "" {
+			return errors.Join(err, readError)
+		}
+		return nil
+	}
 	return err
 }
 

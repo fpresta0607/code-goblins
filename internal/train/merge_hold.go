@@ -2,8 +2,25 @@ package train
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
+
+func (e Engine) holdBranch(ctx context.Context, t *Train, cause error) error {
+	t.Note = cause.Error()
+	for i := len(t.History) - 1; i >= 0; i-- {
+		if run := &t.History[i]; len(run.Passed) > 0 {
+			if run.MergeHold == "" {
+				run.MergeHold = cause.Error()
+			}
+			break
+		}
+	}
+	if err := e.save(t); err != nil {
+		return errors.Join(cause, err)
+	}
+	return errors.Join(cause, e.notifyMergeHold(ctx, t))
+}
 
 func sameChecks(first, second Checks) bool {
 	if len(first) != len(second) {

@@ -40,8 +40,9 @@ var (
 	// ErrRunning says a train is already running on the repository.
 	ErrRunning = errors.New("a merge train is already running on this repository")
 	// ErrBusy says another process is taking the train's next step.
-	ErrBusy         = errors.New("another process is moving this merge train")
-	errMergeRefused = errors.New("the tested pull request did not merge")
+	ErrBusy          = errors.New("another process is moving this merge train")
+	errMergeRefused  = errors.New("the tested pull request did not merge")
+	errBranchCustody = errors.New("the train branch identity must be reconciled")
 )
 
 // Repository is where a train runs: the GitHub repository as owner/name, a
@@ -131,6 +132,10 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 		// counted as Advance counts each later one.
 		if ctx.Err() == nil && !t.IsFinished() {
 			t.Errors = 1
+			if errors.Is(err, errBranchCustody) {
+				err = e.holdBranch(ctx, &t, err)
+				return t, err
+			}
 			err = errors.Join(err, e.save(&t))
 		}
 		return t, err
@@ -188,6 +193,10 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	if err != nil || kept.IsFinished() {
 		return kept, errors.Join(stepErr, err)
 	}
+	if errors.Is(stepErr, errBranchCustody) {
+		err = e.holdBranch(ctx, &kept, stepErr)
+		return kept, err
+	}
 	kept.Errors++
 	if kept.Landing {
 		return kept, errors.Join(stepErr, e.save(&kept))
@@ -201,6 +210,9 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	}
 	note := fmt.Sprintf("its step failed %d times in a row, last: %v", kept.Errors, stepErr)
 	err = e.finish(ctx, &kept, StateFailed, note)
+	if errors.Is(err, errBranchCustody) {
+		err = e.holdBranch(ctx, &kept, err)
+	}
 	return kept, err
 }
 
@@ -228,7 +240,20 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 		}
 		t.Landing = false
 	}
-	if t.Head == "" || t.PR == "" && (run == nil || run.OwnRun == "") {
+	if run != nil && run.OwnRun == "" && run.PR == "" {
+		changed, err := e.recheck(ctx, t)
+		if err != nil {
+			return err
+		}
+		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
+			return e.rebuild(ctx, t, strings.Join(changed, "; "))
+		}
+		if err := e.publish(ctx, t); err != nil {
+			return err
+		}
+	}
+	if run == nil || t.Head == "" || t.PR == "" && run.OwnRun == "" {
 		return e.rebuild(ctx, t, "")
 	}
 	outcome, checks, readiness, err := e.ci(ctx, *t)

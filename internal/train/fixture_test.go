@@ -234,8 +234,13 @@ type fakeGitHub struct {
 	marksLate int
 	// whileLanding runs once as a train's pull request merges, after the
 	// train last read its riders.
-	whileLanding func()
-	beforeList   func()
+	whileLanding          func()
+	beforeList            func()
+	beforePush            func(execx.Request)
+	pushes                []execx.Request
+	shouldLosePush        bool
+	shouldLosePushRead    bool
+	unansweredBranchReads int
 	// deletesBranches removes a merged pull request's branch, as a repository
 	// that deletes head branches by itself does.
 	deletesBranches bool
@@ -333,7 +338,26 @@ func (f *fakeGitHub) open(number int, branch, head string) PullRequest {
 func (f *fakeGitHub) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
 		request.Env = gitEnv
-		return execx.OSRunner{}.Run(ctx, request)
+		if request.Args[0] == "ls-remote" && strings.HasPrefix(request.Args[len(request.Args)-1], "refs/heads/"+BranchPrefix) && f.unansweredBranchReads > 0 {
+			f.unansweredBranchReads--
+			return execx.Result{}, errors.New("branch identity unavailable")
+		}
+		if request.Args[0] == "push" {
+			f.pushes = append(f.pushes, request)
+			if before := f.beforePush; before != nil {
+				f.beforePush = nil
+				before(request)
+			}
+		}
+		result, err := (execx.OSRunner{}).Run(ctx, request)
+		if request.Args[0] == "push" && f.shouldLosePush && err == nil && result.ExitCode == 0 {
+			f.shouldLosePush = false
+			if f.shouldLosePushRead {
+				f.unansweredBranchReads = 1
+			}
+			return execx.Result{}, errors.New("push acknowledgement lost")
+		}
+		return result, err
 	}
 	if request.Name != "gh" {
 		return execx.Result{}, fmt.Errorf("unexpected command %s", request.Name)

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/execx"
 )
 
 func TestStartMergesTheRidersOntoMainInQueueOrderAndOpensTheTrainPullRequest(t *testing.T) {
@@ -161,5 +163,172 @@ func TestStartWithEveryRiderInConflictStopsWithoutCI(t *testing.T) {
 	}
 	if told := s.goblinTold("g41"); len(told) != 1 || !strings.Contains(told[0], "Merge origin/main into your branch") {
 		t.Fatalf("g41 told %q, want to merge main", told)
+	}
+}
+
+func TestInterruptedPublicationKeepsItsRecordedRunAndExternalCommits(t *testing.T) {
+	for _, hasExternalCommit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "resume exact run", true: "preserve external extension"}[hasExternalCommit], func(t *testing.T) {
+			s, github, held := newHeldTrain(t, false)
+			proof := slices.Clone(held.History[0].Passed)
+			failures := slices.Clone(held.History[0].MergeFailures)
+			base := s.advanceMain("outside.txt", "outside\n")
+			github.shouldLosePush, github.shouldLosePushRead = true, true
+
+			cut, cutError := s.engine(github).Advance(context.Background(), held.ID)
+			saved, readError := Read(s.state, held.ID)
+			if cutError == nil || readError != nil || saved.Head == "" || saved.Runs != 2 || saved.Head != saved.History[1].Head || saved.BaseSHA != base {
+				t.Fatalf("interrupted publication lost its recorded head: %+v, %v, %v", cut, cutError, readError)
+			}
+			published := s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch)
+			if published != saved.Head {
+				t.Fatalf("push did not reach the remote: %s, want %s", published, saved.Head)
+			}
+			if hasExternalCommit {
+				s.extend(held.Branch, "external.txt", "external\n")
+				published = s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch)
+			}
+			pushes := len(github.pushes)
+			github.pending = maxErrors + 2
+			var kept Train
+			for range maxErrors + 2 {
+				kept, _ = s.engine(github).Advance(context.Background(), held.ID)
+			}
+
+			if kept.IsFinished() || kept.Runs != 2 || kept.Head != saved.Head || hasExternalCommit && kept.Errors != saved.Errors || !slices.Equal(kept.History[0].Passed, proof) || !slices.Equal(kept.History[0].MergeFailures, failures) || kept.History[0].MergeAttempts != 1 || len(github.pushes) != pushes || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != published || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(s.cfo) != 2 {
+				t.Fatalf("recovery duplicated validation or lost branch custody: %+v, pushes %d -> %d, notices %q", kept, pushes, len(github.pushes), s.cfo)
+			}
+			if hasExternalCommit && s.fileOn(published, "external.txt") != "external\n" {
+				t.Fatal("externally added source was overwritten")
+			}
+		})
+	}
+}
+
+func TestUnknownBranchIdentityCannotExhaustIntoCleanup(t *testing.T) {
+	s, github, held := newHeldTrain(t, false)
+	s.advanceMain("outside.txt", "outside\n")
+	github.unansweredBranchReads = maxErrors + 2
+	pushes := len(github.pushes)
+	var kept Train
+	for range maxErrors + 2 {
+		var err error
+		kept, err = s.engine(github).Advance(context.Background(), held.ID)
+		if err == nil {
+			t.Fatal("want unknown branch identity reported without cleanup")
+		}
+	}
+	if kept.IsFinished() || kept.Head != held.Head || kept.Runs != 1 || kept.Errors != held.Errors || !slices.Equal(kept.History[0].Passed, held.History[0].Passed) || len(github.pushes) != pushes || len(github.closed) != 0 || len(github.mergeCalls()) != 1 || len(s.cfo) != 2 || !s.hasBranch(held.Branch) {
+		t.Fatalf("unknown branch identity discarded custody: %+v, notices %q", kept, s.cfo)
+	}
+}
+
+func TestInitialPublicationCannotReplaceAnUnrecordedBranch(t *testing.T) {
+	s := newScratch(t)
+	github := newFakeGitHub(s)
+	pr := github.open(5, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+	riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+	var externalHead string
+	github.beforePush = func(request execx.Request) {
+		_, ref, _ := strings.Cut(request.Args[len(request.Args)-1], ":refs/heads/")
+		externalHead = s.branch(ref, "external.txt", "external\n")
+	}
+
+	started, err := s.engine(github).Start(context.Background(), s.repository(), riders)
+	if err == nil || externalHead == "" {
+		t.Fatalf("want initial branch collision to refuse publication: %+v, %v", started, err)
+	}
+	for range maxErrors + 1 {
+		started, _ = s.engine(github).Advance(context.Background(), started.ID)
+	}
+
+	if started.IsFinished() || started.Runs != 1 || github.created != 0 || len(github.pushes) != 1 || len(github.mergeCalls()) != 0 || s.git(s.remote, "rev-parse", "refs/heads/"+started.Branch) != externalHead || s.fileOn(externalHead, "external.txt") != "external\n" {
+		t.Fatalf("initial publication overwrote or recomputed an unknown branch: %+v", started)
+	}
+}
+
+func TestCleanupHoldsBeforeClosingAnExternallyExtendedTrain(t *testing.T) {
+	s, github, held := newHeldTrain(t, false)
+	s.extend(held.Branch, "external.txt", "external\n")
+	externalHead := s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch)
+
+	err := s.engine(github).finish(context.Background(), &held, StateFailed, "stop requested")
+	kept, readError := Read(s.state, held.ID)
+
+	if err == nil || readError != nil || kept.IsFinished() || kept.Head != held.Head || len(github.closed) != 0 || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != externalHead {
+		t.Fatalf("cleanup closed or deleted an externally extended train: %+v, %v, %v", kept, err, readError)
+	}
+}
+
+func TestCleanupRecognizesADeletionWhoseAcknowledgementWasLost(t *testing.T) {
+	s, github, held := newHeldTrain(t, false)
+	github.shouldLosePush = true
+
+	err := s.engine(github).removeBranch(context.Background(), held)
+
+	if err != nil || s.hasBranch(held.Branch) || s.fileOn("refs/heads/feat/5", "f5.txt") != "feat/5\n" {
+		t.Fatalf("cleanup failed to recover its deletion or lost source: %v", err)
+	}
+}
+
+func TestSuccessfulPushWithLostAcknowledgementDoesNotBuildAgain(t *testing.T) {
+	for _, isInitial := range []bool{false, true} {
+		t.Run(map[bool]string{false: "rebuild", true: "start"}[isInitial], func(t *testing.T) {
+			var s *scratch
+			var github *fakeGitHub
+			var built Train
+			if isInitial {
+				s = newScratch(t)
+				github = newFakeGitHub(s)
+				pr := github.open(5, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+				riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+				github.shouldLosePush = true
+				var err error
+				built, err = s.engine(github).Start(context.Background(), s.repository(), riders)
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				s, github, built = newHeldTrain(t, false)
+				s.advanceMain("outside.txt", "outside\n")
+				github.shouldLosePush = true
+				built = s.step(s.engine(github), built.ID)
+			}
+			pushes := len(github.pushes)
+			github.pending = 3
+
+			var kept Train
+			for range 3 {
+				kept = s.step(s.engine(github), built.ID)
+			}
+
+			if kept.Runs != built.Runs || kept.Head != built.Head || len(github.pushes) != pushes || github.created != 1 || s.git(s.remote, "rev-parse", "refs/heads/"+built.Branch) != built.Head {
+				t.Fatalf("acknowledgement recovery repeated a build: %+v, pushes %d -> %d", kept, pushes, len(github.pushes))
+			}
+		})
+	}
+}
+
+func TestBranchWritesRejectAnExtensionAfterTheirIdentityRead(t *testing.T) {
+	for _, isCleanup := range []bool{false, true} {
+		t.Run(map[bool]string{false: "replace", true: "delete"}[isCleanup], func(t *testing.T) {
+			s, github, held := newHeldTrain(t, false)
+			var externalHead string
+			github.beforePush = func(execx.Request) {
+				s.extend(held.Branch, "external.txt", "external\n")
+				externalHead = s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch)
+			}
+			var err error
+			if isCleanup {
+				err = s.engine(github).removeBranch(context.Background(), held)
+			} else {
+				s.advanceMain("outside.txt", "outside\n")
+				_, err = s.engine(github).Advance(context.Background(), held.ID)
+			}
+
+			if err == nil || externalHead == "" || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != externalHead || s.fileOn(externalHead, "external.txt") != "external\n" {
+				t.Fatalf("branch mutation overwrote or deleted an external commit: %v, %s", err, externalHead)
+			}
+		})
 	}
 }

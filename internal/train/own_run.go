@@ -153,7 +153,6 @@ func (e Engine) checkedOut(ctx context.Context, t Train, id string, number int) 
 func (e Engine) standOnOwnRun(t *Train, car Car, base, merge, proof string, checks Checks) error {
 	t.BaseSHA, t.Head, t.Pushed = base, merge, e.Now().UTC()
 	t.Runs++
-	t.endRun(RunRepushed, "")
 	t.History = append(t.History, Run{Number: t.Runs, Riders: []int{car.Number}, Base: base, Head: merge, Pushed: t.Pushed, PR: car.URL, OwnRun: proof, Passed: checks})
 	return e.save(t)
 }
