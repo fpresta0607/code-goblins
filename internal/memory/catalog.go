@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 const CatalogPath = "memory/startup.json"
@@ -137,7 +139,7 @@ func ReadData(dataDir, name string) ([]byte, error) {
 	if err != nil || !filepath.IsLocal(relative) {
 		return nil, fmt.Errorf("memory path %q leaves the data home", name)
 	}
-	return os.ReadFile(resolved)
+	return fsx.ReadFile(resolved)
 }
 
 // GovernedFiles enumerates all source memory, including the recoverable archive.

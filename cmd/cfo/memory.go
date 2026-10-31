@@ -6,10 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/memory"
 )
@@ -70,7 +70,7 @@ func runMemory(args []string, stdout, stderr io.Writer) int {
 		return encode(plan)
 	}
 	if args[0] == "budget" && packages != "" {
-		data, err := os.ReadFile(packages)
+		data, err := fsx.ReadFile(packages)
 		var inputs []memory.Package
 		if err == nil {
 			err = memory.Decode(data, &inputs)

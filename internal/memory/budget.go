@@ -9,12 +9,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 func Tokens(size int) int { return (size + 3) / 4 }
 
 func ReadBudget(path string, defaultTokens int) (int, error) {
-	content, err := os.ReadFile(path)
+	content, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return defaultTokens, nil
 	}
@@ -136,7 +138,7 @@ func MeasurePackages(packages []Package, baseDir string, budget int) ([]PackageR
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(baseDir, path)
 			}
-			content, err := os.ReadFile(path)
+			content, err := fsx.ReadFile(path)
 			if err != nil {
 				return nil, fmt.Errorf("%s %s input: %w", startup.Harness, input.Kind, err)
 			}

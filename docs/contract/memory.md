@@ -63,7 +63,7 @@ Broad approval, an uncreated destination or a proposed project change is insuffi
 The original file remains the live retrieval owner in this catalog; migration to a different owner needs a new approved plan and discoverability proof.
 No command here moves or deletes history.
 
-Tier markers in source text are interpreted by the [Stow skill](../../.agents/skills/stow/SKILL.md), the single owner of their spellings, clocks and curation procedure.
+Tier markers in source text are interpreted by the shared `stow` skill, the single owner of their spellings, clocks and curation procedure; the [load map](../load-map.md) owns its discovery across harnesses.
 Use separate catalog entries for separately tiered facts.
 Unmarked rulings and history are pinned; unmarked facts are legacy aging entries of unknown age.
 Future dates, malformed or conflicting markers are explicit errors.
