@@ -1,5 +1,5 @@
 ﻿import { expect, test, type Locator, type Page } from "./site";
-import { at, field, GOBLIN, NAME, open, openGoblin, snapshot, typed } from "./session-board";
+import { at, field, GOBLIN, NAME, open, openGoblin, send, snapshot, typed } from "./session-board";
 
 const conversation = "fixture-conversation";
 const reply = (seq: number, text: string) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text }] });
@@ -190,6 +190,82 @@ test("a current queued action still reaches the board while reading", async ({ p
   await talk.locator('[data-queued="q-live"]').getByRole("button", { name: "Send now" }).click();
   await expect.poll(() => posts.map(({ kind, target }) => ({ kind, target }))).toEqual([{ kind: "message_now", target: "q-live" }]);
 });
+
+for (const owner of ["CFO", "goblin"] as const) {
+  for (const status of ["queued", "succeeded"] as const) test(`${owner} sees a local send through a ${status} board handoff while reading`, async ({ page }) => {
+    const relay = await open(page, snapshot(), "", pageOf());
+    let release = () => {};
+    const response = new Promise<void>((resolve) => { release = resolve; });
+    const posted: { id: string; task_id: string; text: string }[] = [];
+    await page.route("**/api/actions", async (route) => {
+      posted.push(route.request().postDataJSON());
+      await response;
+      await route.fulfill({ status: 202, json: { status: "ok" } });
+    });
+    if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+    const name = owner === "CFO" ? "CFO" : NAME;
+    const talk = talkOf(page, name);
+    await expect.poll(() => relay.views).toBeGreaterThan(0);
+    relay.say({ type: "held", reason: "fixture hold" });
+    await expect(talk.locator('[data-message="m999"]')).toBeVisible();
+    const place = await readNearEnd(talk, page);
+    await talk.evaluate((element) => { (window as unknown as { originalRows: Element[] }).originalRows = [...element.querySelectorAll("[data-message]")]; });
+    await field(page, name).fill("My held message");
+    await send(page, name).click();
+    await expect.poll(() => posted.length).toBe(1);
+    const own = talk.locator("[data-queued]").filter({ hasText: "My held message" });
+    await expect(own).toHaveCount(1);
+    const action = { ...posted[0], kind: "message", status, created_at: at, updated_at: at };
+    const other = { ...action, id: "other-send", text: "Another board message", status: "queued" };
+    await sendBoard(page, snapshot({ revision: 2, actions: [action, other] }));
+    await expect(own).not.toContainText("Reaching the board.");
+    if (status === "queued") await expect(own.getByRole("button", { name: "Cancel" })).toHaveCount(1);
+    release();
+    await expect(own).toHaveCount(1);
+    await expect(talk.locator('[data-queued="other-send"]')).toHaveCount(0);
+    await sendPage(page, pageOf([...messages, prompt(1000, "My held message")]));
+    await sendBoard(page, snapshot({ revision: 3, actions: [{ ...action, status: "succeeded" }, other] }));
+    await expect(own).toHaveCount(1);
+    const after = await reading(talk);
+    expect({ id: after.id, offset: after.offset, top: after.top, text: after.text }).toEqual({ id: place.id, offset: place.offset, top: place.top, text: place.text });
+    expect(await talk.evaluate((element) => {
+      const original = (window as unknown as { originalRows: Element[] }).originalRows;
+      const current = [...element.querySelectorAll("[data-message]")];
+      return current.length === original.length && current.every((row, index) => row === original[index]);
+    })).toBe(true);
+    await expect(talk.locator('[data-message="m1000"]')).toHaveCount(0);
+    await page.getByRole("button", { name: "Jump to latest" }).click();
+    await expect(own).toHaveCount(0);
+    await expect(talk.locator('[data-message="m1000"]')).toHaveCount(1);
+    await expect(talk.locator('[data-queued="other-send"]')).toHaveCount(1);
+  });
+
+  test(`${owner} removes local feedback when a send fails while reading`, async ({ page }) => {
+    const relay = await open(page, snapshot(), "", pageOf());
+    let release = () => {};
+    const response = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/actions", async (route) => {
+      await response;
+      await route.fulfill({ status: 500, json: { error: "Refused by fixture" } });
+    });
+    if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
+    const name = owner === "CFO" ? "CFO" : NAME;
+    const talk = talkOf(page, name);
+    await expect.poll(() => relay.views).toBeGreaterThan(0);
+    relay.say({ type: "held", reason: "fixture hold" });
+    await expect(talk.locator('[data-message="m999"]')).toBeVisible();
+    const place = await readNearEnd(talk, page);
+    await field(page, name).fill("Refused local message");
+    await send(page, name).click();
+    const own = talk.locator("[data-queued]").filter({ hasText: "Refused local message" });
+    await expect(own).toHaveCount(1);
+    release();
+    await expect(own).toHaveCount(0);
+    await expect(field(page, name)).toHaveValue("Refused local message");
+    const after = await reading(talk);
+    expect({ id: after.id, offset: after.offset, top: after.top, text: after.text }).toEqual({ id: place.id, offset: place.offset, top: place.top, text: place.text });
+  });
+}
 
 test("a disjoint reconnect replaces the latest page and makes the missing history reachable", async ({ page }) => {
   await open(page, snapshot(), "", pageOf(messages.slice(0, 50)));

@@ -141,32 +141,22 @@ func (l *codexMessageLog) reset(epoch uint64) {
 // was replaced, and is read again from its start as a read of its own. The
 // caller holds l.mu.
 func (l *codexMessageLog) update(epoch func() uint64) error {
-	file, err := fsx.Open(l.path)
+	return l.updateWith(epoch, openMessageFile)
+}
+
+func (l *codexMessageLog) updateWith(epoch func() uint64, open func(string) (messageReadFile, error)) error {
+	batch, err := readMessageBatch(l.path, open, l.fileState, l.read, 0, 0)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	changed, err := l.fileState.changed(file, info, 0)
-	if err != nil {
-		return err
-	}
-	if changed || info.Size() < l.read {
+	if batch.reset {
 		l.reset(epoch())
 	}
-	l.read, err = readOn(file, l.read, info.Size(), func(start int64, lines [][]byte) {
-		for _, line := range lines {
-			l.entry(line, start)
-			start += int64(len(line)) + 1
-		}
-	})
-	if err != nil {
-		return err
+	for _, line := range batch.lines {
+		l.entry(line.data, line.offset)
 	}
-	return l.fileState.capture(file, info, 0, l.read)
+	l.read, l.fileState = batch.end, batch.state
+	return nil
 }
 
 // entry folds one rollout entry, at offset in the file, into the log.

@@ -135,7 +135,7 @@ func (l *claudeLog) update() error {
 // each, a read's entries at a time with the offset of the first, and returns
 // the offset after the last entry handed. An entry still being written, with
 // no newline yet, is left for the next read.
-func readOn(file *os.File, offset, size int64, each func(start int64, lines [][]byte)) (int64, error) {
+func readOn(file io.ReaderAt, offset, size int64, each func(start int64, lines [][]byte)) (int64, error) {
 	if offset >= size {
 		return offset, nil
 	}

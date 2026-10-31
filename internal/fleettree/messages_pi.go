@@ -1,10 +1,8 @@
 package fleettree
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -201,7 +199,11 @@ func (l *piMessageLog) reset(epoch uint64) {
 // read past it either way. A session that has written no file yet, as pi writes
 // none before its first reply ends, holds no messages.
 func (l *piMessageLog) update(epoch func() uint64) error {
-	info, err := os.Stat(l.path)
+	return l.updateWith(epoch, openMessageFile)
+}
+
+func (l *piMessageLog) updateWith(epoch func() uint64, open func(string) (messageReadFile, error)) error {
+	_, err := os.Stat(l.path)
 	if errors.Is(err, os.ErrNotExist) {
 		if l.fileState.info != nil {
 			l.reset(epoch())
@@ -212,49 +214,25 @@ func (l *piMessageLog) update(epoch func() uint64) error {
 	if err != nil {
 		return err
 	}
-	file, err := fsx.Open(l.path)
+	batch, err := readMessageBatch(l.path, open, l.fileState, l.offset, 0, 0)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	info, err = file.Stat()
-	if err != nil {
-		return err
-	}
-	changed, err := l.fileState.changed(file, info, 0)
-	if err != nil {
-		return err
-	}
-	if changed || info.Size() < l.offset {
+	if batch.reset {
 		l.reset(epoch())
 	}
-	if info.Size() == l.offset {
-		return l.fileState.capture(file, info, 0, l.offset)
+	if batch.size == l.offset {
+		l.fileState = batch.state
+		return nil
 	}
-	if _, err := file.Seek(l.offset, io.SeekStart); err != nil {
-		return err
-	}
-	reader := bufio.NewReader(file)
-	grown := make([]piRetained, 0, 8)
-	for {
-		line, readErr := reader.ReadBytes('\n')
-		if len(line) == 0 || line[len(line)-1] != '\n' {
-			// A line still being written is read once it ends.
-			break
-		}
-		at := l.offset
-		l.offset += int64(len(line))
+	grown := make([]piRetained, 0, len(batch.lines))
+	for _, line := range batch.lines {
 		l.parsed++
-		if entry, ok := piLine(line); ok {
-			grown = append(grown, l.retain(entry, at))
-		}
-		if readErr != nil {
-			break
+		if entry, ok := piLine(line.data); ok {
+			grown = append(grown, l.retain(entry, line.offset))
 		}
 	}
-	if err := l.fileState.capture(file, info, 0, l.offset); err != nil {
-		return err
-	}
+	l.offset, l.fileState = batch.end, batch.state
 	if len(grown) == 0 {
 		l.isResuming = false
 		return nil

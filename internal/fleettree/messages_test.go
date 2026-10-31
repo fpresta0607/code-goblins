@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -219,6 +220,276 @@ func TestPictureIdentityAcrossReplacementAndTruncation(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+type messageReadRaceFile struct {
+	messageReadFile
+	readFrom int64
+	change   func()
+}
+
+func (file *messageReadRaceFile) ReadAt(data []byte, offset int64) (int, error) {
+	if offset >= file.readFrom {
+		file.change()
+	}
+	return file.messageReadFile.ReadAt(data, offset)
+}
+
+type messageStatRaceFile struct {
+	messageReadFile
+	stats  int
+	change func()
+}
+
+func (file *messageStatRaceFile) Stat() (os.FileInfo, error) {
+	info, err := file.messageReadFile.Stat()
+	file.stats++
+	if err == nil && file.stats == 1 {
+		file.change()
+	}
+	return info, err
+}
+
+type messageRepeatedRaceFile struct {
+	messageReadFile
+	reads  int
+	change func()
+}
+
+func (file *messageRepeatedRaceFile) ReadAt(data []byte, offset int64) (int, error) {
+	file.reads++
+	if file.reads == 3 {
+		file.change()
+	}
+	return file.messageReadFile.ReadAt(data, offset)
+}
+
+func TestMessageUpdateRejectsRewriteDuringIncrementalRead(t *testing.T) {
+	tests := []struct {
+		name     string
+		makeFile func(*testing.T, string) (string, object)
+		richFile func(*testing.T, string) (string, []object)
+		update   func(*Reader, string, func() uint64, func(string) (messageReadFile, error)) error
+		messages func(*Reader, string) []Message
+		snapshot func(*Reader, string) string
+	}{
+		{"claude", func(t *testing.T, home string) (string, object) {
+			return conversation(t, home, prompted("same", "first")), prompted("next", "more")
+		}, func(t *testing.T, home string) (string, []object) {
+			return conversation(t, home, prompted("same", []object{textBlock("first"), imageBlock([]byte("seed"))}), answer("a1", "reply", useBlock("call-1", "Read", object{"file_path": "a.go"}))), []object{
+				answered("result", "call-1", "done", object{"stdout": "done"}, nil),
+				prompted("next", []object{textBlock("more"), imageBlock([]byte("new image"))}),
+				answer("a2", "reply-2", textBlock("new reply")),
+			}
+		}, func(r *Reader, path string, epoch func() uint64, open func(string) (messageReadFile, error)) error {
+			return r.messageLogs[path].updateWith(epoch, 0, open)
+		}, func(r *Reader, path string) []Message { return r.messageLogs[path].messages }, func(r *Reader, path string) string { return fmt.Sprintf("%#v", r.messageLogs[path]) }},
+		{"codex", func(t *testing.T, home string) (string, object) {
+			return codexRollout(t, home, "race", codexUserSaid("first")), codexUserSaid("more")
+		}, func(t *testing.T, home string) (string, []object) {
+			picture := base64.StdEncoding.EncodeToString([]byte("seed"))
+			return codexRollout(t, home, "rich", codexTurnContext("model-one"), codexUserSaid("first"), codexCompleted("UserMessage", object{"content": []object{{"type": "image", "url": "data:image/png;base64," + picture}}}), codexCall("call-1", "exec", "run"), codexLine("token_usage_record", object{"usage": object{"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}})), []object{
+				codexOutput("call-1", "done"), codexTurnContext("model-two"), codexLine("token_usage_record", object{"usage": object{"input_tokens": 20, "output_tokens": 4, "total_tokens": 24}}), codexUserSaid("more"), codexCompleted("UserMessage", object{"id": "image-2", "content": []object{{"type": "image", "url": "data:image/png;base64,bmV3"}}}),
+			}
+		}, func(r *Reader, path string, epoch func() uint64, open func(string) (messageReadFile, error)) error {
+			return r.codexLogs[path].updateWith(epoch, open)
+		}, func(r *Reader, path string) []Message { return r.codexLogs[path].messages }, func(r *Reader, path string) string { return fmt.Sprintf("%#v", r.codexLogs[path]) }},
+		{"pi", func(t *testing.T, home string) (string, object) {
+			return piSession(t, home, piHeader(), piMessageEntry("same", "", "user", object{"content": "first"})), piMessageEntry("next", "same", "user", object{"content": "more"})
+		}, func(t *testing.T, home string) (string, []object) {
+			return piSession(t, home, piHeader(), piMessageEntry("same", "", "user", object{"content": []object{{"type": "text", "text": "first"}, {"type": "image", "data": "c2VlZA==", "mimeType": "image/png"}}}), piMessageEntry("a1", "same", "assistant", object{"model": "model-one", "usage": object{"input": 7, "output": 2}, "content": []object{{"type": "toolCall", "id": "call-1", "name": "read", "arguments": object{"path": "a.go"}}}})), []object{
+				piMessageEntry("result", "a1", "toolResult", object{"toolCallId": "call-1", "toolName": "read", "content": []object{{"type": "image", "data": "bmV3", "mimeType": "image/png"}}}),
+				piMessageEntry("next", "result", "assistant", object{"model": "model-two", "usage": object{"input": 12, "output": 5}, "content": []object{{"type": "text", "text": "more"}}}),
+			}
+		}, func(r *Reader, path string, epoch func() uint64, open func(string) (messageReadFile, error)) error {
+			return r.piLogs[path].updateWith(epoch, open)
+		}, func(r *Reader, path string) []Message { return r.piLogs[path].messages }, func(r *Reader, path string) string { return fmt.Sprintf("%#v", r.piLogs[path]) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path, next := test.makeFile(t, t.TempDir())
+			reader := Reader{}
+			_, cursorBefore, err := reader.MessagePage(path, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendLines(t, path, next)
+			original, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replacement := strings.ReplaceAll(strings.ReplaceAll(string(original), "first", "other"), "more", "else")
+			if len(replacement) != len(original) || replacement == string(original) {
+				t.Fatal("invalid fixture")
+			}
+			changed := false
+			open := func(path string) (messageReadFile, error) {
+				file, err := openMessageFile(path)
+				if err != nil {
+					return nil, err
+				}
+				return &messageReadRaceFile{messageReadFile: file, readFrom: info.Size(), change: func() {
+					if changed {
+						return
+					}
+					changed = true
+					if err := os.WriteFile(path, []byte(replacement), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}}, nil
+			}
+			var generation uint64 = 100
+			err = test.update(&reader, path, func() uint64 { generation++; return generation }, open)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := json.Marshal(test.messages(&reader, path))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !changed || strings.Contains(string(got), "first") || !strings.Contains(string(got), "other") || !strings.Contains(string(got), "else") {
+				t.Fatalf("update published mixed generation: %s (rewrite %t)", got, changed)
+			}
+			_, cursorAfter, isAnew, err := reader.MessagesSince(path, cursorBefore)
+			if err != nil || !isAnew || (cursorAfter.epoch == cursorBefore.epoch && cursorAfter.incarnation == cursorBefore.incarnation) {
+				t.Fatalf("replacement did not change cursor: before %+v after %+v anew %t error %v", cursorBefore, cursorAfter, isAnew, err)
+			}
+			path, richDelta := test.richFile(t, t.TempDir())
+			reader = Reader{}
+			if _, _, err := reader.MessagePage(path, -1); err != nil {
+				t.Fatal(err)
+			}
+			appendLines(t, path, richDelta...)
+			before := test.snapshot(&reader, path)
+			opens, allocations := 0, 0
+			openAgain := func(path string) (messageReadFile, error) {
+				file, err := openMessageFile(path)
+				if err != nil {
+					return nil, err
+				}
+				opens++
+				return &messageRepeatedRaceFile{messageReadFile: file, change: func() {
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					text := string(data)
+					if strings.Contains(text, "other") {
+						text = strings.ReplaceAll(text, "other", "first")
+					} else {
+						text = strings.ReplaceAll(text, "first", "other")
+					}
+					if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}}, nil
+			}
+			err = test.update(&reader, path, func() uint64 { allocations++; return 999 }, openAgain)
+			if err == nil || opens != 2 || allocations != 0 || test.snapshot(&reader, path) != before {
+				t.Fatalf("unstable read changed state: error=%v opens=%d epoch allocations=%d", err, opens, allocations)
+			}
+
+			appendPath, firstNext := test.makeFile(t, t.TempDir())
+			appendReader := Reader{}
+			if _, _, err := appendReader.MessagePage(appendPath, -1); err != nil {
+				t.Fatal(err)
+			}
+			initial, err := os.Stat(appendPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendLines(t, appendPath, firstNext)
+			last, err := json.Marshal(firstNext)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lastText := strings.ReplaceAll(strings.ReplaceAll(string(last), "next", "last"), "more", "else")
+			lastText = strings.ReplaceAll(lastText, `"parentId":"same"`, `"parentId":"next"`)
+			mid := len(lastText) / 2
+			appendText(t, appendPath, lastText[:mid])
+			appended := false
+			appendOpen := func(path string) (messageReadFile, error) {
+				file, err := openMessageFile(path)
+				if err != nil {
+					return nil, err
+				}
+				return &messageReadRaceFile{messageReadFile: file, readFrom: initial.Size(), change: func() {
+					if !appended {
+						appended = true
+						appendText(t, path, lastText[mid:]+"\n")
+					}
+				}}, nil
+			}
+			err = test.update(&appendReader, appendPath, func() uint64 { return 999 }, appendOpen)
+			if err != nil {
+				t.Fatal(err)
+			}
+			staged, err := json.Marshal(test.messages(&appendReader, appendPath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !appended || !strings.Contains(string(staged), "more") || strings.Contains(string(staged), "else") {
+				t.Fatalf("read crossed its fixed extent: %s (append %t)", staged, appended)
+			}
+			if err := test.update(&appendReader, appendPath, func() uint64 { return 999 }, openMessageFile); err != nil {
+				t.Fatal(err)
+			}
+			afterAppend, err := json.Marshal(test.messages(&appendReader, appendPath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(afterAppend), "else") {
+				t.Fatalf("completed trailing line missing: %s", afterAppend)
+			}
+
+			statPath, statNext := test.makeFile(t, t.TempDir())
+			statReader := Reader{}
+			_, cursor, err := statReader.MessagePage(statPath, -1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendLines(t, statPath, statNext)
+			statAppended, statOpens, statEpochs := false, 0, 0
+			statOpen := func(path string) (messageReadFile, error) {
+				file, err := openMessageFile(path)
+				if err != nil {
+					return nil, err
+				}
+				statOpens++
+				return &messageStatRaceFile{messageReadFile: file, change: func() {
+					if !statAppended {
+						statAppended = true
+						appendText(t, path, lastText+"\n")
+					}
+				}}, nil
+			}
+			if err := test.update(&statReader, statPath, func() uint64 { statEpochs++; return 999 }, statOpen); err != nil {
+				t.Fatal(err)
+			}
+			statMessages, err := json.Marshal(test.messages(&statReader, statPath))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !statAppended || statOpens != 1 || statEpochs != 0 || !strings.Contains(string(statMessages), "more") || strings.Contains(string(statMessages), "else") {
+				t.Fatalf("append after stat reset or crossed extent: %s (append %t opens %d epochs %d)", statMessages, statAppended, statOpens, statEpochs)
+			}
+			later, laterCursor, isAnew, err := statReader.MessagesSince(statPath, cursor)
+			if err != nil || isAnew || laterCursor.epoch != cursor.epoch || laterCursor.incarnation != cursor.incarnation {
+				t.Fatalf("append after stat changed conversation: %+v %t %v", laterCursor, isAnew, err)
+			}
+			laterJSON, err := json.Marshal(later)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(laterJSON), "else") {
+				t.Fatalf("later append missing: %s", laterJSON)
+			}
+		})
 	}
 }
 

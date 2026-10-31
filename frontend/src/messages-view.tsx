@@ -95,6 +95,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   useLayoutEffect(() => {
     latest.current = { ...latest.current, isWorking, said, canStop, isLive: phase === "live", task, sent, pending, sending };
     if (following.current) setHeld(latest.current);
+    else setHeld((prior) => {
+      const localIDs = new Set([...prior.sending, ...sending].map((send) => send.id));
+      const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
+      return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
+    });
   }, [isWorking, said, canStop, phase, task, sent, pending, sending]);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const pinnedTo = useRef(-1);

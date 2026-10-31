@@ -326,7 +326,7 @@ func (state *messageFileState) changed(file io.ReaderAt, info os.FileInfo, allow
 	return false, nil
 }
 
-func (state *messageFileState) capture(file *os.File, info os.FileInfo, from, size int64) error {
+func (state *messageFileState) capture(file io.ReaderAt, info os.FileInfo, from, size int64) error {
 	prefixSize := min(size-from, int64(4096))
 	tailSize := min(size-from, int64(4096))
 	prefix := make([]byte, prefixSize)
@@ -465,57 +465,136 @@ type pictureSource struct {
 // it sent its model, copies of what the conversation already holds.
 var apiRequest = []byte(`{"type":"api-request`)
 
+type messageBatchLine struct {
+	offset int64
+	data   []byte
+}
+
+type messageBatch struct {
+	reset           bool
+	from, end, size int64
+	state           messageFileState
+	lines           []messageBatchLine
+}
+
+func readMessageBatch(path string, open func(string) (messageReadFile, error), previous messageFileState, offset, from, reach int64) (messageBatch, error) {
+	forceReset := false
+	for attempt := 0; attempt < 2; attempt++ {
+		batch, changed, err := func() (messageBatch, bool, error) {
+			file, err := open(path)
+			if err != nil {
+				return messageBatch{}, false, err
+			}
+			defer file.Close()
+			info, err := file.Stat()
+			if err != nil {
+				return messageBatch{}, false, err
+			}
+			allowedFrom := int64(0)
+			if reach > 0 {
+				allowedFrom = max(0, info.Size()-reach)
+			}
+			changed, err := previous.changed(file, info, allowedFrom)
+			if err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			batch := messageBatch{reset: forceReset || changed || info.Size() < offset, from: from, size: info.Size()}
+			start := offset
+			if batch.reset {
+				start, batch.from = 0, 0
+			}
+			var guard messageFileState
+			if err := guard.capture(file, info, allowedFrom, info.Size()); err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			if !batch.reset {
+				changed, err = previous.changed(file, info, allowedFrom)
+				if err != nil {
+					return messageBatch{}, errors.Is(err, io.EOF), err
+				}
+				if changed {
+					return messageBatch{}, true, nil
+				}
+			}
+			if start == 0 && reach > 0 && info.Size() > reach {
+				batch.from, err = entryAfter(file, info.Size()-reach, info.Size())
+				if err != nil {
+					return messageBatch{}, errors.Is(err, io.EOF), err
+				}
+				start = batch.from
+			}
+			batch.end, err = readOn(file, start, info.Size(), func(at int64, lines [][]byte) {
+				for _, line := range lines {
+					batch.lines = append(batch.lines, messageBatchLine{offset: at, data: bytes.Clone(line)})
+					at += int64(len(line)) + 1
+				}
+			})
+			if err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			if err := batch.state.capture(file, info, min(batch.end, max(batch.from, allowedFrom)), batch.end); err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			current, err := os.Stat(path)
+			if err != nil {
+				return messageBatch{}, false, err
+			}
+			changed, err = guard.changed(file, current, allowedFrom)
+			if err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			if changed {
+				return messageBatch{}, true, nil
+			}
+			return batch, false, nil
+		}()
+		if changed {
+			forceReset = true
+			continue
+		}
+		if err != nil {
+			return messageBatch{}, err
+		}
+		return batch, nil
+	}
+	return messageBatch{}, errors.New("conversation changed during read")
+}
+
 // update parses the entries written since the last read. A conversation that
 // shrank was replaced, and is read again from its start as a read of its own.
 // A first read of a conversation longer than reach, when reach is not 0,
 // begins at the first entry of its last reach bytes, and the whole
 // conversation is read beside it. The caller holds l.mu.
 func (l *messageLog) update(epoch func() uint64, reach int64) error {
-	file, err := fsx.Open(l.path)
+	return l.updateWith(epoch, reach, openMessageFile)
+}
+
+func (l *messageLog) updateWith(epoch func() uint64, reach int64, open func(string) (messageReadFile, error)) error {
+	batch, err := readMessageBatch(l.path, open, l.fileState, l.read, l.from, reach)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	allowedFrom := int64(0)
-	if reach > 0 {
-		allowedFrom = max(0, info.Size()-reach)
-	}
-	changed, err := l.fileState.changed(file, info, allowedFrom)
-	if err != nil {
-		return err
-	}
-	if changed || info.Size() < l.read {
+	if batch.reset {
 		l.reset(epoch())
 	}
-	if l.read == 0 && reach > 0 && info.Size() > reach {
-		if l.from, err = entryAfter(file, info.Size()-reach); err != nil {
-			return err
-		}
-		l.read = l.from
+	startWhole := l.read == 0 && batch.from > 0
+	l.from = batch.from
+	for _, line := range batch.lines {
+		l.entry(line.data, line.offset)
+	}
+	l.read, l.fileState = batch.end, batch.state
+	if startWhole {
 		l.readWhole(epoch)
 	}
-	l.read, err = readOn(file, l.read, info.Size(), func(start int64, lines [][]byte) {
-		for _, line := range lines {
-			l.entry(line, start)
-			start += int64(len(line)) + 1
-		}
-	})
-	if err != nil {
-		return err
-	}
-	return l.fileState.capture(file, info, min(l.read, max(l.from, allowedFrom)), l.read)
+	return nil
 }
 
 // entryAfter is where the first entry at or after offset begins: just past
 // the newline before it.
-func entryAfter(file *os.File, offset int64) (int64, error) {
+func entryAfter(file io.ReaderAt, offset, size int64) (int64, error) {
 	buffer := make([]byte, 64<<10)
-	for next := offset - 1; ; {
-		count, err := file.ReadAt(buffer, next)
+	for next := offset - 1; next < size; {
+		count, err := file.ReadAt(buffer[:min(int64(len(buffer)), size-next)], next)
 		if i := bytes.IndexByte(buffer[:count], '\n'); i >= 0 {
 			return next + int64(i) + 1, nil
 		}
@@ -527,6 +606,7 @@ func entryAfter(file *os.File, offset int64) (int64, error) {
 			return 0, err
 		}
 	}
+	return size, nil
 }
 
 // readWhole reads the whole conversation beside the read of its tail, and
@@ -1436,6 +1516,15 @@ func (r *Reader) MessagePicture(path, conversation, id string) (string, []byte, 
 		return "", nil, ErrNoRecord
 	}
 	return media, data, nil
+}
+
+type messageReadFile interface {
+	pictureFile
+	io.Closer
+}
+
+func openMessageFile(path string) (messageReadFile, error) {
+	return fsx.Open(path)
 }
 
 type pictureFile interface {
