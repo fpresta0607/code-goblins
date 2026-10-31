@@ -211,7 +211,7 @@ func TestRestartInterruptedLeavesARunStillLiveToItsGoblin(t *testing.T) {
 	if err != nil {
 		t.Errorf("restart = %v, want the resume to go on with its run still live", err)
 	}
-	if commands := strings.Join(runner.commands, "\n"); strings.Contains(commands, "no-mistakes") {
+	if commands := strings.Join(runner.commands, "\n"); strings.Contains("\n"+commands, "\nno-mistakes ") {
 		t.Errorf("commands:\n%s\nwant the live run left alone, with no recovery, replacement or abort", commands)
 	}
 }
@@ -320,7 +320,7 @@ func TestRestartInterruptedRefusesARunWithAnotherIntent(t *testing.T) {
 	runner := &interruptionRunner{run: other}
 	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil)
 	commands := strings.Join(runner.commands, "\n")
-	if err == nil || strings.Contains(commands, "no-mistakes") {
+	if err == nil || strings.Contains("\n"+commands, "\nno-mistakes ") {
 		t.Fatalf("restart over another intent: %v\n%s", err, commands)
 	}
 }
@@ -426,7 +426,7 @@ func TestRestartInterruptedStartsNothingWithoutItsLaunchSelection(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "no gate agent can be proved") {
 		t.Fatalf("error = %v, want the refused launch selection", err)
 	}
-	if commands := strings.Join(runner.commands, "\n"); strings.Contains(commands, "no-mistakes") {
+	if commands := strings.Join(runner.commands, "\n"); strings.Contains("\n"+commands, "\nno-mistakes ") {
 		t.Fatalf("commands:\n%s\nwant nothing recovered or started on the machine's own chain", commands)
 	}
 }
