@@ -148,16 +148,21 @@ type piCallAt struct {
 // branch itself moved. asked, when a reader last asked for it, is guarded by the
 // Reader's messagesMu, and everything else by mu.
 type piMessageLog struct {
-	mu    sync.Mutex
-	path  string
-	asked time.Time
+	mu          sync.Mutex
+	incarnation uint64
+	path        string
+	asked       time.Time
 
 	// offset is the byte just past the last complete line read, entries every
 	// entry read, and parsed the lines this log has parsed, which a read that
 	// finds the file unchanged never adds to.
-	offset  int64
-	entries []piRetained
-	parsed  int
+	offset       int64
+	fileState    messageFileState
+	resumeOffset int64
+	resumeLeaf   string
+	isResuming   bool
+	entries      []piRetained
+	parsed       int
 
 	leaf     string
 	messages []Message
@@ -185,6 +190,7 @@ func (l *piMessageLog) reset(epoch uint64) {
 	l.pictures = map[string]piPictureAt{}
 	l.revision = 0
 	l.epoch = epoch
+	l.isResuming = false
 	l.usage, l.window, l.windowFor = Usage{}, 0, ""
 }
 
@@ -197,22 +203,34 @@ func (l *piMessageLog) reset(epoch uint64) {
 func (l *piMessageLog) update(epoch func() uint64) error {
 	info, err := os.Stat(l.path)
 	if errors.Is(err, os.ErrNotExist) {
+		if l.fileState.info != nil {
+			l.reset(epoch())
+			l.fileState = messageFileState{}
+		}
 		return nil
 	}
 	if err != nil {
 		return err
-	}
-	if info.Size() < l.offset {
-		l.reset(epoch())
-	}
-	if info.Size() == l.offset {
-		return nil
 	}
 	file, err := fsx.Open(l.path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
+	info, err = file.Stat()
+	if err != nil {
+		return err
+	}
+	changed, err := l.fileState.changed(file, info, 0)
+	if err != nil {
+		return err
+	}
+	if changed || info.Size() < l.offset {
+		l.reset(epoch())
+	}
+	if info.Size() == l.offset {
+		return l.fileState.capture(file, info, 0, l.offset)
+	}
 	if _, err := file.Seek(l.offset, io.SeekStart); err != nil {
 		return err
 	}
@@ -234,8 +252,26 @@ func (l *piMessageLog) update(epoch func() uint64) error {
 			break
 		}
 	}
+	if err := l.fileState.capture(file, info, 0, l.offset); err != nil {
+		return err
+	}
 	if len(grown) == 0 {
+		l.isResuming = false
 		return nil
+	}
+	isResuming := l.isResuming
+	if isResuming {
+		leaf := l.resumeLeaf
+		for _, entry := range grown {
+			if entry.offset < l.resumeOffset {
+				continue
+			}
+			if (leaf == "" && entry.hasParent) || (leaf != "" && (!entry.hasParent || entry.parent != leaf)) {
+				l.epoch = epoch()
+			}
+			leaf = entry.id
+		}
+		l.isResuming = false
 	}
 	// The whole batch is kept first, so an entry after a /tree switch in the
 	// same batch is never lost to the read that moved past it.
@@ -247,7 +283,11 @@ func (l *piMessageLog) update(epoch func() uint64) error {
 		}
 		return nil
 	}
-	l.rebuild(epoch)
+	if isResuming {
+		l.rebuild(func() uint64 { return l.epoch })
+	} else {
+		l.rebuild(epoch)
+	}
 	return nil
 }
 
@@ -631,15 +671,23 @@ func (r *Reader) piLog(path string) (*piMessageLog, error) {
 	if r.Now != nil {
 		now = r.Now()
 	}
-	epoch := func() uint64 { return r.messageEpoch.Add(1) }
+	epoch := func() uint64 { return messageEpoch.Add(1) }
 	r.messagesMu.Lock()
 	if r.piLogs == nil {
 		r.piLogs = map[string]*piMessageLog{}
 	}
 	log := r.piLogs[path]
 	if log == nil {
-		log = &piMessageLog{path: path, home: r.Home}
-		log.reset(epoch())
+		log = &piMessageLog{path: path, home: r.Home, incarnation: messageEpoch.Add(1)}
+		checkpoint, ok := r.messageCheckpoints[path]
+		if ok {
+			log.reset(checkpoint.epoch)
+			log.fileState = checkpoint.fileState
+			log.resumeOffset, log.resumeLeaf, log.isResuming = checkpoint.piOffset, checkpoint.piLeaf, true
+			delete(r.messageCheckpoints, path)
+		} else {
+			log.reset(epoch())
+		}
 		r.piLogs[path] = log
 	}
 	log.asked = now
@@ -663,6 +711,12 @@ func (r *Reader) piLog(path string) (*piMessageLog, error) {
 func (r *Reader) forgetPiLogs(now time.Time) {
 	for path, log := range r.piLogs {
 		if now.Sub(log.asked) > messageLogIdle {
+			log.mu.Lock()
+			if r.messageCheckpoints == nil {
+				r.messageCheckpoints = map[string]messageCheckpoint{}
+			}
+			r.messageCheckpoints[path] = messageCheckpoint{epoch: log.epoch, fileState: log.fileState, piOffset: log.offset, piLeaf: log.leaf}
+			log.mu.Unlock()
 			delete(r.piLogs, path)
 		}
 	}
@@ -785,8 +839,8 @@ func (catalog piCatalog) window(provider, id string) int64 {
 // since is every message that began or changed after cursor, with where the
 // reader then stands, and whether the branch was taken anew.
 func (l *piMessageLog) since(cursor MessageCursor) ([]Message, MessageCursor, bool) {
-	now := MessageCursor{l.epoch, l.revision}
-	if cursor.epoch != l.epoch {
+	now := MessageCursor{l.epoch, l.revision, l.incarnation}
+	if cursor.epoch != l.epoch || cursor.incarnation != l.incarnation {
 		return nil, now, true
 	}
 	var messages []Message

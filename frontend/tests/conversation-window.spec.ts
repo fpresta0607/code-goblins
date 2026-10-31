@@ -13,7 +13,7 @@ import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
 
 const reply = (seq: number, text: string) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text }] });
 const prompt = (seq: number) => ({ id: "m" + seq, seq, at, kind: "prompt", source: "overlord", text: "Question " + seq });
-const LONG = { messages: Array.from({ length: 1000 }, (_, seq) => seq % 2 ? reply(seq, `Answer ${seq}\n\nIt runs over a few lines so the page has height.`) : prompt(seq)), more: false };
+const LONG = { messages: Array.from({ length: 1000 }, (_, seq) => seq % 2 ? reply(seq, `Answer ${seq}\n\nIt runs over a few lines so the page has height.`) : prompt(seq)), conversation: "fixture-conversation", more: false };
 const log = (page: Page) => page.getByRole("log", { name: "Messages of " + NAME });
 
 // watch records every change made in the conversation's list from now on: the
@@ -56,8 +56,8 @@ const reading = (talk: Locator) => talk.evaluate(async (element) => {
 
 for (const reset of ["before request", "during old response", "during new response"]) {
   test(`reset pagination keeps conversations separate: ${reset}`, async ({ page }) => {
-    const newest = { messages: LONG.messages.slice(50, 100), more: true };
-    const resetPage = { messages: newest.messages.map((message) => ({ ...message, id: "new-" + message.id })), more: true };
+    const newest = { messages: LONG.messages.slice(50, 100), conversation: "conversation-a", more: true };
+    const resetPage = { messages: newest.messages.map((message) => ({ ...message, id: "new-" + message.id })), conversation: "conversation-b", more: true };
     await open(page, snapshot(), "", newest);
     let release = () => {};
     const held = new Promise<void>((resolve) => { release = resolve; });
@@ -68,7 +68,7 @@ for (const reset of ["before request", "during old response", "during new respon
       const isOldResponse = reset === "during old response" && requests.length === 1;
       await held;
       const messages = LONG.messages.slice(0, 50).map((message) => ({ ...message, id: isReset && !isOldResponse ? "new-" + message.id : message.id }));
-      await route.fulfill({ json: { messages, more: false } });
+      await route.fulfill({ json: { messages, conversation: isReset && !isOldResponse ? "conversation-b" : "conversation-a", more: false } });
     });
     await openGoblin(page);
     const talk = log(page);
@@ -133,11 +133,12 @@ for (const owner of ["CFO", "goblin"]) {
 
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), board(!isWorking, 2));
       expect(await reading(talk)).toEqual(place);
-      expect(await changes(page)).toEqual([]);
+      expect(await changes(page)).toEqual(isWorking ? ["outside a message:attributes:aria-disabled"] : []);
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
       await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 0 : 1);
       await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText(isWorking ? "Queued" : "Sent");
       await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(isWorking ? 1 : 0);
+      if (isWorking) await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveAttribute("aria-disabled", "true");
 
       await page.getByRole("button", { name: "Jump to latest" }).click();
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 0 : 1);
@@ -170,7 +171,7 @@ test("following settles queued rows, delayed pictures and working-indicator geom
   await expect.poll(distance).toBeLessThanOrEqual(1);
   const height = await queued.evaluate((element) => element.getBoundingClientRect().height);
   release();
-  await expect.poll(() => queued.locator("img").evaluate((image) => image.naturalHeight)).toBe(240);
+  await expect.poll(() => queued.locator("img").evaluate((image: HTMLImageElement) => image.naturalHeight)).toBe(240);
   await expect.poll(() => queued.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(height + 200);
   await expect.poll(distance).toBeLessThanOrEqual(1);
 
@@ -203,8 +204,8 @@ for (const owner of ["CFO", "goblin"]) {
       // pending reply repeatedly, including an overlapping reconnect page.
       for (let update = 1; update <= 12; update++) {
         await page.evaluate(async ({ changed, latest, next, update }) => {
-          window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [next, changed, latest] } }));
-          if (update === 6) window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data: { messages: [latest, next], more: true } } }));
+          window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [next, changed, latest] } } }));
+          if (update === 6) window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data: { messages: [latest, next], conversation: "fixture-conversation", more: true } } }));
           await new Promise(requestAnimationFrame);
         }, { changed: reply(Number(place.id.slice(1)), "Changed history " + update), latest: reply(1000, "Pending answer " + update), next: reply(1001, "Second pending answer " + update), update });
       }
@@ -228,7 +229,7 @@ for (const owner of ["CFO", "goblin"]) {
       expect(await talk.locator("[data-message]").evaluateAll((rows) => rows.slice(-2).map((row) => row.getAttribute("data-message")))).toEqual(["m1000", "m1001"]);
       await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
       await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
-      await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [data] } })), reply(1002, "Following again"));
+      await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [data] } } })), reply(1002, "Following again"));
       await expect(talk.locator('[data-message="m1002"]')).toBeInViewport();
       expect(await talk.locator("[data-message]").count()).toBeLessThan(60);
     });
@@ -243,7 +244,7 @@ test("Jump to latest cancels an active smooth scroll and settles after pending t
   await expect(talk).toContainText("Answer 999");
   await talk.evaluate((element) => { element.scrollTop -= 2500; });
   await reading(talk);
-  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data } })),
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: data } } })),
     [reply(1000, Array.from({ length: 30 }, (_, line) => "Pending tall line " + line).join("\n\n")), reply(1001, "Actual latest reply")]);
 
   // Act: press Jump while the browser still has smooth scrolling to do.
@@ -351,7 +352,7 @@ test("an idle conversation changes nothing in the page while the board's snapsho
 
 test("a reply that grows as it streams changes its own message and at most the rows leaving the window's far edge", async ({ page }) => {
   // Arrange
-  const page50 = { messages: Array.from({ length: 50 }, (_, seq) => seq % 2 ? reply(seq, "Answer " + seq) : prompt(seq)), more: false };
+  const page50 = { messages: Array.from({ length: 50 }, (_, seq) => seq % 2 ? reply(seq, "Answer " + seq) : prompt(seq)), conversation: "fixture-conversation", more: false };
   await open(page, snapshot(), "", page50);
   await openGoblin(page);
   await expect(log(page)).toContainText("Answer 49");
@@ -363,7 +364,7 @@ test("a reply that grows as it streams changes its own message and at most the r
   // Act: the newest reply streams on in three updates, each three lines longer.
   for (const count of [3, 6, 9]) {
     const text = ["Answer 49", ...Array.from({ length: count }, (_, line) => "Streamed line " + (line + 1))].join("\n\n");
-    await page.evaluate((changed) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [changed] } })), reply(49, text));
+    await page.evaluate((changed) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [changed] } } })), reply(49, text));
     await expect(newest).toContainText("Streamed line " + count);
   }
   await page.waitForTimeout(300);
@@ -446,7 +447,7 @@ test("scrolling a few pixels at a time draws the view again only when it changes
 const WITH_CALL = { messages: [...LONG.messages.slice(0, 999), { id: "m999", seq: 999, at, kind: "reply", blocks: [
   { kind: "text", text: "Answer 999" },
   { kind: "call", tool: "Bash", subject: "go test ./...", state: "done", result: "ok  github.com/example/repo  1.2s" },
-] }], more: false };
+] }], conversation: "fixture-conversation", more: false };
 // jumpTo scrolls the list to top, repeating while the rows it reaches are drawn.
 const jumpTo = async (page: Page, top: number) => {
   for (let tries = 0; tries < 20; tries++) {
@@ -481,7 +482,7 @@ test("a fold he opened stays open after its row leaves the window and comes back
   // Act: read far up, so the row leaves the page, then come back.
   await jumpTo(page, 0);
   await expect(log(page).locator('[data-message="m999"]')).toHaveCount(0);
-  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [data] } })), reply(1000, "Arrived while the fold was off screen"));
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [data] } } })), reply(1000, "Arrived while the fold was off screen"));
   await jumpTo(page, -1);
 
   // Assert
@@ -534,7 +535,7 @@ test("a selection from an older message to the newest copies every message betwe
   }
   await expect(older).toHaveCount(1);
   await older.evaluate((row) => { document.getSelection()?.collapse(row.querySelector(".message-bubble")?.firstChild ?? row, 0); });
-  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [data] } })), reply(1000, "Arrived while the selection was held"));
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [data] } } })), reply(1000, "Arrived while the selection was held"));
 
   // Act: read down to the end, about 3,000 px, and extend the selection there,
   // as Shift+click does.
@@ -551,4 +552,3 @@ test("a selection from an older message to the newest copies every message betwe
   const selected = await page.evaluate(() => document.getSelection()?.toString() ?? "");
   for (const seq of [960, 961, 979, 998, 999]) expect(selected, "message " + seq).toContain((seq % 2 ? "Answer " : "Question ") + seq);
 });
-

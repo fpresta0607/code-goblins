@@ -10,7 +10,7 @@ test.use({ ...devices["iPhone 15"], browserName: "webkit", baseURL: PRIVATE });
 test("WebKit keeps streamed history still and a touch Jump cancels the glide to reach the coalesced latest reply", async ({ page }, info) => {
   // Arrange
   await servePages(page.context(), PRIVATE);
-  await open(page, snapshot(), "", { messages: MESSAGES, more: false });
+  await open(page, snapshot(), "", { messages: MESSAGES, conversation: "fixture-conversation", more: false });
   await openGoblin(page);
   const talk = page.getByRole("log", { name: "Messages of " + NAME });
   await expect(talk).toContainText("Answer 999");
@@ -32,7 +32,7 @@ test("WebKit keeps streamed history still and a touch Jump cancels the glide to 
   // Act
   for (let update = 1; update <= 12; update++) {
     await page.evaluate(async (data) => {
-      window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data } }));
+      window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: data } } }));
       await new Promise(requestAnimationFrame);
     }, [reply(Number(before.id.slice(1)), "Changed history " + update), reply(1000, "Newest reply " + update)]);
   }

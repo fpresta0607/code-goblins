@@ -148,7 +148,7 @@ for (const runtime of [undefined, { state: "idle" }]) {
 
 test("thinking folds to its first line and opens to its paragraphs, lists and code, never wider than the column", async ({ page }) => {
   const thought = "First **read** the change.\n\n1. Check `input`.\n2. Keep the draft.\n\n```sh\ngit status --short\n```\n\n" + "https://example.test/" + "long".repeat(80);
-  await open(page, snapshot(), "", { messages: [{ id: "thought", seq: 0, at: "2026-10-26T10:00:00Z", kind: "reply", blocks: [{ kind: "thinking", text: thought }] }], more: false });
+  await open(page, snapshot(), "", { messages: [{ id: "thought", seq: 0, at: "2026-10-26T10:00:00Z", kind: "reply", blocks: [{ kind: "thinking", text: thought }] }], conversation: "fixture-conversation", more: false });
   await openGoblin(page);
   const thinking = page.locator(".message-thinking");
   // Its first line reads as words, its markdown drawn, as Codex's reasoning

@@ -211,6 +211,10 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 400, "before names no message")
 			return
 		}
+		if query.Get("conversation") == "" {
+			apiError(w, 400, "conversation is required for older messages")
+			return
+		}
 	}
 	if h.Service.Options.Tree == nil {
 		apiError(w, 503, "Messages cannot be read")
@@ -243,6 +247,10 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 			messagesError(w, err)
 			return
 		}
+		if before >= 0 && page.Conversation != query.Get("conversation") {
+			apiError(w, http.StatusConflict, "Conversation changed")
+			return
+		}
 		respond(w, 200, page)
 	}
 }
@@ -252,7 +260,8 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 // conversation.
 func (h *HTTP) messagePage(path string, before int) (fleettree.MessagePage, fleettree.MessageCursor, error) {
 	if path == "" {
-		return fleettree.MessagePage{Messages: []fleettree.Message{}}, fleettree.MessageCursor{}, nil
+		cursor := fleettree.MessageCursor{}
+		return fleettree.MessagePage{Conversation: cursor.Conversation(), Messages: []fleettree.Message{}}, cursor, nil
 	}
 	return h.Service.Options.Tree.MessagePage(path, before)
 }
@@ -316,8 +325,11 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 	// usage tells the board what the session has spent, from what the last read
 	// already found, so the footer's stats keep up with its turns.
 	usage := func() bool {
-		if held := h.Service.Options.Tree.Usage(path); held != nil && (lastUsage == nil || *held != *lastUsage) {
-			if !send("usage", held) {
+		if held := h.Service.Options.Tree.UsageAt(path, cursor); held != nil && (lastUsage == nil || *held != *lastUsage) {
+			if !send("usage", struct {
+				Conversation string           `json:"conversation"`
+				Usage        *fleettree.Usage `json:"usage"`
+			}{cursor.Conversation(), held}) {
 				return false
 			}
 			lastUsage = held
@@ -387,7 +399,10 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				}
 			default:
 				cursor = now
-				if len(messages) > 0 && !send("messages", messages) {
+				if len(messages) > 0 && !send("messages", struct {
+					Conversation string              `json:"conversation"`
+					Messages     []fleettree.Message `json:"messages"`
+				}{cursor.Conversation(), messages}) {
 					return
 				}
 				if !usage() {

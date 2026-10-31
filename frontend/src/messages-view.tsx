@@ -8,14 +8,15 @@ import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow } from "./mes
 import { takesMessages } from "./messages";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
-import { parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
+import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
+import { useTerminalLink } from "./terminal-link";
 import { usageReadings } from "./session-usage";
 import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
-import { usePendingSends } from "./pending-sends";
+import { usePendingSends, type PendingSend } from "./pending-sends";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
@@ -37,6 +38,7 @@ const OLDER_TRIES = 3;
 // A row with no folds open, shared so its props stay the same.
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
+type PublishedMessages = MessagePage & { isWorking: boolean; said: string; canStop: boolean; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
 
 // A Claude Code session's messages, read only: the supervisor's stream of
 // them (/api/messages), drawn as the session's conversation. It sits in the
@@ -63,9 +65,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
+  const link = useTerminalLink(terminal);
+  const said = link?.screen?.isWorking && link.screen.doing || "";
+  const canStop = !!link && !(task && takesMessages(task)) && !link.held;
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<MessagePage & { isWorking: boolean }>({ messages: [], more: false, isWorking });
+  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking, said, canStop, isLive: false, task, sent, pending, sending });
   const heldValue = useRef(held);
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
@@ -88,10 +93,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // scroll top the list last put itself at to show its end.
   const following = useRef(true);
   useLayoutEffect(() => {
-    if (latest.current.isWorking === isWorking) return;
-    latest.current = { ...latest.current, isWorking };
+    latest.current = { ...latest.current, isWorking, said, canStop, isLive: phase === "live", task, sent, pending, sending };
     if (following.current) setHeld(latest.current);
-  }, [isWorking]);
+  }, [isWorking, said, canStop, phase, task, sent, pending, sending]);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const pinnedTo = useRef(-1);
   // The page holds only the rows within reach of where he reads
@@ -181,7 +185,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
       heard();
-      latest.current = { ...change(latest.current), isWorking: latest.current.isWorking };
+      latest.current = { ...latest.current, ...change(latest.current) };
       if (following.current) setHeld(latest.current);
       setReconnecting(false);
       setPhase("live");
@@ -194,10 +198,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
-      try { const changed = parseMessages(JSON.parse(event.data)); take((prior) => ({ ...prior, messages: changeMessages(prior.messages, changed) })); } catch { invalid(); }
+      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed) }; }); } catch { invalid(); }
     });
     stream.addEventListener("usage", (event: MessageEvent<string>) => {
-      try { const usage = parseUsage(JSON.parse(event.data)); take((prior) => usage ? { ...prior, usage } : prior); } catch { invalid(); }
+      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const usage = parseUsage(data.usage); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, usage }; }); } catch { invalid(); }
     });
     stream.addEventListener("unavailable", (event: MessageEvent<string>) => {
       let why = "";
@@ -240,16 +244,17 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const readOlder = useCallback(() => {
     const first = heldValue.current.messages[0];
     const failed = olderFailures.current;
-    if (readingOlder.current || !heldValue.current.more || !first || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
+    const conversation = heldValue.current.conversation;
+    if (readingOlder.current || !conversation || conversation !== latest.current.conversation || !heldValue.current.more || !first || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
     readingOlder.current = true;
-    request(address({ before: String(first.seq) })).then((value) => {
+    request(address({ before: String(first.seq), conversation })).then((value) => {
       const page = parsePage(value);
       readingOlder.current = false;
       olderFailures.current = { count: 0, at: 0 };
       // A page of a conversation the view no longer shows is dropped.
-      if (heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || !latest.current.messages.some((message) => message.id === first.id && message.seq === first.seq)) return;
+      if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq) return;
       latest.current = { ...latest.current, ...olderMessages(latest.current, page) };
-      setHeld((prior) => prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq && latest.current.messages.some((message) => message.id === first.id && message.seq === first.seq) ? { ...prior, ...olderMessages(prior, page) } : prior);
+      setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);
     }).catch((error: unknown) => {
       readingOlder.current = false;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
@@ -431,7 +436,12 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const taskID = task?.id;
   const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
-  const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
+  const taskValue = useRef(task);
+  useLayoutEffect(() => { taskValue.current = task; }, [task]);
+  const openChild = useCallback((child: TreeNode, source: HTMLElement) => {
+    const current = taskValue.current?.tree?.children.find((each) => each.id === child.id);
+    if (current) onChildValue.current(current, source);
+  }, []);
   useLayoutEffect(() => {
     const box = list.current;
     if (!box || !focusedRow.current || document.activeElement !== document.body) return;
@@ -461,10 +471,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // loaded. A send the board has not taken yet names no time, so an earlier
   // message of the same words never hides it.
   const rows = [...his];
-  const waiting = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
+  const waiting = [...held.pending, ...held.sending.filter((send) => send.task === (held.task?.id ?? "") && !held.pending.some((action) => action.id === send.id)).map((send) =>
     parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
   const read = new Set<string>();
-  const owners = sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
+  const owners = held.sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
   for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
     const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && (action.status !== "succeeded" || Date.parse(each.at) <= Date.parse(action.updated_at)) && sameWords(each.text, action.text));
     if (row < 0) continue;
@@ -494,21 +504,21 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
             ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
               harness={harness} isTurnEnd={ends.has(message.id)}
-              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
+              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {/* While the view connects it shows nothing that waits on the
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && phase === "live" && held.isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
+          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking terminal={terminal} said={held.said} canStop={held.canStop} isAllowed={canStop} ink={harnessInk(harness)} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
               messages doesn't really work"), so whatever the session prints
               comes before them and the list, following its end, keeps them
               right above the box. */}
-          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" isWorking={held.isWorking} />)}
+          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" isWorking={held.isWorking} liveIsWorking={isWorking} />)}
         </div>
       </div>
       {phase === "live" && !held.messages.length && !queued.length && <p className="messages-empty" role="status">No messages yet</p>}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,50 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+func TestOlderMessagesRequireMatchingConversationIdentity(t *testing.T) {
+	store, taskHome := testStore(t)
+	profile := t.TempDir()
+	meta := codexGoblin(t, taskHome.State, profile, "codgester", "s1")
+	handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "127.0.0.1:50000", nil)
+	query := "task=" + meta.ID + "&generation=s1&token=board-token"
+	get := func(extra string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest("GET", "http://"+handler.Host+"/api/messages?"+query+extra, nil)
+		request.RemoteAddr = "127.0.0.1:50001"
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	page := get("")
+	var wire struct {
+		Conversation string `json:"conversation"`
+	}
+	if page.Code != 200 || json.Unmarshal(page.Body.Bytes(), &wire) != nil || wire.Conversation == "" {
+		t.Fatalf("newest page lacks identity: %d %s", page.Code, page.Body)
+	}
+	if response := get("&before=1"); response.Code != http.StatusBadRequest {
+		t.Fatalf("older request without identity: %d %s", response.Code, response.Body)
+	}
+	older := "&before=1&conversation=" + url.QueryEscape(wire.Conversation)
+	if response := get(older); response.Code != http.StatusOK {
+		t.Fatalf("older request with matching identity: %d %s", response.Code, response.Body)
+	}
+	path := fleettree.SessionTranscript(profile, "codex", "codgester-session")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := strings.Replace(string(data), "Why is the card red?", "Why is the card tan?", 1)
+	if replaced == string(data) {
+		t.Fatal("fixture text missing")
+	}
+	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if response := get(older); response.Code != http.StatusConflict {
+		t.Fatalf("older request after replacement: %d %s", response.Code, response.Body)
+	}
+}
 
 // codexGoblin is a task running Codex whose conversation the board recorded,
 // with the rollout Codex writes as it works.
@@ -212,8 +257,17 @@ func TestCodexUsageStreamsAfterTheLastMessage(t *testing.T) {
 				t.Fatalf("no %s event: %v", want, scanner.Err())
 				return ""
 			}
-			read("page")
-			read("usage")
+			var page fleettree.MessagePage
+			if err := json.Unmarshal([]byte(read("page")), &page); err != nil || page.Conversation == "" {
+				t.Fatalf("page identity: %+v %v", page, err)
+			}
+			var initial struct {
+				Conversation string          `json:"conversation"`
+				Usage        fleettree.Usage `json:"usage"`
+			}
+			if err := json.Unmarshal([]byte(read("usage")), &initial); err != nil || initial.Conversation != page.Conversation {
+				t.Fatalf("usage identity: %+v %v", initial, err)
+			}
 			path := fleettree.SessionTranscript(profile, "codex", "codgester-session")
 			for _, update := range []struct {
 				records []string
@@ -226,12 +280,15 @@ func TestCodexUsageStreamsAfterTheLastMessage(t *testing.T) {
 				appendEntries(t, path, update.records...)
 
 				// Assert: the same connection emits usage without another page or message.
-				var usage fleettree.Usage
-				if err := json.Unmarshal([]byte(read("usage")), &usage); err != nil {
+				var event struct {
+					Conversation string          `json:"conversation"`
+					Usage        fleettree.Usage `json:"usage"`
+				}
+				if err := json.Unmarshal([]byte(read("usage")), &event); err != nil {
 					t.Fatal(err)
 				}
-				if usage != update.want {
-					t.Fatalf("usage = %+v, want %+v", usage, update.want)
+				if event.Conversation != page.Conversation || event.Usage != update.want {
+					t.Fatalf("usage = %+v, want %+v for %q", event, update.want, page.Conversation)
 				}
 			}
 		})

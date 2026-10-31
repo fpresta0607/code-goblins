@@ -12,7 +12,7 @@ for (const width of [1440, 390]) {
     await field(page).fill("keep this draft");
     await expect(context(page)).toHaveAttribute("aria-valuenow", "24");
 
-    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), more: false });
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: PAGE.messages.slice(0, 1), conversation: "replacement-conversation", more: false });
 
     await expect(context(page)).toHaveCount(0);
     await expect(box(page)).not.toContainText(/24k|recorded-model|unavailable/);
@@ -57,7 +57,7 @@ for (const width of [1440, 390]) {
       await expect(page.locator(".panel-top").getByRole("button", { name: "Open in Windows Terminal", exact: true })).toHaveCount(0);
       await expect(field(page, name)).toHaveValue("preserve this draft from speech");
       expect(typed(relay)).toBe("");
-      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
+      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { ...USAGE, context_tokens: 72000, model: "changed-model" });
       await expect(context(page)).toHaveAttribute("aria-valuenow", "72");
       await expect(composer.locator(".engine-control-model")).toHaveText("Changed Model");
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision: 2, cfo_harness: "codex", cfo_terminal: "new-cfo" }, { harness: "codex", generation: "replacement" }));
@@ -166,7 +166,7 @@ for (const harness of ["codex", "claude", "pi"] as const) {
       await expect(field(page, name)).toHaveValue("my unsent words");
       await expect(control).toContainText(shown);
       // The session's own record then says what it runs, which both views read.
-      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded(setting === "model" ? value : session.model, setting === "effort" ? value : session.effort));
+      await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded(setting === "model" ? value : session.model, setting === "effort" ? value : session.effort));
       await expect(control).toContainText(shown);
       // The controls stay guarded as before: held typing and an ended
       // terminal disable them, and the draft stays.
@@ -192,7 +192,7 @@ test("a setting changed in Classic shows in Modern's controls, from the session'
   await expect(effort).toHaveText("xhigh");
 
   // Act: the harness's own menu, in Classic, set them; its record says so.
-  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded("claude-sonnet-5-5", "low"));
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded("claude-sonnet-5-5", "low"));
 
   // Assert
   await expect(model).toHaveText("Sonnet 5.5");
@@ -209,7 +209,7 @@ test("a pane pick gives way once the session's record says something new, and ne
   await box(page).getByRole("button", { name: "Change model", exact: true }).click();
   await box(page).getByRole("menu", { name: "Effort", exact: true }).getByRole("menuitemradio", { name: "max", exact: true }).click();
   await expect(effort).toHaveText("max");
-  const record = (usage: object) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data } })), usage);
+  const record = (usage: object) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage: data } } })), usage);
 
   // Act: the record says the session runs high, then xhigh again.
   await record(recorded("claude-opus-5-5", "high"));
@@ -389,7 +389,7 @@ test("a Codex model typed after /model keeps the session's effort when its catal
   relay.say({ type: "screen", asking: false, open: false, working: false });
   const control = box(page).getByRole("button", { name: "Change model", exact: true });
   await expect(control, "a typed value waits for the session's record").toContainText("GPT-6 Astra");
-  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded("gpt-6.1-sol", "high"));
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded("gpt-6.1-sol", "high"));
   await expect(control).toContainText("GPT-6.1 Sol");
 });
 
@@ -414,7 +414,7 @@ test("a value typed after the command shows on its control only once the session
   await field(page).press("Enter");
   await expect.poll(() => typed(relay)).toBe(pasted("/effort hgih") + "\r" + pasted("/effort high") + "\r");
   await expect(effort).toHaveText("xhigh");
-  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: usage } })), recorded("claude-opus-5-5", "high"));
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), recorded("claude-opus-5-5", "high"));
   await expect(effort).toHaveText("high");
 });
 

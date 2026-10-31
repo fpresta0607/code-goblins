@@ -14,14 +14,14 @@ for (const who of ["CFO", "goblin"] as const) {
     await expect(log).toContainText("On it.");
     await field(page, name).fill("continue from this draft");
 
-    await page.evaluate((at) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: [
+    await page.evaluate((at) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [
       { id: "m2", seq: 2, at, kind: "reply", blocks: [
         { kind: "thinking", text: "A published **summary**.\n\n- Read the file.\n- Keep its order." },
         { kind: "call", tool: "exec_command", subject: "git status --short", state: "done", result: " M frontend/src/App.tsx" },
         { kind: "call", tool: "apply_patch", subject: "src/example.ts", state: "done", edit: { added: 1, removed: 1, diff: ["-old", "+new"] } },
         { kind: "text", text: "The latest reply arrived." },
       ] },
-    ] } })), at);
+    ] } } })), at);
     await expect(log).toContainText("The latest reply arrived.");
     await log.locator(".message-thinking summary").click();
     await expect(log.locator(".message-thinking li")).toHaveText(["Read the file.", "Keep its order."]);
@@ -62,7 +62,7 @@ for (const who of ["CFO", "goblin"] as const) {
 
 test("Codex messages keep scrolling and a gate-held draft is durable without terminal input", async ({ page }) => {
   const relay = await open(page, snapshot({}, { harness: "codex" }), "", {
-    messages: Array.from({ length: 45 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + ": " + "readable text ".repeat(40) })), more: false,
+    messages: Array.from({ length: 45 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + ": " + "readable text ".repeat(40) })), conversation: "fixture-conversation", more: false,
   });
   await openGoblin(page);
   const conversation = page.locator(".conversation");

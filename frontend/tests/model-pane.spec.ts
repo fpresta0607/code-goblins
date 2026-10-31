@@ -220,7 +220,7 @@ test("the keyboard reaches a model's efforts with the right arrow and comes back
 test("each effort wears in the pane the colour it wears on the model button once picked", async ({ page }) => {
   // Arrange
   const { control, flyout } = await setUp(page);
-  const record = (effort: string) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data } })), { ...RECORD, effort });
+  const record = (effort: string) => page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage: data } } })), { ...RECORD, effort });
   const look = (element: Element) => [getComputedStyle(element).color, getComputedStyle(element).backgroundImage].join(" ");
 
   for (const level of ["low", "medium", "high", "xhigh", "max"]) {

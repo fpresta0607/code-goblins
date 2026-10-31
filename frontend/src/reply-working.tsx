@@ -22,12 +22,11 @@ import "./reply-working.css";
 // whose messages queue through the board) or while typing is held, it only
 // says the session works. It reads no clock: a hint that counted how long it
 // had worked drew it again every second, 83 times in 20 s on an idle panel.
-export function ReplyWorking({ terminal, ink, canStop }: { terminal: string; ink: string; canStop: boolean }) {
+export function ReplyWorking({ terminal, ink, canStop, isAllowed, said }: { terminal: string; ink: string; canStop: boolean; isAllowed: boolean; said: string }) {
   const link = useTerminalLink(terminal);
-  const said = link?.screen?.isWorking && link.screen.doing || "";
   return <div className="reply-working">
     <WorkingIndicator ink={ink} label={said || "Working"} />
     <WorkingWord said={said} />
-    {link && canStop && !link.held && <button type="button" className="reply-stop" aria-label="Stop" onClick={() => link.escape()}><Icon name="stop-circle" /></button>}
+    {canStop && <button type="button" className="reply-stop" aria-label="Stop" aria-disabled={!isAllowed} onClick={() => { if (isAllowed && link && !link.held) link.escape(); }}><Icon name="stop-circle" /></button>}
   </div>;
 }

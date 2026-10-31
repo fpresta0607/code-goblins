@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"cmp"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -17,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -228,9 +231,10 @@ const (
 // older messages come before its first, with what the session's usage says
 // as far as the conversation records it.
 type MessagePage struct {
-	Messages []Message `json:"messages"`
-	More     bool      `json:"more"`
-	Usage    *Usage    `json:"usage,omitempty"`
+	Conversation string    `json:"conversation"`
+	Messages     []Message `json:"messages"`
+	More         bool      `json:"more"`
+	Usage        *Usage    `json:"usage,omitempty"`
 }
 
 // Usage is what a session has spent, read from its own conversation: its
@@ -268,7 +272,75 @@ func (u *Usage) add(input, output, cacheRead int64, model string) {
 // of the conversation it last had messages from and how many changes it had
 // seen by then.
 type MessageCursor struct {
-	epoch, revision uint64
+	epoch, revision, incarnation uint64
+}
+
+var messageIdentitySeed = rand.Text()
+
+var messageEpoch atomic.Uint64
+
+func (cursor MessageCursor) Conversation() string {
+	if cursor.epoch == 0 {
+		return "empty"
+	}
+	return fmt.Sprintf("%s-%x", messageIdentitySeed, cursor.epoch)
+}
+
+type messageFileState struct {
+	info                 os.FileInfo
+	size                 int64
+	prefix, tail         [32]byte
+	prefixOffset         int64
+	prefixSize, tailSize int64
+}
+
+type messageCheckpoint struct {
+	epoch     uint64
+	fileState messageFileState
+	piOffset  int64
+	piLeaf    string
+}
+
+func (state *messageFileState) changed(file *os.File, info os.FileInfo, allowedFrom int64) (bool, error) {
+	if state.info == nil {
+		return false, nil
+	}
+	if !os.SameFile(state.info, info) || info.Size() < state.size || (info.Size() == state.info.Size() && !info.ModTime().Equal(state.info.ModTime())) {
+		return true, nil
+	}
+	for _, sample := range []struct {
+		offset, size int64
+		hash         [32]byte
+	}{{state.prefixOffset, state.prefixSize, state.prefix}, {state.size - state.tailSize, state.tailSize, state.tail}} {
+		if sample.size == 0 || sample.offset < allowedFrom {
+			continue
+		}
+		data := make([]byte, sample.size)
+		if _, err := file.ReadAt(data, sample.offset); err != nil {
+			return false, err
+		}
+		if sha256.Sum256(data) != sample.hash {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (state *messageFileState) capture(file *os.File, info os.FileInfo, from, size int64) error {
+	prefixSize := min(size-from, int64(4096))
+	tailSize := min(size-from, int64(4096))
+	prefix := make([]byte, prefixSize)
+	tail := make([]byte, tailSize)
+	if prefixSize > 0 {
+		if _, err := file.ReadAt(prefix, from); err != nil {
+			return err
+		}
+		if _, err := file.ReadAt(tail, size-tailSize); err != nil {
+			return err
+		}
+	}
+	*state = messageFileState{info: info, size: size, prefix: sha256.Sum256(prefix), tail: sha256.Sum256(tail), prefixOffset: from, prefixSize: prefixSize, tailSize: tailSize}
+	return nil
 }
 
 // messageLog is one Claude Code conversation read as messages, kept between
@@ -280,7 +352,9 @@ type messageLog struct {
 	path  string
 	asked time.Time
 
-	mu sync.Mutex
+	mu          sync.Mutex
+	incarnation uint64
+	fileState   messageFileState
 	messageState
 }
 
@@ -405,7 +479,15 @@ func (l *messageLog) update(epoch func() uint64, reach int64) error {
 	if err != nil {
 		return err
 	}
-	if info.Size() < l.read {
+	allowedFrom := int64(0)
+	if reach > 0 {
+		allowedFrom = max(0, info.Size()-reach)
+	}
+	changed, err := l.fileState.changed(file, info, allowedFrom)
+	if err != nil {
+		return err
+	}
+	if changed || info.Size() < l.read {
 		l.reset(epoch())
 	}
 	if l.read == 0 && reach > 0 && info.Size() > reach {
@@ -421,7 +503,10 @@ func (l *messageLog) update(epoch func() uint64, reach int64) error {
 			start += int64(len(line)) + 1
 		}
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return l.fileState.capture(file, info, min(l.read, max(l.from, allowedFrom)), l.read)
 }
 
 // entryAfter is where the first entry at or after offset begins: just past
@@ -467,7 +552,38 @@ func (l *messageLog) readWhole(epoch func() uint64) {
 			l.wholeErr = err
 			return
 		}
+		file, err := fsx.Open(l.path)
+		if err != nil {
+			l.wholeErr = err
+			return
+		}
+		info, err := file.Stat()
+		if err == nil {
+			var changed bool
+			changed, err = whole.fileState.changed(file, info, 0)
+			if err == nil && changed {
+				err = errors.New("conversation changed during whole read")
+			}
+		}
+		if err == nil {
+			var changed bool
+			changed, err = l.fileState.changed(file, info, 0)
+			if err == nil && changed && whole.epoch == 0 {
+				whole.epoch = epoch()
+			}
+		}
+		file.Close()
+		if err != nil {
+			l.wholeErr = err
+			return
+		}
+		if whole.epoch != 0 {
+			l.messageState = whole.messageState
+			l.fileState = whole.fileState
+			return
+		}
 		l.adopt(whole.messageState, epoch)
+		l.fileState = whole.fileState
 	}()
 }
 
@@ -1036,15 +1152,22 @@ func (r *Reader) messageLog(path string) (*messageLog, error) {
 	if r.Now != nil {
 		now = r.Now()
 	}
-	epoch := func() uint64 { return r.messageEpoch.Add(1) }
+	epoch := func() uint64 { return messageEpoch.Add(1) }
 	r.messagesMu.Lock()
 	if r.messageLogs == nil {
 		r.messageLogs = map[string]*messageLog{}
 	}
 	log := r.messageLogs[path]
 	if log == nil {
-		log = &messageLog{path: path}
-		log.reset(epoch())
+		log = &messageLog{path: path, incarnation: messageEpoch.Add(1)}
+		checkpoint, ok := r.messageCheckpoints[path]
+		if ok {
+			log.reset(checkpoint.epoch)
+			log.fileState = checkpoint.fileState
+			delete(r.messageCheckpoints, path)
+		} else {
+			log.reset(epoch())
+		}
 		r.messageLogs[path] = log
 	}
 	log.asked = now
@@ -1068,6 +1191,12 @@ func (r *Reader) messageLog(path string) (*messageLog, error) {
 func (r *Reader) forgetIdleMessages(now time.Time) {
 	for path, log := range r.messageLogs {
 		if now.Sub(log.asked) > messageLogIdle {
+			log.mu.Lock()
+			if r.messageCheckpoints == nil {
+				r.messageCheckpoints = map[string]messageCheckpoint{}
+			}
+			r.messageCheckpoints[path] = messageCheckpoint{epoch: log.epoch, fileState: log.fileState}
+			log.mu.Unlock()
 			delete(r.messageLogs, path)
 		}
 	}
@@ -1085,7 +1214,10 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 			return MessagePage{}, MessageCursor{}, err
 		}
 		defer log.mu.Unlock()
-		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+		cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
+		page := log.page(before)
+		page.Conversation = cursor.Conversation()
+		return page, cursor, nil
 	}
 	if isCodexRollout(path) {
 		log, err := r.codexLog(path)
@@ -1093,7 +1225,10 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 			return MessagePage{}, MessageCursor{}, err
 		}
 		defer log.mu.Unlock()
-		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+		cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
+		page := log.page(before)
+		page.Conversation = cursor.Conversation()
+		return page, cursor, nil
 	}
 	log, err := r.messageLog(path)
 	if err != nil {
@@ -1109,7 +1244,7 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 			if isRetried {
 				return MessagePage{}, MessageCursor{}, log.wholeErr
 			}
-			log.readWhole(func() uint64 { return r.messageEpoch.Add(1) })
+			log.readWhole(func() uint64 { return messageEpoch.Add(1) })
 			isRetried = true
 		}
 		whole := log.whole
@@ -1117,7 +1252,36 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 		<-whole
 		log.mu.Lock()
 	}
-	return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+	cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
+	page := log.page(before)
+	page.Conversation = cursor.Conversation()
+	return page, cursor, nil
+}
+
+func (r *Reader) UsageAt(path string, cursor MessageCursor) *Usage {
+	r.messagesMu.Lock()
+	pi, codex, claude := r.piLogs[path], r.codexLogs[path], r.messageLogs[path]
+	r.messagesMu.Unlock()
+	if pi != nil {
+		pi.mu.Lock()
+		defer pi.mu.Unlock()
+		if pi.epoch == cursor.epoch && pi.incarnation == cursor.incarnation {
+			return usageOf(pi.usage, pi.window)
+		}
+	} else if codex != nil {
+		codex.mu.Lock()
+		defer codex.mu.Unlock()
+		if codex.epoch == cursor.epoch && codex.incarnation == cursor.incarnation {
+			return usageOf(codex.usage, codex.usage.ContextWindow)
+		}
+	} else if claude != nil {
+		claude.mu.Lock()
+		defer claude.mu.Unlock()
+		if claude.epoch == cursor.epoch && claude.incarnation == cursor.incarnation && claude.from == 0 {
+			return usageOf(claude.usage, claude.window)
+		}
+	}
+	return nil
 }
 
 // MessagesSince reads the Claude Code conversation at path on and returns
@@ -1149,8 +1313,8 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		return nil, MessageCursor{}, false, err
 	}
 	defer log.mu.Unlock()
-	now = MessageCursor{log.epoch, log.revision}
-	if cursor.epoch != log.epoch {
+	now = MessageCursor{log.epoch, log.revision, log.incarnation}
+	if cursor.epoch != log.epoch || cursor.incarnation != log.incarnation {
 		return nil, now, true, nil
 	}
 	for i, changed := range log.changed {

@@ -214,11 +214,14 @@ func TestPiUsageStreamsAgainAfterAnEmptyBranchReset(t *testing.T) {
 		return ""
 	}
 	read("page")
-	var before fleettree.Usage
+	var before struct {
+		Conversation string          `json:"conversation"`
+		Usage        fleettree.Usage `json:"usage"`
+	}
 	if err := json.Unmarshal([]byte(read("usage")), &before); err != nil {
 		t.Fatal(err)
 	}
-	if before.InputTokens != 50 || before.ContextTokens != 60 {
+	if before.Conversation == "" || before.Usage.InputTokens != 50 || before.Usage.ContextTokens != 60 {
 		t.Fatalf("initial usage = %+v", before)
 	}
 
@@ -238,12 +241,21 @@ func TestPiUsageStreamsAgainAfterAnEmptyBranchReset(t *testing.T) {
 	appendEntries(t, path, `{"type":"message","id":"a4","parentId":"u2",`+usageMessage)
 
 	// Assert: it is sent again after the reset on the same stream.
-	read("messages")
-	var after fleettree.Usage
+	var messages struct {
+		Conversation string              `json:"conversation"`
+		Messages     []fleettree.Message `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(read("messages")), &messages); err != nil || messages.Conversation != reset.Conversation || len(messages.Messages) == 0 {
+		t.Fatalf("messages after reset = %+v, %v", messages, err)
+	}
+	var after struct {
+		Conversation string          `json:"conversation"`
+		Usage        fleettree.Usage `json:"usage"`
+	}
 	if err := json.Unmarshal([]byte(read("usage")), &after); err != nil {
 		t.Fatal(err)
 	}
-	if after != before {
+	if after.Conversation != reset.Conversation || after.Conversation == before.Conversation || after.Usage != before.Usage {
 		t.Fatalf("usage after reset = %+v, want %+v", after, before)
 	}
 }

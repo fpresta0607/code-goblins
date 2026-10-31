@@ -227,7 +227,7 @@ test("Up in an empty box recalls what he sent before, newest first, and Down wal
     { id: "p2", seq: 2, at: at2, kind: "prompt", source: "cfo", text: "A note from the CFO" },
     { id: "p3", seq: 3, at: at2, kind: "prompt", source: "slash", text: "/cost", output: "Total cost: $0.12" },
     { id: "p4", seq: 4, at: at2, kind: "prompt", source: "overlord", text: "Now fix the swipe" },
-  ], more: false });
+  ], conversation: "fixture-conversation", more: false });
   await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [{ name: "cost", description: "Show the session's cost", source: "builtin" }] } }));
   await openGoblin(page);
 
@@ -649,7 +649,7 @@ test("a delivered message appears once in Modern chat, every pending message wai
   const actions = Array.from({ length: 8 }, (_, index) => ({ id: "q" + index, kind: "message", task_id: "cg-touch", text: "queued request " + index, status: "queued" }));
   await open(page, snapshot({ actions: [...actions, { id: "delivered", kind: "message", task_id: "cg-touch", text: "already in the conversation", status: "done" }] }), "", {
     messages: [{ id: "sent", seq: 0, kind: "prompt", source: "overlord", text: "already in the conversation" },
-      { id: "long", seq: 1, kind: "reply", blocks: [{ kind: "text", text: "Earlier conversation paragraph.\n\n".repeat(80) }] }], more: false,
+      { id: "long", seq: 1, kind: "reply", blocks: [{ kind: "text", text: "Earlier conversation paragraph.\n\n".repeat(80) }] }], conversation: "fixture-conversation", more: false,
   });
   await openGoblin(page);
   const conversation = page.getByRole("log", { name: "Messages of " + NAME });
@@ -668,7 +668,7 @@ test("a queued message waits at the end of a long conversation he reads far up, 
   // Arrange: a long conversation, read about 3,000 px up from its end.
   const reply = (seq: number) => ({ id: "m" + seq, seq, kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq + "\n\n" + "A reply that runs over a few lines. ".repeat(12) }] });
   const messages = Array.from({ length: 200 }, (_, seq) => seq % 2 ? reply(seq) : { id: "m" + seq, seq, kind: "prompt", source: "overlord", text: "Question " + seq });
-  await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: "cg-touch", text: "queued while it works", status: "queued" }] }), "", { messages, more: false });
+  await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: "cg-touch", text: "queued while it works", status: "queued" }] }), "", { messages, conversation: "fixture-conversation", more: false });
   await openGoblin(page);
   const conversation = page.getByRole("log", { name: "Messages of " + NAME });
   await expect(conversation).toContainText("Answer 199");

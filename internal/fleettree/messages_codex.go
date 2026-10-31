@@ -109,15 +109,17 @@ type codexChange struct {
 // last asked for it, is guarded by the Reader's messagesMu, and everything
 // else by mu.
 type codexMessageLog struct {
-	mu    sync.Mutex
-	path  string
-	asked time.Time
+	mu          sync.Mutex
+	incarnation uint64
+	path        string
+	asked       time.Time
 
-	read     int64
-	epoch    uint64
-	messages []Message
-	changed  []uint64
-	revision uint64
+	read      int64
+	fileState messageFileState
+	epoch     uint64
+	messages  []Message
+	changed   []uint64
+	revision  uint64
 	// reply is the message the assistant's next block belongs to, -1 when
 	// the next block begins one, and model the model of the turn being read.
 	reply    int
@@ -150,7 +152,11 @@ func (l *codexMessageLog) update(epoch func() uint64) error {
 	if err != nil {
 		return err
 	}
-	if info.Size() < l.read {
+	changed, err := l.fileState.changed(file, info, 0)
+	if err != nil {
+		return err
+	}
+	if changed || info.Size() < l.read {
 		l.reset(epoch())
 	}
 	l.read, err = readOn(file, l.read, info.Size(), func(start int64, lines [][]byte) {
@@ -159,7 +165,10 @@ func (l *codexMessageLog) update(epoch func() uint64) error {
 			start += int64(len(line)) + 1
 		}
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return l.fileState.capture(file, info, 0, l.read)
 }
 
 // entry folds one rollout entry, at offset in the file, into the log.
@@ -516,8 +525,8 @@ func (l *codexMessageLog) page(before int) MessagePage {
 // since is every message that began or changed after cursor, with where the
 // reader then stands.
 func (l *codexMessageLog) since(cursor MessageCursor) ([]Message, MessageCursor, bool) {
-	now := MessageCursor{l.epoch, l.revision}
-	if cursor.epoch != l.epoch {
+	now := MessageCursor{l.epoch, l.revision, l.incarnation}
+	if cursor.epoch != l.epoch || cursor.incarnation != l.incarnation {
 		return nil, now, true
 	}
 	var messages []Message
@@ -542,15 +551,22 @@ func (r *Reader) codexLog(path string) (*codexMessageLog, error) {
 	if r.Now != nil {
 		now = r.Now()
 	}
-	epoch := func() uint64 { return r.messageEpoch.Add(1) }
+	epoch := func() uint64 { return messageEpoch.Add(1) }
 	r.messagesMu.Lock()
 	if r.codexLogs == nil {
 		r.codexLogs = map[string]*codexMessageLog{}
 	}
 	log := r.codexLogs[path]
 	if log == nil {
-		log = &codexMessageLog{path: path}
-		log.reset(epoch())
+		log = &codexMessageLog{path: path, incarnation: messageEpoch.Add(1)}
+		checkpoint, ok := r.messageCheckpoints[path]
+		if ok {
+			log.reset(checkpoint.epoch)
+			log.fileState = checkpoint.fileState
+			delete(r.messageCheckpoints, path)
+		} else {
+			log.reset(epoch())
+		}
 		r.codexLogs[path] = log
 	}
 	log.asked = now
@@ -574,6 +590,12 @@ func (r *Reader) codexLog(path string) (*codexMessageLog, error) {
 func (r *Reader) forgetCodexLogs(now time.Time) {
 	for path, log := range r.codexLogs {
 		if now.Sub(log.asked) > messageLogIdle {
+			log.mu.Lock()
+			if r.messageCheckpoints == nil {
+				r.messageCheckpoints = map[string]messageCheckpoint{}
+			}
+			r.messageCheckpoints[path] = messageCheckpoint{epoch: log.epoch, fileState: log.fileState}
+			log.mu.Unlock()
 			delete(r.codexLogs, path)
 		}
 	}

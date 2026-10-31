@@ -15,7 +15,7 @@ export const OTHER = { ...GOBLIN, id: "cg-other", title: "Another goblin; Claude
 export const snapshot = (fields: Record<string, unknown> = {}, goblin: Record<string, unknown> = {}) => ({
   healthy: true, instance: "fixture", revision: 1, attention: [], cfo_runs: true, cfo_terminal: "cfo-term", cfo_harness: "claude", afk: { state: "off" }, tasks: [{ ...GOBLIN, ...goblin }, OTHER], ...fields,
 });
-export const PAGE = { messages: [{ id: "m0", seq: 0, at, kind: "prompt", source: "overlord", text: "Read the brief" }, { id: "m1", seq: 1, at, kind: "reply", blocks: [{ kind: "text", text: "On it." }] }], more: false };
+export const PAGE = { messages: [{ id: "m0", seq: 0, at, kind: "prompt", source: "overlord", text: "Read the brief" }, { id: "m1", seq: 1, at, kind: "reply", blocks: [{ kind: "text", text: "On it." }] }], conversation: "fixture-conversation", more: false };
 export const NAME = "Zeke - Touch Wrangler";
 // A paste in a program that turned bracketed paste on.
 export const pasted = (text: string) => "\x1b[200~" + text + "\x1b[201~";

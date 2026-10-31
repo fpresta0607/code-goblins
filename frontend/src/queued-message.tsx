@@ -41,7 +41,7 @@ export const QUEUED_NOTICE = "cfo-queued-notice";
 // for it, and only where the harness has one (the Overlord, 2026-10-30: "when
 // sent now it actually sends now same way termianl expereince down with ctrl
 // x crtl s").
-export const QueuedMessage = memo(function QueuedMessage({ action, instance, name, variant, isWorking = false, onDeleted }: QueuedProps) {
+export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, instance, name, variant, isWorking = false, liveIsWorking = isWorking, onDeleted }: QueuedProps) {
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
   // more (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -77,6 +77,11 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
   const state = variant === "pane" ? (isWaiting ? "Queued" : "Sent") : isPending ? "Queued" : messageState(action);
   const canAct = isHeld && (variant === "queue" || isWaiting);
   const canSendTyped = isTyped && !!action.can_send_now && (variant === "queue" || isWaiting);
+  const current = liveAction === undefined ? action : liveAction;
+  const currentHeld = !!current && (current.status === "queued" || current.status === "running" && !current.awaiting);
+  const currentTyped = !!current && current.status === "running" && !!current.awaiting;
+  const canActNow = asked !== "withdrawn" && currentHeld && (variant === "queue" || liveIsWorking || current?.status === "queued");
+  const canSendNow = asked !== "now" && (canActNow || currentTyped && !!current?.can_send_now && (variant === "queue" || liveIsWorking));
   const reason = isPending ? action.message : "";
   const kept = keptPictures(action.text);
   const why = "queued-why-" + action.id;
@@ -88,26 +93,30 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
     {variant === "queue" && <p className="queued-line"><strong>{state}</strong></p>}
     <p className="sr-only" id={why}>{reason || state}</p>
     {(canAct || canSendTyped) && asked !== "withdrawn" && <div className="queued-actions">
-      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"}
-        onClick={() => action.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : refuse(action.send_now_why || "It cannot be typed into its session now.")}><Icon name="arrow-up" /></button>
+      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"} aria-disabled={!canSendNow}
+        onClick={() => { if (!canSendNow || !current) return; return current.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : refuse(current.send_now_why || "It cannot be typed into its session now."); }}><Icon name="arrow-up" /></button>
       {canAct && <>
-        <button type="button" className="icon-button" aria-label="Edit" disabled={isSending}
-          onClick={() => window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id }))}><Icon name="edit" /></button>
-        <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
-          onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
+        <button type="button" className="icon-button" aria-label="Edit" disabled={isSending} aria-disabled={!canActNow}
+          onClick={() => { if (canActNow) window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id })); }}><Icon name="edit" /></button>
+        <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending} aria-disabled={!canActNow}
+          onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); }}><Icon name="close" /></button>
       </>}
     </div>}
   </div>;
 }, isSameQueued);
 
-type QueuedProps = { action: Action; instance: string; name: string; variant: "pane" | "queue"; isWorking?: boolean; onDeleted?: () => void };
+type QueuedProps = { action: Action; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; isWorking?: boolean; liveIsWorking?: boolean; onDeleted?: () => void };
 
 // Each snapshot parses every action anew, so a comparison by identity drew
 // every queued message again on every snapshot, 315 times in 120 s of a live
 // board. It is drawn again only when what it shows or sends changes.
-function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
-  const [was, is] = [prior.action, next.action];
+function isSameAction(was: Action | null | undefined, is: Action | null | undefined): boolean {
+  if (!was || !is) return was === is;
   return was.id === is.id && was.task_id === is.task_id && was.text === is.text && was.status === is.status && was.message === is.message
-    && !!was.awaiting === !!is.awaiting && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why
-    && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.isWorking === next.isWorking && prior.onDeleted === next.onDeleted;
+    && !!was.awaiting === !!is.awaiting && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why;
+}
+
+function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
+  return isSameAction(prior.action, next.action) && isSameAction(prior.liveAction, next.liveAction)
+    && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.isWorking === next.isWorking && prior.liveIsWorking === next.liveIsWorking && prior.onDeleted === next.onDeleted;
 }

@@ -63,7 +63,7 @@ async function open(page: Page, first: object) {
         if (new URL(address, location.href).pathname === "/api/messages") {
           queueMicrotask(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify({ messages: [
             { id: "typed", seq: 0, kind: "prompt", source: "overlord", text: "merge 512 first" },
-          ], more: false }) })));
+          ], conversation: "fixture-conversation", more: false }) })));
           // A message stream says alive every five seconds, as the
           // supervisor's does while it has nothing to send.
           this.alive = setInterval(() => this.dispatchEvent(new MessageEvent("alive", { data: "{}" })), 5000);

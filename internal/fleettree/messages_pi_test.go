@@ -219,7 +219,7 @@ func TestAPiReadAnswersOnlyWhatChangedAndAnewAfterATreeSwitch(t *testing.T) {
 
 	// Act: the tree moves back to the abandoned answer.
 	appendLines(t, path, piMessageEntry("u4", "a3", "user", object{"content": "Back to it"}))
-	switched, _, isAnew, err := reader.MessagesSince(path, MessageCursor{now.epoch, now.revision})
+	switched, _, isAnew, err := reader.MessagesSince(path, now)
 	// Assert
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestAPiUnchangedPollsParseNothingAndRebuildNothing(t *testing.T) {
 		if _, _, err := reader.MessagePage(path, -1); err != nil {
 			t.Fatal(err)
 		}
-		_, _, isAnew, err := reader.MessagesSince(path, MessageCursor{epoch, revision})
+		_, _, isAnew, err := reader.MessagesSince(path, MessageCursor{epoch, revision, log.incarnation})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -493,8 +493,8 @@ func TestAPiCursorAfterIdleEvictionIsNotAnsweredFromTheNewLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if now.epoch == cursor.epoch {
-		t.Fatalf("a log made again after eviction reused epoch %d", now.epoch)
+	if now.epoch != cursor.epoch || now.incarnation == cursor.incarnation {
+		t.Fatalf("eviction changed identity or reused cursor: before %+v after %+v", cursor, now)
 	}
 	if !isAnew {
 		t.Fatal("a view holding the evicted log's cursor was answered as if its page still stood")

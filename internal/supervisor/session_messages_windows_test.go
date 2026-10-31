@@ -68,6 +68,10 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		return response
 	}
 	task := "task=" + meta.ID + "&generation=" + meta.SpawnGen + "&token=board-token"
+	var initial fleettree.MessagePage
+	if response := get(task); response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &initial) != nil || initial.Conversation == "" {
+		t.Fatalf("initial page lacks conversation identity: %d %s", response.Code, response.Body)
+	}
 
 	for _, tc := range []struct {
 		name, query string
@@ -75,7 +79,7 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		isMore      bool
 	}{
 		{"a task's newest page", task, []string{"@0", "u1", "msg_1"}, false},
-		{"the page before a message", task + "&before=1", []string{"@0"}, false},
+		{"the page before a message", task + "&before=1&conversation=" + url.QueryEscape(initial.Conversation), []string{"@0"}, false},
 		{"the CFO's newest page", "cfo=cfo&token=board-token", []string{"c1"}, false},
 		{"a session that has written nothing yet", "task=" + quiet.ID + "&generation=" + quiet.SpawnGen + "&token=board-token", nil, false},
 	} {

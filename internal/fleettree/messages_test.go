@@ -2,6 +2,7 @@ package fleettree
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,6 +15,294 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/routing"
 )
+
+func TestMessagePageConversationIdentityTracksTranscriptGeneration(t *testing.T) {
+	tests := []struct {
+		name     string
+		makeFile func(*testing.T, string) (string, object)
+	}{
+		{"claude", func(t *testing.T, home string) (string, object) {
+			return conversation(t, home, prompted("same", "first")), prompted("next", "more")
+		}},
+		{"codex", func(t *testing.T, home string) (string, object) {
+			return codexRollout(t, home, "identity", codexUserSaid("first")), codexUserSaid("more")
+		}},
+		{"pi", func(t *testing.T, home string) (string, object) {
+			return piSession(t, home, piHeader(), piMessageEntry("same", "", "user", object{"content": "first"})), piMessageEntry("next", "same", "user", object{"content": "more"})
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path, next := test.makeFile(t, t.TempDir())
+			reader := Reader{}
+			identity := func(before int) string {
+				t.Helper()
+				page, _, err := reader.MessagePage(path, before)
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, err := json.Marshal(page)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var wire struct {
+					Conversation string `json:"conversation"`
+				}
+				if err := json.Unmarshal(data, &wire); err != nil {
+					t.Fatal(err)
+				}
+				return wire.Conversation
+			}
+			first := identity(-1)
+			if first == "" || strings.Contains(first, path) {
+				t.Fatalf("page identity %q must be nonempty and opaque", first)
+			}
+			appendLines(t, path, next)
+			if got := identity(-1); got != first {
+				t.Fatalf("append changed identity: %q to %q", first, got)
+			}
+			if got := identity(1); got != first {
+				t.Fatalf("older page identity = %q, want %q", got, first)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replaced := strings.Replace(string(data), "first", "other", 1)
+			if replaced == string(data) {
+				t.Fatal("fixture does not contain first")
+			}
+			if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := identity(-1); got == "" || got == first {
+				t.Fatalf("same-size rewrite retained identity %q", got)
+			}
+		})
+	}
+}
+
+func TestPiPageConversationIdentityChangesOnBranchSwitch(t *testing.T) {
+	_, path := piConversation(t)
+	reader := Reader{}
+	identity := func() string {
+		page, _, err := reader.MessagePage(path, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wire struct {
+			Conversation string `json:"conversation"`
+		}
+		if err := json.Unmarshal(data, &wire); err != nil {
+			t.Fatal(err)
+		}
+		return wire.Conversation
+	}
+	before := identity()
+	appendLines(t, path, piMessageEntry("u4", "a3", "user", object{"content": "Back to it"}))
+	after := identity()
+	if before == "" || after == "" || before == after {
+		t.Fatalf("branch identities %q and %q must differ", before, after)
+	}
+}
+
+func TestWholeReadRejectsReplacedConversationWithMatchingMessages(t *testing.T) {
+	path := conversation(t, t.TempDir(), prompted("same", "first"))
+	reader := Reader{}
+	before, _, err := reader.MessagePage(path, -1)
+	if err != nil || len(before.Messages) != 1 || before.Messages[0].Text != "first" {
+		t.Fatalf("initial page = %+v, %v", before, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := strings.Replace(string(data), "first", "other", 1)
+	if replaced == string(data) {
+		t.Fatal("fixture text missing")
+	}
+	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	log := reader.messageLogs[path]
+	log.mu.Lock()
+	log.readWhole(func() uint64 { return messageEpoch.Add(1) })
+	done := log.whole
+	log.mu.Unlock()
+	<-done
+	log.mu.Lock()
+	after := log.page(-1)
+	after.Conversation = (MessageCursor{log.epoch, log.revision, log.incarnation}).Conversation()
+	err = log.wholeErr
+	log.mu.Unlock()
+	if err != nil || len(after.Messages) != 1 || after.Messages[0].Text != "other" {
+		t.Fatalf("whole-read replacement page = %+v, %v", after, err)
+	}
+	if after.Conversation == "" || after.Conversation == before.Conversation || after.Messages[0].ID != before.Messages[0].ID || after.Messages[0].Seq != before.Messages[0].Seq {
+		t.Fatalf("replacement identity or message coordinates: before %+v, after %+v", before, after)
+	}
+}
+
+func TestConversationIdentityChangesOnInteriorRewriteWithIncompleteTail(t *testing.T) {
+	content := strings.Repeat("x", 10000) + "first" + strings.Repeat("y", 10000)
+	tests := []struct {
+		name     string
+		makeFile func(*testing.T, string) string
+	}{
+		{"claude", func(t *testing.T, home string) string { return conversation(t, home, prompted("same", content)) }},
+		{"codex", func(t *testing.T, home string) string {
+			return codexRollout(t, home, "interior", codexUserSaid(content))
+		}},
+		{"pi", func(t *testing.T, home string) string {
+			return piSession(t, home, piHeader(), piMessageEntry("same", "", "user", object{"content": content}))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := test.makeFile(t, t.TempDir())
+			file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.WriteString(`{"type":"unfinished`); err != nil {
+				file.Close()
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reader := Reader{}
+			first, _, err := reader.MessagePage(path, -1)
+			if err != nil || len(first.Messages) != 1 || !strings.Contains(first.Messages[0].Text, "first") {
+				t.Fatalf("initial page = %+v, %v", first, err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			replaced := strings.Replace(string(data), "first", "other", 1)
+			if replaced == string(data) {
+				t.Fatal("fixture text missing")
+			}
+			if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			modified := info.ModTime().Add(time.Second)
+			if err := os.Chtimes(path, modified, modified); err != nil {
+				t.Fatal(err)
+			}
+			updated, _, err := reader.MessagePage(path, -1)
+			if err != nil || updated.Conversation == "" || updated.Conversation == first.Conversation || len(updated.Messages) != 1 || !strings.Contains(updated.Messages[0].Text, "other") {
+				t.Fatalf("rewritten page = %+v, %v; previous identity %q", updated, err, first.Conversation)
+			}
+		})
+	}
+}
+
+func TestConversationIdentitySurvivesIdleEviction(t *testing.T) {
+	tests := []struct {
+		name     string
+		makeFile func(*testing.T, string, string) (string, object, object)
+	}{
+		{"claude", func(t *testing.T, home, id string) (string, object, object) {
+			path := filepath.Join(home, ".claude", "projects", "C--work-repo", id+".jsonl")
+			writeLines(t, path, at, prompted("same", "first"))
+			return path, prompted("next", "more"), prompted("branch", "other")
+		}},
+		{"codex", func(t *testing.T, home, id string) (string, object, object) {
+			return codexRollout(t, home, id, codexUserSaid("first")), codexUserSaid("more"), codexUserSaid("other")
+		}},
+		{"pi", func(t *testing.T, home, id string) (string, object, object) {
+			path := filepath.Join(home, ".pi", "agent", "sessions", "--C--work-repo--", "20261006_213000_"+id+".jsonl")
+			writeLines(t, path, at, piHeader(), piMessageEntry("same", "", "user", object{"content": "first"}), piMessageEntry("leaf", "same", "user", object{"content": "second"}))
+			return path, piMessageEntry("next", "leaf", "user", object{"content": "more"}), piMessageEntry("branch", "same", "user", object{"content": "other"})
+		}},
+	}
+	for _, test := range tests {
+		for _, scenario := range []string{"append", "replace", "rename", "branch"} {
+			if scenario == "branch" && test.name != "pi" {
+				continue
+			}
+			t.Run(test.name+"/"+scenario, func(t *testing.T) {
+				home := t.TempDir()
+				path, next, branch := test.makeFile(t, home, "one")
+				other, _, _ := test.makeFile(t, home, "two")
+				now := time.Now()
+				reader := Reader{Now: func() time.Time { return now }}
+				page := func(path string, before int) MessagePage {
+					t.Helper()
+					result, _, err := reader.MessagePage(path, before)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return result
+				}
+				first, oldCursor, err := reader.MessagePage(path, -1)
+				if err != nil {
+					t.Fatal(err)
+				}
+				now = now.Add(messageLogIdle + time.Minute)
+				page(other, -1)
+				if reader.messageLogs[path] != nil || reader.codexLogs[path] != nil || reader.piLogs[path] != nil {
+					t.Fatal("idle transcript body was not evicted")
+				}
+				switch scenario {
+				case "append":
+					appendLines(t, path, next)
+				case "branch":
+					appendLines(t, path, branch)
+				case "replace":
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					replaced := strings.Replace(string(data), "first", "other", 1)
+					if replaced == string(data) {
+						t.Fatal("fixture text missing")
+					}
+					if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				case "rename":
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Rename(path, path+".old"); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(path, data, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				reconnected := page(path, -1)
+				if first.Conversation == "" || reconnected.Conversation == "" {
+					t.Fatal("empty identity")
+				}
+				if scenario == "append" && reconnected.Conversation != first.Conversation {
+					t.Fatalf("ordinary reconnect changed identity: %q to %q", first.Conversation, reconnected.Conversation)
+				}
+				if scenario != "append" && reconnected.Conversation == first.Conversation {
+					t.Fatalf("%s kept identity %q", scenario, first.Conversation)
+				}
+				if older := page(path, 1); older.Conversation != reconnected.Conversation {
+					t.Fatalf("older page identity %q differs from %q", older.Conversation, reconnected.Conversation)
+				}
+				if changes, _, isAnew, err := reader.MessagesSince(path, oldCursor); err != nil || !isAnew || len(changes) != 0 {
+					t.Fatalf("evicted cursor returned changes %+v, anew %t, error %v", changes, isAnew, err)
+				}
+			})
+		}
+	}
+}
 
 // The entries below are made up in the shape Claude Code 2.1.308 writes a
 // conversation in: one entry per line, each block of an answer an entry of
