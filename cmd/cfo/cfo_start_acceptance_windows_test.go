@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -55,7 +57,7 @@ func TestACFOStartedAsGoblinsStartsItRegistersIsWokenAndComesBack(t *testing.T) 
 	if root, state := home.Inherited(); root != "" || state != "" {
 		t.Fatalf("this process inherited the fleet home %s (state %s); unset CFO_HOME and CFO_STATE_OVERRIDE first", root, state)
 	}
-	instructions, err := os.ReadFile(filepath.Join("..", "..", "AGENTS.md"))
+	instructions, err := fs.ReadFile(codegoblins.Contract, "AGENTS.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +86,18 @@ func proveCFOStart(t *testing.T, p *wakeProof, instructions string) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := fs.WalkDir(codegoblins.Contract, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(codegoblins.Contract, name)
+		if err == nil {
+			writeProofFile(t, filepath.Join(p.home.Root, filepath.FromSlash(name)), string(data))
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 	writeProofFile(t, filepath.Join(p.home.Root, "AGENTS.md"), instructions)
 	writeProofFile(t, filepath.Join(p.home.Root, home.InstalledMarker), "")
