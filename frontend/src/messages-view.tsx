@@ -92,6 +92,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // how far its top lies below the list's, which stays put. pinnedTo is the
   // scroll top the list last put itself at to show its end.
   const following = useRef(true);
+  // WebKit can clamp the old scroll top while Jump replaces windowed rows,
+  // before layout settles at the newly measured end.
+  const isJumping = useRef(false);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const pinnedTo = useRef(-1);
   const observedTop = useRef<number | null>(null);
@@ -232,6 +235,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
       pinnedTo.current = box.scrollTop;
       observedTop.current = box.scrollTop;
+      isJumping.current = false;
       return;
     }
     const kept = anchor.current;
@@ -323,7 +327,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   useLayoutEffect(() => {
     reconcile.current = () => {
       const box = list.current;
-      if (shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
+      if (!isJumping.current && shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
     };
   });
   useLayoutEffect(() => {
@@ -368,7 +372,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     settle();
     const box = list.current;
     if (box && shownValue.current && box.scrollTop < OLDER_WITHIN_PX) readOlder();
-  }, [held, rowHeights, drawn.start, drawn.end, settle, readOlder]);
+  }, [held, rowHeights, drawn.start, drawn.end, isAtEnd, settle, readOlder]);
   useLayoutEffect(() => {
     shownValue.current = shown;
     if (shown && list.current) observedTop.current = list.current.scrollTop;
@@ -431,6 +435,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const jump = () => {
     const box = list.current;
     if (!box) return;
+    isJumping.current = true;
     following.current = true;
     setAtEnd(true);
     setHeld(latest.current);
