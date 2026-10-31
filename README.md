@@ -145,7 +145,7 @@ Stopped or failed trains that landed nothing stay accessible under Train history
 A click on that card opens the train's panel: one row per pull request with its goblin and current run state, with attempt history folded below for retries, failures and shared runs.
 `cfo pr train <project>` starts one by hand, or joins the one running, and waits until it is over.
 A project's manifest can let a train of one pull request land on that pull request's own green CI run instead of testing the same tree again, and can make one alone wait longer for a second to share a run with.
-See [Merge trains](AGENTS.md#merge-trains).
+See [Merge trains](docs/contract/delivery.md#merge-trains).
 
 ### Project-scoped credentials
 
@@ -176,7 +176,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 Both are the same install, so use whichever you like: the setup if you want a window, the one line if you live in a terminal.
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds its `bin` folder to your PATH and Code Goblins to the Start menu and the desktop, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
 Each also merges a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first, and takes out the CFO's hooks an older build wrote there, since the CFO's terminal starts with its own: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
-The hooks act only in the CFO's own session, the agent native terminal `cfo` runs, so a Claude Code session you open yourself, in the desktop app or a terminal, is never given the fleet's digest, lock or wakes ([The CFO's own session](AGENTS.md#the-cfos-own-session)).
+The hooks act only in the CFO's own session, the agent native terminal `cfo` runs, so a Claude Code session you open yourself, in the desktop app or a terminal, is never given the fleet's digest, lock or wakes ([The CFO's own session](docs/contract/supervision.md#the-cfos-own-session)).
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
 Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 483 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
@@ -1263,7 +1263,7 @@ A step that failed shows its output on its item, and **Try again** on the panel 
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 The build applying the move must meet the [source-build requirements](#development).
-[AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
+[AGENTS.md](docs/contract/home.md#the-cfo-home) describes each file in full.
 
 ## Safety model
 

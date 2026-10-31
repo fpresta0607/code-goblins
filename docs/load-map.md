@@ -59,7 +59,7 @@ A Claude Code goblin's settings file, `state\goblin-claude-settings.json`, sets 
 A Claude Code resume of a transcript past 5 MiB loads only what follows its last compaction, so a CFO comes back on its conversation by the context that resume loads, at most 400K tokens, whatever the transcript's size on disk.
 `cfo install` takes out the ones a build before 2026-10 merged into `~/.claude/settings.json`, where every Claude Code session on the machine ran them.
 Every goblin pane carries `CFO_ROLE=goblin`, and the CFO's hooks do nothing when they see it.
-They do nothing in any other session either: only [the CFO's own session](../AGENTS.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
+They do nothing in any other session either: only [the CFO's own session](contract/supervision.md#the-cfos-own-session), the agent native terminal `cfo` runs, gets the digest, the guards and the rewakes, so a Claude Code session you open yourself is never given the fleet's wakes.
 On a machine where the hooks are still in the user's settings, such a session pays one start of `cfo.exe` for each hook it fires, which leaves on its environment before it reads the home: about 0.1 second each with a dozen sessions firing at once on 2026-10-09.
 Once an install has taken them out it starts nothing.
 In the CFO's own session each hook is one start of `cfo.exe`, which is started at its harness's priority: on 2026-10-10 it took 0.02 seconds to come to exist beside ten busy threads kept to the goblins' cores, and about 0.7 where goblin work had every core.
@@ -83,8 +83,11 @@ Project files load from the project root (the nearest `.git`, which a worktree's
 All project files share one budget, `project_doc_max_bytes`, 32 KiB by default; the global file does not count against it.
 Past the budget the text is cut off.
 
-This repository's `AGENTS.md` is well over that budget, so a Codex session loses roughly the last third of the file, which includes dispatch policy, delivery, supervision, the board question contract and escalation.
-Until the contract is shorter, run a Codex CFO with `project_doc_max_bytes = 65536` in `~/.codex/config.toml`.
+This repository keeps `AGENTS.md` below 30 KiB, leaving room under that default budget.
+The core routes conditional procedures to named cfo-* skills and [contract references](contract/ownership.md), and command contracts to `cfo help <command>`.
+`cfo help contract <topic>` retrieves one embedded procedure without reading the live home or loading other procedures.
+Installation writes the same references into a fresh home and updates owned copies; the skill entry points use the command interface so their shared installation paths need no relative policy copies.
+A legacy tracked-checkout home keeps its on-disk instructions, including a stale core, and its dirty policy files; the [activation boundary](contract/ownership.md#legacy-checkout-activation) applies before claiming that home's context changed.
 
 **Skills.**
 Codex scans, in order: the project's `.codex/skills` directories (nearest first), `~/.codex/skills`, `~/.agents/skills`, its system skills, plugins, and the project's `.agents/skills` from the root down to the working directory.
@@ -137,7 +140,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 1. **The worktree.** `$CFO_HOME\worktrees\<project folder>\<id>`, detached from the default branch, with its own `.git` file, so project instructions and skills come from the worktree's checkout of the project.
    A goblin working on code-goblins itself therefore reads this repository's `CLAUDE.md` or `AGENTS.md`, which both say it is a contributor, not the CFO.
 2. **The pane environment.** `CFO_ROLE=goblin`, `CFO_HOME`, `CFO_STATE_OVERRIDE`, `TEMP`, `TMPDIR` and `GOTMPDIR` in the task's scratch folder, `TMP` in `scratch\.tmp`, the folder every goblin shares, since Git Bash makes the `TMP` of its first shell `/tmp` for every shell of the user, the shared cache roots, and the credentials of the services the task's brief names, which ride the terminal's environment rather than being typed.
-   Its `PATH` begins with the task's codex guard folder, `state\codex-guard\<id>`, which the supervisor arms while Codex's included allowance is used up, so a `codex` the goblin starts by name is refused rather than billed to paid credits ([Pausing and automatic resume](../AGENTS.md#pausing-and-automatic-resume)).
+   Its `PATH` begins with the task's codex guard folder, `state\codex-guard\<id>`, which the supervisor arms while Codex's included allowance is used up, so a `codex` the goblin starts by name is refused rather than billed to paid credits ([Pausing and automatic resume](contract/dispatch.md#pausing-and-automatic-resume)).
 3. **The launch.** Claude: `--dangerously-skip-permissions --strict-mcp-config [--mcp-config <file>]`, drawn in the interface the operator's `tui` setting names, as the CFO is, with `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP=1`, so Claude Code does not end a goblin's background shells for low memory, among them its queued `cfo gate turn`: the line ends the run it lets use the machine's spare memory instead ([docs/pipeline.md](pipeline.md#any-command-in-the-line)).
    Codex: `--no-daemon --dangerously-bypass-approvals-and-sandbox -c tui.copy_on_select=always`, so it runs its own app-server under the terminal that started it instead of joining a shared background one an earlier session left running, and it draws on its own full screen and copies what a drag selects when the button is released.
    `--no-daemon` is passed only where the installed Codex's help (`codex --help`, which spawn reads to validate it) lists it, since a Codex without it would refuse the launch.
@@ -201,4 +204,4 @@ A copy inside this repository would reach only sessions opened in this checkout,
 - `cfo doctor` prints where each harness keeps its configuration and skills, and flags a skill kept as a real folder in more than one skills folder, a junction whose target is gone, and a harness folder that is missing.
 - A rule every harness should follow belongs in the global instruction file each harness reads (keep those files identical with hardlinks), not in `~/.claude/rules`, which only Claude reads.
 - `SessionStart` output is paid for in every session and every goblin; a hook that repeats a skill description adds cost and nothing else.
-- Keep `AGENTS.md` under 32 KiB so Codex reads all of it.
+- Keep `AGENTS.md` below 30 KiB so the complete shared core fits the smallest default project-instruction budget.

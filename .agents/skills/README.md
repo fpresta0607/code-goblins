@@ -10,6 +10,11 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
   The checks live in `cfo project check`, so the skill is the same text for every harness and names no tool of one.
 - `smart-routing` - guides the CFO's worker model and reasoning effort choices through the existing lanes, current capabilities, quota and evidence of verified completion.
 
+The cfo-* skills are precise trigger entry points for the extracted operating contract.
+They retrieve a single procedure through `cfo help contract <topic>`, from the binary's embedded policy source.
+The [ownership inventory](../../docs/contract/ownership.md) maps every original section, skill trigger, command reference and staged First Mate follow-up.
+Their policy bodies stay in `docs/contract/`, which installation carries into a home, rather than being duplicated per harness or relative to a shared skill directory.
+
 ## Which harness reads this directory
 
 - **Codex and Pi** read `.agents/skills/` in the project directly.
