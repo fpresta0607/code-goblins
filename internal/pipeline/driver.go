@@ -461,11 +461,14 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 	var open []string
 	unresolved, blank := false, false
 	for _, f := range *report.Findings {
-		if _, exists := actions[f.ID]; f.ID == "" || exists {
+		if f.ID == "" {
 			return nil, errors.New("pipeline: invalid or duplicate finding ID")
 		}
 		switch f.Action {
 		case "no-op":
+			// Native selection includes all matching IDs; informational rows
+			// add no actionable meaning to a selected repair.
+			continue
 		case "auto-fix", "ask-user":
 			unresolved = true
 			open = append(open, f.ID)
@@ -476,6 +479,9 @@ func ResponseArgs(s Selection, gate Gate, response Response) ([]string, error) {
 			unresolved, blank = true, true
 		default:
 			return nil, ErrUnresolved
+		}
+		if _, exists := actions[f.ID]; exists {
+			return nil, errors.New("pipeline: invalid or duplicate finding ID")
 		}
 		actions[f.ID] = f.Action
 	}
