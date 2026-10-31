@@ -166,6 +166,14 @@ func runVerify(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 		fmt.Fprintln(stderr, e)
 		return 1
 	}
+	delivery, e := state.ReadTaskDelivery(meta)
+	if e != nil {
+		fmt.Fprintln(stderr, e)
+		return 1
+	}
+	if delivery != nil {
+		m.Verification = delivery.Verification
+	}
 	var cmds []projectcfg.Command
 	seconds := m.Verification.MaxFastSeconds
 	switch *tier {

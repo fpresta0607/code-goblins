@@ -173,6 +173,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err != nil {
 		return err
 	}
+	if _, err := state.ReadTaskDelivery(meta); err != nil {
+		return err
+	}
 	if meta.Mode != "no-mistakes" {
 		// A task of another mode, as the supervisor starts every root issue in
 		// direct-PR, was never given a gate or a frozen policy, so no migration

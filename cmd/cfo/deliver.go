@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -36,7 +37,11 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	fs := flag.NewFlagSet("brief", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	project := fs.String("project", "", "project checkout path")
-	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
+	mode := fs.String("mode", "", "no-mistakes, direct-PR, or local-only; otherwise project posture and change risk")
+	surface := fs.String("surface", "unknown", "internal, product, mixed or unknown change surface")
+	risk := fs.String("risk", "unknown", "low or the concrete high-risk surface")
+	reason := fs.String("reason", "", "concrete reason for the change assessment")
+	deliveryException := fs.String("delivery-exception", "", "explicit Overlord authority for a narrower delivery path")
 	kind := fs.String("kind", "ship", "ship or scout")
 	if !parseFlags(fs, args[1:]) {
 		return 2
@@ -49,7 +54,7 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, "cfo brief: --kind must be ship or scout")
 		return 2
 	}
-	if !validSpawnMode(*mode) {
+	if *mode != "" && !validSpawnMode(*mode) {
 		fmt.Fprintln(stderr, "cfo brief: --mode must be no-mistakes, direct-PR, or local-only")
 		return 2
 	}
@@ -78,6 +83,17 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintf(stderr, "cfo brief: %s already exists; refusing to overwrite\n", path)
 		return 1
 	}
+	assessment := fmt.Sprintf("## Delivery\nsurface: %s\nrisk: %s\nreason: %s\n", *surface, *risk, *reason)
+	manifest, _, loadErr := projectcfg.LoadForCheckout(h.Data, checkout)
+	if loadErr != nil {
+		manifest = projectcfg.Manifest{}
+	}
+	selected, err := projectcfg.SelectDelivery(manifest, assessment, *mode, *deliveryException)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	*mode = selected.Mode
 	body := fmt.Sprintf(`# Brief %s
 
 ## Project
@@ -120,7 +136,10 @@ exist.
 
 kind: %s
 mode: %s
-`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
+surface: %s
+risk: %s
+reason: %s
+`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode, *surface, *risk, *reason)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -201,6 +220,15 @@ func runPRCheck(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	meta, err := state.ReadTaskMeta(h.State, id)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if _, err := state.ReadTaskDelivery(meta); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

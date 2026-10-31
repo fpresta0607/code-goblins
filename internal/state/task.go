@@ -37,6 +37,7 @@ type TaskMeta struct {
 	ResumeOperation  string
 	PipelineClass    string
 	PipelineHash     string
+	DeliveryHash     string
 	Backend          string
 	HerdrSession     string
 	HerdrWorkspaceID string
@@ -335,6 +336,7 @@ func ReadTaskMeta(stateDir, id string) (TaskMeta, error) {
 		ResumeOperation:  kv["resume_operation"],
 		PipelineClass:    kv["pipeline_class"],
 		PipelineHash:     kv["pipeline_hash"],
+		DeliveryHash:     kv["delivery_hash"],
 		Backend:          kv["backend"],
 		HerdrSession:     kv["herdr_session"],
 		HerdrWorkspaceID: kv["herdr_workspace_id"],
@@ -435,6 +437,7 @@ func WriteTaskMeta(stateDir string, meta TaskMeta) error {
 		"resume_operation":   meta.ResumeOperation,
 		"pipeline_class":     meta.PipelineClass,
 		"pipeline_hash":      meta.PipelineHash,
+		"delivery_hash":      meta.DeliveryHash,
 		"backend":            meta.Backend,
 		"herdr_session":      meta.HerdrSession,
 		"herdr_workspace_id": meta.HerdrWorkspaceID,
@@ -565,6 +568,7 @@ func validateTaskMetaValues(meta TaskMeta) error {
 		{"resume_operation", meta.ResumeOperation},
 		{"pipeline_class", meta.PipelineClass},
 		{"pipeline_hash", meta.PipelineHash},
+		{"delivery_hash", meta.DeliveryHash},
 		{"backend", meta.Backend},
 		{"herdr_session", meta.HerdrSession},
 		{"herdr_workspace_id", meta.HerdrWorkspaceID},

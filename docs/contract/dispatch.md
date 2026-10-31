@@ -25,7 +25,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   In this repository that tier is `cfo gate prepush`.
   A tier that fails prints its failed check's last line, which names what failed, and the file that holds the rest.
   A tier the record's `verification.reuse` names takes its pass on the same source and declared inputs again instead of running, as docs/project-runtime.md says.
-- `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
+- `--mode` is `no-mistakes`, `direct-PR`, or `local-only`; omitted, [delivery intake](delivery.md#delivery-intake) resolves project posture and concrete change risk, with no-mistakes for missing or uncertain inputs.
 - Every goblin starts in a native terminal of its own.
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CFO's is `cfo`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.

@@ -17,8 +17,14 @@
     },
     {
       "package": "cmd/cfo",
-      "tests": ["TestEveryCommandSaysWhetherItActsAsTheCFO", "TestEveryCommandIsAControlOrStaysAtNormalOnPurpose"],
-      "why": "they read every command main.go dispatches"
+      "tests": ["TestEveryCommandSaysWhetherItActsAsTheCFO"],
+      "why": "it reads every command main.go dispatches"
+    },
+    {
+      "package": "cmd/cfo",
+      "tests": ["TestEveryCommandIsAControlOrStaysAtNormalOnPurpose"],
+      "goos": "windows",
+      "why": "it checks every command's Windows process priority"
     },
     {
       "package": "internal/gatetest",

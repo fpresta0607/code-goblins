@@ -35,6 +35,8 @@ Two kinds of slow test still run: every test in a test file your change touched,
 It starts no check after its time limit, 15 minutes unless `--limit` says otherwise, and names everything it left to CI, which tests what your change reaches on the pull request's own run and every package and browser spec in the merge train's run that lands it: on a Windows machine the whole suite takes an hour or more, where CI's parallel jobs take about eight minutes.
 The tests that read the whole tree run here whatever you changed, because a pull request's own run starts only the jobs its change can alter, and a guard in a job it did not start would first fail in the merge train.
 `cfo gate test` is the gate's own test step, which runs less, and `go test ./...` still runs everything here when you want it.
+Its fast level also runs the required guards in `config/verify.json`, including named guards in slow packages, without repeating a guard already included in a whole package run.
+Platform-specific guards are named as deferred on other platforms, and remain required on their platform's CI.
 
 CI runs the same steps on `windows-latest` for every push to `main` and every pull request, as parallel jobs defined in [.github/workflows/go.yml](.github/workflows/go.yml).
 A pull request's own run starts only the jobs its change can alter, which the `plan` job chooses with `tools/ciplan`, and a merge train's run and a run on `main` start every job.

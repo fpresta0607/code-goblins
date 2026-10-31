@@ -2,6 +2,78 @@
 
 The goblin's branch is its deliverable.
 
+### Delivery intake
+
+Resolve project posture and concrete change risk before dispatch, independently of harness, review budget and merge authority.
+The project's `project.json` may declare `delivery.posture`: `no-mistakes`, `no-mistakes-prod-only`, `direct-PR`, or `local-only`.
+The brief's Delivery section records `surface: internal|product|mixed|unknown`, `risk: low` or the concrete sensitive surface, and a change-specific `reason:`.
+Internal means tooling, automation or contributor and operator process; a directory or project name does not establish that classification.
+The conditional posture chooses direct-PR only for known internal, low-risk work with defined project checks; product work uses no-mistakes.
+Mixed, unknown or malformed assessments, missing or unreadable policy, credentials, authorization, state recovery, migrations and high-risk publication use no-mistakes.
+A simple posture still needs a known surface, low risk, concrete reason and defined checks.
+Only a concrete Overlord exception may narrow that selection, recorded with `--delivery-exception` and an explicit mode at brief and spawn.
+An explicit no-mistakes mode can always increase rigor.
+
+`cfo brief` and `cfo spawn` use the same resolver.
+Before the worker starts, spawn saves `delivery.json` in its task directory with the mode, posture, surface, risk, reason, project checks and CI requirement.
+The task record binds its bytes by `delivery_hash` and keeps its mode separately.
+Verification, pipeline entry and PR registration refuse a changed receipt or a mismatching mode.
+`cfo verify` uses the frozen verification tiers, time limits and declared reuse inputs, so later project-policy edits cannot silently change a task's proof.
+A helper remains local-only under its parent's publication owner.
+Existing tasks without this receipt retain their modes, frozen policies, findings, spent rounds and custody.
+Intake never migrates, restarts or repairs a running validation.
+
+### One validation owner
+
+The selected path owns its rigor.
+Simple work runs its defined project checks and required CI through the existing direct-PR or local-only route.
+Do not attach an independent model review, serial manual clean-verdict gate or second unchanged baseline.
+If the change needs independent validation, select no-mistakes instead of inventing another gate.
+Under no-mistakes, the same implementation worker drives `cfo pipeline run` and `respond` through every synchronous return.
+The pipeline alone owns review, repair, tests, documentation and publication; any focused independent question belongs within that contract.
+The CFO still inspects the concrete change and relevant proof before delivery.
+
+Once validation starts, new product requirements normally become follow-up work.
+Corrections needed for accepted behavior, equivalent behavioral test replacements and accurate documentation remain in scope, including their smallest downstream changes.
+The worker never hand-edits, commits, pushes or starts another run while the active pipeline owns the branch.
+An explicit instruction invalidating the entire change uses the existing supported custody procedure under the CFO's direction, preserving history and spent allowances.
+This contract adds no native recovery procedure or authority over another task's run.
+
+### Finding authority
+
+The implementation worker never decides its own ask-user finding.
+It reports the actual finding to the CFO and applies only the returned decision through the active gate.
+The CFO reconstructs accepted intent, identifies what Fix would require, then names the decision's run, step, action, finding IDs, instructions and authority.
+Reviewer labels cannot amend the accepted contract.
+Routine corrections, restoring approved behavior, completing the approved design, equivalent tests and correcting final-diff delivery evidence are autonomous CFO decisions within that contract.
+Difficulty or an unforeseen file is not a new product decision.
+Escalate unresolved product choices, a new guarantee or subsystem, a broader threat model or maintenance obligation, destructive or security-sensitive actions, and requests to waive unresolved defects.
+State the accepted requirement, proposed expansion, smallest compliant alternative, consequences and recommendation.
+When repeated findings preserve a questionable abstraction, reconsider it before another round.
+Never use `--yes`, skip required proof, approve an exhausted budget or open a fresh run to escape it.
+
+### Proof and final candidate
+
+Formatting and documentation belong in the candidate before final proof.
+Later changes invalidate the proof they affect; the selected path validates the final candidate.
+Publish only the commit the proof names, with every required check completed successfully on that head.
+Local same-user records cannot replace a required hosted check.
+Reuse a pass only through existing receipt checks matching source, commands and configuration, dependencies and ignored inputs, tools, environment and platform.
+Changed relevant inputs invalidate that pass; do not add a generic evidence cache or duplicate baseline.
+Fast Go verification and prepush both execute required policy guards even when their package is slow, without a separate guard run when the selected package tests already include it.
+Name platform-specific guards deferred to CI as deferred, never as executed on another platform.
+
+### Completion and scouts
+
+A ready result names the public PR URL and exact published head with required CI green, or a clean committed branch for local-only work.
+A draft, a different local commit or a commit present only in a disposable validation worktree is not ready for landing.
+Use existing PR check and guarded merge commands; confirm the forge's landed state before cleanup and never discard unlanded work.
+Delivery mode and merge authority remain independent.
+A scout leaves a self-contained report, and a recommendation or visual review grants no implementation authority.
+Keep a review artifact available while feedback is outstanding.
+When implementation is separately authorized, inventory scratch changes and dispatch the ship through `cfo brief` and `cfo spawn` from the proper clean base, carrying only intended implementation and regression changes and retaining the scout's report as context.
+There is no dedicated scout-promotion command in this build; a report or a mode edit never supplies missing ship authority.
+
 - `no-mistakes` - the goblin uses `cfo pipeline run`/`respond` under its frozen policy, so an exhausted review budget or fail-closed start refusal comes back as unresolved work needing your decision rather than an automatic approval; follow [docs/pipeline.md](../pipeline.md), and after a completed gate relay the PR URL and wait for merge authority, then `cfo pr merge`.
 - `direct-PR` - open the PR as a draft (`gh pr create --draft`), record it with `cfo pr check`, mark it ready (`gh pr ready <url>`) once, on the head it means to merge, report it done once that run is green, and wait for merge authority before `cfo pr merge`.
 
@@ -118,3 +190,19 @@ PR health wakes leave alone a train's own pull request and the pull requests a r
 A pull request rides when it is into the default branch from this repository, opened by the account `gh` works as (a teammate's never rides, even one a goblin reported), its goblin's latest reports are `done` naming it, every check on its own head passed and at least one of them ran rather than being skipped, it is not a draft, wants no review, is not in conflict with the base, and carries no `hold` label.
 Label a pull request `hold` to keep it off every train: one only the Supreme Overlord's word merges (recovery, security, money paths) or one he said to wait on (`gh pr edit <n> --add-label hold`, after `gh label create hold` once per repository).
 A pull request a train found broken stays off trains until its head changes.
+
+### Firstmate attribution
+
+The intake, validation ownership, finding authority and completion contracts adapt the delivery sections of [Firstmate at bb3e690](https://github.com/kunchenguid/firstmate/tree/bb3e6906548b5c03d3212e9f060bafde982e0cf1) and its validation-supervision, ask-user-authority, ship-landing and scout-completion skills.
+The upstream notice is retained here for the adapted material.
+
+MIT License
+
+Copyright (c) 2026 Kun Chen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

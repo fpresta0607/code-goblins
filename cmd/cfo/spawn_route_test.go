@@ -45,7 +45,7 @@ func routedRuntime(t *testing.T, routingJSON string) (home.Home, commandRuntime)
 func briefWith(t *testing.T, task string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "brief.md")
-	body := "# Brief g\n\n## Task\n\n" + task + "\n\n## Delivery\n\nkind: ship\nmode: direct-PR\n"
+	body := "# Brief g\n\n## Task\n\n" + task + "\n\n## Delivery\n\nkind: ship\nmode: no-mistakes\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -394,12 +394,12 @@ func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"project":"disposable-project","routing":{"default_lane":"open","escalate_to":"open","lanes":{"open":{"harness":"claude","model":"open-model","effort":"low"}}},"budgets":{"implementation":{"max_repair_rounds":4}}}`
+	manifest := `{"project":"disposable-project","delivery":{"posture":"local-only"},"verification":{"fast":[["git","status"]]},"routing":{"default_lane":"open","escalate_to":"open","lanes":{"open":{"harness":"claude","model":"open-model","effort":"low"}}},"budgets":{"implementation":{"max_repair_rounds":4}}}`
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	brief := filepath.Join(fixture.home.Root, "g-fresh1.brief.md")
-	if err := os.WriteFile(brief, []byte("Add a dark-mode toggle to the settings page.\n\nDelivery contract: mode=local-only\n"), 0o644); err != nil {
+	if err := os.WriteFile(brief, []byte("Add a dark-mode toggle to the settings page.\n\nDelivery contract: mode=local-only\n## Delivery\nsurface: product\nrisk: low\nreason: change the approved settings toggle\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -19,7 +19,8 @@ No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json
 Editing the source policy does not change a running task's snapshot, and `cfo switch` retains it.
 Direct-PR and local-only tasks retain their existing delivery paths.
 They have no gate and no frozen policy, so every `cfo pipeline` command that names one refuses it by its mode and names that mode's own route, never a migration, since no migration can give a task a gate it was never spawned with (issue 1438).
-A direct-PR task, as every picked-up root issue is, is verified by its pull request's CI, and a local-only task lands with `cfo merge-local <id>`.
+A direct-PR task runs its selected project checks and its pull request's CI, and a local-only task lands with `cfo merge-local <id>`.
+New automatic root-issue briefs select strict validation until their concrete change is assessed; existing tasks retain their selected mode.
 Existing no-mistakes tasks without a snapshot are not silently migrated.
 
 Policy v4 names one ordered chain for every gate role: Codex gpt-6.1-sol at xhigh effort first, through the machine's existing ChatGPT OAuth login, and Claude next when Codex cannot run.

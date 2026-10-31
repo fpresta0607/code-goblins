@@ -133,6 +133,7 @@ type Manifest struct {
 	Services        []Service         `json:"services,omitempty"`
 	Deployment      Deployment        `json:"deployment,omitempty"`
 	Verification    Verification      `json:"verification,omitempty"`
+	Delivery        DeliveryPolicy    `json:"delivery,omitzero"`
 	Security        Security          `json:"security,omitempty"`
 	Hygiene         Hygiene           `json:"hygiene,omitempty"`
 	Trains          Trains            `json:"trains,omitzero"`
@@ -171,6 +172,9 @@ func LoadForCheckout(dataDir, checkout string) (Manifest, string, error) {
 	return m, p, err
 }
 func (m Manifest) Validate() error {
+	if err := m.Delivery.Validate(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(m.Project) == "" {
 		return errors.New("project manifest: project is required")
 	}
