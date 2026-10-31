@@ -32,7 +32,7 @@ Now: <new>.`, the goblin that asked, or you for your own question and for a gobl
 When it reaches you, undo or redo what the first answer started, and when that cannot be undone, such as a merge, carry out the new answer as a new instruction.
 Do not also invoke a native question tool for this decision: an ordinary message typed into your terminal cannot answer a correlated Codex or Pi native prompt.
 In Claude Code the pre-tool hook enforces this: the registered primary CFO's `AskUserQuestion` is refused with a pointer to `cfo question` and `cfo run-request`, because a native selector holds the whole turn, shows only in the CFO's terminal and never reaches the Command Center, so supervision stops while it waits.
-A goblin's blocked question, in the form the `cfo notify` row above gives, is the CFO's question to answer.
+A goblin's blocked question, in the form the [cfo notify reference](../commands/notify.md) gives, is the CFO's question to answer.
 It never enters the Overlord's waiting count, alerts him or opens the Command Center; once answered it appears in History.
 Publish the decision that needs him with `cfo question` from your own registered process.
 An item addressed to him has one visible signal, **Open Command Center** and its count, and opens only when he chooses it.

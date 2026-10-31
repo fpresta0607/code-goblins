@@ -266,9 +266,9 @@ Rerun it after you pull, to rebuild.
 
 ## Where your data lives
 
-The fleet keeps everything it writes in the CFO home, `%LOCALAPPDATA%\CodeGoblins`, for every install, `-Dev` included.
-The home is outside every repository: goblins work in git worktrees of your checkouts, kept in the home's `worktrees` folder, so a checkout gains no folder and no file, and each goblin's temporary files go to the home's `scratch` folder and leave with the task.
-The janitor keeps the home small, and the board and `cfo runtime` show what it holds; [AGENTS.md](contract/home.md#the-cfo-home) describes each folder.
+The [data overview](../README.md#your-data) describes where the fleet keeps its files for release and source builds.
+[The CFO home](contract/home.md#the-cfo-home) describes each folder and the janitor's cleanup rules.
+The board and `cfo runtime` show what it holds.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
 `goblins uninstall`, or Uninstall on Code Goblins in Windows' Installed apps, which both installs add it to, removes everything Code Goblins made and leaves your PC as the install found it.

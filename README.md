@@ -212,7 +212,7 @@ The one-line install runs it only when it matches the release's `SHA256SUMS`, an
 A signed `cfo.exe` saved from a browser names SIQstack LLC as its publisher, and SmartScreen can still stop it with "Windows protected your PC" until enough people have run it; Smart App Control, where it is on, blocks only the unsigned ones of v0.4.0 to v0.5.1.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
 
-Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for every install, `-Dev` included, outside every project repository, and [Uninstall](#uninstall) keeps it unless you choose otherwise.
+Your data lives in the [CFO home](#your-data) on your machine, and [Uninstall](#uninstall) keeps it unless you choose otherwise.
 It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
@@ -984,6 +984,9 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 
 ## Core commands
 
+Run `cfo help` to list available topics, then request one command or procedure, such as `cfo help auth request` or `cfo help contract dispatch`.
+See the [help reference](docs/commands/help.md) for lookup and failure behavior.
+
 ```text
 cfo doctor
 cfo home migrate [--apply --plan <digest>] [--memory-from <dir>]
@@ -1189,8 +1192,9 @@ $env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; $env:CFO_STATE_OVERRID
 
 ## Your data
 
-Everything the fleet writes lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins`, for every install.
-It stays local and private: nothing in it is pushed anywhere, and no repository ever holds it, the code-goblins clone included, which holds source only.
+Everything the fleet writes lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins` by default for release and source builds.
+It stays local and private: nothing in it is pushed anywhere.
+Existing checkout homes follow the [legacy checkout activation boundary](docs/contract/ownership.md#legacy-checkout-activation).
 
 ```text
 <CFO home>\
@@ -1263,7 +1267,7 @@ A step that failed shows its output on its item, and **Try again** on the panel 
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 The build applying the move must meet the [source-build requirements](#development).
-[AGENTS.md](docs/contract/home.md#the-cfo-home) describes each file in full.
+[The CFO home](docs/contract/home.md#the-cfo-home) describes each file in full.
 
 ## Safety model
 

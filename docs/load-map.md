@@ -86,8 +86,7 @@ Past the budget the text is cut off.
 This repository keeps `AGENTS.md` below 30 KiB, leaving room under that default budget.
 The core routes conditional procedures to named cfo-* skills and [contract references](contract/ownership.md), and command contracts to `cfo help <command>`.
 `cfo help contract <topic>` retrieves one embedded procedure without reading the live home or loading other procedures.
-Installation writes the same references into a fresh home and updates owned copies; the skill entry points use the command interface so their shared installation paths need no relative policy copies.
-A legacy tracked-checkout home keeps its on-disk instructions, including a stale core, and its dirty policy files; the [activation boundary](contract/ownership.md#legacy-checkout-activation) applies before claiming that home's context changed.
+See [Loading and installation](contract/ownership.md#loading-and-installation) for how references and skill entry points reach source checkouts and installed homes, and the [legacy checkout activation boundary](contract/ownership.md#legacy-checkout-activation) before claiming that an existing home's context changed.
 
 **Skills.**
 Codex scans, in order: the project's `.codex/skills` directories (nearest first), `~/.codex/skills`, `~/.agents/skills`, its system skills, plugins, and the project's `.agents/skills` from the root down to the working directory.
@@ -158,7 +157,7 @@ Everything in the user rows above still loads for a goblin; spawn adds the follo
 **Why this repository has a `.no-mistakes.yaml`.**
 It is this repository's own settings file for the no-mistakes gate, the local pipeline (review, test, document, lint, push, pull request, CI) every change passes before it merges.
 It does two things.
-It sets `disable_project_settings: true`, so the gate's reviewers and fixers never read this repository's `AGENTS.md` or `CLAUDE.md`: those files turn an agent into the CFO, and a reviewer that believes it runs the fleet would start driving it.
+It sets `disable_project_settings: true`, so the gate's reviewers and fixers never load this repository's `AGENTS.md` or `CLAUDE.md` as project instructions and keep their assigned gate phase separate from the project's operating contract.
 It also sets how many automatic fix rounds each step may take.
 The gate reads it from the default branch, and `cfo pipeline run` refuses to start a run in a repository without it.
 

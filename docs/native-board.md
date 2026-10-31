@@ -2516,7 +2516,7 @@ Each key is then in the vault and in no file of the home, the login's Chrome pro
 ## AFK mode
 
 AFK mode is the Overlord's switch for running the fleet while he is away: the CFO decides everything his authority covers and logs each decision, nothing is asked of him or held for him, what only he can do gets a backlog row and is listed in his report, and nothing on the board prompts him.
-`AGENTS.md` holds its terms; this is how the supervisor keeps them.
+The [AFK contract](contract/afk.md#afk-mode) holds its terms; this is how the supervisor keeps them.
 
 The supervisor is the only writer of AFK mode's three files in `state/`:
 
@@ -2540,7 +2540,7 @@ The words are kept on one line, and words that are blank or longer than 500 char
 What it accepts is recorded as `the CFO at his ask (claude pid 4242)`, with his words as `asked` in `afk.json`, as the evidence of the switch's line in `afk.audit`, in the notice in the CFO's wake queue and in the report.
 It does not reset a switch that cannot be read, which stays the Overlord's.
 This proof says who asks and nothing of whose words those are: the CFO quotes them, and the supervisor cannot tell an ask of his from one the CFO misread or was handed by a goblin, a page or a tool's output.
-`AGENTS.md` holds that part, and the record shows him what it was switched for.
+The [AFK contract](contract/afk.md#afk-mode) holds that part, and the record shows him what it was switched for.
 His own switch, from the board or a terminal of his own, turns it either way whoever made the last one.
 
 Turning it on keeps the allowance and the free disk the disk meter reads, writes the log line before the switch, and puts a `review` notice keyed `afk` in the CFO's wake queue; turning it off keeps the report first, so a stretch never ends without one, and the notice tells the CFO to write it into its terminal.
@@ -2587,7 +2587,7 @@ What it accepts is recorded with the program that is his, such as `his own board
 Off while it is already off answers as off, and a switch that cannot be read answers on with 409 and off by resetting it.
 A switch that fails after the board was proven his answers 409 with one sentence, and the CFO is told why in the same wake.
 The adversary is the same one, at the board: an agent that follows its contract and tries the switch from a browser it started, through a proxy or from another machine.
-An agent that drives the Overlord's own running browser or window through his desktop is his to the supervisor, as a process that writes `state/afk.json` is his user; `AGENTS.md` forbids both, and nothing here stops either.
+An agent that drives the Overlord's own running browser or window through his desktop is his to the supervisor, as a process that writes `state/afk.json` is his user; the [AFK contract](contract/afk.md#afk-mode) forbids both, and nothing here stops either.
 
 His [private board](remote-access.md), the board remote access shares over his own tailnet, turns the switch on and off, as he decided on 2026-10-29 ("Allow it now as it is"), over proving his phone by its own tailnet address and over keeping on to the PC.
 Remote access's gate marks a request it admitted, with his login for the PC's private name from the private origin, and a switch it admitted is recorded for the CFO as from `his own private board (by Tailscale's headers, which a program on this PC can forge)`, which his pages show as your private board.

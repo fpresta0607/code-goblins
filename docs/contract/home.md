@@ -1,7 +1,7 @@
 ## The CFO home
 
 `$CFO_HOME` is the one folder that holds everything the fleet writes: `%LOCALAPPDATA%\CodeGoblins` for every install, from the desktop installer, the one-line install or `cfo install` run in a checkout alike, unless `CFO_HOME` names another folder.
-A source checkout is never a home: the code-goblins repository holds source only.
+New installations keep the home outside the source checkout; existing checkout homes follow the [legacy checkout activation boundary](ownership.md#legacy-checkout-activation).
 The home is local and private by default, and nothing in it is pushed anywhere.
 `cfo install` keeps the home, and the Dev Drive folder its worktrees, scratch and caches moved to, open only to the account it runs as, SYSTEM and Administrators, and so does `cfo dev-drive move` for the folder it makes: a folder made under a drive's root, as a home `CFO_HOME` puts there or the Dev Drive folder is, lets Authenticated Users modify it, so any second account on the machine could read and write the fleet's records and every goblin's work.
 The first install that narrows a folder walks everything in it, which takes minutes for a folder holding hundreds of thousands of files, and an install that finds it narrowed reads only the folder itself.
@@ -50,7 +50,7 @@ A folder a process holds open stays put for the next pass, and the failure is wr
 
 `cfo install` lays out a new home's `data/`, and repairs a laid-out one by creating what is missing without overwriting any file; `data/.layout` marks a folder it laid out.
 A `data/` that already held work before this layout existed is left exactly as it is, because laying it out would move the operator's files.
-`cfo home migrate` lays out such a home, and only on its owner's word: see the command table.
+`cfo home migrate` lays out such a home, and only on its owner's word: see the [command reference](../commands/home/migrate.md).
 Keeping `data/` in a private repository of your own, as a backup, is an opt-in and never a requirement: the fleet works the same without one.
 `data\.gitignore` keeps binaries, archives and logs out of such a backup: `cfo install` adds its block of patterns once and keeps every line you wrote.
 

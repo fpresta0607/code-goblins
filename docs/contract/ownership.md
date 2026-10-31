@@ -144,9 +144,9 @@ No upstream runtime, Relay, secondmate or terminal-backend behavior is activated
 
 The binary embeds the core, every contract and command reference and each conditional skill entry point.
 A fresh installed home receives the core and references from that embedded contract.
-An update replaces those owned files and the one shared skill source; existing policy files remain the operator's.
+An update replaces the installed contract files and the one shared skill source; existing policy files remain the operator's, and [tracked checkout homes keep their own contract](#legacy-checkout-activation).
 Codex and Pi discover the shared skills directly; Claude Code follows its junctions to the same files.
-Skill entry points retrieve procedures with cfo help, so their installation outside the home never breaks a relative link to policy.
+Skill entry points read the repository's reference in a source checkout and retrieve the binary's embedded reference with cfo help in an installed home; neither route depends on a relative link from the shared skill directory.
 CLAUDE.md points to the same AGENTS.md; no harness gets a policy fork.
 Missing files, broken local links, unlisted ownership and failed help reads are verification failures.
 See [the load map](../load-map.md) for the harness-specific adapters and constraints.

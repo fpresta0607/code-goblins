@@ -2,6 +2,8 @@
 
 `cfo send <target> <text>`
 
+A `<target>` is a task id or `gb-<id>`.
+
 Steer a goblin: every steer is delivered with the `CFO: ` prefix, which the harness-fault detector ignores along with the wrapped lines under it, so what you write about a rate limit is never read as the goblin's harness hitting one; type `Overlord: ` before a line you write into a terminal yourself for the same exemption.
 The text goes through the task's own native terminal: typed, submitted once its composer shows it, and reported delivered (`sent <id>`) only once the goblin has it: an idle goblin once its own native hooks report it took the prompt or, where no hook has, once its screen shows it working when it was not before; a goblin in a turn once its harness's own record of the conversation (Claude Code's transcript, the Codex rollout, pi's session) shows the text handed to its model.
 Each harness holds text submitted during a turn and hands it over at the next tool call, never interrupting the call that runs, so a send to a working goblin not taken within five seconds prints `queued for <id>`, saying it lands at its next tool call, or as its turn ends if it calls no tool first, and exits 0; a prompt hook proves nothing then, since Claude Code runs it when it queues the text.
