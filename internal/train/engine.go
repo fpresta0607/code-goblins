@@ -189,6 +189,9 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 		return kept, errors.Join(stepErr, err)
 	}
 	kept.Errors++
+	if kept.Landing {
+		return kept, errors.Join(stepErr, e.save(&kept))
+	}
 	if run := kept.openRun(); run != nil && len(run.Passed) > 0 && (kept.Errors >= maxErrors || errors.Is(stepErr, errMergeRefused) && strings.Contains(stepErr.Error(), "base branch policy prohibits the merge")) {
 		err = e.holdMerge(ctx, &kept, stepErr.Error(), run.MergeReadiness)
 		return kept, err
@@ -197,9 +200,6 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 		return kept, errors.Join(stepErr, e.save(&kept))
 	}
 	note := fmt.Sprintf("its step failed %d times in a row, last: %v", kept.Errors, stepErr)
-	if kept.Landing {
-		note += fmt.Sprintf(". It stopped while landing, and its pull request %s lands every pull request of the run or none, so read whether it merged", kept.PR)
-	}
 	err = e.finish(ctx, &kept, StateFailed, note)
 	return kept, err
 }
@@ -241,16 +241,30 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 			return err
 		}
 	}
-	if run != nil && len(run.Passed) > 0 && outcome != "passed" && outcome != "closed" {
-		changed, err := e.recheck(ctx, t)
-		if err != nil {
-			return err
+	if run != nil && len(run.Passed) > 0 {
+		if outcome == "stale" && run.OwnRun == "" {
+			return e.holdMerge(ctx, t, "the train head no longer matches the green proof", readiness)
 		}
-		if len(changed) > 0 {
-			t.endRun(RunChanged, "")
-			return e.rebuild(ctx, t, "the green proof no longer applies, since "+strings.Join(changed, "; "))
+		if outcome != "stale" && outcome != "closed" {
+			base, err := e.baseSHA(ctx, *t)
+			if err != nil {
+				return err
+			}
+			if base != t.BaseSHA {
+				return e.rebuildOnMovedBase(ctx, t, base)
+			}
 		}
-		return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
+		if outcome != "passed" && outcome != "closed" {
+			changed, err := e.recheck(ctx, t)
+			if err != nil {
+				return err
+			}
+			if len(changed) > 0 {
+				t.endRun(RunChanged, "")
+				return e.rebuild(ctx, t, "the green proof no longer applies, since "+strings.Join(changed, "; "))
+			}
+			return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
+		}
 	}
 	if outcome == "failed" {
 		_, failed := checksOutcome(checks)

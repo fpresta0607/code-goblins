@@ -55,6 +55,15 @@ func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 	return e.save(t)
 }
 
+func (e Engine) rebuildOnMovedBase(ctx context.Context, t *Train, base string) error {
+	t.Moved++
+	t.endRun(RunMoved, "")
+	if t.Moved >= maxMoved {
+		return e.finish(ctx, t, StateFailed, fmt.Sprintf("%s moved during %d runs in a row, so nothing they tested could land: hold other merges to %s, then start the train again", t.Base, t.Moved, t.Base))
+	}
+	return e.rebuild(ctx, t, fmt.Sprintf("%s moved from %s to %s during the run, so it is tested again on the new %s", t.Base, short(t.BaseSHA), short(base), t.Base))
+}
+
 // build merges the train's riders onto the current base in order, with
 // git merge-tree and commit-tree, so neither the checkout's working tree nor
 // its branches are touched; a rider that does not merge cleanly onto what is

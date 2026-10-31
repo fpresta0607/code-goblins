@@ -235,6 +235,7 @@ type fakeGitHub struct {
 	// whileLanding runs once as a train's pull request merges, after the
 	// train last read its riders.
 	whileLanding func()
+	beforeList   func()
 	// deletesBranches removes a merged pull request's branch, as a repository
 	// that deletes head branches by itself does.
 	deletesBranches bool
@@ -303,6 +304,9 @@ type pull struct {
 	number                    int
 	branch                    string
 	isDraft, isHeld, isClosed bool
+	mergeable, reviewDecision string
+	baseRefName               string
+	isCrossRepository         bool
 	// isMerged says main holds its head, and late how many reads of the open
 	// pull requests still list it.
 	isMerged bool
@@ -474,6 +478,10 @@ func flagValue(args []string, name string) string {
 // branches hold on the remote. One main took by another's merge is still
 // listed while GitHub marks it late.
 func (f *fakeGitHub) list() (execx.Result, error) {
+	if before := f.beforeList; before != nil {
+		f.beforeList = nil
+		before()
+	}
 	var open []PullRequest
 	for url, p := range f.pulls {
 		if p.isClosed || p.isMerged && p.late == 0 {
@@ -482,7 +490,10 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 		if p.isMerged {
 			p.late--
 		}
-		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: "main", IsDraft: p.isDraft, Mergeable: "MERGEABLE", Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
+		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: cmp.Or(p.baseRefName, "main"), IsDraft: p.isDraft, IsCrossRepository: p.isCrossRepository, Mergeable: cmp.Or(p.mergeable, "MERGEABLE"), ReviewDecision: p.reviewDecision, Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
+		if f.ownRuns[url] != nil {
+			pr.Checks = f.riderChecks(url)
+		}
 		if p.isHeld {
 			pr.Labels = []Label{{Name: HoldLabel}}
 		}

@@ -34,12 +34,7 @@ func (e Engine) land(ctx context.Context, t *Train, readiness string) error {
 			return err
 		}
 		if base != t.BaseSHA {
-			t.Moved++
-			t.endRun(RunMoved, "")
-			if t.Moved >= maxMoved {
-				return e.finish(ctx, t, StateFailed, fmt.Sprintf("%s moved during %d runs in a row, so nothing they tested could land: hold other merges to %s, then start the train again", t.Base, t.Moved, t.Base))
-			}
-			return e.rebuild(ctx, t, fmt.Sprintf("%s moved from %s to %s during the run, so it is tested again on the new %s", t.Base, short(t.BaseSHA), short(base), t.Base))
+			return e.rebuildOnMovedBase(ctx, t, base)
 		}
 		deploy, err := e.unverifiedDeploy(ctx, *t)
 		if err != nil {
@@ -173,7 +168,9 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
 				return nil, fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number)
 			default:
 				why = ""
-				if outcome, _ := checksOutcome(pr.Checks); outcome != "passed" {
+				if outcome, _ := checksOutcome(pr.Checks); outcome != "passed" && !slices.ContainsFunc(t.History, func(run Run) bool {
+					return run.OwnRun != "" && len(run.Passed) > 0 && run.PR == car.URL
+				}) {
 					why = "its checks no longer pass"
 				}
 			}

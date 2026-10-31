@@ -241,6 +241,15 @@ func TestGreenTrainReconcilesOperatorMergesAcrossLandingRecovery(t *testing.T) {
 						github.refuse[started.History[0].PR] = "the base branch policy prohibits the merge"
 					}
 					held := s.step(s.engine(github), started.ID)
+					if isInterrupted {
+						github.unanswered["view"] = maxErrors - held.Errors
+						for range maxErrors - held.Errors {
+							held, _ = s.engine(github).Advance(context.Background(), started.ID)
+						}
+						if held.Errors != maxErrors || held.IsFinished() {
+							t.Fatalf("want a held proof with an exhausted error budget: %+v", held)
+						}
+					}
 					proof := slices.Clone(held.History[0].Passed)
 					failures := slices.Clone(held.History[0].MergeFailures)
 					delete(github.refuse, held.History[0].PR)
@@ -254,13 +263,15 @@ func TestGreenTrainReconcilesOperatorMergesAcrossLandingRecovery(t *testing.T) {
 						t.Fatalf("operator merge: %+v, %v", result, err)
 					}
 					if isInterrupted {
-						github.unanswered["list"] = 1
-						if _, err := s.engine(github).Advance(context.Background(), held.ID); err == nil {
-							t.Fatal("want the interrupted confirmation to fail")
-						}
-						kept, err := Read(s.state, held.ID)
-						if err != nil || !kept.Landing || kept.Cars[0].State != CarLanded || kept.History[0].Result != RunLanded {
-							t.Fatalf("landing recovery not persisted: %+v, %v", kept, err)
+						github.unanswered["list"] = 2
+						for read := 1; read <= 2; read++ {
+							if _, err := s.engine(github).Advance(context.Background(), held.ID); err == nil {
+								t.Fatal("want the interrupted confirmation to fail")
+							}
+							kept, err := Read(s.state, held.ID)
+							if err != nil || kept.IsFinished() || !kept.Landing || kept.Cars[0].State != CarLanded || kept.History[0].Result != RunLanded || kept.Errors != maxErrors+read || kept.History[0].MergeAttempts != attempts || !slices.Equal(kept.History[0].Passed, proof) || !slices.Equal(kept.History[0].MergeFailures, failures) {
+								t.Fatalf("landing recovery or spent budgets not persisted: %+v, %v", kept, err)
+							}
 						}
 					}
 
@@ -337,6 +348,84 @@ func TestHeldTrainValidatesANewBaseWithoutRenewingTheOldProof(t *testing.T) {
 				t.Fatalf("train %+v: want new validation and retained old proof, no untested merge", rebuilt)
 			}
 		})
+	}
+}
+
+func TestChangedCheckEvidenceCannotStrandProofOnAnOldBase(t *testing.T) {
+	for _, isOwnRun := range []bool{false, true} {
+		for _, observation := range []string{"pending", "failed", "skipped", "changed green identity"} {
+			t.Run(fmt.Sprintf("own=%t/%s", isOwnRun, observation), func(t *testing.T) {
+				s, github, held := newHeldTrain(t, isOwnRun)
+				proof := slices.Clone(held.History[0].Passed)
+				failures := slices.Clone(held.History[0].MergeFailures)
+				base := s.advanceMain("outside.txt", "outside\n")
+				if isOwnRun {
+					own := github.ownRuns[held.Cars[0].URL]
+					switch observation {
+					case "pending":
+						own.status = "IN_PROGRESS"
+					case "failed":
+						own.conclusion = "FAILURE"
+					case "skipped":
+						own.conclusion = "SKIPPED"
+					case "changed green identity":
+						own.run++
+					}
+				} else {
+					workflow := github.workflowOf(held.Head)
+					switch observation {
+					case "pending":
+						github.pending = 1
+					case "failed":
+						workflow.conclusion = "failure"
+					case "skipped":
+						workflow.conclusion = "skipped"
+					case "changed green identity":
+						workflow.id++
+					}
+				}
+
+				rebuilt := s.step(s.engine(github), held.ID)
+
+				if rebuilt.IsFinished() || rebuilt.Runs != 2 || rebuilt.BaseSHA != base || rebuilt.Head == held.Head || rebuilt.Cars[0].State != CarRiding || rebuilt.History[0].Result != RunMoved || rebuilt.History[0].MergeAttempts != 1 || !slices.Equal(rebuilt.History[0].Passed, proof) || !slices.Equal(rebuilt.History[0].MergeFailures, failures) || rebuilt.History[0].MergeHold != held.History[0].MergeHold || !rebuilt.History[0].IsMergeNotified || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 {
+					t.Fatalf("changed evidence stranded or discarded old proof instead of new validation: %+v", rebuilt)
+				}
+				if s.fileOn(rebuilt.Head, "outside.txt") != "outside\n" || s.fileOn(rebuilt.Head, "f5.txt") != "feat/5\n" {
+					t.Fatal("new validation lost the new base or the eligible source")
+				}
+				delete(github.refuse, held.History[0].PR)
+				landed := s.step(s.engine(github), held.ID)
+
+				if landed.State != StateLanded || landed.Runs != 2 || landed.Cars[0].State != CarLanded || s.tree("refs/heads/main") != s.tree(rebuilt.Head) || len(s.told) != 0 || len(github.rerunCalls()) != 0 || !slices.Equal(landed.History[0].Passed, proof) {
+					t.Fatalf("eligible source did not land on its new validated base: %+v", landed)
+				}
+			})
+		}
+	}
+}
+
+func TestChangedTrainHeadStaysProtectedWhenBaseOrRidersChange(t *testing.T) {
+	for _, hasMovedBase := range []bool{false, true} {
+		for _, isRiderHeld := range []bool{false, true} {
+			t.Run(fmt.Sprintf("base moved=%t/rider held=%t", hasMovedBase, isRiderHeld), func(t *testing.T) {
+				s, github, held := newHeldTrain(t, false)
+				s.extend(held.Branch, "external.txt", "external\n")
+				externalHead := s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch)
+				if hasMovedBase {
+					s.advanceMain("outside.txt", "outside\n")
+				}
+				github.pulls[held.Cars[0].URL].isHeld = isRiderHeld
+
+				var kept Train
+				for range 3 {
+					kept = s.step(s.engine(github), held.ID)
+				}
+
+				if kept.IsFinished() || kept.Runs != 1 || kept.Head != held.Head || kept.BaseSHA != held.BaseSHA || !slices.Equal(kept.History[0].Passed, held.History[0].Passed) || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != externalHead || s.fileOn(externalHead, "external.txt") != "external\n" || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(s.told) != 0 {
+					t.Fatalf("a base or rider change overwrote the changed train branch: %+v", kept)
+				}
+			})
+		}
 	}
 }
 
