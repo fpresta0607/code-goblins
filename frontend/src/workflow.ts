@@ -150,7 +150,7 @@ export function statusText(phase: string): string {
     paused: "Paused", pausing: "Pausing", resuming: "Resuming", stopping: "Stopping", stopped: "Stopped",
     queued: "Queued", working: "Working", active: "Working", started: "Starting",
     review: "In review gate", waiting: "Waiting", ready: "Checks passed", done: "Delivered", merged: "Merged, verifying", idle: "Waiting for input",
-    blocked: "Blocked", failed: "Failed", unavailable: "No fresh evidence",
+    blocked: "Waiting", failed: "Failed", unavailable: "No fresh evidence",
     stale: "No fresh evidence", interrupted: "Interrupted", settled: "Turn finished", ended: "Session ended",
   };
   return labels[phase] || "No evidence yet";

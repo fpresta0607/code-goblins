@@ -26,7 +26,7 @@ test("board completion and semantic personas require the corresponding evidence"
   assert.equal(nativeStatus("busy"), "Working");
   assert.equal(nativeStatus("done"), "Turn finished");
   assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Done, verifying");
-  assert.equal(statusText("blocked"), "Blocked");
+  assert.equal(statusText("blocked"), "Waiting");
   assert.equal(statusText("failed"), "Failed");
 });
 
@@ -249,7 +249,7 @@ test("completed history and fleet statuses read the way the fleet reports them",
   assert.equal(taskColumn(merged), "Completed");
   assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "Merged");
   assert.equal(taskColumn(queued), "Tasks");
-  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Blocked"], ["ready", "Checks passed"]]) {
+  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Waiting"], ["ready", "Checks passed"]]) {
     const landed = {...live, phase, merged:true};
     assert.equal(taskColumn(landed), "In progress");
     assert.equal(nodeStatus({id:"l", title:"work", task:landed, relation:""}), label);
@@ -715,7 +715,7 @@ test("a pulse ends with its own report however many snapshots follow", () => {
 
 test("every status reads as plain words, never the old evidence jargon", () => {
   const words: [string, string][] = [["queued","Queued"],["working","Working"],["active","Working"],["started","Starting"],["review","In review gate"],["ready","Checks passed"],
-    ["done","Delivered"],["merged","Merged, verifying"],["idle","Waiting for input"],["blocked","Blocked"],["failed","Failed"],["unavailable","No fresh evidence"],
+    ["done","Delivered"],["merged","Merged, verifying"],["idle","Waiting for input"],["blocked","Waiting"],["failed","Failed"],["unavailable","No fresh evidence"],
     ["stale","No fresh evidence"],["interrupted","Interrupted"],["settled","Turn finished"],["ended","Session ended"],["unknown","No evidence yet"],["","No evidence yet"]];
   for (const [phase, label] of words) assert.equal(statusText(phase), label, phase);
   for (const [phase, label] of [["busy","Working"],["idle","Waiting for input"],["unknown","No evidence yet"],["stale","No fresh evidence"]]) assert.equal(nativeStatus(phase), label, phase);
