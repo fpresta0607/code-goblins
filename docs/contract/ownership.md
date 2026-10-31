@@ -64,7 +64,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo defender [--since <time\|day\|length>] [--json]` | [cfo help defender](../commands/defender.md) |
 | `cfo home move [--to <dir>] [--apply --plan <digest>]` | [cfo help home move](../commands/home/move.md) |
 | `cfo doctor [--fix]` | [cfo help doctor](../commands/doctor.md) |
-| `cfo dictation setup` | [cfo help dictation](../commands/dictation.md) |
+| `cfo dictation setup` | [cfo help dictation setup](../commands/dictation/setup.md) |
 | `cfo auth <project> [--check\|--fix] [--env]` | [cfo help auth](../commands/auth.md) |
 | `cfo auth store [--project <p>] <NAME> [value]` | [cfo help auth store](../commands/auth/store.md) |
 | `cfo auth request --project <p> [--task <id>] --why "<text>" [--link <url>] [--step "<text>"]... [--message-file <file>] [--env-file <file>] [--plain NAME]... [--label NAME="<words>"]... [--window] [--wait] [NAME...]`, `cfo auth request --wait-on\|--done <card> [--task <id>]`, `cfo auth request --withdraw <card> [--task <id>] --reason "<why>"` | [cfo help auth request](../commands/auth/request.md) |
@@ -84,7 +84,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo title <id> "<short title>"` | [cfo help title](../commands/title.md) |
 | `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [cfo help switch](../commands/switch.md) |
 | `cfo pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] \| recover <id> [--branch <b> \| --run <run>]` | [cfo help pipeline](../commands/pipeline.md) |
-| `cfo gate tests-kept` | [cfo help gate](../commands/gate.md) |
+| `cfo gate tests-kept` | [cfo help gate tests-kept](../commands/gate/tests-kept.md) |
 | `cfo gate test [--level fast\|affected\|full] [--plan]` | [cfo help gate test](../commands/gate/test.md) |
 | `cfo gate prepush [--plan] [--limit <duration>]` | [cfo help gate prepush](../commands/gate/prepush.md) |
 | `cfo gate turn [--as <name>] [--wait <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]` | [cfo help gate turn](../commands/gate/turn.md) |

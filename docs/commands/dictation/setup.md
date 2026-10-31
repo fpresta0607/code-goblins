@@ -1,4 +1,4 @@
-# cfo dictation
+# cfo dictation setup
 
 `cfo dictation setup`
 

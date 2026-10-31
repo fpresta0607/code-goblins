@@ -21,6 +21,8 @@ func TestHelpReadsOnlyTheRequestedContractWithoutOpeningAHome(t *testing.T) {
 	}{
 		{"command", []string{"help", "spawn"}, "--overlap-ok", "## Project authentication"},
 		{"subcommand", []string{"help", "auth", "request"}, "--wait-on", "## cfo auth store"},
+		{"subcommand without arguments", []string{"help", "gate", "tests-kept"}, "no-mistakes repository gate", "-json"},
+		{"setup without arguments", []string{"help", "dictation", "setup"}, "speech engine and model", "home migrate"},
 		{"procedure", []string{"help", "contract", "supervision"}, "WAKE_ACK_REQUIRED", "## Model routing"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
