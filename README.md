@@ -111,10 +111,10 @@ See [A gate on its task's own harness](docs/pipeline.md#a-gate-on-its-tasks-own-
 This repository's own test step is `cfo gate test`, which plans before it runs.
 It says which level a change requires: `affected`, the Go packages the change reaches (those it changed, those that import them, and those whose tests read a changed file, such as an install script), or `full`, every package, once `go.mod` or `go.sum` changed or a changed file is one the verification policy does not account for.
 It says why each package is in the plan and which changed files no Go check reads, and it leaves a report of what it ran, with what became of each package and which tests failed.
-While working, `cfo gate test --level fast` vets the same packages and tests only the quick changed ones, and `cfo gate test --plan` prints the plan and runs nothing.
+While working, `cfo gate test --level fast` follows the [verification-level rules](docs/pipeline.md#verification-levels), and `cfo gate test --plan` prints the plan and runs nothing.
 Its tests take turns on the machine, one run at a time, and `cfo gate turns` shows which run holds the turn, how far its tests are, and which runs wait.
 Any other heavy command stands in the same line behind `cfo gate turn -- <command>`, which waits while another run holds the turn or free memory is under the line's floor, 4 GiB on a line of one slot, says which run it waits for, and then runs the command with its output and exit code untouched.
-Before each push a goblin runs `cfo gate prepush`, which picks what the change can break and runs it one check at a time, so CI is not the first to run a test the change broke.
+`cfo gate prepush` picks what the change can break and runs it one check at a time under the [selected validation owner](docs/contract/delivery.md#delivery), so CI is not the first to run a test the change broke.
 It runs what the fast level runs and more: the tests that read the whole tree whatever changed, the slow packages without their slowest tests, the board's checks for a change under `frontend`, and the packages that import what changed, nearest first.
 It stops at the first failure with one plain line, starts no check after its time limit, and names what it left to CI.
 See [Before a push](docs/pipeline.md#before-a-push).
@@ -1067,7 +1067,7 @@ A cause the fleet meets while it works, outside the task at hand, becomes a GitH
 When an open `ops-root` issue already has the same root, matched by `--root <key>` such as a test's package and name, or else by its title, the command adds a dated comment with the new `--evidence` instead of a second issue.
 Every brief `cfo brief` writes says so in its Constraints.
 The fleet also files what its own signals name: each test a merge train saw fail once and pass on its second try, each red push run of a default branch by its workflow and failed jobs, and an error the supervisor meets again an hour after it first met it.
-The supervisor then picks the open `ops-root` issues up as queued work, project by project: every 30 minutes it reads each repository once, queues each issue a trusted author filed that no one holds, that no live goblin filed and that no open pull request closes, as a task of its own with a brief built from the issue, `Fixes #<number>` in its pull request and `mode: direct-PR` as its delivery, and starts it behind every other queued task, at most two of one repository at a time, never the same issue twice.
+The supervisor then picks the open `ops-root` issues up as queued work under the [root-issue intake contract](docs/contract/root-issues.md#root-issues).
 On a public repository it refuses text that names another of your projects whose repository is not public, a teammate, an @mention other than the repository's owner, or a path on your machine, and it refuses a credential value or a key-shaped word on any repository, naming what it found without repeating it.
 It files only on a repository the fleet owns, the account `gh` works as or an organization `config/fleet.json` lists as `github_owners`: a checkout whose `origin` is another owner's, such as your fork kept with `origin` on the upstream, is refused with the remote of the checkout whose repository is yours, when one is, and so is a repository with issues turned off.
 

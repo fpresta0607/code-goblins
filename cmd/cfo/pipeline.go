@@ -177,9 +177,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		return err
 	}
 	if meta.Mode != "no-mistakes" {
-		// A task of another mode, as the supervisor starts every root issue in
-		// direct-PR, was never given a gate or a frozen policy, so no migration
-		// can make one and its mode's own route verifies it (issue 1438).
+		// A task of another mode has no gate or frozen pipeline policy, so
+		// migration cannot supply one (issue 1438).
 		refusal := fmt.Sprintf("pipeline: task %s runs in mode %q, and only a no-mistakes task has a gate to drive or a frozen policy for cfo pipeline migrate to move", meta.ID, meta.Mode)
 		switch meta.Mode {
 		case "direct-PR":

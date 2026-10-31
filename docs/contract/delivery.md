@@ -8,18 +8,20 @@ Resolve project posture and concrete change risk before dispatch, independently 
 The project's `project.json` may declare `delivery.posture`: `no-mistakes`, `no-mistakes-prod-only`, `direct-PR`, or `local-only`.
 The brief's Delivery section records `surface: internal|product|mixed|unknown`, `risk: low` or the concrete sensitive surface, and a change-specific `reason:`.
 Internal means tooling, automation or contributor and operator process; a directory or project name does not establish that classification.
-The conditional posture chooses direct-PR only for known internal, low-risk work with defined project checks; product work uses no-mistakes.
-Mixed, unknown or malformed assessments, missing or unreadable policy, credentials, authorization, state recovery, migrations and high-risk publication use no-mistakes.
-An explicitly configured direct-PR or local-only posture is standing Overlord authority for assessed low-risk internal or product work with a concrete reason and defined checks.
+The conditional posture chooses direct-PR only for known internal, low-risk work with defined fast-tier project checks; product work uses no-mistakes.
+Mixed, unknown or malformed assessments, missing or unreadable policy, credentials, authorization, state recovery, migrations and publication use no-mistakes.
+An explicitly configured direct-PR or local-only posture is standing Overlord authority for assessed low-risk internal or product work with a concrete reason and defined fast-tier checks.
 It does not narrow the strict boundaries for sensitive, mixed, unknown or malformed work.
 Only a concrete separate Overlord exception may narrow the selection beyond that standing posture, recorded with `--delivery-exception` and an explicit mode at brief and spawn.
+Defined fast-tier checks remain required for an exception.
 An explicit no-mistakes mode can always increase rigor.
 
 `cfo brief` and `cfo spawn` use the same resolver.
-Before the worker starts, spawn saves `delivery.json` in its task directory with the mode, posture, surface, risk, reason, project checks and CI requirement.
+Before the worker starts, spawn saves `state/tasktmp/<id>/delivery.json` with the mode, posture, surface, risk, reason, project checks and CI requirement.
 The task record binds its bytes by `delivery_hash` and keeps its mode separately.
 Verification, pipeline entry and PR registration refuse a changed receipt or a mismatching mode.
-`cfo verify` uses the frozen verification tiers, time limits and declared reuse inputs, so later project-policy edits cannot silently change a task's proof.
+`cfo verify` uses the frozen verification tiers, time limits and declared reuse inputs without loading the live project record, even if that record is later removed or invalid.
+Tasks without a delivery receipt still read verification configuration from the live project record.
 A helper remains local-only under its parent's publication owner.
 Existing tasks without this receipt retain their modes, frozen policies, findings, spent rounds and custody.
 Intake never migrates, restarts or repairs a running validation.
@@ -61,8 +63,7 @@ Publish only the commit the proof names, with every required check completed suc
 Local same-user records cannot replace a required hosted check.
 Reuse a pass only through existing receipt checks matching source, commands and configuration, dependencies and ignored inputs, tools, environment and platform.
 Changed relevant inputs invalidate that pass; do not add a generic evidence cache or duplicate baseline.
-Fast Go verification and prepush both execute required policy guards even when their package is slow, without a separate guard run when the selected package tests already include it.
-Name platform-specific guards deferred to CI as deferred, never as executed on another platform.
+Required Go guards and platform deferrals follow [Verification levels](../pipeline.md#verification-levels).
 
 **Completion and scouts.**
 
