@@ -193,7 +193,7 @@ The `project-check` skill assesses what the home knows about one project through
 ## Third-party skills
 
 The tools the fleet drives publish their own skills, and this repository does not copy them.
-Install each once at user scope with `npx skills add kunchenguid/<tool> --skill <tool> -g`, so Codex and Pi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; both installs in [install.md](install.md) add all three for you.
+Install each once at user scope with `npx skills add kunchenguid/<tool> --skill <tool> -g`, so Codex and Pi find it in `~/.agents/skills` and Claude Code in `~/.claude/skills`; both installs in [the installation guide](https://github.com/fpresta0607/code-goblins/blob/main/docs/install.md) add all three for you.
 
 A copy inside this repository would reach only sessions opened in this checkout, never a goblin working on another project, and would compete with the user copy under the collision rules above.
 `cfo doctor` checks that these tools are installed but not yet that their skills are; checking for each skill at user scope is a natural next addition to it.

@@ -5,40 +5,99 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
 func TestHelpReadsOnlyTheRequestedContractWithoutOpeningAHome(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		args   []string
-		want   string
-		absent string
+		name      string
+		args      []string
+		reference string
 	}{
-		{"command", []string{"help", "spawn"}, "--overlap-ok", "## Project authentication"},
-		{"subcommand", []string{"help", "auth", "request"}, "--wait-on", "## cfo auth store"},
-		{"subcommand without arguments", []string{"help", "gate", "tests-kept"}, "no-mistakes repository gate", "-json"},
-		{"setup without arguments", []string{"help", "dictation", "setup"}, "speech engine and model", "home migrate"},
-		{"procedure", []string{"help", "contract", "supervision"}, "WAKE_ACK_REQUIRED", "## Model routing"},
+		{"command", []string{"help", "spawn"}, "docs/commands/spawn.md"},
+		{"subcommand", []string{"help", "auth", "request"}, "docs/commands/auth/request.md"},
+		{"subcommand without arguments", []string{"help", "gate", "tests-kept"}, "docs/commands/gate/tests-kept.md"},
+		{"setup without arguments", []string{"help", "dictation", "setup"}, "docs/commands/dictation/setup.md"},
+		{"dispatch", []string{"help", "contract", "dispatch"}, "docs/contract/dispatch.md"},
+		{"authentication", []string{"help", "contract", "authentication"}, "docs/contract/authentication.md"},
+		{"worktrees", []string{"help", "contract", "worktrees"}, "docs/contract/worktrees.md"},
+		{"services", []string{"help", "contract", "services"}, "docs/contract/services.md"},
+		{"supervision", []string{"help", "contract", "supervision"}, "docs/contract/supervision.md"},
+		{"delivery", []string{"help", "contract", "delivery"}, "docs/contract/delivery.md"},
+		{"decisions", []string{"help", "contract", "decisions"}, "docs/contract/decisions.md"},
+		{"afk", []string{"help", "contract", "afk"}, "docs/contract/afk.md"},
+		{"home", []string{"help", "contract", "home"}, "docs/contract/home.md"},
+		{"root-issues", []string{"help", "contract", "root-issues"}, "docs/contract/root-issues.md"},
+		{"ownership", []string{"help", "contract", "ownership"}, "docs/contract/ownership.md"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			var stdout, stderr bytes.Buffer
+			want, err := fs.ReadFile(codegoblins.Contract, test.reference)
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := test.args
+			if len(args) == 4 && args[2] == "contract" && test.name != "ownership" {
+				skill, err := fs.ReadFile(codegoblins.Skills, ".agents/skills/cfo-"+test.name+"/SKILL.md")
+				if err != nil {
+					t.Fatal(err)
+				}
+				var routes [][]string
+				for _, command := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(string(skill), -1) {
+					words := strings.Fields(command[1])
+					if len(words) >= 3 && words[0] == "cfo" && words[1] == "help" && words[2] == "contract" {
+						routes = append(routes, words[1:])
+					}
+				}
+				if len(routes) != 1 {
+					t.Fatalf("cfo-%s declares %d procedure routes, want one", test.name, len(routes))
+				}
+				args = routes[0]
+			}
 			runtime := commandRuntime{resolveHome: func() (home.Home, error) {
 				t.Fatal("read-only reference help tried to resolve the live home")
 				return home.Home{}, nil
 			}}
 
 			// Act
-			code := runWithRuntime(test.args, &stdout, &stderr, runtime)
+			code := runWithRuntime(args, &stdout, &stderr, runtime)
 
 			// Assert
-			if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), test.want) || strings.Contains(stdout.String(), test.absent) {
-				t.Fatalf("help %v: exit %d, stderr %q, output %q", test.args, code, stderr.String(), stdout.String())
+			if code != 0 || stderr.Len() != 0 || !bytes.Equal(stdout.Bytes(), want) {
+				t.Fatalf("%v: exit %d, stderr %q, output %q; want %s bytes", args, code, stderr.String(), stdout.String(), test.reference)
+			}
+		})
+	}
+}
+
+func TestHelpReturnsTheExactRequestedFixtureBytes(t *testing.T) {
+	files := fstest.MapFS{
+		"docs/commands/spawn.md":        {Data: []byte("spawn fixture\r\n")},
+		"docs/commands/auth/request.md": {Data: []byte("request fixture\n")},
+		"docs/contract/dispatch.md":     {Data: []byte("dispatch fixture\x00\n")},
+		"docs/contract/supervision.md":  {Data: []byte{}},
+	}
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"spawn"}, "spawn fixture\r\n"},
+		{[]string{"auth", "request"}, "request fixture\n"},
+		{[]string{"contract", "dispatch"}, "dispatch fixture\x00\n"},
+		{[]string{"contract", "supervision"}, ""},
+	} {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := runHelp(test.args, &stdout, &stderr, files)
+			if code != 0 || stderr.Len() != 0 || stdout.String() != test.want {
+				t.Fatalf("exit %d, stdout %q, stderr %q; want exactly %q", code, stdout.String(), stderr.String(), test.want)
 			}
 		})
 	}
@@ -63,29 +122,46 @@ func TestHelpRejectsUnknownAndMalformedTopicsWithoutDumpingTheContract(t *testin
 	}
 }
 
-func TestHelpListsTopicsWithoutLoadingTheirBodies(t *testing.T) {
-	// Arrange
-	var stdout, stderr bytes.Buffer
-
-	// Act
-	code := runWithRuntime([]string{"help"}, &stdout, &stderr, commandRuntime{})
-
-	// Assert
-	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "contract supervision") || !strings.Contains(stdout.String(), "auth request") || strings.Contains(stdout.String(), "WAKE_ACK_REQUIRED") {
-		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
-	}
+type helpIndexFS struct {
+	fs.FS
 }
 
-func TestHelpListsOnlyTheRequestedCommandGroup(t *testing.T) {
-	// Arrange
-	var stdout, stderr bytes.Buffer
+func (references helpIndexFS) Open(name string) (fs.File, error) {
+	if strings.HasSuffix(name, ".md") {
+		if _, err := fs.Stat(references.FS, name); err != nil {
+			return nil, err
+		}
+		return nil, fs.ErrPermission
+	}
+	return references.FS.Open(name)
+}
 
-	// Act
-	code := runWithRuntime([]string{"help", "pr"}, &stdout, &stderr, commandRuntime{})
-
-	// Assert
-	if code != 0 || stderr.Len() != 0 || !strings.Contains(stdout.String(), "pr merge") || strings.Contains(stdout.String(), "auth request") || strings.Contains(stdout.String(), "--verified") {
-		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+func TestHelpListsTopicsWithoutLoadingTheirBodies(t *testing.T) {
+	files := helpIndexFS{fstest.MapFS{
+		"docs/commands/auth/request.md": {},
+		"docs/commands/pr/check.md":     {},
+		"docs/commands/pr/merge.md":     {},
+		"docs/contract/dispatch.md":     {},
+		"docs/contract/supervision.md":  {},
+		"docs/load-map.md":              {},
+	}}
+	for _, test := range []struct {
+		name   string
+		args   []string
+		topics string
+	}{
+		{"all", nil, "auth request\n  pr check\n  pr merge\n  contract dispatch\n  contract supervision"},
+		{"procedures", []string{"contract"}, "contract dispatch\n  contract supervision"},
+		{"commands", []string{"pr"}, "pr check\n  pr merge"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := runHelp(test.args, &stdout, &stderr, files)
+			want := "usage: cfo help <topic>\n\nAvailable topics:\n  " + test.topics + "\n"
+			if code != 0 || stderr.Len() != 0 || stdout.String() != want {
+				t.Fatalf("exit %d, stdout %q, stderr %q; want exactly %q", code, stdout.String(), stderr.String(), want)
+			}
+		})
 	}
 }
 

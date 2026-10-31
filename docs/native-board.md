@@ -56,7 +56,7 @@ A CFO whose registration in `state/primary.json` names a live process is reused,
 It decides from the registration alone and asks neither the board nor Herdr, so a supervisor that has not checked the registration yet or a Herdr that cannot answer changes nothing.
 Otherwise it makes sure Herdr's server runs and starts the remembered harness as the CFO in a fresh `cfo` tab it creates in the CFO home, since Herdr starts an agent in its pane's own directory; it asks for no project, because the CFO works across every project from its home.
 An old `cfo` tab with no agent in any of its panes is closed when every pane sits at its shell prompt, and renamed to `shell` when anything else runs in one, `goblins` itself included; a `cfo` tab with an agent in any pane is left as it is and no second CFO is started beside it.
-For the final console choices, see [Everyday commands](../README.md#everyday-commands).
+For the final console choices, see [Everyday commands](https://github.com/fpresta0607/code-goblins/blob/main/README.md#everyday-commands).
 Run inside a Herdr pane there is nothing to attach, so `goblins` only brings the CFO to the front.
 `goblins status` reads the board record and prints the board's link, the status line and the supervisor's pid, and exits 1 when the supervisor the record names does not answer as itself there.
 A supervisor started in the background has no terminal for Ctrl-C to reach, so `goblins stop` writes `state/serve.stop` naming the record's pid and waits up to 30 seconds for the board to stop answering.
@@ -506,11 +506,11 @@ The offer after he was away says who turned it on, with his words when the CFO d
 Either one takes the focus itself, so keys he was typing press neither button, and Escape stays.
 A switch the supervisor refuses there shows one short sentence that says what to do, never the supervisor's own words for why.
 When AFK mode turns off nothing opens over the board: the stretch becomes his page of it, one card in his Command Center ([AFK mode](#afk-mode)).
-See [AFK mode in the README](../README.md#afk-mode) for what the page shows.
+See [AFK mode in the README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) for what the page shows.
 Selecting a card or node opens the same goblin panel from either view: a one-row header with the goblin and icon actions, then one view with no tabs, the Overlord's ask of 2026-10-23: the goblin's messages or its live terminal, with its task list beside them on a panel 900 px wide or more, and folded under the header as Task on a narrower one or a small screen ([The Messages view](#the-messages-view)).
 The CFO's header carries the toggle of AFK mode in its one row, before the panel's controls: a small switch labelled AFK, in the board's green while it is on.
 The turn-on question focuses Cancel, and a switch that cannot be read shows off, with Unreadable: a press resets it in muted words on a line of their own under the row, the line Restart PC and Update share while either shows, so the row keeps its room.
-The [README](../README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the row's end, over the conversation, so it neither widens the row nor moves the conversation down.
+The [README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode) describes the switch's loading and refusal displays; a refusal is drawn under the row's end, over the conversation, so it neither widens the row nor moves the conversation down.
 On a panel at its narrowest the row cuts the CFO's name short and puts the panel's other controls in More rather than cover or hide the toggle, so it is there at every width.
 The name, the harness's mark and a goblin's task id are cut at the edge of their own part of the row, which never narrows past the session's picture, so none of them is drawn under the Chat and Task switch.
 While AFK mode is off and his page of the last stretch is in his Command Center, **Open your last AFK report** in the CFO's Task view opens that page again, from the snapshot's `afk.page`.
@@ -1642,7 +1642,7 @@ Quit it from the tray and open Code Goblins from the Start menu or desktop short
 When `goblins` fails, the launcher shows the last sixteen lines it wrote to stderr in a message box titled Code Goblins and exits 1; with no `goblins.exe` beside it, the box says that Code Goblins is not installed there.
 If `goblins` exits 0 without naming both the board and state folder, as an older build may, the window shows a message box saying the board did not open and exits 1 without showing a board.
 Sixteen lines hold all that `goblins` says about a supervisor that did not start: what to do, where `serve.log` is, and the end of that log.
-For installation from source with `.\install.cmd -Dev`, see [To work on it](install.md#to-work-on-it).
+For installation from source with `.\install.cmd -Dev`, see [To work on it](https://github.com/fpresta0607/code-goblins/blob/main/docs/install.md#to-work-on-it).
 The one-line install puts it in the home from a release whose `SHA256SUMS` lists it, as releases from v0.4.0 on do, and `cfo update` carries one that sits beside the candidate into the home once the candidate serves.
 It needs only what the supervisor already provides: the board's address in `state\board.json`, the board's page, `/api/waiting`, which it reads every 3 seconds for what newly waits on the Overlord, and `/api/announce`, where it claims each of those before it notifies it.
 It holds no fleet state, and closing it leaves the supervisor, the CFO and every goblin running: it runs as a single instance, closing hides it to the tray, and only **Quit the window** in the tray menu ends it.
@@ -2620,7 +2620,7 @@ Spent holds each allowance used: its provider and window, the percent used when 
 A window at 0% wherever it was read is left out of Spent, and so is a credit balance not read at both ends or that did not fall, in the page and in the text alike.
 Its free disk is the drive the disk meter reads, with the bytes free when it turned on and when it turned off, of the drive's total.
 It is absent unless free disk was read at both ends on one drive, since the meter reads whichever of the home's drive and its Dev Drive has less free.
-The board's filtering and presentation are documented in [the README](../README.md#afk-mode).
+The board's filtering and presentation are documented in [the README](https://github.com/fpresta0607/code-goblins/blob/main/README.md#afk-mode).
 
 `cfo afk log`, `cfo pr merge` and `cfo answer` send a decision as `afk-log`, which the supervisor writes only for a process it proves runs under the registered CFO, the proof a question takes, and only while AFK mode is on.
 A merge train's landing is logged by the supervisor, on a request any process of the home may make (`afk-train-landed`, naming the train and the pull request) and only while AFK mode is on: the line is the train's own record of the landing, with the run that proved it, once GitHub says the pull request merged, and it is never twice in a stretch.
@@ -2744,7 +2744,7 @@ go build -o cfo.exe ./cmd/cfo
 
 Vite generates `internal/boardweb/dist/board`, which git ignores; do not edit or commit it.
 `cfo.exe` embeds it, and a checkout that has not built it embeds instead the one committed file under `internal/boardweb/dist`, a placeholder page that says the board was not built and names the commands that build it, so `go build` and `go test` need Go alone.
-See [Development](../README.md#development) for the requirements before installing a source build.
+See [Development](https://github.com/fpresta0607/code-goblins/blob/main/README.md#development) for the requirements before installing a source build.
 `npm run test:browser` first builds the board and every page under `frontend/tests/fixtures`, bundled as the shipped board is, into a folder of that run's own under the system's temporary folder, and the browser tests read those files, answering each request themselves.
 No web server runs behind them: the pages are given the origin `http://127.0.0.1:1`, this machine as the board is really served, on a port the browser refuses to connect to, so no test waits on a port or opens a connection the machine can refuse, and a request a test does not answer itself fails at once.
 `tests/iphone-terminal.spec.ts` runs in WebKit, the engine of every browser on an iPhone, at an iPhone's size and under the private board's https address, since WebKit refuses port 1 even to a page a test answers; it takes the idle callback away itself, counts the WebGL contexts the page asks for, and fails on any error the page throws, so an API Safari lacks that the terminal's path reaches, and that Playwright's WebKit lacks too, shows there before it blanks the Overlord's phone.
@@ -2775,7 +2775,7 @@ Only the recorded fixture PIDs/session may be stopped during crash checks.
 The fixture uses `serve --example`, allowed only with a temporary CFO home and its own state directory.
 That mode labels Example workspace and omits the production machine-wide orphan inventory, which otherwise sees unrelated host processes beside the isolated Herdr session.
 It retains task monitoring and custody checks and never clears shared decisions or stops shared processes.
-See [the implementation evidence](evidence/cfo-native-board.md) for measured overhead, browser results, and the unresolved earlier Defender detections.
+See [the implementation evidence](https://github.com/fpresta0607/code-goblins/blob/main/docs/evidence/cfo-native-board.md) for measured overhead, browser results, and the unresolved earlier Defender detections.
 
 ## Source provenance
 

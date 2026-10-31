@@ -35,11 +35,25 @@ func TestRoutedContractReachesEveryHarnessOnInstallAndUpdate(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	updatedSkills := fstest.MapFS{}
+	if err := fs.WalkDir(skills, ".", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(skills, name)
+		if err == nil {
+			updatedSkills[name] = &fstest.MapFile{Data: append(data, []byte("\nUpdated skill fixture.\n")...)}
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, phase := range []string{"install", "update"} {
 		t.Run(phase, func(t *testing.T) {
 			if phase == "update" {
 				f.service.Contract = updated
+				f.service.Skills = updatedSkills
 				writeFile(t, filepath.Join(f.root, "docs", "contract", "delivery.md"), "stale procedure")
 				writeFile(t, filepath.Join(f.service.Harnesses.SharedSkills, "cfo-delivery", "SKILL.md"), "stale skill")
 			}
@@ -75,7 +89,7 @@ func TestRoutedContractReachesEveryHarnessOnInstallAndUpdate(t *testing.T) {
 				if !slices.Contains(mapping.Installed, entry.Name()) {
 					t.Errorf("%s is not discoverable in the recorded harness map", entry.Name())
 				}
-				want, err := fs.ReadFile(skills, entry.Name()+"/SKILL.md")
+				want, err := fs.ReadFile(f.service.Skills, entry.Name()+"/SKILL.md")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -164,7 +178,20 @@ func TestLegacyTrackedHomeKeepsItsLoadedContractAndDirtyPolicy(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.root, "docs", "contract", "dispatch.md")); !os.IsNotExist(err) {
 		t.Errorf("installation activated tracked contract references: %v", err)
 	}
-	if !strings.Contains(readFile(t, filepath.Join(f.service.Harnesses.SharedSkills, "cfo-dispatch", "SKILL.md")), "cfo help contract dispatch") {
-		t.Error("the updated skill cannot reach the embedded reference independently of the stale checkout")
+	entries, err := fs.ReadDir(skills, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cfo-") {
+			continue
+		}
+		want, err := fs.ReadFile(skills, entry.Name()+"/SKILL.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := readFile(t, filepath.Join(f.service.Harnesses.SharedSkills, entry.Name(), "SKILL.md")); got != string(want) {
+			t.Errorf("the tracked home did not receive the shipped %s skill bytes", entry.Name())
+		}
 	}
 }
