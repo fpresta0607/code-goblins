@@ -70,12 +70,41 @@ func TestMemoryBudgetRejectsCorruptSettingsInsteadOfInferringAnAllowance(t *test
 }
 
 func TestMemoryReportCountsCatalogRoutesAndPreservesSourceHashes(t *testing.T) {
-	dir, _ := catalogFixture(t)
-	report, err := MemoryReport(dir, referenceDate)
-	if err != nil || report.IsLegacy || report.Bytes <= 0 || len(report.Inputs) != 1 {
-		t.Fatalf("warm report=%+v error=%v", report, err)
+	root := t.TempDir()
+	dir := filepath.Join(root, "data")
+	active, history := []byte("Keep.\n"), []byte("Old.\n")
+	writeMemoryFile(t, dir, "overlord.md", active)
+	writeMemoryFile(t, dir, "memory/history.md", history)
+	catalog := Catalog{Version: 1, Sources: []Source{
+		{Path: "overlord.md", SHA256: Hash(active), Entries: []Entry{{ID: "rule", End: len(active), SHA256: Hash(active), Authority: "ruling", Location: "warm"}}},
+		{Path: "memory/history.md", SHA256: Hash(history), Entries: []Entry{{ID: "old", End: len(history), SHA256: Hash(history), Authority: "history", Location: "cold", Trigger: "investigating history", Topics: []string{"history"}, Approval: &Approval{By: "Overlord", Quote: "Offload old.", Date: "2026-10-30", Destination: "memory/history.md#old"}}}},
+	}}
+	writeCatalog(t, dir, catalog)
+	expected := "\n[rule] overlord.md bytes 0:6 sha256=83768329c26475abbbc68d9a5c279c8021e5b50caced12b379eed83c11ab19a2 authority=ruling tier=pinned\nKeep.\n\nold: investigating history (projects= tasks= topics=history)\n"
+	loaded, err := Load(dir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if report.EstimatedTokens != Tokens(report.Bytes) || report.IsOverBudget || len(report.Inputs[0].SHA256) != 64 {
-		t.Fatalf("warm accounting lacks complete emitted memory: %+v", report)
+	text, err := loaded.Retrieve(Query{}, referenceDate)
+	if err != nil || text+loaded.Routes(2000) != expected {
+		t.Fatalf("emitted memory differs from the independently counted fixture: %q, %v", text+loaded.Routes(2000), err)
+	}
+	for _, test := range []struct {
+		allowance    string
+		isOverBudget bool
+	}{{"50", false}, {"49", true}} {
+		t.Run(test.allowance, func(t *testing.T) {
+			writeMemoryFile(t, root, "config/startup-memory-budget", []byte(test.allowance))
+
+			report, err := MemoryReport(dir, referenceDate)
+
+			if err != nil || report.IsLegacy || report.Bytes != 199 || report.EstimatedTokens != 50 || report.IsOverBudget != test.isOverBudget || len(report.Inputs) != 1 {
+				t.Fatalf("warm accounting disagrees with 199-byte fixture: %+v, %v", report, err)
+			}
+			input := report.Inputs[0]
+			if input.Bytes != 199 || input.EstimatedTokens != 50 || input.SHA256 != "b81af7343c3684e5065fa05cb8cfb9375fc5e8a30f4bdccd06ab4a5e0c7f4d52" {
+				t.Fatalf("warm memory or its route bookkeeping was omitted: %+v", input)
+			}
+		})
 	}
 }

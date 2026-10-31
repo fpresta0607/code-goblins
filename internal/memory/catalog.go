@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -189,6 +190,10 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
+	pinned, err := pinnedReferences(dataDir)
+	if err != nil {
+		return Catalog{}, err
+	}
 	catalog.content = make(map[string][]byte)
 	catalog.status = make(map[string]Status)
 	ids := make(map[string]Entry)
@@ -219,6 +224,13 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 			status, err := Inspect(content[entry.Start:entry.End], entry.Authority, now)
 			if err != nil {
 				return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
+			}
+			if pinned[source.Path] {
+				if status.Tier != "pinned" && !status.IsLegacy {
+					return Catalog{}, fmt.Errorf("memory %s has a tier marker conflicting with its index pin", entry.ID)
+				}
+				status.Tier = "pinned"
+				status.IsLegacy, status.IsStale = false, false
 			}
 			if err := validateEntry(source.Path, entry, content[entry.Start:entry.End], status, now); err != nil {
 				return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
@@ -276,8 +288,15 @@ func validateEntry(source string, entry Entry, content []byte, status Status, no
 	if status.Tier == "perishable" && (entry.Expiry == "" || !bytes.Contains(content, []byte(entry.Expiry))) {
 		return errors.New("perishable memory needs its checkable expiry condition in the entry")
 	}
+	for _, keys := range [][]string{entry.Projects, entry.Tasks, entry.Topics} {
+		for _, key := range keys {
+			if strings.TrimSpace(key) == "" {
+				return errors.New("memory routing keys must contain nonblank text")
+			}
+		}
+	}
 	if entry.Location == "cold" {
-		if entry.Trigger == "" || len(entry.Projects)+len(entry.Tasks)+len(entry.Topics) == 0 {
+		if strings.TrimSpace(entry.Trigger) == "" || len(entry.Projects)+len(entry.Tasks)+len(entry.Topics) == 0 {
 			return errors.New("cold memory needs a trigger and project, task or topic routing")
 		}
 		if status.PendingCapture != "" || status.IsGrace || status.IsLegacy || status.Tier == "perishable" {
@@ -286,7 +305,13 @@ func validateEntry(source string, entry Entry, content []byte, status Status, no
 		isExistingArchive := source == "memory-archive.md" && entry.Authority == "history"
 		if (status.Tier == "pinned" || source == "overlord.md") && !isExistingArchive {
 			approval := entry.Approval
-			if approval == nil || approval.By != "Overlord" || approval.Quote == "" || approval.Destination != source+"#"+entry.ID || !strings.Contains(approval.Quote, entry.ID) {
+			if approval == nil || approval.By != "Overlord" || approval.Destination != source+"#"+entry.ID {
+				return errors.New("pinned offload requires this named item's verbatim Overlord approval and live source destination")
+			}
+			words := strings.FieldsFunc(approval.Quote, func(character rune) bool {
+				return unicode.IsSpace(character) || strings.ContainsRune("`\"'()[]{}<>,;:!?", character)
+			})
+			if !slices.ContainsFunc(words, func(word string) bool { return word == entry.ID || strings.TrimSuffix(word, ".") == entry.ID }) {
 				return errors.New("pinned offload requires this named item's verbatim Overlord approval and live source destination")
 			}
 			date, err := time.Parse(time.DateOnly, approval.Date)
@@ -338,6 +363,10 @@ func (catalog Catalog) Retrieve(query Query, now time.Time) (string, error) {
 			status, err := Inspect(content, entry.Authority, now)
 			if err != nil {
 				return "", err
+			}
+			if catalog.status[entry.ID].Tier == "pinned" {
+				status.Tier = "pinned"
+				status.IsLegacy, status.IsStale = false, false
 			}
 			fmt.Fprintf(&output, "\n[%s] %s bytes %d:%d sha256=%s authority=%s tier=%s\n", entry.ID, source.Path, entry.Start, entry.End, entry.SHA256, entry.Authority, status.Tier)
 			if status.IsStale || status.IsLegacy || status.IsGrace || status.PendingCapture != "" {

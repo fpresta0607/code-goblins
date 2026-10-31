@@ -151,13 +151,13 @@ func TestACFOStartedAgainIsToldWhyAndToTakeUpItsWork(t *testing.T) {
 // started on a new conversation reads it, also where the conversation the
 // home registered ran in Herdr or as another harness, which leaves nothing to
 // say of why it is new.
-func TestAClaudeCFOBackOnItsConversationIsNotToldToReadTheLongDigest(t *testing.T) {
+func TestAClaudeCFOBackOnItsConversationFollowsValidatedMemory(t *testing.T) {
 	for _, testCase := range []struct {
 		name, conversationHarness, conversationHost string
 		wantArgs                                    []string
 		want, notWant                               string
 	}{
-		{name: "its own conversation", conversationHarness: "claude", conversationHost: supervisor.NativeCFOTerminal, wantArgs: []string{"--resume", "a1b2c3d4-session"}, want: "your conversation holds the rest", notWant: "read the file it names"},
+		{name: "its own conversation", conversationHarness: "claude", conversationHost: supervisor.NativeCFOTerminal, wantArgs: []string{"--resume", "a1b2c3d4-session"}, want: "follow its READ THIS NEXT", notWant: "your conversation holds the rest"},
 		{name: "a new conversation after one in Herdr", conversationHarness: "claude", want: "read the file it names", notWant: "your conversation holds the rest"},
 		{name: "a new conversation after one of Codex", conversationHarness: "codex", conversationHost: supervisor.NativeCFOTerminal, want: "read the file it names", notWant: "your conversation holds the rest"},
 	} {

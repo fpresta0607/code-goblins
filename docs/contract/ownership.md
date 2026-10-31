@@ -142,7 +142,7 @@ No upstream runtime, Relay, secondmate or terminal-backend behavior is activated
 | Warm retrieved context, cold archive and authoritative memory tiers | [Memory](memory.md) and cfo memory own source coverage, selective retrieval, budgets and lossless dry runs; active for a verified catalog, with no automatic legacy migration. |
 | Required Stow pass and capture receipts | The shared `stow` skill owns tier clocks, independent evidence, pending capture, open records and individually approved pinned offload; [memory](memory.md) owns its data interfaces. |
 | Validation supervision and ask-user findings | [Delivery](delivery.md), `cfo-delivery` and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CFO decisions; active when the delivery follow-up lands. |
-| Project intake and verification selection | [Delivery](delivery.md), `cfo-delivery`, project-check, project records and cfo verify own simple/intensive selection; active when the delivery follow-up lands. |
+| Project intake and verification selection | [Delivery](delivery.md), `cfo-delivery`, project-check, project records and cfo verify own selection at task intake and scout completion; routing is active, while simple/intensive selection implementation remains with the delivery follow-up. |
 | Landing and cleanup | cfo-delivery and cfo-worktrees preserve merge authority and unlanded-work custody. |
 | Away supervision and user decisions | cfo-afk, cfo-decisions and step-card preserve the native board and explicit switch authority. |
 

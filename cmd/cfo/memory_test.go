@@ -9,7 +9,88 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/memory"
 )
+
+func memoryReadOnlyCommands(t *testing.T) []struct {
+	name string
+	args []string
+	exit int
+} {
+	t.Helper()
+	t.Setenv("CFO_HOME", "")
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	dir := t.TempDir()
+	writeMemoryCatalog(t, dir, "Current ruling.\n", "Archived incident.\n")
+	return []struct {
+		name string
+		args []string
+		exit int
+	}{
+		{"warm", []string{"memory", "retrieve", "--data", dir}, 0},
+		{"exact", []string{"memory", "retrieve", "--data", dir, "--id", "incident"}, 0},
+		{"project", []string{"memory", "retrieve", "--data", dir, "--project", "northwind"}, 0},
+		{"task", []string{"memory", "retrieve", "--data", dir, "--task", "task-7"}, 0},
+		{"topic", []string{"memory", "retrieve", "--data", dir, "--topic", "incident"}, 0},
+		{"routes", []string{"memory", "routes", "--data", dir}, 0},
+		{"budget", []string{"memory", "budget", "--data", dir}, 0},
+		{"migration-plan", []string{"memory", "migration-plan", "--data", dir}, 0},
+		{"missing item", []string{"memory", "retrieve", "--data", dir, "--id", "absent"}, 1},
+		{"invalid operation", []string{"memory", "unknown", "--data", dir}, 2},
+	}
+}
+
+func writeMemoryCatalog(t *testing.T, dir, active, history string) {
+	t.Helper()
+	content := []byte(active + history)
+	if err := os.MkdirAll(filepath.Join(dir, "memory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "overlord.md"), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := memory.Catalog{Version: 1, Sources: []memory.Source{{Path: "overlord.md", SHA256: memory.Hash(content), Entries: []memory.Entry{
+		{ID: "rule", End: len(active), SHA256: memory.Hash([]byte(active)), Authority: "ruling", Location: "warm"},
+		{ID: "incident", Start: len(active), End: len(content), SHA256: memory.Hash([]byte(history)), Authority: "history", Location: "cold", Trigger: "incident recovery", Projects: []string{"northwind"}, Tasks: []string{"task-7"}, Topics: []string{"incident"}, Approval: &memory.Approval{By: "Overlord", Quote: "Offload incident only.", Date: "2026-10-30", Destination: "overlord.md#incident"}},
+	}}}}
+	encoded, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "memory", "startup.json"), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMemoryCommandsAreReadOnlyInAnotherAgentsSession(t *testing.T) {
+	for _, command := range memoryReadOnlyCommands(t) {
+		t.Run(command.name, func(t *testing.T) {
+			inAnotherAgentsSession(t)
+			var output, diagnostics bytes.Buffer
+
+			exit := runWithRuntime(command.args, &output, &diagnostics, testCommandRuntime(t))
+
+			if exit != command.exit || strings.Contains(diagnostics.String(), "not the CFO's own session") {
+				t.Fatalf("read-only command exit=%d, want %d: %s", exit, command.exit, diagnostics.String())
+			}
+			if exit == 0 && output.Len() == 0 {
+				t.Fatal("memory consumer produced no output")
+			}
+			if command.name == "warm" && (!strings.Contains(output.String(), "Current ruling.") || strings.Contains(output.String(), "Archived incident.")) {
+				t.Fatalf("startup included unrelated history: %s", output.String())
+			}
+			if command.name == "exact" && (!strings.Contains(output.String(), "Archived incident.") || strings.Contains(output.String(), "Current ruling.")) {
+				t.Fatalf("exact retrieval included unrelated authority: %s", output.String())
+			}
+			if command.name == "project" || command.name == "task" || command.name == "topic" {
+				if !strings.Contains(output.String(), "Archived incident.") {
+					t.Fatalf("scoped route was not retrievable: %s", output.String())
+				}
+			}
+		})
+	}
+}
 
 func TestMemoryMigrationPlanRetainsEveryByteWithoutWriting(t *testing.T) {
 	// Arrange: Unicode, CRLF, preamble and a ruling with its original wording.

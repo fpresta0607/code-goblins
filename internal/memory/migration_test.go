@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -59,6 +60,82 @@ func TestMigrationInventoryRetainsEverySourceAndKeepsApprovalItemSpecific(t *tes
 	}
 	if plan.SourceBytes != plan.RetainedBytes || len(plan.PlanSHA256) != 64 {
 		t.Fatal("inventory lacks complete retained-byte proof")
+	}
+}
+
+func TestMigrationInventoryPreservesCatalogRangesAuthorityAndRouting(t *testing.T) {
+	dir := t.TempDir()
+	first := "Keep this preference exactly.\n"
+	second := "An aging incident. <!--a:2026-10-30-->\n"
+	content := []byte(first + second)
+	writeMemoryFile(t, dir, "memory/preferences.md", content)
+	catalog := Catalog{Version: 1, Sources: []Source{{Path: "memory/preferences.md", SHA256: Hash(content), Entries: []Entry{
+		{ID: "preference", End: len(first), SHA256: Hash([]byte(first)), Authority: "ruling", Location: "warm", Projects: []string{"northwind"}, Tasks: []string{"task-7"}, Topics: []string{"preferences"}},
+		{ID: "incident", Start: len(first), End: len(content), SHA256: Hash([]byte(second)), Authority: "history", Location: "cold", Trigger: "investigating the incident", Topics: []string{"incident"}},
+	}}}}
+	catalog.Layers = []Layer{{Name: "team", Classes: []string{"preferences"}, Owner: "team owner", Capture: "Report to the team owner.", Correction: "Retain the earlier source."}}
+	writeCatalog(t, dir, catalog)
+
+	plan, err := PlanMigration(dir)
+
+	if err != nil || len(plan.Files) != 1 || len(plan.Files[0].Moves) != 2 {
+		t.Fatalf("catalog inventory=%+v, %v", plan, err)
+	}
+	if len(plan.Layers) != 1 || plan.Layers[0].Owner != "team owner" || plan.Layers[0].Capture != "Report to the team owner." || plan.Layers[0].Correction != "Retain the earlier source." {
+		t.Fatalf("inventory lost declared tier ownership: %+v", plan.Layers)
+	}
+	preference, incident := plan.Files[0].Moves[0], plan.Files[0].Moves[1]
+	if preference.ID != "preference" || preference.End != len(first) || preference.Authority != "ruling" || preference.Tier != "pinned" || !preference.NeedsApproval {
+		t.Fatalf("declared ruling lost its classification or range: %+v", preference)
+	}
+	for _, scope := range []string{"northwind", "task-7", "preferences"} {
+		if !strings.Contains(preference.Scope, scope) {
+			t.Fatalf("declared scope %q was lost: %+v", scope, preference)
+		}
+	}
+	if incident.ID != "incident" || incident.Start != len(first) || incident.Tier != "aging" || incident.NeedsApproval || !strings.Contains(incident.Scope, "incident") {
+		t.Fatalf("explicit aging history lost its classification: %+v", incident)
+	}
+	writeMemoryFile(t, dir, CatalogPath, []byte(`{"version":1,"sources":[]}`))
+	if _, err := PlanMigration(dir); err == nil {
+		t.Fatal("invalid declared authority silently selected legacy classification")
+	}
+}
+
+func TestMigrationInventoryProtectsFactsPinnedByTheLegacyIndex(t *testing.T) {
+	dir := t.TempDir()
+	writeMemoryFile(t, dir, "memory/MEMORY.md", []byte("# Index\n- [Preference](preferences.md) - owner choice <!--P-->\n- [Nested](nested/fact.md) - another pin <!--P-->\n"))
+	for _, name := range []string{"memory/preferences.md", "memory/nested/fact.md"} {
+		writeMemoryFile(t, dir, name, []byte("Unmarked fact bytes.\n"))
+	}
+
+	plan, err := PlanMigration(dir)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range plan.Files {
+		for _, move := range file.Moves {
+			if file.Path != "memory/MEMORY.md" && (!move.NeedsApproval || move.Tier != "pinned") {
+				t.Fatalf("index pin did not protect its source: %+v", move)
+			}
+		}
+	}
+}
+
+func TestMigrationInventoryRetainsUnsupportedMarkerBytesExplicitly(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("Original bytes <!--a:2026-10-30/100-->\r\n")
+	writeMemoryFile(t, dir, "memory/fact.md", content)
+
+	plan, err := PlanMigration(dir)
+
+	if err != nil || plan.RetainedBytes != len(content) || plan.Files[0].RetainedSHA256 != Hash(content) {
+		t.Fatalf("inventory did not retain unsupported marker bytes: %+v, %v", plan, err)
+	}
+	move := plan.Files[0].Moves[0]
+	if move.ClassificationError == "" || !move.NeedsApproval {
+		t.Fatalf("unclassified legacy memory was treated as disposable: %+v", move)
 	}
 }
 

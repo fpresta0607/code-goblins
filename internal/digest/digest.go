@@ -9,6 +9,7 @@ package digest
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/claudehook"
+	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
@@ -37,13 +39,6 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-// CompleteMarkerFile is the SessionStart completion marker's basename.
-// Compose writes it, containing the acquiring owner pid, whenever it
-// composes a full digest under a lock it actually holds. Hook routing reads
-// it (see cmd/cfo/hook.go) to decide whether a resume/reload/fork
-// SessionStart already saw a digest under the CURRENT custody and can be
-// answered with a short nudge instead of a full re-render. It is the
-// marker's only consumer and the only reason the marker is written at all.
 const CompleteMarkerFile = ".session-start-complete"
 
 // Limit is the most hook output Claude Code hands a session whole. Anything
@@ -67,8 +62,7 @@ const FullDigestFile = "session-digest.md"
 // state\.session-start-complete, and whether the marker exists and parses.
 // Any read or parse failure, including a missing file, reads as absent
 // rather than an error: a missing or malformed marker means "no digest was
-// recorded for any owner", which is exactly the fall-through-to-Compose
-// case hook routing wants for anything it cannot positively confirm.
+// recorded for any owner".
 func ReadCompleteMarker(stateDir string) (int, bool) {
 	data, err := fsx.ReadFile(filepath.Join(stateDir, CompleteMarkerFile))
 	if err != nil {
@@ -189,8 +183,23 @@ func composeLong(h home.Home, ew *werr) {
 		if err != nil {
 			fmt.Fprintf(&fleetState, "backlog.md: UNREADABLE (%s)\n", cutError(err, briefErrorWidth))
 		} else {
-			fmt.Fprintf(&fleetState, "Queued: %d; held: %d. First queued rows (display only):\n", len(backlog.Queued), len(backlog.Parked))
-			for _, row := range backlog.Queued[:min(5, len(backlog.Queued))] {
+			var queued []fleet.BacklogRow
+			for _, row := range backlog.Queued {
+				if row.Structured {
+					queued = append(queued, row)
+				}
+			}
+			parked := 0
+			for _, row := range backlog.Parked {
+				if row.Structured {
+					parked++
+				}
+			}
+			fmt.Fprintf(&fleetState, "Queued: %d; parked: %d. First queued tasks (display only):\n", len(queued), parked)
+			if !backlog.Present {
+				fmt.Fprintln(&fleetState, "backlog.md: ABSENT")
+			}
+			for _, row := range queued[:min(5, len(queued))] {
 				line := row.Raw
 				if len(line) > 160 {
 					line = strings.ToValidUTF8(line[:160], "") + "... (display only)"
@@ -240,15 +249,6 @@ func composeLong(h home.Home, ew *werr) {
 // call holds, as every other mutation is: a session that does not hold the
 // home is told to print the long form with `cfo session-start` instead. The
 // completion marker is written as Compose writes it.
-//
-// A session that resumed the conversation which read the long digest before
-// is told, under READ THIS NEXT and in the read-once contract, that it holds
-// it already, where this call wrote it: the long digest is mostly
-// data\overlord.md, which changes rarely, and the brief shows what changes
-// between comebacks.
-// On 2026-10-27 a CFO brought back five times in 32 minutes on its own
-// conversation read 126 thousand characters of it again after one of them,
-// about 31 thousand tokens that rode in every request after.
 func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isResumed bool, w io.Writer) error {
 	var lockSection bytes.Buffer
 	heldLock := writeSessionLock(h.State, ownerPID, session, &werr{w: &lockSection})
@@ -262,28 +262,28 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isR
 		fallback = "cfo session-start prints the verified warm map read-only; use cfo memory retrieve --project <name> --task <id> --topic <topic> for relevant cold authority and facts, resolving any memory diagnostic before dependent action."
 	}
 	next := "this session does not hold the home, so no long digest was written: " + fallback
-	isReadBefore := false
+	hasUnchangedContext := false
 	if heldLock {
 		var long bytes.Buffer
 		composeLong(h, &werr{w: &long})
 		path := filepath.Join(h.State, FullDigestFile)
-		isSameWarmMap := false
-		if hasCatalog && isResumed {
+		isSameContext := false
+		if isResumed {
 			previous, err := fsx.ReadFile(path)
 			previousContext := bytes.Index(previous, []byte("== CONTEXT ==\n"))
 			currentContext := bytes.Index(long.Bytes(), []byte("== CONTEXT ==\n"))
-			isSameWarmMap = err == nil && previousContext >= 0 && currentContext >= 0 && bytes.Equal(previous[previousContext:], long.Bytes()[currentContext:])
+			isSameContext = err == nil && previousContext >= 0 && currentContext >= 0 && bytes.Equal(previous[previousContext:], long.Bytes()[currentContext:])
 		}
 		if err := fsx.AtomicWriteFile(path, long.Bytes()); err != nil {
 			next = fmt.Sprintf("the long digest could not be written (%s): %s", err, fallback)
 		} else {
-			isReadBefore = isResumed && (!hasCatalog || isSameWarmMap)
+			hasUnchangedContext = isResumed && isSameContext
 			next = path + " holds what this digest leaves out: the backlog's queued rows, every state\\*.meta in full with its status tail, the orphan sweep, and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. "
 			if hasCatalog {
 				next = path + " holds the verified warm operating map, memory diagnostics and bounded canonical state summary. Before dependent work use cfo memory retrieve --project <name> --task <id> --topic <topic> for relevant cold authority and facts. It does not embed the full history or cold fact files. "
 			}
-			if isReadBefore {
-				next += "This session resumed the conversation that read it before, so do not read it again: read one of its parts only when you need it and your conversation no longer holds it."
+			if hasUnchangedContext {
+				next += "The source context is unchanged. If this conversation already read those exact bytes and still holds them, do not read it again; otherwise read all source context before dependent action. Current state must be reconciled from cfo fleet-view and cfo drain."
 			} else {
 				next += "Read all of it, in parts if your tool caps a read, before acting on anything not shown here."
 			}
@@ -311,9 +311,9 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isR
 		if hasCatalog {
 			ew.println("== READ-ONCE CONTRACT ==")
 			writePrintedInFull(nil, ew)
-			ew.println("This preview does not deliver source memory. Read the warm map named above when this conversation does not already hold it; retrieve cold ranges by relevance before dependent action.")
+			ew.println("This preview does not deliver source memory. Follow READ THIS NEXT for the freshly validated warm map; retrieve cold ranges by relevance before dependent action.")
 		} else {
-			writeBriefContract(isWholeQueue, isWholeFleet, isReadBefore, ew)
+			writeBriefContract(isWholeQueue, isWholeFleet, hasUnchangedContext, ew)
 		}
 		writeNextStep(ew)
 		return text.Bytes()
@@ -397,6 +397,10 @@ func fleetLine(stateDir, id string) string {
 	if err != nil {
 		return fmt.Sprintf("%s  UNREADABLE (%s)\n", id, cutError(err, briefErrorWidth))
 	}
+	current, err := crewstate.Resolve(context.Background(), stateDir, id, fleet.NewTerminalEndpoint(stateDir, nil))
+	if err != nil {
+		return fmt.Sprintf("%s  current state UNREADABLE (%s)\n", id, cutError(err, briefErrorWidth))
+	}
 	status := "no status yet"
 	if tail, err := state.TailStatus(stateDir, id, 1); err != nil {
 		status = fmt.Sprintf("status UNREADABLE (%s)", err)
@@ -406,18 +410,20 @@ func fleetLine(stateDir, id string) string {
 	if runes := []rune(status); len(runes) > fleetStatusWidth {
 		status = string(runes[:fleetStatusWidth]) + "..."
 	}
-	if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta["spawn_gen"] && record.Phase == "paused" && record.Pause != nil {
-		status = record.Pause.Description()
+	detail := current.Detail
+	if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta["spawn_gen"] && current.State == crewstate.Paused && record.Pause != nil {
+		detail = record.Pause.Description()
 	}
-	return fmt.Sprintf("%s  %s/%s  %s  %s\n", id, meta["harness"], meta["model"], meta["kind"], status)
+	if runes := []rune(detail); len(runes) > fleetStatusWidth {
+		detail = string(runes[:fleetStatusWidth]) + "..."
+	}
+	return fmt.Sprintf("%s  %s/%s  %s  current=%s (%s) %s; event: %s\n", id, meta["harness"], meta["model"], meta["kind"], current.State, current.Source, detail, status)
 }
 
 // writeBriefContract is the brief's read-once contract. The brief prints no
 // file in full, so it names none, and it says which of its own sections are
-// whole: what it tells the CFO it has read is only what it handed over. A
-// conversation that read the long digest named under READ THIS NEXT before
-// (isReadBefore) is told those files are in it.
-func writeBriefContract(isWholeQueue, isWholeFleet, isReadBefore bool, ew *werr) {
+// whole: what it tells the CFO it has read is only what it handed over.
+func writeBriefContract(isWholeQueue, isWholeFleet, hasUnchangedContext bool, ew *werr) {
 	ew.println("== READ-ONCE CONTRACT ==")
 	writePrintedInFull(nil, ew)
 	queue, fleet := "the whole wake queue", "one line for every goblin"
@@ -427,8 +433,8 @@ func writeBriefContract(isWholeQueue, isWholeFleet, isReadBefore bool, ew *werr)
 	if !isWholeFleet {
 		fleet = "one line for only the first goblins"
 	}
-	if isReadBefore {
-		ew.printf("This digest printed %s and %s. It printed no file in full: data\\projects.md, data\\overlord.md, data\\memory\\MEMORY.md, the state\\*.meta files, their status logs, the backlog and the orphan sweep are in the file named under READ THIS NEXT, which this conversation read before.\n", queue, fleet)
+	if hasUnchangedContext {
+		ew.printf("This digest printed %s and %s. It printed no file in full. The file named under READ THIS NEXT contains unchanged source context; only bytes actually read and still held by this conversation count as read. Current state requires reconciliation.\n", queue, fleet)
 		return
 	}
 	ew.printf("This digest printed %s and %s. It printed no file in full: you have not read data\\projects.md, data\\overlord.md, data\\memory\\MEMORY.md, any state\\*.meta, any status log, the backlog or the orphan sweep until you read the file named under READ THIS NEXT.\n", queue, fleet)

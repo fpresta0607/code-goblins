@@ -182,7 +182,7 @@ A Codex or pi CFO gets the same checkpoint through its native hooks, which only 
 As it ingests Codex `PostCompact` or pi `session_compact` it queues one `check` wake that names the checkpoint, or says no fresh one was written, and types it into the idle CFO like any other wake; a replayed event queues nothing new.
 A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
 A Codex CFO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `cfo hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `cfo hooks install pi` to add them for a pi CFO.
-The `state/session-digest.md` file is the operating map, which `cfo session-start` also prints.
+The `state/session-digest.md` file holds the last composed operating map; only the fresh Claude hook or `cfo session-start` validates current sources at startup, resume and compaction.
 With a verified `data/memory/startup.json` it carries exact warm source ranges, bounded cold retrieval routes and a bounded canonical fleet/backlog summary; every role retrieves relevant cold authority before dependent action.
 Without that curated map it explicitly retains the legacy project map, directives and fact index in full, with budget diagnostics and no automatic migration.
 Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.

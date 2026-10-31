@@ -158,7 +158,8 @@ func TestTierClocksAndGraceFollowReviewedStowContract(t *testing.T) {
 		{"6 days", "A fact <!--p:2026-10-25-->", "fact", "perishable", false, false, false},
 		{"7 days", "A fact <!--p:2026-10-24-->", "fact", "perishable", true, false, false},
 		{"pin", "A fact <!--P-->", "fact", "pinned", false, false, false},
-		{"no opt-in horizon", "A fact <!--a:2026-10-30/100-->", "fact", "aging", false, false, false},
+		{"aging history", "An incident <!--a:2026-10-30-->", "history", "aging", false, false, false},
+		{"aging ruling", "A ruling <!--a:2026-10-30-->", "ruling", "aging", false, false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			before := []byte(test.text)
@@ -171,9 +172,73 @@ func TestTierClocksAndGraceFollowReviewedStowContract(t *testing.T) {
 			}
 		})
 	}
-	for _, text := range []string{"<!--a:2026-02-30-->", "<!--a:2026-11-01-->", "<!--a:bad-->", "<!--P--><!--g-->"} {
+	for _, text := range []string{"<!--a:2026-02-30-->", "<!--a:2026-11-01-->", "<!--a:bad-->", "<!--P--><!--g-->", "<!--a:2026-10-30/100-->", "<!--p:2026-10-30/2-->"} {
 		if _, err := Inspect([]byte(text), "fact", referenceDate); err == nil {
 			t.Fatalf("accepted corrupt markers %q", text)
+		}
+	}
+}
+
+func TestPinnedOffloadRequiresASeparatelyDelimitedExactID(t *testing.T) {
+	for _, test := range []struct {
+		quote      string
+		isApproved bool
+	}{
+		{"Offload rule-10 only", false},
+		{"Offload prefix-rule-1 only", false},
+		{"Offload rule-1-extra only", false},
+		{"Offload rule-1.other only", false},
+		{"Offload rule-1/path only", false},
+		{"Offload `rule-1` only.", true},
+		{"Offload rule-1.", true},
+		{"Offload (rule-1), retaining its source.", true},
+	} {
+		t.Run(test.quote, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			entry := &catalog.Sources[3].Entries[0]
+			entry.ID = "rule-1"
+			entry.Approval.Quote = test.quote
+			entry.Approval.Destination = "memory/history.md#rule-1"
+			writeCatalog(t, dir, catalog)
+
+			_, err := Load(dir, referenceDate)
+
+			if (err == nil) != test.isApproved {
+				t.Fatalf("approval accepted=%t, want %t: %v", err == nil, test.isApproved, err)
+			}
+		})
+	}
+}
+
+func TestCatalogRejectsBlankRoutingKeysAndColdTriggers(t *testing.T) {
+	for _, location := range []string{"warm", "cold"} {
+		for _, field := range []string{"projects", "tasks", "topics", "trigger"} {
+			if field == "trigger" && location == "warm" {
+				continue
+			}
+			for _, blank := range []string{"", " \t\r\n", "\u2003"} {
+				t.Run(location+"/"+field+"/"+blank, func(t *testing.T) {
+					dir, catalog := catalogFixture(t)
+					entry := &catalog.Sources[2].Entries[0]
+					entry.Location = location
+					keys := []string{"ports", blank}
+					switch field {
+					case "projects":
+						entry.Projects = keys
+					case "tasks":
+						entry.Tasks = keys
+					case "topics":
+						entry.Topics = keys
+					case "trigger":
+						entry.Trigger = blank
+					}
+					writeCatalog(t, dir, catalog)
+
+					if _, err := Load(dir, referenceDate); err == nil {
+						t.Fatal("unusable routing text was accepted")
+					}
+				})
+			}
 		}
 	}
 }
@@ -244,5 +309,50 @@ func TestExistingColdArchiveRemainsColdWithoutInventingANewOffload(t *testing.T)
 	recovered, err := loaded.Retrieve(Query{ID: "existing-archive"}, referenceDate)
 	if err != nil || !strings.Contains(recovered, string(content)) {
 		t.Fatal("existing archive became irretrievable")
+	}
+}
+
+func TestCatalogPreservesIndexPinsAcrossRetrievalAndInventory(t *testing.T) {
+	dir := t.TempDir()
+	index := []byte("- [Preference](preferences.md) - standing preference <!--P-->\n")
+	fact := []byte("Keep the preference verbatim.\n")
+	writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+	writeMemoryFile(t, dir, "memory/preferences.md", fact)
+	catalog := Catalog{Version: 1, Sources: []Source{
+		{Path: "memory/MEMORY.md", SHA256: Hash(index), Entries: []Entry{{ID: "index-pin", End: len(index), SHA256: Hash(index), Authority: "fact", Location: "warm"}}},
+		{Path: "memory/preferences.md", SHA256: Hash(fact), Entries: []Entry{{ID: "preference", End: len(fact), SHA256: Hash(fact), Authority: "fact", Location: "warm", Topics: []string{"preferences"}, Trigger: "preference changes"}}},
+	}}
+	writeCatalog(t, dir, catalog)
+	loaded, err := Load(dir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	text, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+	plan, planErr := PlanMigration(dir)
+
+	if err != nil || !strings.Contains(text, "tier=pinned") || planErr != nil {
+		t.Fatalf("retrieval or inventory lost index authority: %s, %v, %v", text, err, planErr)
+	}
+	for _, file := range plan.Files {
+		if file.Path == "memory/preferences.md" && (!file.Moves[0].NeedsApproval || file.Moves[0].Tier != "pinned") {
+			t.Fatalf("inventory lost index pin: %+v", file)
+		}
+	}
+	catalog.Sources[1].Entries[0].Location = "cold"
+	writeCatalog(t, dir, catalog)
+	if _, err := Load(dir, referenceDate); err == nil {
+		t.Fatal("index-pinned fact was offloaded without individual approval")
+	}
+	for _, marker := range []string{"<!--a:2026-10-30-->", "<!--p:2026-10-30-->", "<!--g-->"} {
+		content := append([]byte("A differently tiered preference "), []byte(marker)...)
+		writeMemoryFile(t, dir, "memory/preferences.md", content)
+		catalog.Sources[1].SHA256 = Hash(content)
+		entry := &catalog.Sources[1].Entries[0]
+		entry.End, entry.SHA256, entry.Location = len(content), Hash(content), "warm"
+		writeCatalog(t, dir, catalog)
+		if _, err := Load(dir, referenceDate); err == nil {
+			t.Fatalf("index pin silently erased explicit tier %s", marker)
+		}
 	}
 }

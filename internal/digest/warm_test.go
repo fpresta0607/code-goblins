@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -59,6 +61,93 @@ func TestComposeUsesVerifiedWarmMemoryInsteadOfHistoricalRulings(t *testing.T) {
 	preserved, err := os.ReadFile(filepath.Join(h.Data, "overlord.md"))
 	if err != nil || string(preserved) != content {
 		t.Fatal("composition changed the original ruling bytes")
+	}
+}
+
+func TestResumedLegacyStartupRequiresChangedAuthorityToBeRead(t *testing.T) {
+	for _, name := range []string{"overlord.md", "projects.md", "memory/MEMORY.md"} {
+		t.Run(name, func(t *testing.T) {
+			h := newDigestHome(t)
+			path := filepath.Join(h.Data, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("Original authority.\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			composeBrief(t, h)
+			if err := os.WriteFile(path, []byte("Corrected authority.\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			var output bytes.Buffer
+			if err := ComposeBrief(h, os.Getpid(), "s1", false, true, &output); err != nil {
+				t.Fatal(err)
+			}
+
+			if !strings.Contains(output.String(), "Read all of it") || strings.Contains(output.String(), "do not read it again") {
+				t.Fatalf("changed legacy authority was assumed read: %s", output.String())
+			}
+			long, err := os.ReadFile(filepath.Join(h.State, FullDigestFile))
+			if err != nil || !bytes.Contains(long, []byte("Corrected authority.")) {
+				t.Fatalf("current authority not composed: %s, %v", long, err)
+			}
+		})
+	}
+}
+
+func TestWarmStartupUsesCurrentLifecycleAndCountsTaskRecords(t *testing.T) {
+	for _, test := range []struct{ phase, generation, current, source string }{
+		{"pausing", "current", "pausing", "metadata"},
+		{"paused", "current", "paused", "metadata"},
+		{"resuming", "current", "resuming", "metadata"},
+		{"stopping", "current", "stopping", "metadata"},
+		{"stopped", "current", "stopped", "metadata"},
+		{"running", "current", "unknown", "none"},
+		{"failed", "current", "unknown", "none"},
+		{"paused", "previous", "unknown", "none"},
+	} {
+		t.Run(test.phase+"/"+test.generation, func(t *testing.T) {
+			h := newDigestHome(t)
+			if err := os.MkdirAll(filepath.Join(h.Data, "memory"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "memory", "startup.json"), []byte(`{"version":1,"sources":[]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "task", SpawnGen: "current", Worktree: h.Root, Backend: "native"}
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := lock.AcquireNamedOwner(h.State, state.LifecycleLockName(meta.ID), os.Getpid(), "controller"); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: test.generation, Operation: "operation", Action: "resume", Phase: test.phase}); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.AppendStatus(h.State, meta.ID, "working: old event"); err != nil {
+				t.Fatal(err)
+			}
+			backlog := "## Queued\n- **queued-1** - First task\n  Detail one\n  Detail two\n  Detail three\n  Detail four\n- **queued-2** - Second task\n## Parked\n- **parked-1** - Held task\n  Held detail one\n  Held detail two\n"
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(backlog), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			var output bytes.Buffer
+			if err := Compose(h, os.Getpid(), "current", &output); err != nil {
+				t.Fatal(err)
+			}
+			brief := composeBrief(t, h)
+
+			for _, text := range []string{output.String(), brief} {
+				if !strings.Contains(text, "current="+test.current+" ("+test.source+")") || !strings.Contains(text, "event:") {
+					t.Fatalf("lifecycle was hidden behind an event: %s", text)
+				}
+			}
+			if !strings.Contains(output.String(), "Queued: 2; parked: 1.") || !strings.Contains(output.String(), "Second task") || strings.Contains(output.String(), "Detail one") {
+				t.Fatalf("backlog detail lines consumed task count or preview: %s", output.String())
+			}
+		})
 	}
 }
 

@@ -1,14 +1,34 @@
 package memory
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
 
-var tierMarker = regexp.MustCompile(`<!--(a|p):([0-9]{4}-[0-9]{2}-[0-9]{2})(/[0-9]+)?-->|<!--(P|g)-->|<!--t:([^<>\s]+)-->`)
+var tierMarker = regexp.MustCompile(`<!--(a|p):([0-9]{4}-[0-9]{2}-[0-9]{2})-->|<!--(P|g)-->|<!--t:([^<>\s]+)-->`)
+
+func pinnedReferences(dataDir string) (map[string]bool, error) {
+	content, err := ReadData(dataDir, "memory/MEMORY.md")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	pinned := make(map[string]bool)
+	link := regexp.MustCompile(`\[[^\]]*\]\(<?([^<>\s)]+)>?\)`)
+	for _, line := range strings.Split(string(content), "\n") {
+		if !strings.Contains(line, "<!--P-->") {
+			continue
+		}
+		for _, match := range link.FindAllStringSubmatch(line, -1) {
+			pinned[path.Join("memory", match[1])] = true
+		}
+	}
+	return pinned, nil
+}
 
 type Status struct {
 	Tier           string `json:"tier"`
@@ -28,21 +48,22 @@ func Inspect(content []byte, authority string, now time.Time) (Status, error) {
 	hasTier := false
 	text := string(content)
 	for _, match := range tierMarker.FindAllStringSubmatch(text, -1) {
-		if match[5] != "" {
+		if match[4] != "" {
 			if status.PendingCapture != "" {
 				return Status{}, fmt.Errorf("conflicting pending-capture markers")
 			}
-			status.PendingCapture = match[5]
+			status.PendingCapture = match[4]
 			continue
 		}
 		if hasTier {
 			return Status{}, fmt.Errorf("conflicting tier markers; catalog each entry separately")
 		}
 		hasTier = true
-		switch match[4] {
+		switch match[3] {
 		case "P":
 			status.Tier = "pinned"
 		case "g":
+			status.Tier = "aging"
 			status.IsGrace = true
 		default:
 			date, err := time.Parse(time.DateOnly, match[2])
@@ -50,17 +71,13 @@ func Inspect(content []byte, authority string, now time.Time) (Status, error) {
 				return Status{}, fmt.Errorf("invalid reinforcement date %q", match[2])
 			}
 			status.Reinforced = match[2]
+			status.Tier = "aging"
 			horizon := 30 * 24 * time.Hour
 			if match[1] == "p" {
 				status.Tier = "perishable"
 				horizon = 7 * 24 * time.Hour
 			}
 			status.IsStale = !now.Before(date.Add(horizon))
-			if match[3] != "" {
-				if _, err := strconv.Atoi(strings.TrimPrefix(match[3], "/")); err != nil {
-					return Status{}, fmt.Errorf("invalid pass counter")
-				}
-			}
 		}
 	}
 	if !hasTier && status.Tier == "aging" {

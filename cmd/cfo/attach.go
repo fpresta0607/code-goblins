@@ -237,9 +237,7 @@ const cfoFirstPrompt = "You are the CFO of this Code Goblins home. First run the
 // whose CFO ran before, which nobody types into: that it is that home's CFO,
 // why it started again, why it is on a new conversation when fresh says so,
 // and to take up the fleet's work at once. Claude Code's SessionStart hook
-// registers it and prints the digest, whose long form a CFO that resumes its
-// conversation (isResumed) read in it already; a Codex or pi CFO registers
-// itself. It passes through cmd /c for Codex and pi, so it holds none of the
+// registers it and prints the digest; a Codex or pi CFO registers itself. It passes through cmd /c for Codex and pi, so it holds none of the
 // characters cmd reads (spawn's cmdProgram).
 func cfoBackPrompt(harness, why, fresh string, isResumed bool) string {
 	prompt := "You are the CFO of this Code Goblins home, started again because " + why + "."
@@ -250,7 +248,7 @@ func cfoBackPrompt(harness, why, fresh string, isResumed bool) string {
 	if supervisor.CFOWakeFor(harness) == supervisor.CFOWakeTyped {
 		prompt += " First run the command cfo register in this terminal, so the board and the fleet can reach you. Then do what AGENTS.md says a CFO does at the start of a session."
 	} else if isResumed {
-		prompt += " Your SessionStart hook registered you and printed what changed while you were away; your conversation holds the rest, so act on that."
+		prompt += " Your SessionStart hook registered you and validated current source context; follow its READ THIS NEXT before dependent action, rereading changed authority and skipping only unchanged bytes this conversation actually read and still holds."
 	} else {
 		prompt += " Your SessionStart hook registered you and printed the session digest: read the file it names and act on it."
 	}

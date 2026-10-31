@@ -42,7 +42,7 @@ Only the Overlord or verified changes in reality change their current meaning; r
 Relocation requires approval of the individual named item under the flow below.
 Aging is stale at 30 days since reinforcement; perishable is stale at 7 days.
 A perishable entry must name its checkable expiry condition, such as a task, version or dated expectation, in its own prose; a durable fact without one is aging.
-This home uses date horizons; old optional `/N` pass counters are preserved but neither read nor advanced.
+This home uses only the date marker grammar above; unsupported historical marker bytes remain intact in the read-only inventory and require classification before curation.
 Decay advances only during a pass, never during retrieval or startup.
 
 An unmarked default-pinned entry is pinned.

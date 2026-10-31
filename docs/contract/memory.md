@@ -21,8 +21,10 @@ It reports omitted state and directs current-state reads to `cfo fleet-view`, `c
 Displayed status tails are events, not evidence of present state, and omitted wakes remain unacknowledged.
 Read-only startup retains its existing custody boundary and writes no digest or marker.
 
-Claude's hook preview points to `state/session-digest.md`; Codex and Pi read the same map through `cfo session-start` or that file.
-An unchanged resumed conversation does not reread what it already holds.
+Claude's hook preview validates current sources on every start, resume, reload and fork before pointing to the newly composed `state/session-digest.md`.
+Codex and Pi run `cfo session-start` at startup and after resume or compaction; a saved digest alone never validates current authority.
+An unchanged resumed conversation skips source bytes only if it actually read and still holds them; a prior composition or completion marker is not proof of delivery.
+Changed authority must be read again before dependent action, and current state still requires reconciliation.
 Every role retrieves cold memory relevant to the project, task and topic before dependent action, even when the bounded routing index omitted its line.
 Only the exact displayed ranges count as read; a selected range is never described as its whole source file.
 
@@ -51,12 +53,12 @@ Each entry has:
 | `authority` | `ruling`, `fact`, `project` or `history`; classification never authorizes discarding a ruling. |
 | `location` | `warm` or `cold`; pending capture, legacy grace and perishable entries stay warm. |
 | `trigger` | Required relevance cue for a cold item. |
-| `projects`, `tasks`, `topics` | Exact routing-key arrays; a cold item needs at least one. |
+| `projects`, `tasks`, `topics` | Exact nonblank routing-key arrays; a cold item needs at least one key. |
 | `expiry` | A checkable condition quoted in a perishable entry's own text. |
 | `supersedes` | Earlier item ids; they remain retrievable and are candidates for review, not automatically retired. |
 | `approval` | Required per-item approval for a pinned cold item or any cold range from `overlord.md`. |
 
-`approval` holds `by: "Overlord"`, the verbatim `quote` naming this entry's id, a `date` in `YYYY-MM-DD` format and `destination` equal to the live source-range owner `path#id`.
+`approval` holds `by: "Overlord"`, the verbatim `quote` naming this entry's exact, separately delimited id, a `date` in `YYYY-MM-DD` format and `destination` equal to the live source-range owner `path#id`.
 The catalog records an approval already given; it cannot create one.
 Existing history already owned by `memory-archive.md` may remain cold without inventing a new offload; this grants no permission to move a ruling into that archive.
 Broad approval, an uncreated destination or a proposed project change is insufficient.
@@ -67,7 +69,7 @@ Tier markers in source text are interpreted by the shared `stow` skill, the sing
 Use separate catalog entries for separately tiered facts.
 Unmarked rulings and history are pinned; unmarked facts are legacy aging entries of unknown age.
 Future dates, malformed or conflicting markers are explicit errors.
-An existing optional pass counter is preserved but has no effect on this home's date-based default horizons.
+Only the native date markers are accepted; unsupported marker bytes remain unchanged in the read-only inventory with an explicit classification error.
 
 Each optional `layers` entry declares a unique `name`, nonoverlapping knowledge `classes`, `owner`, `capture` and `correction` instructions.
 It declares ownership through existing tools, not a connector or a new service.
@@ -104,6 +106,8 @@ Report before and after using the same capture boundaries, and distinguish synth
 Run `cfo memory migration-plan` before proposing any live history move.
 It is a read-only inventory with no apply operation.
 It reports source hashes, complete byte ranges, proposed destinations, authority classification, scope, each pinned approval boundary and the hash of reconstructed retained bytes.
+An existing valid catalog supplies the exact item identities, ranges, authority, tiers, routing and declared layer owners; an invalid catalog is an error rather than permission to infer legacy ownership.
+Legacy index pins also protect their linked fact files, and unclassified legacy ranges remain protected with an explicit diagnostic.
 Repeated runs over unchanged sources produce identical plans.
 Legacy `overlord.md` is conservatively all ruling authority; the tool does not infer spent consent from prose.
 Proposed headings and bullet ranges are inventory units for human review, not automatic curation decisions.
