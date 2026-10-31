@@ -384,7 +384,7 @@ mode: no-mistakes
 surface: unknown
 risk: unknown
 reason: automatic issue intake has no reviewed change assessment
-`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), fleet.BriefStepCards())
+`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id, "no-mistakes"), fleet.BriefStepCards())
 }
 
 func readRootPickups(stateDir string) ([]rootPickup, error) {

@@ -3,7 +3,7 @@
 `cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]`
 
 Dispatch one goblin (ship task).
-Resolve delivery from the project's `delivery.posture` and the brief's explicit surface, risk and reason, as [Delivery intake](../contract/delivery.md#delivery-intake) specifies.
+Resolve delivery from the project's `delivery.posture` and the brief's explicit surface, risk and reason, as [Delivery intake](../contract/delivery.md#delivery) specifies.
 Missing or uncertain configuration selects no-mistakes.
 An explicit `--mode` cannot silently narrow the selected rigor; a concrete Overlord exception is recorded with `--delivery-exception "<authority and reason>"`.
 The selected mode, posture, reason and required proof are frozen before launch in `delivery.json`, bound by the task record's hash.

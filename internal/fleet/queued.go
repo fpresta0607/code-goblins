@@ -45,12 +45,11 @@ func SaveQueuedTask(h home.Home, id, revision, text string) error {
 	return changeQueuedTask(h, id, revision, strings.TrimSpace(title), strings.TrimSpace(detail), false)
 }
 
-// BriefVerification is what the Verification section of task id's brief
-// says: what its goblin runs before each push. That is the fast tier of the
-// project's record, by the command the CFO runs it by, in place of tests the
-// goblin would pick by name, which left CI the first to run a test the
-// change broke.
-func BriefVerification(id string) string {
+// BriefVerification assigns project checks to the selected delivery owner.
+func BriefVerification(id, mode string) string {
+	if mode != "direct-PR" && mode != "local-only" {
+		return "The pipeline Test step owns the project's defined checks and runs its baseline once. Before validation starts, ensure that its trusted test command covers every required project check; keep any missing check inside that same Test step. Drive `cfo pipeline run " + id + " --intent-file <file>` and process its returns. Do not start a separate cfo verify or prepush baseline beside the pipeline or repeat an unchanged baseline. Required cheap guards run before publication in the selected Test step. Reuse earlier proof only when its source, commands and configuration, dependencies, tools, environment and platform are verified equivalent. Validate the final commit, including formatting and documentation, and require CI on the published head."
+	}
 	return "Before each push run `cfo verify " + id + "`. It runs the check this project's record names for a change, the one the CFO runs, and when the check fails it prints the line that says what failed and the file that holds the rest. Fix that before you push. Do not pick tests to run by name in its place: what the check leaves to CI it says, and CI is the check of that."
 }
 
@@ -110,7 +109,7 @@ func QueuedBriefText(queued QueuedTask) string {
 	if kind == "" {
 		kind = "ship"
 	}
-	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID), BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
+	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID, mode), BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
 }
 
 // AppendQueuedTask adds row, the backlog row of task id, at the bottom of the

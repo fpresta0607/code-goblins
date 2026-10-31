@@ -139,7 +139,7 @@ mode: %s
 surface: %s
 risk: %s
 reason: %s
-`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode, *surface, *risk, *reason)
+`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id, *mode), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode, *surface, *risk, *reason)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

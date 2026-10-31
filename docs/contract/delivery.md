@@ -2,7 +2,7 @@
 
 The goblin's branch is its deliverable.
 
-### Delivery intake
+**Delivery intake.**
 
 Resolve project posture and concrete change risk before dispatch, independently of harness, review budget and merge authority.
 The project's `project.json` may declare `delivery.posture`: `no-mistakes`, `no-mistakes-prod-only`, `direct-PR`, or `local-only`.
@@ -23,7 +23,7 @@ A helper remains local-only under its parent's publication owner.
 Existing tasks without this receipt retain their modes, frozen policies, findings, spent rounds and custody.
 Intake never migrates, restarts or repairs a running validation.
 
-### One validation owner
+**One validation owner.**
 
 The selected path owns its rigor.
 Simple work runs its defined project checks and required CI through the existing direct-PR or local-only route.
@@ -39,7 +39,7 @@ The worker never hand-edits, commits, pushes or starts another run while the act
 An explicit instruction invalidating the entire change uses the existing supported custody procedure under the CFO's direction, preserving history and spent allowances.
 This contract adds no native recovery procedure or authority over another task's run.
 
-### Finding authority
+**Finding authority.**
 
 The implementation worker never decides its own ask-user finding.
 It reports the actual finding to the CFO and applies only the returned decision through the active gate.
@@ -52,7 +52,7 @@ State the accepted requirement, proposed expansion, smallest compliant alternati
 When repeated findings preserve a questionable abstraction, reconsider it before another round.
 Never use `--yes`, skip required proof, approve an exhausted budget or open a fresh run to escape it.
 
-### Proof and final candidate
+**Proof and final candidate.**
 
 Formatting and documentation belong in the candidate before final proof.
 Later changes invalidate the proof they affect; the selected path validates the final candidate.
@@ -63,7 +63,7 @@ Changed relevant inputs invalidate that pass; do not add a generic evidence cach
 Fast Go verification and prepush both execute required policy guards even when their package is slow, without a separate guard run when the selected package tests already include it.
 Name platform-specific guards deferred to CI as deferred, never as executed on another platform.
 
-### Completion and scouts
+**Completion and scouts.**
 
 A ready result names the public PR URL and exact published head with required CI green, or a clean committed branch for local-only work.
 A draft, a different local commit or a commit present only in a disposable validation worktree is not ready for landing.
@@ -191,7 +191,7 @@ A pull request rides when it is into the default branch from this repository, op
 Label a pull request `hold` to keep it off every train: one only the Supreme Overlord's word merges (recovery, security, money paths) or one he said to wait on (`gh pr edit <n> --add-label hold`, after `gh label create hold` once per repository).
 A pull request a train found broken stays off trains until its head changes.
 
-### Firstmate attribution
+**Firstmate attribution.**
 
 The intake, validation ownership, finding authority and completion contracts adapt the delivery sections of [Firstmate at bb3e690](https://github.com/kunchenguid/firstmate/tree/bb3e6906548b5c03d3212e9f060bafde982e0cf1) and its validation-supervision, ask-user-authority, ship-landing and scout-completion skills.
 The upstream notice is retained here for the adapted material.
