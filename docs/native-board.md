@@ -132,7 +132,7 @@ One slow reconciliation pass runs each minute; there is no browser-driven task p
 Unresolved tasks continue reconciling after SessionEnd, after becoming ready, and after their native session is retired.
 Verified terminal tasks leave that polling path until new session activity supplies a reason to reevaluate.
 A task whose harness is at work is left out of that pass, and a card reads its gate from the task's evaluation, so the progress watch, which reads each goblin's gate run once a minute, has the task evaluated again whenever that run moved: a step that changed status, a run that ended or a pull request whose state changed.
-A run that did not move starts no evaluation, so a decision the goblin answers mid-turn stops reading Blocked within a minute while the turn still runs (#1305).
+A run that did not move starts no evaluation, so an answered gate decision stops holding the card at Waiting within a minute while the turn still runs (#1305).
 
 Fresh, matching Herdr monitor evidence distinguishes a working harness from an unavailable or stale one.
 An abrupt process crash does not change the recorded native event into an invented end event.
@@ -481,9 +481,9 @@ The prompt is proven by the harness's native hooks; a goblin whose harness repor
 A delivered goblin is at work again only on a prompt taken after its latest done report, and then its newer reports say what it does.
 A question or a failure a goblin reported is its state until the goblin takes a prompt after it, as an answer that reached it, a steer or an instruction an Enter submitted, and a failure also while its terminal shows its harness at work since.
 An answer on record or an acknowledgement resumes nothing, since an answer can be to stay held, and a hold its own turn is still finishing stays a hold; the line stays in the goblin's history.
-A gate run that finished, passed, failed, cancelled or interrupted, holds no step and asks for no decision, so the step that failed it never reads In review gate or Blocked on a card that reports work or a wait beside it.
+A gate run that finished, passed, failed, cancelled or interrupted, holds no step and asks for no decision, so it supplies no current In review gate or Waiting status; the card still shows work or an independent wait reported by the goblin.
 A native session of an earlier generation, such as the Pi session of a goblin since switched to a harness whose hooks are not installed, is no evidence of the current one, and the card reads the goblin's gate and terminal instead.
-Goblins whose standing waits on one another close a circle each read Blocked, naming the goblin whose wait comes back to it, never Waiting on it, and the CFO is woken once for each circle with a `wait_cycle` notify naming every goblin in it; a newer report of any of them is a new circle.
+Goblins whose standing waits on one another close a circle each read Waiting, with the reason naming the goblin whose wait comes back to it and saying neither can go on as reported, and the CFO is woken once for each circle with a `wait_cycle` notify naming every goblin in it; a newer report of any of them is a new circle.
 A goblin that waits on the Overlord, or has an open question to him, shows Waiting on the CFO, since the CFO carries every question to him.
 A goblin whose last reply asked the CFO something in prose, which the monitor reads and wakes the CFO with as `goblin_asks`, shows Waiting on the CFO with that question, as a goblin that asked with `cfo notify --blocked` does, until it reports again or the CFO acks the wake.
 A reported wait on the Overlord ends once the Command Center item it raised closes: his answer reached the goblin, the item was cleared, or the answer on its page went to the CFO to relay; the card then shows what the goblin is doing, and an answer still on its way keeps the wait.
