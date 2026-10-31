@@ -48,7 +48,8 @@ func TestSharedCoreFitsTheSmallestHarnessAndRoutesItsProcedures(t *testing.T) {
 	}
 }
 
-func TestEveryExtractedSectionHasAnInventoryOwner(t *testing.T) {
+func contractInventoryOwners(t *testing.T) map[string]contractReference {
+	t.Helper()
 	inventory, err := fs.ReadFile(Contract, "docs/contract/ownership.md")
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +77,11 @@ func TestEveryExtractedSectionHasAnInventoryOwner(t *testing.T) {
 		}
 		owners[section] = references[0]
 	}
+	return owners
+}
 
+func TestRoutedContractKeepsAuthorityAndCustodyBoundaries(t *testing.T) {
+	owners := contractInventoryOwners(t)
 	want := map[string]contractReference{}
 	for file, sections := range map[string][]string{
 		"AGENTS.md":                       {"Prime directives", "The loop: ask away → done", "Secondmates", "Escalation", "Cut from this build", "Microsoft Defender", "Memory", "Restart is a non-event"},
@@ -98,7 +103,11 @@ func TestEveryExtractedSectionHasAnInventoryOwner(t *testing.T) {
 	if !maps.Equal(owners, want) {
 		t.Errorf("section ownership differs from the pre-extraction inventory:\ngot %v\nwant %v", owners, want)
 	}
-	for section, owner := range want {
+}
+
+func TestEveryExtractedSectionHasAnInventoryOwner(t *testing.T) {
+	owners := contractInventoryOwners(t)
+	for section, owner := range owners {
 		body, err := fs.ReadFile(Contract, owner.file)
 		if err != nil {
 			t.Fatal(err)

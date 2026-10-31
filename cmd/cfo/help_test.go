@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -15,6 +17,7 @@ import (
 )
 
 func TestHelpReadsOnlyTheRequestedContractWithoutOpeningAHome(t *testing.T) {
+	executedSkillRoutes := 0
 	for _, test := range []struct {
 		name      string
 		args      []string
@@ -44,22 +47,16 @@ func TestHelpReadsOnlyTheRequestedContractWithoutOpeningAHome(t *testing.T) {
 				t.Fatal(err)
 			}
 			args := test.args
-			if len(args) == 4 && args[2] == "contract" && test.name != "ownership" {
+			if len(args) == 3 && args[1] == "contract" && test.name != "ownership" {
 				skill, err := fs.ReadFile(codegoblins.Skills, ".agents/skills/cfo-"+test.name+"/SKILL.md")
 				if err != nil {
 					t.Fatal(err)
 				}
-				var routes [][]string
-				for _, command := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(string(skill), -1) {
-					words := strings.Fields(command[1])
-					if len(words) >= 3 && words[0] == "cfo" && words[1] == "help" && words[2] == "contract" {
-						routes = append(routes, words[1:])
-					}
+				args, err = contractSkillRoute(string(skill), test.name)
+				if err != nil {
+					t.Fatal(err)
 				}
-				if len(routes) != 1 {
-					t.Fatalf("cfo-%s declares %d procedure routes, want one", test.name, len(routes))
-				}
-				args = routes[0]
+				executedSkillRoutes++
 			}
 			runtime := commandRuntime{resolveHome: func() (home.Home, error) {
 				t.Fatal("read-only reference help tried to resolve the live home")
@@ -72,6 +69,56 @@ func TestHelpReadsOnlyTheRequestedContractWithoutOpeningAHome(t *testing.T) {
 			// Assert
 			if code != 0 || stderr.Len() != 0 || !bytes.Equal(stdout.Bytes(), want) {
 				t.Fatalf("%v: exit %d, stderr %q, output %q; want %s bytes", args, code, stderr.String(), stdout.String(), test.reference)
+			}
+		})
+	}
+	if executedSkillRoutes != 10 {
+		t.Fatalf("executed %d declared skill routes, want all ten", executedSkillRoutes)
+	}
+}
+
+func contractSkillRoute(skill, topic string) ([]string, error) {
+	var routes [][]string
+	for _, command := range regexp.MustCompile("`([^`\n]+)`").FindAllStringSubmatch(skill, -1) {
+		words := strings.Fields(command[1])
+		if len(words) >= 3 && slices.Equal(words[:3], []string{"cfo", "help", "contract"}) {
+			routes = append(routes, words)
+		}
+	}
+	if len(routes) != 1 {
+		return nil, fmt.Errorf("cfo-%s declares %d procedure routes, want one", topic, len(routes))
+	}
+	if !slices.Equal(routes[0], []string{"cfo", "help", "contract", topic}) {
+		return nil, fmt.Errorf("cfo-%s has incorrect procedure route %q", topic, routes[0])
+	}
+	return routes[0][1:], nil
+}
+
+func TestContractSkillRouteRejectsInvalidDeclarations(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		skill string
+		want  []string
+	}{
+		{"valid", "Read `cfo help contract delivery`.", []string{"help", "contract", "delivery"}},
+		{"normalized spacing", "Read `cfo  help\tcontract delivery` or list `cfo help`.", []string{"help", "contract", "delivery"}},
+		{"missing", "List `cfo help` for topics.", nil},
+		{"duplicate", "`cfo help contract delivery` and `cfo help contract delivery`", nil},
+		{"missing topic", "`cfo help contract`", nil},
+		{"extra argument", "`cfo help contract delivery extra`", nil},
+		{"malformed topic", "`cfo help contract ../delivery`", nil},
+		{"unclosed command", "`cfo help contract delivery", nil},
+		{"unknown topic", "`cfo help contract not-a-procedure`", nil},
+		{"wrong topic", "`cfo help contract supervision`", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args, err := contractSkillRoute(test.skill, "delivery")
+			if test.want == nil {
+				if err == nil || args != nil {
+					t.Fatalf("invalid route returned %v, %v", args, err)
+				}
+			} else if err != nil || !slices.Equal(args, test.want) {
+				t.Fatalf("route returned %v, %v; want %v", args, err, test.want)
 			}
 		})
 	}
@@ -152,7 +199,6 @@ func TestHelpListsTopicsWithoutLoadingTheirBodies(t *testing.T) {
 	}{
 		{"all", nil, "auth request\n  pr check\n  pr merge\n  contract dispatch\n  contract supervision"},
 		{"procedures", []string{"contract"}, "contract dispatch\n  contract supervision"},
-		{"commands", []string{"pr"}, "pr check\n  pr merge"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -162,6 +208,21 @@ func TestHelpListsTopicsWithoutLoadingTheirBodies(t *testing.T) {
 				t.Fatalf("exit %d, stdout %q, stderr %q; want exactly %q", code, stdout.String(), stderr.String(), want)
 			}
 		})
+	}
+}
+
+func TestHelpListsOnlyTheRequestedCommandGroup(t *testing.T) {
+	files := helpIndexFS{fstest.MapFS{
+		"docs/commands/auth/request.md": {},
+		"docs/commands/pr/check.md":     {},
+		"docs/commands/pr/merge.md":     {},
+		"docs/contract/dispatch.md":     {},
+	}}
+	var stdout, stderr bytes.Buffer
+	code := runHelp([]string{"pr"}, &stdout, &stderr, files)
+	want := "usage: cfo help <topic>\n\nAvailable topics:\n  pr check\n  pr merge\n"
+	if code != 0 || stderr.Len() != 0 || stdout.String() != want {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want exactly %q", code, stdout.String(), stderr.String(), want)
 	}
 }
 
