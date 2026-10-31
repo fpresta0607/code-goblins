@@ -25,6 +25,7 @@ var staysAtNormal = map[string]string{
 	"hooks":             "writes a harness's hook files",
 	"codex-guard":       "the codex a goblin's armed codex guard runs, in the goblin's own terminal, where nothing is raised; it prints one line and starts nothing",
 	"version":           "prints one line",
+	"help":              "prints embedded command and procedure references without opening a home",
 	"doctor":            "runs every tool's own version check",
 	"dictation":         "downloads and checks the speech engine",
 	"dev-drive":         "reads and sets up drives",
