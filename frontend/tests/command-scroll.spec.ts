@@ -108,7 +108,7 @@ for (const ending of ["completion", "unmount"]) {
       });
       await dialog.getByRole("radio", { name: /Build as drawn/ }).check();
       await dialog.getByRole("button", { name: "Send decision" }).click();
-      await expect(dialog.getByText("Fixture delivery refused", { exact: true })).toBeVisible();
+      await expect(dialog.getByText("Fixture delivery refused.", { exact: true })).toBeVisible();
       await dialog.getByRole("button", { name: "Retry", exact: true }).click();
     } else {
       await page.getByRole("button", { name: "Remove Command Center" }).evaluate((element: HTMLButtonElement) => element.click());
@@ -134,16 +134,23 @@ test.describe("mobile touch scrolling", () => {
     const content = dialog.locator(".command-center-content");
     const header = await dialog.locator(".command-center-heading").boundingBox();
     const session = await page.context().newCDPSession(page);
+    const bounds = (await content.boundingBox())!;
+    const start = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height * .8 };
+    const distance = bounds.height * .6;
 
     // Act
-    await session.send("Input.synthesizeScrollGesture", { x: 180, y: 500, yDistance: -400, gestureSourceType: "touch", speed: 500 });
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] });
+    for (let step = 1; step <= 10; step++) await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: start.x, y: start.y - distance * step / 10 }] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 
     // Assert
     await expect.poll(() => scrollTop(content)).toBeGreaterThan(0);
     expect(await dialog.evaluate((element) => element.scrollTop)).toBe(0);
     expect(await dialog.locator(".command-center-heading").boundingBox()).toEqual(header);
     await content.evaluate((element) => element.scrollTo(0, element.scrollHeight));
-    await session.send("Input.synthesizeScrollGesture", { x: 180, y: 500, yDistance: -400, gestureSourceType: "touch", speed: 500 });
+    await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] });
+    for (let step = 1; step <= 10; step++) await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: start.x, y: start.y - distance * step / 10 }] });
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     expect(await page.evaluate(() => window.scrollY)).toBe(background);
     expect(await dialog.evaluate((element) => element.scrollTop)).toBe(0);
     await session.detach();
