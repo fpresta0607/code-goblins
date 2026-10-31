@@ -193,3 +193,12 @@ test("a call's plan keeps each step's words and state, and a state the board doe
   assert.deepEqual(parseMessages([served(5, { kind: "reply", source: undefined, blocks: [{ kind: "text", text: "Done." }] })])[0].blocks[0].plan, []);
   assert.throws(() => parseMessages([call("blocked")]));
 });
+
+test("a disjoint newest page replaces held history so older pagination can fill the gap", () => {
+  const previous = { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index)), more: false };
+  const newest = { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index + 100)), more: true };
+  const next = pageMessages(previous, newest);
+  assert.deepEqual(next, newest);
+  const recovered = olderMessages(next, { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index + 50)), more: true });
+  assert.deepEqual(seqs(recovered.messages), Array.from({ length: 100 }, (_, index) => index + 50));
+});

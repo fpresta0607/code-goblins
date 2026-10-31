@@ -232,7 +232,11 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case query.Has("picture"):
-		mediaType, data, err := h.Service.Options.Tree.MessagePicture(path, query.Get("picture"))
+		if query.Get("conversation") == "" {
+			apiError(w, http.StatusBadRequest, "conversation is required for pictures")
+			return
+		}
+		mediaType, data, err := h.Service.Options.Tree.MessagePicture(path, query.Get("conversation"), query.Get("picture"))
 		if err != nil {
 			messagesError(w, err)
 			return

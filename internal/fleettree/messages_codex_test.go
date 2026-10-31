@@ -378,12 +378,12 @@ func TestCodexPicturesAreReadFromPromptAndToolEntries(t *testing.T) {
 		t.Fatalf("missing pictures: %+v", page.Messages)
 	}
 	for _, picture := range []Picture{page.Messages[0].Pictures[0], page.Messages[1].Blocks[0].Pictures[0]} {
-		media, got, err := reader.MessagePicture(path, picture.ID)
+		media, got, err := reader.MessagePicture(path, page.Conversation, picture.ID)
 		if err != nil || media != "image/png" || !reflect.DeepEqual(got, data) || picture.Bytes != len(data) {
 			t.Fatalf("picture = %s %q %v (%+v)", media, got, err, picture)
 		}
 	}
-	if _, _, err := reader.MessagePicture(path, "../../other"); !errors.Is(err, ErrNoRecord) {
+	if _, _, err := reader.MessagePicture(path, page.Conversation, "../../other"); !errors.Is(err, ErrNoRecord) {
 		t.Fatalf("unknown picture: %v", err)
 	}
 }

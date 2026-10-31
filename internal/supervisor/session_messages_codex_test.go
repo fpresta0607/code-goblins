@@ -62,6 +62,62 @@ func TestOlderMessagesRequireMatchingConversationIdentity(t *testing.T) {
 	}
 }
 
+func TestPictureRequiresItsConversationIdentity(t *testing.T) {
+	store, taskHome := testStore(t)
+	profile := t.TempDir()
+	meta := codexGoblin(t, taskHome.State, profile, "codgester", "s1")
+	path := fleettree.SessionTranscript(profile, "codex", "codgester-session")
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = file.WriteString(`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"picture","content":[{"type":"image","url":"data:image/png;base64,Y29udmVyc2F0aW9uIEE="}]}}}` + "\n")
+	if closeErr := file.Close(); err != nil || closeErr != nil {
+		t.Fatalf("append: %v %v", err, closeErr)
+	}
+	handler := NewHTTP(&Service{Store: store, Instance: "board-token", Options: Options{Tree: &fleettree.Reader{Home: profile}}}, "127.0.0.1:50000", nil)
+	query := "task=" + meta.ID + "&generation=s1&token=board-token"
+	get := func(extra string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest("GET", "http://"+handler.Host+"/api/messages?"+query+extra, nil)
+		request.RemoteAddr = "127.0.0.1:50001"
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	response := get("")
+	var page fleettree.MessagePage
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &page) != nil || len(page.Messages) != 3 || len(page.Messages[2].Pictures) != 1 {
+		t.Fatalf("page: %d %s", response.Code, response.Body)
+	}
+	picture := "&picture=" + url.QueryEscape(page.Messages[2].Pictures[0].ID)
+	identity := "&conversation=" + url.QueryEscape(page.Conversation)
+	if got := get(picture + identity); got.Code != http.StatusOK || got.Body.String() != "conversation A" || got.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("current picture: %d %s", got.Code, got.Body)
+	}
+	for _, test := range []struct {
+		extra  string
+		status int
+	}{{picture, http.StatusBadRequest}, {picture + "&conversation=stale", http.StatusNotFound}} {
+		if got := get(test.extra); got.Code != test.status || strings.Contains(got.Body.String(), "conversation A") || strings.HasPrefix(got.Header().Get("Content-Type"), "image/") {
+			t.Errorf("unbound picture: %d %s, want %d without image bytes", got.Code, got.Body, test.status)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := strings.Replace(string(data), "Y29udmVyc2F0aW9uIEE=", "Y29udmVyc2F0aW9uIEI=", 1)
+	if replaced == string(data) {
+		t.Fatal("picture fixture missing")
+	}
+	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := get(picture + identity); got.Code != http.StatusNotFound || strings.Contains(got.Body.String(), "conversation B") || strings.HasPrefix(got.Header().Get("Content-Type"), "image/") {
+		t.Errorf("replacement picture returned bytes: %d %s", got.Code, got.Body)
+	}
+}
+
 // codexGoblin is a task running Codex whose conversation the board recorded,
 // with the rollout Codex writes as it works.
 func codexGoblin(t *testing.T, stateDir, userHome, id, generation string) state.TaskMeta {
@@ -168,7 +224,8 @@ func TestCodexMessageEndpointServesRecordedPicturesAndUsage(t *testing.T) {
 		t.Fatalf("pictures: %+v", page.Messages)
 	}
 	picture := page.Messages[2].Pictures[0]
-	response = get(query + "&picture=" + picture.ID)
+	pictureQuery := "&picture=" + url.QueryEscape(picture.ID) + "&conversation=" + url.QueryEscape(page.Conversation)
+	response = get(query + pictureQuery)
 	if response.Code != 200 || response.Header().Get("Content-Type") != "image/png" || response.Body.String() != string(data) {
 		t.Fatalf("picture: %d %s", response.Code, response.Body)
 	}
@@ -176,9 +233,9 @@ func TestCodexMessageEndpointServesRecordedPicturesAndUsage(t *testing.T) {
 		query  string
 		status int
 	}{
-		{query + "&picture=unknown", 404},
-		{strings.Replace(query, "generation=s1", "generation=old", 1) + "&picture=" + picture.ID, 409},
-		{strings.Replace(query, "board-token", "other", 1) + "&picture=" + picture.ID, 403},
+		{query + "&picture=unknown&conversation=" + url.QueryEscape(page.Conversation), 404},
+		{strings.Replace(query, "generation=s1", "generation=old", 1) + pictureQuery, 409},
+		{strings.Replace(query, "board-token", "other", 1) + pictureQuery, 403},
 	} {
 		if response := get(test.query); response.Code != test.status {
 			t.Fatalf("refusal: %d %s, want %d", response.Code, response.Body, test.status)

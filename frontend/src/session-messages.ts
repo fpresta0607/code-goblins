@@ -123,7 +123,7 @@ export function changeMessages(held: SessionMessage[], changed: SessionMessage[]
 export function pageMessages(held: MessagePage, page: MessagePage): MessagePage {
   if (held.conversation !== page.conversation) return page;
   const first = page.messages[0];
-  if (!first) return page;
+  if (!first || !held.messages.some((message) => message.id === first.id && message.seq === first.seq)) return page;
   const older = held.messages.filter((message) => message.seq < first.seq);
   return { conversation: page.conversation, messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage };
 }

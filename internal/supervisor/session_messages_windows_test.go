@@ -119,7 +119,7 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		if response := get(task); json.Unmarshal(response.Body.Bytes(), &page) != nil || len(page.Messages) != 3 || len(page.Messages[1].Pictures) != 1 {
 			t.Fatalf("GET %s = %d %s", task, response.Code, response.Body)
 		}
-		response := get(task + "&picture=" + page.Messages[1].Pictures[0].ID)
+		response := get(task + "&picture=" + url.QueryEscape(page.Messages[1].Pictures[0].ID) + "&conversation=" + url.QueryEscape(page.Conversation))
 		if response.Code != 200 || response.Header().Get("Content-Type") != "image/png" || response.Body.String() != "a screenshot" {
 			t.Errorf("picture = %d %s %q; want the screenshot", response.Code, response.Header().Get("Content-Type"), response.Body)
 		}
@@ -137,7 +137,7 @@ func TestMessagesServeASessionsConversation(t *testing.T) {
 		{"a Codex task", "task=task-1&generation=g1&token=board-token", 404},
 		{"the CFO in another terminal", "cfo=elsewhere&token=board-token", 409},
 		{"a page before no message", task + "&before=first", 400},
-		{"a picture no message holds", task + "&picture=9", 404},
+		{"a picture no message holds", task + "&picture=9&conversation=" + url.QueryEscape(initial.Conversation), 404},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Act

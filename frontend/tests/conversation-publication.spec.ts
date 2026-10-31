@@ -191,4 +191,31 @@ test("a current queued action still reaches the board while reading", async ({ p
   await expect.poll(() => posts.map(({ kind, target }) => ({ kind, target }))).toEqual([{ kind: "message_now", target: "q-live" }]);
 });
 
-
+test("a disjoint reconnect replaces the latest page and makes the missing history reachable", async ({ page }) => {
+  await open(page, snapshot(), "", pageOf(messages.slice(0, 50)));
+  const requests: string[] = [];
+  await page.route((url) => url.pathname === "/api/messages" && url.searchParams.has("before"), (route) => {
+    requests.push(route.request().url());
+    return route.fulfill({ json: pageOf(messages.slice(50, 100), conversation, true) });
+  });
+  await openGoblin(page);
+  const talk = talkOf(page);
+  await expect(talk.locator('[data-message="m49"]')).toBeVisible();
+  const place = await readNearEnd(talk, page);
+  const rows = await captureRows(talk);
+  await sendPage(page, pageOf(messages.slice(100, 150), conversation, true));
+  expect(await reading(talk)).toEqual(place);
+  expect(await currentRows(talk)).toEqual({ sameNodes: true, rows });
+  await expect(talk.locator('[data-message="m149"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Jump to latest" }).click();
+  await expect(talk.locator('[data-message="m149"]')).toBeVisible();
+  const response = page.waitForResponse((value) => new URL(value.url()).searchParams.has("before"));
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await (await response).finished();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(new URL(requests[0]).searchParams.get("before")).toBe("100");
+  await reading(talk);
+  await talk.evaluate((element) => { element.scrollTop = 0; });
+  await expect(talk.locator('[data-message="m50"]')).toBeVisible();
+  await expect(talk.locator('[data-message="m49"]')).toHaveCount(0);
+});

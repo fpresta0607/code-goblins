@@ -1,11 +1,8 @@
 package fleettree
 
 import (
-	"bufio"
 	"cmp"
-	"encoding/base64"
 	"encoding/json"
-	"io"
 	"maps"
 	"math"
 	"path/filepath"
@@ -94,6 +91,7 @@ type codexPictureAt struct {
 	offset   int64
 	index    int
 	isOutput bool
+	digest   [32]byte
 }
 
 // codexChange is one file a FileChange item changed: its unified diff for an
@@ -354,14 +352,14 @@ func (l *codexMessageLog) keepPictures(parts []codexPart, offset int64, isOutput
 			continue
 		}
 		id := strconv.FormatInt(offset, 10) + ":" + strconv.Itoa(index)
-		l.pictures[id] = codexPictureAt{offset, index, isOutput}
+		l.pictures[id] = codexPictureAt{offset: offset, index: index, isOutput: isOutput, digest: pictureDigest(media, data)}
 		size := len(data)/4*3 - (len(data) - len(strings.TrimRight(data, "=")))
 		pictures = append(pictures, Picture{ID: id, MediaType: media, Bytes: size})
 	}
 	return pictures
 }
 
-func (r *Reader) codexMessagePicture(path, id string) (string, []byte, error) {
+func (r *Reader) codexMessagePicture(path, conversation, id string) (string, []byte, error) {
 	r.messagesMu.Lock()
 	log := r.codexLogs[path]
 	r.messagesMu.Unlock()
@@ -369,8 +367,14 @@ func (r *Reader) codexMessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
+	defer log.mu.Unlock()
+	if err := log.update(func() uint64 { return messageEpoch.Add(1) }); err != nil {
+		return "", nil, err
+	}
+	if conversation == "" || conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
+		return "", nil, ErrNoRecord
+	}
 	at, isKept := log.pictures[id]
-	log.mu.Unlock()
 	if !isKept {
 		return "", nil, ErrNoRecord
 	}
@@ -379,27 +383,27 @@ func (r *Reader) codexMessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, err
 	}
 	defer file.Close()
-	line, err := bufio.NewReader(io.NewSectionReader(file, at.offset, pictureEntryReach)).ReadBytes('\n')
+	media, data, err := resolvePicture(file, path, log.fileState, at.offset, at.digest, func(line []byte) (string, string, bool) {
+		var entry codexEntry
+		if json.Unmarshal(line, &entry) != nil {
+			return "", "", false
+		}
+		parts := entry.Payload.Item.Content
+		if at.isOutput && json.Unmarshal(entry.Payload.Output, &parts) != nil {
+			return "", "", false
+		}
+		if at.index >= len(parts) {
+			return "", "", false
+		}
+		return codexPictureData(parts[at.index])
+	})
 	if err != nil {
 		return "", nil, err
 	}
-	var entry codexEntry
-	if json.Unmarshal(line, &entry) != nil {
-		return "", nil, ErrNoRecord
+	if err := log.update(func() uint64 { return messageEpoch.Add(1) }); err != nil {
+		return "", nil, err
 	}
-	parts := entry.Payload.Item.Content
-	if at.isOutput && json.Unmarshal(entry.Payload.Output, &parts) != nil {
-		return "", nil, ErrNoRecord
-	}
-	if at.index >= len(parts) {
-		return "", nil, ErrNoRecord
-	}
-	media, encoded, isPicture := codexPictureData(parts[at.index])
-	if !isPicture {
-		return "", nil, ErrNoRecord
-	}
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil || len(data) == 0 {
+	if conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
 		return "", nil, ErrNoRecord
 	}
 	return media, data, nil

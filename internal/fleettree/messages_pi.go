@@ -2,7 +2,6 @@ package fleettree
 
 import (
 	"bufio"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -135,6 +134,7 @@ type piRetained struct {
 type piPictureAt struct {
 	offset int64
 	index  int
+	digest [32]byte
 }
 
 // piCallAt is where a tool call was put in the view, so the result that answers
@@ -576,7 +576,7 @@ func (l *piMessageLog) picture(id string, offset int64, index int, block piBlock
 		return Picture{}, false
 	}
 	name := id + ":" + strconv.Itoa(index)
-	l.pictures[name] = piPictureAt{offset: offset, index: index}
+	l.pictures[name] = piPictureAt{offset: offset, index: index, digest: pictureDigest(block.MIMEType, block.Data)}
 	// The size of what the base64 would decode to, as the Claude reader sizes a
 	// picture it has not read.
 	size := len(block.Data)/4*3 - (len(block.Data) - len(strings.TrimRight(block.Data, "=")))
@@ -725,7 +725,7 @@ func (r *Reader) forgetPiLogs(now time.Time) {
 // piMessagePicture is the picture id of the pi session at path, read back from
 // the entry that holds it. It is ErrNoRecord for a picture no read found, and
 // for a media type the board may not serve.
-func (r *Reader) piMessagePicture(path, id string) (string, []byte, error) {
+func (r *Reader) piMessagePicture(path, conversation, id string) (string, []byte, error) {
 	r.messagesMu.Lock()
 	log := r.piLogs[path]
 	r.messagesMu.Unlock()
@@ -733,8 +733,14 @@ func (r *Reader) piMessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
+	defer log.mu.Unlock()
+	if err := log.update(func() uint64 { return messageEpoch.Add(1) }); err != nil {
+		return "", nil, err
+	}
+	if conversation == "" || conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
+		return "", nil, ErrNoRecord
+	}
 	at, isKept := log.pictures[id]
-	log.mu.Unlock()
 	if !isKept {
 		return "", nil, ErrNoRecord
 	}
@@ -743,31 +749,32 @@ func (r *Reader) piMessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, err
 	}
 	defer file.Close()
-	line, err := bufio.NewReader(io.NewSectionReader(file, at.offset, pictureEntryReach)).ReadBytes('\n')
+	media, data, err := resolvePicture(file, path, log.fileState, at.offset, at.digest, func(line []byte) (string, string, bool) {
+		entry, ok := piLine(line)
+		if !ok {
+			return "", "", false
+		}
+		var said piMessage
+		if json.Unmarshal(entry.Message, &said) != nil {
+			return "", "", false
+		}
+		blocks := piBlocks(said.Content)
+		if at.index >= len(blocks) {
+			return "", "", false
+		}
+		block := blocks[at.index]
+		return block.MIMEType, block.Data, block.Type == "image" && block.Data != "" && slices.Contains(pictureTypes, block.MIMEType)
+	})
 	if err != nil {
 		return "", nil, err
 	}
-	entry, ok := piLine(line)
-	if !ok {
+	if err := log.update(func() uint64 { return messageEpoch.Add(1) }); err != nil {
+		return "", nil, err
+	}
+	if conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
 		return "", nil, ErrNoRecord
 	}
-	var said piMessage
-	if json.Unmarshal(entry.Message, &said) != nil {
-		return "", nil, ErrNoRecord
-	}
-	blocks := piBlocks(said.Content)
-	if at.index >= len(blocks) {
-		return "", nil, ErrNoRecord
-	}
-	block := blocks[at.index]
-	if block.Type != "image" || !slices.Contains(pictureTypes, block.MIMEType) {
-		return "", nil, ErrNoRecord
-	}
-	data, err := base64.StdEncoding.DecodeString(block.Data)
-	if err != nil || len(data) == 0 {
-		return "", nil, ErrNoRecord
-	}
-	return block.MIMEType, data, nil
+	return media, data, nil
 }
 
 // piPage is the page of the log's messages before seq before, or its newest

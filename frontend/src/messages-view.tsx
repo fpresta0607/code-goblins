@@ -432,7 +432,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       zoom(size);
     }
   };
-  const picture = useCallback((id: string) => address({ picture: id }), [address]);
+  const picture = useCallback((id: string) => address({ picture: id, conversation: held.conversation }), [address, held.conversation]);
   const taskID = task?.id;
   const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);

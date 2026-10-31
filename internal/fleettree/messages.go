@@ -301,7 +301,7 @@ type messageCheckpoint struct {
 	piLeaf    string
 }
 
-func (state *messageFileState) changed(file *os.File, info os.FileInfo, allowedFrom int64) (bool, error) {
+func (state *messageFileState) changed(file io.ReaderAt, info os.FileInfo, allowedFrom int64) (bool, error) {
 	if state.info == nil {
 		return false, nil
 	}
@@ -397,6 +397,7 @@ type blockAt struct {
 type pictureAt struct {
 	offset      int64
 	block, part int
+	digest      [32]byte
 }
 
 // reset starts the log over as the read epoch of its conversation.
@@ -763,7 +764,7 @@ func (l *messageLog) user(entry messageEntry, id string, offset int64) {
 			}
 			texts = append(texts, block.Text)
 		case "image":
-			if picture, ok := l.picture(block.Source, pictureAt{offset, i, -1}); ok {
+			if picture, ok := l.picture(block.Source, pictureAt{offset: offset, block: i, part: -1}); ok {
 				pictures = append(pictures, picture)
 			}
 		}
@@ -994,7 +995,7 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 	var pictures []Picture
 	for i, content := range parts {
 		if content.Type == "image" {
-			if picture, ok := l.picture(content.Source, pictureAt{offset, part, i}); ok {
+			if picture, ok := l.picture(content.Source, pictureAt{offset: offset, block: part, part: i}); ok {
 				pictures = append(pictures, picture)
 			}
 		}
@@ -1099,6 +1100,7 @@ func (l *messageLog) picture(source pictureSource, at pictureAt) (Picture, bool)
 	if at.part >= 0 {
 		id += "." + strconv.Itoa(at.part)
 	}
+	at.digest = pictureDigest(source.MediaType, source.Data)
 	l.pictures[id] = at
 	return Picture{ID: id, MediaType: source.MediaType, Bytes: len(source.Data)/4*3 - (len(source.Data) - len(strings.TrimRight(source.Data, "=")))}, true
 }
@@ -1378,12 +1380,12 @@ func usageOf(held Usage, window int64) *Usage {
 // MessagePicture is the picture id of the conversation at path, as a read of
 // its messages found it: its media type and its bytes, read back from its
 // entry. It is ErrNoRecord for a picture no read found.
-func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
+func (r *Reader) MessagePicture(path, conversation, id string) (string, []byte, error) {
 	if isCodexRollout(path) {
-		return r.codexMessagePicture(path, id)
+		return r.codexMessagePicture(path, conversation, id)
 	}
 	if isPiSession(path) {
-		return r.piMessagePicture(path, id)
+		return r.piMessagePicture(path, conversation, id)
 	}
 	r.messagesMu.Lock()
 	log := r.messageLogs[path]
@@ -1392,8 +1394,14 @@ func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
+	defer log.mu.Unlock()
+	if err := log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach); err != nil {
+		return "", nil, err
+	}
+	if conversation == "" || conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
+		return "", nil, ErrNoRecord
+	}
 	at, isKept := log.pictures[id]
-	log.mu.Unlock()
 	if !isKept {
 		return "", nil, ErrNoRecord
 	}
@@ -1402,29 +1410,79 @@ func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, err
 	}
 	defer file.Close()
-	line, err := bufio.NewReader(io.NewSectionReader(file, at.offset, pictureEntryReach)).ReadBytes('\n')
-	if err != nil {
-		return "", nil, fmt.Errorf("the picture's entry cannot be read: %w", err)
-	}
-	var entry messageEntry
-	var blocks []messageBlock
-	if json.Unmarshal(line, &entry) != nil || json.Unmarshal(entry.Message.Content, &blocks) != nil || at.block >= len(blocks) {
-		return "", nil, ErrNoRecord
-	}
-	block := blocks[at.block]
-	if at.part >= 0 {
-		var parts []messageBlock
-		if json.Unmarshal(block.Content, &parts) != nil || at.part >= len(parts) {
-			return "", nil, ErrNoRecord
+	media, data, err := resolvePicture(file, path, log.fileState, at.offset, at.digest, func(line []byte) (string, string, bool) {
+		var entry messageEntry
+		var blocks []messageBlock
+		if json.Unmarshal(line, &entry) != nil || json.Unmarshal(entry.Message.Content, &blocks) != nil || at.block >= len(blocks) {
+			return "", "", false
 		}
-		block = parts[at.part]
+		block := blocks[at.block]
+		if at.part >= 0 {
+			var parts []messageBlock
+			if json.Unmarshal(block.Content, &parts) != nil || at.part >= len(parts) {
+				return "", "", false
+			}
+			block = parts[at.part]
+		}
+		return block.Source.MediaType, block.Source.Data, block.Type == "image" && block.Source.Type == "base64" && slices.Contains(pictureTypes, block.Source.MediaType)
+	})
+	if err != nil {
+		return "", nil, err
 	}
-	if block.Type != "image" || block.Source.Type != "base64" || !slices.Contains(pictureTypes, block.Source.MediaType) {
+	if err := log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach); err != nil {
+		return "", nil, err
+	}
+	if conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
 		return "", nil, ErrNoRecord
 	}
-	data, err := base64.StdEncoding.DecodeString(block.Source.Data)
-	if err != nil {
-		return "", nil, fmt.Errorf("the picture's data cannot be read: %w", err)
+	return media, data, nil
+}
+
+type pictureFile interface {
+	io.ReaderAt
+	Stat() (os.FileInfo, error)
+}
+
+func pictureDigest(media, encoded string) [32]byte {
+	return sha256.Sum256([]byte(media + "\x00" + encoded))
+}
+
+func resolvePicture(file pictureFile, path string, state messageFileState, offset int64, digest [32]byte, extract func([]byte) (string, string, bool)) (string, []byte, error) {
+	validate := func() error {
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		current, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		changed, err := state.changed(file, info, state.prefixOffset)
+		if err != nil {
+			return err
+		}
+		if changed || !os.SameFile(info, current) || info.Size() != current.Size() || !info.ModTime().Equal(current.ModTime()) {
+			return ErrNoRecord
+		}
+		return nil
 	}
-	return block.Source.MediaType, data, nil
+	if err := validate(); err != nil {
+		return "", nil, err
+	}
+	line, err := bufio.NewReader(io.NewSectionReader(file, offset, pictureEntryReach)).ReadBytes('\n')
+	if err != nil {
+		return "", nil, err
+	}
+	if err := validate(); err != nil {
+		return "", nil, err
+	}
+	media, encoded, ok := extract(line)
+	if !ok || pictureDigest(media, encoded) != digest {
+		return "", nil, ErrNoRecord
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(data) == 0 {
+		return "", nil, ErrNoRecord
+	}
+	return media, data, nil
 }
