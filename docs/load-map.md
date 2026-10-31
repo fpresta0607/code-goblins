@@ -182,11 +182,14 @@ A Codex or pi CFO gets the same checkpoint through its native hooks, which only 
 As it ingests Codex `PostCompact` or pi `session_compact` it queues one `check` wake that names the checkpoint, or says no fresh one was written, and types it into the idle CFO like any other wake; a replayed event queues nothing new.
 A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
 A Codex CFO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `cfo hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `cfo hooks install pi` to add them for a pi CFO.
-The `state/session-digest.md` file is the long digest, which `cfo session-start` also prints: the first queued rows of `data/backlog.md`, every task's metadata and recent status, and `data/projects.md`, `data/overlord.md` and the memory index `data/memory/MEMORY.md` in full.
+The `state/session-digest.md` file is the operating map, which `cfo session-start` also prints.
+With a verified `data/memory/startup.json` it carries exact warm source ranges, bounded cold retrieval routes and a bounded canonical fleet/backlog summary; every role retrieves relevant cold authority before dependent action.
+Without that curated map it explicitly retains the legacy project map, directives and fact index in full, with budget diagnostics and no automatic migration.
 Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
 A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CFO; a CFO in another harness or another folder never sees it, which is why AGENTS.md, under Memory, has `cfo home migrate` import it into `data/memory/`.
-The `stow` skill keeps `data/overlord.md` and `data/memory/` inside a startup budget, and the backlog current: directives stay word for word, operating facts decay unless re-confirmed, and stale history moves to `data/memory-archive.md`, which no session loads.
+The `stow` skill owns combined memory curation, declared-tier capture, corrections and open work held in this session; directives stay word for word and individually approved pinned offloads are separate from the pass.
+The [memory contract](contract/memory.md) defines selective retrieval, lossless dry-run plans and complete startup accounting for all three harnesses, including global rules, skill discovery index, brief and emitted digest.
 The `project-check` skill assesses what the home knows about one project through `cfo project check`, and names no tool of one harness, so it reads the same in all three.
 
 ## Third-party skills

@@ -62,6 +62,7 @@ Run as goblins with no command, from any folder, it is the quick start: one Ente
 
 commands:
   help      [<command> [<subcommand>] | contract <topic>]: read only the requested embedded command or procedure contract; with no topic, list available references
+  memory    retrieve [--project <name>] [--task <id>] [--topic <topic>] | retrieve --id <id> | routes | budget [--packages <file>] | migration-plan; source-backed warm/cold memory, combined startup accounting and lossless dry-run planning
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
   remote    on|status|off: private phone access to the board and CFO terminal over your Tailscale account
@@ -746,6 +747,8 @@ func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRunt
 		return runDeliver(args[1:], stdout, stderr, runtime)
 	case "run-request":
 		return runRunRequest(args[1:], stdout, stderr, runtime)
+	case "memory":
+		return runMemory(args[1:], stdout, stderr)
 	case "session-start":
 		// Deliberate deviation, recorded for the ledger: a home that cannot
 		// be resolved errors out here (stderr plus exit 1), matching this

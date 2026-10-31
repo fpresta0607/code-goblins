@@ -48,7 +48,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | The CFO home | [docs/contract/home.md](home.md#the-cfo-home) |
 | The janitor | [docs/contract/home.md](home.md#the-janitor) |
 | Microsoft Defender | [AGENTS.md](../../AGENTS.md#microsoft-defender) |
-| Memory | [AGENTS.md](../../AGENTS.md#memory) |
+| Memory | [AGENTS.md](../../AGENTS.md#memory) routes to [memory](memory.md); Stow owns curation. |
 | Restart is a non-event | [AGENTS.md](../../AGENTS.md#restart-is-a-non-event) |
 | Commands | Each complete row is owned by its command reference below. |
 
@@ -116,6 +116,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo helper start <parent-id> --brief <file> [--title "<short title>"]` \| `merge <parent-id>` | [cfo help helper](../commands/helper.md) |
 | `cfo drain` | [cfo help drain](../commands/drain.md) |
 | `cfo session-start` | [cfo help session-start](../commands/session-start.md) |
+| `cfo memory retrieve \| routes \| budget \| migration-plan` | [cfo help memory](../commands/memory.md) and [memory contract](memory.md) |
 | `cfo hook <name>` | [cfo help hook](../commands/hook.md) |
 | `<candidate> update [--recover]` | [cfo help update](../commands/update.md) |
 | `goblins update [--check] [--to <tag> [--run <item>]]` | [cfo help update](../commands/update.md) |
@@ -132,11 +133,11 @@ No upstream runtime, Relay, secondmate or terminal-backend behavior is activated
 | --- | --- |
 | Shared identity, worker-role exception, authority and custody | Shared core, dispatch and supervision references; existing behavior preserved. |
 | Skill trigger index and on-demand procedures | Core links, cfo-* skill descriptions and cfo help contract topics; active in this extraction. |
-| Session start, complete digest and recovery interpretation | cfo-supervision and the existing cfo session-start/native hooks; composition and hook-trust rules unchanged. |
-| Warm retrieved context, cold archive and authoritative memory tiers | Existing Memory and stow owners remain; expanded retrieval and memory requirements are staged follow-ups. |
-| Required Stow pass and capture receipts | Existing stow skill remains authoritative; upstream layering, capture and receipt extensions are staged follow-ups. |
-| Validation supervision and ask-user findings | cfo-delivery and docs/pipeline.md preserve frozen policy, run custody and CFO decisions; adaptive verification is a staged follow-up. |
-| Project intake and verification selection | Existing project-check, project records and cfo verify remain; simple/intensive delivery selection is a staged follow-up. |
+| Session start, complete digest and recovery interpretation | cfo-supervision and cfo session-start/native hooks retain custody and hook trust; [memory](memory.md) owns warm composition and bounded state. |
+| Warm retrieved context, cold archive and authoritative memory tiers | [Memory](memory.md) and cfo memory own source coverage, selective retrieval, budgets and lossless dry runs; active for a verified catalog, with no automatic legacy migration. |
+| Required Stow pass and capture receipts | [Stow](../../.agents/skills/stow/SKILL.md) owns tier clocks, independent evidence, pending capture, open records and individually approved pinned offload. |
+| Validation supervision and ask-user findings | [Delivery](delivery.md), [cfo-delivery](../../.agents/skills/cfo-delivery/SKILL.md) and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CFO decisions; active when the delivery follow-up lands. |
+| Project intake and verification selection | [Delivery](delivery.md), [cfo-delivery](../../.agents/skills/cfo-delivery/SKILL.md), project-check, project records and cfo verify own simple/intensive selection; active when the delivery follow-up lands. |
 | Landing and cleanup | cfo-delivery and cfo-worktrees preserve merge authority and unlanded-work custody. |
 | Away supervision and user decisions | cfo-afk, cfo-decisions and step-card preserve the native board and explicit switch authority. |
 

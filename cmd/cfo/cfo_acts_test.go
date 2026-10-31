@@ -109,7 +109,7 @@ func TestEveryCommandSaysWhetherItActsAsTheCFO(t *testing.T) {
 		// owner's private connection on this PC. None steers the fleet.
 		{"install", "uninstall", "update", "home", "dev-drive", "dictation", "doctor", "serve", "stop", "status", "host", "attach", "hooks", "connection-repair", "remote", "version"},
 		// Reading the fleet and a project.
-		{"fleet-view", "peek", "runtime", "tickets", "project", "route", "verify", "security", "hygiene", "evidence", "process-plan", "defender"},
+		{"fleet-view", "peek", "runtime", "tickets", "project", "route", "verify", "security", "hygiene", "evidence", "process-plan", "defender", "memory"},
 		// The hooks, which prove the CFO's own session themselves, and the
 		// two commands that take the lock only there.
 		{"hook", "native-hook", "register", "session-start", "watch"},

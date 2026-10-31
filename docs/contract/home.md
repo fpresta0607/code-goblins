@@ -29,6 +29,8 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 | `data/overlord.md` | The Supreme Overlord's standing directives, word for word. |
 | `data/memory/` | The CFO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](../../AGENTS.md#memory)). |
 | `data/memory-archive.md` | Memory the `stow` skill retired; never loaded. |
+| `data/memory/startup.json` | Verified warm ranges and cold routes over original source owners, optional memory layers; see [memory](memory.md). No automatic legacy migration. |
+| `config/startup-memory-budget`, `config/startup-context-budget` | Estimated-token allowances for combined memory and complete captured startup packages; see [budgets](memory.md#budgets-and-exceptions). |
 | `data/routing.json` | The execution lanes, yours to tune. |
 | `data/projects/<project>/` | One folder per project, named for its checkout's folder: `auth.json`, `worktree.json`, `project.json` and `services.json`. |
 | `data/<task>/` | One folder per task that is queued or under way: `brief.md` (what to do), `report.md` (what a scout found or a ship task delivered), `decisions.md` (the rulings made for it, each with its date) and `deliverables/` (files handed to the Overlord). |

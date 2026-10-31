@@ -33,6 +33,7 @@ var staysAtNormal = map[string]string{
 	"allowance-floor":   "sets one number nothing waits on",
 	"start-hook":        "records one accepted file nothing waits on",
 	"home":              "hashes and moves a whole home",
+	"memory":            "validates and hashes memory sources without controlling a running task",
 	"pipeline":          "starts and answers gate runs, which are work",
 	"afk":               "a switch and a log nothing waits on",
 	"auth":              "runs each service's own sign-in check",

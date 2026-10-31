@@ -1,0 +1,248 @@
+package memory
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+var referenceDate = time.Date(2026, 10, 31, 0, 0, 0, 0, time.UTC)
+
+func catalogFixture(t *testing.T) (string, Catalog) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "memory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catalog := Catalog{Version: 1}
+	for _, fact := range []struct{ path, id, text, authority, location, topic string }{
+		{"overlord.md", "authority", "The release needs approval.\n", "ruling", "warm", ""},
+		{"memory/current.md", "current", "Use the local cache. <!--a:2026-10-30-->\n", "fact", "warm", ""},
+		{"memory/project.md", "project", "A project uses port 4300. <!--a:2026-10-30-->\n", "project", "cold", "ports"},
+		{"memory/history.md", "history", "A completed investigation.\n", "history", "cold", "history"},
+	} {
+		writeMemoryFile(t, dir, fact.path, []byte(fact.text))
+		entry := Entry{ID: fact.id, End: len(fact.text), SHA256: Hash([]byte(fact.text)), Authority: fact.authority, Location: fact.location}
+		if fact.topic != "" {
+			entry.Trigger, entry.Topics = fact.topic, []string{fact.topic}
+		}
+		if fact.authority == "history" {
+			entry.Approval = &Approval{By: "Overlord", Quote: "Offload history to its named owner.", Date: "2026-10-30", Destination: fact.path + "#history"}
+		}
+		catalog.Sources = append(catalog.Sources, Source{Path: fact.path, SHA256: Hash([]byte(fact.text)), Entries: []Entry{entry}})
+	}
+	writeCatalog(t, dir, catalog)
+	return dir, catalog
+}
+
+func writeMemoryFile(t *testing.T, root, name string, content []byte) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeCatalog(t *testing.T, dir string, catalog Catalog) {
+	t.Helper()
+	content, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeMemoryFile(t, dir, CatalogPath, content)
+}
+
+func TestRetrievalSelectsRelevantColdFactsAndPreservesRulings(t *testing.T) {
+	// Oracle: upstream Stow's exact-word authority and conditional offload contract.
+	dir, _ := catalogFixture(t)
+	catalog, err := Load(dir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name            string
+		query           Query
+		present, absent string
+	}{
+		{"startup", Query{}, "The release needs approval.", "port 4300"},
+		{"relevant topic", Query{Topic: "ports"}, "port 4300", "completed investigation"},
+		{"exact history", Query{ID: "history"}, "completed investigation", "release needs approval"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := catalog.Retrieve(test.query, referenceDate)
+			if err != nil || !strings.Contains(output, test.present) || strings.Contains(output, test.absent) {
+				t.Fatalf("retrieval = %q, %v", output, err)
+			}
+		})
+	}
+	if _, err := catalog.Retrieve(Query{ID: "missing"}, referenceDate); err == nil {
+		t.Fatal("missing named authority was reported as success")
+	}
+}
+
+func TestCatalogRejectsCorruptMissingOrUnapprovedAuthority(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*Catalog)
+	}{
+		{"checksum", func(c *Catalog) { c.Sources[0].SHA256 = strings.Repeat("0", 64) }},
+		{"range checksum", func(c *Catalog) { c.Sources[0].Entries[0].SHA256 = strings.Repeat("0", 64) }},
+		{"gap", func(c *Catalog) { c.Sources[0].Entries[0].Start = 1 }},
+		{"missing source", func(c *Catalog) { c.Sources = c.Sources[1:] }},
+		{"duplicate source", func(c *Catalog) { c.Sources = append(c.Sources, c.Sources[0]) }},
+		{"duplicate id", func(c *Catalog) { c.Sources[1].Entries[0].ID = "authority" }},
+		{"unapproved pin", func(c *Catalog) { c.Sources[3].Entries[0].Approval = nil }},
+		{"broad approval", func(c *Catalog) { c.Sources[3].Entries[0].Approval.Quote = "Approve every move." }},
+		{"not live", func(c *Catalog) { c.Sources[3].Entries[0].Approval.Destination = "a future skill" }},
+		{"unknown supersession", func(c *Catalog) { c.Sources[1].Entries[0].Supersedes = []string{"missing"} }},
+		{"layer conflict", func(c *Catalog) {
+			c.Layers = []Layer{{Name: "one", Classes: []string{"facts", "facts"}, Owner: "CFO", Capture: "owner", Correction: "owner"}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			test.change(&catalog)
+			writeCatalog(t, dir, catalog)
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("invalid authority catalog was accepted")
+			}
+		})
+	}
+}
+
+func TestCatalogRejectsDuplicateJSONAndCyclicSupersession(t *testing.T) {
+	for _, test := range []string{"duplicate json", "cyclic supersession", "nested memory"} {
+		t.Run(test, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			switch test {
+			case "duplicate json":
+				writeMemoryFile(t, dir, CatalogPath, []byte(`{"version":2,"version":1,"sources":[]}`))
+				var value Catalog
+				if err := Decode([]byte(`{"version":2,"version":1}`), &value); err == nil {
+					t.Fatal("duplicate JSON keys can replace an authority classification")
+				}
+				return
+			case "cyclic supersession":
+				catalog.Sources[0].Entries[0].Supersedes = []string{"current"}
+				catalog.Sources[1].Entries[0].Supersedes = []string{"authority"}
+				writeCatalog(t, dir, catalog)
+			case "nested memory":
+				writeMemoryFile(t, dir, "memory/cold/unaccounted.md", []byte("unaccounted authority"))
+			}
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("conflicting or unaccounted authority was accepted")
+			}
+		})
+	}
+}
+
+func TestTierClocksAndGraceFollowReviewedStowContract(t *testing.T) {
+	// The pinned exemption, 30-day aging and 7-day perishable boundaries are
+	// independent constants from First Mate's reviewed Stow contract.
+	for _, test := range []struct {
+		name, text, authority, tier string
+		stale, grace, legacy        bool
+	}{
+		{"unmarked ruling", "Keep these exact words.", "ruling", "pinned", false, false, false},
+		{"legacy fact", "A fact", "fact", "aging", false, false, true},
+		{"grace", "A fact <!--g-->", "fact", "aging", false, true, false},
+		{"29 days", "A fact <!--a:2026-10-02-->", "fact", "aging", false, false, false},
+		{"30 days", "A fact <!--a:2026-10-01-->", "fact", "aging", true, false, false},
+		{"6 days", "A fact <!--p:2026-10-25-->", "fact", "perishable", false, false, false},
+		{"7 days", "A fact <!--p:2026-10-24-->", "fact", "perishable", true, false, false},
+		{"pin", "A fact <!--P-->", "fact", "pinned", false, false, false},
+		{"no opt-in horizon", "A fact <!--a:2026-10-30/100-->", "fact", "aging", false, false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := []byte(test.text)
+			status, err := Inspect(before, test.authority, referenceDate)
+			if err != nil || status.Tier != test.tier || status.IsStale != test.stale || status.IsGrace != test.grace || status.IsLegacy != test.legacy {
+				t.Fatalf("status = %+v, %v", status, err)
+			}
+			if !reflect.DeepEqual(before, []byte(test.text)) {
+				t.Fatal("retrieval advanced the decay clock or changed bytes")
+			}
+		})
+	}
+	for _, text := range []string{"<!--a:2026-02-30-->", "<!--a:2026-11-01-->", "<!--a:bad-->", "<!--P--><!--g-->"} {
+		if _, err := Inspect([]byte(text), "fact", referenceDate); err == nil {
+			t.Fatalf("accepted corrupt markers %q", text)
+		}
+	}
+}
+
+func TestPendingCaptureGraceAndPerishableEntriesCannotBeCold(t *testing.T) {
+	for _, text := range []string{
+		"A cache fact <!--a:2026-10-30--><!--t:team-->",
+		"A cache fact <!--g-->",
+		"A legacy cache fact",
+		"Wait for task-7 <!--p:2026-10-30-->",
+	} {
+		t.Run(text, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			source := &catalog.Sources[2]
+			writeMemoryFile(t, dir, source.Path, []byte(text))
+			source.SHA256 = Hash([]byte(text))
+			source.Entries[0].End, source.Entries[0].SHA256 = len(text), source.SHA256
+			source.Entries[0].Expiry = "task-7"
+			writeCatalog(t, dir, catalog)
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("protected fact was removed from startup by a cold classification")
+			}
+		})
+	}
+}
+
+func TestStaleColdFactsRemainExplicitInTheRoutingMap(t *testing.T) {
+	dir, _ := catalogFixture(t)
+	catalog, err := Load(dir, referenceDate.AddDate(0, 2, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(catalog.Routes(2000), "STALE") {
+		t.Fatal("stale cold fact disappeared behind an apparently current route")
+	}
+}
+
+func TestDeclaredTierCaptureAndCorrectionRulesReachEveryRetrieval(t *testing.T) {
+	dir, catalog := catalogFixture(t)
+	catalog.Layers = []Layer{{Name: "team-memory", Classes: []string{"project-facts"}, Owner: "project owner", Capture: "Report the verified finding to its project owner.", Correction: "Append a correction with the prior reference; retain the original."}}
+	writeCatalog(t, dir, catalog)
+	loaded, err := Load(dir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []Query{{}, {Topic: "ports"}, {ID: "history"}} {
+		output, err := loaded.Retrieve(query, referenceDate)
+		if err != nil || !strings.Contains(output, catalog.Layers[0].Capture) || !strings.Contains(output, catalog.Layers[0].Correction) {
+			t.Fatalf("declared tier ownership was hidden from the consumer: %q, %v", output, err)
+		}
+	}
+}
+
+func TestExistingColdArchiveRemainsColdWithoutInventingANewOffload(t *testing.T) {
+	dir, catalog := catalogFixture(t)
+	content := []byte("A retired fact with its original provenance.\n")
+	writeMemoryFile(t, dir, "memory-archive.md", content)
+	catalog.Sources = append(catalog.Sources, Source{Path: "memory-archive.md", SHA256: Hash(content), Entries: []Entry{{ID: "existing-archive", End: len(content), SHA256: Hash(content), Authority: "history", Location: "cold", Trigger: "archive recovery", Topics: []string{"archive"}}}})
+	writeCatalog(t, dir, catalog)
+	loaded, err := Load(dir, referenceDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup, err := loaded.Retrieve(Query{}, referenceDate)
+	if err != nil || strings.Contains(startup, string(content)) {
+		t.Fatal("existing archive was injected as new warm authority")
+	}
+	recovered, err := loaded.Retrieve(Query{ID: "existing-archive"}, referenceDate)
+	if err != nil || !strings.Contains(recovered, string(content)) {
+		t.Fatal("existing archive became irretrievable")
+	}
+}

@@ -118,7 +118,7 @@ It is not a tool for ordinary parallelism; the main fleet handles that.
 
 ## Delivery
 
-Load `cfo-delivery` when starting or supervising validation, deciding a gate finding, preparing a push or pull request, assessing CI, landing work or considering cleanup.
+Load `cfo-delivery` at task intake and scout completion, when starting or supervising validation, deciding a gate finding, preparing a push or pull request, assessing CI, landing work or considering cleanup.
 Read the [complete delivery contract](docs/contract/delivery.md), or `cfo help contract delivery`, before the dependent action.
 
 ## Supervision
@@ -202,25 +202,18 @@ What keeps the work quiet:
 The CFO's memory lives in the home, never only in a harness, so a CFO in Claude Code, Codex or Pi reads and writes the same memory.
 `data/overlord.md` holds the Supreme Overlord's standing directives, each with its date and the Overlord's exact words, and never decays.
 `data/memory/` holds what the fleet has learned, one fact per file, and `data/memory/MEMORY.md` is its index: one line per fact, a markdown link to the fact's file followed by ` - ` and a few words on when it matters.
-A fact's file starts with frontmatter and then states the fact; a feedback or project fact follows it with **Why:** and **How to apply:** lines:
-
-```markdown
----
-name: gate-needs-a-scratch-home
-description: a gate step that runs cfo must clear CFO_HOME and CFO_STATE_OVERRIDE first
-metadata:
-  type: feedback
----
-```
-
-`type` is `user`, `feedback`, `project` or `reference`.
-Read `data/overlord.md` and the index at the start of every session: Claude Code's session-start digest names `state/session-digest.md`, which holds both in full, as the file to read next, and a Codex or Pi CFO reads them itself.
-A Claude Code CFO brought back on the conversation that read them holds them already, and its digest says so: it reads that file again only for a part its conversation no longer holds, since on 2026-10-27 one comeback's re-read cost about 31 thousand tokens that rode in every request after.
-Read a fact's own file when its line bears on the work.
-When you learn something durable, write it as one file in `data/memory/` and add its line to the index, updating the fact that already covers it rather than adding a near-duplicate.
-Claude Code's own memory folder stays authoritative for a Claude Code CFO, and nothing in the fleet changes it; a CFO in another harness, or in another project folder, never sees it, so `cfo home migrate` copies it into `data/memory/` once, with the index stamped with where and when the copy came from.
-The directives and the index are printed in every session, so what they hold is paid for in every session; open work belongs in `data/backlog.md` through `tasks-axi`, never in memory.
-Run the `stow` skill (`~/.agents/skills/stow/`) before a context reset and whenever that memory outgrows its budget: it files what the session learned, archives stale history to `data/memory-archive.md` rather than deleting it, and keeps every directive word for word.
+At startup read the warm operating map in `state/session-digest.md` or `cfo session-start`, honoring its read-once claims.
+Before dependent work, retrieve relevant original authority and facts with `cfo memory retrieve --project <name> --task <id> --topic <topic>`; a known item is available through `--id <id>`.
+The same source-backed map and retrieval rules apply to Claude Code, Codex, Pi and goblins; a worker reports knowledge to the CFO for capture when it cannot reach the owning tier.
+When no verified catalog exists, the digest explicitly retains the legacy directives and index in full; no budget silently omits authority.
+Missing, corrupt, conflicting, stale and over-budget memory requires the named diagnostic to be resolved before dependent action.
+Read [the memory contract](docs/contract/memory.md), or `cfo help contract memory`, when retrieving, composing, budgeting or planning memory changes.
+Original rulings, corrections and provenance survive verbatim; a supersession candidate does not retire an earlier ruling by itself.
+Pinned offload requires explicit approval of each named item and a live discoverable owner; broad task approval is insufficient.
+Declared memory layers own capture and corrections for their knowledge classes, and unreachable capture stays explicit and protected in warm memory.
+Open work belongs in `data/backlog.md` through `tasks-axi`, never in memory.
+Run the `stow` skill before reset or compaction, when asked, and when the combined startup memory exceeds its allowance.
+Its receipt accounts for knowledge, open work, remaining decisions and reset safety; no history move happens before a lossless `cfo memory migration-plan` dry run.
 
 
 ## Restart is a non-event
@@ -233,5 +226,5 @@ Metadata, status, and the wake queue are on disk; a fresh session reconciles wit
 Keep this core below 30 KiB, including every applicable role and authority boundary or a discoverable conditional owner.
 Keep one policy source for all harnesses; skill descriptions are triggers, and procedure bodies are retrieved only when needed.
 A reference move must update its links, embedded files, installation fixtures and ownership inventory together.
-Never treat the extraction as activation of staged memory, startup or delivery semantics.
+Activate only the owners the [ownership inventory](docs/contract/ownership.md) marks active; extraction alone grants no authority.
 Installation preserves a legacy tracked checkout's contract and dirty policy; see the [activation boundary](docs/contract/ownership.md#legacy-checkout-activation).
