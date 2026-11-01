@@ -98,10 +98,11 @@ func TestReadyBriefStillHonorsAQueuedHold(t *testing.T) {
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	queueBriefedTask(t, h, "- **next-task** - Ready (repo: example) (hold: author reviewing)", plainBrief)
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 
 	// Act and assert
 	for index := range 3 {
-		if err := handler.Service.checkFleet(t.Context(), time.Now().Add(time.Duration(index)*time.Minute)); err != nil {
+		if err := handler.Service.checkFleet(t.Context(), now.Add(time.Duration(index)*time.Minute)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -109,7 +110,7 @@ func TestReadyBriefStillHonorsAQueuedHold(t *testing.T) {
 		t.Fatal("ready brief bypassed its hold")
 	}
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- **next-task** - Ready (repo: example)\n")
-	if err := handler.Service.checkFleet(t.Context(), time.Now().Add(4*time.Minute)); err != nil {
+	if err := handler.Service.checkFleet(t.Context(), now.Add(4*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	awaitDispatch(t, handler.Service, spawner, 1)

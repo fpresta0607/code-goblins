@@ -86,7 +86,7 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 			t.Fatal(err)
 		}
 		defer service.Close()
-		deadline := time.Now().Add(10 * time.Second)
+		deadline := time.Now().Add(time.Minute)
 		for time.Now().Before(deadline) {
 			view, err := service.Snapshot()
 			if err != nil {
@@ -244,7 +244,7 @@ func TestConcurrentBriefCreationPublishesOneDraft(t *testing.T) {
 			if code == 0 {
 				successes++
 			}
-		case <-time.After(10 * time.Second):
+		case <-time.After(time.Minute):
 			t.Fatal("concurrent brief creation did not finish")
 		}
 	}

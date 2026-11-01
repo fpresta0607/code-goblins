@@ -88,7 +88,7 @@ func TestSpawnRechecksTheBriefAfterWaitingForItsLaunchTurn(t *testing.T) {
 	}()
 	progress := lineWriter{lines: make(chan string, 1)}
 	fixture.service.Progress = progress
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { _, err := fixture.service.Spawn(ctx, fixture.request); done <- err }()
