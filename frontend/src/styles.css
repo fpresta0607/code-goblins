@@ -420,11 +420,14 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .connections p { font-size: .9375rem; margin: 18px 0; }
 .connections h4 { margin: 20px 0 10px; font-size: 1rem; }
 /* The Command Center uses the approved generated modal, with real data only. */
-.question-modal { position: relative; color: #eef3f1; background: var(--glass-bg), var(--hero-surface); border: 1px solid var(--glass-border-hover); border-radius: var(--radius); padding: 40px; width: min(700px, calc(100vw - 28px)); max-height: 92dvh; box-shadow: var(--glass-shadow-hover); }
+html:has(.question-modal[open]) { overflow: hidden; overscroll-behavior: none; }
+.question-modal { position: fixed; inset: calc(var(--visual-top, 0px) + var(--visual-height, 100dvh) / 2) 0 auto; transform: translateY(-50%); margin: 0 auto; color: #eef3f1; background: var(--glass-bg), var(--hero-surface); border: 1px solid var(--glass-border-hover); border-radius: var(--radius); width: min(1040px, calc(100vw - 48px)); padding: min(28px, calc(var(--visual-height, 100dvh) / 24)) 32px; max-height: min(92dvh, var(--visual-height, 100dvh)); overflow: hidden; box-shadow: var(--glass-shadow-hover); }
+.question-modal[open] { display: flex; flex-direction: column; }
+.command-center-content { flex: 1; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 4px; margin: -4px; }
 .question-modal::backdrop { background: #03050aba; backdrop-filter: blur(6px); }
-.command-center-heading { display: flex; align-items: center; gap: 18px; border-bottom: 1px solid var(--glass-border); padding: 0 0 20px; margin-bottom: 22px; }
-.command-center-heading .goblin-avatar { width: 88px; height: 88px; }
-.command-center-heading h2 { flex: 1; min-width: 0; font-size: clamp(1.5rem, 3vw, 1.875rem); line-height: 1.2; margin: 0; background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.command-center-heading { display: flex; flex: none; align-items: center; gap: 18px; border-bottom: 1px solid var(--glass-border); padding: 0 0 min(20px, calc(var(--visual-height, 100dvh) / 30)); margin-bottom: min(22px, calc(var(--visual-height, 100dvh) / 30)); }
+.command-center-heading .goblin-avatar { width: min(88px, calc(var(--visual-height, 100dvh) / 6)); height: min(88px, calc(var(--visual-height, 100dvh) / 6)); }
+.command-center-heading h2 { flex: 1; min-width: 0; font-size: clamp(1rem, calc(var(--visual-height, 100dvh) / 10), clamp(1.5rem, 3vw, 1.875rem)); line-height: 1.2; margin: 0; background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
 @media (forced-colors: active) { .command-center-heading h2 { background: none; color: CanvasText; } }
 .command-center-heading h2 span { display: block; color: #b9c5cd; margin-top: 5px; }
 .question-modal h3 { font-family: var(--font-body); font-weight: 800; font-size: clamp(1.375rem, 3vw, 1.75rem); line-height: 1.35; margin-bottom: 24px; overflow-wrap: anywhere; }
@@ -448,10 +451,8 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .stack-pager > button { padding: 0 16px; }
 .written-answer textarea { width: 100%; background: var(--field-bg); }
 @media (max-width: 40rem) {
-  .question-modal { padding: 24px 18px; }
-  .command-center-heading { gap: 10px; padding-top: 32px; }
-  .command-center-heading .goblin-avatar { width: 76px; height: 76px; }
-  .command-center-heading h2 { font-size: 1.35rem; }
+  .command-center-heading { gap: 10px; }
+  .command-center-heading h2 { font-size: clamp(1rem, calc(var(--visual-height, 100dvh) / 10), 1.35rem); }
   .question-choice { padding: 16px 12px; gap: 12px; }
 }
 
@@ -1046,8 +1047,6 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 
 /* Command Center: one card at a time, each sending its own answer, in type
    sized to read at a glance. */
-.question-modal { width: min(1040px, calc(100vw - 48px)); padding: 28px 32px; overflow-x: hidden; scrollbar-width: none; }
-.question-modal::-webkit-scrollbar { display: none; }
 /* A question is read, not scanned: body type at a readable line length, with
    only what its asker marked in bold. */
 .question-body { max-width: 72ch; color: #e3ecef; font: 400 1.1875rem/1.6 var(--font-body); white-space: pre-line; overflow-wrap: anywhere; outline: none; }
@@ -1176,8 +1175,8 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .answer-mark .away-badge { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--tip-surface); border: 1px solid var(--glass-border-hover); color: var(--mint); }
 .answer-mark .away-badge .icon { width: 13px; height: 13px; }
 @media (max-width: 40rem) {
-  .question-modal { padding: 20px 16px; }
-  .command-center-heading .goblin-avatar { width: 56px; height: 56px; }
+  .question-modal { inset: var(--visual-top, 0px) 0 auto; transform: none; width: 100%; max-width: none; height: var(--visual-height, 100dvh); max-height: none; margin: 0; border: 0; border-radius: 0; padding: max(min(20px, calc(var(--visual-height, 100dvh) / 24)), env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(min(20px, calc(var(--visual-height, 100dvh) / 24)), env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .command-center-heading .goblin-avatar { width: min(56px, calc(var(--visual-height, 100dvh) / 6)); height: min(56px, calc(var(--visual-height, 100dvh) / 6)); }
   .question-card { padding: 16px; }
 }
 .question-card h3:focus { outline: none; }
