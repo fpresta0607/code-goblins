@@ -118,6 +118,64 @@ test.describe("Actions rollover on an open device", () => {
     });
   }
 
+  for (const scenario of [
+    { initial: "available", refreshed: "stale", isAlreadyDue: false },
+    { initial: "unavailable", refreshed: "available", isAlreadyDue: false },
+    { initial: "stale", refreshed: "available", isAlreadyDue: false },
+    { initial: "available", refreshed: "available", isAlreadyDue: true },
+  ]) {
+    test(`refreshes ${scenario.initial} usage after an unchanged cache hit${scenario.isAlreadyDue ? " on initial load" : ""}`, async ({ page }) => {
+      await page.clock.install({ time: new Date(scenario.isAlreadyDue ? "2026-11-01T01:10:00Z" : "2026-11-01T01:09:00Z") });
+      const requests: number[] = [];
+      await page.route("**/api/actions-spend?*", async (route) => {
+        expect(new URL(route.request().url()).searchParams.get("month")).toBe("2026-10");
+        const deviceNow = await page.evaluate(() => Date.now());
+        const serverNow = deviceNow - 5_000;
+        requests.push(deviceNow);
+        if (serverNow < Date.parse("2026-11-01T01:10:00Z")) {
+          return route.fulfill({ json: reading({ status: scenario.initial, total_usd: scenario.initial === "unavailable" ? null : 8.5,
+            read_at: scenario.initial === "unavailable" ? "" : scenario.initial === "stale" ? "2026-10-31T23:10:00Z" : "2026-11-01T00:10:00Z",
+            checked_at: "2026-11-01T00:10:00Z" }) });
+        }
+        return route.fulfill({ json: reading({ status: scenario.refreshed, total_usd: scenario.refreshed === "stale" ? 8.5 : 12,
+          read_at: scenario.refreshed === "stale" ? "2026-11-01T00:10:00Z" : "2026-11-01T01:10:55Z",
+          checked_at: "2026-11-01T01:10:55Z", detail: scenario.refreshed === "stale" ? "Could not refresh usage." : "" }) });
+      });
+      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+        actions_spend: reading({ month: "2026-11", total_usd: 40, read_at: "2026-11-01T00:05:00Z", checked_at: "2026-11-01T00:05:00Z" }) });
+      await page.goto("/");
+      await page.getByRole("button", { name: "Board", exact: true }).click();
+      const initialLabel = scenario.initial === "unavailable" ? "unavailable" : "$8.50 this month" + (scenario.initial === "stale" ? " (old)" : "");
+      await page.getByRole("button", { name: `GitHub Actions spend: ${initialLabel}`, exact: true }).click();
+      const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+      await expect(panel.locator("time").last()).toHaveAttribute("datetime", "2026-11-01T00:10:00Z");
+
+      await page.clock.pauseAt(new Date(scenario.isAlreadyDue ? "2026-11-01T01:10:30Z" : "2026-11-01T01:10:00Z"));
+      const cachedRequests = scenario.isAlreadyDue ? 1 : 2;
+      await expect.poll(() => requests.length).toBe(cachedRequests);
+      await expect(page.getByRole("button", { name: `GitHub Actions spend: ${initialLabel}`, exact: true })).toBeVisible();
+      await expect(panel.locator("time").last()).toHaveAttribute("datetime", "2026-11-01T00:10:00Z");
+
+      await page.clock.runFor(scenario.isAlreadyDue ? 30_000 : 60_000);
+      const refreshedLabel = scenario.refreshed === "stale" ? "$8.50 this month (old)" : "$12.00 this month";
+      await expect(page.getByRole("button", { name: `GitHub Actions spend: ${refreshedLabel}`, exact: true })).toBeVisible();
+      await expect(panel).toContainText("October 2026");
+      await expect(panel.locator("time").last()).toHaveAttribute("datetime", "2026-11-01T01:10:55Z");
+      if (scenario.refreshed === "stale") {
+        await expect(panel).toContainText("Old reading");
+        await expect(panel).toContainText("Could not refresh usage.");
+        await expect(panel.locator("time").first()).toHaveAttribute("datetime", "2026-11-01T00:10:00Z");
+      } else {
+        await expect(panel).toContainText("$12.00");
+        await expect(panel).not.toContainText("Old reading");
+      }
+      expect(requests).toHaveLength(cachedRequests + 1);
+
+      await page.clock.runFor(60_000);
+      expect(requests).toHaveLength(cachedRequests + 1);
+    });
+  }
+
   test("marks a selected report old as the existing clock advances", async ({ page }) => {
     await page.clock.install({ time: new Date("2026-11-01T02:30:00Z") });
     await page.route("**/api/actions-spend?*", (route) => route.fulfill({ json: reading({ read_at: "2026-11-01T00:31:00Z", checked_at: "2026-11-01T00:31:00Z" }) }));

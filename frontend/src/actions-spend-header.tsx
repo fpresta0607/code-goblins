@@ -31,7 +31,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
         setSelected({ reading: { status: "unavailable", month, total_usd: null, repositories: [], read_at: "", checked_at: "", detail: "Could not read this month's GitHub Actions usage." }, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
       });
     return () => controller.abort();
-  }, [shouldRequest, month, instance]);
+  }, [shouldRequest, month, instance, now]);
   if (!usage) return null;
   const source = usage.month === month ? usage : cached?.reading;
   const reading: ActionsSpend | undefined = source?.status === "available" && now - Date.parse(source.read_at) >= 7_200_000
