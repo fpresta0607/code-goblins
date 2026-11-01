@@ -11,6 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
+
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
@@ -44,9 +48,33 @@ func pinnedReferences(dataDir string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	var blocks indexCodeBlocks
+	isLiteral := make([]bool, len(content))
+	markLiteral := func(segment text.Segment) {
+		for position := segment.Start; position < segment.Stop; position++ {
+			isLiteral[position] = true
+		}
+	}
+	document := goldmark.New().Parser().Parse(text.NewReader(content))
+	ast.Walk(document, func(node ast.Node, isEntering bool) (ast.WalkStatus, error) {
+		if !isEntering {
+			return ast.WalkContinue, nil
+		}
+		if node.Kind() != ast.KindCodeBlock && node.Kind() != ast.KindFencedCodeBlock {
+			return ast.WalkContinue, nil
+		}
+		for index := 0; index < node.Lines().Len(); index++ {
+			markLiteral(node.Lines().At(index))
+		}
+		if fence, isFence := node.(*ast.FencedCodeBlock); isFence && fence.Info != nil {
+			markLiteral(fence.Info.Segment)
+		}
+		return ast.WalkSkipChildren, nil
+	})
+	offset := 0
 	for lineNumber, line := range strings.Split(string(content), "\n") {
-		if blocks.isLiteral(line) || !slices.Contains(trailingAnnotations(line), "<!--P-->") {
+		lineStart := offset
+		offset += len(line) + 1
+		if !slices.Contains(trailingAnnotations(line), "<!--P-->") || isLiteral[lineStart+strings.LastIndex(line, "<!--P-->")] {
 			continue
 		}
 		destinations, err := indexDestinations(line)

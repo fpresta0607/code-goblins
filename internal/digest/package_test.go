@@ -15,29 +15,38 @@ import (
 
 func TestStartupPreservesFencedIndexExamples(t *testing.T) {
 	// Oracle: the startup contract preserves literal ruling bytes without activating examples.
-	h := newDigestHome(t)
-	index := []byte("Example syntax only:\n```markdown\n- [Example](not-a-real-fact.md) - sample <!--P-->\n```\n")
-	catalog := memory.Catalog{Version: 1, Sources: []memory.Source{{Path: "memory/MEMORY.md", SHA256: memory.Hash(index), Entries: []memory.Entry{{ID: "index-example", End: len(index), SHA256: memory.Hash(index), Authority: "ruling", Location: "warm"}}}}}
-	encoded, err := json.Marshal(catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(h.Data, "memory"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for name, content := range map[string][]byte{"MEMORY.md": index, "startup.json": encoded} {
-		if err := os.WriteFile(filepath.Join(h.Data, "memory", name), content, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	for _, example := range []string{
+		"Example syntax only:\n```markdown\n- [Example](not-a-real-fact.md) - sample <!--P-->\n```\n",
+		"1. First item\r\n2. ```markdown\r\n   [Example](not-a-real-fact.md) - sample <!--P-->\r\n   ```\r\n",
+		"> 1. Outer\n>    - First\n>    - ~~~\n>      [Example](not-a-real-fact.md) - sample <!--P-->\n>      ~~~~\n",
+		"1. First item\n2. ~~~ [Example](not-a-real-fact.md) <!--P-->\n   ~~~\n",
+	} {
+		t.Run(example, func(t *testing.T) {
+			h := newDigestHome(t)
+			index := []byte(example)
+			catalog := memory.Catalog{Version: 1, Sources: []memory.Source{{Path: "memory/MEMORY.md", SHA256: memory.Hash(index), Entries: []memory.Entry{{ID: "index-example", End: len(index), SHA256: memory.Hash(index), Authority: "ruling", Location: "warm"}}}}}
+			encoded, err := json.Marshal(catalog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(h.Data, "memory"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for name, content := range map[string][]byte{"MEMORY.md": index, "startup.json": encoded} {
+				if err := os.WriteFile(filepath.Join(h.Data, "memory", name), content, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	var output bytes.Buffer
-	if err := ComposeReadOnly(h, "fenced index", &output); err != nil {
-		t.Fatal(err)
-	}
+			var output bytes.Buffer
+			if err := ComposeReadOnly(h, "fenced index", &output); err != nil {
+				t.Fatal(err)
+			}
 
-	if !bytes.Contains(output.Bytes(), index) || strings.Contains(output.String(), "MEMORY UNREADABLE") {
-		t.Fatalf("startup lost literal authority or activated an example pin: %s", output.String())
+			if !bytes.Contains(output.Bytes(), index) || strings.Contains(output.String(), "MEMORY UNREADABLE") {
+				t.Fatalf("startup lost literal authority or activated an example pin: %s", output.String())
+			}
+		})
 	}
 }
 

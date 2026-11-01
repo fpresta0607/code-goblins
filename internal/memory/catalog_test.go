@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -473,6 +475,13 @@ func TestIndexCodeExamplesRespectContainerBoundaries(t *testing.T) {
 		{"quoted tab", ">\t\t" + example, "> "},
 		{"list fence", "- ```\n  " + example + "  ```\n", "  "},
 		{"ordered list fence", "12. ~~~\n    " + example + "    ~~~\n", "    "},
+		{"ordered sibling fence", "1. First item\n2. ```markdown\n   " + example + "   ```\n", "   "},
+		{"ordered parenthesis sibling", "1) First item\n2) ~~~markdown\n   " + example + "   ~~~~\n", "   "},
+		{"unordered sibling fence", "- First item\n- ```\n  " + example + "  ```\n", "  "},
+		{"mixed nested siblings", "> 1. Outer\n>    - First\n>    - ~~~markdown\n>      " + example + ">      ~~~~\n", ">      "},
+		{"lazy paragraph before sibling", "> 1. First item\nlazy continuation\n> 2. ```\n>    " + example + ">    ```\n", ">    "},
+		{"sibling fence information", "1. First item\n2. ~~~ [Example](not-a-real-fact.md) <!--P-->\n   ~~~\n", "   "},
+		{"sibling tab code", "1. First item\n2.\t\t" + example, "   "},
 		{"nested list fence", "- outer\n  - ```\n    " + example + "    ```\n", "    "},
 		{"quote inside list", "- > ```\n  > " + example + "  > ```\n", "  > "},
 		{"list inside quote", "> - ```\n>   " + example + ">   ```\n", ">   "},
@@ -561,6 +570,71 @@ func TestIndentedParagraphPinsRemainActive(t *testing.T) {
 
 			if err == nil || !strings.Contains(err.Error(), "missing.md") {
 				t.Fatalf("indented paragraph hid a real unresolved pin: %v", err)
+			}
+		})
+	}
+}
+
+func TestSiblingFencePreservesActivePinAuthorityAndLineNumbers(t *testing.T) {
+	// Oracle: the second list item's code is literal; physical line 6 is active.
+	const example = "1. First caf\u00e9 item\r\n2. ```markdown\r\n   [Example](example.md) - sample <!--P-->\r\n   ```\r\n\r\n"
+	for _, test := range []struct{ link, diagnostic string }{
+		{"[Project](project.md)", "tier marker conflicting with its index pin"},
+		{"[Project](missing.md)", `pinned index destination "missing.md" does not resolve`},
+		{"[Project](project(2026.md)", "memory/MEMORY.md line 6:"},
+		{"[Project][unsupported]", "memory/MEMORY.md line 6:"},
+	} {
+		t.Run(test.link, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			index := []byte(example + "   " + test.link + " - owner choice <!--P-->\r\n")
+			writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+			writeMemoryFile(t, dir, "memory/example.md", []byte("Example source.\n"))
+			catalog.Sources = append(catalog.Sources,
+				Source{Path: "memory/MEMORY.md", SHA256: Hash(index), Entries: []Entry{{ID: "index", End: len(index), SHA256: Hash(index), Authority: "ruling", Location: "warm"}}},
+				Source{Path: "memory/example.md", SHA256: Hash([]byte("Example source.\n")), Entries: []Entry{{ID: "example", End: 16, SHA256: Hash([]byte("Example source.\n")), Authority: "fact", Location: "warm"}}},
+			)
+			writeCatalog(t, dir, catalog)
+
+			for name, consume := range map[string]func() error{
+				"catalog validation": func() error {
+					_, err := Load(dir, referenceDate)
+					return err
+				},
+				"budget": func() error {
+					_, err := MemoryReport(dir, referenceDate)
+					return err
+				},
+				"catalog inventory": func() error {
+					_, err := PlanMigration(dir)
+					return err
+				},
+			} {
+				if err := consume(); err == nil {
+					t.Fatalf("%s hid an active pin after a sibling fence", name)
+				} else if !strings.Contains(err.Error(), test.diagnostic) {
+					t.Fatalf("%s lost the authority diagnostic: %v", name, err)
+				}
+			}
+			if err := os.Remove(filepath.Join(dir, filepath.FromSlash(CatalogPath))); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := PlanMigration(dir)
+			if test.link != "[Project](project.md)" {
+				if err == nil || !strings.Contains(err.Error(), test.diagnostic) {
+					t.Fatalf("legacy inventory hid an unresolved pin: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range plan.Files {
+				if file.Path == "memory/project.md" && (file.Moves[0].Tier != "pinned" || !file.Moves[0].NeedsApproval) {
+					t.Fatal("legacy inventory lost the real dated pin")
+				}
+				if file.Path == "memory/MEMORY.md" && file.RetainedSHA256 != fmt.Sprintf("%x", sha256.Sum256(index)) {
+					t.Fatal("inventory changed CRLF or literal source bytes")
+				}
 			}
 		})
 	}

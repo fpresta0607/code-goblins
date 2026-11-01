@@ -19,6 +19,7 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/wailsapp/wails/v3 v3.0.0-beta.26
+	github.com/yuin/goldmark v1.8.6
 )
 
 // npm installs the frontend's packages here. One of them ships Go code, which
