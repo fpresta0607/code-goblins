@@ -1462,6 +1462,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-side .panel-content { padding: 0 18px 24px; }
 .panel-header-details { display: grid; gap: 10px; padding: 16px 28px 0; }
 .panel-header-details:empty { display: none; }
+.panel-header-details:empty + .panel-content > .workspace-details:first-child { border-top: 0; }
 .panel-stage > .messages-view { position: absolute; inset: 0; z-index: 1; }
 .stepped-in-bar { position: absolute; top: 6px; left: 50%; z-index: 2; transform: translateX(-50%); pointer-events: none; }
 .stepped-in-bar > button { pointer-events: auto; }
