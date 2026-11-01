@@ -2724,6 +2724,15 @@ Per-page CSP nonces permit the terminal's generated stylesheets while inline scr
 The separate `style-src-attr 'unsafe-inline'` directive permits CSS style attributes across the page for xterm 6's ANSI truecolor rendering.
 This is a page-wide CSS-attribute compatibility allowance; style elements still require the page nonce or a same-origin source, and script, connection and framing restrictions remain unchanged.
 
+`GET /api/actions-spend?month=YYYY-MM` requires the board's current `X-CFO-Token` as well as the existing Host, Origin and cross-site checks; a missing or invalid token returns 403.
+Only the one or two calendar months possible at the real request time across UTC-12 through UTC+14 are accepted, and malformed or out-of-range months return 400 before any billing read.
+The snapshot's `actions_spend` remains the UTC month's report; the board requests this endpoint when its selected month differs, using the existing page clock to check refresh eligibility.
+The existing billing reader receives the selected report month separately from the real reading time and requests that exact GitHub monthly report.
+The supervisor shares its cache by month across devices and its background reader, starts at most one GitHub read per month per hour, and evicts months outside the accepted range.
+Concurrent requests for a month share one read bounded to 30 seconds, and disconnecting one device does not cancel it.
+A failed billing refresh preserves that month's previous total as `stale`, with its original `read_at` and the new `checked_at`; without a previous total it remains `unavailable`, and an available reading becomes `stale` after two hours.
+The mocked regressions in `internal/actionsbilling/usage_test.go`, `internal/supervisor/actions_spend_test.go` and `frontend/tests/actions-spend.spec.ts` cover the reader, cache, request boundaries and device calendars.
+
 ## Build and verification
 
 Use Node 24.13.0 and the committed npm lockfile when editing the board:
