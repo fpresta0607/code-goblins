@@ -95,11 +95,12 @@ The file is a JSON array with one object per `codex`, `claude` and `pi`, each ha
 Each input has `kind` and `path`, with paths relative to this file unless absolute.
 All six categories must be present for each harness: `core`, `global`, `memory`, `skills-index`, `brief` and `digest`.
 Use the actual delivered global rules and skill discovery index, including user or plugin skills, and both hook preview and disk digest when both are read.
-Count repeated delivery as repeated inputs; an empty capture requires an explicit `reason` in that input declaring actual absence or containment in another named input.
+Count repeated delivery as repeated inputs; an empty capture still needs an existing file and an explicit `reason` declaring actual absence or containment in another named input.
 Do not substitute a skill's full body for its discovery entry or omit a harness-local global source because the shared rules are the same.
 Record the capture method and any inaccessible provider-owned inputs; the report measures the supplied text, not undisclosed system prompts.
 
 The combined package allowance is `config/startup-context-budget`, a positive integer defaulting to 20,000 estimated tokens.
+Both allowance files are resolved in `config/` beside the absolute, normalized data directory selected by `--data` or the CFO home.
 Reports retain the hash, byte size and category of every supplied input and explicitly mark overruns.
 The estimate is `ceil(bytes/4)`, a stable local approximation, not provider billing, a tokenizer measurement or actual RAM usage.
 Report before and after using the same capture boundaries, and distinguish synthetic consumer fixtures from measurements of an installed home.
@@ -110,7 +111,10 @@ Run `cfo memory migration-plan` before proposing any live history move.
 It is a read-only inventory with no apply operation.
 It reports source hashes, complete byte ranges, proposed destinations, authority classification, scope, each pinned approval boundary and the hash of reconstructed retained bytes.
 An existing valid catalog supplies the exact item identities, ranges, authority, tiers, routing and declared layer owners; an invalid catalog is an error rather than permission to infer legacy ownership.
-Legacy index pins also protect their linked fact files, and unclassified legacy ranges remain protected with an explicit diagnostic.
+An index pin protects every catalog entry in its linked fact file and the same source in legacy inventory, using Windows filesystem identity after resolving its inline Markdown destination.
+Fragments do not change the target file; percent escapes, angle-bracketed paths with spaces and balanced or escaped parentheses are resolved before lookup.
+Fenced and indented code examples, including within blockquotes and lists, remain literal; a genuine local pin that cannot resolve to a governed source is an explicit error.
+Conflicting dated tiers are errors, and unclassified legacy ranges remain protected with an explicit diagnostic.
 Repeated runs over unchanged sources produce identical plans.
 Legacy `overlord.md` is conservatively all ruling authority; the tool does not infer spent consent from prose.
 Proposed headings and bullet ranges are inventory units for human review, not automatic curation decisions.

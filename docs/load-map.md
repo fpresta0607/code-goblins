@@ -172,7 +172,7 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 
 ## The CFO's memory
 
-The SessionStart hook prints a brief digest in the CFO's own session, and nothing in any other: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
+The Claude SessionStart hook prints the [brief startup digest](commands/session-start.md) only in the CFO's own session and names `state/session-digest.md` for the remaining context.
 Before a Claude CFO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
 It runs only for the live session that holds the primary home's lock, produces no output, and never blocks compaction.
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
@@ -182,12 +182,10 @@ A Codex or pi CFO gets the same checkpoint through its native hooks, which only 
 As it ingests Codex `PostCompact` or pi `session_compact` it queues one `check` wake that names the checkpoint, or says no fresh one was written, and types it into the idle CFO like any other wake; a replayed event queues nothing new.
 A goblin's compaction, or one in a session that does not hold the home, writes nothing and wakes no one.
 A Codex CFO's launch carries these events, or, in a home whose paths a Codex hook cannot hold, `cfo hooks install codex` adds them ([native hook setup](native-board.md#native-hook-setup)), and Codex runs them only once they are trusted in `/hooks`; re-run `cfo hooks install pi` to add them for a pi CFO.
-The `state/session-digest.md` file holds the last composed operating map; only the fresh Claude hook or `cfo session-start` validates current sources at startup, resume and compaction.
-With a verified `data/memory/startup.json` it carries exact warm source ranges, bounded cold retrieval routes and a bounded canonical fleet/backlog summary; every role retrieves relevant cold authority before dependent action.
-Without that curated map it explicitly retains the legacy project map, directives and fact index in full, with budget diagnostics and no automatic migration.
-Both point the CFO at `data/memory/` for writing facts, and each says on a `PRINTED IN FULL` line which files it printed whole, so a CFO is never told it has read a file it was not handed.
+The `state/session-digest.md` file holds the last composed long digest; the [memory contract](contract/memory.md#owners-and-startup) owns source validation, delivered ranges, retrieval and legacy behavior.
 Apart from the shipped lane table, `data/routing.json`, `data/` is the operator's private fleet state and never part of this repository.
-A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CFO; a CFO in another harness or another folder never sees it, which is why AGENTS.md, under Memory, has `cfo home migrate` import it into `data/memory/`.
+A Claude CFO also loads its auto-memory index for the folder it runs in, which is Claude Code's own and stays authoritative for a Claude Code CFO; a CFO in another harness or another folder never sees it.
+Importing that memory into the shared home follows the [`cfo home migrate` reference](commands/home/migrate.md).
 The `stow` skill owns combined memory curation, declared-tier capture, corrections and open work held in this session; directives stay word for word and individually approved pinned offloads are separate from the pass.
 The [memory contract](contract/memory.md) defines selective retrieval, lossless dry-run plans and complete startup accounting for all three harnesses, including global rules, skill discovery index, brief and emitted digest.
 The `project-check` skill assesses what the home knows about one project through `cfo project check`, and names no tool of one harness, so it reads the same in all three.

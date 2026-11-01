@@ -206,7 +206,7 @@ At startup and after resume or compaction, run `cfo session-start` to validate c
 Skip unchanged source bytes only when this conversation actually read and still holds them; changed authority must be read again before dependent action.
 Before dependent work, retrieve relevant original authority and facts with `cfo memory retrieve --project <name> --task <id> --topic <topic>`; a known item is available through `--id <id>`.
 The same source-backed map and retrieval rules apply to Claude Code, Codex, Pi and goblins; a worker reports knowledge to the CFO for capture when it cannot reach the owning tier.
-When no verified catalog exists, the digest explicitly retains the legacy directives and index in full; no budget silently omits authority.
+When the catalog is absent, the digest explicitly retains the legacy directives and index in full; no budget silently omits authority.
 Missing, corrupt, conflicting, stale and over-budget memory requires the named diagnostic to be resolved before dependent action.
 Read [the memory contract](docs/contract/memory.md), or `cfo help contract memory`, when retrieving, composing, budgeting or planning memory changes.
 Original rulings, corrections and provenance survive verbatim; a supersession candidate does not retire an earlier ruling by itself.

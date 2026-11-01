@@ -986,6 +986,7 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 
 Run `cfo help` to list available topics, then request one command or procedure, such as `cfo help auth request` or `cfo help contract dispatch`.
 See the [help reference](docs/commands/help.md) for lookup and failure behavior.
+See the [memory command reference](docs/commands/memory.md) for startup memory retrieval, budget reports and read-only migration inventories.
 
 ```text
 cfo doctor

@@ -132,11 +132,9 @@ func (e *werr) write(text []byte) {
 // that custody, or "" for a manual, session-less invocation. On success
 // under a lock this call actually holds, AND only when composition itself
 // produced no write error, Compose atomically writes
-// state\.session-start-complete naming ownerPID: a marker written despite a
-// truncated or write-broken digest would tell a later resume/reload/fork
-// that this custody already saw a full digest when it did not, which is
-// exactly the start-blind failure the marker's fall-through exists to
-// prevent (see cmd/cfo/hook.go's session-start routing).
+// state\.session-start-complete naming ownerPID. The marker records successful
+// composition under custody, not proof that a conversation read source bytes;
+// resumed hooks still validate current sources before dependent action.
 func Compose(h home.Home, ownerPID int, session string, w io.Writer) error {
 	ew := &werr{w: w}
 
@@ -339,9 +337,8 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 	return ew.err
 }
 
-// briefFleet is the FLEET section within room bytes: one line a goblin, its
-// harness and model, its kind, and its last status line cut to a table's
-// width, and whether every goblin is listed.
+// briefFleet renders the shared sample within room bytes without probing
+// terminals again, and reports whether every goblin was listed.
 func briefFleet(current fleetSample, room int) ([]byte, bool) {
 	var section bytes.Buffer
 	ew := &werr{w: &section}
@@ -742,11 +739,10 @@ func writeOrphans(stateDir string, ew *werr) {
 	ew.printf("%s", text)
 }
 
-// writeContext prints data\projects.md, data\overlord.md, and the memory
-// index data\memory\MEMORY.md, each in full, or as "<name>: ABSENT" /
-// "<name>: (present, empty)" / "<name>: UNREADABLE (<err>)". A fact's own
-// file is never printed: the index is what every session pays for. It
-// returns the files it printed in full, as the read-once contract names them.
+// writeContext emits verified warm source ranges and cold routes when a
+// catalog is present. Only an absent catalog permits full legacy context;
+// an invalid catalog remains an explicit authority error. The returned list
+// names only legacy files actually printed in full for the read-once contract.
 func writeContext(dataDir string, ew *werr) []string {
 	ew.println("== CONTEXT ==")
 	if _, err := os.Lstat(filepath.Join(dataDir, filepath.FromSlash(memory.CatalogPath))); !errors.Is(err, os.ErrNotExist) {

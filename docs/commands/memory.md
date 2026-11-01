@@ -2,7 +2,7 @@
 
 `cfo memory retrieve [--project <name>] [--task <id>] [--topic <topic>]`
 
-Print exact warm ranges plus relevant cold ranges from the verified private catalog.
+Print all exact warm ranges plus cold ranges matching any supplied project, task or topic key from the verified private catalog.
 `cfo memory retrieve --id <id>` prints one exact entry; it cannot be combined with scope flags.
 Source provenance, checksums and stale or pending-capture diagnostics accompany the original bytes.
 `cfo memory routes` lists every cold trigger and routing key without loading its body into the response.
