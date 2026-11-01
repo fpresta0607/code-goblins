@@ -129,11 +129,17 @@ func TestResumeUsesSavedEngineOnlyForItsSessionAndKeepsFailedChoices(t *testing.
 
 // liveGateRunner answers for a task on branch cfo/task whose latest gate run
 // has status, or has no gate run with none.
-type liveGateRunner struct{ status string }
+type liveGateRunner struct {
+	status     string
+	queryError error
+}
 
 func (runner liveGateRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "sqlite3" {
 		return execx.Result{Stdout: []byte("cfo/task\n")}, nil
+	}
+	if runner.queryError != nil {
+		return execx.Result{}, runner.queryError
 	}
 	if runner.status == "" {
 		return execx.Result{Stdout: []byte("[]")}, nil
@@ -149,12 +155,16 @@ func (runner liveGateRunner) Run(_ context.Context, request execx.Request) (exec
 // run live, ended failed, and only a switch by hand brought him back.
 func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
 	for _, testCase := range []struct {
-		name, status, pausedRun string
-		isTold                  bool
+		name, status, pausedRun, refusal string
+		queryError                       error
+		isTold                           bool
 	}{
-		{name: "a run a memory pause left alone", status: "running", isTold: true},
+		{name: "a run a memory pause left alone", status: "running", pausedRun: "run-1", isTold: true},
 		{name: "a run its pause could not abort", status: "running", pausedRun: "run-1", isTold: true},
-		{name: "a run that finished while it was paused", status: "completed"},
+		{name: "a run that finished while it was paused", status: "completed", pausedRun: "run-1", isTold: true},
+		{name: "an unbound live run", status: "running", refusal: "no saved validation identity"},
+		{name: "an unbound terminal run", status: "failed", refusal: "no saved validation identity"},
+		{name: "unreadable unbound validation", queryError: errors.New("database locked"), refusal: "state query failed"},
 		{name: "no gate run"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -164,7 +174,7 @@ func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			commands := liveGateRunner{status: testCase.status}
+			commands := liveGateRunner{status: testCase.status, queryError: testCase.queryError}
 			var received spawn.SwitchRequest
 			runtime := commandRuntime{switchTask: func(_ context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
 				received = request
@@ -177,6 +187,12 @@ func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
 			err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, prior, nil)
 
 			// Assert
+			if testCase.refusal != "" {
+				if err == nil || !strings.Contains(err.Error(), testCase.refusal) || received.ID != "" {
+					t.Fatalf("resume = %v, launch = %+v, want refusal %q", err, received, testCase.refusal)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("resume = %v, want the goblin relaunched", err)
 			}

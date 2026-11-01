@@ -20,6 +20,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/standin"
+	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
 type handbackCommands struct {
@@ -169,6 +170,115 @@ func TestPipelineHandbackRefusesInvalidOrStaleEvidenceWithoutRetry(t *testing.T)
 				}
 			}
 		})
+	}
+}
+
+func TestPipelineHandbackRefusesMigrationWithoutChangingPersistedContracts(t *testing.T) {
+	for _, shouldResume := range []bool{false, true} {
+		for _, caller := range []string{"stale run", "dirty worktree"} {
+			for _, stage := range []string{"pending", "snapshot", "metadata", "audit", "rollback", "invalid", "unreadable"} {
+				t.Run(fmt.Sprintf("resume=%t/%s/%s", shouldResume, caller, stage), func(t *testing.T) {
+					h, root, branches := extraWorktreeTask(t)
+					meta, err := state.ReadTaskMeta(h.State, "task")
+					if err != nil {
+						t.Fatal(err)
+					}
+					current, err := pipeline.LoadSelection(filepath.Join(meta.TaskTmp, "pipeline.json"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					old := legacyPipelineSelection(t, current.Class)
+					next, err := pipeline.MigrateSelection(old, current.Policy)
+					if err != nil {
+						t.Fatal(err)
+					}
+					policyPath := filepath.Join(meta.TaskTmp, "pipeline.json")
+					if err := old.Save(policyPath); err != nil {
+						t.Fatal(err)
+					}
+					meta.PipelineHash = old.Hash
+					if stage == "snapshot" || stage == "metadata" || stage == "audit" {
+						if err := next.Save(policyPath); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if stage == "metadata" || stage == "audit" {
+						meta.PipelineHash = next.Hash
+					}
+					if err := state.WriteTaskMeta(h.State, meta); err != nil {
+						t.Fatal(err)
+					}
+					journal := policyMigrationJournal{Version: 1, TaskID: meta.ID, Direction: "forward", Old: old, New: next, Audit: pipelineMigrationAudit(old, next)}
+					if stage == "rollback" {
+						journal.Direction = "rollback"
+					}
+					journalPath := filepath.Join(meta.TaskTmp, policyMigrationJournalName)
+					if stage == "unreadable" {
+						if err := os.Mkdir(journalPath, 0o700); err != nil {
+							t.Fatal(err)
+						}
+					} else if stage == "invalid" {
+						if err := os.WriteFile(journalPath, []byte("{"), 0o600); err != nil {
+							t.Fatal(err)
+						}
+					} else if err := writePolicyMigrationJournal(journalPath, journal); err != nil {
+						t.Fatal(err)
+					}
+					if err := state.AppendStatus(h.State, meta.ID, "retained task audit"); err != nil {
+						t.Fatal(err)
+					}
+					if stage == "audit" {
+						if err := state.AppendStatus(h.State, meta.ID, journal.Audit); err != nil {
+							t.Fatal(err)
+						}
+					}
+					paths := []string{policyPath, filepath.Join(h.State, meta.ID+".meta"), state.StatusPath(h.State, meta.ID)}
+					if stage != "unreadable" {
+						paths = append(paths, journalPath)
+					}
+					before := make(map[string][]byte)
+					for _, path := range paths {
+						before[path], err = os.ReadFile(path)
+						if err != nil {
+							t.Fatal(err)
+						}
+					}
+					worktree := meta.Extras[0]
+					commands := &handbackCommands{worktree: worktree, branch: branches[worktree], callerHead: strings.Repeat("b", 40), isDirty: caller == "dirty worktree"}
+					commands.rows = fmt.Sprintf(`[{"repo_id":"repo-1","run_id":"original-run","branch":%q,"current_head":%q,"published_head":%q,"push_generation":7}]`, commands.branch, strings.Repeat("a", 40), strings.Repeat("a", 40))
+					args := []string{"handback", meta.ID, "--run", "stale-run"}
+					if commands.isDirty {
+						args = []string{"handback", meta.ID, "--branch", commands.branch}
+						canonical, err := fsx.Canonical(worktree)
+						if err != nil {
+							t.Fatal(err)
+						}
+						commands.rows = fmt.Sprintf(`[{"repo_id":"repo-1","run_id":"original-run","branch":%q,"caller_dir":%q,"current_head":%q,"published_head":%q,"push_generation":7}]`, commands.branch, canonical, strings.Repeat("a", 40), strings.Repeat("a", 40))
+					}
+					if shouldResume {
+						args = append(args, "--resume", "--receipt", "native-receipt")
+					}
+
+					err = pipelineCommand(t.Context(), h, root, commands, args, &bytes.Buffer{})
+
+					if err == nil || !strings.Contains(err.Error(), "policy migration") || len(commands.native) != 0 {
+						t.Errorf("handback = %v, native calls = %d", err, len(commands.native))
+					}
+					for _, path := range paths {
+						after, err := os.ReadFile(path)
+						if err != nil || !bytes.Equal(before[path], after) {
+							t.Errorf("refused handback changed persisted contract %s: %v", filepath.Base(path), err)
+						}
+					}
+					if stage == "unreadable" {
+						entries, err := os.ReadDir(journalPath)
+						if err != nil || len(entries) != 0 {
+							t.Fatalf("unreadable journal changed: %v, %v", entries, err)
+						}
+					}
+				})
+			}
+		}
 	}
 }
 

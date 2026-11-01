@@ -68,12 +68,8 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 			return stopped, err
 		},
 		Checkpoint: func(ctx context.Context, meta state.TaskMeta, record *state.Lifecycle) error {
-			if resources.Gate.ID == "" {
+			if resources.Gate.ID == "" || resources.Gate.IsTerminal() || record.Action == "pause" && record.Pause != nil && record.Pause.Reason == "memory" {
 				return nil
-			}
-			record.GateRun, record.GateIntent, record.GateHead = resources.Gate.ID, resources.Gate.Intent, resources.Gate.Head
-			if err := state.WriteLifecycle(h.State, *record); err != nil {
-				return err
 			}
 			preserved, err := gate.Interrupt(ctx, meta.Project, meta.Worktree, resources.Gate.Branch, resources.Gate.ID)
 			if err != nil {
@@ -182,6 +178,14 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		if err != nil && !(meta.Mode == "direct-PR" && errors.Is(err, pipeline.ErrNoProgress)) {
 			return err
 		}
+	} else {
+		current, err := lifecycle.TaskGate(ctx, meta, gate)
+		if err != nil {
+			return err
+		}
+		if current.ID != "" {
+			return errors.New("the paused task has no saved validation identity; inspect its original run before resuming")
+		}
 	}
 	handoff := ""
 	if prior.HandoffSaved {
@@ -203,12 +207,6 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		briefPath = filepath.Join(h.Data, meta.ID, "brief.md")
 	}
 	request := spawn.SwitchRequest{ID: meta.ID, Generation: meta.SpawnGen, ForceDirty: true, BriefPath: briefPath, IsResume: true, ResumeSession: session, ResumeHandoff: handoff, ResumeNote: prior.ResumeNote, Admit: admit}
-	// A gate run still running, left alone by a memory pause or by an abort
-	// that failed, is the goblin's to pick back up: it is told which, so it
-	// starts no other beside it.
-	if retained.ID == "" && prior.GateRun == "" {
-		retained.ID = liveGateRun(ctx, commands, gate, meta)
-	}
 	if retained.ID != "" {
 		told := "Your retained validation run " + retained.ID + " is " + retained.Status + ". Resuming your terminal starts no validation and returns no branch custody; inspect its supported source-bound continuation before requesting validation, and never replace this run or reset its spent allowance."
 		if !retained.IsTerminal() {
@@ -227,24 +225,6 @@ func resumeTask(ctx context.Context, h home.Home, runtime commandRuntime, comman
 		return state.RemoveEngineChoice(h.State, meta.ID)
 	}
 	return err
-}
-
-// liveGateRun is the gate run still running on the branch of meta's worktree,
-// or empty with none and while the gate's state cannot be read, which never
-// holds a resume back.
-func liveGateRun(ctx context.Context, commands execx.Runner, gate pipeline.Reader, meta state.TaskMeta) string {
-	if _, err := os.Stat(filepath.Join(gate.Root, "state.sqlite")); err != nil {
-		return ""
-	}
-	branch, err := commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--short", "HEAD"}})
-	if err != nil || branch.ExitCode != 0 {
-		return ""
-	}
-	run, err := gate.Interruption(ctx, meta.Project, strings.TrimSpace(string(branch.Stdout)))
-	if err != nil || run.IsTerminal() {
-		return ""
-	}
-	return run.ID
 }
 
 // pauseInstruction types the instruction to write its handoff file into the

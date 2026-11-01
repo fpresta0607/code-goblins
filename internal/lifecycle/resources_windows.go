@@ -177,37 +177,10 @@ func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, command
 
 // withGate adds the task's open gate run, and its worktree, to resources.
 func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, resources Resources) (Resources, error) {
-	if _, err := os.Stat(filepath.Join(gate.Root, "state.sqlite")); errors.Is(err, os.ErrNotExist) {
-		return resources, nil
-	} else if err != nil {
+	var err error
+	resources.Gate, err = TaskGate(ctx, meta, gate)
+	if err != nil || resources.Gate.ID == "" || resources.Gate.IsTerminal() {
 		return resources, err
-	}
-	result, err := gate.Commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}})
-	if err == nil && result.ExitCode == 1 {
-		return resources, nil
-	}
-	if err != nil || result.ExitCode != 0 {
-		// A task whose project checkout is gone has no gate run left to stop:
-		// the gate keeps its runs by the checkout's path and the task's
-		// branch, and the branch went with the checkout's repository, which
-		// the worktree's .git file still names. On 2026-10-27 a gate proof's
-		// fixture checkout was removed, and every kill of its task refused
-		// here (#1578).
-		if _, statErr := os.Stat(meta.Project); errors.Is(statErr, os.ErrNotExist) {
-			return resources, nil
-		}
-		return resources, errors.New("read the task branch before identifying its gate")
-	}
-	resources.Gate, err = gate.Interruption(ctx, meta.Project, strings.TrimSpace(string(result.Stdout)))
-	if errors.Is(err, pipeline.ErrNoProgress) {
-		return resources, nil
-	}
-	if err != nil {
-		return resources, err
-	}
-	if resources.Gate.IsTerminal() {
-		resources.Gate = pipeline.InterruptedRun{}
-		return resources, nil
 	}
 	if resources.Gate.Worktree != "" {
 		expected := filepath.Join(gate.Root, "worktrees", resources.Gate.RepoID, resources.Gate.ID)
@@ -217,6 +190,35 @@ func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, re
 		resources.Directories = append(resources.Directories, resources.Gate.Worktree)
 	}
 	return resources, nil
+}
+
+func TaskGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader) (pipeline.InterruptedRun, error) {
+	if _, err := os.Stat(filepath.Join(gate.Root, "state.sqlite")); errors.Is(err, os.ErrNotExist) {
+		return pipeline.InterruptedRun{}, nil
+	} else if err != nil {
+		return pipeline.InterruptedRun{}, err
+	}
+	result, err := gate.Commands.Run(ctx, execx.Request{Dir: meta.Worktree, Name: "git", Args: []string{"symbolic-ref", "--quiet", "--short", "HEAD"}})
+	if err == nil && result.ExitCode == 1 {
+		return pipeline.InterruptedRun{}, nil
+	}
+	if err != nil || result.ExitCode != 0 {
+		// A task whose project checkout is gone has no gate run left to stop:
+		// the gate keeps its runs by the checkout's path and the task's
+		// branch, and the branch went with the checkout's repository, which
+		// the worktree's .git file still names. On 2026-10-27 a gate proof's
+		// fixture checkout was removed, and every kill of its task refused
+		// here (#1578).
+		if _, statErr := os.Stat(meta.Project); errors.Is(statErr, os.ErrNotExist) {
+			return pipeline.InterruptedRun{}, nil
+		}
+		return pipeline.InterruptedRun{}, errors.New("read the task branch before identifying its gate")
+	}
+	run, err := gate.Interruption(ctx, meta.Project, strings.TrimSpace(string(result.Stdout)))
+	if errors.Is(err, pipeline.ErrNoProgress) {
+		return pipeline.InterruptedRun{}, nil
+	}
+	return run, err
 }
 
 // stopBound bounds identifying a task's resources and sweeping its
@@ -245,8 +247,17 @@ func StopTask(ctx context.Context, h home.Home, meta state.TaskMeta, gate pipeli
 	var err error
 	if record.Action == "pause" && record.Pause != nil && record.Pause.Reason == "memory" {
 		resources, err = heldResources(bounded, h, meta, gate.Commands)
+		if err == nil {
+			resources.Gate, err = TaskGate(bounded, meta, gate)
+		}
 	} else {
 		resources, err = TaskResources(bounded, h, meta, gate)
+	}
+	if resources.Gate.ID != "" {
+		record.GateRun, record.GateIntent, record.GateHead = resources.Gate.ID, resources.Gate.Intent, resources.Gate.Head
+		if saveErr := state.WriteLifecycle(h.State, *record); saveErr != nil {
+			return resources, nil, errors.Join(err, saveErr)
+		}
 	}
 	stopped, teardown, stopErr := StopResources(bounded, resources)
 	for _, process := range teardown {

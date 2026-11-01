@@ -201,7 +201,13 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if !fsx.SamePath(meta.TaskTmp, expectedTmp) {
 		return errors.New("pipeline: task temporary path does not match metadata identity")
 	}
-	if err := resumePipelinePolicyMigration(h, root, meta); err != nil {
+	if args[0] == "handback" {
+		if _, err := os.Lstat(filepath.Join(expectedTmp, policyMigrationJournalName)); err == nil {
+			return errors.New("pipeline: pending policy migration; run cfo pipeline migrate explicitly before handback")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return errors.New("pipeline: policy migration journal cannot be inspected; handback refused")
+		}
+	} else if err := resumePipelinePolicyMigration(h, root, meta); err != nil {
 		return err
 	}
 	meta, err = state.ReadTaskMeta(h.State, id)

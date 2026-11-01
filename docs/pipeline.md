@@ -67,8 +67,9 @@ A no-mistakes build that cannot apply a selection refuses the launch before it t
 The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
 Resume restores the contributor's terminal and retains its original validation run, source, findings and repair history.
+Pause persists that run's identity before process teardown, including terminal runs and live runs left alone by a memory pause.
 It reads the saved run identity without recovering branch custody, starting validation or replacing the run.
-A different current run or unreadable saved state refuses the resume instead of adopting another run.
+A different current run, unreadable state or a run without a saved pause identity refuses the resume instead of adopting another run.
 A still-live original run is named in the contributor's resume instruction, so it continues that run without starting another beside it.
 Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
 Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
@@ -218,6 +219,8 @@ For eligible published CI failures with automatic CI repair disabled, `handback`
 It prints the native receipt and next action while retaining the same task, run, pull request, unresolved findings, commits and spent repair allowance.
 Follow the native source-preservation instructions, commit the authored correction, then submit it with `handback --resume --receipt <native-receipt-id>` for full validation in that same run before publication.
 The wrapper binds each request to the exact recorded repository, run, branch, caller, heads and push generation; continuation also binds the native release receipt.
+Both handback modes refuse a pending or unreadable policy migration journal without changing the journal, frozen policy, task metadata or audit log.
+Recover the migration explicitly with `cfo pipeline migrate <id>` before requesting handback.
 It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, and refuses when that contract is unavailable.
 It never substitutes recovery, approval, a CI fixer or a fresh run.
 A refusal or elapsed hold is reported without automatic retry; inspect the native status and receipt before continuing.

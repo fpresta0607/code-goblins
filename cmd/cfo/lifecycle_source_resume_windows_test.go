@@ -17,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
+	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -39,10 +40,15 @@ func (commands *sourceResumeCommands) Run(ctx context.Context, request execx.Req
 func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "fixture-github-credential")
 	if _, err := exec.LookPath("sqlite3"); err != nil {
-		t.Skip("sqlite3 is needed for persisted gate evidence")
+		t.Fatal("sqlite3 is needed for persisted gate evidence")
 	}
+	bin := t.TempDir()
+	standin.Put(t, filepath.Join(bin, "no-mistakes.exe"))
+	standin.Put(t, filepath.Join(bin, "gh.exe"))
+	standin.RemoveAtCleanup(t, bin)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for _, test := range []struct {
-		name, status, refusal                                                      string
+		name, status, refusal, finalStatus                                         string
 		isForeign, isUnreadable, isLowMemory, isAllowanceDenied, isProviderRefused bool
 	}{
 		{name: "cancelled", status: "cancelled"},
@@ -51,6 +57,7 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 		{name: "interrupted CI monitor", status: "ci_monitor_interrupted"},
 		{name: "live original", status: "running"},
 		{name: "pending original", status: "pending"},
+		{name: "live original finishes while paused", status: "running", finalStatus: "failed"},
 		{name: "foreign run with identical intent", status: "running", isForeign: true, refusal: "another validation run owns"},
 		{name: "unreadable gate state", status: "cancelled", isUnreadable: true, refusal: "state query failed"},
 		{name: "memory admission", status: "failed", isLowMemory: true, refusal: "Resume needs at least 5 GB"},
@@ -68,27 +75,38 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 			t.Setenv("CFO_STATE_OVERRIDE", h.State)
 			nativeRoot := t.TempDir()
 			t.Setenv("NM_HOME", nativeRoot)
+			t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+			nativeRecord := filepath.Join(t.TempDir(), "native-commands.txt")
+			for _, entry := range standin.Env(nativeRecord,
+				standin.Rule{Args: "pr list", Prefix: true, Stdout: "[]"},
+				standin.Rule{Any: true, Exit: 1, Stderr: "validation must be requested explicitly"}) {
+				name, value, _ := strings.Cut(entry, "=")
+				t.Setenv(name, value)
+			}
 			if effective, err := os.UserHomeDir(); err != nil || effective != profile {
 				t.Fatalf("effective home = %q, %v", effective, err)
 			}
 			commands := &sourceResumeCommands{}
+			workingDir := h.Root
 			git := func(args ...string) string {
 				t.Helper()
-				result, err := commands.Run(t.Context(), execx.Request{Dir: h.Root, Name: "git", Args: args})
+				result, err := commands.Run(t.Context(), execx.Request{Dir: workingDir, Name: "git", Args: args})
 				if err != nil || result.ExitCode != 0 {
 					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
 				}
 				return strings.TrimSpace(string(result.Stdout))
 			}
-			git("checkout", "-b", "fix/source-resume")
 			git("add", "AGENTS.md")
 			git("commit", "-m", "test: retain source")
+			worktree := filepath.Join(h.Worktrees(), filepath.Base(h.Root), "task")
+			git("worktree", "add", "-b", "fix/source-resume", worktree)
+			workingDir = worktree
 			head := git("rev-parse", "HEAD")
-			unfinished := filepath.Join(h.Root, "unfinished.txt")
+			unfinished := filepath.Join(worktree, "unfinished.txt")
 			if err := os.WriteFile(unfinished, []byte("author repair in progress"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Mode: "no-mistakes", Project: h.Root, Worktree: h.Root, TaskTmp: filepath.Join(h.State, "tasktmp", "task")}
+			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", Backend: "native", Mode: "no-mistakes", Project: h.Root, Worktree: worktree, TaskTmp: filepath.Join(h.State, "tasktmp", "task")}
 			if err := os.MkdirAll(meta.TaskTmp, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -109,18 +127,14 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 				t.Fatal(err)
 			}
 			database := filepath.Join(nativeRoot, "state.sqlite")
-			runID := "original-run"
-			if test.isForeign {
-				runID = "foreign-run"
-			}
 			schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
 CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
 CREATE TABLE step_results(run_id TEXT,step_name TEXT,round INTEGER,spent INTEGER);
 CREATE TABLE findings(run_id TEXT,id TEXT,resolution TEXT);
 INSERT INTO repos VALUES('repo-1','%s');
-INSERT INTO runs VALUES('%s','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
+INSERT INTO runs VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
 INSERT INTO step_results VALUES('original-run','review',3,3);
-INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.ReplaceAll(filepath.ToSlash(h.Root), "'", "''"), runID, test.status, head, head)
+INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.ReplaceAll(filepath.ToSlash(h.Root), "'", "''"), test.status, head, head)
 			result, err := commands.Run(t.Context(), execx.Request{Name: "sqlite3", Args: []string{database, schema}})
 			if err != nil || result.ExitCode != 0 {
 				t.Fatalf("create gate fixture: %v %s", err, result.Stderr)
@@ -140,14 +154,6 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				return spawn.SwitchResult{}, nil
 			}}
 			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
-				Prepare: func(_ context.Context, _ state.TaskMeta, handoff string) error {
-					return os.WriteFile(handoff, []byte("keep the author repair and original validation"), 0o600)
-				},
-				Stop: func(context.Context, state.TaskMeta, *state.Lifecycle) ([]string, error) { return nil, nil },
-				Checkpoint: func(_ context.Context, _ state.TaskMeta, record *state.Lifecycle) error {
-					record.GateRun, record.GateIntent, record.GateHead = "original-run", "retain validation history", head
-					return nil
-				},
 				Memory: func() (uint64, uint64, error) {
 					if test.isLowMemory {
 						return 4 << 30, 5 << 30, nil
@@ -166,15 +172,40 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 				Notify: func(state.Lifecycle) error { return nil },
 			}}
 			runtime.taskLifecycle = func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+				if request.Action == "pause" {
+					request.IsWatched = true
+					return defaultTaskLifecycle(ctx, h, request, "")
+				}
 				return service.Run(ctx, request)
 			}
 			var output, failure bytes.Buffer
-			if code := runWithRuntime([]string{"pause", "task", "--operation", "pause-source", "--reason", "overlord"}, &output, &failure, runtime); code != 0 {
+			reason := "overlord"
+			if test.status == "running" || test.status == "pending" {
+				reason = "memory"
+			}
+			if code := runWithRuntime([]string{"pause", "task", "--operation", "pause-source", "--reason", reason}, &output, &failure, runtime); code != 0 {
 				t.Fatalf("public pause exit %d: %s", code, &failure)
 			}
 			paused, err := state.ReadLifecycle(h.State, meta.ID)
-			if err != nil || !paused.HandoffSaved {
+			if err != nil || !paused.HandoffSaved || paused.GateRun != "original-run" || paused.GateIntent != "retain validation history" || paused.GateHead != head {
 				t.Fatalf("pause = %+v, %v", paused, err)
+			}
+			if after, err := os.ReadFile(database); err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("production pause changed validation history: %v", err)
+			}
+			if test.isForeign || test.finalStatus != "" {
+				update := "INSERT INTO runs SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';"
+				if test.finalStatus != "" {
+					update = fmt.Sprintf("UPDATE runs SET status='%s' WHERE id='original-run';", test.finalStatus)
+				}
+				result, err := commands.Run(t.Context(), execx.Request{Name: "sqlite3", Args: []string{database, update}})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("advance isolated native fixture: %v %s", err, result.Stderr)
+				}
+				before, err = os.ReadFile(database)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			if test.isUnreadable {
 				commands.queryError = errors.New("fixture database locked")
@@ -197,6 +228,9 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 
 			// Assert
+			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes.exe") {
+				t.Fatalf("production pause invoked native mutation: %s, %v", calls, err)
+			}
 			after, err := os.ReadFile(database)
 			if err != nil || !bytes.Equal(before, after) {
 				t.Fatalf("original run, rounds, spent repairs or findings changed: %v", err)
@@ -223,6 +257,9 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 			if strings.Count(resumed.ResumeNote, "original-run") != 1 {
 				t.Fatalf("original validation context must be named once: %q", resumed.ResumeNote)
+			}
+			if test.finalStatus != "" && !strings.Contains(resumed.ResumeNote, " is "+test.finalStatus+".") {
+				t.Fatalf("resume lost the original run's terminal status: %q", resumed.ResumeNote)
 			}
 			current, err := state.ReadLifecycle(h.State, meta.ID)
 			if err != nil || current.GateRun != paused.GateRun || current.GateHead != head || current.Phase != "running" {
