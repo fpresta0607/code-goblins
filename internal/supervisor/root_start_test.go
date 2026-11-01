@@ -22,7 +22,7 @@ func TestAnUndispatchedRootWithoutVerifiedIdentityNeverReachesSpawn(t *testing.T
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	id := "root-widgets-7"
-	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7)))
+	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7), nil))
 
 	// Act: the real fleet reading discovers and schedules briefs.
 	err := handler.Service.checkFleet(t.Context(), time.Now().UTC())
@@ -219,7 +219,7 @@ func TestRootVerificationRechecksChangedEvidenceAndExpiresFailedReads(t *testing
 	if notices := fleetWakeRecords(t, h, "notify"); len(notices) != 1 {
 		t.Fatalf("repeated notices: %v", notices)
 	}
-	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8)))
+	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8), nil))
 	err := service.startQueued("root-widgets-7", true)
 	if err == nil || !strings.Contains(err.Error(), "identities disagree") {
 		t.Fatalf("changed brief reused cached state: %v", err)
@@ -283,7 +283,7 @@ func rootStartBoard(t *testing.T, issueState string, issueErr error) (*Service, 
 		ClosingPullRequests: func(context.Context, string, int) ([]string, error) { return nil, nil },
 	}
 	id := "root-widgets-7"
-	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7)))
+	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7), nil))
 	if err := writeRootPickups(h.State, []rootPickup{{Task: id, Repository: rootRepository, Number: 7, At: rootNow}}); err != nil {
 		t.Fatal(err)
 	}

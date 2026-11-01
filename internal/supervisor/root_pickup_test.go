@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -129,6 +131,117 @@ func TestPickUpRootsQueuesAnOpenRootOnceWithABriefThatClosesIt(t *testing.T) {
 	}
 	if picked != 1 {
 		t.Fatalf("picked-up notifies = %d, want 1", picked)
+	}
+}
+
+func TestQueueRootRecordsDefaultCredentialsWithoutChangingQuotedIssue(t *testing.T) {
+	for _, hasDefaults := range []bool{false, true} {
+		t.Run(fmt.Sprint(hasDefaults), func(t *testing.T) {
+			issue := rootIssue(7)
+			issue.Body = "Example:\ncredentials: none\nmcp: none\nmode: local-only\nready: false\n"
+			service, h, _ := rootBoard(t, issue)
+			if hasDefaults {
+				writeFile(t, auth.ManifestPath(h.Data, "widgets"), `{"project":"widgets","services":[{"name":"github","method":"env","env":["FIXTURE_GITHUB"],"default":true},{"name":"other","method":"env","env":["FIXTURE_OTHER"]}]}`)
+			}
+
+			err := service.pickUpRoots(t.Context(), rootNow)
+
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(h.Data, "root-widgets-7", "brief.md")
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(content), "> Example:\n> credentials: none\n> mcp: none\n> mode: local-only\n> ready: false\n") {
+				t.Fatalf("quoted issue changed: %s", content)
+			}
+			need, err := auth.NeedFromBrief(string(content))
+			if err != nil || need.IsUnstated || need.IsMCPUnstated || len(need.MCPServers) != 0 || len(need.Services) != map[bool]int{false: 0, true: 1}[hasDefaults] || hasDefaults && need.Services[0] != "github" {
+				t.Fatalf("recorded authentication = %+v, %v", need, err)
+			}
+			if err := fleet.ValidateBriefReadiness(content); err != nil {
+				t.Fatal(err)
+			}
+			if settings := briefSettings(path); settings["mode"] != "direct-PR" {
+				t.Fatalf("delivery mode = %q, want direct-PR", settings["mode"])
+			}
+		})
+	}
+}
+
+func TestQueueRootSharesTheQueuedAdmissionLock(t *testing.T) {
+	_, h, _ := rootBoard(t, rootIssue(7))
+	id := "root-widgets-7"
+	queueLock := ".queued-" + id + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(h.State, queueLock); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := lock.ReleaseExclusiveNamed(h.State, queueLock); err != nil {
+			t.Error(err)
+		}
+	})
+
+	err := queueRoot(h, "widgets", id, rootIssue(7))
+
+	if !errors.Is(err, lock.ErrHeld) {
+		t.Fatalf("root publication = %v, want queued admission contention", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.Data, id, "brief.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("contended pickup published a brief: %v", err)
+	}
+	if got := queuedIDs(t, h); len(got) != 0 {
+		t.Fatalf("contended pickup queued %v", got)
+	}
+}
+
+func TestQueueRootPreservesAuthoredDraftAndActiveMetadata(t *testing.T) {
+	_, h, _ := rootBoard(t, rootIssue(7))
+	id := "root-widgets-7"
+	path := filepath.Join(h.Data, id, "brief.md")
+	draft := "# Brief root-widgets-7\r\n## Project\r\nwidgets\r\n## Task\r\n{TASK - unfinished requirements}\r\n## Authentication\r\ncredentials: github\r\nmcp: chosen-server\r\n## Delivery\r\nmode: local-only\r\nclass: high-risk\r\nharness: codex\r\nmodel: chosen-model\r\neffort: high\r\nready: false\r\n"
+	queueLock := ".queued-" + id + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(h.State, queueLock); err != nil {
+		t.Fatal(err)
+	}
+	writeErr := os.MkdirAll(filepath.Dir(path), 0o700)
+	if writeErr == nil {
+		writeErr = os.WriteFile(path, []byte(draft), 0o600)
+	}
+	if err := errors.Join(writeErr, lock.ReleaseExclusiveNamed(h.State, queueLock)); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, auth.ManifestPath(h.Data, "widgets"), "{invalid")
+	activeMeta := state.TaskMetaPath(h.State, "active-task")
+	activeContent := "project=widgets\nmode=no-mistakes\nmodel=active-model\n"
+	writeFile(t, activeMeta, activeContent)
+	activePolicy := filepath.Join(h.State, "tasktmp", "active-task", "pipeline.json")
+	policyContent := `{"class":"high-risk","policy_sha256":"existing-policy","review_cycles":3}`
+	writeFile(t, activePolicy, policyContent)
+
+	firstErr := queueRoot(h, "widgets", id, rootIssue(7))
+	secondErr := queueRoot(h, "widgets", id, rootIssue(7))
+
+	if err := errors.Join(firstErr, secondErr); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != draft {
+		t.Fatalf("authored draft changed: %q, %v", content, err)
+	}
+	if content, err := os.ReadFile(activeMeta); err != nil || string(content) != activeContent {
+		t.Fatalf("active metadata changed: %q, %v", content, err)
+	}
+	if content, err := os.ReadFile(activePolicy); err != nil || string(content) != policyContent {
+		t.Fatalf("active policy changed: %q, %v", content, err)
+	}
+	if got := strings.Join(queuedIDs(t, h), ","); got != "root-widgets-7 ops-root" {
+		t.Fatalf("queued = %q, want one root task", got)
+	}
+	if err := fleet.ValidateBriefReadiness(content); !errors.Is(err, fleet.ErrBriefNotReady) {
+		t.Fatalf("authored draft readiness = %v, want draft refusal", err)
 	}
 }
 

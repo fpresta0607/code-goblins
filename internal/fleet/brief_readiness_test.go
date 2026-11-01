@@ -112,7 +112,10 @@ func TestQueuedBriefRecordsFinalDefaultCredentialsBeforeAdmission(t *testing.T) 
 					t.Fatal(err)
 				}
 			}
-			queued := QueuedTask{Row: BacklogRow{ID: "queued-task", Title: "Deliver the requested change", Repo: "example", Mode: "local-only"}}
+			queued := QueuedTask{
+				Row:    BacklogRow{ID: "queued-task", Title: "Deliver the requested change", Repo: "example", Mode: "local-only"},
+				Detail: "Preserve this example:\ncredentials: none\nmcp: none\nmode: direct-PR\nready: false",
+			}
 
 			// Act
 			if err := WriteQueuedBrief(h, queued); err != nil {
@@ -127,11 +130,44 @@ func TestQueuedBriefRecordsFinalDefaultCredentialsBeforeAdmission(t *testing.T) 
 			if err := ValidateBriefReadiness(content); err != nil {
 				t.Fatal(err)
 			}
+			_, task, hasTask := strings.Cut(string(content), "## Task\n\n")
+			task, _, hasAcceptance := strings.Cut(task, "\n\n## Acceptance criteria\n")
+			if !hasTask || !hasAcceptance || task != queued.Row.Title+"\n\n"+queued.Detail {
+				t.Fatalf("generated task changed: %q", task)
+			}
 			need, err := auth.NeedFromBrief(string(content))
 			if err != nil || need.IsUnstated || need.IsMCPUnstated || len(need.Services) != map[bool]int{false: 0, true: 1}[hasDefaults] || hasDefaults && need.Services[0] != "source" {
 				t.Fatalf("recorded choices = %+v, %v", need, err)
 			}
 		})
+	}
+}
+
+func TestWriteQueuedBriefRefusesExistingBriefBeforeLoadingManifest(t *testing.T) {
+	h := home.Home{Data: t.TempDir(), State: t.TempDir()}
+	queued := QueuedTask{Row: BacklogRow{ID: "queued-task", Repo: "example"}}
+	path := filepath.Join(h.Data, queued.Row.ID, "brief.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(authoredBrief), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := auth.ManifestPath(h.Data, queued.Row.Repo)
+	if err := os.MkdirAll(filepath.Dir(manifest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte("{invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := WriteQueuedBrief(h, queued)
+
+	if !errors.Is(err, os.ErrExist) {
+		t.Fatalf("existing brief refusal = %v, want os.ErrExist", err)
+	}
+	if content, err := os.ReadFile(path); err != nil || string(content) != authoredBrief {
+		t.Fatalf("existing brief changed: %q, %v", content, err)
 	}
 }
 
