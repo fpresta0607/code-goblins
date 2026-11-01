@@ -53,6 +53,71 @@ for (const scenario of [
 
 test.describe("Actions rollover on an open device", () => {
   test.use({ timezoneId: "America/Chicago" });
+
+  for (const scenario of [
+    { initial: "available", refreshed: "stale" },
+    { initial: "unavailable", refreshed: "available" },
+    { initial: "stale", refreshed: "available" },
+    { initial: "available", refreshed: "request failure" },
+  ]) {
+    test(`refreshes ${scenario.initial} usage to ${scenario.refreshed} on the selected month's offset schedule`, async ({ page }) => {
+      await page.clock.install({ time: new Date("2026-11-01T00:10:00Z") });
+      const requests: string[] = [];
+      await page.route("**/api/actions-spend?*", async (route) => {
+        const now = await page.evaluate(() => new Date().toISOString());
+        requests.push(now);
+        expect(new URL(route.request().url()).searchParams.get("month")).toBe("2026-10");
+        if (now < "2026-11-01T01:10:00") {
+          return route.fulfill({ json: reading({ status: scenario.initial, total_usd: scenario.initial === "unavailable" ? null : 8.5,
+            read_at: scenario.initial === "unavailable" ? "" : scenario.initial === "stale" ? "2026-10-31T23:10:00Z" : "2026-11-01T00:10:00Z",
+            checked_at: "2026-11-01T00:10:00Z" }) });
+        }
+        if (now < "2026-11-01T02:10:00") {
+          if (scenario.refreshed === "request failure") return route.fulfill({ status: 503, json: { error: "Billing unavailable" } });
+          return route.fulfill({ json: reading({ status: scenario.refreshed, total_usd: scenario.refreshed === "stale" ? 8.5 : 12,
+            read_at: scenario.refreshed === "stale" ? "2026-11-01T00:10:00Z" : "2026-11-01T01:10:00Z",
+            checked_at: "2026-11-01T01:10:00Z", detail: scenario.refreshed === "stale" ? "Could not refresh usage." : "" }) });
+        }
+        return route.fulfill({ json: reading({ total_usd: 15, read_at: "2026-11-01T02:10:00Z", checked_at: "2026-11-01T02:10:00Z" }) });
+      });
+      await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+        actions_spend: reading({ month: "2026-11", total_usd: 40, read_at: "2026-11-01T00:05:00Z", checked_at: "2026-11-01T00:05:00Z" }) });
+      await page.goto("/");
+      await page.getByRole("button", { name: "Board", exact: true }).click();
+      const initialLabel = scenario.initial === "unavailable" ? "unavailable" : "$8.50 this month" + (scenario.initial === "stale" ? " (old)" : "");
+      await page.getByRole("button", { name: `GitHub Actions spend: ${initialLabel}`, exact: true }).click();
+      const panel = page.getByRole("dialog", { name: "GitHub Actions" });
+      await expect(panel).toContainText("October 2026");
+      await page.clock.pauseAt(new Date("2026-11-01T00:11:00Z"));
+
+      await page.clock.runFor(54 * 60_000);
+      expect(requests).toHaveLength(1);
+      await page.clock.runFor(5 * 60_000);
+      const refreshedLabel = scenario.refreshed === "stale" ? "$8.50 this month (old)" : scenario.refreshed === "available" ? "$12.00 this month" : "unavailable";
+      await expect(page.getByRole("button", { name: `GitHub Actions spend: ${refreshedLabel}`, exact: true })).toBeVisible();
+      if (scenario.refreshed === "stale") {
+        await expect(panel).toContainText("Could not refresh usage.");
+        await expect(panel).toContainText("Old reading");
+        await expect(panel.locator("time").nth(1)).toHaveAttribute("datetime", "2026-11-01T01:10:00Z");
+      } else if (scenario.refreshed === "available") {
+        await expect(panel).toContainText("$12.00");
+        await expect(panel).not.toContainText("Old reading");
+      } else {
+        await expect(panel).toContainText("Could not read this month's GitHub Actions usage.");
+        await expect(panel).not.toContainText("$8.50");
+      }
+      expect(requests).toHaveLength(2);
+
+      await page.clock.runFor(55 * 60_000);
+      expect(requests).toHaveLength(2);
+      await page.clock.runFor(5 * 60_000);
+      await expect(page.getByRole("button", { name: "GitHub Actions spend: $15.00 this month", exact: true })).toBeVisible();
+      await expect(panel).toContainText("$15.00");
+      await expect(panel).not.toContainText("Old reading");
+      expect(requests).toHaveLength(3);
+    });
+  }
+
   test("marks a selected report old as the existing clock advances", async ({ page }) => {
     await page.clock.install({ time: new Date("2026-11-01T02:30:00Z") });
     await page.route("**/api/actions-spend?*", (route) => route.fulfill({ json: reading({ read_at: "2026-11-01T00:31:00Z", checked_at: "2026-11-01T00:31:00Z" }) }));

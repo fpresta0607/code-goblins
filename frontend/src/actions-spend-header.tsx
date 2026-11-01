@@ -8,28 +8,32 @@ import "./actions-spend.css";
 
 const ActionsSpendPanel = boardPage(() => import("./actions-spend-panel").then((module) => module.ActionsSpendPanel), "GitHub Actions spend");
 const DOLLARS = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const REFRESH_INTERVAL_MS = 3_600_000;
 
 export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, month, instance, now }: { usage?: ActionsSpend; month: string; instance: string; now: number }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [selected, setSelected] = useState<ActionsSpend>();
-  const shouldRequest = !!usage && usage.month !== month;
-  const checkedAt = usage?.checked_at;
-  const hour = Math.floor(now / 3_600_000);
+  const [selected, setSelected] = useState<{ reading: ActionsSpend; instance: string; refreshAt: number }>();
+  const cached = selected?.instance === instance && selected.reading.month === month ? selected : undefined;
+  const shouldRequest = !!usage && usage.month !== month && (!cached || now >= cached.refreshAt);
   useEffect(() => {
     if (!shouldRequest) return;
     const controller = new AbortController();
     request("/api/actions-spend?month=" + month, controller.signal, { headers: { "X-CFO-Token": instance } })
       .then(parseActionsSpend)
-      .then((reading) => { if (!controller.signal.aborted) setSelected(reading); })
+      .then((reading) => {
+        if (controller.signal.aborted) return;
+        const checkedAt = Date.parse(reading.checked_at);
+        setSelected({ reading, instance, refreshAt: (checkedAt > 0 ? checkedAt : Date.now()) + REFRESH_INTERVAL_MS });
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         reportToCfo("reading GitHub Actions usage", message(error));
-        setSelected({ status: "unavailable", month, total_usd: null, repositories: [], read_at: "", checked_at: "", detail: "Could not read this month's GitHub Actions usage." });
+        setSelected({ reading: { status: "unavailable", month, total_usd: null, repositories: [], read_at: "", checked_at: "", detail: "Could not read this month's GitHub Actions usage." }, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
       });
     return () => controller.abort();
-  }, [shouldRequest, month, instance, hour, checkedAt]);
+  }, [shouldRequest, month, instance]);
   if (!usage) return null;
-  const source = usage.month === month ? usage : selected?.month === month ? selected : undefined;
+  const source = usage.month === month ? usage : cached?.reading;
   const reading: ActionsSpend | undefined = source?.status === "available" && now - Date.parse(source.read_at) >= 7_200_000
     ? { ...source, status: "stale", detail: "The last GitHub Actions usage reading is old." } : source;
   const amount = reading?.total_usd;
