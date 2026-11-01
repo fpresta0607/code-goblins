@@ -58,7 +58,18 @@ func TestStartMergesTheRidersOntoMainInQueueOrderAndOpensTheTrainPullRequest(t *
 		t.Fatalf("gh pr create = %v", create)
 	}
 	body := flagValue(create, "--body")
-	for _, want := range []string{"#11 from Goblin11 (g11), #12 from Goblin12 (g12)", "this pull request merges", "GitHub marks each of those pull requests merged"} {
+	for _, want := range []string{
+		"#11 from Goblin11 (g11), #12 from Goblin12 (g12)",
+		"merged onto main at " + short(main),
+		"this pull request merges only the pinned combination CI tested",
+		"after repository policy, exact head and base, successful check identities and current rider eligibility are verified",
+		"main takes the commit CI tested",
+		"GitHub marks each of those pull requests merged, since main then holds its head",
+		"A policy or identity hold keeps this pull request open and visible without repeated CI runs",
+		"Before any failed-check retry or split, the train rechecks current rider eligibility",
+		"A run without green proof whose checks fail gets one retry of its failed checks",
+		"Every green half lands only after the same checks",
+	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("train pull request body = %q, want %q", body, want)
 		}
