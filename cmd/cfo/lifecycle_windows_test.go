@@ -55,7 +55,7 @@ func TestResumeUsesSavedSessionOnlyWithinOneDayOfThePause(t *testing.T) {
 	}
 }
 
-func TestResumeRefusesATaskRecordedInHerdrBeforeTheGateRestarts(t *testing.T) {
+func TestResumeRefusesATaskRecordedInHerdrBeforeRelaunch(t *testing.T) {
 	h := primaryHomeFixture(t)
 	commands := &resumeRunner{}
 	gate := pipeline.Reader{Root: t.TempDir(), Commands: commands}
@@ -193,139 +193,20 @@ func TestResumeTellsAGoblinWhichGateRunIsStillRunning(t *testing.T) {
 	}
 }
 
-// resumedGateRunner is a paused task's machine as Resume finds it: a gate run
-// of its branch that the pause cancelled, which a new run replaces once
-// no-mistakes is asked to start one.
-type resumedGateRunner struct {
-	isReplaced bool
-	native     []execx.Request
-}
+type resumedGateRunner struct{ native []execx.Request }
 
 func (runner *resumedGateRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
-	command := strings.Join(request.Args, " ")
-	switch {
-	case request.Name == "sqlite3" && strings.Contains(command, "SELECT default_branch FROM repos"):
-		return execx.Result{Stdout: []byte(`[{"default_branch":"main"}]`)}, nil
-	case request.Name == "sqlite3":
-		id, status := "run-1", "cancelled"
-		if runner.isReplaced {
-			id, status = "run-2", "running"
-		}
-		row := fmt.Sprintf(`[{"id":%q,"repo_id":"repo-1","branch":"cfo/task","status":%q,"head":"%s","intent":"ship safely","worktree":""}]`, id, status, strings.Repeat("a", 40))
+	switch request.Name {
+	case "sqlite3":
+		row := fmt.Sprintf(`[{"id":"run-1","repo_id":"repo-1","branch":"cfo/task","status":"cancelled","head":"%s","intent":"ship safely","worktree":""}]`, strings.Repeat("a", 40))
 		return execx.Result{Stdout: []byte(row)}, nil
-	case request.Name == "git" && command == "ls-remote --symref origin HEAD":
-		return execx.Result{Stdout: []byte("ref: refs/heads/main\tHEAD\n0123456789abcdef0123456789abcdef01234567\tHEAD\n")}, nil
-	case request.Name == "git":
+	case "git":
 		return execx.Result{Stdout: []byte("cfo/task\n")}, nil
-	// This no-mistakes names no --intent-file in its help, as one before
-	// 1.86.0, so a run it starts has its intent on the command line.
-	case request.Name == "no-mistakes" && command == "help axi run":
-		return execx.Result{}, nil
-	case request.Name == "no-mistakes":
+	case "no-mistakes":
 		runner.native = append(runner.native, request)
-		if strings.HasPrefix(command, "axi run ") {
-			runner.isReplaced = true
-			return execx.Result{ExitCode: 1, Stderr: []byte("bounded wait elapsed")}, nil
-		}
-		return execx.Result{}, nil
+		return execx.Result{}, errors.New("resume must not start validation")
 	}
-	return execx.Result{}, fmt.Errorf("unexpected resume command: %s %s", request.Name, command)
-}
-
-// Resume starts a run in place of the one its pause cancelled, and that start
-// goes past cfo pipeline run. Under a policy whose gate runs on its task's own
-// harness it carries the same launch selection, on the harness the goblin
-// comes back on, or the replacement would run whatever the machine's chain
-// names.
-func TestResumeRestartsAGateOnTheHarnessTheGoblinComesBackOn(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		choice *state.EngineChoice
-		want   string
-		other  string
-	}{
-		{name: "its own harness", want: "claude", other: "codex"},
-		{name: "the harness the resume switches it to", choice: &state.EngineChoice{Harness: "codex", Model: "gpt-6.1-sol", Effort: "high", When: "resume"}, want: "codex", other: "claude"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			policy := versionSixPolicy(t, pipeline.Reviewer{})
-			h, nm := gateHome(t, policy, operatorMachineConfig)
-			_, frozen := gatedTask(t, h, "task", policy, claudeGoblin)
-			meta, err := state.ReadTaskMeta(h.State, "task")
-			if err != nil {
-				t.Fatal(err)
-			}
-			meta.Backend, meta.SpawnGen = "native", "generation-1"
-			if test.choice != nil {
-				test.choice.ID, test.choice.Generation = meta.ID, meta.SpawnGen
-				if err := state.WriteEngineChoice(h.State, *test.choice); err != nil {
-					t.Fatal(err)
-				}
-			}
-			commands := &resumedGateRunner{}
-			runtime := commandRuntime{switchTask: func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error) {
-				return spawn.SwitchResult{}, nil
-			}}
-			prior := state.Lifecycle{ID: "task", Phase: "paused", Started: time.Now().Add(-time.Hour), GateRun: "run-1", GateIntent: "ship safely"}
-
-			if err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: nm, Commands: commands}, meta, prior, nil); err != nil {
-				t.Fatalf("resume: %v", err)
-			}
-
-			var started []execx.Request
-			for _, request := range commands.native {
-				if strings.HasPrefix(strings.Join(request.Args, " "), "axi run ") {
-					started = append(started, request)
-				}
-			}
-			if len(started) != 1 {
-				t.Fatalf("replacement runs started = %+v, want one", started)
-			}
-			args := started[0].Args
-			if len(args) != 12 || strings.Join(args[:6], " ") != "axi run --intent ship safely --wait 45s" || args[6] != "--launch-nonce" || args[8] != "--validation-generation" || args[9] != frozen.Hash || args[10] != "--launch-assertion" {
-				t.Fatalf("replacement argv = %q, want it started under a launch selection", args)
-			}
-			raw, err := os.ReadFile(args[11])
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(string(raw), `"harness":"`+test.want+`"`) || strings.Contains(string(raw), test.other) || !strings.Contains(string(raw), `"apply":true`) {
-				t.Fatalf("launch selection = %s, want %s for every role and no %s", raw, test.want, test.other)
-			}
-		})
-	}
-}
-
-func TestResumeRestartsAGateFrozenBeforeVersionSixAsItAlwaysDid(t *testing.T) {
-	policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if policy.Version > 5 {
-		t.Skipf("the checked-in policy is version %d, which carries a launch selection", policy.Version)
-	}
-	h, nm := gateHome(t, policy, operatorMachineConfig)
-	gatedTask(t, h, "task", policy, claudeGoblin)
-	meta, err := state.ReadTaskMeta(h.State, "task")
-	if err != nil {
-		t.Fatal(err)
-	}
-	meta.Backend, meta.SpawnGen = "native", "generation-1"
-	commands := &resumedGateRunner{}
-	runtime := commandRuntime{switchTask: func(context.Context, home.Home, spawn.SwitchRequest) (spawn.SwitchResult, error) {
-		return spawn.SwitchResult{}, nil
-	}}
-	prior := state.Lifecycle{ID: "task", Phase: "paused", Started: time.Now().Add(-time.Hour), GateRun: "run-1", GateIntent: "ship safely"}
-
-	if err := resumeTask(t.Context(), h, runtime, commands, pipeline.Reader{Root: nm, Commands: commands}, meta, prior, nil); err != nil {
-		t.Fatalf("resume: %v", err)
-	}
-
-	for _, request := range commands.native {
-		if command := strings.Join(request.Args, " "); strings.HasPrefix(command, "axi run ") && command != "axi run --intent ship safely --wait 45s" {
-			t.Fatalf("replacement = %q, want no launch selection under a policy that fixes its own chain", command)
-		}
-	}
+	return execx.Result{}, fmt.Errorf("unexpected resume command: %s %v", request.Name, request.Args)
 }
 
 // refusingGateRunner is a paused gated task's machine as a Resume its relaunch
@@ -372,12 +253,11 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 		switched error
 	}
 	tests := []struct {
-		name         string
-		isVersionSix bool
-		goblin       pipeline.Reviewer
-		arrange      func(*testing.T, *refused)
-		want         string
-		isSwitched   bool
+		name       string
+		goblin     pipeline.Reviewer
+		arrange    func(*testing.T, *refused)
+		want       string
+		isSwitched bool
 	}{
 		{name: "a task recorded in Herdr", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
 			f.meta.Backend, f.meta.HerdrSession, f.meta.HerdrWorkspaceID, f.meta.HerdrTabID, f.meta.HerdrPaneID = "herdr", "goblins", "w1", "t1", "p1"
@@ -394,20 +274,9 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 		{name: "a paused validation branch that cannot be read", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
 			f.commands = refusingGateRunner{run: "run-1", intent: "ship safely", isDetached: true}
 		}, want: "cannot read the paused validation branch"},
-		{name: "a paused validation with no saved intent", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) { f.paused.GateIntent = "" }, want: "paused validation has no saved intent"},
 		{name: "another validation run on its branch", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
 			f.commands = refusingGateRunner{run: "run-9", intent: "ship something else"}
 		}, want: "another validation run owns the branch"},
-		{name: "a frozen policy that differs from its record", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) { f.meta.PipelineHash = strings.Repeat("0", 64) }, want: "frozen policy differs from its record, as a migration that stopped part way leaves it. Run cfo pipeline migrate task, then resume it"},
-		{name: "a gate policy older than the machine's", goblin: claudeGoblin, arrange: func(t *testing.T, f *refused) {
-			older := legacyPipelineSelection(t, "ordinary")
-			if err := older.Save(filepath.Join(f.meta.TaskTmp, "pipeline.json")); err != nil {
-				t.Fatal(err)
-			}
-			f.meta.PipelineHash, f.meta.PipelineClass = older.Hash, older.Class
-		}, want: "Run cfo pipeline migrate task, then resume it"},
-		{name: "a gate that cannot run on its harness", isVersionSix: true, goblin: pipeline.Reviewer{Harness: "grok", Model: "grok-4", Effort: "high"}, want: "Task task would come back on grok, so resume it on a harness a gate can prove"},
-		{name: "a paused validation that cannot be recovered", goblin: claudeGoblin, want: "recover paused validation: the daemon is not running"},
 		{name: "a relaunch its switch refuses", goblin: claudeGoblin, arrange: func(_ *testing.T, f *refused) {
 			f.commands, f.switched = &resumedGateRunner{}, errors.New("switch: validate harness claude: claude is not installed")
 		}, want: "claude is not installed", isSwitched: true},
@@ -418,9 +287,6 @@ func TestEachRefusalOfAResumesRelaunchLeavesTheTaskPausedAsItWas(t *testing.T) {
 			policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
 			if err != nil {
 				t.Fatal(err)
-			}
-			if test.isVersionSix {
-				policy = versionSixPolicy(t, pipeline.Reviewer{})
 			}
 			h, nm := gateHome(t, policy, operatorMachineConfig)
 			gatedTask(t, h, "task", policy, test.goblin)

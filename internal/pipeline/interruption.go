@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 )
@@ -312,62 +311,18 @@ func (reader Reader) importInterruptedHead(ctx context.Context, worktree string,
 	return nil
 }
 
-// RestartInterrupted starts a run in place of the one a pause stopped. launch,
-// when given, returns the arguments the replacement starts under beside its
-// intent, which is how a gate that runs on its task's own harness keeps doing
-// so past cfo pipeline run. It is asked only once a replacement will start,
-// and a refusal from it starts nothing.
-func (reader Reader) RestartInterrupted(ctx context.Context, project, worktree string, prior InterruptedRun, launch func(context.Context) ([]string, error)) error {
-	if strings.TrimSpace(prior.Intent) == "" {
-		return errors.New("paused validation has no saved intent")
-	}
+// ResumeInterrupted verifies the saved run without taking custody or starting
+// validation. The contributor resumes with that run's existing history.
+func (reader Reader) ResumeInterrupted(ctx context.Context, project string, prior InterruptedRun) (InterruptedRun, error) {
 	current, err := reader.Interruption(ctx, project, prior.Branch)
 	if err != nil {
-		return err
+		return InterruptedRun{}, err
 	}
 	if current.ID != prior.ID {
-		if current.Intent == prior.Intent {
-			return nil
-		}
-		return errors.New("another validation run owns the branch; inspect it before resuming")
+		return InterruptedRun{}, errors.New("another validation run owns the branch; inspect it before resuming")
 	}
-	// A run the pause could not stop is still live: its goblin picks it
-	// back up, and no replacement is started beside it. On 2026-10-09 a
-	// pause that could not abort Murray's run left every resume refused
-	// here, so nothing but a switch by hand brought him back.
-	if !terminalRunStatus[current.Status] {
-		return nil
+	if prior.Intent != "" && current.Intent != prior.Intent {
+		return InterruptedRun{}, errors.New("the saved validation intent changed; inspect it before resuming")
 	}
-	var selected []string
-	if launch != nil {
-		selected, err = launch(ctx)
-		if err != nil {
-			return fmt.Errorf("validation did not restart: %w", err)
-		}
-	}
-	bounded, cancel := context.WithTimeout(ctx, 90*time.Second)
-	defer cancel()
-	handover, err := StartOf(bounded, reader.Commands, worktree, nil, prior.Intent)
-	if err != nil {
-		return fmt.Errorf("validation did not restart: %w", err)
-	}
-	defer handover.Close()
-	start := append(append(handover.Args, "--wait", "45s"), selected...)
-	// Custody comes back only from a run holding commits it never pushed. A
-	// run that published its head left the branch to its goblin, and
-	// no-mistakes refuses to recover it, the more so once the goblin pushed
-	// its own follow-up commits over that head, as on 2026-10-17.
-	if current.PushedHead != current.Head {
-		result, err := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: []string{"axi", "sync", "--recover"}})
-		if err != nil || result.ExitCode != 0 {
-			return fmt.Errorf("recover paused validation: %s", strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))
-		}
-	}
-	result, runErr := reader.Commands.Run(bounded, execx.Request{Dir: worktree, Name: "no-mistakes", Args: start})
-	current, err = reader.Interruption(bounded, project, prior.Branch)
-	// A bounded AXI wait exits nonzero while the accepted run keeps working.
-	if err == nil && current.ID != prior.ID && current.Intent == prior.Intent {
-		return nil
-	}
-	return fmt.Errorf("validation did not restart: %w", errors.Join(runErr, err, errors.New(strings.TrimSpace(string(result.Stdout)+string(result.Stderr)))))
+	return current, nil
 }

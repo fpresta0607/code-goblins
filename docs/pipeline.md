@@ -66,11 +66,12 @@ Nothing edits the machine's `config.yaml` for a run, so two tasks on different h
 A no-mistakes build that cannot apply a selection refuses the launch before it takes the branch: a build with no launch assertion rejects the flag, and a build that proves but cannot apply rejects the `apply` field.
 The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
-Resume restarts a paused task's gate run past `cfo pipeline run`, and that start carries the same selection, on the harness the goblin comes back on.
-It runs `axi sync --recover` first only when the paused run holds gate commits it never pushed, since no-mistakes refuses that recovery for a run whose head is its push binding, and for one whose goblin then pushed follow-up commits over that head; such a run is restarted from the branch as its goblin left it.
-It holds to the driver's checks as well.
-A resume whose replacement run cannot be given its agents, such as one coming back on a harness no gate can prove, starts no run and says why.
-A paused task frozen before v6 restarts its run only while the machine config still matches its policy, and is otherwise refused with the `cfo pipeline migrate <id>` that clears it, as `cfo pipeline run` refuses it.
+Resume restores the contributor's terminal and retains its original validation run, source, findings and repair history.
+It reads the saved run identity without recovering branch custody, starting validation or replacing the run.
+A different current run or unreadable saved state refuses the resume instead of adopting another run.
+A still-live original run is named in the contributor's resume instruction, so it continues that run without starting another beside it.
+Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
+Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
 
 ### A second harness only when named
 
@@ -179,19 +180,21 @@ cfo pipeline respond <id> --action approve
 cfo pipeline respond <id> --action approve --accept ask-1,bug-2 --reason "the only failure was the sandbox's missing compiler"
 cfo pipeline respond <id> --branch fix/connections --action approve
 cfo pipeline recover <id>
+cfo pipeline handback <id> --run <run-id>
+cfo pipeline handback <id> --run <run-id> --resume --receipt <native-receipt-id>
 cfo pipeline migrate <id>
 ```
 
 Write the run's intent to a file and name it with `--intent-file`.
 A short one may be given with `--intent <text>`.
-Either way `cfo pipeline run` hands it to no-mistakes in a file, never on a command line, and so does the restart of a paused task's run.
+Either way `cfo pipeline run` hands it to no-mistakes in a file, never on a command line.
 An intent is prose, often several thousand characters that name a shell, and on 2026-10-02 Microsoft Defender detected one on a command line as `Trojan:Win32/ClickFix.DQ!MTB`, the lure that has a person paste such a line, and Windows refused the start.
 A no-mistakes before 1.86.0 has no `--intent-file`, so for such a build alone the intent stays on the command line, and the command says so.
 A response's `--instructions` still reach no-mistakes on its command line, which is the only way it takes them, so keep them short and plain.
 An approval `--reason` reaches it the same way, and the driver refuses one that is not a single line of plain text.
 
 Commands operate in the recorded task worktree and use its frozen policy.
-A task that gates several branches from extra worktrees names one: `run`, `respond` and `recover` take `--branch <branch>`, and `respond` and `recover` take `--run <run-id>` instead.
+A task that gates several branches from extra worktrees names one: `run`, `respond`, `recover` and `handback` take `--branch <branch>`, and `respond`, `recover` and `handback` take `--run <run-id>` instead.
 The command then acts in whichever of the task's recorded worktrees, its own or an extra one `cfo worktree add` made, has that branch checked out, because a native command answers the latest run of the branch checked out where it runs.
 A run must be its branch's latest run in the project, and a branch or run that none of the task's worktrees has checked out is refused before anything reaches the gate.
 The pane exports `CFO_HOME` and `CFO_STATE_OVERRIDE` and every gate step inherits both, so the `--intent` text must require any step that runs `cfo`, or a shell that resolves it, to clear them or point them at a temporary directory.
@@ -210,6 +213,14 @@ A reattachment starts nothing and carries no launch selection, so none of the ch
 Native `axi run` bounds its hold so a harness tool cap cannot hang it, and a hold that ends with no decision is not a gate failure: `cfo pipeline run` then says the run keeps working and names the reattachment, never only the native exit code.
 A start whose intent or head names other work than the live run's is still refused, with that run named.
 Use native read-only `axi status` and `axi logs` to inspect progress; the engine's guarded `axi sync` remains the branch synchronization interface after validation.
+
+For eligible published CI failures with automatic CI repair disabled, `handback` explicitly returns the work to its contributor through the native handback protocol.
+It prints the native receipt and next action while retaining the same task, run, pull request, unresolved findings, commits and spent repair allowance.
+Follow the native source-preservation instructions, commit the authored correction, then submit it with `handback --resume --receipt <native-receipt-id>` for full validation in that same run before publication.
+The wrapper binds each request to the exact recorded repository, run, branch, caller, heads and push generation; continuation also binds the native release receipt.
+It requires a native build supporting `axi handback --expect` and receipt-bound `--resume`, and refuses when that contract is unavailable.
+It never substitutes recovery, approval, a CI fixer or a fresh run.
+A refusal or elapsed hold is reported without automatic retry; inspect the native status and receipt before continuing.
 
 `respond` requires durable evidence of one parked gate in this project's current branch.
 It refuses a gate already answered or still running and checks that the active review's persisted automatic limit is disabled or zero.
