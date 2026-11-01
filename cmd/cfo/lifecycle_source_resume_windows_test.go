@@ -37,6 +37,7 @@ func (commands *sourceResumeCommands) Run(ctx context.Context, request execx.Req
 }
 
 func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "fixture-github-credential")
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Skip("sqlite3 is needed for persisted gate evidence")
 	}
@@ -49,7 +50,7 @@ func TestPublicResumeRestoresSourceWithoutReplacingValidation(t *testing.T) {
 		{name: "completed", status: "completed"},
 		{name: "interrupted CI monitor", status: "ci_monitor_interrupted"},
 		{name: "live original", status: "running"},
-		{name: "parked original", status: "awaiting_approval"},
+		{name: "pending original", status: "pending"},
 		{name: "foreign run with identical intent", status: "running", isForeign: true, refusal: "another validation run owns"},
 		{name: "unreadable gate state", status: "cancelled", isUnreadable: true, refusal: "state query failed"},
 		{name: "memory admission", status: "failed", isLowMemory: true, refusal: "Resume needs at least 5 GB"},

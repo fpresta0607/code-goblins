@@ -171,7 +171,7 @@ func TestInterruptPreservesTheGateWorktreeBeyondItsRecordedHead(t *testing.T) {
 }
 
 func TestResumeInterruptedRetainsTheExactRunWithoutMutation(t *testing.T) {
-	for _, status := range []string{"cancelled", "failed", "completed", "ci_monitor_interrupted", "running", "awaiting_approval"} {
+	for _, status := range []string{"cancelled", "failed", "completed", "ci_monitor_interrupted", "running", "pending"} {
 		for _, test := range []struct {
 			name, pushed string
 		}{
@@ -204,9 +204,13 @@ func TestResumeInterruptedRetainsTheExactRunWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestResumeInterruptedRefusesDifferentRunRegardlessOfIntent(t *testing.T) {
-	for _, intent := range []string{"retain history", "Unrelated work"} {
-		t.Run(intent, func(t *testing.T) {
+func TestResumeInterruptedRefusesChangedIdentity(t *testing.T) {
+	for _, test := range []struct{ name, id, intent, want string }{
+		{"different run with identical intent", "other-run", "retain history", "another validation run owns"},
+		{"different run with different intent", "other-run", "Unrelated work", "another validation run owns"},
+		{"same run with changed intent", "original-run", "other work", "saved validation intent changed"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			root := t.TempDir()
 			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
@@ -214,12 +218,12 @@ func TestResumeInterruptedRefusesDifferentRunRegardlessOfIntent(t *testing.T) {
 			}
 			prior := InterruptedRun{ID: "original-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "retain history"}
 			current := prior
-			current.ID, current.Status, current.Intent = "other-run", "failed", intent
+			current.ID, current.Status, current.Intent = test.id, "failed", test.intent
 			runner := &interruptionRunner{run: current}
 			// Act
 			_, err := (Reader{Root: root, Commands: runner}).ResumeInterrupted(t.Context(), "project", prior)
 			// Assert
-			if err == nil || !strings.Contains(err.Error(), "another validation run owns") || len(runner.commands) != 1 || !strings.HasPrefix(runner.commands[0], "sqlite3 -readonly -json ") {
+			if err == nil || !strings.Contains(err.Error(), test.want) || len(runner.commands) != 1 || !strings.HasPrefix(runner.commands[0], "sqlite3 -readonly -json ") {
 				t.Fatalf("resume = %v, commands = %q", err, runner.commands)
 			}
 		})

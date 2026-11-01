@@ -86,6 +86,7 @@ func (commands *handbackCommands) Run(_ context.Context, request execx.Request) 
 }
 
 func TestPipelineHandbackRefusesInvalidOrStaleEvidenceWithoutRetry(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "fixture-github-credential")
 	for _, test := range []struct {
 		name, row, caller, refusal string
 		args                       []string
@@ -172,6 +173,7 @@ func TestPipelineHandbackRefusesInvalidOrStaleEvidenceWithoutRetry(t *testing.T)
 }
 
 func TestPublicPipelineHandbackUsesTheNativeExecutableWithoutReplacingTheRun(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "fixture-github-credential")
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Skip("sqlite3 is needed for persisted native fixtures")
 	}
@@ -268,6 +270,7 @@ INSERT INTO ci_handbacks VALUES('native-receipt','original-run','%s','%s',7);`, 
 }
 
 func TestPipelineHandbackBindsTheNativeOperationToTheRecordedTask(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "fixture-github-credential")
 	for _, shouldResume := range []bool{false, true} {
 		for _, selector := range []string{"--branch", "--run"} {
 			t.Run(fmt.Sprintf("resume=%t/%s", shouldResume, selector), func(t *testing.T) {

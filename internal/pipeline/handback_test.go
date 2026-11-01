@@ -16,6 +16,7 @@ import (
 )
 
 func TestHandbackReadsTheExactPersistedPublicationAndReceipt(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "fixture-github-credential")
 	if _, err := exec.LookPath("sqlite3"); err != nil {
 		t.Skip("sqlite3 is needed for persisted handback fixtures")
 	}
