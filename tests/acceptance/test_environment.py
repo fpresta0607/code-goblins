@@ -150,7 +150,7 @@ def main():
                     for _ in range(300):
                         line = json.loads(run([consumer, 'gate', 'turns', '--json'], root, environment).stdout)
                         registered = sum('admission holder ' in entry['who'] for entry in line['holding'] + line['waiting'])
-                        if (root / 'holder-started-0').exists() and registered == 2:
+                        if any((root / ('holder-started-' + str(number))).exists() for number in range(2)) and registered == 2:
                             break
                         time.sleep(.1)
                     else:
