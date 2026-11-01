@@ -15,9 +15,8 @@ import (
 
 // spawnNeed is the services and MCP servers a new task's terminal is to
 // carry: the ones its brief's Authentication section names. A helper narrows
-// what its parent carries and never widens it, so each line its brief states
-// must name no more than its parent has, and a line its brief leaves out is
-// its parent's.
+// what its parent carries and never widens it, so its explicit choices must
+// name no more than its parent has.
 func (s Service) spawnNeed(req Request, brief []byte) (auth.Need, error) {
 	need, err := auth.NeedFromBrief(string(brief))
 	if err != nil {
@@ -58,7 +57,7 @@ func (s Service) parentNeed(parent state.TaskMeta) (auth.Need, error) {
 
 // helperNeed is the need a helper starts with: its own brief's Authentication
 // section, which may select fewer services and MCP servers than its parent
-// carries but never more, and its parent's for a line its brief leaves out.
+// carries but never more.
 // A name its parent does not carry is refused rather than silently dropped,
 // since a helper that starts without what its brief says it needs fails at
 // the work instead of at the request.
@@ -104,10 +103,10 @@ func helperRefusal(parentID, key, subject string, carried, named []string) strin
 // taskNeed is the services a recorded task's next terminal and its credential
 // script carry: the ones its record names. A task spawned by a build that
 // gave every task all of its project's credentials has a record that names
-// none, and is given what a brief that names none is given, the manifest's
-// default services. Its brief is not read: it was written before a brief
-// could name a service, and the goblin it briefs can write to it. The MCP
-// servers are the ones the record names, which is none for such a task.
+// none, and is given the manifest's default services. Its brief is not read:
+// it predates explicit service choices, and the goblin it briefs can write
+// to it. The MCP servers are the ones the record names, which is none for
+// such a task.
 func taskNeed(meta state.TaskMeta) auth.Need {
 	if !meta.HasCredentials {
 		return auth.Need{IsUnstated: true, MCPServers: meta.MCPServers}

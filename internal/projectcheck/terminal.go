@@ -13,9 +13,8 @@ import (
 // terminalReach checks the second road a test run has to production: the
 // credentials a spawn writes into a task's terminal. A terminal carries the
 // stored credentials of the services its task is granted, and a test run
-// started there inherits them with no env file at all. Which services a
-// task is granted is the manifest's own answer: the ones marked default for
-// a brief with no credentials line, and the ones a brief names.
+// started there inherits them with no env file at all. The check distinguishes
+// manifest-default services from those a brief must request explicitly.
 //
 // A credential counts as within a test's reach when a tracked file a test
 // run could start reads its variable, and no test setup names it. It reads
