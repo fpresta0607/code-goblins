@@ -166,6 +166,78 @@ func TestStartWithEveryRiderInConflictStopsWithoutCI(t *testing.T) {
 	}
 }
 
+func TestNewPullRequestGetsItsCIWindowAfterPublicationRecovery(t *testing.T) {
+	for _, isCreationAcknowledgementLost := range []bool{false, true} {
+		t.Run(map[bool]string{false: "creation succeeds", true: "creation acknowledgement lost"}[isCreationAcknowledgementLost], func(t *testing.T) {
+			s := newScratch(t)
+			github := newFakeGitHub(s)
+			pullRequest := github.open(5, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+			riders, _ := Riders([]PullRequest{pullRequest}, "main", fleetAccount, goblinsFor(pullRequest), nil)
+			github.unanswered["create"] = 1
+			started, startError := s.engine(github).Start(context.Background(), s.repository(), riders)
+			if startError == nil || started.Runs != 1 || started.PR != "" || github.created != 0 || len(github.pushes) != 1 {
+				t.Fatalf("want one published head with interrupted PR creation: %+v, %v", started, startError)
+			}
+			s.now = s.now.Add(30 * time.Minute)
+			publishedAt := s.now
+			github.noChecks = true
+			if isCreationAcknowledgementLost {
+				github.lost["create"] = true
+				if _, err := s.engine(github).Advance(context.Background(), started.ID); err == nil {
+					t.Fatal("want the creation acknowledgement to be lost")
+				}
+			}
+
+			recovered := s.step(s.engine(github), started.ID)
+			s.now = s.now.Add(time.Minute)
+			polled := s.step(s.engine(github), started.ID)
+
+			for _, kept := range []Train{recovered, polled} {
+				if kept.IsFinished() || kept.Cars[0].State != CarRiding || kept.Runs != 1 || kept.Head != started.Head || kept.BaseSHA != started.BaseSHA || kept.PR != github.trainURL || !kept.Pushed.Equal(publishedAt) || !kept.History[0].Pushed.Equal(publishedAt) {
+					t.Fatalf("new PR lost its CI window or recorded source: %+v", kept)
+				}
+			}
+			if github.created != 1 || len(github.pushes) != 1 || len(github.mergeCalls()) != 0 || len(github.rerunCalls()) != 0 || len(github.closed) != 0 || s.fileOn(started.Head, "a.txt") != "a\n" {
+				t.Fatalf("publication recovery repeated work or discarded source: created %d, pushes %d, merges %v, reruns %v, closed %v", github.created, len(github.pushes), github.mergeCalls(), github.rerunCalls(), github.closed)
+			}
+		})
+	}
+}
+
+func TestRecoveredPullRequestDoesNotRenewItsExistingCIWindow(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		isPending bool
+		delay     time.Duration
+	}{
+		{name: "missing checks", delay: noCIWithin + time.Minute},
+		{name: "pending checks", isPending: true, delay: RunDeadline + time.Minute},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := newScratch(t)
+			github := newFakeGitHub(s)
+			pullRequest := github.open(5, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+			riders, _ := Riders([]PullRequest{pullRequest}, "main", fleetAccount, goblinsFor(pullRequest), nil)
+			github.lost["create"] = true
+			started, startError := s.engine(github).Start(context.Background(), s.repository(), riders)
+			if startError == nil || github.created != 1 || started.PR != "" {
+				t.Fatalf("want an existing PR whose creation acknowledgement was lost: %+v, %v", started, startError)
+			}
+			s.now = s.now.Add(test.delay)
+			github.noChecks = !test.isPending
+			if test.isPending {
+				github.pending = 1
+			}
+
+			expired := s.step(s.engine(github), started.ID)
+
+			if expired.State != StateFailed || expired.Runs != 1 || expired.Head != started.Head || !expired.Pushed.Equal(started.Pushed) || !expired.History[0].Pushed.Equal(started.History[0].Pushed) || github.created != 1 || len(github.closed) != 1 || len(github.mergeCalls()) != 0 || len(github.rerunCalls()) != 0 {
+				t.Fatalf("recovering an existing PR renewed its deadline or repeated validation: %+v", expired)
+			}
+		})
+	}
+}
+
 func TestInterruptedPublicationKeepsItsRecordedRunAndExternalCommits(t *testing.T) {
 	for _, hasExternalCommit := range []bool{false, true} {
 		t.Run(map[bool]string{false: "resume exact run", true: "preserve external extension"}[hasExternalCommit], func(t *testing.T) {

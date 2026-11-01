@@ -129,6 +129,11 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 	case request.Name != "gh":
 	case args[0] == "api" && args[1] == "graphql" && f.onceTest != "":
 		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"data":{"repository":{"object":{"checkSuites":{"nodes":[{"checkRuns":{"nodes":[{"annotations":{"nodes":[{"title":"Failed once","message":%q}]}}]}}]}}}}}`, f.onceTest))}, nil
+	case args[0] == "pr" && args[1] == "list" && slices.Contains(args, "--head") && slices.Contains(args, "--jq"):
+		if f.trainURL != "" && !f.closed && f.landed == "" && args[slices.Index(args, "--head")+1] == f.branch {
+			return execx.Result{Stdout: []byte(f.trainURL + "\n")}, nil
+		}
+		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "list":
 		merged := f.merged()
 		return answer(slices.DeleteFunc(slices.Clone(f.open), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))

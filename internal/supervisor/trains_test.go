@@ -134,8 +134,13 @@ func (p *trainProject) merged() []string {
 // does not hold yet as open; any other gh call is unexpected.
 func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
-		if len(request.Args) > 0 && request.Args[0] == "push" && slices.Contains(request.Args, "--force") {
-			p.trainPushes++
+		if len(request.Args) > 0 && request.Args[0] == "push" {
+			for _, argument := range request.Args[1:] {
+				source, _, isTrainRef := strings.Cut(argument, ":refs/heads/"+train.BranchPrefix)
+				if isTrainRef && source != "" {
+					p.trainPushes++
+				}
+			}
 		}
 		if slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) && p.originTimeouts > 0 {
 			p.originTimeouts--
@@ -156,6 +161,11 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 			}
 			view, err := json.Marshal(map[string]any{"state": "OPEN", "headRefOid": p.git(p.remote, "rev-parse", "refs/heads/"+p.branch), "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: conclusion, DetailsURL: "https://github.com/o/r/actions/runs/101/job/1011"}}, "mergeStateStatus": "CLEAN"})
 			return execx.Result{Stdout: view}, err
+		case args[1] == "list" && slices.Contains(args, "--head") && slices.Contains(args, "--jq"):
+			if p.created > 0 && !p.closed && p.landed == "" && args[slices.Index(args, "--head")+1] == p.branch {
+				return execx.Result{Stdout: []byte("https://github.com/o/r/pull/900\n")}, nil
+			}
+			return execx.Result{}, nil
 		case args[1] == "list":
 			merged := p.merged()
 			open, err := json.Marshal(slices.DeleteFunc(slices.Clone(p.pulls), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))

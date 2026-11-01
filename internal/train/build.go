@@ -174,6 +174,12 @@ func (e Engine) publish(ctx context.Context, t *Train) error {
 		t.openRun().PR = t.PR
 		return e.save(t)
 	}
+	// Save the new PR's CI window before creation in case its answer is lost.
+	t.Pushed = e.Now().UTC()
+	t.openRun().Pushed = t.Pushed
+	if err := e.save(t); err != nil {
+		return err
+	}
 	title, body := t.words()
 	out, err := e.runWithBody(ctx, t.Checkout, body, "pr", "create", "--repo", t.Repository, "--base", t.Base, "--head", t.Branch, "--title", title)
 	if err != nil {
