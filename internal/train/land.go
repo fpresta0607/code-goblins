@@ -139,8 +139,9 @@ func (e Engine) landTrainRun(ctx context.Context, t *Train, riders []int) error 
 	return e.mergeTrain(ctx, t, riders)
 }
 
-// recheck reads the riders as GitHub has them now and returns each one that
-// may no longer land as it rode, with why, after returning it to the queue.
+// recheck reconciles selected heads already on the fetched base before
+// classifying withdrawals. It checks only riding cars, so a waiting half
+// cannot invalidate the current run's proof, and reports what changed.
 func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
 	if len(t.carsIn(CarRiding)) == 0 {
 		return nil, nil

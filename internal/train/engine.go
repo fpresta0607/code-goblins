@@ -15,10 +15,8 @@ import (
 )
 
 const (
-	// noCIWithin is how long a pushed run waits for GitHub to show its head
-	// and for a check to appear on it: a run whose push was lost is pushed
-	// again, and a repository whose CI never starts stops its train rather
-	// than holding it, and every pull request on it, for ever.
+	// noCIWithin bounds the wait for GitHub to show the expected head and a
+	// check on a published pull request before green proof is recorded.
 	noCIWithin = 20 * time.Minute
 	// RunDeadline bounds a run whose checks never finish, as when the
 	// repository's runners are down.
@@ -26,9 +24,8 @@ const (
 	// maxMoved is how many runs in a row the base may move during before the
 	// train stops: on a main that never holds still nothing it tests lands.
 	maxMoved = 3
-	// maxErrors is how many steps in a row may fail before the train stops.
-	// A failed step leaves the train as its record says, for the next step
-	// to take on, since most failures are a network or a restart.
+	// maxErrors bounds transient failures before green proof and ordinary
+	// merge attempts; green proof and interrupted landings stay recoverable.
 	maxErrors = 5
 	// mergedReads bounds how often GitHub is read for the pull requests a run
 	// landed to show as merged, and mergedReadAfter is the pause between.
@@ -94,7 +91,8 @@ type Engine struct {
 // them onto repo's base, pushes them and opens the train's pull request. A
 // train already running on repo is refused with ErrRunning. A train none of
 // whose riders merges cleanly onto the base stops at once without CI. A
-// start cut short is kept, and its next step builds it.
+// start cut short is kept, and its next step resumes the recorded build or
+// publication.
 func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train, error) {
 	if len(riders) == 0 {
 		return Train{}, errors.New("merge train: no pull request rides")
@@ -150,16 +148,11 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 	return t, nil
 }
 
-// Advance takes the running train id one step. While its CI runs it changes
-// nothing. A green run lands its riders, by merging the train's own pull
-// request, and then tests the waiting half, if a red run left one, on a pull
-// request of its own; a red run has its failed checks run again
-// once, and red a second time it halves its riders, or blames the one rider
-// it had. A run on a base that moved since is built again on the
-// new base and tested again, since what it proved is not what would land.
-// A step that fails leaves the train as recorded and counts against it, and
-// the train stops once maxErrors steps in a row failed, unless it keeps green
-// proof on a merge hold. Another process taking the train's step is ErrBusy.
+// Advance takes the running train id one step under its repository lock.
+// A failed step resumes from the persisted record. Green merge holds,
+// interrupted landings and unknown branch identities preserve custody
+// instead of ending the train at the ordinary transient-error limit.
+// Another process taking the train's step is ErrBusy.
 func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	t, err := Read(e.StateDir, id)
 	if err != nil || t.IsFinished() {

@@ -11,8 +11,9 @@ import (
 )
 
 // rebuild builds the riders again on the current base and pushes them for
-// the next run, saying why in the note. The record says first that a build
-// is due, so a step cut short anywhere in it is built again by the next one.
+// the next run, saying why in the note. Recorded heads stay available for
+// the branch identity check, and an interrupted publication resumes the
+// recorded run instead of building it again.
 func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 	if _, err := e.branchHead(ctx, *t); err != nil {
 		return err

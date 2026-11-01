@@ -149,7 +149,8 @@ func (e Engine) checkedOut(ctx context.Context, t Train, id string, number int) 
 
 // standOnOwnRun records the run of a train of one rider, car, that stands on
 // car's own CI run, which tested merge, car's head merged onto base: no
-// branch is pushed and no pull request opened, and the next step lands it.
+// branch is pushed and no pull request opened, and its successful checks
+// are kept before the first landing poll.
 func (e Engine) standOnOwnRun(t *Train, car Car, base, merge, proof string, checks Checks) error {
 	t.BaseSHA, t.Head, t.Pushed = base, merge, e.Now().UTC()
 	t.Runs++

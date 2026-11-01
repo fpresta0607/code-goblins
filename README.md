@@ -130,13 +130,9 @@ A check that was skipped, as a draft's run skips its jobs, tested nothing: a mer
 Landing green pull requests one at a time costs one CI run each, in a row, because every merge makes the others' runs stale.
 A merge train lands them with one run.
 It merges the green pull requests goblins finished onto main in the order they reported done, on a branch of its own, and opens a pull request for that branch, so CI tests them together once.
-When that run is green, the train's pull request merges: main takes the commit CI tested, so its tree equals the train's, and GitHub marks each pull request that rode merged, with its own number in main's history.
 It merges only once main's deploy has finished successfully: while a workflow whose name says deploy still runs on main's push, or its newest run did not pass, the train waits and says what it waits on, so two deploys never overlap and a failed one is pinned to one change.
-A train that landed leaves nothing closed without merging on GitHub, and one that did not land its last run closes that run's pull request saying why, however often it was halved.
 A train's own pull request wears the `merge-train` label, which `.github/release.yml` leaves out of the notes GitHub writes for a release, so those list each pull request by its own number and never the train.
-When it is red, the failed checks run again once, because a check can fail by chance, and a run that passes on its second try lands with the check that failed once named in its record.
 A test that failed once inside a check that still ended green is named in the train's record and its message to the CFO too.
-When it is red a second time, the train is halved until the one pull request that breaks it is found: every half that passes lands, and that pull request's goblin gets the failing checks.
 A pull request that conflicts with the ones ahead of it stays off and its goblin is told to merge main; drafts and pull requests labelled `hold` (recovery, security, money paths, or anything the Overlord said to wait on) never ride.
 
 The supervisor starts a train by itself when two or more green goblin pull requests wait on one main, or one has waited alone for 10 minutes, and the board shows each batch as one card with each of its pull requests and where it stands, folding a train that landed nothing into the train that retried it.
@@ -145,7 +141,7 @@ Stopped or failed trains that landed nothing stay accessible under Train history
 A click on that card opens the train's panel: one row per pull request with its goblin and current run state, with attempt history folded below for retries, failures and shared runs.
 `cfo pr train <project>` starts one by hand, or joins the one running, and waits until it is over.
 A project's manifest can let a train of one pull request land on that pull request's own green CI run instead of testing the same tree again, and can make one alone wait longer for a second to share a run with.
-See [Merge trains](docs/contract/delivery.md#merge-trains).
+See [Merge trains](docs/contract/delivery.md#merge-trains) for green-run holds, rider rechecks, CI second tries, failure isolation and recovery.
 
 ### Project-scoped credentials
 

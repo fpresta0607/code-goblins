@@ -17,7 +17,8 @@ var actionsRun = regexp.MustCompile(`^https://github\.com/[^/]+/[^/]+/actions/ru
 // by chance, so the failed jobs of each workflow run behind a failed check
 // run again, once, and only a check red a second time is a failure. It
 // returns "failed" once the failure stands, and "pending" while a second try
-// is asked for or awaited.
+// is asked for or awaited, or "changed" when a rider or base change retires
+// the run before another retry.
 //
 // Whether a workflow run was tried again is read from GitHub's own count of
 // its attempts and never from the train's record: a step cut short after it

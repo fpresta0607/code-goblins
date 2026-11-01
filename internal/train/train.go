@@ -1,21 +1,6 @@
-// Package train lands several green pull requests on a repository's default
-// branch with one CI run: a merge train.
-//
-// Landing pull requests one at a time costs one CI run each, in a row, since
-// every merge makes the other green runs stale. A train merges the green ones
-// onto main in queue order on a branch of its own, each with a merge commit
-// that names it, opens a pull request for that branch, and lets CI test the
-// combination once. When the run is green the train's own pull request
-// merges: main takes the commit CI tested, and GitHub marks each pull request
-// that rode merged, since main then holds its head. When it is red its failed
-// checks run again once, since a check can fail by chance, and when it is red
-// a second time the train is halved until the one pull request that breaks it
-// is found; every half that passes lands on the way, by a pull request of its
-// own.
-//
-// So a train that landed leaves nothing closed without merging on GitHub,
-// which GitHub draws in red. One that did not land its last run leaves that
-// run's pull request closed, saying why: the one place it says so.
+// Package train builds and lands green pull requests together using durable
+// merge-train records. See docs/contract/delivery.md for the merge-train
+// contract, including rider eligibility, holds, retries and recovery.
 package train
 
 import (
@@ -57,7 +42,7 @@ const keepFor = 7 * 24 * time.Hour
 
 // A train's states.
 const (
-	// StateTesting is a train whose pull request CI is testing.
+	// StateTesting is an active train awaiting CI or a permitted landing.
 	StateTesting = "testing"
 	// StateLanded is a finished train whose every tested pull request landed.
 	StateLanded = "landed"
@@ -95,8 +80,7 @@ const (
 	RunFailed = "failed"
 	// RunMoved passed, but the base moved during it, so it was tested again.
 	RunMoved = "moved"
-	// RunChanged passed, but a rider changed after it rode, so the rest was
-	// tested again without it.
+	// RunChanged ended because its riders or base changed before landing.
 	RunChanged = "changed"
 	// RunRepushed was built again before CI decided it, as when GitHub never
 	// showed its push.
