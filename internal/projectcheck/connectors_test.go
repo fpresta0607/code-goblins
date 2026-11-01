@@ -10,8 +10,6 @@ const twoServices = `{"project":"northwind","services":[
 	{"name":"resend","method":"env","env":["RESEND_API_KEY"]}
 ]}`
 
-// A service the manifest declares and nothing in the repository names is
-// injected into every goblin's terminal for no reader.
 func TestAConnectorDeclaredAndUsedNowhereIsReported(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -244,7 +242,11 @@ func TestAServiceTheManifestNamesAUserForIsNotUnused(t *testing.T) {
 		t.Errorf("connector-unused is %s, want low", finding.Severity)
 	}
 	contains(t, "says", finding.Says, "2 declared services")
-	contains(t, "evidence", finding.Evidence, "resend: RESEND_API_KEY", "mailer: MAILER_TOKEN", "every task whose brief has no credentials line")
+	contains(t, "evidence", finding.Evidence, "resend: RESEND_API_KEY", "mailer: MAILER_TOKEN", "manifest-default service")
+	contains(t, "selection contract", finding.Evidence, "complete automatic briefs select it explicitly", "authored briefs require explicit credentials and mcp choices", "existing task records retain their recorded grants")
+	if strings.Contains(finding.Evidence, "no credentials line") {
+		t.Errorf("connector diagnostic still describes implicit admission: %q", finding.Evidence)
+	}
 	for _, used := range []string{"stripe", "github", "vercel", "railway", "postgres"} {
 		if strings.Contains(finding.Evidence, used) {
 			t.Errorf("evidence %q names %s, which the repository reads or whose entry names what uses it", finding.Evidence, used)
