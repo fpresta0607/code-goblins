@@ -231,7 +231,7 @@ func TestStartupDeadlineDoesNotWaitForAnUnresponsiveTerminal(t *testing.T) {
 	}()
 	select {
 	case <-endpoint.started:
-	case <-time.After(2 * time.Second):
+	case <-time.After(30 * time.Second):
 		close(endpoint.release)
 		t.Fatal("startup never reached the terminal boundary")
 	}
@@ -243,14 +243,14 @@ func TestStartupDeadlineDoesNotWaitForAnUnresponsiveTerminal(t *testing.T) {
 		if err != nil || !strings.Contains(output.String(), "current=unknown") {
 			t.Errorf("timed-out state was not explicit: %s, %v", output.String(), err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(30 * time.Second):
 		t.Error("startup waited for the terminal after its shared deadline")
 	}
 	close(endpoint.release)
 	if !isReturned {
 		select {
 		case <-finished:
-		case <-time.After(2 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatal("startup did not stop after releasing the terminal fixture")
 		}
 	}

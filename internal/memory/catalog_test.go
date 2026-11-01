@@ -397,6 +397,65 @@ func TestIndexPinsResolveMarkdownDestinations(t *testing.T) {
 	}
 }
 
+func TestFencedIndexExamplesRemainLiteralAcrossConsumers(t *testing.T) {
+	// Oracle: fenced examples are literal bytes, not pin directives or approval.
+	for _, test := range []struct {
+		name, opening, inside, closing string
+	}{
+		{"backticks", "```markdown", "", "```"},
+		{"tildes", "~~~markdown", "", "~~~"},
+		{"indented", "   ```markdown", "", "   ```"},
+		{"longer closing fence", "```", "", "`````"},
+		{"shorter fence stays literal", "````", "```\n", "````"},
+		{"other delimiter stays literal", "~~~", "```\n", "~~~"},
+		{"closing fence cannot have text", "```", "```not-a-close\n", "```"},
+		{"unterminated", "```markdown", "", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			index := []byte("# Index\n" + test.opening + "\n" + test.inside + "[Example](not-a-real-fact.md) - sample <!--P-->\n[Project](project.md) - sample <!--P-->\n" + test.closing + "\n")
+			writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+			catalog.Sources = append(catalog.Sources, Source{Path: "memory/MEMORY.md", SHA256: Hash(index), Entries: []Entry{{ID: "index", End: len(index), SHA256: Hash(index), Authority: "fact", Location: "warm"}}})
+			writeCatalog(t, dir, catalog)
+
+			loaded, err := Load(dir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text, err := loaded.Retrieve(Query{Topic: "ports"}, referenceDate)
+			if err != nil || !strings.Contains(text, string(index)) || !strings.Contains(text, "A project uses port 4300.") || !strings.Contains(loaded.Routes(2000), "project: ports") {
+				t.Fatalf("fenced examples blocked retrieval or changed bytes: %s, %v", text, err)
+			}
+			if _, err := MemoryReport(dir, referenceDate); err != nil {
+				t.Fatal(err)
+			}
+			for _, hasCatalog := range []bool{true, false} {
+				if !hasCatalog {
+					if err := os.Remove(filepath.Join(dir, filepath.FromSlash(CatalogPath))); err != nil {
+						t.Fatal(err)
+					}
+				}
+				plan, err := PlanMigration(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, file := range plan.Files {
+					if file.Path == "memory/MEMORY.md" && file.RetainedSHA256 != Hash(index) {
+						t.Fatal("inventory changed the literal index bytes")
+					}
+				}
+			}
+			if test.closing != "" {
+				index = append(index, []byte("[Real](missing.md) - unresolved pin <!--P-->\n")...)
+				writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+				if _, err := PlanMigration(dir); err == nil {
+					t.Fatal("closing fence hid a real unresolved pin")
+				}
+			}
+		})
+	}
+}
+
 func TestUnresolvedIndexPinsCannotAuthorizeColdMemory(t *testing.T) {
 	for _, link := range []string{
 		"[Project](project(2026.md)",
