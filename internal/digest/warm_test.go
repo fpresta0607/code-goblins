@@ -189,13 +189,23 @@ func TestStartupBudgetUsesConfiguredAllowanceForEquivalentDirectories(t *testing
 	if err := os.WriteFile(filepath.Join(h.Root, "config", "startup-memory-budget"), []byte("1"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(h.Root)
-	for _, dataDir := range []string{h.Data, h.Data + "/", h.Data + string(filepath.Separator), "data", "data/", "data" + string(filepath.Separator)} {
-		t.Run(dataDir, func(t *testing.T) {
-			h.Data = dataDir
+	child := filepath.Join(h.Data, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ workingDir, dataDir string }{
+		{h.Root, h.Data}, {h.Root, h.Data + "/"}, {h.Root, h.Data + string(filepath.Separator)},
+		{h.Root, "data"}, {h.Root, "data/"}, {h.Root, "data" + string(filepath.Separator)},
+		{h.Data, "."}, {h.Data, "./"}, {h.Data, "." + string(filepath.Separator)}, {h.Data, "../data"},
+		{child, ".."}, {child, "../"}, {child, ".." + string(filepath.Separator)}, {child, "../../data/"},
+	} {
+		t.Run(test.workingDir+"/"+test.dataDir, func(t *testing.T) {
+			t.Chdir(test.workingDir)
+			directoryHome := h
+			directoryHome.Data = test.dataDir
 			var output bytes.Buffer
 
-			if err := ComposeReadOnly(h, "allowance", &output); err != nil {
+			if err := ComposeReadOnly(directoryHome, "allowance", &output); err != nil {
 				t.Fatal(err)
 			}
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -45,25 +44,139 @@ func pinnedReferences(dataDir string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	link := regexp.MustCompile(`\[[^\]]*\]\((<[^<>\r\n]+>|[^<>\s)]+)(?:[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^\r\n)]*\)))?[ \t]*\)`)
-	for _, line := range strings.Split(string(content), "\n") {
+	for lineNumber, line := range strings.Split(string(content), "\n") {
 		if !slices.Contains(trailingAnnotations(line), "<!--P-->") {
 			continue
 		}
-		for _, match := range link.FindAllStringSubmatch(line, -1) {
-			reference, err := url.Parse(strings.Trim(match[1], "<>"))
-			if err != nil || reference.IsAbs() || reference.Host != "" || reference.Path == "" {
+		destinations, err := indexDestinations(line)
+		if err != nil {
+			return nil, fmt.Errorf("memory/MEMORY.md line %d: %w", lineNumber+1, err)
+		}
+		for _, destination := range destinations {
+			reference, err := url.Parse(destination)
+			if err != nil {
+				return nil, fmt.Errorf("pinned index destination %q: %w", destination, err)
+			}
+			if strings.EqualFold(reference.Scheme, "file") || len(reference.Scheme) == 1 {
+				return nil, fmt.Errorf("pinned index destination %q must use a local path", destination)
+			}
+			if reference.IsAbs() || reference.Host != "" {
 				continue
 			}
-			target := path.Join("memory", reference.Path)
+			target := filepath.FromSlash(reference.Path)
+			if target == "" || filepath.IsAbs(target) {
+				return nil, fmt.Errorf("pinned index destination %q needs a nonempty memory-relative path", destination)
+			}
+			target = filepath.Join(dataDir, "memory", target)
+			isResolved := false
 			for _, name := range names {
-				if fsx.SamePath(filepath.Join(dataDir, filepath.FromSlash(target)), filepath.Join(dataDir, filepath.FromSlash(name))) {
+				if fsx.SamePath(target, filepath.Join(dataDir, filepath.FromSlash(name))) {
 					pinned[name] = true
+					isResolved = true
 				}
+			}
+			if !isResolved {
+				return nil, fmt.Errorf("pinned index destination %q does not resolve to a governed memory source", destination)
 			}
 		}
 	}
 	return pinned, nil
+}
+
+func indexDestinations(line string) ([]string, error) {
+	invalidLink := errors.New("pinned index entry needs a complete inline Markdown link")
+	var destinations []string
+	labelDepth := 0
+	for position := 0; position < len(line); position++ {
+		if line[position] == '\\' {
+			position++
+			continue
+		}
+		if line[position] == '[' {
+			labelDepth++
+			continue
+		}
+		if line[position] != ']' || labelDepth == 0 {
+			continue
+		}
+		labelDepth--
+		if labelDepth != 0 || position+1 == len(line) || line[position+1] != '(' {
+			continue
+		}
+		position += 2
+		for position < len(line) && (line[position] == ' ' || line[position] == '\t') {
+			position++
+		}
+		if position == len(line) {
+			return nil, invalidLink
+		}
+		isAngle := line[position] == '<'
+		if isAngle {
+			position++
+		}
+		var destination strings.Builder
+		depth := 0
+		for ; position < len(line); position++ {
+			character := line[position]
+			if character == '\\' && position+1 < len(line) && strings.ContainsRune("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", rune(line[position+1])) {
+				position++
+				destination.WriteByte(line[position])
+				continue
+			}
+			if isAngle && character == '>' {
+				position++
+				break
+			}
+			if !isAngle && depth == 0 && (character == ')' || character == ' ' || character == '\t') {
+				break
+			}
+			if character == '<' || character == '\r' || character == '\n' || !isAngle && (character == '>' || character == ' ' || character == '\t') {
+				return nil, invalidLink
+			}
+			if !isAngle {
+				switch character {
+				case '(':
+					depth++
+				case ')':
+					depth--
+				}
+			}
+			destination.WriteByte(character)
+		}
+		end := position
+		for position < len(line) && (line[position] == ' ' || line[position] == '\t') {
+			position++
+		}
+		if position > end && position < len(line) && strings.ContainsRune("\"'(", rune(line[position])) {
+			delimiter := line[position]
+			if delimiter == '(' {
+				delimiter = ')'
+			}
+			position++
+			for ; position < len(line); position++ {
+				if line[position] == '\\' {
+					position++
+				} else if line[position] == delimiter {
+					break
+				}
+			}
+			if position == len(line) {
+				return nil, invalidLink
+			}
+			position++
+			for position < len(line) && (line[position] == ' ' || line[position] == '\t') {
+				position++
+			}
+		}
+		if position >= len(line) || line[position] != ')' || depth != 0 {
+			return nil, invalidLink
+		}
+		destinations = append(destinations, destination.String())
+	}
+	if len(destinations) == 0 {
+		return nil, invalidLink
+	}
+	return destinations, nil
 }
 
 type Status struct {

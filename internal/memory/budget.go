@@ -15,7 +15,12 @@ import (
 
 func Tokens(size int) int { return (size + 3) / 4 }
 
-func ReadBudget(path string, defaultTokens int) (int, error) {
+func ReadBudget(dataDir, name string, defaultTokens int) (int, error) {
+	absoluteDataDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		return 0, err
+	}
+	path := filepath.Join(filepath.Dir(absoluteDataDir), "config", name)
 	content, err := fsx.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return defaultTokens, nil
@@ -42,7 +47,7 @@ type Report struct {
 }
 
 func MemoryReport(dataDir string, now time.Time) (Report, error) {
-	budget, err := ReadBudget(filepath.Join(filepath.Dir(filepath.Clean(dataDir)), "config", "startup-memory-budget"), DefaultBudget)
+	budget, err := ReadBudget(dataDir, "startup-memory-budget", DefaultBudget)
 	if err != nil {
 		return Report{}, err
 	}

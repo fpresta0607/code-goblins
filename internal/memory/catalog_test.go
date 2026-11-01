@@ -319,6 +319,15 @@ func TestIndexPinsResolveMarkdownDestinations(t *testing.T) {
 		{"preferences%23policy.md#section", "preferences#policy.md"},
 		{"preferences.md#policy \"Policy title\"", "preferences.md"},
 		{"<preferences file.md#policy> 'Policy title'", "preferences file.md"},
+		{"preferences(2026).md", "preferences(2026).md"},
+		{"preferences((2026)(owner)).md#policy", "preferences((2026)(owner)).md"},
+		{`preferences\(2026\).md#policy`, "preferences(2026).md"},
+		{`preferences\(owner.md`, "preferences(owner.md"},
+		{`preferences-owner\).md`, "preferences-owner).md"},
+		{"preferences%28%282026%29%29.md#policy", "preferences((2026)).md"},
+		{"<preferences (2026).md#policy>", "preferences (2026).md"},
+		{`preferences(2026).md "Policy (owner)"`, "preferences(2026).md"},
+		{`preferences\[owner\].md`, "preferences[owner].md"},
 	} {
 		t.Run(test.destination, func(t *testing.T) {
 			dir := t.TempDir()
@@ -383,6 +392,45 @@ func TestIndexPinsResolveMarkdownDestinations(t *testing.T) {
 				if file.Path == source && (file.Moves[0].Tier != "pinned" || !file.Moves[0].NeedsApproval || file.Moves[0].ClassificationError == "" || file.RetainedSHA256 != Hash(fact)) {
 					t.Fatalf("legacy inventory lost conflicting pin or bytes: %+v", file)
 				}
+			}
+		})
+	}
+}
+
+func TestUnresolvedIndexPinsCannotAuthorizeColdMemory(t *testing.T) {
+	for _, link := range []string{
+		"[Project](project(2026.md)",
+		"[Project](<project.md)",
+		"[Project](project.md \"unfinished)",
+		"[Project](missing.md)",
+		"[Project](project%ZZ.md)",
+		"[Project](../outside.md)",
+		"[Project][reference]",
+		"[Project](#section)",
+		"[Project](<>)",
+		"[Project](file:///project.md)",
+	} {
+		t.Run(link, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			index := []byte("- " + link + " - owner choice <!--P-->\n")
+			writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+			catalog.Sources = append(catalog.Sources, Source{Path: "memory/MEMORY.md", SHA256: Hash(index), Entries: []Entry{{ID: "index", End: len(index), SHA256: Hash(index), Authority: "fact", Location: "warm"}}})
+			writeCatalog(t, dir, catalog)
+
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("unresolved pin silently permitted cold classification")
+			}
+			if _, err := MemoryReport(dir, referenceDate); err == nil {
+				t.Fatal("budget report treated unresolved pin authority as valid")
+			}
+			if _, err := PlanMigration(dir); err == nil {
+				t.Fatal("catalog inventory treated unresolved pin authority as valid")
+			}
+			if err := os.Remove(filepath.Join(dir, filepath.FromSlash(CatalogPath))); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := PlanMigration(dir); err == nil {
+				t.Fatal("legacy inventory treated unresolved pin authority as disposable")
 			}
 		})
 	}

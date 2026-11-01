@@ -55,15 +55,20 @@ func TestCompleteStartupAccountingIncludesEveryDeliveredCategory(t *testing.T) {
 }
 
 func TestMemoryBudgetRejectsCorruptSettingsInsteadOfInferringAnAllowance(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "budget")
-	if value, err := ReadBudget(path, 10000); err != nil || value != 10000 {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	path := filepath.Join(root, "config", "budget")
+	if value, err := ReadBudget(dataDir, "budget", 10000); err != nil || value != 10000 {
 		t.Fatalf("absent default=%d, %v", value, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
 	}
 	for _, content := range []string{"0", "-1", "many", "1000\n2000"} {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := ReadBudget(path, 10000); err == nil {
+		if _, err := ReadBudget(dataDir, "budget", 10000); err == nil {
 			t.Fatalf("invalid allowance %q was accepted", content)
 		}
 	}
@@ -74,10 +79,20 @@ func TestMemoryReportUsesConfiguredAllowanceForEquivalentDirectories(t *testing.
 	dir := filepath.Join(root, "data")
 	writeMemoryFile(t, dir, "overlord.md", []byte("12345"))
 	writeMemoryFile(t, root, "config/startup-memory-budget", []byte("1"))
-	t.Chdir(root)
-	for _, dataDir := range []string{dir, dir + "/", dir + string(filepath.Separator), "data", "data/", "data" + string(filepath.Separator)} {
-		t.Run(dataDir, func(t *testing.T) {
-			report, err := MemoryReport(dataDir, referenceDate)
+	child := filepath.Join(dir, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ workingDir, dataDir string }{
+		{root, dir}, {root, dir + "/"}, {root, dir + string(filepath.Separator)},
+		{root, "data"}, {root, "data/"}, {root, "data" + string(filepath.Separator)},
+		{dir, "."}, {dir, "./"}, {dir, "." + string(filepath.Separator)}, {dir, "../data"},
+		{child, ".."}, {child, "../"}, {child, ".." + string(filepath.Separator)}, {child, "../../data/"},
+	} {
+		t.Run(test.workingDir+"/"+test.dataDir, func(t *testing.T) {
+			t.Chdir(test.workingDir)
+
+			report, err := MemoryReport(test.dataDir, referenceDate)
 
 			if err != nil || report.Budget != 1 || report.Bytes != 5 || report.EstimatedTokens != 2 || !report.IsOverBudget {
 				t.Fatalf("equivalent directory bypassed the configured allowance: %+v, %v", report, err)

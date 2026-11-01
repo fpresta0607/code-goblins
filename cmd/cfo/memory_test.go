@@ -207,12 +207,21 @@ func TestMemoryPackageBudgetUsesConfiguredAllowanceForEquivalentDirectories(t *t
 	if err := os.WriteFile(manifest, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(root)
-	for _, dataDir := range []string{dir, dir + "/", dir + string(filepath.Separator), "data", "data/", "data" + string(filepath.Separator)} {
-		t.Run(dataDir, func(t *testing.T) {
+	child := filepath.Join(dir, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ workingDir, dataDir string }{
+		{root, dir}, {root, dir + "/"}, {root, dir + string(filepath.Separator)},
+		{root, "data"}, {root, "data/"}, {root, "data" + string(filepath.Separator)},
+		{dir, "."}, {dir, "./"}, {dir, "." + string(filepath.Separator)}, {dir, "../data"},
+		{child, ".."}, {child, "../"}, {child, ".." + string(filepath.Separator)}, {child, "../../data/"},
+	} {
+		t.Run(test.workingDir+"/"+test.dataDir, func(t *testing.T) {
+			t.Chdir(test.workingDir)
 			var output, diagnostics bytes.Buffer
 
-			code := run([]string{"memory", "budget", "--data", dataDir, "--packages", manifest}, &output, &diagnostics)
+			code := run([]string{"memory", "budget", "--data", test.dataDir, "--packages", manifest}, &output, &diagnostics)
 
 			var reports []memory.PackageReport
 			if err := json.Unmarshal(output.Bytes(), &reports); err != nil || code != 0 || len(reports) != 3 {
