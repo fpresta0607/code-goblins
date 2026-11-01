@@ -34,35 +34,46 @@ export const isWebLink = (value: string) => /^https?:\/\/[^\s<>"'`]+$/.test(valu
 // the displayed and copied address stays as the asker wrote it.
 export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer" }, address);
 
+function coverDocuments(text: string, hasDocuments: boolean): string {
+  if (!hasDocuments) return text;
+  let covered = text;
+  const webLinks = [...text.matchAll(WEB_LINK)];
+  for (const link of documentLinks(text)) {
+    if (webLinks.some((web) => web.index < link.start && web.index + web[0].length > link.start)) continue;
+    covered = covered.slice(0, link.start) + "~".repeat(link.end - link.start) + covered.slice(link.end);
+  }
+  return covered;
+}
+
 // Text with each address in it a link span of its own.
-function linkSpans(text: string, bold: boolean): Span[] {
+function linkSpans(text: string, bold: boolean, hasDocuments = false): Span[] {
   const out: Span[] = [];
   let at = 0;
-  for (const match of text.matchAll(WEB_LINK)) {
+  for (const match of coverDocuments(text, hasDocuments).matchAll(WEB_LINK)) {
     if (match.index > at) out.push({ text: text.slice(at, match.index), bold });
-    out.push({ text: match[0], bold, link: true });
+    out.push({ text: text.slice(match.index, match.index + match[0].length), bold, link: true });
     at = match.index + match[0].length;
   }
   if (at < text.length) out.push({ text: text.slice(at), bold });
   return out;
 }
 
-function spans(text: string): Span[] {
+function spans(text: string, hasDocuments = false): Span[] {
   const codes = [...text.matchAll(CODE)];
   const out: Span[] = [];
   const add = (from: number, to: number, bold: boolean) => {
     for (const code of codes) {
       const end = code.index + code[0].length;
       if (end <= from || code.index >= to) continue;
-      if (code.index > from) out.push(...linkSpans(text.slice(from, code.index), bold));
+      if (code.index > from) out.push(...linkSpans(text.slice(from, code.index), bold, hasDocuments));
       out.push({ text: code[1], bold, code: true });
       from = end;
     }
-    if (from < to) out.push(...linkSpans(text.slice(from, to), bold));
+    if (from < to) out.push(...linkSpans(text.slice(from, to), bold, hasDocuments));
   };
   // Bold is looked for with each code value covered, so marks inside a value
   // stay its own and a bold phrase can run across one.
-  const covered = text.replace(CODE, (value) => "x".repeat(value.length));
+  const covered = coverDocuments(text.replace(CODE, (value) => "x".repeat(value.length)), hasDocuments);
   let at = 0;
   for (const match of covered.matchAll(BOLD)) {
     add(at, match.index, false);
@@ -74,9 +85,9 @@ function spans(text: string): Span[] {
     if (span.code || span.link) return [span];
     const parts: Span[] = [];
     let from = 0;
-    for (const match of span.text.matchAll(ITALIC)) {
+    for (const match of coverDocuments(span.text, hasDocuments).matchAll(ITALIC)) {
       if (match.index > from) parts.push({ ...span, text: span.text.slice(from, match.index) });
-      parts.push({ ...span, text: match[1], italic: true });
+      parts.push({ ...span, text: span.text.slice(match.index + 1, match.index + match[0].length - 1), italic: true });
       from = match.index + match[0].length;
     }
     if (from < span.text.length) parts.push({ ...span, text: span.text.slice(from) });
@@ -84,16 +95,16 @@ function spans(text: string): Span[] {
   });
 }
 
-const cells = (row: string) => row.slice(1, -1).split("|").map((cell) => spans(cell.trim()));
+const cells = (row: string, hasDocuments: boolean) => row.slice(1, -1).split("|").map((cell) => spans(cell.trim(), hasDocuments));
 
-export function messageBlocks(text: string): Block[] {
+export function messageBlocks(text: string, hasDocuments = false): Block[] {
   const blocks: Block[] = [];
   for (const part of text.replace(/\r\n?/g, "\n").split(/\n\s*\n/)) {
     let prose: string[] = [];
     let items: Span[][] = [];
     let start: number | undefined;
     const flush = () => {
-      if (prose.length) blocks.push({ kind: "paragraph", spans: spans(prose.join("\n")) });
+      if (prose.length) blocks.push({ kind: "paragraph", spans: spans(prose.join("\n"), hasDocuments) });
       if (items.length) blocks.push({ kind: "list", items, ...(start !== undefined ? { start } : {}) });
       prose = [];
       items = [];
@@ -105,14 +116,14 @@ export function messageBlocks(text: string): Block[] {
       if (TABLE_ROW.test(line) && TABLE_SEPARATOR.test(lines[n + 1] || "")) {
         flush();
         const rows: Span[][][] = [];
-        for (n += 2; n < lines.length && TABLE_ROW.test(lines[n]); n++) rows.push(cells(lines[n]));
+        for (n += 2; n < lines.length && TABLE_ROW.test(lines[n]); n++) rows.push(cells(lines[n], hasDocuments));
         n--;
-        blocks.push({ kind: "table", header: cells(line), rows });
+        blocks.push({ kind: "table", header: cells(line, hasDocuments), rows });
       } else if (bullet) {
         const isOrdered = bullet[1] !== undefined;
         if (prose.length || items.length && isOrdered !== (start !== undefined)) flush();
         if (!items.length) start = isOrdered ? Number(bullet[1]) : undefined;
-        items.push(spans(line.slice(bullet[0].length).trim()));
+        items.push(spans(line.slice(bullet[0].length).trim(), hasDocuments));
       } else {
         if (items.length) flush();
         prose.push(line);
@@ -140,7 +151,7 @@ function documentElements(text: string, document: DocumentRenderer): ReactNode[]
   for (const link of documentLinks(text)) {
     if (link.start < at) continue;
     if (link.start > at) out.push(text.slice(at, link.start));
-    out.push(document(link.label, link.target, out.length));
+    out.push(document(spans(link.label).map((span) => span.text).join(""), link.target, out.length));
     at = link.end;
   }
   if (at < text.length) out.push(text.slice(at));
@@ -204,7 +215,7 @@ function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer, document
 }
 
 export function messageElements(text: string, code: CodeRenderer = plainCode, path?: PathRenderer, document?: DocumentRenderer): ReactNode {
-  return createElement(Fragment, null, ...messageBlocks(text).map((block, n) => block.kind === "paragraph"
+  return createElement(Fragment, null, ...messageBlocks(text, document !== undefined).map((block, n) => block.kind === "paragraph"
     ? createElement("p", { key: n }, ...inline(block.spans, code, path, document))
     : block.kind === "list"
       ? createElement(block.start === undefined ? "ul" : "ol", { key: n, start: block.start }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path, document))))
@@ -222,7 +233,7 @@ export function leadAndRest(text: string): { lead: string; rest: string } {
   return TABLE_ROW.test(lead) ? { lead: "", rest: lines.join("\n") } : { lead, rest: lines.slice(1).join("\n") };
 }
 
-export const inlineElements = (text: string, code: CodeRenderer = plainCode, path?: PathRenderer, document?: DocumentRenderer): ReactNode => createElement(Fragment, null, ...inline(spans(text), code, path, document));
+export const inlineElements = (text: string, code: CodeRenderer = plainCode, path?: PathRenderer, document?: DocumentRenderer): ReactNode => createElement(Fragment, null, ...inline(spans(text, document !== undefined), code, path, document));
 
 // Plain text, such as a History row's line, with each address in it a link.
 export const linkedText = (text: string): ReactNode => createElement(Fragment, null, ...inline(linkSpans(text, false), plainCode));

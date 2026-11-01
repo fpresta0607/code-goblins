@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -88,13 +90,14 @@ func isDocumentPath(path string) bool {
 }
 
 // A guessed path beneath a permitted folder is insufficient: the selected
-// conversation must actually name it. Paging is bounded and only done on a
-// document click, never while historical messages render.
+// conversation must actually name it.
 func (h *HTTP) hasDocumentReference(r *http.Request, transcript, target string) bool {
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
 	before := -1
-	for count := 0; count < 200 && r.Context().Err() == nil; count++ {
+	for ctx.Err() == nil {
 		page, _, err := h.messagePage(transcript, before)
-		if err != nil {
+		if err != nil || ctx.Err() != nil {
 			return false
 		}
 		for _, message := range page.Messages {

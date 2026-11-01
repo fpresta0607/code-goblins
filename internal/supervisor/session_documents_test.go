@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -124,18 +126,92 @@ func TestSessionDocumentsAllowOnlyRegisteredTaskRoots(t *testing.T) {
 	if err := state.WriteTaskMeta(board.Service.Store.Home.State, meta); err != nil {
 		t.Fatal(err)
 	}
-	for _, root := range reviewImageRoots(board.Service.Store.Home, meta) {
-		if err := os.MkdirAll(root, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		file := filepath.Join(root, "report.pdf")
-		if err := os.WriteFile(file, documentPDF(), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		documentReference(t, transcript, file)
-		if response := requestDocument(board, meta, file, "document-token"); response.Code != http.StatusOK {
-			t.Fatalf("registered document root refused: %d %s", response.Code, response.Body.String())
-		}
+	for _, test := range []struct{ name, root string }{
+		{"worktree", meta.Worktree},
+		{"extra worktree", meta.Extras[0]},
+		{"task temporary directory", meta.TaskTmp},
+		{"scratch", meta.Scratch},
+		{"task data", filepath.Join(board.Service.Store.Home.Data, meta.ID)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.MkdirAll(test.root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(test.root, "report.pdf")
+			if err := os.WriteFile(file, documentPDF(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			documentReference(t, transcript, file)
+
+			response := requestDocument(board, meta, file, "document-token")
+
+			if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), documentPDF()) {
+				t.Fatalf("registered document root refused: %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestSessionDocumentsReachTheFirstOf10001Messages(t *testing.T) {
+	for _, kind := range []string{"UserMessage", "AgentMessage"} {
+		t.Run(kind, func(t *testing.T) {
+			board, meta, transcript := documentBoard(t)
+			file := filepath.Join(meta.Worktree, "report.pdf")
+			pdf := documentPDF()
+			if err := os.WriteFile(file, pdf, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var entries bytes.Buffer
+			for index := range 10001 {
+				messageKind, text := "UserMessage", "Later message"
+				if index == 0 {
+					messageKind, text = kind, "[Old report]("+file+")"
+				}
+				encoded, err := json.Marshal(text)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fmt.Fprintf(&entries, "{\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"item\":{\"type\":%q,\"id\":\"message-%d\",\"content\":[{\"type\":\"Text\",\"text\":%s}]}}}\n", messageKind, index, encoded)
+			}
+			if err := os.WriteFile(transcript, entries.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			response := requestDocument(board, meta, file, "document-token")
+
+			if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), pdf) {
+				t.Fatalf("old document reference refused: %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestSessionDocumentsRefuseCancelledReferenceLookups(t *testing.T) {
+	for _, name := range []string{"cancelled", "deadline exceeded"} {
+		t.Run(name, func(t *testing.T) {
+			board, meta, transcript := documentBoard(t)
+			file := filepath.Join(meta.Worktree, "report.pdf")
+			if err := os.WriteFile(file, documentPDF(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			documentReference(t, transcript, file)
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if name == "deadline exceeded" {
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				defer cancel()
+			}
+			query := url.Values{"task": {meta.ID}, "generation": {meta.SpawnGen}, "document": {file}}
+			request := httptest.NewRequest("GET", "http://"+board.Host+"/api/messages?"+query.Encode(), nil).WithContext(ctx)
+			request.Header.Set("X-CFO-Token", "document-token")
+			response := httptest.NewRecorder()
+
+			board.ServeHTTP(response, request)
+
+			if response.Code != http.StatusForbidden || response.Body.String() != "{\"error\":\""+UNAVAILABLE_DOCUMENT+"\"}" {
+				t.Fatalf("cancelled PDF lookup = %d %s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 

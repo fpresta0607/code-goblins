@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { isLongText, leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
+import { inlineElements, isLongText, leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -19,6 +19,56 @@ test("local PDF examples inside inline code remain literal with the document ren
     (label, path, key) => createElement("span", { key, "data-document": path }, label)));
   assert.equal(shown, `<p>Read <code>${link}</code>.</p>`);
   assert.equal(html(link), `<p>${link}</p>`, "other shared message renderers keep their existing text contract");
+});
+
+for (const label of ["Retail **candidate** PDF", "Retail *candidate* PDF", "**Retail *candidate* PDF**"]) {
+  for (const target of ["D:/task/report.pdf", String.raw`D:\task\report.pdf`, "/task/report%20(approved).pdf"]) {
+    const link = `[${label}](${target})`;
+    const card = `<span data-document="${target}">Retail candidate PDF</span>`;
+    for (const [name, text, expected] of [
+      ["paragraph", `Before ${link}: after.`, `<p>Before ${card}: after.</p>`],
+      ["bullet", `- ${link}`, `<ul><li>${card}</li></ul>`],
+      ["ordered step", `3. ${link}`, `<ol start="3"><li>${card}</li></ol>`],
+      ["table header", `| ${link} |\n| --- |\n| Value |`, `<div class="message-table"><table><thead><tr><th>${card}</th></tr></thead><tbody><tr><td>Value</td></tr></tbody></table></div>`],
+      ["table cell", `| Report |\n| --- |\n| ${link} |`, `<div class="message-table"><table><thead><tr><th>Report</th></tr></thead><tbody><tr><td>${card}</td></tr></tbody></table></div>`],
+      ["heading", `Before ${link}: after.`, `Before ${card}: after.`],
+    ]) {
+      test(`a document with label ${label} and target ${target} renders in a ${name}`, () => {
+        const render = name === "heading" ? inlineElements : messageElements;
+
+        const shown = renderToStaticMarkup(render(text, undefined, undefined,
+          (label, path, key) => createElement("span", { key, "data-document": path }, label)));
+
+        assert.equal(shown, expected);
+      });
+    }
+  }
+}
+
+test("document rendering preserves enclosing emphasis, web links and emphasized code examples", () => {
+  const link = "[Retail **candidate** PDF](D:/task/report.pdf)";
+  const text = `**Before ${link}: after.**\n\n*Read ${link} now.*\n\nExample: \`${link}\`.\n\nhttps://example.com/report`;
+  const card = '<span data-document="D:/task/report.pdf">Retail candidate PDF</span>';
+
+  const shown = renderToStaticMarkup(messageElements(text, undefined, undefined,
+    (label, path, key) => createElement("span", { key, "data-document": path }, label)));
+
+  assert.equal(shown, `<p><strong>Before ${card}: after.</strong></p><p><em>Read ${card} now.</em></p><p>Example: <code>${link}</code>.</p><p><a class="message-link" href="https://example.com/report" target="_blank" rel="noreferrer">https://example.com/report</a></p>`);
+  assert.equal(html(link), "<p>[Retail <strong>candidate</strong> PDF](D:/task/report.pdf)</p>");
+});
+
+test("document labels and adjacent web addresses keep their separate actions", () => {
+  const shown = renderToStaticMarkup(messageElements("[Report https://example.com](D:/task/report.pdf)https://example.com/details", undefined, undefined,
+    (label, path, key) => createElement("span", { key, "data-document": path }, label)));
+
+  assert.equal(shown, '<p><span data-document="D:/task/report.pdf">Report https://example.com</span><a class="message-link" href="https://example.com/details" target="_blank" rel="noreferrer">https://example.com/details</a></p>');
+});
+
+test("PDF link syntax within a web address remains part of the web address", () => {
+  const shown = renderToStaticMarkup(messageElements("https://example.com/[Report](D:/task/report.pdf)", undefined, undefined,
+    (label, path, key) => createElement("span", { key, "data-document": path }, label)));
+
+  assert.equal(shown, '<p><a class="message-link" href="https://example.com/[Report](D:/task/report.pdf" target="_blank" rel="noreferrer">https://example.com/[Report](D:/task/report.pdf</a>)</p>');
 });
 
 test("thinking prose renders emphasis and ordered steps without changing code", () => {
