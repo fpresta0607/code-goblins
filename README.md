@@ -807,7 +807,7 @@ New items also stay under the badge, and the browser tab's title counts what is 
 A goblin's item stays until you answer or clear it, the goblin withdraws it, or the goblin is cleaned up, since you may not have seen it yet.
 Nothing the goblin reports closes it, done included.
 A wait also closes when the CFO answers it, a delivered document stays even after its goblin is cleaned up, and the CFO can clear a stale item with a reason.
-Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
+Several items stack up one card at a time; [the board reference](docs/native-board.md#deliberate-cfo-questions) describes their order and navigation.
 Closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 **Back** to a question you answered shows it with your answer checked and its other choices open: pick another and **Change answer** sends the change once.

@@ -4,9 +4,6 @@ import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
-// Two questions the CFO has for the Overlord, each long enough that its card
-// scrolls in the Command Center. Open opens the first, as a notification or
-// the counter does.
 const details = Array.from({ length: 40 }, (_, n) => "- Detail " + (n + 1) + " of what changes and why it matters to the board.").join("\n");
 const question = (id: string, created_at: string, text: string) => ({ id, identity: "i-" + id, task: "", created_at, status: "pending", options: ["Build as drawn", "Change it first"], recommended: "Build as drawn", text: text + "\n" + details });
 const card = new URLSearchParams(location.search).get("card") || "question:build-the-paused-divider";

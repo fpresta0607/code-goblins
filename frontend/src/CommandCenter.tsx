@@ -266,8 +266,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const move = (step: number) => { const next = stack[index + step]; if (next) show(next.key); };
   // Back and Next with the card's place in the stack lead the card's own
   // action row, whose right end holds its answer. Next leaves the item as it
-  // is and shows the next, and closing keeps every item. Skip, which clears
-  // an item, is the card's own, at its top.
+  // is and shows the next, and closing keeps every item.
   const pager: ReactNode = stack.length > 1 ? <div className="stack-pager" role="group" aria-label="Move between items">
     <button type="button" disabled={index === 0} onClick={() => move(-1)}>Back</button>
     <span className="stack-count">{index + 1} of {stack.length}</span>
