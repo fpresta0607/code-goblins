@@ -45,7 +45,7 @@ func TestReadSumsOnlyActionsNetByRepository(t *testing.T) {
 		{"date":"2026-10-02","product":"packages","repositoryName":"example-user/other","netAmount":20},
 		{"date":"2026-09-30","product":"actions","repositoryName":"example-user/old","netAmount":40}
 	]}`}
-	reading := (Reader{Commands: runner}).Read(context.Background(), now)
+	reading := (Reader{Commands: runner}).Read(context.Background(), now, now.Format("2006-01"))
 	if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != 8.5 || reading.Month != "2026-10" || !reading.ReadAt.Equal(now) {
 		t.Fatalf("reading = %+v", reading)
 	}
@@ -72,7 +72,7 @@ func TestReadReportsUnavailableWithoutGuessing(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runner := &billingRunner{usage: test.usage, failure: test.failure}
-			reading := (Reader{Commands: runner}).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC))
+			reading := (Reader{Commands: runner}).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
 			if reading.Status != "unavailable" || reading.TotalUSD != nil || reading.Detail == "" {
 				t.Fatalf("reading = %+v", reading)
 			}
@@ -89,25 +89,52 @@ func TestReadReportsUnavailableWithoutGuessing(t *testing.T) {
 func TestReadRequiresASignedInAccount(t *testing.T) {
 	for _, account := range []string{`{}`, `invalid`} {
 		runner := &billingRunner{account: account}
-		reading := (Reader{Commands: runner}).Read(context.Background(), time.Now())
+		reading := (Reader{Commands: runner}).Read(context.Background(), time.Now(), "2026-10")
 		if reading.TotalUSD != nil || reading.Status != "unavailable" || len(runner.requests) != 1 {
 			t.Fatalf("reading = %+v, requests = %d", reading, len(runner.requests))
 		}
 	}
 }
 
-func TestReadUsesTheCurrentUTCCalendarMonth(t *testing.T) {
+func TestReadUsesTheSelectedCalendarMonth(t *testing.T) {
 	now := time.Date(2026, 12, 31, 21, 0, 0, 0, time.FixedZone("fixture-west", -6*60*60))
 	runner := &billingRunner{usage: `{"usageItems":[]}`}
-	reading := (Reader{Commands: runner}).Read(context.Background(), now)
-	if reading.Month != "2027-01" || strings.Join(runner.requests[1].Args, " ") != "api users/example-user/settings/billing/usage?year=2027&month=1" {
+	reading := (Reader{Commands: runner}).Read(context.Background(), now, now.Format("2006-01"))
+	if reading.Month != "2026-12" || strings.Join(runner.requests[1].Args, " ") != "api users/example-user/settings/billing/usage?year=2026&month=12" {
 		t.Fatalf("reading = %+v, request = %+v", reading, runner.requests[1])
+	}
+}
+
+func TestReadSelectsReportWithoutChangingTheReadingTime(t *testing.T) {
+	now := time.Date(2026, 11, 1, 0, 30, 0, 0, time.UTC)
+	runner := &billingRunner{usage: `{"usageItems":[
+		{"date":"2026-10-31","product":"actions","repositoryName":"example-user/fern","netAmount":8.5},
+		{"date":"2026-11-01","product":"actions","repositoryName":"example-user/fern","netAmount":40}
+	]}`}
+	reading := (Reader{Commands: runner}).Read(context.Background(), now, "2026-10")
+	if reading.Month != "2026-10" || reading.TotalUSD == nil || *reading.TotalUSD != 8.5 || !reading.ReadAt.Equal(now) || !reading.CheckedAt.Equal(now) {
+		t.Fatalf("reading = %+v", reading)
+	}
+	if got := strings.Join(runner.requests[1].Args, " "); got != "api users/example-user/settings/billing/usage?year=2026&month=10" {
+		t.Fatalf("billing command = %s", got)
+	}
+}
+
+func TestReadRejectsInvalidMonthsBeforeCallingGitHub(t *testing.T) {
+	for _, month := range []string{"", "2026-00", "2026-13", "2026-1", "2026-10-01", "../user"} {
+		t.Run(month, func(t *testing.T) {
+			runner := &billingRunner{}
+			reading := (Reader{Commands: runner}).Read(context.Background(), time.Now(), month)
+			if reading.Status != "unavailable" || reading.TotalUSD != nil || len(runner.requests) != 0 {
+				t.Fatalf("reading = %+v, requests = %d", reading, len(runner.requests))
+			}
+		})
 	}
 }
 
 func TestReadEmptyUsageIsMeasuredZero(t *testing.T) {
 	runner := &billingRunner{usage: `{"usageItems":[]}`}
-	reading := (Reader{Commands: runner}).Read(context.Background(), time.Now())
+	reading := (Reader{Commands: runner}).Read(context.Background(), time.Now(), "2026-10")
 	if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != 0 || len(reading.Repositories) != 0 {
 		t.Fatalf("reading = %+v", reading)
 	}
@@ -119,7 +146,7 @@ func TestReadFiltersZeroNetAfterSummingTheRepository(t *testing.T) {
 		{"date":"2026-10-02","product":"actions","repositoryName":"example-user/offset","netAmount":-1.25},
 		{"date":"2026-10-02","product":"actions","repositoryName":"example-user/credit","netAmount":-0.5}
 	]}`}
-	reading := (Reader{Commands: runner}).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC))
+	reading := (Reader{Commands: runner}).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
 	if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != -0.5 || len(reading.Repositories) != 1 || reading.Repositories[0].Name != "example-user/credit" {
 		t.Fatalf("reading = %+v", reading)
 	}
@@ -129,7 +156,7 @@ func TestReadAcceptsBillingTimestampsAndDocumentedDates(t *testing.T) {
 	for _, date := range []string{"2026-10-02", "2026-10-02T00:00:00Z", "2026-10-02T00:00:00.000Z", "2026-11-01T00:30:00+02:00"} {
 		t.Run(date, func(t *testing.T) {
 			runner := &billingRunner{usage: `{"usageItems":[{"date":"` + date + `","product":"Actions","repositoryName":"example-user/fern","netAmount":2.25}]}`}
-			reading := (Reader{Commands: runner}).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC))
+			reading := (Reader{Commands: runner}).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
 			if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != 2.25 {
 				t.Fatalf("reading = %+v", reading)
 			}

@@ -33,12 +33,14 @@ import { ActionsSpendHeader } from "./actions-spend-header";
 // many wait is its one way to whatever is there.
 export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot: Snapshot; now: number; onOpen: (source: HTMLElement) => void; onCommand: () => void; onStart: () => void }) {
   const { waiting, line } = cfoSummary(snapshot);
+  const date = new Date(now);
+  const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
   if (snapshot.cfo_closed || snapshot.cfo_configured && !snapshot.cfo_runs) return <div className="cfo-pin">
     <div className="cfo-rest" role="group" aria-label="CFO">
       <span className="cfo-rest-portrait"><Avatar persona="cfo" /></span>
       <p>{snapshot.cfo_closed ? "The CFO is closed." : "The CFO is not running."}</p>
       <ReopenCfoButton snapshot={snapshot} />
-      <ActionsSpendHeader usage={snapshot.actions_spend} month={new Date(now).toISOString().slice(0, 7)} />
+      <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
     </div>
   </div>;
   const absent = !snapshot.cfo_runs;
@@ -54,7 +56,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
     <DialogueBox persona="cfo" speaker="CFO" label="CFO" portrait={{ label: terminal, onClick: onOpen }}
       actions={<>
         {dials}
-        <ActionsSpendHeader usage={snapshot.actions_spend} month={new Date(now).toISOString().slice(0, 7)} />
+        <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
         <button className="pixel-button cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>
         <button className="icon-button pixel-icon" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>
       </>}>
@@ -68,7 +70,7 @@ export function CfoPin({ snapshot, now, onOpen, onCommand, onStart }: { snapshot
         : <button className="cfo-rest-portrait" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Avatar persona="cfo" /></button>}
       {status}
       {dials}
-      <ActionsSpendHeader usage={snapshot.actions_spend} month={new Date(now).toISOString().slice(0, 7)} />
+      <ActionsSpendHeader usage={snapshot.actions_spend} month={month} instance={snapshot.instance} now={now} />
       {absent && <button className="labelled-button primary" onClick={onStart}><Icon name="play" />Start the CFO</button>}
       {!absent && waiting > 0 && <button className="pixel-button outline cfo-command" aria-label={waits} onClick={onCommand}>{command}<span className="cfo-command-count" aria-hidden="true">{waiting}</span></button>}
       {!absent && <button className="icon-button raised" aria-label={terminal} data-tip={terminal} onClick={(event) => onOpen(event.currentTarget)}><Icon name="terminal" /></button>}

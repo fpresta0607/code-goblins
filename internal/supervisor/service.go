@@ -149,7 +149,7 @@ type Options struct {
 	// never while a board is built, and each source is read with the profile
 	// and environment its session started with.
 	KeySpend     func(ctx context.Context, source openrouter.Source) openrouter.Reading
-	ActionsSpend func(ctx context.Context, now time.Time) actionsbilling.Reading
+	ActionsSpend func(ctx context.Context, now time.Time, month string) actionsbilling.Reading
 	// UserEnvironment is the environment Windows gives a new process of this
 	// user, which every goblin's terminal starts from and which names Pi's
 	// own profile and any key in it; nil is this machine's, read the way a
@@ -409,11 +409,10 @@ type Service struct {
 	// live Pi sessions use, by source key; keySpendPlan is what the last
 	// snapshot found live sessions using, which the dials' timer reads, and
 	// keySpendReadAt is when it last began.
-	keySpendReadings    map[string]openrouter.Reading
-	keySpendPlan        keySpendPlan
-	keySpendReadAt      time.Time
-	actionsSpendReading actionsbilling.Reading
-	actionsSpendReadAt  time.Time
+	keySpendReadings     map[string]openrouter.Reading
+	keySpendPlan         keySpendPlan
+	keySpendReadAt       time.Time
+	actionsSpendReadings map[string]*actionsSpendEntry
 	// allowance is the last reading quota-axi gave of each provider's
 	// allowance, which AFK mode's switch takes rather than reading its own.
 	allowance map[string]keptAllowance
@@ -2169,7 +2168,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	out.KeySpend = s.keySpendUsage(cfo, out)
 	if s.Options.ActionsSpend != nil && !s.Options.Example {
-		reading := s.actionsSpendUsage(out.At)
+		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"))
 		out.ActionsSpend = &reading
 	}
 	return out, nil

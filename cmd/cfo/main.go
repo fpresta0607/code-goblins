@@ -191,7 +191,7 @@ type commandRuntime struct {
 	// keySpend reads the spend the OpenRouter key of one Pi credential source
 	// reports at the provider, for the board's dial.
 	keySpend     func(context.Context, openrouter.Source) openrouter.Reading
-	actionsSpend func(context.Context, time.Time) actionsbilling.Reading
+	actionsSpend func(context.Context, time.Time, string) actionsbilling.Reading
 	// now is the clock a quota reading is judged by, so a test's reading
 	// keeps the date it was taken on; nil is the real clock.
 	now func() time.Time
