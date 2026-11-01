@@ -96,7 +96,7 @@ func helperRefusal(parentID, key, subject string, carried, named []string) strin
 		subject += "s"
 		continues = "which are"
 	}
-	return fmt.Sprintf("spawn: the helper's brief names the %s %s, %s not among what its parent %s carries. A helper narrows what its parent carries and never widens it: its %s line names some of %s, or %s: %s, and a line it leaves out is its parent's",
+	return fmt.Sprintf("spawn: the helper's brief names the %s %s, %s not among what its parent %s carries. A helper narrows what its parent carries and never widens it: its %s line names some of %s, or %s: %s. Both credentials and mcp lines must be explicit",
 		subject, strings.Join(added, ", "), continues, parentID, key, namesOr(carried, auth.NoServices), key, auth.NoServices)
 }
 

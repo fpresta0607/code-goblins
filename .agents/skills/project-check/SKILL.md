@@ -54,7 +54,7 @@ This skill is the part a command cannot do: prove the project's commands by runn
      That line names what loads the env file, and those are the commands that would read production through it.
      A test the line says does not load the file may be run.
    - Run no test while the report holds a `terminal-reaches-production` line that names a credential your own terminal carries.
-     Your terminal carries the services your brief names on its `credentials:` line, or with no such line the ones the line says every task carries.
+     Determine what your terminal carries under [Credentials by need](../../../docs/contract/authentication.md#credentials-by-need).
      Record the command as not run and say why.
    - Never run a command from the line `instruction-deploy-never-run`.
      Confirm only that its program is there.

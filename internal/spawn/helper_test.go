@@ -175,3 +175,42 @@ func TestNotifyInstructionTellsAHelperToReportToItsParentAndNeverPush(t *testing
 		t.Errorf("a scout is offered helpers:\n%s", scout)
 	}
 }
+
+func TestHelperRefusalRecommendsExplicitAuthenticationChoices(t *testing.T) {
+	for _, test := range []struct {
+		name, key, subject string
+		carried, named     []string
+		isRefused          bool
+	}{
+		{"wider credentials", "credentials", "service", []string{"source"}, []string{"source", "database"}, true},
+		{"wider mcp", "mcp", "MCP server", []string{"docs"}, []string{"docs", "database"}, true},
+		{"no parent credentials", "credentials", "service", nil, []string{"database"}, true},
+		{"no parent mcp", "mcp", "MCP server", nil, []string{"database"}, true},
+		{"explicit subset", "credentials", "service", []string{"source", "database"}, []string{"source"}, false},
+		{"explicit none", "mcp", "MCP server", []string{"docs"}, nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			allowed := namesOr(test.carried, "none")
+
+			// Act
+			refusal := helperRefusal("parent", test.key, test.subject, test.carried, test.named)
+
+			// Assert
+			if !test.isRefused {
+				if refusal != "" {
+					t.Fatalf("explicit allowed choice refused: %s", refusal)
+				}
+				return
+			}
+			for _, want := range []string{"never widens it", "its " + test.key + " line names some of " + allowed, test.key + ": none", "Both credentials and mcp lines must be explicit"} {
+				if !strings.Contains(refusal, want) {
+					t.Errorf("refusal = %q, want %q", refusal, want)
+				}
+			}
+			if strings.Contains(refusal, "leaves out") || strings.Contains(refusal, "inherit") {
+				t.Errorf("refusal recommends implicit inheritance: %s", refusal)
+			}
+		})
+	}
+}
