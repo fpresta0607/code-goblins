@@ -44,19 +44,9 @@ func pinnedReferences(dataDir string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	fence := ""
+	var blocks indexCodeBlocks
 	for lineNumber, line := range strings.Split(string(content), "\n") {
-		trimmed := strings.TrimLeft(line, " ")
-		if len(line)-len(trimmed) <= 3 && len(trimmed) >= 3 && (trimmed[0] == '`' || trimmed[0] == '~') {
-			marker := trimmed[:1]
-			width := len(trimmed) - len(strings.TrimLeft(trimmed, marker))
-			if fence == "" && width >= 3 && (marker == "~" || !strings.Contains(trimmed[width:], "`")) {
-				fence = trimmed[:width]
-			} else if fence != "" && strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed[width:], " \t\r") == "" {
-				fence = ""
-			}
-		}
-		if fence != "" || !slices.Contains(trailingAnnotations(line), "<!--P-->") {
+		if blocks.isLiteral(line) || !slices.Contains(trailingAnnotations(line), "<!--P-->") {
 			continue
 		}
 		destinations, err := indexDestinations(line)

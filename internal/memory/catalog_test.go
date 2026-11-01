@@ -456,6 +456,116 @@ func TestFencedIndexExamplesRemainLiteralAcrossConsumers(t *testing.T) {
 	}
 }
 
+func TestIndexCodeExamplesRespectContainerBoundaries(t *testing.T) {
+	// Oracle: CommonMark 0.31.2 code/container rules; adjacent prose pins remain active.
+	const example = "[Example](not-a-real-fact.md) - sample <!--P-->\n"
+	for _, test := range []struct{ name, example, activePrefix string }{
+		{"quoted fence", "> ```markdown\n> " + example + "> ```\n", "> "},
+		{"quoted tilde fence", "> ~~~markdown\n> " + example + "> ~~~~\n", "> "},
+		{"nested quotes", "> > ```\n> > " + example + "> > ```\n", "> > "},
+		{"four spaces", "    " + example, ""},
+		{"code after thematic break", "- - -\n    " + example, ""},
+		{"code after setext heading", "Heading\n===\n    " + example, ""},
+		{"tab", "\t" + example, ""},
+		{"mixed indentation", " \t" + example, ""},
+		{"indented fence is code", "    ```\n    " + example, ""},
+		{"quoted indentation", ">     " + example, "> "},
+		{"quoted tab", ">\t\t" + example, "> "},
+		{"list fence", "- ```\n  " + example + "  ```\n", "  "},
+		{"ordered list fence", "12. ~~~\n    " + example + "    ~~~\n", "    "},
+		{"nested list fence", "- outer\n  - ```\n    " + example + "    ```\n", "    "},
+		{"quote inside list", "- > ```\n  > " + example + "  > ```\n", "  > "},
+		{"list inside quote", "> - ```\n>   " + example + ">   ```\n", ">   "},
+		{"list indented code", "- item\n\n      " + example, "  "},
+		{"list initial indented code", "-     " + example, "  "},
+		{"list tab indented code", "-\t\t" + example, "  "},
+		{"quote list indented code", "> - item\n>\n>       " + example, ">   "},
+		{"short fence stays literal", "> ````\n> ```\n> " + example + "> ````\n", "> "},
+		{"other fence stays literal", "> ~~~\n> ```\n> " + example + "> ~~~\n", "> "},
+		{"text cannot close fence", "> ```\n> ```text\n> " + example + "> ```\n", "> "},
+		{"separated markers cannot close fence", "> ```\n> ``` ```\n> " + example + "> ```\n", "> "},
+		{"indented markers cannot close fence", "> ```\n>     ```\n> " + example + "> ```\n", "> "},
+		{"quote exit ends fence", "> ```\n> " + example, ""},
+		{"list sibling ends fence", "- ```\n  " + example, "- "},
+		{"nested container exit", "> - ```\n>   " + example, "> "},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			fact := []byte("Keep this adjacent preference verbatim.\n")
+			writeMemoryFile(t, dir, "memory/preference.md", fact)
+			index := []byte("# Index\n\n" + test.example + test.activePrefix + "[Preference](preference.md) - owner choice <!--P-->\n")
+			writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+			catalog.Sources = append(catalog.Sources,
+				Source{Path: "memory/MEMORY.md", SHA256: Hash(index), Entries: []Entry{{ID: "index", End: len(index), SHA256: Hash(index), Authority: "fact", Location: "warm"}}},
+				Source{Path: "memory/preference.md", SHA256: Hash(fact), Entries: []Entry{{ID: "preference", End: len(fact), SHA256: Hash(fact), Authority: "fact", Location: "warm"}}},
+			)
+			writeCatalog(t, dir, catalog)
+
+			loaded, err := Load(dir, referenceDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+			if err != nil || !strings.Contains(text, "tier=pinned") || !strings.Contains(text, string(fact)) {
+				t.Fatalf("adjacent active pin lost authority: %s, %v", text, err)
+			}
+			text, err = loaded.Retrieve(Query{}, referenceDate)
+			if err != nil || !strings.Contains(text, string(index)) || !strings.Contains(loaded.Routes(2000), "project: ports") {
+				t.Fatalf("literal code bytes or routes were lost: %s, %v", text, err)
+			}
+			if _, err := MemoryReport(dir, referenceDate); err != nil {
+				t.Fatal(err)
+			}
+			for _, hasCatalog := range []bool{true, false} {
+				if !hasCatalog {
+					if err := os.Remove(filepath.Join(dir, filepath.FromSlash(CatalogPath))); err != nil {
+						t.Fatal(err)
+					}
+				}
+				plan, err := PlanMigration(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, file := range plan.Files {
+					if file.Path == "memory/MEMORY.md" && file.RetainedSHA256 != Hash(index) {
+						t.Fatal("inventory changed literal index bytes")
+					}
+					if file.Path == "memory/preference.md" && (file.Moves[0].Tier != "pinned" || !file.Moves[0].NeedsApproval) {
+						t.Fatal("inventory lost the adjacent active pin")
+					}
+				}
+			}
+			index = append(index, []byte(test.activePrefix+"[Real](missing.md) - unresolved pin <!--P-->\n")...)
+			writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+			if _, err := PlanMigration(dir); err == nil || !strings.Contains(err.Error(), "missing.md") {
+				t.Fatalf("adjacent unresolved pin was hidden: %v", err)
+			}
+		})
+	}
+}
+
+func TestIndentedParagraphPinsRemainActive(t *testing.T) {
+	// CommonMark indented code cannot interrupt an existing paragraph.
+	for _, prefix := range []string{
+		"Paragraph\n    ",
+		"> Paragraph\n>     ",
+		"> Paragraph\n    ",
+		"- Paragraph\n      ",
+		"Paragraph\n2. ```\n   ",
+	} {
+		t.Run(prefix, func(t *testing.T) {
+			dir := t.TempDir()
+			writeMemoryFile(t, dir, "memory/MEMORY.md", []byte(prefix+"[Real](missing.md) - unresolved pin <!--P-->\n"))
+
+			_, err := PlanMigration(dir)
+
+			if err == nil || !strings.Contains(err.Error(), "missing.md") {
+				t.Fatalf("indented paragraph hid a real unresolved pin: %v", err)
+			}
+		})
+	}
+}
+
 func TestUnresolvedIndexPinsCannotAuthorizeColdMemory(t *testing.T) {
 	for _, link := range []string{
 		"[Project](project(2026.md)",
