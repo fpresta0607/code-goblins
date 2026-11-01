@@ -96,7 +96,7 @@ func (h *HTTP) hasDocumentReference(r *http.Request, transcript, target string) 
 	defer cancel()
 	before := -1
 	for ctx.Err() == nil {
-		page, _, err := h.messagePage(transcript, before)
+		page, _, err := h.Service.Options.Tree.MessagePageContext(ctx, transcript, before)
 		if err != nil || ctx.Err() != nil {
 			return false
 		}
