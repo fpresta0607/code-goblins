@@ -47,7 +47,7 @@ def run(arguments, directory, environment, check=True, is_cleanup=False):
     arguments = [str(value) for value in arguments]
     timeout = min(60 if is_cleanup else 180, remaining(is_cleanup))
     with subprocess.Popen(arguments, cwd=directory, env=environment, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=True, creationflags=CREATE_NO_WINDOW) as process:
+                          stderr=subprocess.PIPE, creationflags=CREATE_NO_WINDOW) as process:
         record = track(process, arguments[0])
         try:
             stdout, stderr = process.communicate(timeout=timeout)
@@ -57,7 +57,9 @@ def run(arguments, directory, environment, check=True, is_cleanup=False):
             raise
         finally:
             record['exit_code'] = process.poll()
-        result = subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+        result = subprocess.CompletedProcess(arguments, process.returncode,
+                                             stdout.decode('utf-8', errors='strict'),
+                                             stderr.decode('utf-8', errors='strict'))
         if check:
             result.check_returncode()
         return result
@@ -99,7 +101,7 @@ def observe_native_run(native, home, binding, directory, environment, root, scen
         if json.loads((home / 'daemon.pid').read_text()) != identity or '(pid ' + str(identity['pid']) + ')' not in daemon_status.stdout:
             raise RuntimeError('The bound private daemon identity is no longer live.')
         status = run([native, 'axi', 'status', '--run', binding['id']], directory, environment)
-        with (root / (scenario + '-status.log')).open('a') as target:
+        with (root / (scenario + '-status.log')).open('a', encoding='utf-8') as target:
             target.write(status.stdout + status.stderr + '\n')
         lines = status.stdout.splitlines()
         if not lines or lines[0] != 'run:':
@@ -242,7 +244,7 @@ def main():
             command = [str(native), 'axi', 'run', '--intent-file', str(root / 'intent.txt'), '--wait', '90s']
             if scenario == 'admission':
                 write(root / 'hold.py', 'import pathlib,sys,time\np=pathlib.Path(__file__).parent\n(p/("holder-started-"+sys.argv[1])).touch()\nwhile not (p/"holder-release").exists(): time.sleep(.05)\n')
-                with (root / 'holder.log').open('w') as holder_log, (root / 'admission-drive.log').open('w') as drive_log:
+                with (root / 'holder.log').open('w', encoding='utf-8') as holder_log, (root / 'admission-drive.log').open('w', encoding='utf-8') as drive_log:
                     for number in range(2):
                         holders.append(subprocess.Popen([str(consumer), 'gate', 'turn', '--as', 'admission holder ' + str(number), '--', sys.executable, str(root / 'hold.py'), str(number)],
                                                         cwd=root, env=environment, stdout=holder_log, stderr=subprocess.STDOUT,
@@ -268,7 +270,7 @@ def main():
                                 break
                             if driving.poll() is not None:
                                 record, test = observe_native_run(native, native_home, binding, owner, environment, root, scenario, is_waiting=False)
-                                client_output = (root / 'admission-drive.log').read_text()
+                                client_output = (root / 'admission-drive.log').read_text(encoding='utf-8')
                                 is_client_hold = driving.returncode == 1 and 'wait of 1m30s elapsed while driving the run' in client_output
                                 if driving.returncode != 0 and not is_client_hold or record['status'] != 'running' or test['exit_code'] is not None:
                                     raise RuntimeError('The native admission client ended without an active bound run.')
@@ -293,7 +295,7 @@ def main():
                 write(root / (scenario + '-drive.log'), driven.stdout + driven.stderr)
                 binding = bind_native_run(native_home, 'feat/binding-' + scenario, checkout, head)
                 proof['bound_runs'][scenario] = binding
-            client_output = (root / (scenario + '-drive.log')).read_text()
+            client_output = (root / (scenario + '-drive.log')).read_text(encoding='utf-8')
             is_client_hold = drive_exit == 1 and 'wait of 1m30s elapsed while driving the run' in client_output
             if drive_exit != 0 and not is_client_hold:
                 raise RuntimeError('The native client failed outside its bounded hold contract.')
