@@ -106,6 +106,9 @@ func TestPickUpRootsQueuesAnOpenRootOnceWithABriefThatClosesIt(t *testing.T) {
 			t.Errorf("brief lacks %q:\n%s", want, brief)
 		}
 	}
+	if err := fleet.ValidateBriefReadiness(brief); err != nil {
+		t.Fatalf("generated root brief is not ready: %v", err)
+	}
 	if strings.Contains(string(brief), "ops-root: test") {
 		t.Errorf("brief keeps the issue's marker:\n%s", brief)
 	}

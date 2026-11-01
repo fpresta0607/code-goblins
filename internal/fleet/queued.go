@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -83,6 +84,14 @@ func BriefStepCards() string {
 // detail line under it, and never replaces a brief that already exists.
 func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
 	row := queued.Row
+	body := QueuedBriefText(queued)
+	manifest, err := auth.LoadManifest(h.Data, row.Repo)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if defaults := manifest.Grant(auth.Need{IsUnstated: true}).Services; len(defaults) > 0 {
+		body = strings.Replace(body, "credentials: none\n", "credentials: "+strings.Join(defaults, ", ")+"\n", 1)
+	}
 	brief := filepath.Join(h.Data, row.ID, "brief.md")
 	if err := os.MkdirAll(filepath.Dir(brief), 0o700); err != nil {
 		return err
@@ -91,7 +100,7 @@ func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
 	if err != nil {
 		return err
 	}
-	_, writeErr := file.WriteString(QueuedBriefText(queued))
+	_, writeErr := file.WriteString(body)
 	if err := errors.Join(writeErr, file.Close()); err != nil {
 		return errors.Join(err, os.Remove(brief))
 	}
@@ -110,7 +119,7 @@ func QueuedBriefText(queued QueuedTask) string {
 	if kind == "" {
 		kind = "ship"
 	}
-	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID), BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
+	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\ncredentials: none\nmcp: none\n\nThe brief records the project manifest's default services when it is written. The CFO grants another with cfo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\nready: true\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID), BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
 }
 
 // AppendQueuedTask adds row, the backlog row of task id, at the bottom of the

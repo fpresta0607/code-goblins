@@ -117,7 +117,6 @@ func TestSpawnRefusesAHelperOutsideLocalOnlyBeforeAnyMutation(t *testing.T) {
 	// Arrange
 	f := newFixture(t)
 	f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h1", "direct-PR"
-	writeFile(t, f.brief, "Do the work.\n")
 
 	// Act
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -137,7 +136,6 @@ func TestSpawnRefusesASecondHelperUnderTheSpawnLockBeforeAnyMutation(t *testing.
 	writeParent(t, f.stateDir, state.TaskMeta{ID: "g1", Project: f.project, Worktree: f.worktree})
 	writeParent(t, f.stateDir, state.TaskMeta{ID: "g1-h1", Project: f.project, Worktree: f.worktree + "-h1", Parent: "g1"})
 	f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h2", "local-only"
-	writeFile(t, f.brief, "Do the work.\n")
 
 	// Act
 	_, err := f.service.Spawn(context.Background(), f.request)

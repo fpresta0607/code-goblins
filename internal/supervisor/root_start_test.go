@@ -231,7 +231,7 @@ func TestRootStartUsesATicketWhenNoPickupOrGeneratedBriefRemains(t *testing.T) {
 	if err := os.Remove(filepath.Join(h.State, rootPickupsFile)); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), "## Project\nwidgets\n## Task\nResolve the root.\n")
+	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", "widgets"))
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] root-widgets-7 - Resolve the root (repo: widgets)\n")
 	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "root-widgets-7", Repository: rootRepository, Number: 7, IsClaimed: true}); err != nil {
 		t.Fatal(err)

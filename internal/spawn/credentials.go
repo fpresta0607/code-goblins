@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -19,11 +18,7 @@ import (
 // what its parent carries and never widens it, so each line its brief states
 // must name no more than its parent has, and a line its brief leaves out is
 // its parent's.
-func (s Service) spawnNeed(req Request) (auth.Need, error) {
-	brief, err := fsx.ReadFile(req.BriefPath)
-	if err != nil {
-		return auth.Need{}, fmt.Errorf("spawn: read brief: %w", err)
-	}
+func (s Service) spawnNeed(req Request, brief []byte) (auth.Need, error) {
 	need, err := auth.NeedFromBrief(string(brief))
 	if err != nil {
 		return auth.Need{}, fmt.Errorf("spawn: %w", err)

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -298,7 +299,15 @@ func queueRoot(h home.Home, name, id string, issue tickets.OpenRoot) error {
 		return err
 	}
 	if _, err := os.Stat(brief); errors.Is(err, os.ErrNotExist) {
-		if err := fsx.AtomicWriteFile(brief, []byte(rootBrief(name, id, issue))); err != nil {
+		body := rootBrief(name, id, issue)
+		manifest, err := auth.LoadManifest(h.Data, name)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if defaults := manifest.Grant(auth.Need{IsUnstated: true}).Services; len(defaults) > 0 {
+			body = strings.Replace(body, "credentials: none\n", "credentials: "+strings.Join(defaults, ", ")+"\n", 1)
+		}
+		if err := fsx.AtomicWriteFile(brief, []byte(body)); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -372,7 +381,10 @@ Change only what this root needs. %s %s
 
 ## Authentication
 
-This brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s
+credentials: none
+mcp: none
+
+The brief records the project manifest's default services when it is written. The CFO grants another with cfo auth grant. %s
 
 ## Commits
 
@@ -382,6 +394,7 @@ Never name an AI product, company, model, agent or assistant identity as a commi
 
 kind: ship
 mode: direct-PR
+ready: true
 `, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), fleet.BriefStepCards())
 }
 

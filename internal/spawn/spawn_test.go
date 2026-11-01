@@ -25,6 +25,8 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
+const completedSpawnBrief = "## Task\nDo the work.\n## Acceptance criteria\nThe requested behavior works.\n## Constraints\nChange only the requested behavior.\n## Authentication\ncredentials: none\nmcp: none\n## Delivery\nkind: ship\nmode: no-mistakes\nready: true\n"
+
 func TestSpawnSnapshotsTaskClassPolicy(t *testing.T) {
 	f := newQuickFixture(t)
 	f.service.PolicyPath = filepath.Join("..", "..", "config", "pipeline.json")
@@ -102,7 +104,7 @@ func TestSpawnPublishesTheTaskTitle(t *testing.T) {
 func TestSpawnGivesTheGoblinANameAndATitleThatNamesItsWork(t *testing.T) {
 	// Arrange
 	f := newQuickFixture(t)
-	writeFile(t, f.request.BriefPath, "# Brief task-7\n\n## Task\n\nKeep the Fly token green until it expires.\n\nDelivery contract: mode=no-mistakes\n")
+	writeFile(t, f.request.BriefPath, strings.ReplaceAll(completedSpawnBrief, "Do the work.", "Keep the Fly token green until it expires."))
 
 	// Act
 	result, err := f.service.Spawn(context.Background(), f.request)
@@ -196,7 +198,7 @@ func TestSpawnRefusesMissingBriefAndDeliveryMismatchBeforeLock(t *testing.T) {
 		t.Fatalf("missing brief created state directory: stat error = %v", statErr)
 	}
 
-	writeFile(t, brief, "Delivery contract: mode=direct-PR\n")
+	writeFile(t, brief, completedSpawnBrief+"Delivery contract: mode=direct-PR\n")
 	_, err = service.Spawn(context.Background(), Request{
 		ID:        "mode-mismatch",
 		Project:   project,
@@ -218,7 +220,7 @@ func TestSpawnRefusesUnsupportedHarnessBeforeFilesystemMutation(t *testing.T) {
 	stateDir := filepath.Join(root, "state")
 	project := makeDir(t, filepath.Join(root, "project"))
 	brief := filepath.Join(root, "brief.md")
-	writeFile(t, brief, "Delivery contract: mode=no-mistakes\n")
+	writeFile(t, brief, completedSpawnBrief+"Delivery contract: mode=no-mistakes\n")
 	service := Service{StateDir: stateDir, Project: project}
 
 	_, err := service.Spawn(context.Background(), Request{
@@ -263,7 +265,7 @@ func TestSpawnRefusesEmptyDeliveryModeLine(t *testing.T) {
 	stateDir := filepath.Join(root, "state")
 	project := makeDir(t, filepath.Join(root, "project"))
 	brief := filepath.Join(root, "brief.md")
-	writeFile(t, brief, "Delivery contract: mode=\n")
+	writeFile(t, brief, completedSpawnBrief+"Delivery contract: mode=\n")
 	service := Service{StateDir: stateDir, Project: project}
 
 	_, err := service.Spawn(context.Background(), Request{
@@ -843,7 +845,7 @@ func TestSpawnRemovesTheCapsuleOfASpawnThatFailsBeforePublishing(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return "", err
 		}
-		return brief, os.WriteFile(brief, []byte("Delivery contract: mode=no-mistakes\nDo the work.\n\n## CFO durable task capsule\n"), 0o600)
+		return brief, os.WriteFile(brief, []byte(completedSpawnBrief+"\n## CFO durable task capsule\n"), 0o600)
 	}
 	f.git.acquireErr = errors.New("worktree: add worktree refused")
 
@@ -876,7 +878,7 @@ func TestSpawnKeepsTheCapsuleOfALaunchItKeeps(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return "", err
 		}
-		return brief, os.WriteFile(brief, []byte("Delivery contract: mode=no-mistakes\nDo the work.\n\n## CFO durable task capsule\n"), 0o600)
+		return brief, os.WriteFile(brief, []byte(completedSpawnBrief+"\n## CFO durable task capsule\n"), 0o600)
 	}
 	f.userEnv = append(f.userEnv, fakeCodexMode+"=daybreak-inline", fakeCodexDraft+"=An unfinished user draft")
 
@@ -1219,7 +1221,7 @@ func newFixture(t *testing.T) *fixture {
 	project := makeDir(t, filepath.Join(root, "primary"))
 	worktreeDir := makeDir(t, filepath.Join(root, "worktree"))
 	brief := filepath.Join(root, "brief.md")
-	writeFile(t, brief, "Delivery contract: mode=no-mistakes\nDo the work.\n")
+	writeFile(t, brief, completedSpawnBrief)
 	writeFile(t, filepath.Join(project, "primary-marker.txt"), "unchanged")
 
 	fixture := &fixture{stateDir: stateDir, dataDir: dataDir, project: project, worktree: worktreeDir, brief: brief}
@@ -1450,7 +1452,7 @@ func sortedKeys(t *testing.T, stateDir, id string) []string {
 func TestSpawnRefusesABriefThatNeedsServicesItsProjectDoesNotDeclare(t *testing.T) {
 	// Arrange
 	f := newFixture(t)
-	writeFile(t, f.brief, "Delivery contract: mode=no-mistakes\nDo the work.\n\n## Delivery\n\nkind: ship\nmode: no-mistakes\nservices: needed\n")
+	writeFile(t, f.brief, completedSpawnBrief+"services: needed\n")
 
 	// Act
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -1472,7 +1474,7 @@ func TestSpawnRefusesABriefThatNeedsServicesItsProjectDoesNotDeclare(t *testing.
 // need, so a typo cannot start a goblin without its services.
 func TestSpawnRefusesAServicesLineItDoesNotKnow(t *testing.T) {
 	f := newFixture(t)
-	writeFile(t, f.brief, "Delivery contract: mode=no-mistakes\n\n## Delivery\n\nservices: yes\n")
+	writeFile(t, f.brief, completedSpawnBrief+"services: yes\n")
 
 	_, err := f.service.Spawn(context.Background(), f.request)
 

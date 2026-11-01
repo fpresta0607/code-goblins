@@ -1056,6 +1056,10 @@ func briefProject(path string) string {
 	if err != nil {
 		return ""
 	}
+	return parseBriefProject(lines)
+}
+
+func parseBriefProject(lines []string) string {
 	for i, line := range lines {
 		if strings.TrimSpace(line) != "## Project" {
 			continue
