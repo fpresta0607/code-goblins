@@ -69,6 +69,23 @@ func TestMemoryBudgetRejectsCorruptSettingsInsteadOfInferringAnAllowance(t *test
 	}
 }
 
+func TestMemoryReportUsesConfiguredAllowanceForEquivalentDirectories(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "data")
+	writeMemoryFile(t, dir, "overlord.md", []byte("12345"))
+	writeMemoryFile(t, root, "config/startup-memory-budget", []byte("1"))
+	t.Chdir(root)
+	for _, dataDir := range []string{dir, dir + "/", dir + string(filepath.Separator), "data", "data/", "data" + string(filepath.Separator)} {
+		t.Run(dataDir, func(t *testing.T) {
+			report, err := MemoryReport(dataDir, referenceDate)
+
+			if err != nil || report.Budget != 1 || report.Bytes != 5 || report.EstimatedTokens != 2 || !report.IsOverBudget {
+				t.Fatalf("equivalent directory bypassed the configured allowance: %+v, %v", report, err)
+			}
+		})
+	}
+}
+
 func TestMemoryReportCountsCatalogRoutesAndPreservesSourceHashes(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "data")

@@ -79,7 +79,7 @@ func runMemory(args []string, stdout, stderr io.Writer) int {
 		var reports []memory.PackageReport
 		if err == nil {
 			var budget int
-			budget, err = memory.ReadBudget(filepath.Join(filepath.Dir(*dataDir), "config", "startup-context-budget"), 20000)
+			budget, err = memory.ReadBudget(filepath.Join(filepath.Dir(filepath.Clean(*dataDir)), "config", "startup-context-budget"), 20000)
 			if err == nil {
 				reports, err = memory.MeasurePackages(inputs, filepath.Dir(packages), budget)
 			}

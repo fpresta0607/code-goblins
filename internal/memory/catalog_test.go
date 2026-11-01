@@ -310,6 +310,84 @@ func TestWindowsIndexPinsFollowFilesystemIdentity(t *testing.T) {
 	}
 }
 
+func TestIndexPinsResolveMarkdownDestinations(t *testing.T) {
+	for _, test := range []struct{ destination, source string }{
+		{"preferences.md#policy", "preferences.md"},
+		{"preferences%20file.md#policy", "preferences file.md"},
+		{"<preferences file.md#policy>", "preferences file.md"},
+		{"<nested/preferences%20file.md#policy>", "nested/preferences file.md"},
+		{"preferences%23policy.md#section", "preferences#policy.md"},
+		{"preferences.md#policy \"Policy title\"", "preferences.md"},
+		{"<preferences file.md#policy> 'Policy title'", "preferences file.md"},
+	} {
+		t.Run(test.destination, func(t *testing.T) {
+			dir := t.TempDir()
+			index := []byte("- [Preference](" + test.destination + ") - owner choice <!--P-->\n")
+			fact := []byte("Keep the exact preference.\n")
+			source := "memory/" + test.source
+			writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+			writeMemoryFile(t, dir, source, fact)
+			catalog := Catalog{Version: 1, Sources: []Source{
+				{Path: "memory/MEMORY.md", SHA256: Hash(index), Entries: []Entry{{ID: "index", End: len(index), SHA256: Hash(index), Authority: "fact", Location: "warm"}}},
+				{Path: source, SHA256: Hash(fact), Entries: []Entry{{ID: "preference", End: len(fact), SHA256: Hash(fact), Authority: "fact", Location: "warm", Trigger: "preferences", Topics: []string{"preferences"}}}},
+			}}
+			for _, hasCatalog := range []bool{false, true} {
+				if hasCatalog {
+					writeCatalog(t, dir, catalog)
+					loaded, err := Load(dir, referenceDate)
+					if err != nil {
+						t.Fatal(err)
+					}
+					text, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+					if err != nil || !strings.Contains(text, "tier=pinned") || !strings.Contains(text, string(fact)) {
+						t.Fatalf("resolved index link lost its pin or bytes: %s, %v", text, err)
+					}
+				}
+				plan, err := PlanMigration(dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, file := range plan.Files {
+					if file.Path == source && (file.Moves[0].Tier != "pinned" || !file.Moves[0].NeedsApproval || file.RetainedSHA256 != Hash(fact)) {
+						t.Fatalf("inventory lost the resolved index pin: %+v", file)
+					}
+				}
+			}
+			entry := &catalog.Sources[1].Entries[0]
+			entry.Location = "cold"
+			writeCatalog(t, dir, catalog)
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("resolved index link allowed unapproved offload")
+			}
+			entry.Approval = &Approval{By: "Overlord", Quote: "Offload preference only.", Date: "2026-10-30", Destination: source + "#preference"}
+			writeCatalog(t, dir, catalog)
+			if _, err := Load(dir, referenceDate); err != nil {
+				t.Fatalf("individual approval failed for resolved index pin: %v", err)
+			}
+			fact = []byte("A dated preference. <!--a:2026-10-30-->\n")
+			writeMemoryFile(t, dir, source, fact)
+			catalog.Sources[1].SHA256 = Hash(fact)
+			entry.End, entry.SHA256 = len(fact), Hash(fact)
+			writeCatalog(t, dir, catalog)
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("resolved index pin allowed a conflicting dated tier")
+			}
+			if err := os.Remove(filepath.Join(dir, filepath.FromSlash(CatalogPath))); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := PlanMigration(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range plan.Files {
+				if file.Path == source && (file.Moves[0].Tier != "pinned" || !file.Moves[0].NeedsApproval || file.Moves[0].ClassificationError == "" || file.RetainedSHA256 != Hash(fact)) {
+					t.Fatalf("legacy inventory lost conflicting pin or bytes: %+v", file)
+				}
+			}
+		})
+	}
+}
+
 func TestCatalogRejectsBlankRoutingKeysAndColdTriggers(t *testing.T) {
 	for _, location := range []string{"warm", "cold"} {
 		for _, field := range []string{"projects", "tasks", "topics", "trigger"} {

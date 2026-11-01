@@ -171,7 +171,7 @@ func composeLong(h home.Home, current fleetSample, ew *werr) {
 	fmt.Fprintln(&fleetState, "== FLEET STATE ==")
 	summary, _ := briefFleet(current, 3000)
 	fleetState.Write(summary)
-	backlog, err := fleet.ReadBacklog(h)
+	backlog, err := fleet.ReadCurrentBacklog(h)
 	if err != nil {
 		fmt.Fprintf(&fleetState, "backlog.md: UNREADABLE (%s)\n", cutError(err, briefErrorWidth))
 	} else {
@@ -765,7 +765,7 @@ func writeContext(dataDir string, ew *werr) []string {
 		ew.println("Before work, retrieve relevant cold authority and project facts with cfo memory retrieve --project <name> --task <id> --topic <topic>; retrieve a named item with --id <id>.")
 		routes := catalog.Routes(2000)
 		ew.printf("%s", routes)
-		budget, err := memory.ReadBudget(filepath.Join(filepath.Dir(dataDir), "config", "startup-memory-budget"), memory.DefaultBudget)
+		budget, err := memory.ReadBudget(filepath.Join(filepath.Dir(filepath.Clean(dataDir)), "config", "startup-memory-budget"), memory.DefaultBudget)
 		if err != nil {
 			ew.printf("MEMORY BUDGET UNREADABLE: %s; Stow cannot declare reset-safe.\n", err)
 		} else {

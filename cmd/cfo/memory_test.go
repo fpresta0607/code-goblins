@@ -175,6 +175,58 @@ func TestMemoryBudgetReportsLegacyOverrunWithoutDroppingAuthority(t *testing.T) 
 	}
 }
 
+func TestMemoryPackageBudgetUsesConfiguredAllowanceForEquivalentDirectories(t *testing.T) {
+	t.Setenv("CFO_HOME", "")
+	t.Setenv("CFO_STATE_OVERRIDE", "")
+	root := t.TempDir()
+	dir := filepath.Join(root, "data")
+	for _, directory := range []string{dir, filepath.Join(root, "config")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "config", "startup-context-budget"), []byte("7"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "input"), []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var packages []memory.Package
+	for _, harness := range []string{"claude", "codex", "pi"} {
+		startup := memory.Package{Harness: harness}
+		for _, kind := range []string{"core", "global", "memory", "skills-index", "brief", "digest"} {
+			startup.Inputs = append(startup.Inputs, memory.Input{Kind: kind, Path: "input"})
+		}
+		packages = append(packages, startup)
+	}
+	encoded, err := json.Marshal(packages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(root, "packages.json")
+	if err := os.WriteFile(manifest, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	for _, dataDir := range []string{dir, dir + "/", dir + string(filepath.Separator), "data", "data/", "data" + string(filepath.Separator)} {
+		t.Run(dataDir, func(t *testing.T) {
+			var output, diagnostics bytes.Buffer
+
+			code := run([]string{"memory", "budget", "--data", dataDir, "--packages", manifest}, &output, &diagnostics)
+
+			var reports []memory.PackageReport
+			if err := json.Unmarshal(output.Bytes(), &reports); err != nil || code != 0 || len(reports) != 3 {
+				t.Fatalf("package budget exit=%d, output=%s, diagnostics=%s, error=%v", code, output.String(), diagnostics.String(), err)
+			}
+			for _, report := range reports {
+				if report.Budget != 7 || report.Bytes != 30 || report.EstimatedTokens != 8 || !report.IsOverBudget {
+					t.Fatalf("equivalent directory bypassed the package allowance: %+v", report)
+				}
+			}
+		})
+	}
+}
+
 func TestMemoryHelpLoadsOnlyTheEmbeddedMemoryContract(t *testing.T) {
 	for _, topic := range [][]string{{"help", "memory"}, {"help", "contract", "memory"}} {
 		var output, errors bytes.Buffer

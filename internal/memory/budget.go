@@ -42,7 +42,7 @@ type Report struct {
 }
 
 func MemoryReport(dataDir string, now time.Time) (Report, error) {
-	budget, err := ReadBudget(filepath.Join(filepath.Dir(dataDir), "config", "startup-memory-budget"), DefaultBudget)
+	budget, err := ReadBudget(filepath.Join(filepath.Dir(filepath.Clean(dataDir)), "config", "startup-memory-budget"), DefaultBudget)
 	if err != nil {
 		return Report{}, err
 	}

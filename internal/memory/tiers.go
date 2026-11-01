@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -44,17 +45,17 @@ func pinnedReferences(dataDir string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	link := regexp.MustCompile(`\[[^\]]*\]\(<?([^<>\s)]+)>?\)`)
+	link := regexp.MustCompile(`\[[^\]]*\]\((<[^<>\r\n]+>|[^<>\s)]+)(?:[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^\r\n)]*\)))?[ \t]*\)`)
 	for _, line := range strings.Split(string(content), "\n") {
 		if !slices.Contains(trailingAnnotations(line), "<!--P-->") {
 			continue
 		}
 		for _, match := range link.FindAllStringSubmatch(line, -1) {
-			target := path.Join("memory", match[1])
-			if slices.Contains(names, target) {
-				pinned[target] = true
+			reference, err := url.Parse(strings.Trim(match[1], "<>"))
+			if err != nil || reference.IsAbs() || reference.Host != "" || reference.Path == "" {
 				continue
 			}
+			target := path.Join("memory", reference.Path)
 			for _, name := range names {
 				if fsx.SamePath(filepath.Join(dataDir, filepath.FromSlash(target)), filepath.Join(dataDir, filepath.FromSlash(name))) {
 					pinned[name] = true

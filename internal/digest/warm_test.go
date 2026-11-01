@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -89,6 +90,117 @@ func TestStartupSamplesCurrentStateOnceAcrossAllRenderings(t *testing.T) {
 			long, err := os.ReadFile(filepath.Join(h.State, FullDigestFile))
 			if err != nil || endpoint.reads != 1 || !strings.Contains(output.String(), "current=working") || !bytes.Contains(long, []byte("current=working")) {
 				t.Fatalf("startup did not reuse one sample: reads=%d, error=%v", endpoint.reads, err)
+			}
+		})
+	}
+}
+
+func TestStartupQueueUsesCanonicalRowsAcrossCompositionEntryPoints(t *testing.T) {
+	for _, hasCatalog := range []bool{false, true} {
+		for _, entryPoint := range []string{"manual", "saved brief", "read-only"} {
+			for _, queueSize := range []int{1, 6} {
+				t.Run(fmt.Sprintf("catalog=%t/%s/%d", hasCatalog, entryPoint, queueSize), func(t *testing.T) {
+					h := newDigestHome(t)
+					if hasCatalog {
+						if err := os.MkdirAll(filepath.Join(h.Data, "memory"), 0o700); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.WriteFile(filepath.Join(h.Data, "memory", "startup.json"), []byte(`{"version":1,"sources":[]}`), 0o600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					meta := state.TaskMeta{ID: "paused-task", SpawnGen: "current"}
+					if err := state.WriteTaskMeta(h.State, meta); err != nil {
+						t.Fatal(err)
+					}
+					if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause", Action: "pause", Phase: "paused"}); err != nil {
+						t.Fatal(err)
+					}
+					for _, outcome := range []state.Outcome{
+						{ID: "delivered", Phase: "done", Evidence: "verified delivery"},
+						{ID: "next-1", Phase: "stopped", Reason: "queued for another attempt"},
+					} {
+						if err := state.WriteOutcome(h.State, outcome); err != nil {
+							t.Fatal(err)
+						}
+					}
+					backlog := "## Queued\n- **paused-task** - Already dispatched\n- [ ] delivered - Already delivered\n"
+					for index := 1; index <= queueSize; index++ {
+						backlog += fmt.Sprintf("- **next-%d** - Next task %d\n  Detail line\n", index, index)
+					}
+					backlog += "## Parked\n- **parked** - Parked task\n  Held detail\n"
+					if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(backlog), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					canonical, err := fleet.BuildSnapshot(t.Context(), h, &startupTestEndpoint{})
+					if err != nil || len(canonical.Backlog.Queued) != 2*queueSize {
+						t.Fatalf("canonical queue should retain task and detail rows: %+v, %v", canonical.Backlog, err)
+					}
+					var output bytes.Buffer
+					switch entryPoint {
+					case "manual":
+						err = Compose(h, os.Getpid(), "canonical", &output)
+					case "saved brief":
+						err = ComposeBrief(h, os.Getpid(), "canonical", false, false, &output)
+						if err == nil {
+							var saved []byte
+							saved, err = os.ReadFile(filepath.Join(h.State, FullDigestFile))
+							output.Reset()
+							output.Write(saved)
+						}
+					case "read-only":
+						err = ComposeReadOnly(h, "inspection", &output)
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, queue, hasQueue := strings.Cut(output.String(), "Queued:")
+					queue, _, hasEnd := strings.Cut(queue, "Canonical current state:")
+					expected := " 1; parked: 1. First queued tasks (display only):\n- **next-1** - Next task 1\n"
+					if queueSize == 6 {
+						expected = " 6; parked: 1. First queued tasks (display only):\n- **next-1** - Next task 1\n- **next-2** - Next task 2\n- **next-3** - Next task 3\n- **next-4** - Next task 4\n- **next-5** - Next task 5\n(+1 more queued)\n"
+					}
+					if !hasQueue || !hasEnd || queue != expected {
+						t.Fatalf("startup queue diverged from canonical task set: %q", queue)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestStartupBudgetUsesConfiguredAllowanceForEquivalentDirectories(t *testing.T) {
+	h := newDigestHome(t)
+	words := []byte("Preserve the exact ruling.\n")
+	if err := os.MkdirAll(filepath.Join(h.Data, "memory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(h.Root, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "overlord.md"), words, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hash := fmt.Sprintf("%x", sha256.Sum256(words))
+	catalog := fmt.Sprintf(`{"version":1,"sources":[{"path":"overlord.md","sha256":%q,"entries":[{"id":"rule","start":0,"end":%d,"sha256":%q,"authority":"ruling","location":"warm"}]}]}`, hash, len(words), hash)
+	if err := os.WriteFile(filepath.Join(h.Data, "memory", "startup.json"), []byte(catalog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Root, "config", "startup-memory-budget"), []byte("1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(h.Root)
+	for _, dataDir := range []string{h.Data, h.Data + "/", h.Data + string(filepath.Separator), "data", "data/", "data" + string(filepath.Separator)} {
+		t.Run(dataDir, func(t *testing.T) {
+			h.Data = dataDir
+			var output bytes.Buffer
+
+			if err := ComposeReadOnly(h, "allowance", &output); err != nil {
+				t.Fatal(err)
+			}
+
+			if !strings.Contains(output.String(), "budget 1 estimated tokens") || !strings.Contains(output.String(), "MEMORY OVER BUDGET") || !bytes.Contains(output.Bytes(), words) {
+				t.Fatalf("equivalent directory bypassed the startup allowance or dropped authority: %s", output.String())
 			}
 		})
 	}

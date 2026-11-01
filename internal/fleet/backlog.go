@@ -176,6 +176,51 @@ func ReadBacklog(h home.Home) (BacklogRows, error) {
 	return result, nil
 }
 
+func ReadCurrentBacklog(h home.Home) (BacklogRows, error) {
+	backlog, err := ReadBacklog(h)
+	if err != nil {
+		return BacklogRows{}, err
+	}
+	entries, err := os.ReadDir(h.State)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Lstat(h.State); errors.Is(statErr, os.ErrNotExist) {
+			return backlog, nil
+		}
+	}
+	if err != nil {
+		return BacklogRows{}, fmt.Errorf("fleet: read state directory: %w", err)
+	}
+	dispatched := make(map[string]bool)
+	for _, entry := range entries {
+		extension := filepath.Ext(entry.Name())
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !strings.EqualFold(extension, ".meta") {
+			continue
+		}
+		id := strings.TrimSuffix(entry.Name(), extension)
+		if state.ValidTaskID(id) == nil {
+			dispatched[id] = true
+		}
+	}
+	queued := make([]BacklogRow, 0, len(backlog.Queued))
+	for _, row := range backlog.Queued {
+		if row.Structured && dispatched[row.ID] {
+			continue
+		}
+		if row.Structured && state.ValidTaskID(row.ID) == nil {
+			outcome, err := state.ReadOutcome(h.State, row.ID)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return BacklogRows{}, err
+			}
+			if err == nil && outcome.Phase == "done" {
+				continue
+			}
+		}
+		queued = append(queued, row)
+	}
+	backlog.Queued = queued
+	return backlog, nil
+}
+
 func parseBacklogRow(line string) BacklogRow {
 	match := checkboxBacklogRow.FindStringSubmatch(line)
 	if match == nil {
