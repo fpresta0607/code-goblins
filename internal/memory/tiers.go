@@ -5,12 +5,34 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
-var tierMarker = regexp.MustCompile(`<!--(a|p):([0-9]{4}-[0-9]{2}-[0-9]{2})-->|<!--(P|g)-->|<!--t:([^<>\s]+)-->`)
+var tierMarker = regexp.MustCompile(`^(?:<!--(a|p):([0-9]{4}-[0-9]{2}-[0-9]{2})-->|<!--(P|g)-->|<!--t:([^<>\s]+)-->)$`)
+
+func trailingAnnotations(text string) []string {
+	var annotations []string
+	text = strings.TrimSpace(text)
+	for strings.HasSuffix(text, "-->") {
+		start := strings.LastIndex(text, "<!--")
+		if start < 0 {
+			break
+		}
+		annotation := text[start:]
+		if !slices.ContainsFunc([]string{"<!--a:", "<!--p:", "<!--P", "<!--g", "<!--t:"}, func(prefix string) bool { return strings.HasPrefix(annotation, prefix) }) {
+			break
+		}
+		annotations = append(annotations, annotation)
+		text = strings.TrimSpace(text[:start])
+	}
+	return annotations
+}
 
 func pinnedReferences(dataDir string) (map[string]bool, error) {
 	content, err := ReadData(dataDir, "memory/MEMORY.md")
@@ -18,13 +40,26 @@ func pinnedReferences(dataDir string) (map[string]bool, error) {
 		return nil, err
 	}
 	pinned := make(map[string]bool)
+	names, err := GovernedFiles(dataDir)
+	if err != nil {
+		return nil, err
+	}
 	link := regexp.MustCompile(`\[[^\]]*\]\(<?([^<>\s)]+)>?\)`)
 	for _, line := range strings.Split(string(content), "\n") {
-		if !strings.Contains(line, "<!--P-->") {
+		if !slices.Contains(trailingAnnotations(line), "<!--P-->") {
 			continue
 		}
 		for _, match := range link.FindAllStringSubmatch(line, -1) {
-			pinned[path.Join("memory", match[1])] = true
+			target := path.Join("memory", match[1])
+			if slices.Contains(names, target) {
+				pinned[target] = true
+				continue
+			}
+			for _, name := range names {
+				if fsx.SamePath(filepath.Join(dataDir, filepath.FromSlash(target)), filepath.Join(dataDir, filepath.FromSlash(name))) {
+					pinned[name] = true
+				}
+			}
 		}
 	}
 	return pinned, nil
@@ -46,8 +81,11 @@ func Inspect(content []byte, authority string, now time.Time) (Status, error) {
 		status.Tier = "pinned"
 	}
 	hasTier := false
-	text := string(content)
-	for _, match := range tierMarker.FindAllStringSubmatch(text, -1) {
+	for _, annotation := range trailingAnnotations(string(content)) {
+		match := tierMarker.FindStringSubmatch(annotation)
+		if match == nil {
+			return Status{}, fmt.Errorf("malformed memory marker")
+		}
 		if match[4] != "" {
 			if status.PendingCapture != "" {
 				return Status{}, fmt.Errorf("conflicting pending-capture markers")
@@ -82,12 +120,6 @@ func Inspect(content []byte, authority string, now time.Time) (Status, error) {
 	}
 	if !hasTier && status.Tier == "aging" {
 		status.IsLegacy = true
-	}
-	for _, prefix := range []string{"<!--a:", "<!--p:", "<!--P", "<!--g", "<!--t:"} {
-		cleaned := tierMarker.ReplaceAllString(text, "")
-		if strings.Contains(cleaned, prefix) {
-			return Status{}, fmt.Errorf("malformed memory marker")
-		}
 	}
 	return status, nil
 }

@@ -2,6 +2,7 @@ package digest
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -9,11 +10,187 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
+
+type startupTestEndpoint struct {
+	reads   int
+	isIdle  bool
+	started chan struct{}
+	release chan struct{}
+}
+
+func (endpoint *startupTestEndpoint) Read(_ context.Context, _ state.TaskMeta) (bool, herdr.BusyState, error) {
+	endpoint.reads++
+	if endpoint.started != nil {
+		select {
+		case endpoint.started <- struct{}{}:
+		default:
+		}
+		<-endpoint.release
+	}
+	if endpoint.isIdle {
+		return true, herdr.BusyIdle, nil
+	}
+	return true, herdr.BusyWorking, nil
+}
+
+func (endpoint *startupTestEndpoint) Validate(_ context.Context, meta state.TaskMeta) (bool, error) {
+	return meta.Backend == "native", nil
+}
+
+func TestStartupSamplePreservesVerifiedIdleStatusFallback(t *testing.T) {
+	h := newDigestHome(t)
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task", Worktree: h.Root, Backend: "native"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AppendStatus(h.State, "task", "waiting: the declared dependency"); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := &startupTestEndpoint{isIdle: true}
+	var output bytes.Buffer
+	if err := composeBriefWithEndpoint(context.Background(), h, os.Getpid(), "idle", false, false, endpoint, &output); err != nil {
+		t.Fatal(err)
+	}
+	long, err := os.ReadFile(filepath.Join(h.State, FullDigestFile))
+	if err != nil || endpoint.reads != 1 || !strings.Contains(output.String(), "current=waiting (status)") || !bytes.Contains(long, []byte("current=waiting (status)")) {
+		t.Fatalf("bounded sample lost verified idle fallback: reads=%d, error=%v", endpoint.reads, err)
+	}
+}
+
+func TestStartupSamplesCurrentStateOnceAcrossAllRenderings(t *testing.T) {
+	for _, hasCatalog := range []bool{false, true} {
+		t.Run(fmt.Sprint(hasCatalog), func(t *testing.T) {
+			h := newDigestHome(t)
+			if hasCatalog {
+				if err := os.MkdirAll(filepath.Join(h.Data, "memory"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(h.Data, "memory", "startup.json"), []byte(`{"version":1,"sources":[]}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task", Worktree: h.Root, Backend: "native"}); err != nil {
+				t.Fatal(err)
+			}
+			endpoint := &startupTestEndpoint{}
+			var output bytes.Buffer
+
+			if err := composeBriefWithEndpoint(context.Background(), h, os.Getpid(), "sample", false, false, endpoint, &output); err != nil {
+				t.Fatal(err)
+			}
+
+			long, err := os.ReadFile(filepath.Join(h.State, FullDigestFile))
+			if err != nil || endpoint.reads != 1 || !strings.Contains(output.String(), "current=working") || !bytes.Contains(long, []byte("current=working")) {
+				t.Fatalf("startup did not reuse one sample: reads=%d, error=%v", endpoint.reads, err)
+			}
+		})
+	}
+}
+
+func TestStartupDeadlineDoesNotWaitForAnUnresponsiveTerminal(t *testing.T) {
+	h := newDigestHome(t)
+	if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "task", Worktree: h.Root, Backend: "native"}); err != nil {
+		t.Fatal(err)
+	}
+	endpoint := &startupTestEndpoint{started: make(chan struct{}, 1), release: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var output bytes.Buffer
+	finished := make(chan error, 1)
+	go func() {
+		finished <- composeBriefWithEndpoint(ctx, h, os.Getpid(), "deadline", false, false, endpoint, &output)
+	}()
+	select {
+	case <-endpoint.started:
+	case <-time.After(2 * time.Second):
+		close(endpoint.release)
+		t.Fatal("startup never reached the terminal boundary")
+	}
+	cancel()
+	isReturned := false
+	select {
+	case err := <-finished:
+		isReturned = true
+		if err != nil || !strings.Contains(output.String(), "current=unknown") {
+			t.Errorf("timed-out state was not explicit: %s, %v", output.String(), err)
+		}
+	case <-time.After(time.Second):
+		t.Error("startup waited for the terminal after its shared deadline")
+	}
+	close(endpoint.release)
+	if !isReturned {
+		select {
+		case <-finished:
+		case <-time.After(2 * time.Second):
+			t.Fatal("startup did not stop after releasing the terminal fixture")
+		}
+	}
+}
+
+func TestLegacyStartupBoundsStateWhileRetainingEveryAuthorityByte(t *testing.T) {
+	h := bigHome(t, 200, 200)
+	var authority [][]byte
+	authorityBytes := 0
+	for _, name := range []string{"projects.md", "overlord.md", "memory/MEMORY.md"} {
+		content, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(name)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		authority = append(authority, content)
+		authorityBytes += len(content)
+	}
+	meta := state.TaskMeta{ID: "cg-goblin-01", SpawnGen: "current", Worktree: h.Root, Backend: "native"}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.AcquireNamedOwner(h.State, state.LifecycleLockName(meta.ID), os.Getpid(), "controller"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume", Action: "resume", Phase: "resuming"}); err != nil {
+		t.Fatal(err)
+	}
+	backlog := "## Queued\n- **queued-1** - First task\n  Detail one\n  Detail two\n- **queued-2** - Second task\n## Parked\n- **parked-1** - Held task\n  Held detail\n"
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte(backlog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := reap.WriteRecord(h.State, reap.Record{Time: time.Now().UTC(), Findings: []reap.Finding{{Class: reap.OrphanProcess, PID: 4242, Detail: strings.Repeat("Synthetic orphan detail. ", 4000)}}}); err != nil {
+		t.Fatal(err)
+	}
+	var manual, readOnly bytes.Buffer
+	if err := Compose(h, os.Getpid(), "legacy", &manual); err != nil {
+		t.Fatal(err)
+	}
+	if err := ComposeReadOnly(h, "inspection", &readOnly); err != nil {
+		t.Fatal(err)
+	}
+	composeBrief(t, h)
+	long, err := os.ReadFile(filepath.Join(h.State, FullDigestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, output := range [][]byte{manual.Bytes(), readOnly.Bytes(), long} {
+		t.Logf("legacy startup: authority=%d state_and_bookkeeping=%d total=%d bytes", authorityBytes, len(output)-authorityBytes, len(output))
+		if len(output)-authorityBytes > 18000 || !bytes.Contains(output, []byte("current=resuming (metadata)")) || !bytes.Contains(output, []byte("Queued: 2; parked: 1.")) || bytes.Contains(output, []byte("Detail one")) {
+			t.Errorf("legacy state projection: overhead=%d, current=%t, counts=%t", len(output)-authorityBytes, bytes.Contains(output, []byte("current=resuming (metadata)")), bytes.Contains(output, []byte("Queued: 2; parked: 1.")))
+		}
+		for _, content := range authority {
+			if !bytes.Contains(output, content) {
+				t.Error("bounded state omitted legacy authority bytes")
+			}
+		}
+	}
+	pending, err := wake.Pending(h.State)
+	if err != nil || len(pending) != 200 {
+		t.Fatalf("legacy projection acknowledged omitted wakes: %d, %v", len(pending), err)
+	}
+}
 
 func TestComposeUsesVerifiedWarmMemoryInsteadOfHistoricalRulings(t *testing.T) {
 	// Arrange: the approved cold range stays byte-identical in its original file.

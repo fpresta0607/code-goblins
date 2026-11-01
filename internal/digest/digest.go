@@ -2,9 +2,8 @@
 // brief one a CFO session sees at the top of context when Claude Code fires
 // the SessionStart hook (ComposeBrief), and the long one that hook writes to
 // a file and an operator prints with the manual `cfo session-start` alias
-// (Compose). Composition never shells out and never touches the network, so
-// rendering has no network or subprocess wait. Source-backed memory validation
-// hashes local files; the hook preview and canonical state have separate bounds.
+// (Compose). Composition samples current state once under a shared deadline.
+// Rendering never probes terminals; memory and state have separate bounds.
 package digest
 
 import (
@@ -13,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,13 +20,13 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
-	"github.com/fpresta0607/code-goblins/internal/claudehook"
 	"github.com/fpresta0607/code-goblins/internal/crewstate"
 	"github.com/fpresta0607/code-goblins/internal/custody"
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/layout"
@@ -143,7 +141,8 @@ func Compose(h home.Home, ownerPID int, session string, w io.Writer) error {
 	ew := &werr{w: w}
 
 	heldLock := writeSessionLock(h.State, ownerPID, session, ew)
-	composeLong(h, ew)
+	current := sampleFleet(context.Background(), h.State, fleet.NewTerminalEndpoint(h.State, nil))
+	composeLong(h, current, ew)
 
 	if heldLock && ew.err == nil {
 		if err := writeCompleteMarker(h.State, ownerPID); err != nil {
@@ -161,56 +160,49 @@ func writeCompleteMarker(stateDir string, ownerPID int) error {
 // composeLong writes every section of the long digest below SESSION LOCK.
 // The read-once contract comes before the sections it speaks for, so those
 // are composed first: the contract names the files they actually printed.
-func composeLong(h home.Home, ew *werr) {
+func composeLong(h home.Home, current fleetSample, ew *werr) {
 	writeAFKMode(h.State, ew)
 	_, catalogErr := os.Lstat(filepath.Join(h.Data, filepath.FromSlash(memory.CatalogPath)))
 	hasCatalog := !errors.Is(catalogErr, os.ErrNotExist)
-	queueRoom := math.MaxInt
-	if hasCatalog {
-		queueRoom = 2500
-	}
-	writeWakeQueue(h.State, queueRoom, briefErrorWidth, ew)
+	writeWakeQueue(h.State, 2500, briefErrorWidth, ew)
 	writeSupervisionInstructions(h.Data, false, ew)
 
-	statusTail := claudehook.Int("CFO_SESSION_START_STATUS_TAIL", 5, 0, 1000000)
-	queuedLimit := claudehook.Int("CFO_SESSION_START_QUEUED_LIMIT", 20, 0, 1000000)
 	var fleetState, context bytes.Buffer
-	var metas []string
-	if hasCatalog {
-		summary, _ := briefFleet(h.State, 3000)
-		fleetState.Write(summary)
-		backlog, err := fleet.ReadBacklog(h)
-		if err != nil {
-			fmt.Fprintf(&fleetState, "backlog.md: UNREADABLE (%s)\n", cutError(err, briefErrorWidth))
-		} else {
-			var queued []fleet.BacklogRow
-			for _, row := range backlog.Queued {
-				if row.Structured {
-					queued = append(queued, row)
-				}
-			}
-			parked := 0
-			for _, row := range backlog.Parked {
-				if row.Structured {
-					parked++
-				}
-			}
-			fmt.Fprintf(&fleetState, "Queued: %d; parked: %d. First queued tasks (display only):\n", len(queued), parked)
-			if !backlog.Present {
-				fmt.Fprintln(&fleetState, "backlog.md: ABSENT")
-			}
-			for _, row := range queued[:min(5, len(queued))] {
-				line := row.Raw
-				if len(line) > 160 {
-					line = strings.ToValidUTF8(line[:160], "") + "... (display only)"
-				}
-				fmt.Fprintln(&fleetState, line)
+	fmt.Fprintln(&fleetState, "== FLEET STATE ==")
+	summary, _ := briefFleet(current, 3000)
+	fleetState.Write(summary)
+	backlog, err := fleet.ReadBacklog(h)
+	if err != nil {
+		fmt.Fprintf(&fleetState, "backlog.md: UNREADABLE (%s)\n", cutError(err, briefErrorWidth))
+	} else {
+		var queued []fleet.BacklogRow
+		for _, row := range backlog.Queued {
+			if row.Structured {
+				queued = append(queued, row)
 			}
 		}
-		fmt.Fprintln(&fleetState, "Canonical current state: cfo fleet-view; cfo drain reads the durable work queue. Status tails above are event history, not proof of present state. No omitted record was acknowledged.")
-	} else {
-		metas = writeFleetState(h, statusTail, queuedLimit, &werr{w: &fleetState})
+		parked := 0
+		for _, row := range backlog.Parked {
+			if row.Structured {
+				parked++
+			}
+		}
+		fmt.Fprintf(&fleetState, "Queued: %d; parked: %d. First queued tasks (display only):\n", len(queued), parked)
+		if !backlog.Present {
+			fmt.Fprintln(&fleetState, "backlog.md: ABSENT")
+		}
+		for _, row := range queued[:min(5, len(queued))] {
+			line := row.Raw
+			if len(line) > 160 {
+				line = strings.ToValidUTF8(line[:160], "") + "... (display only)"
+			}
+			fmt.Fprintln(&fleetState, line)
+		}
+		if len(queued) > 5 {
+			fmt.Fprintf(&fleetState, "(+%d more queued)\n", len(queued)-5)
+		}
 	}
+	fmt.Fprintln(&fleetState, "Canonical current state: cfo fleet-view; cfo drain reads the durable work queue. Status tails above are event history, not proof of present state. No omitted record was acknowledged.")
 	files := writeContext(h.Data, &werr{w: &context})
 
 	if hasCatalog {
@@ -218,14 +210,10 @@ func composeLong(h home.Home, ew *werr) {
 		writePrintedInFull(nil, ew)
 		ew.println("Only the shown source ranges and bounded state summary were delivered. Cold facts, full metadata, backlog and omitted wakes require targeted retrieval before dependent action.")
 	} else {
-		writeReadOnceContract(append(files, metas...), statusTail, queuedLimit, ew)
+		writeReadOnceContract(files, ew)
 	}
 	ew.write(fleetState.Bytes())
-	if !hasCatalog {
-		writeOrphans(h.State, ew)
-	} else {
-		ew.println("ORPHANS: cfo reap --json reads the last full finding set when recovery is relevant.")
-	}
+	writeOrphans(h.State, ew)
 	writeStorage(h, time.Now(), ew)
 	ew.write(context.Bytes())
 	writeNextStep(ew)
@@ -250,8 +238,13 @@ func composeLong(h home.Home, ew *werr) {
 // home is told to print the long form with `cfo session-start` instead. The
 // completion marker is written as Compose writes it.
 func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isResumed bool, w io.Writer) error {
+	return composeBriefWithEndpoint(context.Background(), h, ownerPID, session, isAfterCompact, isResumed, fleet.NewTerminalEndpoint(h.State, nil), w)
+}
+
+func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, session string, isAfterCompact, isResumed bool, endpoint crewstate.Endpoint, w io.Writer) error {
 	var lockSection bytes.Buffer
 	heldLock := writeSessionLock(h.State, ownerPID, session, &werr{w: &lockSection})
+	current := sampleFleet(ctx, h.State, endpoint)
 	_, catalogErr := os.Lstat(filepath.Join(h.Data, filepath.FromSlash(memory.CatalogPath)))
 	hasCatalog := !errors.Is(catalogErr, os.ErrNotExist)
 
@@ -265,7 +258,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isR
 	hasUnchangedContext := false
 	if heldLock {
 		var long bytes.Buffer
-		composeLong(h, &werr{w: &long})
+		composeLong(h, current, &werr{w: &long})
 		path := filepath.Join(h.State, FullDigestFile)
 		isSameContext := false
 		if isResumed {
@@ -278,7 +271,7 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isR
 			next = fmt.Sprintf("the long digest could not be written (%s): %s", err, fallback)
 		} else {
 			hasUnchangedContext = isResumed && isSameContext
-			next = path + " holds what this digest leaves out: the backlog's queued rows, every state\\*.meta in full with its status tail, the orphan sweep, and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. "
+			next = path + " holds what this digest leaves out: the bounded canonical state projection and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. Detailed metadata, backlog, status history and omitted wakes require targeted retrieval. "
 			if hasCatalog {
 				next = path + " holds the verified warm operating map, memory diagnostics and bounded canonical state summary. Before dependent work use cfo memory retrieve --project <name> --task <id> --topic <topic> for relevant cold authority and facts. It does not embed the full history or cold fact files. "
 			}
@@ -322,11 +315,11 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isR
 	// The wake queue and the fleet share what the fixed sections leave: the
 	// fleet is held to two fifths of it only while the queue needs the rest.
 	room := Budget - lockSection.Len() - afkMode.Len() - storage.Len() - instructions.Len() - len(tail(false, false))
-	fleetTable, isWholeFleet := briefFleet(h.State, room)
+	fleetTable, isWholeFleet := briefFleet(current, room)
 	var wakeQueue bytes.Buffer
 	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(fleetTable)), briefErrorWidth, &werr{w: &wakeQueue})
 	if wakeQueue.Len() > room-len(fleetTable) {
-		fleetTable, isWholeFleet = briefFleet(h.State, max(0, room-wakeQueue.Len()))
+		fleetTable, isWholeFleet = briefFleet(current, max(0, room-wakeQueue.Len()))
 	}
 
 	ew := &werr{w: w}
@@ -349,30 +342,90 @@ func ComposeBrief(h home.Home, ownerPID int, session string, isAfterCompact, isR
 // briefFleet is the FLEET section within room bytes: one line a goblin, its
 // harness and model, its kind, and its last status line cut to a table's
 // width, and whether every goblin is listed.
-func briefFleet(stateDir string, room int) ([]byte, bool) {
+func briefFleet(current fleetSample, room int) ([]byte, bool) {
 	var section bytes.Buffer
 	ew := &werr{w: &section}
 	ew.println("== FLEET ==")
-	scan, err := state.ScanIDs(stateDir)
-	if err != nil {
-		ew.printf("state\\: UNREADABLE (%s)\n", cutError(err, briefErrorWidth))
+	if current.err != nil {
+		ew.printf("state\\: UNREADABLE (%s)\n", cutError(current.err, briefErrorWidth))
 	}
-	if len(scan.MetaIDs) == 0 {
+	if current.orphans > 0 {
+		ew.printf("%d orphan status logs: cfo reap --json reads the full finding set.\n", current.orphans)
+	}
+	if len(current.lines) == 0 {
 		ew.println("(no goblins in flight)")
-		return section.Bytes(), err == nil
+		return section.Bytes(), current.err == nil
 	}
 	more := func(left int) string {
 		return fmt.Sprintf("(+%d more goblins: cfo fleet-view reads current state)\n", left)
 	}
-	for listed, id := range scan.MetaIDs {
-		line := fleetLine(stateDir, id)
-		if section.Len()+len(line)+len(more(len(scan.MetaIDs))) > room {
-			ew.printf("%s", more(len(scan.MetaIDs)-listed))
+	for listed, line := range current.lines {
+		if section.Len()+len(line)+len(more(len(current.lines))) > room {
+			ew.printf("%s", more(len(current.lines)-listed))
 			return section.Bytes(), false
 		}
 		ew.printf("%s", line)
 	}
-	return section.Bytes(), err == nil
+	return section.Bytes(), current.err == nil
+}
+
+const startupStateBudget = 2 * time.Second
+
+type fleetSample struct {
+	lines   []string
+	orphans int
+	err     error
+}
+
+func sampleFleet(ctx context.Context, stateDir string, endpoint crewstate.Endpoint) fleetSample {
+	ctx, cancel := context.WithTimeout(ctx, startupStateBudget)
+	defer cancel()
+	scan, err := state.ScanIDs(stateDir)
+	current := fleetSample{orphans: len(scan.OrphanStatusIDs), err: err}
+	for _, id := range scan.MetaIDs {
+		current.lines = append(current.lines, fleetLine(ctx, stateDir, id, boundedEndpoint{source: endpoint}))
+	}
+	return current
+}
+
+// Native terminal reads have their own longer timeout and cannot be cancelled.
+// Stop waiting at the shared startup deadline; the single in-flight read then
+// finishes under its existing timeout without starting another terminal probe.
+type boundedEndpoint struct {
+	source crewstate.Endpoint
+}
+
+func (endpoint boundedEndpoint) Read(ctx context.Context, meta state.TaskMeta) (bool, herdr.BusyState, error) {
+	if err := ctx.Err(); err != nil {
+		return false, herdr.BusyUnknown, err
+	}
+	type result struct {
+		exists bool
+		busy   herdr.BusyState
+		err    error
+	}
+	answer := make(chan result, 1)
+	go func() {
+		exists, busy, err := endpoint.source.Read(ctx, meta)
+		answer <- result{exists: exists, busy: busy, err: err}
+	}()
+	select {
+	case value := <-answer:
+		return value.exists, value.busy, value.err
+	case <-ctx.Done():
+		return false, herdr.BusyUnknown, ctx.Err()
+	}
+}
+
+func (endpoint boundedEndpoint) Validate(ctx context.Context, meta state.TaskMeta) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	validator, ok := endpoint.source.(crewstate.StructuralValidator)
+	if !ok {
+		return false, nil
+	}
+	return validator.Validate(ctx, meta)
 }
 
 // fleetStatusWidth is how much of a goblin's last status line the FLEET
@@ -392,12 +445,12 @@ func cutError(err error, width int) string {
 	return strings.ToValidUTF8(text[:width], "") + "..."
 }
 
-func fleetLine(stateDir, id string) string {
+func fleetLine(ctx context.Context, stateDir, id string, endpoint crewstate.Endpoint) string {
 	meta, err := state.ReadMeta(filepath.Join(stateDir, id+".meta"))
 	if err != nil {
 		return fmt.Sprintf("%s  UNREADABLE (%s)\n", id, cutError(err, briefErrorWidth))
 	}
-	current, err := crewstate.Resolve(context.Background(), stateDir, id, fleet.NewTerminalEndpoint(stateDir, nil))
+	current, err := crewstate.Resolve(ctx, stateDir, id, endpoint)
 	if err != nil {
 		return fmt.Sprintf("%s  current state UNREADABLE (%s)\n", id, cutError(err, briefErrorWidth))
 	}
@@ -411,6 +464,9 @@ func fleetLine(stateDir, id string) string {
 		status = string(runes[:fleetStatusWidth]) + "..."
 	}
 	detail := current.Detail
+	if current.State == crewstate.Unknown && ctx.Err() != nil {
+		detail = "startup sample deadline reached; use cfo fleet-view"
+	}
 	if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta["spawn_gen"] && current.State == crewstate.Paused && record.Pause != nil {
 		detail = record.Pause.Description()
 	}
@@ -437,7 +493,7 @@ func writeBriefContract(isWholeQueue, isWholeFleet, hasUnchangedContext bool, ew
 		ew.printf("This digest printed %s and %s. It printed no file in full. The file named under READ THIS NEXT contains unchanged source context; only bytes actually read and still held by this conversation count as read. Current state requires reconciliation.\n", queue, fleet)
 		return
 	}
-	ew.printf("This digest printed %s and %s. It printed no file in full: you have not read data\\projects.md, data\\overlord.md, data\\memory\\MEMORY.md, any state\\*.meta, any status log, the backlog or the orphan sweep until you read the file named under READ THIS NEXT.\n", queue, fleet)
+	ew.printf("This digest printed %s and %s. It printed no file in full: you have not read data\\projects.md, data\\overlord.md or data\\memory\\MEMORY.md until you read the file named under READ THIS NEXT. Detailed metadata, backlog, status history and omitted wakes remain undelivered and require targeted retrieval.\n", queue, fleet)
 }
 
 // printedInFullPrefix starts the one line of a read-once contract that names
@@ -506,7 +562,8 @@ func ComposeReadOnly(h home.Home, why string, w io.Writer) error {
 	ew := &werr{w: w}
 	ew.println("== SESSION LOCK ==")
 	writeReadOnlyBanner(h.State, why, ew)
-	composeLong(h, ew)
+	current := sampleFleet(context.Background(), h.State, fleet.NewTerminalEndpoint(h.State, nil))
+	composeLong(h, current, ew)
 	return ew.err
 }
 
@@ -643,16 +700,12 @@ func writeSupervisionInstructions(dataDir string, isBrief bool, ew *werr) {
 // the agent does not spend a turn re-reading what it was just handed. The
 // files it names as printed in full are the ones the sections below actually
 // printed (printed), never a fixed list: a file that was absent or unreadable
-// is not one the agent has read. The backlog and each status log are capped
-// (queuedLimit queued rows, statusTail status lines), so the contract says so
-// explicitly rather than claiming a fresh read of a capped source would show
-// nothing new - an overflowed backlog or status log still has a real, unshown
-// remainder.
-func writeReadOnceContract(printed []string, statusTail, queuedLimit int, ew *werr) {
+// is not one the agent has read. State projections never claim full files.
+func writeReadOnceContract(printed []string, ew *werr) {
 	ew.println("== READ-ONCE CONTRACT ==")
 	writePrintedInFull(printed, ew)
-	ew.printf("This digest also printed data\\backlog.md's first %d queued rows (not the full backlog) and each goblin's last %d status lines (not the full log).\n", queuedLimit, statusTail)
-	ew.println("It also printed the last recorded orphan sweep, with its status-log listing capped; the full finding set is in state\\.reap-audit.json and in \"cfo reap --json\".")
+	ew.println("State is bounded: the first 5 queued task records, capped task rows and each shown task's last status event, not full metadata, backlog or logs.")
+	ew.println("The last orphan sweep is capped; cfo reap --json reads the full finding set.")
 	ew.println("Do not re-read a file named on the PRINTED IN FULL line this turn. A backlog or status section that hit its cap only needs a fresh read for what is past the cap, not for what is already shown.")
 	ew.println("That line holds only for a reader that reached NEXT STEP at the end of this digest: one handed a part of it, by a tool that cut it short or a read that stopped early, has read less.")
 }
@@ -662,39 +715,6 @@ func writeNextStep(ew *werr) {
 	ew.println("== NEXT STEP ==")
 	ew.println("Follow the SUPERVISION OPERATING INSTRUCTIONS above for how to proceed from here.")
 	ew.println("This digest never arms anything itself: the Stop-owned auto-arm hook is the only thing that starts the watcher, on the next Stop.")
-}
-
-// writeFleetState prints the backlog compact listing, then every
-// state\*.meta with its status tail, then orphan .status files (a status log
-// with no matching meta) by name only, then "(no goblins in flight)" when
-// there were no metas at all. A failure to list h.State itself (beyond a
-// simply-missing directory, which reads as no goblins at all) renders
-// inline as "state\: UNREADABLE (<err>)", same as every other per-file read
-// failure in this section: it never propagates as a Compose-level failure.
-// It returns the metas it printed in full, as the read-once contract names
-// them.
-func writeFleetState(h home.Home, statusTail, queuedLimit int, ew *werr) []string {
-	ew.println("== FLEET STATE ==")
-	writeBacklog(h, queuedLimit, ew)
-
-	scan, err := state.ScanIDs(h.State)
-	if err != nil {
-		ew.printf("state\\: UNREADABLE (%s)\n", err)
-	}
-
-	var printed []string
-	for _, id := range scan.MetaIDs {
-		if writeMetaEntry(h.State, id, statusTail, ew) {
-			printed = append(printed, `state\`+id+".meta")
-		}
-	}
-	for _, id := range scan.OrphanStatusIDs {
-		ew.printf("%s.status: orphan status log, no matching meta\n", id)
-	}
-	if len(scan.MetaIDs) == 0 {
-		ew.println("(no goblins in flight)")
-	}
-	return printed
 }
 
 // writeOrphans prints the last recorded orphan sweep: harness processes with
@@ -710,78 +730,16 @@ func writeOrphans(stateDir string, ew *werr) {
 	if ew.err != nil {
 		return
 	}
-	if err := reap.RenderRecord(ew.w, stateDir, time.Now()); err != nil {
-		ew.err = err
-	}
-}
-
-// writeBacklog prints the first limit rows of data\backlog.md's Queued
-// section, in file order, plus a "(+N more queued)" overflow line when more
-// remain. It reads the backlog as fleet-view and the board do, so a parked or
-// done row, or a row's detail lines, is never listed as queued work.
-func writeBacklog(h home.Home, limit int, ew *werr) {
-	backlog, err := fleet.ReadBacklog(h)
-	if err != nil {
-		ew.printf("backlog.md: UNREADABLE (%s)\n", err)
+	var section bytes.Buffer
+	if err := reap.RenderRecord(&section, stateDir, time.Now()); err != nil {
+		ew.printf("ORPHANS: UNREADABLE (%s)\n", cutError(err, briefErrorWidth))
 		return
 	}
-	if !backlog.Present {
-		ew.println("backlog.md: ABSENT")
-		return
+	text := section.String()
+	if len(text) > 1000 {
+		text = strings.ToValidUTF8(text[:1000], "") + "\n(+more findings: cfo reap --json)\n"
 	}
-
-	var queued []string
-	for _, row := range backlog.Queued {
-		if row.Structured {
-			queued = append(queued, row.Raw)
-		}
-	}
-	total := len(queued)
-	if total > limit {
-		queued = queued[:limit]
-	}
-	for _, line := range queued {
-		ew.println(line)
-	}
-	if total > limit {
-		ew.printf("(+%d more queued)\n", total-limit)
-	}
-}
-
-// writeMetaEntry prints one goblin's full state\<id>.meta contents followed
-// by its status tail (the last statusTail lines of state\<id>.status, or
-// nothing if the status log does not exist or is empty). It reports whether
-// the meta was read and printed.
-func writeMetaEntry(stateDir, id string, statusTail int, ew *werr) bool {
-	ew.printf("%s.meta:\n", id)
-	lines, err := fsx.ReadLines(filepath.Join(stateDir, id+".meta"))
-	if err != nil {
-		ew.printf("  UNREADABLE (%s)\n", err)
-	} else {
-		for _, line := range lines {
-			ew.printf("  %s\n", line)
-		}
-	}
-	isPrinted := err == nil
-	if meta, err := state.ReadTaskMeta(stateDir, id); err == nil {
-		if record, err := state.ReadLifecycle(stateDir, id); err == nil && record.Generation == meta.SpawnGen && record.Phase == "paused" && record.Pause != nil {
-			ew.printf("  paused: %s\n", record.Pause.Description())
-		}
-	}
-
-	tail, err := state.TailStatus(stateDir, id, statusTail)
-	if err != nil {
-		ew.printf("  status: UNREADABLE (%s)\n", err)
-		return isPrinted
-	}
-	if len(tail) == 0 {
-		return isPrinted
-	}
-	ew.printf("  -- status tail (last %d) --\n", len(tail))
-	for _, line := range tail {
-		ew.printf("  %s\n", line)
-	}
-	return isPrinted
+	ew.printf("%s", text)
 }
 
 // writeContext prints data\projects.md, data\overlord.md, and the memory

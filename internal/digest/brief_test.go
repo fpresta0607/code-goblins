@@ -170,7 +170,7 @@ func TestAReadOnceContractNamesOnlyFilesItPrintedWhole(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimed := printedInFull(t, string(long))
-	for _, want := range []string{`data\projects.md`, `data\overlord.md`, `data\memory\MEMORY.md`, `state\cg-goblin-01.meta`} {
+	for _, want := range []string{`data\projects.md`, `data\overlord.md`, `data\memory\MEMORY.md`} {
 		found := false
 		for _, file := range claimed {
 			found = found || file == want
@@ -180,6 +180,9 @@ func TestAReadOnceContractNamesOnlyFilesItPrintedWhole(t *testing.T) {
 		}
 	}
 	for _, file := range claimed {
+		if strings.HasPrefix(file, `state\`) {
+			t.Errorf("a state projection claimed a full source file: %s", file)
+		}
 		if !holdsWhole(t, string(long), filepath.Join(h.Root, file)) {
 			t.Errorf("the long digest says it printed %s in full, but does not hold all of it", file)
 		}
@@ -201,7 +204,7 @@ func TestTheBriefNamesTheFileThatHoldsTheLongDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"== FLEET STATE ==", "cg-goblin-01.meta:", "== ORPHANS ==", "== CONTEXT ==", "overlord.md line 1:"} {
+	for _, want := range []string{"== FLEET STATE ==", "cg-goblin-01  claude/", "== ORPHANS ==", "== CONTEXT ==", "overlord.md line 1:"} {
 		if !strings.Contains(string(long), want) {
 			t.Errorf("the long digest is missing %q", want)
 		}

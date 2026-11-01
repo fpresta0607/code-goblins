@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +190,7 @@ func TestPinnedOffloadRequiresASeparatelyDelimitedExactID(t *testing.T) {
 		{"Offload rule-1-extra only", false},
 		{"Offload rule-1.other only", false},
 		{"Offload rule-1/path only", false},
+		{"Offload team:rule-1 only", false},
 		{"Offload `rule-1` only.", true},
 		{"Offload rule-1.", true},
 		{"Offload (rule-1), retaining its source.", true},
@@ -205,6 +207,104 @@ func TestPinnedOffloadRequiresASeparatelyDelimitedExactID(t *testing.T) {
 
 			if (err == nil) != test.isApproved {
 				t.Fatalf("approval accepted=%t, want %t: %v", err == nil, test.isApproved, err)
+			}
+		})
+	}
+}
+
+func TestCatalogIDsUseAnUnambiguousApprovalGrammar(t *testing.T) {
+	for _, id := range []string{"team:rule-1", "rule-1.", "rule.1", "-rule", "rule\u2003one"} {
+		t.Run(id, func(t *testing.T) {
+			dir, catalog := catalogFixture(t)
+			entry := &catalog.Sources[3].Entries[0]
+			entry.ID = id
+			entry.Approval.Quote = "Offload " + id + " only"
+			entry.Approval.Destination = "memory/history.md#" + id
+			writeCatalog(t, dir, catalog)
+
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("ambiguous identifier was accepted as an approval target")
+			}
+		})
+	}
+}
+
+func TestTierAnnotationsLeaveLiteralExamplesAsSourceBytes(t *testing.T) {
+	for _, text := range []string{
+		"Show `<!--a:2026-10-30-->` in examples.",
+		"Show `<!--a:bad-->` in examples.",
+		"Keep `<!--P-->` as an example.",
+		"Keep `<!--t:team-->` as an example.",
+		"Example:\n```text\n<!--a:2026-10-30-->\n```\n",
+	} {
+		t.Run(text, func(t *testing.T) {
+			status, err := Inspect([]byte(text), "ruling", referenceDate)
+			if err != nil || status.Tier != "pinned" || status.Reinforced != "" || status.PendingCapture != "" {
+				t.Fatalf("literal example changed ruling metadata: %+v, %v", status, err)
+			}
+			dir := t.TempDir()
+			writeMemoryFile(t, dir, "memory/preferences.md", []byte(text))
+			catalog := Catalog{Version: 1, Sources: []Source{{Path: "memory/preferences.md", SHA256: Hash([]byte(text)), Entries: []Entry{{ID: "preference", End: len(text), SHA256: Hash([]byte(text)), Authority: "ruling", Location: "warm", Trigger: "preferences", Topics: []string{"preferences"}}}}}}
+			writeCatalog(t, dir, catalog)
+			plan, err := PlanMigration(dir)
+			if err != nil || !plan.Files[0].Moves[0].NeedsApproval || plan.Files[0].RetainedSHA256 != Hash([]byte(text)) {
+				t.Fatalf("inventory reclassified or changed literal authority: %+v, %v", plan, err)
+			}
+			catalog.Sources[0].Entries[0].Location = "cold"
+			writeCatalog(t, dir, catalog)
+			if _, err := Load(dir, referenceDate); err == nil {
+				t.Fatal("literal example allowed unapproved ruling offload")
+			}
+		})
+	}
+}
+
+func TestWindowsIndexPinsFollowFilesystemIdentity(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("case-varied existing paths share identity on Windows")
+	}
+	for _, text := range []string{"Keep the exact preference.\n", "A dated preference. <!--a:2026-10-30-->\n"} {
+		t.Run(text, func(t *testing.T) {
+			dir := t.TempDir()
+			index := []byte("- [Preference](preferences.md) - owner choice <!--P-->\n")
+			fact := []byte(text)
+			writeMemoryFile(t, dir, "memory/MEMORY.md", index)
+			writeMemoryFile(t, dir, "memory/Preferences.md", fact)
+			catalog := Catalog{Version: 1, Sources: []Source{
+				{Path: "memory/MEMORY.md", SHA256: Hash(index), Entries: []Entry{{ID: "index", End: len(index), SHA256: Hash(index), Authority: "fact", Location: "warm"}}},
+				{Path: "memory/Preferences.md", SHA256: Hash(fact), Entries: []Entry{{ID: "preference", End: len(fact), SHA256: Hash(fact), Authority: "fact", Location: "warm", Trigger: "preferences", Topics: []string{"preferences"}}}},
+			}}
+			writeCatalog(t, dir, catalog)
+			loaded, err := Load(dir, referenceDate)
+			if strings.Contains(text, "<!--a:") {
+				if err == nil {
+					t.Fatal("case-varied index pin failed to reject a conflicting dated tier")
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				output, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+				if err != nil || !strings.Contains(output, "tier=pinned") {
+					t.Fatalf("case-varied index pin was lost: %s, %v", output, err)
+				}
+				catalog.Sources[1].Entries[0].Location = "cold"
+				writeCatalog(t, dir, catalog)
+				if _, err := Load(dir, referenceDate); err == nil {
+					t.Fatal("case-varied index pin allowed unapproved cold classification")
+				}
+			}
+			if err := os.Remove(filepath.Join(dir, filepath.FromSlash(CatalogPath))); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := PlanMigration(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range plan.Files {
+				if file.Path == "memory/Preferences.md" && (file.Moves[0].Tier != "pinned" || !file.Moves[0].NeedsApproval || file.RetainedSHA256 != Hash(fact)) {
+					t.Fatalf("legacy inventory lost case-varied pin: %+v", file)
+				}
 			}
 		})
 	}

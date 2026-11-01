@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -22,6 +23,8 @@ import (
 
 const CatalogPath = "memory/startup.json"
 const DefaultBudget = 10000
+
+var memoryID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
 type Approval struct {
 	By          string `json:"by"`
@@ -211,7 +214,7 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 		catalog.content[source.Path] = content
 		covered := 0
 		for _, entry := range source.Entries {
-			if entry.ID == "" || strings.ContainsAny(entry.ID, " \t\r\n/\\\"") {
+			if !memoryID.MatchString(entry.ID) {
 				return Catalog{}, fmt.Errorf("invalid memory id %q", entry.ID)
 			}
 			if _, exists := ids[entry.ID]; exists {
@@ -309,9 +312,12 @@ func validateEntry(source string, entry Entry, content []byte, status Status, no
 				return errors.New("pinned offload requires this named item's verbatim Overlord approval and live source destination")
 			}
 			words := strings.FieldsFunc(approval.Quote, func(character rune) bool {
-				return unicode.IsSpace(character) || strings.ContainsRune("`\"'()[]{}<>,;:!?", character)
+				return unicode.IsSpace(character) || strings.ContainsRune("`\"'()[]{}<>,;!?", character)
 			})
-			if !slices.ContainsFunc(words, func(word string) bool { return word == entry.ID || strings.TrimSuffix(word, ".") == entry.ID }) {
+			if !slices.ContainsFunc(words, func(word string) bool {
+				candidate := strings.TrimSuffix(word, ".")
+				return memoryID.MatchString(candidate) && candidate == entry.ID
+			}) {
 				return errors.New("pinned offload requires this named item's verbatim Overlord approval and live source destination")
 			}
 			date, err := time.Parse(time.DateOnly, approval.Date)

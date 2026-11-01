@@ -158,20 +158,20 @@ func TestComposeBacklogCompact(t *testing.T) {
 	}
 	out := buf.String()
 
-	for i := 1; i <= 20; i++ {
+	for i := 1; i <= 5; i++ {
 		want := fmt.Sprintf("queued row %d\n", i)
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q", want)
 		}
 	}
-	for i := 21; i <= 25; i++ {
+	for i := 6; i <= 25; i++ {
 		unwanted := fmt.Sprintf("queued row %d\n", i)
 		if strings.Contains(out, unwanted) {
 			t.Errorf("output unexpectedly contains %q (past QueuedLimit)", unwanted)
 		}
 	}
-	if !strings.Contains(out, "(+5 more queued)") {
-		t.Errorf("output missing the exact overflow line \"(+5 more queued)\":\n%s", out)
+	if !strings.Contains(out, "(+20 more queued)") {
+		t.Errorf("output missing the exact overflow line \"(+20 more queued)\":\n%s", out)
 	}
 	for i := 1; i <= 3; i++ {
 		unwanted := fmt.Sprintf("done row %d", i)
@@ -428,14 +428,13 @@ func TestComposeStatusTailCap(t *testing.T) {
 	}
 	out := buf.String()
 
-	for i := 8; i <= 12; i++ {
-		want := fmt.Sprintf("status line %d", i)
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing %q (should be in the last 5 lines):\n%s", want, out)
-		}
+	if !strings.Contains(out, "event: status line 12\n") {
+		t.Errorf("output omitted the last status event:\n%s", out)
 	}
-	if strings.Contains(out, "status line 6") {
-		t.Errorf("output unexpectedly contains \"status line 6\" (the 7th-from-last line, should be capped away):\n%s", out)
+	for i := 1; i < 12; i++ {
+		if strings.Contains(out, fmt.Sprintf("status line %d\n", i)) {
+			t.Errorf("output embedded event history beyond its last event:\n%s", out)
+		}
 	}
 
 	// Second fixture: an orphan status file with no matching meta.
@@ -453,8 +452,8 @@ func TestComposeStatusTailCap(t *testing.T) {
 		t.Fatalf("Compose: %v", err)
 	}
 	out2 := buf2.String()
-	if !strings.Contains(out2, "orphan.status") {
-		t.Errorf("output missing the orphan status file's name:\n%s", out2)
+	if !strings.Contains(out2, "1 orphan status logs: cfo reap --json") {
+		t.Errorf("output omitted the bounded orphan count and retrieval route:\n%s", out2)
 	}
 	for i := 1; i <= 12; i++ {
 		unwanted := fmt.Sprintf("orphan content %d", i)
@@ -508,8 +507,8 @@ func TestComposeSectionBodies(t *testing.T) {
 	}
 
 	readOnceFacts := []string{
-		"first 20 queued rows (not the full backlog)",
-		"last 5 status lines (not the full log)",
+		"first 5 queued task records",
+		"last status event, not full metadata, backlog or logs",
 		"Do not re-read a file named on the PRINTED IN FULL line this turn",
 	}
 	for _, fact := range readOnceFacts {

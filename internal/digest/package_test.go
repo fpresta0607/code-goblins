@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	codegoblins "github.com/fpresta0607/code-goblins"
@@ -21,25 +22,20 @@ func TestCompleteStartupPackagesMeasureBeforeAndAfterRetrievedComposition(t *tes
 		t.Fatal(err)
 	}
 	catalog := memory.Catalog{Version: 1}
+	var activeAuthority [][]byte
 	for _, name := range []string{"projects.md", "overlord.md", "memory/MEMORY.md"} {
 		content, err := os.ReadFile(filepath.Join(h.Data, filepath.FromSlash(name)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		boundary := bytes.IndexByte(content, '\n') + 1
-		entries := []memory.Entry{{ID: name + "-active", Start: 0, End: boundary, SHA256: memory.Hash(content[:boundary]), Authority: "ruling", Location: "warm"}}
-		id := name + "-historical"
+		activeAuthority = append(activeAuthority, content[:boundary])
+		stem := strings.TrimSuffix(filepath.Base(name), ".md")
+		entries := []memory.Entry{{ID: stem + "-active", Start: 0, End: boundary, SHA256: memory.Hash(content[:boundary]), Authority: "ruling", Location: "warm"}}
+		id := stem + "-historical"
 		// Synthetic explicit per-item approval is the independent oracle. No
 		// original source bytes are changed to produce the shorter startup.
 		entries = append(entries, memory.Entry{ID: id, Start: boundary, End: len(content), SHA256: memory.Hash(content[boundary:]), Authority: "history", Location: "cold", Trigger: "historical investigation", Topics: []string{"history"}, Approval: &memory.Approval{By: "Overlord", Quote: "Offload " + id + " to its original named source owner.", Date: "2026-10-30", Destination: name + "#" + id}})
-		// Catalog ids are routing keys rather than filesystem paths.
-		for index := range entries {
-			entries[index].ID = filepath.Base(name) + []string{"-active", "-historical"}[index]
-			if entries[index].Approval != nil {
-				entries[index].Approval.Quote = "Offload " + entries[index].ID + " to its original source owner."
-				entries[index].Approval.Destination = name + "#" + entries[index].ID
-			}
-		}
 		catalog.Sources = append(catalog.Sources, memory.Source{Path: name, SHA256: memory.Hash(content), Entries: entries})
 	}
 	encoded, err := json.Marshal(catalog)
@@ -52,6 +48,11 @@ func TestCompleteStartupPackagesMeasureBeforeAndAfterRetrievedComposition(t *tes
 	var after bytes.Buffer
 	if err := Compose(h, os.Getpid(), "package", &after); err != nil {
 		t.Fatal(err)
+	}
+	for _, content := range activeAuthority {
+		if !bytes.Contains(after.Bytes(), content) {
+			t.Fatalf("package omitted delivered warm authority: %q", content)
+		}
 	}
 	core, err := fs.ReadFile(codegoblins.Contract, "AGENTS.md")
 	if err != nil {

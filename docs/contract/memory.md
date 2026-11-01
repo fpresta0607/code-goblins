@@ -17,6 +17,8 @@ Keep private preferences and fleet delivery posture out of public project memory
 `data/memory/startup.json` is an explicitly curated, versioned map of exact source ranges.
 It never replaces the original ruling bytes with a summary.
 The digest delivers warm ranges, a bounded cold routing index and a bounded fleet/backlog projection.
+State bounds also apply without a catalog, independently of the full legacy authority bytes.
+One current-state sample is reused by all startup renderings, with a shared two-second terminal-read budget and explicit unknown state when it expires.
 It reports omitted state and directs current-state reads to `cfo fleet-view`, `cfo drain` and the existing recovery owners.
 Displayed status tails are events, not evidence of present state, and omitted wakes remain unacknowledged.
 Read-only startup retains its existing custody boundary and writes no digest or marker.
@@ -48,7 +50,7 @@ Each entry has:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | Unique stable item name, also the exact retrieval key. |
+| `id` | Unique stable ASCII name starting with a letter or digit, followed only by letters, digits, underscores or hyphens; also the exact retrieval key. |
 | `start`, `end`, `sha256` | Half-open byte range and hash of exactly those bytes. |
 | `authority` | `ruling`, `fact`, `project` or `history`; classification never authorizes discarding a ruling. |
 | `location` | `warm` or `cold`; pending capture, legacy grace and perishable entries stay warm. |
@@ -66,6 +68,7 @@ The original file remains the live retrieval owner in this catalog; migration to
 No command here moves or deletes history.
 
 Tier markers in source text are interpreted by the shared `stow` skill, the single owner of their spellings, clocks and curation procedure; the [load map](../load-map.md) owns its discovery across harnesses.
+Only trailing annotations carry tier metadata; literal examples in prose and code remain source content.
 Use separate catalog entries for separately tiered facts.
 Unmarked rulings and history are pinned; unmarked facts are legacy aging entries of unknown age.
 Future dates, malformed or conflicting markers are explicit errors.
