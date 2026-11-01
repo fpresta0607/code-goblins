@@ -32,6 +32,7 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 	var mutex sync.Mutex
 	var requests []spawn.Request
 	var needs []auth.Need
+	var beforeSpawn func([]string) error
 	runtime.spawn = func(_ context.Context, h home.Home, request spawn.Request) (spawn.Result, error) {
 		content, err := fsx.ReadFile(request.BriefPath)
 		if err != nil {
@@ -61,7 +62,7 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 		t.Fatal(err)
 	}
 	count := func() int { mutex.Lock(); defer mutex.Unlock(); return len(requests) }
-	scan := func() {
+	scan := func(taskID string) {
 		t.Helper()
 		service, err := supervisor.Start(t.Context(), h, supervisor.Options{
 			Example:   true,
@@ -74,6 +75,11 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 					return supervisor.Disk{Reading: disk.Reading{Free: 200 << 30}, Floor: 15 << 30}, nil
 				},
 				Spawn: func(_ context.Context, args []string) (string, error) {
+					if beforeSpawn != nil {
+						if err := beforeSpawn(args); err != nil {
+							return "", err
+						}
+					}
 					var output, failure bytes.Buffer
 					if code := runWithRuntime(args, &output, &failure, runtime); code != 0 {
 						return failure.String(), fmt.Errorf("spawn exit %d", code)
@@ -92,7 +98,7 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, startLockErr := os.Stat(filepath.Join(h.State, ".queued-draft-task.lock"))
+			_, startLockErr := os.Stat(filepath.Join(h.State, ".queued-"+taskID+".lock"))
 			if view.Scheduling != nil && os.IsNotExist(startLockErr) {
 				return
 			}
@@ -109,7 +115,7 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 				t.Fatal(err)
 			}
 		}
-		scan()
+		scan("draft-task")
 		if count() != 0 {
 			t.Fatalf("draft started before final choices, after replacing %q", placeholder)
 		}
@@ -124,12 +130,201 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 		t.Fatal(err)
 	}
 	for range 3 {
-		scan()
+		scan("draft-task")
 	}
 	mutex.Lock()
-	defer mutex.Unlock()
-	if len(requests) != 1 || requests[0].Mode != "local-only" || requests[0].Model != "gpt-6.1-sol" || requests[0].Effort != "high" || len(needs[0].Services) != 1 || needs[0].Services[0] != "github" {
-		t.Fatalf("launches = %+v, needs = %+v; want one launch with final authored choices", requests, needs)
+	launched, selectedNeeds := append([]spawn.Request(nil), requests...), append([]auth.Need(nil), needs...)
+	mutex.Unlock()
+	if len(launched) != 1 || launched[0].Mode != "local-only" || launched[0].Model != "gpt-6.1-sol" || launched[0].Effort != "high" || len(selectedNeeds[0].Services) != 1 || selectedNeeds[0].Services[0] != "github" {
+		t.Fatalf("launches = %+v, needs = %+v; want one launch with final authored choices", launched, selectedNeeds)
+	}
+
+	// A completed legacy brief stays held until an explicit validated transition.
+	legacyPath := filepath.Join(h.Data, "legacy-task", "brief.md")
+	legacy := bytes.ReplaceAll(bytes.ReplaceAll(content, []byte("draft-task"), []byte("legacy-task")), []byte("ready: true\n"), nil)
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := fsx.AtomicWriteFile(legacyPath, legacy); err != nil {
+		t.Fatal(err)
+	}
+	activeMetaPath := state.TaskMetaPath(h.State, "draft-task")
+	activeMeta, err := fsx.ReadFile(activeMetaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	activePolicyPath := filepath.Join(h.State, "tasktmp", "draft-task", "pipeline.json")
+	activePolicy := []byte(`{"class":"high-risk","policy_sha256":"existing-policy","review_cycles":3}`)
+	if err := os.MkdirAll(filepath.Dir(activePolicyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := fsx.AtomicWriteFile(activePolicyPath, activePolicy); err != nil {
+		t.Fatal(err)
+	}
+	scan("legacy-task")
+	if count() != 1 {
+		t.Fatal("legacy brief was silently admitted without finalization")
+	}
+	backlogPath := filepath.Join(h.Data, "backlog.md")
+	heldRow := "## Queued\n- **legacy-task** - Completed legacy work (repo: example) (hold: author reviewing)\n"
+	if err := fsx.AtomicWriteFile(backlogPath, []byte(heldRow)); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	failure.Reset()
+	if code := runWithRuntime([]string{"brief", "ready", "legacy-task"}, &output, &failure, runtime); code != 0 {
+		t.Fatalf("finalize legacy brief: %d %s", code, &failure)
+	}
+	finalized, err := fsx.ReadFile(legacyPath)
+	if err != nil || !bytes.Equal(bytes.ReplaceAll(finalized, []byte("ready: true\n"), nil), legacy) {
+		t.Fatalf("finalization changed authored choices: %v", err)
+	}
+	scan("legacy-task")
+	if count() != 1 {
+		t.Fatal("readiness transition cleared the author's hold")
+	}
+	if err := fsx.AtomicWriteFile(backlogPath, []byte(strings.ReplaceAll(heldRow, " (hold: author reviewing)", ""))); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		scan("legacy-task")
+	}
+	mutex.Lock()
+	launched, selectedNeeds = append([]spawn.Request(nil), requests...), append([]auth.Need(nil), needs...)
+	mutex.Unlock()
+	if len(launched) != 2 || launched[1].ID != "legacy-task" || launched[1].Mode != "local-only" || launched[1].Model != "gpt-6.1-sol" || launched[1].Effort != "high" || len(selectedNeeds[1].Services) != 1 || selectedNeeds[1].Services[0] != "github" {
+		t.Fatalf("legacy admission changed choices or identity: %+v %+v", launched, selectedNeeds)
+	}
+	currentMeta, err := fsx.ReadFile(activeMetaPath)
+	if err != nil || !bytes.Equal(currentMeta, activeMeta) {
+		t.Fatalf("legacy admission rewrote an active task: %v", err)
+	}
+	currentPolicy, err := fsx.ReadFile(activePolicyPath)
+	if err != nil || !bytes.Equal(currentPolicy, activePolicy) {
+		t.Fatalf("legacy admission rewrote an active policy: %v", err)
+	}
+
+	// The supervisor's selected flags must belong to the CLI's admitted snapshot.
+	racePath := filepath.Join(h.Data, "race-task", "brief.md")
+	raceBrief := bytes.ReplaceAll(finalized, []byte("legacy-task"), []byte("race-task"))
+	if err := os.MkdirAll(filepath.Dir(racePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := fsx.AtomicWriteFile(racePath, raceBrief); err != nil {
+		t.Fatal(err)
+	}
+	hasEdited := false
+	beforeSpawn = func(args []string) error {
+		if args[1] != "race-task" || hasEdited {
+			return nil
+		}
+		hasEdited = true
+		raceBrief = bytes.ReplaceAll(bytes.ReplaceAll(raceBrief, []byte("mode: local-only"), []byte("mode: direct-PR")), []byte("credentials: github"), []byte("credentials: none"))
+		return fsx.AtomicWriteFile(racePath, raceBrief)
+	}
+	scan("race-task")
+	if count() != 2 {
+		t.Fatal("supervisor admitted stale launch flags after the brief changed before CLI admission")
+	}
+	for range 3 {
+		scan("race-task")
+	}
+	mutex.Lock()
+	launched, selectedNeeds = append([]spawn.Request(nil), requests...), append([]auth.Need(nil), needs...)
+	mutex.Unlock()
+	if len(launched) != 3 || launched[2].ID != "race-task" || launched[2].Mode != "direct-PR" || len(selectedNeeds[2].Services) != 0 {
+		t.Fatalf("changed brief did not retry once with final choices: %+v %+v", launched, selectedNeeds)
+	}
+}
+
+func TestBriefReadyRefusesIncompleteOrStartedTasksWithoutChangingFiles(t *testing.T) {
+	for _, test := range []struct {
+		name, content string
+		isStarted     bool
+	}{
+		{name: "missing requirements", content: "## Delivery\nmode: no-mistakes\n"},
+		{name: "remaining task placeholder", content: strings.ReplaceAll(completedCommandBrief, "do the work", "{TASK - describe work}")},
+		{name: "missing auth choice", content: strings.ReplaceAll(completedCommandBrief, "credentials: none\n", "")},
+		{name: "invalid mode", content: strings.ReplaceAll(completedCommandBrief, "mode: no-mistakes", "mode: guessed")},
+		{name: "started task", content: completedCommandBrief, isStarted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			t.Setenv("CFO_HOME", h.Root)
+			t.Setenv("CFO_STATE_OVERRIDE", h.State)
+			path := filepath.Join(h.Data, "legacy-task", "brief.md")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			test.content = "## Project\nexample\n" + test.content
+			if err := fsx.AtomicWriteFile(path, []byte(test.content)); err != nil {
+				t.Fatal(err)
+			}
+			if test.isStarted {
+				if err := os.MkdirAll(h.State, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := state.WriteTaskMeta(h.State, state.TaskMeta{ID: "legacy-task", SpawnGen: "retained", Mode: "direct-PR", PipelineHash: "retained-policy"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var output, failure bytes.Buffer
+
+			// Act
+			code := runWithRuntime([]string{"brief", "ready", "legacy-task"}, &output, &failure, defaultCommandRuntime())
+
+			// Assert
+			current, err := fsx.ReadFile(path)
+			if code == 0 || err != nil || !bytes.Equal(current, []byte(test.content)) {
+				t.Fatalf("exit=%d error=%v stderr=%s; invalid/started task changed", code, err, &failure)
+			}
+			if !test.isStarted && !strings.Contains(failure.String(), "brief is not ready") {
+				t.Fatalf("invalid brief did not reach validation: %s", &failure)
+			}
+			if test.isStarted {
+				meta, err := state.ReadTaskMeta(h.State, "legacy-task")
+				if err != nil || meta.SpawnGen != "retained" || meta.PipelineHash != "retained-policy" || meta.Mode != "direct-PR" {
+					t.Fatalf("active metadata changed: %+v %v", meta, err)
+				}
+			}
+		})
+	}
+}
+
+func TestBriefReadySharesTheQueuedAdmissionLock(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	t.Setenv("CFO_HOME", h.Root)
+	t.Setenv("CFO_STATE_OVERRIDE", h.State)
+	path := filepath.Join(h.Data, "legacy-task", "brief.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("## Project\nexample\n" + strings.ReplaceAll(completedCommandBrief, "ready: true", "ready: false"))
+	if err := fsx.AtomicWriteFile(path, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.AcquireExclusiveNamed(h.State, ".queued-legacy-task.lock"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := lock.ReleaseExclusiveNamed(h.State, ".queued-legacy-task.lock"); err != nil {
+			t.Error(err)
+		}
+	}()
+	var output, failure bytes.Buffer
+
+	// Act
+	code := runWithRuntime([]string{"brief", "ready", "legacy-task"}, &output, &failure, defaultCommandRuntime())
+
+	// Assert
+	current, err := fsx.ReadFile(path)
+	if code == 0 || err != nil || !bytes.Equal(current, original) || !strings.Contains(failure.String(), lock.ErrHeld.Error()) {
+		t.Fatalf("contended finalization exit=%d, error=%v, stderr=%s", code, err, &failure)
 	}
 }
 

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -14,6 +15,45 @@ import (
 )
 
 const authoredBrief = "## Task\nBuild the requested change.\n## Acceptance criteria\nThe requested behavior works.\n## Constraints\nChange only the requested behavior.\n## Authentication\ncredentials: none\nmcp: none\n## Delivery\nmode: no-mistakes\nready: true"
+
+func TestFinalizeBriefRequiresCompleteChoicesAndPreservesAuthoredBytes(t *testing.T) {
+	for _, test := range []struct {
+		name, before, after string
+	}{
+		{name: "legacy", before: strings.TrimSuffix(authoredBrief, "ready: true"), after: authoredBrief + "\n"},
+		{name: "draft", before: strings.ReplaceAll(authoredBrief, "ready: true", "ready: false"), after: authoredBrief},
+		{name: "idempotent", before: authoredBrief, after: authoredBrief},
+		{name: "CRLF", before: strings.ReplaceAll(strings.TrimSuffix(authoredBrief, "ready: true"), "\n", "\r\n"), after: strings.ReplaceAll(authoredBrief+"\n", "\n", "\r\n")},
+		{name: "no trailing newline", before: strings.TrimSuffix(authoredBrief, "\nready: true"), after: authoredBrief + "\n"},
+		{name: "following section", before: strings.TrimSuffix(authoredBrief, "ready: true") + "\n## Ticket\nIssue text.\n", after: strings.TrimSuffix(authoredBrief, "ready: true") + "\nready: true\n## Ticket\nIssue text.\n"},
+		{name: "auth mode and policy", before: strings.ReplaceAll(strings.ReplaceAll(strings.TrimSuffix(authoredBrief, "ready: true"), "credentials: none", "credentials: github"), "mode: no-mistakes", "mode: local-only\nclass: high-risk\nharness: codex\nmodel: chosen-model\neffort: high"), after: strings.ReplaceAll(strings.ReplaceAll(authoredBrief+"\n", "credentials: none", "credentials: github"), "mode: no-mistakes", "mode: local-only\nclass: high-risk\nharness: codex\nmodel: chosen-model\neffort: high")},
+		{name: "empty"},
+		{name: "missing task", before: strings.ReplaceAll(authoredBrief, "Build the requested change.", "")},
+		{name: "placeholder", before: strings.ReplaceAll(authoredBrief, "Build the requested change.", "{TASK - describe work}")},
+		{name: "missing auth", before: strings.ReplaceAll(authoredBrief, "credentials: none\n", "")},
+		{name: "missing mode", before: strings.ReplaceAll(authoredBrief, "mode: no-mistakes\n", "")},
+		{name: "malformed marker", before: strings.ReplaceAll(authoredBrief, "ready: true", "ready: yes")},
+		{name: "duplicate marker", before: authoredBrief + "\nready: true"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			original := []byte(test.before)
+			// Act
+			finalized, err := FinalizeBrief(original)
+			// Assert
+			if test.after == "" {
+				if !errors.Is(err, ErrBriefNotReady) || finalized != nil {
+					t.Fatalf("invalid brief finalized: %q, %v", finalized, err)
+				}
+			} else if err != nil || string(finalized) != test.after {
+				t.Fatalf("finalized = %q, %v; want %q", finalized, err, test.after)
+			}
+			if !bytes.Equal(original, []byte(test.before)) {
+				t.Fatal("finalization mutated its input")
+			}
+		})
+	}
+}
 
 func TestBriefReadinessRequiresAuthoredRequirementsAndFinalLaunchChoices(t *testing.T) {
 	tests := []struct {

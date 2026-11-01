@@ -70,10 +70,60 @@ func ValidateBriefReadiness(content []byte) error {
 		return fmt.Errorf("%w: explicitly name credentials and mcp in Authentication, or write none", ErrBriefNotReady)
 	}
 	if !isReadySeen {
-		return fmt.Errorf("%w: finalize Delivery with ready: true", ErrBriefNotReady)
+		return fmt.Errorf("%w: finish the requirements and launch choices, then run cfo brief ready <id>", ErrBriefNotReady)
 	}
 	if !isModeSeen {
 		return fmt.Errorf("%w: explicitly choose the Delivery mode", ErrBriefNotReady)
 	}
 	return nil
+}
+
+// FinalizeBrief validates an author's explicit readiness transition without
+// changing any requirement or launch choice.
+func FinalizeBrief(content []byte) ([]byte, error) {
+	text := string(content)
+	section, offset, deliveryEnd := "", 0, -1
+	markerStart, markerEnd := -1, -1
+	marker := ""
+	for _, line := range strings.SplitAfter(text, "\n") {
+		plain := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		if heading := levelTwoHeading.FindStringSubmatch(plain); heading != nil {
+			if section == "Delivery" {
+				deliveryEnd = offset
+			}
+			section = heading[1]
+		} else if section == "Delivery" {
+			key, value, found := strings.Cut(strings.TrimSpace(plain), ":")
+			if found && strings.TrimSpace(key) == "ready" {
+				value = strings.TrimSpace(value)
+				if markerStart >= 0 || value != "true" && value != "false" {
+					return nil, fmt.Errorf("%w: choose one Delivery ready: false or ready: true before finalizing", ErrBriefNotReady)
+				}
+				markerStart, markerEnd = offset, offset+len(line)
+				marker = strings.Replace(line, "false", "true", 1)
+			}
+		}
+		offset += len(line)
+	}
+	if section == "Delivery" {
+		deliveryEnd = len(text)
+	}
+	if markerStart >= 0 {
+		text = text[:markerStart] + marker + text[markerEnd:]
+	} else if deliveryEnd >= 0 {
+		newline := "\n"
+		if strings.Contains(text, "\r\n") {
+			newline = "\r\n"
+		}
+		prefix := text[:deliveryEnd]
+		if !strings.HasSuffix(prefix, "\n") {
+			prefix += newline
+		}
+		text = prefix + "ready: true" + newline + text[deliveryEnd:]
+	}
+	finalized := []byte(text)
+	if err := ValidateBriefReadiness(finalized); err != nil {
+		return nil, err
+	}
+	return finalized, nil
 }

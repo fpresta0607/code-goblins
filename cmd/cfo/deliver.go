@@ -25,6 +25,9 @@ import (
 // runBrief writes a task brief scaffold at data/<id>/brief.md and prints its
 // absolute path. It refuses to overwrite an existing brief.
 func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) (code int) {
+	if len(args) > 0 && args[0] == "ready" {
+		return runBriefReady(args[1:], stdout, stderr)
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo brief: task ID is required")
 		return 2
@@ -137,12 +140,12 @@ exist.
 
 ## Delivery
 
-Set ready: true as the final edit, after requirements, credentials and launch settings are complete.
+Run cfo brief ready %s after requirements, credentials and launch settings are complete.
 Keep ready: false while editing so the supervisor and explicit spawn wait.
 kind: %s
 mode: %s
 ready: false
-`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
+`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", id, *kind, *mode)
 	if err := fsx.AtomicWriteFile(path, []byte(body)); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

@@ -110,6 +110,7 @@ func (m Memory) shortfall() string {
 // startPlan is the cfo spawn a Start runs.
 type startPlan struct {
 	id, project, brief, harness, model, effort, mode string
+	briefRevision                                    string
 	missingBrief                                     *fleet.QueuedTask
 	isOverlord                                       bool
 	isProductionDefect                               bool
@@ -125,6 +126,9 @@ func (p startPlan) args() []string {
 		if flag[1] != "" {
 			args = append(args, flag[0], flag[1])
 		}
+	}
+	if p.briefRevision != "" {
+		args = append(args, "--brief-revision", p.briefRevision)
 	}
 	return args
 }
@@ -276,6 +280,14 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 		if err := fleet.WriteQueuedBrief(s.Store.Home, *plan.missingBrief); err != nil {
 			return err
 		}
+		content, err := fsx.ReadFile(plan.brief)
+		if err != nil {
+			return err
+		}
+		if err := fleet.ValidateBriefReadiness(content); err != nil {
+			return err
+		}
+		plan.briefRevision = fmt.Sprintf("brief:%x", sha256.Sum256(content))
 		if _, err := wake.Append(s.Store.Home.State, "notify", id, "brief created: Start wrote data/"+id+"/brief.md from the queued task; the CFO can amend it"); err != nil {
 			return err
 		}
@@ -409,6 +421,7 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 		return startPlan{}, waitRefusal(id, row, waits)
 	}
 	var briefLines []string
+	briefRevision := ""
 	if briefErr == nil {
 		content, err := fsx.ReadFile(brief)
 		if err != nil {
@@ -417,12 +430,13 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 		if err := fleet.ValidateBriefReadiness(content); err != nil {
 			return startPlan{}, StartRefusal{Reason: err.Error(), Passing: true, Held: true}
 		}
-		if queued.IsBriefOnly && queued.Revision != fmt.Sprintf("brief:%x", sha256.Sum256(content)) {
+		briefRevision = fmt.Sprintf("brief:%x", sha256.Sum256(content))
+		if queued.IsBriefOnly && queued.Revision != briefRevision {
 			return startPlan{}, StartRefusal{Reason: fleet.ErrBriefNotReady.Error() + ": the brief changed while planning its start", Passing: true}
 		}
 		briefLines = strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
 	}
-	plan := startPlan{id: id, brief: brief, project: parseBriefProject(briefLines), isProductionDefect: row.Priority == "production-defect", isRoot: row.Priority == RootPriority}
+	plan := startPlan{id: id, brief: brief, briefRevision: briefRevision, project: parseBriefProject(briefLines), isProductionDefect: row.Priority == "production-defect", isRoot: row.Priority == RootPriority}
 	if plan.project == "" {
 		plan.project = row.Repo
 	}

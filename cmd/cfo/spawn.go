@@ -57,6 +57,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	fs.SetOutput(stderr)
 	project := fs.String("project", "", "project checkout")
 	brief := fs.String("brief", "", "absolute brief file")
+	briefRevision := fs.String("brief-revision", "", "supervisor admission revision of the brief")
 	harnessName := fs.String("harness", "", "claude, codex, or pi; omitted, the lane table in data/routing.json picks it")
 	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
 	model := fs.String("model", "", "harness model")
@@ -120,6 +121,10 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	if err := fleet.ValidateBriefReadiness(briefText); err != nil {
 		fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
+		return 1
+	}
+	if *briefRevision != "" && *briefRevision != fmt.Sprintf("brief:%x", sha256.Sum256(briefText)) {
+		fmt.Fprintf(stderr, "cfo spawn: %v: brief changed after the supervisor selected its launch choices\n", fleet.ErrBriefNotReady)
 		return 1
 	}
 	// A dispatch never waits on GitHub: a read that fails or runs past its

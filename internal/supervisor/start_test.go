@@ -2,8 +2,10 @@ package supervisor
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
@@ -483,6 +485,7 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 			}
 			brief := filepath.Join(h.Data, "next-task", "brief.md")
 			want := append(append([]string{}, test.want[:4]...), append([]string{"--brief", brief}, test.want[4:]...)...)
+			want = append(want, "--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256([]byte(test.brief))))
 			if !reflect.DeepEqual(calls[0], want) {
 				t.Fatalf("cfo %v, want cfo %v", calls[0], want)
 			}
@@ -535,6 +538,7 @@ func TestAutomaticStartLeavesUnspecifiedEngineSettingsForRouting(t *testing.T) {
 	}
 	calls := awaitDispatch(t, handler.Service, spawner, 1)
 	want := []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--brief", filepath.Join(h.Data, "next-task", "brief.md"), "--effort", "medium", "--mode", "no-mistakes"}
+	want = append(want, "--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256([]byte(plainBrief))))
 	if !slices.Equal(calls[0], want) {
 		t.Fatalf("automatic start=%q, want %q", calls[0], want)
 	}
