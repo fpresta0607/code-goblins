@@ -293,26 +293,18 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 }
 
 func gateTestEnvironment(ctx context.Context, dir, runID string, runtime commandRuntime) ([]string, error) {
-	worktrees := filepath.Dir(filepath.Dir(dir))
-	if runID == "" && !strings.EqualFold(filepath.Base(worktrees), "worktrees") {
+	if runID == "" {
 		return nil, nil
 	}
 	h, err := runtime.resolveHome()
 	if err != nil {
 		return nil, err
 	}
-	if runID == "" && slices.ContainsFunc(h.WorktreeRoots(), func(root string) bool { return fsx.SamePath(worktrees, root) }) {
-		return nil, nil
-	}
-	reader := pipeline.Reader{Root: filepath.Dir(worktrees), Commands: execx.OSRunner{}}
+	reader := pipeline.Reader{Commands: execx.OSRunner{}}
+	reader.Root, err = pipeline.DefaultRoot()
 	var source pipeline.RunSource
-	if runID == "" {
-		source, err = reader.WorktreeSource(ctx, dir)
-	} else {
-		reader.Root, err = pipeline.DefaultRoot()
-		if err == nil {
-			source, err = reader.CommandSource(ctx, dir, runID)
-		}
+	if err == nil {
+		source, err = reader.CommandSource(ctx, dir, runID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("required test environment: cannot verify the gate's source project: %w", err)
@@ -323,9 +315,6 @@ func gateTestEnvironment(ctx context.Context, dir, runID string, runtime command
 	}
 	if err != nil {
 		return nil, fmt.Errorf("required test environment: %w", err)
-	}
-	if runID == "" {
-		return nil, errors.New("required test environment: add --gate-run {run} before -- in the machine's test_command_wrapper.command; the native run identity is required for both head and base commands")
 	}
 	id, err := gateTask(source.Worktree, runtime)
 	if err != nil {

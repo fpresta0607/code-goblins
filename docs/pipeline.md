@@ -748,6 +748,7 @@ An existing verified Python environment can be required by the project's machine
 
 This binding selects only `.venv` in the registered source task's primary worktree.
 The wrapper's `--gate-run {run}` argument identifies the full native run in the daemon's own home.
+Without `--gate-run`, `cfo gate turn` keeps the command's existing environment and does not infer a native binding from directory names.
 The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task through the source repository's worktree list, and checks the task's recorded project and worktree against the home's allowed locations.
 The command must run in that run's managed checkout or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the run's recorded base commit.
 It never selects an environment from a client variable or another project's record.
