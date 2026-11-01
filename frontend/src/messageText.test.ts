@@ -6,6 +6,21 @@ import { isLongText, leadAndRest, linkedText, messageBlocks, messageElements, pa
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
+test("a Modern document renderer replaces a labeled PDF and preserves adjacent report text", () => {
+  const target = "D:/task/Retail%20candidate (approved).pdf";
+  const shown = renderToStaticMarkup(messageElements(`Before [Retail PDF](${target}): 40 spaces.`, undefined, undefined,
+    (label, path, key) => createElement("span", { key, "data-document": path }, label)));
+  assert.equal(shown, `<p>Before <span data-document="${target}">Retail PDF</span>: 40 spaces.</p>`);
+});
+
+test("local PDF examples inside inline code remain literal with the document renderer", () => {
+  const link = "[Retail PDF](C:/output/candidate.pdf)";
+  const shown = renderToStaticMarkup(messageElements(`Read \`${link}\`.`, undefined, undefined,
+    (label, path, key) => createElement("span", { key, "data-document": path }, label)));
+  assert.equal(shown, `<p>Read <code>${link}</code>.</p>`);
+  assert.equal(html(link), `<p>${link}</p>`, "other shared message renderers keep their existing text contract");
+});
+
 test("thinking prose renders emphasis and ordered steps without changing code", () => {
   assert.equal(html("Read *carefully* and `*literally*`.\n\n3. First\n4. **Next**"), "<p>Read <em>carefully</em> and <code>*literally*</code>.</p><ol start=\"3\"><li>First</li><li><strong>Next</strong></li></ol>");
 });

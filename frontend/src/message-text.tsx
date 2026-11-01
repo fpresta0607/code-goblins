@@ -1,8 +1,11 @@
 import { Fragment } from "react";
 import { CodeBlock } from "./code-block";
+import { MessageDocument } from "./message-document";
 import { inlineElements, messageElements } from "./messageText";
 import { textParts } from "./session-messages";
 import "./message-values.css";
+
+const document = (label: string, target: string, key: number) => <MessageDocument key={key} label={label} target={target} />;
 
 // A message's words as Claude Code wrote them: its code blocks as written,
 // each with its language and a Copy, its headings in bold, and the prose
@@ -11,6 +14,6 @@ import "./message-values.css";
 export function MessageText({ text }: { text: string }) {
   return <div className="message-words">{textParts(text).map((part, at) => part.kind === "code"
     ? <CodeBlock key={at} text={part.text} language={part.language} />
-    : part.kind === "heading" ? <p key={at} className="message-heading">{inlineElements(part.text)}</p>
-      : <Fragment key={at}>{messageElements(part.text)}</Fragment>)}</div>;
+    : part.kind === "heading" ? <p key={at} className="message-heading">{inlineElements(part.text, undefined, undefined, document)}</p>
+      : <Fragment key={at}>{messageElements(part.text, undefined, undefined, document)}</Fragment>)}</div>;
 }

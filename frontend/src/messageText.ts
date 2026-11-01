@@ -1,4 +1,5 @@
 import { createElement, Fragment, type ReactNode } from "react";
+import { documentLinks } from "./document-links.ts";
 import { scrawlLink } from "./scrawl-link.ts";
 
 // A question or message as its asker wrote it, with the little structure the
@@ -131,6 +132,20 @@ const plainCode: CodeRenderer = (value, key) => isWebLink(value) ? webLink(value
 // link that opens it in File Explorer; as an icon alone beside a code value,
 // which keeps its own button that copies it.
 export type PathRenderer = (path: string, key: number, isIcon?: boolean) => ReactNode;
+export type DocumentRenderer = (label: string, target: string, key: number) => ReactNode;
+
+function documentElements(text: string, document: DocumentRenderer): ReactNode[] {
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const link of documentLinks(text)) {
+    if (link.start < at) continue;
+    if (link.start > at) out.push(text.slice(at, link.start));
+    out.push(document(link.label, link.target, out.length));
+    at = link.end;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
 
 // A local file or folder path, found by the rules the supervisor opens one by
 // (internal/supervisor/card_paths.go): a drive letter, a colon and a
@@ -169,11 +184,12 @@ export function pathElements(text: string, path: PathRenderer): ReactNode[] {
 // bold phrase. With path, each local path is drawn by it; a code value that
 // is one keeps its own button, which copies it, with the path's icon beside
 // it, since a command can start the way a path does.
-function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer): ReactNode[] {
+function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer, document?: DocumentRenderer): ReactNode[] {
   const out: ReactNode[] = [];
   const content = (at: number) => parts[at].code
     ? path && CODE_PATH.test(parts[at].text) ? createElement(Fragment, { key: at }, code(parts[at].text, 0), path(parts[at].text, 1, true)) : code(parts[at].text, at)
     : parts[at].link ? webLink(parts[at].text, at)
+    : document ? createElement(Fragment, { key: at }, ...documentElements(parts[at].text, document))
     : path ? createElement(Fragment, { key: at }, ...pathElements(parts[at].text, path)) : parts[at].text;
   const piece = (at: number) => parts[at].italic ? createElement("em", { key: at }, content(at)) : content(at);
   for (let n = 0; n < parts.length; n++) {
@@ -187,14 +203,14 @@ function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer): ReactNo
   return out;
 }
 
-export function messageElements(text: string, code: CodeRenderer = plainCode, path?: PathRenderer): ReactNode {
+export function messageElements(text: string, code: CodeRenderer = plainCode, path?: PathRenderer, document?: DocumentRenderer): ReactNode {
   return createElement(Fragment, null, ...messageBlocks(text).map((block, n) => block.kind === "paragraph"
-    ? createElement("p", { key: n }, ...inline(block.spans, code, path))
+    ? createElement("p", { key: n }, ...inline(block.spans, code, path, document))
     : block.kind === "list"
-      ? createElement(block.start === undefined ? "ul" : "ol", { key: n, start: block.start }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path))))
+      ? createElement(block.start === undefined ? "ul" : "ol", { key: n, start: block.start }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path, document))))
       : createElement("div", { key: n, className: "message-table" }, createElement("table", null,
-        createElement("thead", null, createElement("tr", null, ...block.header.map((cell, i) => createElement("th", { key: i }, ...inline(cell, code, path))))),
-        createElement("tbody", null, ...block.rows.map((row, r) => createElement("tr", { key: r }, ...row.map((cell, i) => createElement("td", { key: i }, ...inline(cell, code, path))))))))));
+        createElement("thead", null, createElement("tr", null, ...block.header.map((cell, i) => createElement("th", { key: i }, ...inline(cell, code, path, document))))),
+        createElement("tbody", null, ...block.rows.map((row, r) => createElement("tr", { key: r }, ...row.map((cell, i) => createElement("td", { key: i }, ...inline(cell, code, path, document))))))))));
 }
 
 // A message's lead, its first line, as inline text for a card's heading, and
@@ -206,7 +222,7 @@ export function leadAndRest(text: string): { lead: string; rest: string } {
   return TABLE_ROW.test(lead) ? { lead: "", rest: lines.join("\n") } : { lead, rest: lines.slice(1).join("\n") };
 }
 
-export const inlineElements = (text: string, code: CodeRenderer = plainCode, path?: PathRenderer): ReactNode => createElement(Fragment, null, ...inline(spans(text), code, path));
+export const inlineElements = (text: string, code: CodeRenderer = plainCode, path?: PathRenderer, document?: DocumentRenderer): ReactNode => createElement(Fragment, null, ...inline(spans(text), code, path, document));
 
 // Plain text, such as a History row's line, with each address in it a link.
 export const linkedText = (text: string): ReactNode => createElement(Fragment, null, ...inline(linkSpans(text, false), plainCode));
