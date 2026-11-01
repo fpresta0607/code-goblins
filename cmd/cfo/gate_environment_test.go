@@ -57,7 +57,7 @@ func TestGateTurnRefusesMissingRequiredProjectEnvironmentBeforeCommand(t *testin
 	if err := state.WriteTaskMeta(filepath.Join(homeRoot, "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: owner}); err != nil {
 		t.Fatal(err)
 	}
-	writeGateSource(t, gateRoot, project, worktree, "feature")
+	comparison := writeGateSource(t, gateRoot, project, worktree, "feature")
 	t.Setenv("NM_HOME", gateRoot)
 	manifest := filepath.Join(homeRoot, "data", "projects", filepath.Base(project), "project.json")
 	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
@@ -71,7 +71,7 @@ func TestGateTurnRefusesMissingRequiredProjectEnvironmentBeforeCommand(t *testin
 	var stdout, stderr lockedBuffer
 
 	// Act
-	exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run"}, turnCommand(dir, "configured", 0, false)...)...)
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison}, turnCommand(dir, "configured", 0, false)...)...)
 
 	// Assert
 	if exit != exitNotStarted || left(dir, "configured", "started") || !strings.Contains(stderr.String(), "test environment") {
@@ -83,7 +83,7 @@ func TestGateTurnBindsTheVerifiedEnvironmentWithoutReplacingTheConfiguredCommand
 	for _, code := range []string{"0", "7"} {
 		t.Run(code, func(t *testing.T) {
 			// Arrange
-			environment := gateEnvironmentFixture(t)
+			environment, comparison := gateEnvironmentFixture(t)
 			t.Setenv("UV_PROJECT_ENVIRONMENT", "unverified-client-environment")
 			t.Setenv("UV_NO_SYNC", "0")
 			t.Setenv("UNCHANGED_DAEMON_SETTING", "daemon-sentinel")
@@ -92,7 +92,7 @@ func TestGateTurnBindsTheVerifiedEnvironmentWithoutReplacingTheConfiguredCommand
 			var stdout, stderr lockedBuffer
 
 			// Act
-			exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--", "cmd.exe", "/d", "/c", command)
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", command)
 
 			// Assert
 			want := environment + "|" + filepath.Join(environment, "Scripts", "python.exe") + "|1|1|never|daemon-sentinel"
@@ -108,7 +108,7 @@ func TestGateTurnBindsTheVerifiedEnvironmentWithoutReplacingTheConfiguredCommand
 
 func TestGateTurnRechecksTheRequiredEnvironmentAfterWaitingForAdmission(t *testing.T) {
 	// Arrange
-	environment := gateEnvironmentFixture(t)
+	environment, comparison := gateEnvironmentFixture(t)
 	turnLine(t)
 	dir := commandFolder(t)
 	holder := startGateTurn(t, dir, nil, turnCommand(dir, "holder", 0, true)...)
@@ -116,7 +116,7 @@ func TestGateTurnRechecksTheRequiredEnvironmentAfterWaitingForAdmission(t *testi
 	var stdout, stderr lockedBuffer
 	ended := make(chan int, 1)
 	go func() {
-		ended <- gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run"}, turnCommand(dir, "configured", 0, false)...)...)
+		ended <- gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison}, turnCommand(dir, "configured", 0, false)...)...)
 	}()
 	eventually(t, "configured command waiting", func() bool { return strings.Contains(stderr.String(), "waiting for its turn") })
 	if err := os.Rename(environment, environment+"-unavailable"); err != nil {
@@ -141,7 +141,102 @@ func TestGateTurnRechecksTheRequiredEnvironmentAfterWaitingForAdmission(t *testi
 	}
 }
 
-func gateEnvironmentFixture(t *testing.T) string {
+func TestGateTurnRefusesChangedSourceAfterWaitingForAdmission(t *testing.T) {
+	// Arrange
+	_, comparison := gateEnvironmentFixture(t)
+	turnLine(t)
+	dir := commandFolder(t)
+	holder := startGateTurn(t, dir, nil, turnCommand(dir, "holder", 0, true)...)
+	eventually(t, "holder started", func() bool { return left(dir, "holder", "started") })
+	var stdout, stderr lockedBuffer
+	ended := make(chan int, 1)
+	go func() {
+		ended <- gateTurn(turnRuntime(), &stdout, &stderr, append([]string{"--gate-run", "run", "--test-comparison-sha", comparison}, turnCommand(dir, "configured", 0, false)...)...)
+	}()
+	eventually(t, "configured command waiting", func() bool { return strings.Contains(stderr.String(), "waiting for its turn") })
+	arguments := []string{"-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "--allow-empty", "-m", "change managed source"}
+	if output, err := exec.Command("git", arguments...).CombinedOutput(); err != nil {
+		t.Fatalf("change managed source: %s (%v)", output, err)
+	}
+	head, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("sqlite3", filepath.Join(os.Getenv("NM_HOME"), "state.sqlite"), "UPDATE runs SET head_sha='"+strings.TrimSpace(string(head))+"'").CombinedOutput(); err != nil {
+		t.Fatalf("record changed source: %s (%v)", output, err)
+	}
+
+	// Act
+	letGo(t, dir, "holder")
+	if exit := holder.exit(t, "holder"); exit != 0 {
+		t.Fatalf("holder exit=%d", exit)
+	}
+	var exit int
+	select {
+	case exit = <-ended:
+	case <-time.After(time.Minute):
+		t.Fatalf("configured command did not end: %s", stderr.String())
+	}
+
+	// Assert
+	if exit != exitNotStarted || left(dir, "configured", "started") || !strings.Contains(stderr.String(), "changed while waiting") {
+		t.Fatalf("exit=%d started=%v stderr=%q; want changed source refused before execution", exit, left(dir, "configured", "started"), stderr.String())
+	}
+}
+
+func TestGateTurnUsesNativeComparisonInsteadOfThePreviousPush(t *testing.T) {
+	for _, previousPush := range []string{"zero", "different commit"} {
+		for _, location := range []string{"managed", "base clone"} {
+			t.Run(previousPush+"/"+location, func(t *testing.T) {
+				// Arrange
+				environment, _ := gateEnvironmentFixture(t)
+				managed, err := os.Getwd()
+				if err != nil {
+					t.Fatal(err)
+				}
+				git := func(arguments ...string) string {
+					t.Helper()
+					output, err := exec.Command("git", append([]string{"-C", managed}, arguments...)...).CombinedOutput()
+					if err != nil {
+						t.Fatalf("git %v: %s (%v)", arguments, output, err)
+					}
+					return strings.TrimSpace(string(output))
+				}
+				comparison := git("rev-parse", "main")
+				head := git("rev-parse", "HEAD")
+				if comparison == head {
+					t.Fatal("fixture must distinguish the Test comparison from the managed head")
+				}
+				previous := head
+				if previousPush == "zero" {
+					previous = strings.Repeat("0", len(head))
+				}
+				sql := "UPDATE runs SET head_sha='" + head + "',base_sha='" + previous + "'"
+				if output, err := exec.Command("sqlite3", filepath.Join(os.Getenv("NM_HOME"), "state.sqlite"), sql).CombinedOutput(); err != nil {
+					t.Fatalf("record native head and previous push: %s (%v)", output, err)
+				}
+				if location == "base clone" {
+					base := filepath.Join(t.TempDir(), "base")
+					git("clone", "--quiet", "--shared", "--no-checkout", managed, base)
+					git("-C", base, "checkout", "--quiet", "--detach", comparison)
+					t.Chdir(base)
+				}
+				turnLine(t)
+				var stdout, stderr lockedBuffer
+
+				// Act
+				exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT% & exit /b 7")
+
+				// Assert
+				if exit != 7 || strings.TrimSpace(stdout.String()) != environment || stderr.String() != "" {
+					t.Fatalf("exit=%d stdout=%q stderr=%q; want the native-selected comparison and unchanged command exit 7", exit, stdout.String(), stderr.String())
+				}
+			})
+		}
+	}
+}
+
+func gateEnvironmentFixture(t *testing.T) (string, string) {
 	t.Helper()
 	project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
 	owner := filepath.Join(project, ".worktrees", "gb-cg-example")
@@ -149,7 +244,7 @@ func gateEnvironmentFixture(t *testing.T) string {
 	if err := state.WriteTaskMeta(filepath.Join(homeRoot, "state"), state.TaskMeta{ID: "cg-example", Project: project, Worktree: owner}); err != nil {
 		t.Fatal(err)
 	}
-	writeGateSource(t, gateRoot, project, worktree, "feature")
+	comparison := writeGateSource(t, gateRoot, project, worktree, "feature")
 	t.Setenv("NM_HOME", gateRoot)
 	manifest := filepath.Join(homeRoot, "data", "projects", filepath.Base(project), "project.json")
 	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
@@ -184,14 +279,14 @@ func gateEnvironmentFixture(t *testing.T) string {
 	}
 	t.Setenv("CFO_GATE_TURN_TEST_MEMORY", filepath.Join(t.TempDir(), "plenty"))
 	t.Setenv("CFO_TASK_ID", "")
-	return environment
+	return environment, comparison
 }
 
 func TestGateTurnBindsOnlyTheVerifiedRunAndItsExactBaseClone(t *testing.T) {
 	for _, scenario := range []string{"base clone", "wrong origin", "wrong base commit", "unknown run", "unbound wrapper"} {
 		t.Run(scenario, func(t *testing.T) {
 			// Arrange
-			environment := gateEnvironmentFixture(t)
+			environment, comparison := gateEnvironmentFixture(t)
 			t.Setenv("UV_PROJECT_ENVIRONMENT", "unbound-command-environment")
 			managed, err := os.Getwd()
 			if err != nil {
@@ -227,9 +322,9 @@ func TestGateTurnBindsOnlyTheVerifiedRunAndItsExactBaseClone(t *testing.T) {
 				t.Chdir(managed)
 			}
 			turnLine(t)
-			args := []string{"--gate-run", runID, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%"}
+			args := []string{"--gate-run", runID, "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%"}
 			if scenario == "unbound wrapper" {
-				args = args[2:]
+				args = args[4:]
 			}
 			var stdout, stderr lockedBuffer
 
@@ -255,7 +350,7 @@ func TestGateTurnBindsOnlyTheVerifiedRunAndItsExactBaseClone(t *testing.T) {
 func TestGateTurnLeavesAnUnconfiguredProjectsEnvironmentAndOwnershipAlone(t *testing.T) {
 	// Arrange
 	project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
-	writeGateSource(t, gateRoot, project, worktree, "feature")
+	comparison := writeGateSource(t, gateRoot, project, worktree, "feature")
 	t.Setenv("NM_HOME", gateRoot)
 	t.Setenv("UV_PROJECT_ENVIRONMENT", "existing-daemon-setting")
 	t.Setenv("ARBITRARY_DAEMON_SETTING", "unchanged")
@@ -263,7 +358,7 @@ func TestGateTurnLeavesAnUnconfiguredProjectsEnvironmentAndOwnershipAlone(t *tes
 	var stdout, stderr lockedBuffer
 
 	// Act
-	exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%^|%ARBITRARY_DAEMON_SETTING%")
+	exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%^|%ARBITRARY_DAEMON_SETTING%")
 
 	// Assert
 	if exit != 0 || strings.TrimSpace(stdout.String()) != "existing-daemon-setting|unchanged" || stderr.String() != "" {

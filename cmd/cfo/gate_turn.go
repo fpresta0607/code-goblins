@@ -41,7 +41,7 @@ const (
 // statusControlCExit is the exit status of a console program Ctrl+C ended.
 const statusControlCExit = 0xC000013A
 
-const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--gate-run <run-id>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
+const gateTurnUsage = "usage: cfo gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]"
 
 // runGateTurn runs any command in the machine's one line for heavy runs, the
 // line cfo gate test takes its turns in, so that one such run goes at a time
@@ -174,14 +174,14 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	}
 	executor.Stdin, executor.Stdout, executor.Stderr = os.Stdin, commandOutput, commandErrors
 	executor.IsConsoleShared = true
-	boundEnvironment, err := gateTestEnvironment(ctx, dir, request.gateRun, runtime)
+	bound, err := gateTestEnvironment(ctx, dir, request.gateRun, request.testComparisonSHA, runtime)
 	if err != nil {
 		fmt.Fprintf(stderr, "cfo gate turn: the command did not start: required test environment refused: %s\n", oneLine(err))
 		tell(exitNotStarted)
 		return exitNotStarted
 	}
 	environment := os.Environ()
-	for _, entry := range boundEnvironment {
+	for _, entry := range bound.environment {
 		name, _, _ := strings.Cut(entry, "=")
 		environment = slices.DeleteFunc(environment, func(existing string) bool {
 			existingName, _, _ := strings.Cut(existing, "=")
@@ -190,12 +190,12 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 		environment = append(environment, entry)
 	}
 	executor.Ready = func(ctx context.Context) error {
-		current, err := gateTestEnvironment(ctx, dir, request.gateRun, runtime)
+		current, err := gateTestEnvironment(ctx, dir, request.gateRun, request.testComparisonSHA, runtime)
 		if err != nil {
 			return fmt.Errorf("required test environment refused: %w", err)
 		}
-		if !slices.Equal(current, boundEnvironment) {
-			return errors.New("required test environment changed while waiting; verify the project binding and retry")
+		if current.source != bound.source || !slices.Equal(current.environment, bound.environment) {
+			return errors.New("required test environment or source changed while waiting; verify the project binding and retry")
 		}
 		return nil
 	}
@@ -292,39 +292,45 @@ func runGateTurnCommand(request gateTurnRequest, dir string, started time.Time, 
 	return exit
 }
 
-func gateTestEnvironment(ctx context.Context, dir, runID string, runtime commandRuntime) ([]string, error) {
+type gateTestBinding struct {
+	environment []string
+	source      pipeline.RunSource
+}
+
+func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, runtime commandRuntime) (gateTestBinding, error) {
 	if runID == "" {
-		return nil, nil
+		return gateTestBinding{}, nil
 	}
 	h, err := runtime.resolveHome()
 	if err != nil {
-		return nil, err
+		return gateTestBinding{}, err
 	}
 	reader := pipeline.Reader{Commands: execx.OSRunner{}}
 	reader.Root, err = pipeline.DefaultRoot()
 	var source pipeline.RunSource
 	if err == nil {
-		source, err = reader.CommandSource(ctx, dir, runID)
+		source, err = reader.CommandSource(ctx, dir, runID, comparison)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("required test environment: cannot verify the gate's source project: %w", err)
+		return gateTestBinding{}, fmt.Errorf("required test environment: cannot verify the gate's source project: %w", err)
 	}
 	manifest, _, err := projectcfg.LoadForCheckout(h.Data, source.Project)
 	if errors.Is(err, os.ErrNotExist) || err == nil && manifest.TestEnvironment == nil {
-		return nil, nil
+		return gateTestBinding{source: source}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("required test environment: %w", err)
+		return gateTestBinding{}, fmt.Errorf("required test environment: %w", err)
 	}
 	id, err := gateTask(source.Worktree, runtime)
 	if err != nil {
-		return nil, fmt.Errorf("required test environment: cannot verify the gate's source task: %w", err)
+		return gateTestBinding{}, fmt.Errorf("required test environment: cannot verify the gate's source task: %w", err)
 	}
 	meta, err := state.ReadTaskMeta(h.State, id)
 	if err != nil {
-		return nil, err
+		return gateTestBinding{}, err
 	}
-	return pipeline.ProjectTestEnvironment(ctx, execx.OSRunner{}, h.Data, meta.Project, meta.Worktree)
+	environment, err := pipeline.ProjectTestEnvironment(ctx, execx.OSRunner{}, h.Data, meta.Project, meta.Worktree)
+	return gateTestBinding{environment: environment, source: source}, err
 }
 
 // oneLine is err's text on one line, the errors it joins separated by commas.
@@ -334,7 +340,8 @@ func oneLine(err error) string {
 
 // gateTurnRequest is what cfo gate turn's arguments ask for.
 type gateTurnRequest struct {
-	gateRun string
+	gateRun           string
+	testComparisonSHA string
 	// as is the name the run goes by in the line, empty for its command's.
 	as string
 	// wait, when set, bounds the wait for the turn.
@@ -408,6 +415,9 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			if args[at+1] == "" {
 				return gateTurnRequest{}, errors.New("the command after -- names no program")
 			}
+			if request.testComparisonSHA != "" && request.gateRun == "" {
+				return gateTurnRequest{}, errors.New("--test-comparison-sha requires --gate-run")
+			}
 			request.command = args[at+1:]
 			return request, nil
 		case isNamed:
@@ -427,6 +437,14 @@ func parseGateTurn(args []string) (gateTurnRequest, error) {
 			request.gateRun = args[at]
 		case args[at] == "--gate-run":
 			return gateTurnRequest{}, errors.New("--gate-run is given no run identity")
+		case args[at] == "--test-comparison-sha" && at+1 < len(args) && args[at+1] != "" && !strings.HasPrefix(args[at+1], "-"):
+			at++
+			if request.testComparisonSHA != "" {
+				return gateTurnRequest{}, errors.New("--test-comparison-sha is given twice")
+			}
+			request.testComparisonSHA = args[at]
+		case args[at] == "--test-comparison-sha":
+			return gateTurnRequest{}, errors.New("--test-comparison-sha is given no comparison identity")
 		case args[at] == "--wait":
 			return gateTurnRequest{}, errors.New("--wait is given no duration")
 		case args[at] == "--execution-limit":
@@ -477,6 +495,9 @@ func detachedArguments(request gateTurnRequest) []string {
 	args := []string{"--detached"}
 	if request.gateRun != "" {
 		args = append(args, "--gate-run", request.gateRun)
+	}
+	if request.testComparisonSHA != "" {
+		args = append(args, "--test-comparison-sha", request.testComparisonSHA)
 	}
 	if request.as != "" {
 		args = append(args, "--as="+request.as)

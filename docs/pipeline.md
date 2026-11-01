@@ -714,14 +714,14 @@ The fork's side, as task cg-gate-fork-minutes built it, is a setting in the mach
 
 ```yaml
 test_command_wrapper:
-  command: ["C:\\dev\\code-goblins\\bin\\cfo.exe", "gate", "turn", "--gate-run", "{run}", "--as", "{repo} {branch}, run {run_short}", "--"]
+  command: ["C:\\dev\\code-goblins\\bin\\cfo.exe", "gate", "turn", "--gate-run", "{run}", "--test-comparison-sha", "{test_comparison_sha}", "--as", "{repo} {branch}, run {run_short}", "--"]
   refusal_prefix: "cfo gate turn: "
 ```
 
 The fork fills `{repo}`, `{branch}`, `{run}` and `{run_short}` once, then starts these arguments with no shell in front:
 
 ```text
-C:\dev\code-goblins\bin\cfo.exe  gate  turn  --gate-run  <full run id>  --as  "PrecisionDocs feat/x, run 01M4FG7F"  --  C:\WINDOWS\system32\cmd.exe  /c  <the command string, as one argument>
+C:\dev\code-goblins\bin\cfo.exe  gate  turn  --gate-run  <full run id>  --test-comparison-sha  <resolved Test comparison SHA>  --as  "PrecisionDocs feat/x, run 01M4FG7F"  --  C:\WINDOWS\system32\cmd.exe  /c  <the command string, as one argument>
 ```
 
 The full path to `cfo.exe` keeps the gate daemon's `PATH` from choosing which `cfo` runs.
@@ -748,16 +748,19 @@ An existing verified Python environment can be required by the project's machine
 
 This binding selects only `.venv` in the registered source task's primary worktree.
 The wrapper's `--gate-run {run}` argument identifies the full native run in the daemon's own home.
+Its `--test-comparison-sha {test_comparison_sha}` argument carries the comparison already selected by native Test, as one full nonzero 40- or 64-character lowercase hexadecimal object ID.
+The consumer uses that value directly and never resolves another base or reads `runs.base_sha`, which records the previous pushed ref and may be zero.
 Without `--gate-run`, `cfo gate turn` keeps the command's existing environment and does not infer a native binding from directory names.
 The wrapper verifies the gate's project and branch through the native run database, finds the owning fleet task through the source repository's worktree list, and checks the task's recorded project and worktree against the home's allowed locations.
-The command must run in that run's managed checkout or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the run's recorded base commit.
+The managed checkout must have the run's recorded HEAD and canonical native repository.
+The command must run there or in a separate base clone whose top level, local origin and HEAD match the managed checkout and the supplied native Test comparison.
 It never selects an environment from a client variable or another project's record.
 The interpreter must already exist, and an isolated Python probe must report that executable, the selected environment prefix, a distinct existing base prefix and the exact configured version.
 The environment directory must resolve inside the registered source worktree.
 Python environments with system site packages are supported.
 
 `cfo pipeline run <task> --intent-file <file>` checks a required binding before starting or reattaching to a gate.
-The daemon's existing Test wrapper checks it before admission and again after waiting, then starts the original program and arguments with `UV_PROJECT_ENVIRONMENT` and `UV_PYTHON` set to the verified paths, `UV_NO_SYNC=1`, `UV_OFFLINE=1` and `UV_PYTHON_DOWNLOADS=never`.
+The daemon's existing Test wrapper checks it before admission and again after waiting, rejects a changed source or environment, then starts the original program and arguments with `UV_PROJECT_ENVIRONMENT` and `UV_PYTHON` set to the verified paths, `UV_NO_SYNC=1`, `UV_OFFLINE=1` and `UV_PYTHON_DOWNLOADS=never`.
 These are fixed binding settings, with no arbitrary client environment forwarding and no shared daemon environment change.
 The configured repository command and its actual exit code remain unchanged.
 Use this binding for a trusted `uv run` command that must reuse an existing environment without dependency resolution, installation or interpreter downloads; it does not constrain an arbitrary repository command that explicitly overrides those settings.
@@ -766,9 +769,11 @@ An unavailable, invalid or mismatched required binding refuses execution with ex
 Repair and verify the existing environment or its project setting, then request the same Test command again through `cfo pipeline respond <task> --action fix --findings test-command-no-turn`.
 `cfo pipeline respond` refuses approval of a recorded required-environment refusal, even with `--accept` or `--reason` and after the project setting changes; a successful Test retry is required.
 Projects with no `test_environment` keep their existing runner environment.
-The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CFO build, including `--gate-run {run}`; the managed preflight refuses a required binding without that argument.
-Apply the reviewed wrapper setting through the CFO's normal idle configuration window.
-The native engine already supports the `{run}` placeholder, so no native-engine patch is required.
+The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CFO build, including both native identity arguments; the managed preflight refuses a required binding when either is absent or uses another placeholder.
+The native build must support the `{test_comparison_sha}` contract delivered by [native pull request 46](https://github.com/fpresta0607/no-mistakes/pull/46).
+The CFO activates that native build and the reviewed wrapper setting together through its normal idle configuration window.
+The isolated real-daemon acceptance fixture is `tests/acceptance/test_environment.py`.
+It consumes source-bound native and consumer artifact receipts and an unused private proof root, uses an existing Python 3.12.10 interpreter and fake command sentinels, and retains its complete native history and proof.
 
 What the test command leaves running is ended ten seconds after it exits, and after a baseline that passed the test agent still gathers live evidence, outside the line.
 

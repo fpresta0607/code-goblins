@@ -102,12 +102,19 @@ func CheckTestEnvironmentWrapper(root string) error {
 		return err
 	}
 	words := config.Wrapper.Command
-	if len(words) >= 6 && words[1] == "gate" && words[2] == "turn" && words[len(words)-1] == "--" {
+	if len(words) >= 8 && words[1] == "gate" && words[2] == "turn" && words[len(words)-1] == "--" {
+		hasRun, hasComparison := false, false
 		for at := 3; at+1 < len(words)-1; at++ {
 			if words[at] == "--gate-run" && words[at+1] == "{run}" {
-				return nil
+				hasRun = true
+			}
+			if words[at] == "--test-comparison-sha" && words[at+1] == "{test_comparison_sha}" {
+				hasComparison = true
 			}
 		}
+		if hasRun && hasComparison {
+			return nil
+		}
 	}
-	return errors.New("pipeline: required test environment: configure test_command_wrapper.command with the reviewed cfo binary, gate turn, --gate-run {run}, then --; the daemon must bind both head and base Test commands before a run starts")
+	return errors.New("pipeline: required test environment: configure test_command_wrapper.command with the reviewed cfo binary, gate turn, --gate-run {run}, --test-comparison-sha {test_comparison_sha}, then --; the daemon must support the resolved Test comparison contract and bind both head and base commands before a run starts")
 }

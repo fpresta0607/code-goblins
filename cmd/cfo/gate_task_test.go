@@ -85,7 +85,7 @@ func TestAnUnknownGateRunNeverNamesTheDaemonsTask(t *testing.T) {
 	}
 }
 
-func writeGateSource(t *testing.T, root, project, worktree, branch string) {
+func writeGateSource(t *testing.T, root, project, worktree, branch string) string {
 	t.Helper()
 	base, err := exec.Command("git", "-C", worktree, "rev-parse", "HEAD").Output()
 	if err != nil {
@@ -93,12 +93,13 @@ func writeGateSource(t *testing.T, root, project, worktree, branch string) {
 	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,worktree_dir TEXT,base_sha TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,worktree_dir TEXT,base_sha TEXT,head_sha TEXT);
 INSERT INTO repos VALUES('repo',` + quote(project) + `);
-INSERT INTO runs VALUES('run','repo',` + quote(branch) + `,` + quote(worktree) + `,` + quote(strings.TrimSpace(string(base))) + `);`
+INSERT INTO runs VALUES('run','repo',` + quote(branch) + `,` + quote(worktree) + `,` + quote(strings.TrimSpace(string(base))) + `,` + quote(strings.TrimSpace(string(base))) + `);`
 	if output, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("write gate source: %s (%v)", output, err)
 	}
+	return strings.TrimSpace(string(base))
 }
 
 func TestAGateRunNamesItsOwnerDespiteTheInheritedTask(t *testing.T) {
