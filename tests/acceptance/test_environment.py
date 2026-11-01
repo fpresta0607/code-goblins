@@ -90,14 +90,14 @@ def main():
                '{test_comparison_sha}', '--as', '{repo} {branch}, run {run_short}', '--']
     write(native_home / 'config.yaml', 'agent: codex\nlog_level: debug\nagent_path_override:\n  codex: ' +
           json.dumps(str(root / 'bin' / 'codex.exe')) + '\nauto_fix:\n  review: 0\n  test: 0\n  lint: 0\n  rebase: 0\n  document: 0\n  ci: 0\n' +
-          'test:\n  base_attribution: true\ntest_command_wrapper:\n  command: ' + json.dumps(wrapper) + '\n  refusal_prefix: "cfo gate turn: "\n')
+          'test_command_wrapper:\n  command: ' + json.dumps(wrapper) + '\n  refusal_prefix: "cfo gate turn: "\n')
     write(root / 'command-sentinel.py', SENTINEL)
     for tool in ('uv', 'node'):
         write(root / 'bin' / (tool + '.cmd'), '@echo off\n"%PROOF_BASE_PYTHON%" "%PROOF_ROOT%\\command-sentinel.py" ' + tool + ' %*\nexit /b %errorlevel%\n')
     git = lambda *values, directory=checkout: run(['git', *values], directory, environment).stdout.strip()
     git('init', '--bare', '--initial-branch=main', upstream, directory=root)
     git('init', '--initial-branch=main')
-    write(checkout / '.no-mistakes.yaml', 'disable_project_settings: true\ncommands:\n  test: ' + json.dumps(COMMAND) + '\n')
+    write(checkout / '.no-mistakes.yaml', 'disable_project_settings: true\ncommands:\n  test: ' + json.dumps(COMMAND) + '\ntest:\n  base_attribution: true\n')
     write(checkout / 'README.txt', 'isolated daemon boundary proof\n')
     write(checkout / '.gitignore', '.venv/\n')
     git('add', '.no-mistakes.yaml', 'README.txt', '.gitignore')
