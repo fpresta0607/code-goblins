@@ -94,6 +94,7 @@ def main():
     write(root / 'command-sentinel.py', SENTINEL)
     for tool in ('uv', 'node'):
         write(root / 'bin' / (tool + '.cmd'), '@echo off\n"%PROOF_BASE_PYTHON%" "%PROOF_ROOT%\\command-sentinel.py" ' + tool + ' %*\nexit /b %errorlevel%\n')
+    write(root / 'bin' / 'proof-isolation.cmd', '@echo off\n"%PROOF_BASE_PYTHON%" "%PROOF_ROOT%\\command-sentinel.py" isolation\nexit /b %errorlevel%\n')
     git = lambda *values, directory=checkout: run(['git', *values], directory, environment).stdout.strip()
     git('init', '--bare', '--initial-branch=main', upstream, directory=root)
     git('init', '--initial-branch=main')
@@ -214,7 +215,7 @@ def main():
         other.mkdir()
         git('init', '--bare', '--initial-branch=main', other_upstream, directory=root)
         git('init', '--initial-branch=main', directory=other)
-        other_command = '"' + sys.executable + '" "' + str(root / 'command-sentinel.py') + '" isolation'
+        other_command = 'proof-isolation'
         write(other / '.no-mistakes.yaml', 'disable_project_settings: true\ncommands:\n  test: ' + json.dumps(other_command) + '\n')
         write(other / '.gitignore', '.venv/\n')
         write(other / '.venv' / 'environment-marker', 'other-project-environment-unchanged')
