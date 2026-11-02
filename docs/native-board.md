@@ -600,6 +600,7 @@ Task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 A goblin's card on the canvas says what its card on the board says, with its project too and without the baby goblins the canvas draws under it: its name and title, its project and status, and in a row at its foot how long it has run, since a paused or finished goblin has no canvas card, its pull request with its number and its harness mark, drawn by the same parts as the board card's (`frontend/src/card-clock.tsx`, `frontend/src/card-pull-request.tsx`).
 The CFO's card has its weekly allowance dials and the OpenRouter key's spend and the button that opens its terminal, as the board's CFO bar has, and keeps its harness mark and the brand inside each dial.
+On the canvas its dials wrap with gaps, and below 70% zoom a card with multiple dials hides the subscription percentages and key-spend budget labels, keeping the rings and dollar amount (`frontend/tests/orchestration-card-text.spec.ts`).
 Every card on the canvas, a baby goblin's included, holds all it says inside its border at any length, since each part keeps to its own lines and ends in an ellipsis past them (`frontend/tests/orchestration-card-text.spec.ts`).
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
 The tree fits and centers itself in the visible canvas, scaled up to fill it but never past 125% and down as far as 10%, so the whole of any tree shows, and refits whenever the panel opens or closes, the window resizes, a goblin appears or leaves, or a dragged card is dropped.
@@ -787,7 +788,7 @@ A view of a goblin that the supervisor starts or resumes waits for its host inst
 The view is bound to its terminal once, by the host's pipe, whose server process must be the host the record names, so a key costs no check and starts no process.
 The first message is the text `{"type":"history","bytes":N}`, the number of output bytes that follow as the host's history, even when it is empty.
 Output arrives as binary messages, the history first; typing goes back as binary messages, and a resize as the text message `{"type":"resize","cols":C,"rows":R}`.
-The host repaints the whole screen from its own copy on every resize, even to the size it already has, as the inbox conhost repaints and OpenConsole does not, so a view replays the history and then sends its size, and its screen is whole however much of the history the host still keeps.
+The host repaints the whole screen from its own copy on every resize, even to the size it already has, as the inbox conhost repaints and OpenConsole does not, so a [visible native view](#the-message-box) can show the whole screen however much of the history the host still keeps.
 Its copy resizes as xterm.js resizes its own: a line wider than the new width is wrapped anew and a line a wrap split is joined again, all but the line the cursor is on, which xterm.js too leaves to the program.
 Lines a view brings back from its scrollback as the terminal grows are drawn over by the repaint, as they were by the inbox conhost's.
 The repaint writes a wrapped line on past the row's end, so a view marks it wrapped and reflows it too, and it places the cell after a wide character by its column, since the board's xterm.js draws an emoji one cell wide.
@@ -802,7 +803,7 @@ Only a size the terminal takes after it took the view's own counts as another vi
 A program's terminal queries, such as a cursor-position or device-attributes request, never reach a view: the host answers them or leaves them unanswered, so no view, open or replaying, types an answer into the program.
 A size under 20 columns or 5 rows, measured while a panel was hidden, or over 1000 columns or 500 rows is ignored and announced to nobody.
 A host tells a viewer sizes only when its handshake asks for them; for a host started before hosts told sizes, the relay tells every view the size each of its own resizes gave the terminal, at the end of the output it had read by then.
-A view acknowledges the output it has drawn with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
+A view acknowledges the output it has parsed with `{"type":"ack","bytes":N}`, N counting every output byte so far: the relay sends a view at most 1 MiB beyond what it acknowledged and keeps reading the host, and a view that falls 8 MiB behind is closed with code 1013 and "The view fell behind the terminal's output.", so the host never waits on a slow window and a view that stays open never loses a byte.
 A view is told when key presses have sat unread in the terminal's input, as `{"type":"unread","unread":true}`, and with `false` once the program has read them.
 For a harness whose screens the supervisor knows, the CFO's being the one it registered as by the time of the read, the relay reads the terminal's screen as a view opens, which no output puts off, and once its output has paused for 300 ms, which a turn's spinner never lets it, and tells the view as `{"type":"screen","asking":true,"open":true}` each time what it read changes: asking while the harness waits on an answer at a screen of its own, which only its terminal takes, and open while something of its own is drawn in its input line's place, a picker, a panel or that question.
 For Claude Code that is a dialog the supervisor knows while no turn, composer or footer shows, or a list of numbered choices with one focused, as its permission prompt draws, while none of them shows under the list (`Screens.IsAsking` in `internal/harness/screens.go`), and something is open while it asks, or while no row of its composer's footer shows and no turn runs (`Screens.IsOpen`).
@@ -966,7 +967,8 @@ Ctrl+Shift with any other letter, Ctrl+/ and Ctrl with 1 or 9 send nothing, sinc
 A browser tab keeps some keys before any page sees them, Ctrl+T, Ctrl+N and Ctrl+W among them, and those never reach a terminal in a tab.
 `frontend/tests/terminal-keys.spec.ts` presses every key of the table in both terminals, for Claude Code, Codex and pi, idle, busy and on a full screen, and `TestEachKeyTheBoardSendsReachesAProgramThatReadsKeyRecordsAsThatKey` reads the key record each one becomes.
 
-Every native terminal the Overlord opens stays live while the board is open, one xterm and one socket each, hidden rather than unmounted, so switching only brings another into sight; the three most recent Herdr views stay live the same way, and each may briefly hold a second stream while it switches to or from sizing its pane, so another window still gets some of Herdr's eight streams.
+Native terminal presentation follows [the message box's lifecycle](#the-message-box).
+The three most recent Herdr views stay live, and each may briefly hold a second stream while it switches to or from sizing its pane, so another window still gets some of Herdr's eight streams.
 The shown terminal fills the panel, with no list beside it; the Overlord picks the goblin on the board.
 Ctrl+Alt+Up and Ctrl+Alt+Down step through the terminals, the CFO first and then each goblin with a terminal, and Ctrl+Alt+1 to Ctrl+Alt+9 jump to one in that order, matched by key position; the board catches them before a terminal sees them, except while a dialog such as the Command Center is open, and a switch hands the keyboard to the session's message box, or to its terminal where it has no messages or its terminal stepped in ([The Messages view](#the-messages-view)), a Herdr terminal included.
 A key typed with AltGr, which Windows reports as Ctrl+Alt, stays the terminal's, so a layout that types a brace or bracket with AltGr and a digit keeps it.
@@ -1478,8 +1480,8 @@ Ctrl+Plus, Ctrl+Minus and Ctrl+0, the right button held with the wheel, or the w
 The size is kept in this browser as `cfo-message-font-size`, apart from the terminals' size, since a size the terminals take resizes their programs.
 Shift+Escape leaves the messages for the panel's first control, never the CFO's AFK switch that leads them, as it leaves a terminal, and Escape does what the corner button does.
 The messages lie where the terminal deck lies, under the panel's one-row header, beside its task list, in the same flex and under the same rule (`frontend/src/panel-stage.tsx`), so their box is the terminal's.
-Stepping the terminal in or out therefore never asks it for another size, which `frontend/tests/messages-view.spec.ts` counts at the relay for the CFO and a goblin, beside the board and maximized.
-It stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.
+Terminal loading and sizing follow [the message box's presentation lifecycle](#the-message-box).
+The conversation stays mounted with its stream open from its first showing while its panel shows the session, so a switch back reads nothing again and finds the place he read.
 A stream that drops reconnects by itself and says Reconnecting meanwhile, and a plain line above the conversation says it is connecting until its first page arrives, never a cover over the box he types into.
 A stream the supervisor ends says why, and one that drops five times, or that the supervisor refuses, says the messages cannot be read, each with Reconnect.
 What the board could not parse goes to the CFO.
@@ -1487,7 +1489,13 @@ What the board could not parse goes to the CFO.
 #### The message box
 
 Under the conversation is the session's message box, in place of its terminal's input, which shows only stepped in.
-The session's terminal lies laid out unseen behind the messages, in the same box, and the message box types through that terminal's own view (`frontend/src/terminal-link.ts`), so the terminal has its size before he first sees it and a switch to it asks for none.
+The message box types through the native terminal's input link (`frontend/src/terminal-link.ts`), keeping its parser and connection active without opening its visual surface.
+Chat parses and acknowledges the replay without claiming the native terminal's size; its input link becomes ready after replay and the initial screen reading, or a bounded fallback if that reading does not arrive.
+The first explicit terminal request opens xterm and sizes it to the panel, staging the surface until its repaint completes or the bounded readiness fallback expires.
+Returning to Chat detaches the terminal's visual DOM and hides its connecting indicator, removing that surface's `.xterm` element from the page and stopping its `terminal-spin` animation.
+Later switches retain the parser, connection and reading position, and an unchanged grid sends no further resize.
+Presentation readiness can finish while hidden, so reopening at the same size does not depend on another repaint; a replay already accepted in Chat can also be shown after its connection closes, with the closed notice and no live resize request.
+`frontend/tests/orchestration-terminal.spec.ts` covers this lifecycle, and `frontend/tests/messages-view.spec.ts` and `frontend/tests/terminal-steps-in.spec.ts` count first-visible sizing and stable subsequent switches at the relay.
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
 While the harness works and the box is empty, the send button is Stop, which presses Escape in its terminal, as Esc in the box does; with the box's own pane, Speech history or style menu open, Escape closes that instead and reaches neither the harness nor its screen.
 Busy, held or reconnecting sends go through the durable board queue for CFO and goblins; a message refused before typing stays there until the native composer returns.

@@ -347,7 +347,7 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
    grows past the box: the title and the status end in an ellipsis after two
    lines, the project and the relation after one, and a card that also shows a
    browser line or its relation gives lines up to make room, so every part
-   still shows. Under the column a foot row says what its board card says
+   still shows. Under the column a foot says what its board card says
    besides: its clock, its pull request and its harness mark, or on the CFO's
    card its weekly dials, its terminal button and its mark. The foot sits over
    the card's button, clear of its chevron, so the whole card still drags. */
@@ -361,10 +361,14 @@ button:disabled, textarea:disabled { cursor: default; opacity: .55; }
 .flow-node-foot .icon-button + .card-harness { margin-left: 0; }
 .flow-node-foot .mark, .flow-node-foot .icon-button { width: 28px; height: 28px; min-height: 28px; }
 .flow-node-foot .mark svg, .flow-node-foot .mark .icon, .flow-node-foot .icon-button svg { width: 16px; height: 16px; }
-.flow-node-foot .subscription-dials { display: flex; gap: 10px; min-width: 0; }
-.flow-node-foot .subscription-dial { min-width: 0; gap: 4px; }
+.flow-node-foot:has(.subscription-dials) { height: auto; }
+.flow-node-foot .subscription-dials { display: flex; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.flow-node-foot .subscription-dial { flex: none; min-width: 0; gap: 4px; }
+.flow-node-foot .card-harness, .flow-node-foot .icon-button { flex-shrink: 0; }
 .flow-node-foot .subscription-ring { width: 28px; height: 28px; }
 .flow-node-foot .subscription-percent { font-size: .9375rem; }
+.flow-node:has(.subscription-dial ~ .subscription-dial) .flow-node-main { padding-bottom: 90px; }
+.flow-world.compact-dials .subscription-dials:has(.subscription-dial ~ .subscription-dial) :is(.subscription-percent, .key-spend-budget) { display: none; }
 .flow-node-main:active { cursor: grabbing; }
 .flow-node .goblin-avatar { width: 72px; height: 72px; }
 .flow-node .card-copy { gap: 2px; max-height: 100%; overflow: clip; overflow-clip-margin: 3px; }
@@ -1259,9 +1263,7 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .key-spend-spent { font-size: 1rem; font-variant-numeric: tabular-nums; }
 .key-spend-budget { color: var(--muted); font-size: .8125rem; white-space: nowrap; }
 .key-spend-dial.unknown .key-spend-spent { color: var(--muted); }
-/* The canvas card's foot is one row of 28px marks, so the dollars and the
-   budget they count against sit on one line there rather than two. */
-.flow-node-foot .key-spend-values { flex-direction: row; align-items: baseline; gap: 4px; }
+.flow-node-foot .key-spend-values { align-items: flex-start; }
 .flow-node-foot .key-spend-budget { font-size: .8125rem; }
 /* The task the CFO starts next, and Start on every queued card: one play
    button among the card's controls. */
@@ -1444,12 +1446,9 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-view-switch .icon { width: 17px; height: 17px; }
 .panel-view-switch > button:hover { color: #edf4f3; }
 .panel-view-switch > button[aria-pressed="true"] { color: #f4fbff; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }
-/* The stage is the box under the panel's header that a session's Messages
-   view and its terminal share: the Messages view lies over the terminal
-   deck, which stays laid out unseen behind it, so the terminal has its size
-   before it is first seen and a step between the two resizes nothing. The
-   terminal stepped into the messages' place has a bar floating over its top
-   edge that takes none of its height. */
+/* The stage gives the Messages view and terminal deck the same panel box.
+   PanelStage owns the floating Back to messages bar; terminal presentation
+   and sizing are handled by TerminalView when its surface is shown. */
 .panel-stage { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; }
 /* The stage takes what the panel's own header leaves, so nothing shrinks
    under the conversation's own box. */

@@ -377,8 +377,8 @@ export function App() {
   const panelEffort = cfoShown || !task ? (cfoEngine && !cfoEngine.pending && !cfoEngine.problem && cfoEngine.harness === snapshot?.cfo_harness ? cfoEngine.effort : "") : task.effort || "";
   const panelSent = snapshot && (cfoShown || task) ? messagesTo(snapshot, cfoShown ? "" : task?.id || "") : [];
   const panelPending = panelSent.filter(isPendingMessage);
-  // A session the board reads as messages shows them, with its terminal laid
-  // out behind them in the same box for its box to type through. The terminal steps into their place, with the keyboard,
+  // A session the board reads as messages shows them and types through its
+  // terminal's input link. The terminal steps into their place, with the keyboard,
   // when what the box sent opens a screen of the harness's own before a turn
   // starts, a picker, a panel or a question, and steps out by itself once the
   // harness's input line is back, the keyboard going back to the box. The

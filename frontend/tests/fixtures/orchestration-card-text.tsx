@@ -28,9 +28,13 @@ const tree = (task: string, children: Record<string, unknown>[]) => ({ task_id: 
 // Jules's ninth child is the one still running: the eight before it finished.
 const finishedBefore = Array.from({ length: 8 }, (_, i) => child({ id: "subagent:done-" + i, kind: "subagent", label: "Read the logs", state: "done", started: ago(300 - i), finished: ago(200), last_activity: ago(200) }));
 const PULL_REQUEST = "https://github.com/fpresta0607/precisiondocs/pull/1556";
-const view = new URLSearchParams(location.search).get("view") || "canvas";
+const params = new URLSearchParams(location.search);
+const view = params.get("view") || "canvas";
+const isCrowded = params.has("crowded");
 const snapshot = parseSnapshot({ healthy: true, instance: "fixture", at, cfo_runs: true, cfo_harness: "claude",
-  subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 }],
+  subscriptions: [{ provider: "claude", status: "available", percent_remaining: 62, read_at: at, resets_at: "2026-10-16T22:27:42Z", source: "oauth", floor_percent: 5 },
+    ...(isCrowded ? [{ provider: "codex", status: "available", percent_remaining: 8, read_at: at, source: "oauth", floor_percent: 5 }] : [])],
+  key_spend: isCrowded ? [{ provider: "openrouter", status: "available", spent_usd: 12.5, limit_usd: 50, remaining_usd: 37.5, period: "daily", read_at: at, checked_at: at }] : [],
   tasks: [
     goblin({ id: "cg-tour", title: "Show a visitor around the board", goblin_name: "Woody", goblin_title: "Tour Guide", generation: "g-tour", route_reason: "strong fallback", phase: "waiting", waiting_on: "cg-processes", since: ago(95) }),
     goblin({ id: "cg-plumbing", title: "Fix the reliability of the nightly sync", goblin_name: "Wilhelmina", goblin_title: "Senior Reliability Plumber", generation: "g-plumbing", session: "s-plumbing", phase: "waiting", waiting_on: "cg-archive", since: ago(64) }),
