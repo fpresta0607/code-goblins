@@ -39,4 +39,6 @@ Exit 0 when no line of the areas asked for is worse than `low` and each was asse
 `check --unfiled` takes no project: it names each checkout directly under the projects root that the home holds no folder for, with what a spawn there would be given, which is no env file, no credential and no record, and exits 0.
 For the whole pass on a project, load the `project-check` skill (`~/.agents/skills/project-check/`): it runs this command and `cfo auth <project> --check`, proves the listed commands by running or dry-running them and never a deploy, completes the draft, and writes a report with one line for each finding.
 `show` prints the record and `init` writes an empty one.
+A record may set `delivery.posture` to `no-mistakes`, `no-mistakes-prod-only`, `direct-PR` or `local-only`; intake combines it with concrete change risk and the defined verification checks, and missing configuration chooses no-mistakes.
+An explicit direct-PR or local-only posture grants standing authority for assessed low-risk internal or product work; no-mistakes-prod-only permits simple delivery only for assessed low-risk internal work, and all postures keep sensitive, mixed, unknown and malformed work strict unless separately authorized.
 A project is a name or a path for all three

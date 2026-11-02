@@ -450,7 +450,7 @@ func TestPRMergeStaysSilentWhenThereIsNoLocalBranch(t *testing.T) {
 // Every goblin reads its brief, so the brief is where it learns what to run
 // before each push: the project's own check, by the command the CFO runs it
 // by, in place of tests it would pick by name.
-func TestBriefScaffoldTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testing.T) {
+func TestBriefScaffoldAssignsStrictChecksToThePipeline(t *testing.T) {
 	// Arrange
 	t.Setenv("CFO_HOME", t.TempDir())
 
@@ -468,8 +468,9 @@ func TestBriefScaffoldTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testi
 	brief := strings.Join(strings.Fields(string(body)), " ")
 	for _, want := range []string{
 		"## Verification",
-		"Before each push run `cfo verify t1`",
-		"Do not pick tests to run by name in its place",
+		"pipeline Test step",
+		"runs its baseline once",
+		"Do not start a separate cfo verify or prepush baseline",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief scaffold is missing %q:\n%s", want, brief)

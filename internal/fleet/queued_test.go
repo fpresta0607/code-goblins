@@ -255,7 +255,7 @@ func TestUnreadableCompletionEvidenceRefusesQueuedDispatch(t *testing.T) {
 func TestAQueuedBriefTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testing.T) {
 	// Arrange
 	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
-	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **nw-sync** - Say why a billing sync fails (repo: northwind)\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **nw-sync** - Say why a billing sync fails (repo: northwind) (mode: direct-PR)\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	queued, err := ReadQueuedTask(h, "nw-sync")

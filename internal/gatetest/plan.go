@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -54,7 +56,8 @@ type Plan struct {
 	Left       []Deferred
 	// Alone are the packages Level tests that the policy runs after Tests,
 	// in a turn of their own and one at a time, as import paths.
-	Alone []string
+	Alone  []string
+	Guards []Step
 }
 
 // listFields are the fields of a package the plan reads. Asking go list for
@@ -213,6 +216,27 @@ func build(found findings, asked Level) Plan {
 	}
 	plan.Vet, plan.Tests, plan.Left = scope(plan.Level, plan.Choices, plan.Everything, slow)
 	plan.Tests, plan.Alone = apart(plan.Tests, found.packages, pathsIn(found.root, found.packages, policy.AlonePackages))
+	for _, guard := range policy.Guards {
+		if guard.GOOS != "" && guard.GOOS != runtime.GOOS {
+			plan.Left = append(plan.Left, Deferred{Check: "guard tests of " + named(guard.Package), Why: "requires " + guard.GOOS + "; this run is " + runtime.GOOS})
+			continue
+		}
+		guardPaths := pathsIn(found.root, found.packages, []string{guard.Package})
+		for importPath := range guardPaths {
+			if slices.Contains(plan.Tests, "./...") || slices.Contains(plan.Tests, importPath) || slices.Contains(plan.Alone, importPath) {
+				continue
+			}
+			command := append(slices.Clone(testArgs), importPath)
+			if len(guard.Tests) > 0 {
+				tests := make([]string, len(guard.Tests))
+				for index, test := range guard.Tests {
+					tests[index] = regexp.QuoteMeta(test)
+				}
+				command = append(slices.Clone(testArgs), "-run", "^("+strings.Join(tests, "|")+")$", importPath)
+			}
+			plan.Guards = append(plan.Guards, Step{What: "guard tests of " + named(guard.Package), Why: guard.Why, Detail: guard.Tests, Command: command})
+		}
+	}
 	return plan
 }
 

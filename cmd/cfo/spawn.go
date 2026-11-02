@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/quota"
 	"github.com/fpresta0607/code-goblins/internal/routing"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
@@ -57,7 +58,8 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	project := fs.String("project", "", "project checkout")
 	brief := fs.String("brief", "", "absolute brief file")
 	harnessName := fs.String("harness", "", "claude, codex, or pi; omitted, the lane table in data/routing.json picks it")
-	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
+	mode := fs.String("mode", "", "no-mistakes, direct-PR, or local-only; otherwise resolve project posture and change risk")
+	deliveryException := fs.String("delivery-exception", "", "explicit Overlord authority for a narrower delivery path")
 	model := fs.String("model", "", "harness model")
 	effort := fs.String("effort", "", "harness effort")
 	class := fs.String("class", "ordinary", "ordinary, high-risk, or mechanical pipeline policy")
@@ -81,7 +83,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, "cfo spawn: --harness must be claude, codex, or pi")
 		return 2
 	}
-	if !validSpawnMode(*mode) {
+	if *mode != "" && !validSpawnMode(*mode) {
 		fmt.Fprintln(stderr, "cfo spawn: --mode must be no-mistakes, direct-PR, or local-only")
 		return 2
 	}
@@ -116,6 +118,21 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
+	}
+	var delivery *projectcfg.DeliverySelection
+	if *parent == "" {
+		manifest, _, readErr := projectcfg.LoadForCheckout(h.Data, checkout)
+		if readErr != nil {
+			manifest = projectcfg.Manifest{}
+		}
+		selected, err := projectcfg.SelectDelivery(manifest, string(briefText), *mode, *deliveryException)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		*mode, delivery = selected.Mode, &selected
+	} else if *mode == "" {
+		*mode = "local-only"
 	}
 	// A dispatch never waits on GitHub: a read that fails or runs past its
 	// bound starts the task unchecked and says so. A project with no GitHub
@@ -308,6 +325,7 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		BriefPath:   *brief,
 		Kind:        "ship",
 		Mode:        *mode,
+		Delivery:    delivery,
 		Yolo:        *yolo,
 		Harness:     harness.Kind(*harnessName),
 		Model:       *model,

@@ -43,6 +43,7 @@ type Guard struct {
 	Package string   `json:"package"`
 	Tests   []string `json:"tests"`
 	Why     string   `json:"why"`
+	GOOS    string   `json:"goos,omitempty"`
 }
 
 // Contract says that the tests of Packages read the files Paths name, so a

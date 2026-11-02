@@ -153,6 +153,9 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		return 2
 	}
 	var commands [][]string
+	for _, guard := range plan.Guards {
+		commands = append(commands, guard.Command)
+	}
 	if len(plan.Vet) > 0 {
 		commands = append(commands, append([]string{"go", "vet"}, plan.Vet...))
 	}
@@ -655,6 +658,8 @@ func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
 		fmt.Fprintf(w, "cfo gate test: level %s, asked for; the change requires %s: %s\n", plan.Level, plan.Required, plan.Why)
 	}
 	switch {
+	case len(plan.Vet) == 0 && len(plan.Guards) > 0:
+		fmt.Fprintf(w, "cfo gate test: no Go package changed since %.8s; required repository guards still run\n", plan.Base)
 	case len(plan.Vet) == 0:
 		fmt.Fprintf(w, "cfo gate test: no Go package changed since %.8s, so there is nothing to test here; CI runs every package\n", plan.Base)
 	case plan.Everything:
@@ -666,6 +671,9 @@ func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
 	}
 	for _, choice := range plan.Choices {
 		fmt.Fprintln(w, "- "+choice.String())
+	}
+	for _, guard := range plan.Guards {
+		fmt.Fprintln(w, "- "+guard.String())
 	}
 	if len(plan.Left) > 0 {
 		fmt.Fprintf(w, "left to the %s level:\n", plan.Required)

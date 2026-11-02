@@ -8,6 +8,6 @@ Each acts in the task's own worktree, or with `--branch` or `--run` in whichever
 `--reason` with approve is the reason an approved Test exception keeps, handed to the native engine's own `--reason` and recorded in the task's status log; it is the registered CFO's alone, a goblin is refused, and a reason on any other gate, with a fix, or blank or of more than one line is refused, so no approval is ever inferred from one.
 Under policy version 6 `run` starts the gate on the task's own harness, with that task's model and effort, as a launch selection no-mistakes proves before any agent starts, prints it on a `pipeline gate agent:` line, and names a second harness only when the operator named it as the policy's fallback and it is signed in.
 A live run of the same branch, head and intent is reattached to when its bounded hold ends with no decision, so repeating the command starts no new run and resets no review budget, and none of a new start's checks, such as origin's tracking ref, stops it, while a start of other work is still refused.
-A direct-PR or local-only task has no gate or frozen policy, so every subcommand refuses it by its mode and names that mode's own route, never a migration.
+Mode eligibility follows [Task classes](../pipeline.md#task-classes).
 Never auto-approves and never skips a step; exit 3 means unresolved work needs your decision.
 Full contract in [docs/pipeline.md](../pipeline.md)

@@ -135,8 +135,8 @@ No upstream runtime, Relay, secondmate or terminal-backend behavior is activated
 | Session start, complete digest and recovery interpretation | cfo-supervision and the existing cfo session-start/native hooks; composition and hook-trust rules unchanged. |
 | Warm retrieved context, cold archive and authoritative memory tiers | Existing Memory and stow owners remain; expanded retrieval and memory requirements are staged follow-ups. |
 | Required Stow pass and capture receipts | Existing stow skill remains authoritative; upstream layering, capture and receipt extensions are staged follow-ups. |
-| Validation supervision and ask-user findings | cfo-delivery and docs/pipeline.md preserve frozen policy, run custody and CFO decisions; adaptive verification is a staged follow-up. |
-| Project intake and verification selection | Existing project-check, project records and cfo verify remain; simple/intensive delivery selection is a staged follow-up. |
+| Validation supervision and ask-user findings | [Delivery contract](delivery.md#delivery), via cfo-delivery; [pipeline mechanics](../pipeline.md) retain frozen policy and run custody. |
+| Project intake and verification selection | [Delivery intake](delivery.md#delivery), via cfo brief and cfo spawn. |
 | Landing and cleanup | cfo-delivery and cfo-worktrees preserve merge authority and unlanded-work custody. |
 | Away supervision and user decisions | cfo-afk, cfo-decisions and step-card preserve the native board and explicit switch authority. |
 

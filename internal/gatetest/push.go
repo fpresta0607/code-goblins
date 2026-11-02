@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -217,6 +218,10 @@ func push(found findings, times Times) Push {
 	}
 	pick.Steps = append(pick.Steps, loads...)
 	for _, guard := range policy.Guards {
+		if guard.GOOS != "" && guard.GOOS != runtime.GOOS {
+			pick.Left = append(pick.Left, Deferred{Check: "guard tests of " + named(guard.Package), Why: "requires " + guard.GOOS + "; this run is " + runtime.GOOS})
+			continue
+		}
 		// A quick package the change reaches itself runs whole below, its
 		// guard among its tests.
 		if importPath, isPackage := importPathOf(dirs, guard.Package); !isPackage || whole[importPath] {

@@ -2,10 +2,10 @@
 
 `cfo gate prepush [--plan] [--limit <duration>]`
 
-What a goblin runs before each push in this repository, in place of running the tests it touched by name, so CI is not the first to run a test its change broke.
+The [delivery contract](../../contract/delivery.md#delivery) assigns this check to the selected validation owner.
 It picks what the branch's change since it left the default branch can break, prints each check with why, and runs them one at a time from the repository's root until one fails, which ends the run with exit 1 and one last line naming the check and the tests that failed.
 In order it checks with `go list -test` that every package the change reaches, as `cfo gate test` finds them, loads with its tests, which builds nothing and is where an import cycle shows.
-The guards `config/verify.json` names, the tests that read the whole tree, such as the two that read every command `main.go` dispatches and the root package's, which read every link of this contract, whatever changed.
+The required guards follow [Verification levels](../../pipeline.md#verification-levels), including its platform and whole-package coverage rules.
 The changed packages that are quick to test and the packages a contract names, each whole.
 For a change under `frontend`, where `frontend/node_modules` is there, `npm run typecheck`, `npm run lint`, `npm test` and `npx playwright test` on the browser specs that changed, that open a fixture page that changed, that import a changed file beside them, or that share a word of their name with a changed source, as `run-terminal.spec.ts` does with `RunCard.tsx`.
 Then the changed packages `config/verify.json` lists as slow, which come after the board's checks because a busy machine can spend the whole limit in them.
