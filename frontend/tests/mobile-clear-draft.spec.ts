@@ -128,6 +128,39 @@ for (const who of ["CFO", "goblin"] as const) {
       }
     });
   }
+
+  // The conversation takes focus when tapped; the board's edge beside the
+  // panel does not, so a click there leaves focus to nothing.
+  for (const place of ["a tap on the conversation text", "a click on the board edge"] as const) {
+    test(`phone Classic chosen after Clear message and ${place} of the ${who} hands the keyboard to the terminal`, async ({ page }) => {
+      // Arrange
+      const name = who === "CFO" ? "CFO" : NAME;
+      const relay = await open(page);
+      if (who === "goblin") await openGoblin(page);
+      else await page.keyboard.press("Control+Alt+1");
+      const composer = box(page, name);
+      const input = field(page, name);
+      await input.fill("Unsent words");
+      await composer.getByRole("button", { name: "Clear message", exact: true }).tap();
+      await expect(input).toHaveValue("");
+      await expect(input).toBeFocused();
+
+      // Act
+      if (place === "a tap on the conversation text") await page.getByRole("log", { name: "Messages of " + name, exact: true }).getByText("Read the brief").tap();
+      else {
+        await page.locator(".app-shell").click({ position: { x: 2, y: 400 } });
+        expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+      }
+      await expect(input).not.toBeFocused();
+      await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+
+      // Assert
+      await expect(composer).toBeHidden();
+      await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
+      expect(typed(relay)).toBe("");
+      expect(relay.submissions).toEqual([]);
+    });
+  }
 }
 
 for (const state of ["recording", "awaiting transcription"] as const) {

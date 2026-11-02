@@ -155,6 +155,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
   const [isReplacing, setReplacing] = useState(false);
+  const blurCheck = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(blurCheck.current), []);
   // Why the last Send found no terminal to type into, or why a paste could
   // not be kept, until the draft changes.
   const [unsent, setUnsentText] = useState("");
@@ -414,6 +416,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     if (asked) {
       setDraft("");
       if (!asked.value) { setPane(asked.setting); return; }
+      setReplacing(false);
       const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
         (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
         (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
@@ -745,7 +748,12 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
   return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}
-    onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setReplacing(false); }}>
+    onBlur={(event) => {
+      const section = event.currentTarget;
+      if (event.relatedTarget) { if (!section.contains(event.relatedTarget)) setReplacing(false); return; }
+      cancelAnimationFrame(blurCheck.current);
+      blurCheck.current = requestAnimationFrame(() => { if (document.hasFocus() && !section.contains(document.activeElement)) setReplacing(false); });
+    }}>
     {/* A screen reader hears the note from this line, which stays as its
         words change, and a refusal from its banner at once. */}
     <p className="sr-only" role="status">{note}</p>
