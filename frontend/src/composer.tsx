@@ -154,6 +154,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // What Send sends: his words, then the path of each file he added.
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
+  const [isReplacing, setReplacing] = useState(false);
+  const composerSection = useRef<HTMLElement>(null);
   // Why the last Send found no terminal to type into, or why a paste could
   // not be kept, until the draft changes.
   const [unsent, setUnsentText] = useState("");
@@ -249,7 +251,25 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     sendID.current = "";
   };
   const dictation = useDictation((text) => write((prior) => appendDictation(prior, text)), snapshot.instance);
-  const isActive = !!(adding || isSending || unsent || dictation.listening);
+  const clear = () => {
+    setReplacing(true);
+    dictation.discard();
+    write(() => "");
+    storeDraft(draftKey, "");
+    setCaret(0);
+    field.current?.focus();
+  };
+  useEffect(() => {
+    if (!isReplacing) return;
+    const leave = (event: Event) => { if (event.target instanceof Node && !composerSection.current?.contains(event.target)) setReplacing(false); };
+    document.addEventListener("pointerdown", leave, true);
+    document.addEventListener("focusin", leave, true);
+    return () => {
+      document.removeEventListener("pointerdown", leave, true);
+      document.removeEventListener("focusin", leave, true);
+    };
+  }, [isReplacing]);
+  const isActive = !!(adding || isSending || unsent || dictation.listening || isReplacing);
   useEffect(() => {
     onActive?.(terminal, isActive);
     return () => onActive?.(terminal, false);
@@ -387,6 +407,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     for (const send of sending) if (snapshot.actions.some((action) => action.id === send.id)) removePendingSend(send.id);
   }, [sending, snapshot.actions]);
   const afterSend = () => {
+    setReplacing(false);
     setDraft("");
     setAttached([]);
     setUnsent("");
@@ -404,6 +425,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     if (asked) {
       setDraft("");
       if (!asked.value) { setPane(asked.setting); return; }
+      setReplacing(false);
       const chosen = harness === "codex" && asked.setting === "model" ? await request("/api/engines").then(parseEngineCatalog).then(
         (catalog) => catalog.find((item) => item.id === harness)?.models.find((listed) => listed.id === asked.value),
         (error: unknown) => { reportToCfo("the models of " + name, message(error)); return undefined; }) : undefined;
@@ -734,7 +756,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
-  return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
+  return <section ref={composerSection} className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
     {/* A screen reader hears the note from this line, which stays as its
         words change, and a refusal from its banner at once. */}
     <p className="sr-only" role="status">{note}</p>
@@ -769,6 +791,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         <div className="composer-line">
           <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
             onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
+          <button type="button" className="composer-control composer-clear" aria-label="Clear message" aria-description="Clears only this message field" disabled={isSending || !draft && !dictation.hasPending}
+            onPointerDown={(event) => event.preventDefault()} onClick={clear}><Icon name="trash" /></button>
           {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" aria-keyshortcuts="Escape" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
             : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} aria-keyshortcuts="Enter" data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
               <Icon name={isSending ? "clock" : "send"} />
