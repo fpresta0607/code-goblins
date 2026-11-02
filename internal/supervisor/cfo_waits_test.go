@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -110,32 +111,45 @@ func sweepUntil(t *testing.T, s *Service, h home.Home, now *time.Time, until tim
 // A goblin that says it waits on the CFO wakes the CFO once it has waited ten
 // minutes, naming it, what it waits for and how long it has waited, and
 // again every half hour while it still waits: on 2026-11-02 such waits went
-// unseen for up to two hours (#1912).
+// unseen for up to two hours (#1912). AFK mode changes none of it, since the
+// CFO still decides while the Overlord is away.
 func TestAGoblinWaitingOnTheCFOWakesItAfterTenMinutesAndEveryHalfHour(t *testing.T) {
-	// Arrange
-	s, h, _ := waitingFleet(t, "[]")
-	report(t, h, cfoWaitStarted, "waiting on cfo: which schema do I migrate first?")
-	now := cfoWaitStarted
+	for _, isAFKOn := range []bool{false, true} {
+		t.Run(fmt.Sprintf("AFK mode on: %t", isAFKOn), func(t *testing.T) {
+			// Arrange
+			s, h, _ := waitingFleet(t, "[]")
+			if isAFKOn {
+				if _, _, err := afk.TurnOn(h.State, "the board", nil, cfoWaitStarted); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if s.afkOn() != isAFKOn {
+				t.Fatalf("AFK mode reads on: %t, want %t", s.afkOn(), isAFKOn)
+			}
+			report(t, h, cfoWaitStarted, "waiting on cfo: which schema do I migrate first?")
+			now := cfoWaitStarted
 
-	// Act and Assert
-	if early := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(9*time.Minute)); len(early) != 0 {
-		t.Fatalf("a wait of nine minutes woke the CFO: %+v", early)
-	}
-	first := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(10*time.Minute))
-	if len(first) != 1 || first[0].Key != waitingGoblin {
-		t.Fatalf("a wait of ten minutes = %+v, want one wake keyed by the goblin", first)
-	}
-	for _, want := range []string{"cfo_wait: Jerry (cg-waits) has waited 10 minutes on the CFO", "waiting on cfo: which schema do I migrate first?", `next: answer it with cfo send cg-waits "<your answer>"`} {
-		if !strings.Contains(first[0].Detail, want) {
-			t.Errorf("wake %q lacks %q", first[0].Detail, want)
-		}
-	}
-	if held := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(39*time.Minute)); len(held) != 0 {
-		t.Fatalf("the same wait woke the CFO again within half an hour: %+v", held)
-	}
-	again := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(40*time.Minute))
-	if len(again) != 1 || !strings.Contains(again[0].Detail, "has waited 40 minutes") {
-		t.Fatalf("the wait half an hour on = %+v, want one wake saying it has waited 40 minutes", again)
+			// Act and Assert
+			if early := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(9*time.Minute)); len(early) != 0 {
+				t.Fatalf("a wait of nine minutes woke the CFO: %+v", early)
+			}
+			first := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(10*time.Minute))
+			if len(first) != 1 || first[0].Key != waitingGoblin {
+				t.Fatalf("a wait of ten minutes = %+v, want one wake keyed by the goblin", first)
+			}
+			for _, want := range []string{"cfo_wait: Jerry (cg-waits) has waited 10 minutes on the CFO", "waiting on cfo: which schema do I migrate first?", `next: answer it with cfo send cg-waits "<your answer>"`} {
+				if !strings.Contains(first[0].Detail, want) {
+					t.Errorf("wake %q lacks %q", first[0].Detail, want)
+				}
+			}
+			if held := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(39*time.Minute)); len(held) != 0 {
+				t.Fatalf("the same wait woke the CFO again within half an hour: %+v", held)
+			}
+			again := sweepUntil(t, s, h, &now, cfoWaitStarted.Add(40*time.Minute))
+			if len(again) != 1 || !strings.Contains(again[0].Detail, "has waited 40 minutes") {
+				t.Fatalf("the wait half an hour on = %+v, want one wake saying it has waited 40 minutes", again)
+			}
+		})
 	}
 }
 

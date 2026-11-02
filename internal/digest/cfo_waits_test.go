@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -23,58 +24,86 @@ func waitOnTheCFO(t *testing.T, h home.Home, at time.Time) {
 	writeFile(t, filepath.Join(h.State, "cg-waits.status"), at.UTC().Format(time.RFC3339)+" waiting on cfo: which schema do I migrate first?\n")
 }
 
+// turnAFKOn turns AFK mode on in h when isAFKOn, and fails unless the
+// switch then reads as asked.
+func turnAFKOn(t *testing.T, h home.Home, isAFKOn bool) {
+	t.Helper()
+	if isAFKOn {
+		if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now().Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if switched, err := afk.Read(h.State); err != nil || switched.On != isAFKOn {
+		t.Fatalf("AFK mode reads %+v, %v; want on: %t", switched, err, isAFKOn)
+	}
+}
+
 // A goblin that waits on the CFO is listed in the checkpoint with how long
 // it has waited and what for, and the checkpoint no longer says no goblin
 // waits on the CFO's answer: on 2026-11-02 it said so while a goblin had
-// waited two hours on a pull request held for the CFO's review (#1912).
+// waited two hours on a pull request held for the CFO's review (#1912). AFK
+// mode changes none of it.
 func TestTheCheckpointListsEachGoblinWaitingOnTheCFO(t *testing.T) {
-	// Arrange
-	h := newDigestHome(t)
-	now := time.Date(2026, 11, 2, 16, 30, 0, 0, time.UTC)
-	waitOnTheCFO(t, h, now.Add(-42*time.Minute))
+	for _, isAFKOn := range []bool{false, true} {
+		t.Run(fmt.Sprintf("AFK mode on: %t", isAFKOn), func(t *testing.T) {
+			// Arrange
+			h := newDigestHome(t)
+			now := time.Date(2026, 11, 2, 16, 30, 0, 0, time.UTC)
+			waitOnTheCFO(t, h, now.Add(-42*time.Minute))
+			turnAFKOn(t, h, isAFKOn)
 
-	// Act
-	checkpoint := readCheckpoint(t, h, now)
+			// Act
+			checkpoint := readCheckpoint(t, h, now)
 
-	// Assert
-	if waits := section(t, checkpoint, "== WAITING ON THE CFO =="); !strings.Contains(waits, "Jerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?") {
-		t.Errorf("WAITING ON THE CFO does not list Jerry's wait:\n%s", waits)
-	}
-	if questions := section(t, checkpoint, "== OPEN QUESTIONS =="); strings.Contains(questions, "No goblin waits on your answer.") {
-		t.Errorf("OPEN QUESTIONS says no goblin waits while Jerry does:\n%s", questions)
+			// Assert
+			if waits := section(t, checkpoint, "== WAITING ON THE CFO =="); !strings.Contains(waits, "Jerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?") {
+				t.Errorf("WAITING ON THE CFO does not list Jerry's wait:\n%s", waits)
+			}
+			if questions := section(t, checkpoint, "== OPEN QUESTIONS =="); strings.Contains(questions, "No goblin waits on your answer.") {
+				t.Errorf("OPEN QUESTIONS says no goblin waits while Jerry does:\n%s", questions)
+			}
+		})
 	}
 }
 
 // The session digest, long and brief, lists the goblins that wait on the CFO
-// right after the wake queue.
+// right after the wake queue, in the same section whether AFK mode is on or
+// off.
 func TestTheDigestListsTheGoblinsWaitingOnTheCFOAfterTheWakeQueue(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		compose func(t *testing.T, h home.Home) string
-	}{
-		{name: "the long digest", compose: func(t *testing.T, h home.Home) string {
-			var out bytes.Buffer
-			if err := Compose(h, os.Getpid(), "s1", &out); err != nil {
-				t.Fatalf("Compose: %v", err)
-			}
-			return out.String()
-		}},
-		{name: "the brief digest", compose: composeBrief},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange
-			h := newDigestHome(t)
-			waitOnTheCFO(t, h, time.Now().Add(-42*time.Minute))
+	for _, isAFKOn := range []bool{false, true} {
+		for _, test := range []struct {
+			name    string
+			compose func(t *testing.T, h home.Home) string
+		}{
+			{name: "the long digest", compose: func(t *testing.T, h home.Home) string {
+				var out bytes.Buffer
+				if err := Compose(h, os.Getpid(), "s1", &out); err != nil {
+					t.Fatalf("Compose: %v", err)
+				}
+				return out.String()
+			}},
+			{name: "the brief digest", compose: composeBrief},
+		} {
+			t.Run(fmt.Sprintf("%s, AFK mode on: %t", test.name, isAFKOn), func(t *testing.T) {
+				// Arrange
+				h := newDigestHome(t)
+				waitOnTheCFO(t, h, time.Now().Add(-42*time.Minute))
+				turnAFKOn(t, h, isAFKOn)
 
-			// Act
-			out := test.compose(t, h)
+				// Act
+				out := test.compose(t, h)
 
-			// Assert
-			assertHeaderOrder(t, out, []string{"== WAKE QUEUE ==", "== WAITING ON THE CFO ==", "== SUPERVISION OPERATING INSTRUCTIONS =="})
-			if !strings.Contains(out, "== WAITING ON THE CFO ==\nJerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?\n") {
-				t.Errorf("the digest does not list Jerry's wait under WAITING ON THE CFO:\n%s", out)
-			}
-		})
+				// Assert
+				assertHeaderOrder(t, out, []string{"== WAKE QUEUE ==", "== WAITING ON THE CFO ==", "== SUPERVISION OPERATING INSTRUCTIONS =="})
+				waits := out[strings.Index(out, "== WAITING ON THE CFO =="):strings.Index(out, "== SUPERVISION OPERATING INSTRUCTIONS ==")]
+				if want := "== WAITING ON THE CFO ==\nJerry (cg-waits) has waited 42 minutes: waiting on cfo: which schema do I migrate first?\n"; waits != want {
+					t.Errorf("WAITING ON THE CFO = %q, want %q", waits, want)
+				}
+				if strings.Contains(out, "AFK MODE IS ON") != isAFKOn {
+					t.Errorf("the digest's AFK notice shows: %t, want %t", !isAFKOn, isAFKOn)
+				}
+			})
+		}
 	}
 }
 

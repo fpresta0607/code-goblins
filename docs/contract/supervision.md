@@ -81,6 +81,7 @@
   A pause that fails while the goblin carries on does not end the wait by itself, though the pause request typed into the goblin is a prompt and ends a wait it reported before; a wait it reports after the failed pause wakes you as any other.
   A wait by design, on CI, a deploy, another goblin's task, a backlog row of another kind, the Overlord or memory, raises nothing here.
   The session digest and the compact checkpoint list each such goblin under WAITING ON THE CFO with how long it has waited, and the checkpoint says no goblin waits on your answer only when that list and its open questions are both empty.
+  AFK mode changes none of this: the same wakes at the same times and the same section, since you still decide while the Overlord is away.
   On 2026-11-02 a goblin waited two hours on a pull request held for your review, with its checks passed, while the checkpoint said no goblin waited on your answer.
 - **After a restart or sign-out the fleet comes back by itself.**
   The first `cfo serve` of a Windows sign-in brings back the registered CFO, on its own conversation where that is small enough and on a new one where not, told why it is back, then each goblin that was working and had not finished, in its own session, one at a time as memory allows, and tells each in one line that the machine restarted; while anything waits to come back, nothing else starts by itself and `memory_ready` waits.
