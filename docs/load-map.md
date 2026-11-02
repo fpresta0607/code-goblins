@@ -172,7 +172,7 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 
 ## The CFO's memory
 
-The SessionStart hook prints a brief digest in the CFO's own session, and nothing in any other: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
+The SessionStart hook prints a brief digest in the CFO's own session, and nothing in any other: the session lock, AFK mode's notice while it is on, the wake queue with its ack line, the goblins waiting on the CFO, the operating instructions, one line per goblin, and the path of `state/session-digest.md` to read next.
 Before a Claude CFO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, the goblins waiting on the CFO, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
 It runs only for the live session that holds the primary home's lock, produces no output, and never blocks compaction.
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
