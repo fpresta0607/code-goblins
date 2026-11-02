@@ -749,10 +749,15 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // terminal, which no note tells him (queueNote).
   return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}
     onBlur={(event) => {
-      const section = event.currentTarget;
+      const section = event.currentTarget, left = event.target;
+      if (!isReplacing) return;
       if (event.relatedTarget) { if (!section.contains(event.relatedTarget)) setReplacing(false); return; }
       cancelAnimationFrame(blurCheck.current);
-      blurCheck.current = requestAnimationFrame(() => { if (document.hasFocus() && !section.contains(document.activeElement)) setReplacing(false); });
+      blurCheck.current = requestAnimationFrame(() => {
+        if (section.contains(document.activeElement)) return;
+        if (!left.isConnected) field.current?.focus({ preventScroll: true });
+        else if (document.hasFocus()) setReplacing(false);
+      });
     }}>
     {/* A screen reader hears the note from this line, which stays as its
         words change, and a refusal from its banner at once. */}
