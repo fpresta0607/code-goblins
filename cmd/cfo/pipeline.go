@@ -24,10 +24,10 @@ import (
 
 func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, migrate, run, respond or recover required")
+		fmt.Fprintln(stderr, "cfo pipeline: config-drift, config-apply, migrate, run, respond, recover or handback required")
 		return 2
 	}
-	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "migrate" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" {
+	if args[0] != "config-drift" && args[0] != "config-apply" && args[0] != "migrate" && args[0] != "run" && args[0] != "respond" && args[0] != "recover" && args[0] != "handback" {
 		fmt.Fprintln(stderr, "cfo pipeline: unknown command")
 		return 2
 	}
@@ -95,6 +95,8 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	flags := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var intent, intentFile, wantBranch, wantRun string
+	var shouldResume bool
+	var receipt string
 	var response pipeline.Response
 	if args[0] == "run" {
 		flags.StringVar(&intent, "intent", "", "task intent")
@@ -105,11 +107,14 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 		flags.StringVar(&response.Instructions, "instructions", "", "guidance for selected findings")
 		flags.StringVar(&response.Accept, "accept", "", "with approve: every open ask-user and auto-fix finding the CFO accepts as it stands")
 		flags.StringVar(&response.Reason, "reason", "", "with approve of the test step: the operator's reason the native exception record keeps")
+	} else if args[0] == "handback" {
+		flags.BoolVar(&shouldResume, "resume", false, "submit the authored correction to the same native run")
+		flags.StringVar(&receipt, "receipt", "", "the native release receipt required with --resume")
 	}
-	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" {
+	if args[0] == "run" || args[0] == "respond" || args[0] == "recover" || args[0] == "handback" {
 		flags.StringVar(&wantBranch, "branch", "", "the branch, checked out in one of the task's worktrees, to act on")
 	}
-	if args[0] == "respond" || args[0] == "recover" {
+	if args[0] == "respond" || args[0] == "recover" || args[0] == "handback" {
 		flags.StringVar(&wantRun, "run", "", "the run, the latest of a branch checked out in one of the task's worktrees, to act on")
 	}
 	if err := flags.Parse(args[2:]); err != nil {
@@ -117,6 +122,9 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if flags.NArg() != 0 {
 		return errors.New("pipeline: unexpected arguments")
+	}
+	if shouldResume != (receipt != "") {
+		return errors.New("pipeline: handback --resume requires --receipt, and --receipt requires --resume")
 	}
 	if intent != "" && intentFile != "" {
 		return errors.New("pipeline: give the intent with --intent-file or with --intent, not both")
@@ -193,7 +201,13 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if !fsx.SamePath(meta.TaskTmp, expectedTmp) {
 		return errors.New("pipeline: task temporary path does not match metadata identity")
 	}
-	if err := resumePipelinePolicyMigration(h, root, meta); err != nil {
+	if args[0] == "handback" {
+		if _, err := os.Lstat(filepath.Join(expectedTmp, policyMigrationJournalName)); err == nil {
+			return errors.New("pipeline: pending policy migration; run cfo pipeline migrate explicitly before handback")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return errors.New("pipeline: policy migration journal cannot be inspected; handback refused")
+		}
+	} else if err := resumePipelinePolicyMigration(h, root, meta); err != nil {
 		return err
 	}
 	meta, err = state.ReadTaskMeta(h.State, id)
@@ -237,6 +251,20 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	}
 	if args[0] == "migrate" {
 		return migratePipelinePolicy(h, root, meta, selection, out)
+	}
+	if args[0] == "handback" {
+		result, err := reader.Handback(ctx, meta.Project, gated, branch, wantRun, receipt, nativeEnv(root))
+		fmt.Fprint(out, string(result.Stdout), string(result.Stderr))
+		if err != nil {
+			return fmt.Errorf("pipeline: native handback failed: %w", err)
+		}
+		if result.ExitCode != 0 {
+			if shouldResume && isGateWaitElapsed(result) {
+				return fmt.Errorf("%w: the native handback hold elapsed while the same run continues; inspect its status and receipt before an explicit continuation; no replacement run was started", pipeline.ErrUnresolved)
+			}
+			return fmt.Errorf("pipeline: native handback exited %d; inspect its result before any explicit retry; a supported axi handback --expect contract is required", result.ExitCode)
+		}
+		return nil
 	}
 	if args[0] == "recover" {
 		result, err := reader.RecoverKeepLocal(ctx, meta.Project, gated, branch, nativeEnv(root))

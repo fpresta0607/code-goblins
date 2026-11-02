@@ -194,17 +194,16 @@ Claude goblins kept answering the pause's request with text alone and no tool ca
 A handoff the goblin publishes meanwhile is its own, and the pause never writes over it.
 A resume the machine has no room for by the time its terminal would start changes nothing: the goblin stays paused as it was, a memory pause still a memory pause, nobody is woken, and the scheduler resumes it before it starts anything new.
 A resume its relaunch refuses for anything else before it starts a terminal changes nothing either: the pause, its reason and its condition stay, the task's status log gains one `lifecycle-refused:` line saying why, and no wake reads the task as running.
-A relaunch has started nothing until it records the task's replacement session, which it does before it starts a terminal, so a refusal before that is one whatever refused it: a task recorded in Herdr, a saved engine or a paused validation that cannot be read, another validation run on its branch, a harness that is missing, and a gate policy older than the machine's, whose refusal names `cfo pipeline migrate <id>`.
-A resume never migrates a task's frozen gate policy by itself: the migration changes which agents gate the task's work, `cfo pipeline run` refuses the same task for the same reason, and a resume the scheduler starts has nobody watching it, so the migration stays your own command.
+A relaunch has started nothing until it records the task's replacement session, which it does before it starts a terminal, so a refusal before that is one whatever refused it: a task recorded in Herdr, a saved engine or a paused validation that cannot be read, another validation run on its branch, or a harness that is missing.
 The scheduler does not try a refused goblin again by itself: it tells you once, as `resume failed:`, and the goblin waits for a Resume, so it never holds the slot ahead of the queue.
 A resume that fails after its relaunch recorded that session is a failed resume, as before.
 One whose goblin then reports from that session, working, waiting, asking or done, took its instruction after all, so the supervisor's next reading finishes its record as running and writes one `lifecycle-running:` line saying so.
 A resume and a `cfo cleanup` of the same task never run together: whichever starts first holds the task, and the other is refused before it changes anything, with one line saying what holds it.
 A resume the scheduler started that the task's cleanup refused is no failure of the goblin's: the task is gone, or goes once the cleanup ends, so the board shows no failed resume and nobody is woken, and a cleanup that was refused in its turn leaves the goblin paused for the scheduler's next reading.
 A relaunch also looks at its task once more after its wait for the spawn lock, and one whose task record or worktree went meanwhile stops there, with nothing written and no terminal started.
-A memory pause leaves the goblin's open gate run running, and its resume tells the goblin which run that is, so it picks the run back up and starts no other.
-Any other pause aborts the run after keeping its commits, and its resume starts the validation again, under pipeline policy v6 with the task's launch selection, so on the harness the goblin comes back on.
-A run a pause could not abort is left to its goblin the same way, and never fails the resume.
+A memory pause leaves the goblin's open gate run running.
+Any other pause aborts the run after keeping its commits.
+Validation identity checks and policy handling on Resume follow the [pipeline resume contract](../pipeline.md#resuming-a-paused-task).
 Answers given while paused ride the resume prompt.
 For a free slot, the oldest cleared pause comes before the Overlord's queue order; unresolved pauses do not block new work.
 His Start or Resume overrides that order, and `(priority: production-defect)` marks his reported production defect to jump both, with a notify saying why.
