@@ -1610,6 +1610,27 @@ func TestGateTurnsShowsAHolderThatDidNotNameItself(t *testing.T) {
 	}
 }
 
+// With the line's floor free but not the 1 GB a new goblin's session takes
+// beside it, no run is short of memory, and cfo gate turns still says in plain
+// words that no goblin starts or resumes by itself, to keep the test slots
+// open, the Overlord's rule of 2026-11-02 (#1926).
+func TestGateTurnsSaysGoblinsWaitToKeepTheTestSlotsOpen(t *testing.T) {
+	// Arrange
+	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
+
+	// Act
+	var stdout, stderr bytes.Buffer
+	exit := gateTurns(func() (supervisor.Memory, error) {
+		return supervisor.Memory{Available: 9 << 29, CommitAvailable: 16 << 30}, nil
+	}, &stdout, &stderr)
+
+	// Assert
+	want := "no run holds the turn and none waits\ngoblins: the supervisor starts and resumes none by itself, keeping the test slots open: 4.5 GB of memory and commit is free; the next test run needs 4.0 GB and a new goblin 1 GB\n"
+	if exit != 0 || stdout.String() != want {
+		t.Errorf("exit=%d stdout=%q stderr=%q; want 0 and %q", exit, stdout.String(), stderr.String(), want)
+	}
+}
+
 // With no run testing and none waiting, cfo gate turns says so.
 func TestGateTurnsSaysWhenTheLineIsEmpty(t *testing.T) {
 	// Arrange
@@ -1627,8 +1648,8 @@ func TestGateTurnsSaysWhenTheLineIsEmpty(t *testing.T) {
 
 // A run that waits for memory waits with the turn free, so cfo gate turns
 // says the turn is free, who waits, that the machine is short of the memory a
-// run waits for, and that the supervisor starts no goblin by itself
-// meanwhile (#1926).
+// run waits for, and that the supervisor starts and resumes no goblin by
+// itself meanwhile (#1926).
 func TestGateTurnsShowsARunWaitingForMemory(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
@@ -1648,7 +1669,7 @@ func TestGateTurnsShowsARunWaitingForMemory(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	waiter := fmt.Sprintf("1. a run that waits (pid %d), for ", os.Getpid())
-	goblins := "goblins: the supervisor starts none and resumes none paused for memory by itself while 1 run waits in the machine's heavy line for the 4.0 GB of memory and commit its next run needs"
+	goblins := "goblins: the supervisor starts and resumes none by itself, keeping the test slots open: 1.0 GB of memory and commit is free; the next test run needs 4.0 GB and a new goblin 1 GB"
 	if len(lines) != 5 || lines[0] != "turn: free" || lines[1] != "waiting:" || !strings.HasPrefix(lines[2], waiter) || lines[3] != "memory: 1.0 GB physical and 16.0 GB commit are available; both require the 4.0 GB floor" || lines[4] != goblins {
 		t.Errorf("cfo gate turns printed %q; want the turn free, the one waiting run, the memory the machine is short of, then that no goblin starts by itself", lines)
 	}
@@ -1671,7 +1692,7 @@ func TestGateTurnsShowsEachRunsMemoryWhereItIsWeighed(t *testing.T) {
 			`^waiting:$`,
 			`^1\. a run that waits \(pid \d+\), for \d+s, expected to use 6\.0 GB$`,
 			`^memory: 8\.0 GB physical and 8\.0 GB commit are available; both require the 10\.0 GB floor$`,
-			`^goblins: the supervisor starts none and resumes none paused for memory by itself while 1 run waits in the machine's heavy line for the 10\.0 GB of memory and commit its next run needs$`,
+			`^goblins: the supervisor starts and resumes none by itself, keeping the test slots open: 8\.0 GB of memory and commit is free; the next test run needs 10\.0 GB and a new goblin 1 GB$`,
 		},
 	} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {

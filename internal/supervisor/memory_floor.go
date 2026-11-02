@@ -19,9 +19,9 @@ import (
 // under the floor, the supervisor pauses the live goblin lowest in the
 // Overlord's In progress order that is not pushing or merging, through the
 // pause the allowance floor uses, one goblin at a time, and the scheduler
-// resumes it once memory is back at the next-start mark and no run waits in
-// the machine's heavy line for memory. While AFK mode is on, its log keeps
-// each pause for the report of the stretch.
+// resumes it once memory is back at the next-start mark and a new session
+// leaves the machine's heavy line its next floor. While AFK mode is on, its
+// log keeps each pause for the report of the stretch.
 
 // gitPushOrMerge are the git commands that push or merge, which a goblin is
 // left to finish rather than paused in the middle of.

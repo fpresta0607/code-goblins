@@ -95,3 +95,33 @@ func TestSchedulerDoesNotResumeIntoAnotherAllowancePause(t *testing.T) {
 		t.Fatalf("resumed at the floor: %v", calls)
 	}
 }
+
+// A goblin starts or resumes by itself only while memory and commit, less the
+// about 1 GB its session takes, still meet the floor the machine's heavy line
+// keeps for its next test run, the Overlord's rule of 2026-11-02 (#1926).
+// The lower of the two is what is free, and the floor and a session exactly
+// is enough.
+func TestSlotHoldKeepsTheNextTestRunsFloorAndASession(t *testing.T) {
+	const floor = 4*gigabyte + gigabyte/2
+	for name, row := range map[string]struct {
+		physical, commit uint64
+		want             string
+	}{
+		"the floor and a session free":        {floor + gigabyte, floor + gigabyte, ""},
+		"a byte short in physical memory":     {floor + gigabyte - 1, 40 * gigabyte, "5.4 GB of memory and commit is free; the next test run needs 4.5 GB and a new goblin 1 GB"},
+		"commit short over the old 5 GB mark": {40 * gigabyte, 5*gigabyte + gigabyte/4, "5.2 GB of memory and commit is free; the next test run needs 4.5 GB and a new goblin 1 GB"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			memory := Memory{Available: row.physical, CommitAvailable: row.commit}
+
+			// Act
+			hold := SlotHold(floor, memory)
+
+			// Assert
+			if hold != row.want {
+				t.Errorf("SlotHold = %q; want %q", hold, row.want)
+			}
+		})
+	}
+}

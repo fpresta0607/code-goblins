@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -51,11 +52,12 @@ func TestAStartWhoseOwnMemoryReadingFallsShortWaitsForTheNextReadingAndIsNoError
 	}
 }
 
-// heavyLineWithAWaiter keeps the machine's heavy line in the test's own
-// store, a line of two slots, and when isHeld has a run wait in it until the
-// test ends: the run expects to use 6 GiB, so with the 2 GiB desktop reserve
-// its floor is 8 GiB.
-func heavyLineWithAWaiter(t *testing.T, isHeld bool) {
+// heavyLine keeps the machine's heavy line in the test's own store, a line of
+// capacity slots, and when waiter is not zero has a run that expects to use
+// that much wait in it until the test ends. On a line of two slots the 2 GiB
+// desktop reserve makes the next run's floor its estimate and 2 GiB: 4.5 GiB
+// for a run of the default estimate when none waits.
+func heavyLine(t *testing.T, capacity int, waiter uint64) {
 	t.Helper()
 	t.Setenv("CFO_VERIFY_DIR", t.TempDir())
 	store, err := verify.AdmissionDir()
@@ -65,14 +67,14 @@ func heavyLineWithAWaiter(t *testing.T, isHeld bool) {
 	if err := os.MkdirAll(store, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(store, "capacity.json"), []byte(`{"capacity":2}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(store, "capacity.json"), []byte(fmt.Sprintf(`{"capacity":%d}`, capacity)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !isHeld {
+	if waiter == 0 {
 		return
 	}
 	said := make(chan struct{}, 1)
-	waiter := verify.Admission{Dir: store, Available: func() (uint64, error) { return gigabyte, nil }, Who: "cfo gate test of a goblin closer to done", Estimate: 6 * gigabyte, Limit: verify.NoLimit, Poll: 10 * time.Millisecond, Waiting: func(time.Duration, string) {
+	run := verify.Admission{Dir: store, Available: func() (uint64, error) { return gigabyte, nil }, Who: "cfo gate test of a goblin closer to done", Estimate: waiter, Limit: verify.NoLimit, Poll: 10 * time.Millisecond, Waiting: func(time.Duration, string) {
 		select {
 		case said <- struct{}{}:
 		default:
@@ -86,7 +88,7 @@ func heavyLineWithAWaiter(t *testing.T, isHeld bool) {
 	})
 	go func() {
 		defer close(stopped)
-		_, _ = waiter.Wait(ctx)
+		_, _ = run.Wait(ctx)
 	}()
 	select {
 	case <-said:
@@ -97,35 +99,43 @@ func heavyLineWithAWaiter(t *testing.T, isHeld bool) {
 
 // On 2026-11-02 the scheduler started cg-board-goblin-states at 19:38Z with
 // six heavy steps of live goblins waiting in the heavy line for memory, and
-// the memory floor paused it at 19:47Z (#1926). At a reading over the
-// next-start mark, what memory would start or bring back waits while a run
-// waits in the line for memory, a reported production defect included, and
-// the scheduler's line says why; a goblin whose pause cleared for anything
-// else still resumes, and with the line clear everything starts as before.
-func TestTheSchedulerWaitsWhileARunWaitsInTheHeavyLineForMemory(t *testing.T) {
+// the memory floor paused it at 19:47Z (#1926). The Overlord then set the
+// rule: a goblin starts or resumes by itself only while free memory, less the
+// about 1 GB its session takes, still meets the floor the heavy line keeps
+// for its next test run. Over the old 5 GB mark but short of that, nothing
+// starts or resumes, a production defect included, and the scheduler's line
+// says why; with the floor and a session free, and on a line of one slot
+// whose floor is the fleet's own, everything starts as before.
+func TestTheSchedulerStartsOnlyWithTheHeavyLinesNextFloorAndASessionFree(t *testing.T) {
 	const task, defect = "- **next-task** - Ship it", "- **next-task** - Repair production (priority: production-defect)"
+	const short = "nothing starts, keeping the test slots open: 5.2 GB of memory and commit is free; the next test run needs 4.5 GB and a new goblin 1 GB"
+	const behind = "nothing starts, keeping the test slots open: 6.0 GB of memory and commit is free; the next test run needs 8.0 GB and a new goblin 1 GB"
 	for _, test := range []struct {
 		name     string
 		row      string
 		pause    string
-		isHeld   bool
+		capacity int
+		waiter   uint64
+		free     uint64
 		dispatch []string
+		line     string
 	}{
-		{name: "a queued task behind a run held for memory", row: task, isHeld: true},
-		{name: "a queued task beside an empty line", row: task, dispatch: []string{"spawn", "next-task"}},
-		{name: "a production defect behind a run held for memory", row: defect, isHeld: true},
-		{name: "a goblin paused for memory behind a run held for memory", row: task, pause: "memory", isHeld: true},
-		{name: "a goblin paused for memory beside an empty line", row: task, pause: "memory", dispatch: []string{"resume", "paused-task"}},
-		{name: "a goblin whose date passed behind a run held for memory", row: task, pause: "dependency", isHeld: true, dispatch: []string{"resume", "paused-task"}},
-		{name: "a goblin whose date passed beside a production defect held for memory", row: defect, pause: "dependency", isHeld: true, dispatch: []string{"resume", "paused-task"}},
+		{name: "a queued task over the old mark short of the floor and a session", row: task, capacity: 2, free: 5*gigabyte + gigabyte/4, line: short},
+		{name: "a queued task with the floor and a session free", row: task, capacity: 2, free: 5*gigabyte + gigabyte/2, dispatch: []string{"spawn", "next-task"}},
+		{name: "a queued task behind a run held for memory", row: task, capacity: 2, waiter: 6 * gigabyte, free: 6 * gigabyte, line: behind},
+		{name: "a queued task at the old mark on a line of one slot", row: task, capacity: 1, free: 5 * gigabyte, dispatch: []string{"spawn", "next-task"}},
+		{name: "a production defect behind a run held for memory", row: defect, capacity: 2, waiter: 6 * gigabyte, free: 6 * gigabyte, line: behind},
+		{name: "a goblin paused for memory behind a run held for memory", row: task, pause: "memory", capacity: 2, waiter: 6 * gigabyte, free: 6 * gigabyte, line: behind},
+		{name: "a goblin paused for memory with the floor and a session free", row: task, pause: "memory", capacity: 2, free: 6 * gigabyte, dispatch: []string{"resume", "paused-task"}},
+		{name: "a goblin whose date passed behind a run held for memory", row: task, pause: "dependency", capacity: 2, waiter: 6 * gigabyte, free: 6 * gigabyte, line: behind},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			spawner := &spawnRecorder{}
-			handler, h := startBoard(t, 6*gigabyte, spawner)
+			handler, h := startBoard(t, test.free, spawner)
 			service := handler.Service
 			service.Options.Dispatch.HeavyLine = MachineHeavyLine
-			heavyLineWithAWaiter(t, test.isHeld)
+			heavyLine(t, test.capacity, test.waiter)
 			now := time.Now().UTC()
 			queueBriefedTask(t, h, test.row, plainBrief)
 			switch test.pause {
@@ -157,21 +167,21 @@ func TestTheSchedulerWaitsWhileARunWaitsInTheHeavyLineForMemory(t *testing.T) {
 			service.mu.Lock()
 			line := service.scheduling.Text
 			service.mu.Unlock()
-			want := "nothing starts: 1 run waits in the machine's heavy line for the 8.0 GB of memory and commit its next run needs"
-			if calls := spawner.recorded(); len(calls) != 0 || isChanging || line != want {
-				t.Fatalf("dispatches %v (changing %t) and line %q, want none and %q", calls, isChanging, line, want)
+			if calls := spawner.recorded(); len(calls) != 0 || isChanging || line != test.line {
+				t.Fatalf("dispatches %v (changing %t) and line %q, want none and %q", calls, isChanging, line, test.line)
 			}
 		})
 	}
 }
 
-// While runs wait in the heavy line for memory, the memory is theirs, so
-// memory_ready does not offer it to the queue, and wakes once they have it.
-func TestMemoryReadyWaitsWhileARunWaitsInTheHeavyLineForMemory(t *testing.T) {
+// While a new goblin would leave the heavy line short of its next floor,
+// memory_ready does not offer the memory to the queue, and wakes once it
+// would not.
+func TestMemoryReadyWaitsWhileANewGoblinWouldTakeTheTestSlotsMemory(t *testing.T) {
 	// Arrange
 	s, h := fleetService(t)
 	meter := &memoryReadings{}
-	hold := "1 run waits in the machine's heavy line for the 8.0 GB of memory and commit its next run needs"
+	hold := "6.0 GB of memory and commit is free; the next test run needs 8.0 GB and a new goblin 1 GB"
 	s.Options.Dispatch = &Dispatch{Memory: meter.read, HeavyLine: func(Memory) (string, error) { return hold, nil }}
 	queueBriefedTask(t, h, "- **next-task** - Ship it (repo: code-goblins)", plainBrief)
 	now := time.Date(2026, 11, 2, 19, 38, 0, 0, time.UTC)
@@ -184,6 +194,6 @@ func TestMemoryReadyWaitsWhileARunWaitsInTheHeavyLineForMemory(t *testing.T) {
 
 	// Assert
 	if wokeHeld != 0 || wokeClear != 1 {
-		t.Fatalf("memory_ready woke %d times while a run waited in the heavy line and %d once it had its memory, want none and then one", wokeHeld, wokeClear)
+		t.Fatalf("memory_ready woke %d times while a new goblin would take the test slots' memory and %d once it would not, want none and then one", wokeHeld, wokeClear)
 	}
 }

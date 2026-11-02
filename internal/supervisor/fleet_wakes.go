@@ -327,10 +327,11 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // checkMemory raises memory_ready once memory and commit both read at or
 // above the next-start mark on two readings in a row while work waits for
 // memory: a queued task a Start could start now, or a live goblin whose latest
-// report is a wait on memory, and no run waits in the machine's heavy line
-// for memory. It wakes once per crossing: not again until a
-// reading falls under the floor and crosses back, and never twice within
-// memoryWakeGap. A reading under the floor goes to AFK mode's memory floor.
+// report is a wait on memory, and a new goblin would still leave the
+// machine's heavy line its next floor. It wakes once per crossing: not
+// again until a reading falls under the floor and crosses back, and never
+// twice within memoryWakeGap. A reading under the floor goes to AFK mode's
+// memory floor.
 // Every check first plans the comeback for this sign-in, before memory is
 // read, so a sign-in that never reaches the floor still records itself; a
 // planning error is reported and the rest of the check still runs. Each
@@ -421,8 +422,8 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if err := s.wakeWhenStalled(w, scheduled, memory, now); err != nil {
 		return errors.Join(planningErr, err)
 	}
-	// While runs wait in the heavy line for memory, the memory is theirs, so
-	// memory_ready offers it to nothing else until they have it.
+	// Memory a new goblin would take from the heavy line's next floor is the
+	// test slots', so memory_ready offers it to nothing.
 	if hold != "" || w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
 		return planningErr
 	}

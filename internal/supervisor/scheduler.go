@@ -35,10 +35,10 @@ type WaitingWork struct {
 // defect, then the paused goblin highest in the Overlord's In progress order
 // whose pause cleared, then the top of the queue, with a picked-up root issue
 // after every other queued task, unless a goblin paused for memory comes back
-// first. What it would start, or resume from a memory pause, waits while hold
-// says runs wait in the machine's heavy line for memory. It says what it did,
-// and what could run and did not, with why; a board that cannot start
-// goblins schedules nothing and says nothing.
+// first. All it would start or resume waits while hold says a new goblin
+// would leave the machine's heavy line short of its next floor. It says what
+// it did, and what could run and did not, with why; a board that cannot
+// start goblins schedules nothing and says nothing.
 func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory, hold string) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
@@ -167,17 +167,12 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
 		return failure.IsRefused && failure.Operation == paused.Operation && failure.Updated.Equal(paused.Updated)
 	})
-	// What memory would start or bring back, the queue with a reported
-	// production defect in it and every goblin paused for memory, waits while
-	// runs wait in the machine's heavy line for memory, so the goblins closer
-	// to done get it first. A goblin whose pause cleared for anything else
-	// still resumes.
-	isHeldByLine := false
+	// Every goblin it would start or resume, a reported production defect
+	// included, waits while its session would leave the machine's heavy line
+	// short of its next floor, so both test slots stay usable (#1926).
+	isHeldByLine := hold != "" && (len(queued) > 0 || memoryPending != "" || len(ready) > 0)
 	if hold != "" {
-		isMemoryPause := func(paused state.Lifecycle) bool { return paused.Pause.Reason == "memory" }
-		isHeldByLine = len(queued) > 0 || memoryPending != "" || slices.ContainsFunc(ready, isMemoryPause)
-		defect, queued, memoryPending = "", nil, ""
-		ready = slices.DeleteFunc(ready, isMemoryPause)
+		defect, queued, memoryPending, ready = "", nil, "", nil
 	}
 	// What would start by itself waits while the performance cores are busy.
 	// A reported production defect does not, nor what the Overlord started.
@@ -204,6 +199,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Text = "resuming " + asked[0].task + ", which the Overlord resumed"
 		}
 		s.runAsked()
+	case isHeldByLine:
+		record.Text = "nothing starts, keeping the test slots open: " + hold
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		startErr = s.startQueued(defect, false)
@@ -213,8 +210,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	case len(ready) > 0:
 		record.Text = "resuming " + ready[0].ID
 		problems = errors.Join(problems, s.resumeAutomatically(ready[0]))
-	case isHeldByLine:
-		record.Text = "nothing starts: " + hold
 	case len(queued) > 0 && memoryPending == "":
 		record.Text = "starting " + queued[0]
 		startErr = s.startQueued(queued[0], false)

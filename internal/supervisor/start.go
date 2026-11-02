@@ -66,9 +66,10 @@ type Dispatch struct {
 	// GPU reads the machine's graphics adapters and how busy each is; nil
 	// reads none.
 	GPU func() (GPU, error)
-	// HeavyLine says that runs wait in the machine's heavy line for memory at
-	// the given reading of memory, or "" when none does; nil reads none, and
-	// nothing waits on it.
+	// HeavyLine says why no goblin starts or resumes by itself at the given
+	// reading of memory, to keep memory for the machine's heavy line, as
+	// SlotHold says it, or "" when one may; nil reads none, and nothing waits
+	// on it.
 	HeavyLine func(Memory) (string, error)
 	// Spawn runs cfo with args and returns what it printed.
 	Spawn func(ctx context.Context, args []string) (string, error)

@@ -526,7 +526,7 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(report.Memory.AvailableBytes), verify.Gigabytes(report.Memory.CommitAvailableBytes), verify.Gigabytes(report.Memory.FloorBytes))
 	}
 	if report.Hold != "" {
-		fmt.Fprintln(stdout, "goblins: the supervisor starts none and resumes none paused for memory by itself while "+report.Hold)
+		fmt.Fprintln(stdout, "goblins: the supervisor starts and resumes none by itself, keeping the test slots open: "+report.Hold)
 	}
 	return 0
 }
@@ -561,9 +561,9 @@ type turnsReport struct {
 	Holding   []turnsRun  `json:"holding"`
 	Waiting   []turnsRun  `json:"waiting"`
 	Memory    turnsMemory `json:"memory"`
-	// Hold says that runs wait here for memory, which holds back what the
-	// supervisor starts or resumes for memory by itself, and is empty when
-	// none does.
+	// Hold says why the supervisor starts and resumes no goblin by itself,
+	// a new session leaving the line's next run short of its floor, and is
+	// empty when it may.
 	Hold string `json:"hold"`
 }
 
@@ -620,12 +620,8 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 	if err != nil {
 		return turnsReport{}, fmt.Errorf("available memory cannot be read: %w", err)
 	}
-	hold, err := verify.MemoryHold(store, memory.Available, memory.CommitAvailable)
-	if err != nil {
-		return turnsReport{}, err
-	}
 	report := turnsReport{
-		Hold:      hold,
+		Hold:      supervisor.SlotHold(floor, memory),
 		Capacity:  capacity,
 		IsWeighed: capacity == 2,
 		Holding:   turnsRuns(holding),

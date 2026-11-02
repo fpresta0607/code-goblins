@@ -1656,7 +1656,7 @@ func TestGateTurnsJSONGivesTheLine(t *testing.T) {
 		t.Errorf("the floor is %v; want the bytes the line's head waits for", report.Memory["floor_bytes"])
 	}
 	if report.Hold == nil || *report.Hold != "" {
-		t.Errorf("the hold is %v; want it there and empty, since the waiter is short of no memory", report.Hold)
+		t.Errorf("the hold is %v; want it there and empty, since the line's floor and a new goblin's session are free", report.Hold)
 	}
 }
 

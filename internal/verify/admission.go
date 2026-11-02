@@ -216,26 +216,6 @@ func HeadFloor(dir string, estimate, reserve uint64) (uint64, error) {
 	return max(4<<30, remaining+estimate+max(reserve, stored.PhysicalAvailable, stored.CommitAvailable)), nil
 }
 
-// MemoryHold says that runs wait in the line kept in dir for memory, with
-// physical memory and commit available as given: the run at its head needs
-// both at the floor HeadFloor asks of it, as cfo gate turns weighs it. It
-// says nothing when no run waits or the head has that memory.
-func MemoryHold(dir string, physical, commit uint64) (string, error) {
-	_, waiting, err := Line(dir)
-	if err != nil || len(waiting) == 0 {
-		return "", err
-	}
-	floor, err := HeadFloor(dir, waiting[0].Estimate, 0)
-	if err != nil || min(physical, commit) >= floor {
-		return "", err
-	}
-	runs := "1 run waits"
-	if len(waiting) > 1 {
-		runs = fmt.Sprintf("%d runs wait", len(waiting))
-	}
-	return fmt.Sprintf("%s in the machine's heavy line for the %.1f GB of memory and commit its next run needs", runs, Gigabytes(floor)), nil
-}
-
 // holdersRemaining is what the runs holding the slots in dir may still use:
 // each one's estimate less what it commits now, never below nothing. A
 // holder whose card names no estimate, as an older build's, is weighed at
