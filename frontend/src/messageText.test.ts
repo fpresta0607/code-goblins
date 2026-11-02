@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { isLongText, leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
+import { decisionAndDetails, isLongText, leadAndRest, linkedText, messageBlocks, messageElements, pathElements, plainMessage } from "./messageText.ts";
 
 const html = (text: string) => renderToStaticMarkup(messageElements(text));
 
@@ -226,4 +226,41 @@ test("a text is long past six lines or 600 characters, and a short one is not", 
     ["601 characters", "x".repeat(601), true],
   ];
   for (const [name, text, want] of cases) assert.equal(isLongText(text), want, name);
+});
+
+// The Overlord, 2026-11-02, of a goblin's question whose run IDs, finding
+// codes and receipts filled his Command Center: "difficult to read, poorly
+// formatted and full of gibberish". Its asker puts that evidence after a line
+// that reads only "Details:", and the card folds it away; nothing else is
+// split, so a question written before that line existed shows whole.
+for (const [name, text, decision, details] of [
+  ["a Details line", "Fix the parked review now?\n- **Recommended: fix it.** One bounded round.\n\nDetails:\n- registry-parser-divergence | error | tools/select_tests.py:279",
+    "Fix the parked review now?\n- **Recommended: fix it.** One bounded round.", "- registry-parser-divergence | error | tools/select_tests.py:279"],
+  ["any case and spaces around it", "Ship it?\n  details:  \nrun 01M6EASKNZ3NNDFC6PWCBFHY7R", "Ship it?", "run 01M6EASKNZ3NNDFC6PWCBFHY7R"],
+  ["Windows line ends", "Ship it?\r\nDetails:\r\n- head f77bd7ee\r\n- tree 74fbbb32", "Ship it?", "- head f77bd7ee\n- tree 74fbbb32"],
+  ["only the first Details line", "Ship it?\nDetails:\none\nDetails:\ntwo", "Ship it?", "one\nDetails:\ntwo"],
+  ["no Details line", "Ship it?\n- risk high", "Ship it?\n- risk high", ""],
+  ["Details inside a line", "Ship it? See Details: below.\n- **Details:** none", "Ship it? See Details: below.\n- **Details:** none", ""],
+  ["nothing before the Details line", "Details:\n- run 01M6", "Details:\n- run 01M6", ""],
+  ["nothing after the Details line", "Ship it?\nDetails:\n  \n", "Ship it?\nDetails:\n  \n", ""],
+  ["an empty text", "", "", ""],
+] as const) {
+  test(`a question's decision and details split at ${name}`, () => {
+    // Arrange, act
+    const split = decisionAndDetails(text);
+
+    // Assert
+    assert.deepEqual(split, { decision, details });
+  });
+}
+
+test("markup in a question's decision and evidence is shown as text, never interpreted", () => {
+  // Arrange
+  const { decision, details } = decisionAndDetails("Ship <b>it</b>?\nDetails:\n<img src=x onerror=\"alert(1)\"> `<script>alert(1)</script>`");
+
+  // Act
+  const shown = [html(decision), html(details)];
+
+  // Assert
+  assert.deepEqual(shown, ["<p>Ship &lt;b&gt;it&lt;/b&gt;?</p>", "<p>&lt;img src=x onerror=&quot;alert(1)&quot;&gt; <code>&lt;script&gt;alert(1)&lt;/script&gt;</code></p>"]);
 });
