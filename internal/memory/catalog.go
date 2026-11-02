@@ -212,6 +212,7 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 			return Catalog{}, fmt.Errorf("memory source %s is corrupt or changed (sha256)", source.Path)
 		}
 		catalog.content[source.Path] = content
+		isLiteral := literalBytes(content)
 		covered := 0
 		for _, entry := range source.Entries {
 			if !memoryID.MatchString(entry.ID) {
@@ -224,7 +225,7 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 				return Catalog{}, fmt.Errorf("memory %s has a gap, overlap, invalid range or checksum", entry.ID)
 			}
 			covered = entry.End
-			status, err := Inspect(content[entry.Start:entry.End], entry.Authority, now)
+			status, err := Inspect(content[entry.Start:entry.End], isLiteral[entry.Start:entry.End], entry.Authority, now)
 			if err != nil {
 				return Catalog{}, fmt.Errorf("memory %s: %w", entry.ID, err)
 			}
@@ -245,8 +246,14 @@ func Load(dataDir string, now time.Time) (Catalog, error) {
 			return Catalog{}, fmt.Errorf("memory source %s has uncovered bytes", source.Path)
 		}
 	}
-	if len(catalog.content) != len(names) {
-		return Catalog{}, errors.New("memory catalog omits governed sources; run cfo memory migration-plan")
+	var omitted []string
+	for _, name := range names {
+		if _, exists := catalog.content[name]; !exists {
+			omitted = append(omitted, name)
+		}
+	}
+	if len(omitted) > 0 {
+		return Catalog{}, fmt.Errorf("memory catalog omits governed sources %s; catalog each one in %s", strings.Join(omitted, ", "), CatalogPath)
 	}
 	for _, entry := range ids {
 		for _, previous := range entry.Supersedes {
@@ -346,7 +353,7 @@ func validateLayers(layers []Layer) error {
 	return nil
 }
 
-func (catalog Catalog) Retrieve(query Query, now time.Time) (string, error) {
+func (catalog Catalog) Retrieve(query Query) (string, error) {
 	var output strings.Builder
 	if len(catalog.Sources) == 0 {
 		output.WriteString("MEMORY SOURCES ABSENT: no governed source files; no authority was assumed read.\n")
@@ -366,14 +373,7 @@ func (catalog Catalog) Retrieve(query Query, now time.Time) (string, error) {
 			}
 			matched = true
 			content := catalog.content[source.Path][entry.Start:entry.End]
-			status, err := Inspect(content, entry.Authority, now)
-			if err != nil {
-				return "", err
-			}
-			if catalog.status[entry.ID].Tier == "pinned" {
-				status.Tier = "pinned"
-				status.IsLegacy, status.IsStale = false, false
-			}
+			status := catalog.status[entry.ID]
 			fmt.Fprintf(&output, "\n[%s] %s bytes %d:%d sha256=%s authority=%s tier=%s\n", entry.ID, source.Path, entry.Start, entry.End, entry.SHA256, entry.Authority, status.Tier)
 			if status.IsStale || status.IsLegacy || status.IsGrace || status.PendingCapture != "" {
 				fmt.Fprintf(&output, "STOW REQUIRED: stale=%t legacy=%t grace=%t pending-capture=%s; retain until the owning pass resolves it.\n", status.IsStale, status.IsLegacy, status.IsGrace, status.PendingCapture)

@@ -158,7 +158,8 @@ func writeCompleteMarker(stateDir string, ownerPID int) error {
 // composeLong writes every section of the long digest below SESSION LOCK.
 // The read-once contract comes before the sections it speaks for, so those
 // are composed first: the contract names the files they actually printed.
-func composeLong(h home.Home, current fleetSample, ew *werr) {
+// It returns the memory catalog's validation failure, which CONTEXT names.
+func composeLong(h home.Home, current fleetSample, ew *werr) error {
 	writeAFKMode(h.State, ew)
 	_, catalogErr := os.Lstat(filepath.Join(h.Data, filepath.FromSlash(memory.CatalogPath)))
 	hasCatalog := !errors.Is(catalogErr, os.ErrNotExist)
@@ -201,7 +202,7 @@ func composeLong(h home.Home, current fleetSample, ew *werr) {
 		}
 	}
 	fmt.Fprintln(&fleetState, "Canonical current state: cfo fleet-view; cfo drain reads the durable work queue. Status tails above are event history, not proof of present state. No omitted record was acknowledged.")
-	files := writeContext(h.Data, &werr{w: &context})
+	files, memoryErr := writeContext(h.Data, &werr{w: &context})
 
 	if hasCatalog {
 		ew.println("== READ-ONCE CONTRACT ==")
@@ -215,6 +216,7 @@ func composeLong(h home.Home, current fleetSample, ew *werr) {
 	writeStorage(h, time.Now(), ew)
 	ew.write(context.Bytes())
 	writeNextStep(ew)
+	return memoryErr
 }
 
 // ComposeBrief writes the digest a session is handed whole: within Budget
@@ -245,6 +247,8 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 	current := sampleFleet(ctx, h.State, endpoint)
 	_, catalogErr := os.Lstat(filepath.Join(h.Data, filepath.FromSlash(memory.CatalogPath)))
 	hasCatalog := !errors.Is(catalogErr, os.ErrNotExist)
+	var long bytes.Buffer
+	memoryErr := composeLong(h, current, &werr{w: &long})
 
 	// A tool cuts long output short just as a hook does, so the fallback
 	// names the two files a session must not go without beside the command.
@@ -252,11 +256,12 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 	if hasCatalog {
 		fallback = "cfo session-start prints the verified warm map read-only; use cfo memory retrieve --project <name> --task <id> --topic <topic> for relevant cold authority and facts, resolving any memory diagnostic before dependent action."
 	}
+	if memoryErr != nil {
+		fallback = "no warm map was verified; resolve the MEMORY UNREADABLE diagnostic below before dependent action, then run cfo session-start again."
+	}
 	next := "this session does not hold the home, so no long digest was written: " + fallback
 	hasUnchangedContext := false
 	if heldLock {
-		var long bytes.Buffer
-		composeLong(h, current, &werr{w: &long})
 		path := filepath.Join(h.State, FullDigestFile)
 		isSameContext := false
 		if isResumed {
@@ -272,6 +277,9 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 			next = path + " holds what this digest leaves out: the bounded canonical state projection and data\\projects.md, data\\overlord.md and data\\memory\\MEMORY.md in full. Detailed metadata, backlog, status history and omitted wakes require targeted retrieval. "
 			if hasCatalog {
 				next = path + " holds the verified warm operating map, memory diagnostics and bounded canonical state summary. Before dependent work use cfo memory retrieve --project <name> --task <id> --topic <topic> for relevant cold authority and facts. It does not embed the full history or cold fact files. "
+			}
+			if memoryErr != nil {
+				next = path + " holds the MEMORY UNREADABLE diagnostic below and the bounded canonical state summary; its warm map failed validation. Resolve the diagnostic before dependent work. "
 			}
 			if hasUnchangedContext {
 				next += "The source context is unchanged. If this conversation already read those exact bytes and still holds them, do not read it again; otherwise read all source context before dependent action. Current state must be reconciled from cfo fleet-view and cfo drain."
@@ -302,7 +310,11 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 		if hasCatalog {
 			ew.println("== READ-ONCE CONTRACT ==")
 			writePrintedInFull(nil, ew)
-			ew.println("This preview does not deliver source memory. Follow READ THIS NEXT for the freshly validated warm map; retrieve cold ranges by relevance before dependent action.")
+			if memoryErr != nil {
+				ew.printf("MEMORY UNREADABLE: %s. This preview delivers no source memory and no warm map was verified; do not act without resolving source authority.\n", cutError(memoryErr, briefErrorWidth))
+			} else {
+				ew.println("This preview does not deliver source memory. Follow READ THIS NEXT for the freshly validated warm map; retrieve cold ranges by relevance before dependent action.")
+			}
 		} else {
 			writeBriefContract(isWholeQueue, isWholeFleet, hasUnchangedContext, ew)
 		}
@@ -676,7 +688,7 @@ func writeSupervisionInstructions(dataDir string, isBrief bool, ew *werr) {
 		indexPrinted, orphans = "printed in full in the file named under READ THIS NEXT", "The ORPHANS section of the file named under READ THIS NEXT"
 	}
 	if _, err := os.Lstat(filepath.Join(dataDir, "memory", "startup.json")); !errors.Is(err, os.ErrNotExist) {
-		ew.printf("The CFO's memory is %s, the same for Claude Code, Codex and Pi. The verified startup.json selects exact warm source ranges; cold facts and original rulings remain at their owners. Use cfo memory retrieve for the task's project, task and topic before dependent action. Read the Stow skill for capture, corrections, provenance and per-item pinned-offload authority; no digest grants that authority.\n", memory)
+		ew.printf("The CFO's memory is %s, the same for Claude Code, Codex and Pi. Once it validates, startup.json selects exact warm source ranges; cold facts and original rulings remain at their owners. Use cfo memory retrieve for the task's project, task and topic before dependent action. Read the Stow skill for capture, corrections, provenance and per-item pinned-offload authority; no digest grants that authority.\n", memory)
 	} else {
 		ew.printf("The CFO's memory is %s, the same for Claude Code, Codex and Pi: MEMORY.md there is its index, %s, one line per fact. Read a fact's own file when its line bears on the work. When you learn something durable, write it there as one file (frontmatter name, description and type, then the fact) and add its one line to MEMORY.md, never only to a harness's own memory folder, which the next CFO may not see.\n", memory, indexPrinted)
 	}
@@ -741,53 +753,46 @@ func writeOrphans(stateDir string, ew *werr) {
 
 // writeContext emits verified warm source ranges and cold routes when a
 // catalog is present. Only an absent catalog permits full legacy context;
-// an invalid catalog remains an explicit authority error. The returned list
-// names only legacy files actually printed in full for the read-once contract.
-func writeContext(dataDir string, ew *werr) []string {
+// an invalid catalog remains an explicit authority error, which it returns.
+// The returned list names only legacy files actually printed in full for the
+// read-once contract. Both modes report the budget memory.MemoryReport measures.
+func writeContext(dataDir string, ew *werr) ([]string, error) {
 	ew.println("== CONTEXT ==")
+	var printed []string
 	if _, err := os.Lstat(filepath.Join(dataDir, filepath.FromSlash(memory.CatalogPath))); !errors.Is(err, os.ErrNotExist) {
 		catalog, err := memory.Load(dataDir, time.Now())
+		text := ""
+		if err == nil {
+			text, err = catalog.Retrieve(memory.Query{})
+		}
 		if err != nil {
 			ew.printf("MEMORY UNREADABLE: %s. Do not act without resolving source authority; no legacy fallback was selected.\n", err)
-			return nil
-		}
-		text, err := catalog.Retrieve(memory.Query{}, time.Now())
-		if err != nil {
-			ew.printf("MEMORY UNREADABLE: %s\n", err)
-			return nil
+			return nil, err
 		}
 		ew.println("Verified warm operating map; quoted source ranges follow. No source file is claimed read in full.")
 		ew.printf("%s", text)
 		ew.println("Before work, retrieve relevant cold authority and project facts with cfo memory retrieve --project <name> --task <id> --topic <topic>; retrieve a named item with --id <id>.")
-		routes := catalog.Routes(2000)
-		ew.printf("%s", routes)
-		budget, err := memory.ReadBudget(dataDir, "startup-memory-budget", memory.DefaultBudget)
-		if err != nil {
-			ew.printf("MEMORY BUDGET UNREADABLE: %s; Stow cannot declare reset-safe.\n", err)
-		} else {
-			memoryBytes := len(text) + len(routes)
-			ew.printf("Warm memory and routes: %d bytes, %d estimated tokens (bytes/4 rounded up), budget %d estimated tokens.\n", memoryBytes, memory.Tokens(memoryBytes), budget)
-			if memory.Tokens(memoryBytes) > budget {
-				ew.println("MEMORY OVER BUDGET: retained all authority. Open a concrete budget or named-offload decision; an exception is not relief or reset-safe.")
+		ew.printf("%s", catalog.Routes(2000))
+	} else {
+		for _, name := range []string{"projects.md", "overlord.md", filepath.FromSlash(layout.MemoryIndex)} {
+			if writeContextFile(dataDir, name, ew) {
+				printed = append(printed, `data\`+name)
 			}
 		}
-		return nil
 	}
-	var printed []string
-	for _, name := range []string{"projects.md", "overlord.md", filepath.FromSlash(layout.MemoryIndex)} {
-		if writeContextFile(dataDir, name, ew) {
-			printed = append(printed, `data\`+name)
-		}
-	}
-	if report, err := memory.MemoryReport(dataDir, time.Now()); err != nil {
+	report, err := memory.MemoryReport(dataDir, time.Now())
+	switch {
+	case err != nil:
 		ew.printf("MEMORY BUDGET UNREADABLE: %s; Stow cannot declare reset-safe.\n", err)
-	} else {
+	case report.IsLegacy:
 		ew.printf("LEGACY MEMORY UNCURATED: %d source bytes, %d estimated tokens, budget %d. No authority was offloaded; cfo memory migration-plan inventories named proposals.\n", report.Bytes, report.EstimatedTokens, report.Budget)
-		if report.IsOverBudget {
-			ew.println("MEMORY OVER BUDGET: preserve authority and open a concrete budget or per-item offload decision; not reset-safe.")
-		}
+	default:
+		ew.printf("Warm memory and routes: %d bytes, %d estimated tokens (bytes/4 rounded up), budget %d estimated tokens.\n", report.Bytes, report.EstimatedTokens, report.Budget)
 	}
-	return printed
+	if err == nil && report.IsOverBudget {
+		ew.println("MEMORY OVER BUDGET: retained all authority. Open a concrete budget or named-offload decision; an exception is not relief or reset-safe.")
+	}
+	return printed, nil
 }
 
 // writeContextFile prints one context file and reports whether it had any

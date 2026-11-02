@@ -111,7 +111,7 @@ func runMemory(args []string, stdout, stderr io.Writer) int {
 		_, err = io.WriteString(stdout, catalog.Routes(int(^uint(0)>>1)))
 	} else {
 		var text string
-		text, err = catalog.Retrieve(query, time.Now())
+		text, err = catalog.Retrieve(query)
 		if err == nil {
 			_, err = io.WriteString(stdout, text)
 		}

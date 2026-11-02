@@ -73,7 +73,7 @@ func MemoryReport(dataDir string, now time.Time) (Report, error) {
 		if err != nil {
 			return Report{}, err
 		}
-		text, err := catalog.Retrieve(Query{}, now)
+		text, err := catalog.Retrieve(Query{})
 		if err != nil {
 			return Report{}, err
 		}

@@ -68,11 +68,13 @@ func PlanMigration(dataDir string) (MigrationPlan, error) {
 	plan := MigrationPlan{IsDryRun: true, Files: []FilePlan{}, Layers: catalog.Layers, AuthorityRule: "Proposals only. Each pinned item needs its own explicit Overlord approval, verified privacy, and a live discoverable destination before removal. Sources remain unchanged."}
 	for _, name := range names {
 		content := catalog.content[name]
+		var isLiteral []bool
 		if !hasCatalog {
 			content, err = ReadData(dataDir, name)
 			if err != nil {
 				return MigrationPlan{}, fmt.Errorf("inventory %s: %w", name, err)
 			}
+			isLiteral = literalBytes(content)
 		}
 		file := FilePlan{Path: name, Bytes: len(content), SHA256: Hash(content), Moves: []Move{}}
 		var retained bytes.Buffer
@@ -120,7 +122,7 @@ func PlanMigration(dataDir string) (MigrationPlan, error) {
 				scope = fmt.Sprintf("projects=%s tasks=%s topics=%s; trigger=%s; location=%s", strings.Join(entry.Projects, ","), strings.Join(entry.Tasks, ","), strings.Join(entry.Topics, ","), entry.Trigger, entry.Location)
 				status = catalog.status[entry.ID]
 			} else {
-				status, err = Inspect(chunk, authority, now)
+				status, err = Inspect(chunk, isLiteral[start:end], authority, now)
 				if err != nil {
 					status.Tier, classificationError = "unclassified", err.Error()
 				}

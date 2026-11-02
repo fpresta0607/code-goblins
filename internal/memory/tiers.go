@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -20,12 +21,14 @@ import (
 
 var tierMarker = regexp.MustCompile(`^(?:<!--(a|p):([0-9]{4}-[0-9]{2}-[0-9]{2})-->|<!--(P|g)-->|<!--t:([^<>\s]+)-->)$`)
 
-func trailingAnnotations(text string) []string {
+// trailingAnnotations reads markers from the end of text, stopping at one
+// that isLiteral, the literal-byte projection of text, marks as code.
+func trailingAnnotations(text string, isLiteral []bool) []string {
 	var annotations []string
-	text = strings.TrimSpace(text)
+	text = strings.TrimRightFunc(text, unicode.IsSpace)
 	for strings.HasSuffix(text, "-->") {
 		start := strings.LastIndex(text, "<!--")
-		if start < 0 {
+		if start < 0 || isLiteral[start] {
 			break
 		}
 		annotation := text[start:]
@@ -33,21 +36,15 @@ func trailingAnnotations(text string) []string {
 			break
 		}
 		annotations = append(annotations, annotation)
-		text = strings.TrimSpace(text[:start])
+		text = strings.TrimRightFunc(text[:start], unicode.IsSpace)
 	}
 	return annotations
 }
 
-func pinnedReferences(dataDir string) (map[string]bool, error) {
-	content, err := ReadData(dataDir, "memory/MEMORY.md")
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	pinned := make(map[string]bool)
-	names, err := GovernedFiles(dataDir)
-	if err != nil {
-		return nil, err
-	}
+// literalBytes projects a whole Markdown source onto the bytes of its fenced
+// and indented code blocks at any container depth, where marker text is an
+// example rather than an annotation.
+func literalBytes(content []byte) []bool {
 	isLiteral := make([]bool, len(content))
 	markLiteral := func(segment text.Segment) {
 		for position := segment.Start; position < segment.Stop; position++ {
@@ -70,11 +67,25 @@ func pinnedReferences(dataDir string) (map[string]bool, error) {
 		}
 		return ast.WalkSkipChildren, nil
 	})
+	return isLiteral
+}
+
+func pinnedReferences(dataDir string) (map[string]bool, error) {
+	content, err := ReadData(dataDir, "memory/MEMORY.md")
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	pinned := make(map[string]bool)
+	names, err := GovernedFiles(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	isLiteral := literalBytes(content)
 	offset := 0
 	for lineNumber, line := range strings.Split(string(content), "\n") {
 		lineStart := offset
 		offset += len(line) + 1
-		if !slices.Contains(trailingAnnotations(line), "<!--P-->") || isLiteral[lineStart+strings.LastIndex(line, "<!--P-->")] {
+		if !slices.Contains(trailingAnnotations(line, isLiteral[lineStart:lineStart+len(line)]), "<!--P-->") {
 			continue
 		}
 		destinations, err := indexDestinations(line)
@@ -218,13 +229,15 @@ type Status struct {
 }
 
 // Inspect follows Stow's default date horizons. Reading never advances decay.
-func Inspect(content []byte, authority string, now time.Time) (Status, error) {
+// isLiteral is the part of the whole source's literalBytes covering content,
+// since a code block holding the entry's last bytes can begin before it.
+func Inspect(content []byte, isLiteral []bool, authority string, now time.Time) (Status, error) {
 	status := Status{Tier: "aging"}
 	if authority == "ruling" || authority == "history" {
 		status.Tier = "pinned"
 	}
 	hasTier := false
-	for _, annotation := range trailingAnnotations(string(content)) {
+	for _, annotation := range trailingAnnotations(string(content), isLiteral) {
 		match := tierMarker.FindStringSubmatch(annotation)
 		if match == nil {
 			return Status{}, fmt.Errorf("malformed memory marker")

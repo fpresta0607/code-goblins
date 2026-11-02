@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -79,13 +80,13 @@ func TestRetrievalSelectsRelevantColdFactsAndPreservesRulings(t *testing.T) {
 		{"exact history", Query{ID: "history"}, "completed investigation", "release needs approval"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output, err := catalog.Retrieve(test.query, referenceDate)
+			output, err := catalog.Retrieve(test.query)
 			if err != nil || !strings.Contains(output, test.present) || strings.Contains(output, test.absent) {
 				t.Fatalf("retrieval = %q, %v", output, err)
 			}
 		})
 	}
-	if _, err := catalog.Retrieve(Query{ID: "missing"}, referenceDate); err == nil {
+	if _, err := catalog.Retrieve(Query{ID: "missing"}); err == nil {
 		t.Fatal("missing named authority was reported as success")
 	}
 }
@@ -166,7 +167,7 @@ func TestTierClocksAndGraceFollowReviewedStowContract(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			before := []byte(test.text)
-			status, err := Inspect(before, test.authority, referenceDate)
+			status, err := Inspect(before, literalBytes(before), test.authority, referenceDate)
 			if err != nil || status.Tier != test.tier || status.IsStale != test.stale || status.IsGrace != test.grace || status.IsLegacy != test.legacy {
 				t.Fatalf("status = %+v, %v", status, err)
 			}
@@ -176,7 +177,7 @@ func TestTierClocksAndGraceFollowReviewedStowContract(t *testing.T) {
 		})
 	}
 	for _, text := range []string{"<!--a:2026-02-30-->", "<!--a:2026-11-01-->", "<!--a:bad-->", "<!--P--><!--g-->", "<!--a:2026-10-30/100-->", "<!--p:2026-10-30/2-->"} {
-		if _, err := Inspect([]byte(text), "fact", referenceDate); err == nil {
+		if _, err := Inspect([]byte(text), literalBytes([]byte(text)), "fact", referenceDate); err == nil {
 			t.Fatalf("accepted corrupt markers %q", text)
 		}
 	}
@@ -240,7 +241,7 @@ func TestTierAnnotationsLeaveLiteralExamplesAsSourceBytes(t *testing.T) {
 		"Example:\n```text\n<!--a:2026-10-30-->\n```\n",
 	} {
 		t.Run(text, func(t *testing.T) {
-			status, err := Inspect([]byte(text), "ruling", referenceDate)
+			status, err := Inspect([]byte(text), literalBytes([]byte(text)), "ruling", referenceDate)
 			if err != nil || status.Tier != "pinned" || status.Reinforced != "" || status.PendingCapture != "" {
 				t.Fatalf("literal example changed ruling metadata: %+v, %v", status, err)
 			}
@@ -286,7 +287,7 @@ func TestWindowsIndexPinsFollowFilesystemIdentity(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				output, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+				output, err := loaded.Retrieve(Query{ID: "preference"})
 				if err != nil || !strings.Contains(output, "tier=pinned") {
 					t.Fatalf("case-varied index pin was lost: %s, %v", output, err)
 				}
@@ -349,7 +350,7 @@ func TestIndexPinsResolveMarkdownDestinations(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					text, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+					text, err := loaded.Retrieve(Query{ID: "preference"})
 					if err != nil || !strings.Contains(text, "tier=pinned") || !strings.Contains(text, string(fact)) {
 						t.Fatalf("resolved index link lost its pin or bytes: %s, %v", text, err)
 					}
@@ -424,7 +425,7 @@ func TestFencedIndexExamplesRemainLiteralAcrossConsumers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			text, err := loaded.Retrieve(Query{Topic: "ports"}, referenceDate)
+			text, err := loaded.Retrieve(Query{Topic: "ports"})
 			if err != nil || !strings.Contains(text, string(index)) || !strings.Contains(text, "A project uses port 4300.") || !strings.Contains(loaded.Routes(2000), "project: ports") {
 				t.Fatalf("fenced examples blocked retrieval or changed bytes: %s, %v", text, err)
 			}
@@ -514,11 +515,11 @@ func TestIndexCodeExamplesRespectContainerBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			text, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+			text, err := loaded.Retrieve(Query{ID: "preference"})
 			if err != nil || !strings.Contains(text, "tier=pinned") || !strings.Contains(text, string(fact)) {
 				t.Fatalf("adjacent active pin lost authority: %s, %v", text, err)
 			}
-			text, err = loaded.Retrieve(Query{}, referenceDate)
+			text, err = loaded.Retrieve(Query{})
 			if err != nil || !strings.Contains(text, string(index)) || !strings.Contains(loaded.Routes(2000), "project: ports") {
 				t.Fatalf("literal code bytes or routes were lost: %s, %v", text, err)
 			}
@@ -754,7 +755,7 @@ func TestDeclaredTierCaptureAndCorrectionRulesReachEveryRetrieval(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, query := range []Query{{}, {Topic: "ports"}, {ID: "history"}} {
-		output, err := loaded.Retrieve(query, referenceDate)
+		output, err := loaded.Retrieve(query)
 		if err != nil || !strings.Contains(output, catalog.Layers[0].Capture) || !strings.Contains(output, catalog.Layers[0].Correction) {
 			t.Fatalf("declared tier ownership was hidden from the consumer: %q, %v", output, err)
 		}
@@ -771,11 +772,11 @@ func TestExistingColdArchiveRemainsColdWithoutInventingANewOffload(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	startup, err := loaded.Retrieve(Query{}, referenceDate)
+	startup, err := loaded.Retrieve(Query{})
 	if err != nil || strings.Contains(startup, string(content)) {
 		t.Fatal("existing archive was injected as new warm authority")
 	}
-	recovered, err := loaded.Retrieve(Query{ID: "existing-archive"}, referenceDate)
+	recovered, err := loaded.Retrieve(Query{ID: "existing-archive"})
 	if err != nil || !strings.Contains(recovered, string(content)) {
 		t.Fatal("existing archive became irretrievable")
 	}
@@ -797,7 +798,7 @@ func TestCatalogPreservesIndexPinsAcrossRetrievalAndInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	text, err := loaded.Retrieve(Query{ID: "preference"}, referenceDate)
+	text, err := loaded.Retrieve(Query{ID: "preference"})
 	plan, planErr := PlanMigration(dir)
 
 	if err != nil || !strings.Contains(text, "tier=pinned") || planErr != nil {
@@ -823,5 +824,57 @@ func TestCatalogPreservesIndexPinsAcrossRetrievalAndInventory(t *testing.T) {
 		if _, err := Load(dir, referenceDate); err == nil {
 			t.Fatalf("index pin silently erased explicit tier %s", marker)
 		}
+	}
+}
+
+func TestCatalogEntryInsideAnEarlierEntrysFenceKeepsRulingAuthority(t *testing.T) {
+	// Oracle: CommonMark 0.31.2 code blocks span catalog entries, and only a
+	// genuine trailing annotation classifies memory.
+	// Arrange: the fence opens in the first entry, so the second entry's marker is code.
+	opening, example, closing := "Overlord ruling: mark aging facts like this:\n```markdown\n", "<!--a:2026-10-30-->\n", "```\n"
+	content := opening + example + closing
+	dir := t.TempDir()
+	writeMemoryFile(t, dir, "memory/feedback.md", []byte(content))
+	catalog := Catalog{Version: 1, Sources: []Source{{Path: "memory/feedback.md", SHA256: Hash([]byte(content)), Entries: []Entry{
+		{ID: "opening", End: len(opening), SHA256: Hash([]byte(opening)), Authority: "ruling", Location: "warm"},
+		{ID: "example", Start: len(opening), End: len(opening + example), SHA256: Hash([]byte(example)), Authority: "ruling", Location: "warm"},
+		{ID: "closing", Start: len(opening + example), End: len(content), SHA256: Hash([]byte(closing)), Authority: "ruling", Location: "warm"},
+	}}}}
+	writeCatalog(t, dir, catalog)
+
+	// Act
+	loaded, loadErr := Load(dir, referenceDate)
+	retrieved, retrieveErr := loaded.Retrieve(Query{ID: "example"})
+	offload := &catalog.Sources[0].Entries[1]
+	offload.Location, offload.Trigger, offload.Topics = "cold", "feedback", []string{"feedback"}
+	writeCatalog(t, dir, catalog)
+	_, coldErr := Load(dir, referenceDate)
+
+	// Assert
+	if loadErr != nil || retrieveErr != nil || !strings.Contains(retrieved, " tier=pinned\n") || strings.Contains(retrieved, "STOW REQUIRED") {
+		t.Fatalf("a fenced example reclassified ruling authority: %s, %v, %v", retrieved, loadErr, retrieveErr)
+	}
+	if coldErr == nil || !strings.Contains(coldErr.Error(), "pinned offload requires") {
+		t.Fatalf("a fenced example allowed unapproved ruling offload: %v", coldErr)
+	}
+}
+
+func TestLegacyInventoryRangeInsideAnEarlierFenceStaysLiteral(t *testing.T) {
+	// Oracle: CommonMark 0.31.2 code blocks span inventory ranges, and only a
+	// genuine trailing annotation classifies memory.
+	// Arrange: the list line starts its own range inside an unterminated fence.
+	content := []byte("Mark perishable facts like this:\n```\n- <!--p:2026-10-30-->\n")
+	dir := t.TempDir()
+	writeMemoryFile(t, dir, "memory/feedback.md", content)
+
+	// Act
+	plan, err := PlanMigration(dir)
+
+	// Assert
+	if err != nil || len(plan.Files) != 1 || len(plan.Files[0].Moves) != 2 {
+		t.Fatalf("inventory did not split the source into its two ranges: %+v, %v", plan, err)
+	}
+	if move := plan.Files[0].Moves[1]; move.Tier != "aging" || move.ClassificationError != "" || move.Start != bytes.Index(content, []byte("- ")) {
+		t.Fatalf("a fenced example classified its inventory range: %+v", move)
 	}
 }

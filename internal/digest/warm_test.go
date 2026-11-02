@@ -584,3 +584,49 @@ func TestReadOnlyWarmPreviewUsesSelectiveRetrieval(t *testing.T) {
 		t.Fatal("read-only startup wrote a shared digest")
 	}
 }
+
+func TestBriefCallsMemoryVerifiedOnlyWhenItsCatalogValidates(t *testing.T) {
+	// Oracle: the memory contract keeps missing and corrupt memory explicit,
+	// so a preview names the diagnostic instead of claiming a verified map.
+	for _, test := range []struct {
+		name      string
+		ownerPID  int
+		isCorrupt bool
+	}{
+		{"held valid", os.Getpid(), false},
+		{"held corrupt", os.Getpid(), true},
+		{"read-only valid", 0, false},
+		{"read-only corrupt", 0, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: a cataloged ruling whose bytes change after cataloging no longer matches its sha256.
+			h := newDigestHome(t)
+			if err := os.MkdirAll(filepath.Join(h.Data, "memory"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			words := "Preserve this exact ruling.\n"
+			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(words)))
+			catalog := fmt.Sprintf(`{"version":1,"sources":[{"path":"overlord.md","sha256":%q,"entries":[{"id":"rule","start":0,"end":%d,"sha256":%q,"authority":"ruling","location":"warm"}]}]}`, hash, len(words), hash)
+			if err := os.WriteFile(filepath.Join(h.Data, "memory", "startup.json"), []byte(catalog), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if test.isCorrupt {
+				words = "Changed authority.\n"
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "overlord.md"), []byte(words), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var output bytes.Buffer
+
+			// Act
+			err := ComposeBrief(h, test.ownerPID, "s1", false, false, &output)
+
+			// Assert
+			preview := strings.ToLower(output.String())
+			hasVerifiedWording := strings.Contains(preview, "verified warm") || strings.Contains(preview, "freshly validated")
+			if err != nil || strings.Contains(output.String(), "MEMORY UNREADABLE: memory source overlord.md") != test.isCorrupt || hasVerifiedWording == test.isCorrupt {
+				t.Fatalf("preview memory claim does not match catalog validity (corrupt=%t): %v\n%s", test.isCorrupt, err, output.String())
+			}
+		})
+	}
+}

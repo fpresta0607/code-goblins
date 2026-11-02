@@ -88,6 +88,14 @@ func TestRunHookSessionStartRevalidatesChangedAuthorityAcrossResumeSources(t *te
 				if exit != 0 || !strings.Contains(output.String(), "Read all of it") || strings.Contains(output.String(), "do not read it again") {
 					t.Fatalf("changed authority bypassed resume composition: %s; %s", output.String(), diagnostics.String())
 				}
+				preview := strings.ToLower(output.String())
+				hasVerifiedWording := strings.Contains(preview, "verified warm") || strings.Contains(preview, "freshly validated")
+				if mode == "corrupt catalog" && (!strings.Contains(output.String(), "MEMORY UNREADABLE") || hasVerifiedWording) {
+					t.Fatalf("the preview called changed authority verified instead of naming its diagnostic: %s", output.String())
+				}
+				if mode == "catalog" && (strings.Contains(output.String(), "MEMORY UNREADABLE") || !hasVerifiedWording) {
+					t.Fatalf("the preview of a valid catalog lost its verified wording: %s", output.String())
+				}
 				long, err := os.ReadFile(filepath.Join(root, "state", digest.FullDigestFile))
 				if err != nil {
 					t.Fatal(err)

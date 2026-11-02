@@ -117,7 +117,7 @@ func TestMemoryReportCountsCatalogRoutesAndPreservesSourceHashes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text, err := loaded.Retrieve(Query{}, referenceDate)
+	text, err := loaded.Retrieve(Query{})
 	if err != nil || text+loaded.Routes(2000) != expected {
 		t.Fatalf("emitted memory differs from the independently counted fixture: %q, %v", text+loaded.Routes(2000), err)
 	}
