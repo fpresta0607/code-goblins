@@ -40,7 +40,8 @@ for (const who of ["CFO", "goblin"] as const) {
     await expect(input).toHaveValue("");
     await expect(input).toBeFocused();
     await expect(clear).toBeDisabled();
-    await expect(clear).toHaveAttribute("title", "Clear this message field only");
+    await expect(clear).not.toHaveAttribute("title");
+    await expect(clear).toHaveAccessibleDescription("Clears only this message field");
     expect(await page.evaluate((key) => sessionStorage.getItem(key!), draftKey)).toBeNull();
     expect(typed(relay)).toBe("");
     expect(relay.submissions).toEqual([]);

@@ -780,7 +780,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         <div className="composer-line">
           <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
             onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
-          <button type="button" className="composer-control composer-clear" aria-label="Clear message" title="Clear this message field only" disabled={isSending || !draft && !dictation.hasPending}
+          <button type="button" className="composer-control composer-clear" aria-label="Clear message" aria-description="Clears only this message field" disabled={isSending || !draft && !dictation.hasPending}
             onPointerDown={(event) => event.preventDefault()} onClick={clear}><Icon name="trash" /></button>
           {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" aria-keyshortcuts="Escape" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
             : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} aria-keyshortcuts="Enter" data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
