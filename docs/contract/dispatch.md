@@ -20,8 +20,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   A name the manifest does not declare refuses the spawn.
   The spawn says on one `auth: withheld ...` line what it withheld, and `cfo auth grant <id> <service>` gives a running goblin one more.
   Its `mcp:` line does the same for the MCP servers whose entry in the project's `.mcp.json` holds a value: the goblin is given the ones it names, the spawn says on one `mcp: withheld ...` line which it withheld, and `cfo auth grant <id> --mcp <server>` gives a running goblin one more at its next terminal.
-- The brief's Verification section assigns project checks to the [selected validation owner](delivery.md#delivery).
-  Tier execution and reuse follow [Project runtime contracts](../project-runtime.md).
+- The brief's Verification section assigns project checks, tier execution and reuse to the [selected validation owner](delivery.md#delivery).
 - `--mode` is `no-mistakes`, `direct-PR`, or `local-only`; omitted, [delivery intake](delivery.md#delivery) resolves project posture and concrete change risk, with no-mistakes for missing or uncertain inputs.
 - Every goblin starts in a native terminal of its own.
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.

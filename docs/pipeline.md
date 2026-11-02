@@ -329,7 +329,7 @@ changed files outside the Go checks:
 
 CI tests the level the change requires on the pull request, and every package in its merge train's run, whatever the local level was.
 
-The policy is [config/verify.json](../config/verify.json).
+The repository's verification policy is `config/verify.json`.
 
 `slow_packages` are the packages whose tests take minutes on a loaded machine, each named by its directory from the repository root with forward slashes, and `.` for the root package; the fast level vets them and leaves their package tests to `affected`, subject to the required guard rules above.
 
