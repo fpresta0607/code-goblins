@@ -106,6 +106,9 @@ func TestRunUsageListsFleetCommands(t *testing.T) {
 var startedAs []string
 
 func TestMain(m *testing.M) {
+	if code, ok := runSourceResumeTestProgram(); ok {
+		os.Exit(code)
+	}
 	// Every build a test runs, in this process or as a stand-in a test
 	// installs, stands in for a build that carries its board, which CI's go
 	// jobs never build. A test of the refusal says otherwise itself.

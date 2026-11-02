@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +108,72 @@ func TestResponseUsesTheActiveGateBudgetForEmptyActions(t *testing.T) {
 	}
 }
 
+func TestResponseSelectsRepairWithInformationalIDCollision(t *testing.T) {
+	selection, err := testPolicy(t).Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const findings = `{"findings":[{"id":"test-1","severity":"info","action":"no-op","description":"Earlier validation completed"},{"id":"test-1","severity":"error","action":"ask-user","description":"Current validation needs a correction"}],"summary":"Live validation needs repair","tested":["focused regression"],"testing_summary":"One scenario failed","scenarios":[{"name":"selected repair","status":"fail","evidence":"The current response was refused"}],"verdict":"no-go"}`
+	gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 2, Findings: findings}
+	response := Response{Action: "fix", Findings: "test-1", Instructions: "Repair the current validation failure"}
+
+	args, err := ResponseArgs(selection, gate, response)
+
+	want := []string{"axi", "respond", "--step", "test", "--action", "fix", "--findings", "test-1", "--instructions", response.Instructions}
+	if err != nil || !slices.Equal(args, want) {
+		t.Fatalf("got %q, %v; want %q", args, err, want)
+	}
+}
+
+func TestResponseDistinguishesInformationalAndActionableIDCollisions(t *testing.T) {
+	selection, err := testPolicy(t).Select("ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := 1
+	for _, test := range []struct {
+		name        string
+		firstAction string
+		lastAction  string
+		response    Response
+		want        []string
+		wantErr     bool
+	}{
+		{name: "informational then automatic repair", firstAction: "no-op", lastAction: "auto-fix", response: Response{Action: "fix", Findings: "test-1"}, want: []string{"axi", "respond", "--step", "test", "--action", "fix", "--findings", "test-1"}},
+		{name: "actionable then informational", firstAction: "ask-user", lastAction: "no-op", response: Response{Action: "fix", Findings: "test-1"}, want: []string{"axi", "respond", "--step", "test", "--action", "fix", "--findings", "test-1"}},
+		{name: "informational then budgeted empty action", firstAction: "no-op", response: Response{Action: "fix", Findings: "test-1"}, want: []string{"axi", "respond", "--step", "test", "--action", "fix", "--findings", "test-1"}},
+		{name: "budgeted empty action then informational", lastAction: "no-op", response: Response{Action: "fix", Findings: "test-1"}, want: []string{"axi", "respond", "--step", "test", "--action", "fix", "--findings", "test-1"}},
+		{name: "two informational findings are clean", firstAction: "no-op", lastAction: "no-op", response: Response{Action: "approve"}, want: []string{"axi", "respond", "--step", "test", "--action", "approve"}},
+		{name: "explicit acceptance still names the open finding", firstAction: "no-op", lastAction: "ask-user", response: Response{Action: "approve", Accept: "test-1"}, want: []string{"axi", "respond", "--step", "test", "--action", "approve"}},
+		{name: "no implicit acceptance", firstAction: "no-op", lastAction: "ask-user", response: Response{Action: "approve"}, wantErr: true},
+		{name: "no acceptance of an empty action", firstAction: "no-op", response: Response{Action: "approve", Accept: "test-1"}, wantErr: true},
+		{name: "no repair of informational findings", firstAction: "no-op", lastAction: "no-op", response: Response{Action: "fix", Findings: "test-1"}, wantErr: true},
+		{name: "no repeated selection", firstAction: "no-op", lastAction: "auto-fix", response: Response{Action: "fix", Findings: "test-1,test-1"}, wantErr: true},
+		{name: "no missing selection", firstAction: "no-op", lastAction: "auto-fix", response: Response{Action: "fix", Findings: "absent"}, wantErr: true},
+		{name: "two automatic repairs are ambiguous", firstAction: "auto-fix", lastAction: "auto-fix", response: Response{Action: "fix", Findings: "test-1"}, wantErr: true},
+		{name: "two user decisions are ambiguous", firstAction: "ask-user", lastAction: "ask-user", response: Response{Action: "fix", Findings: "test-1"}, wantErr: true},
+		{name: "different actions are ambiguous", firstAction: "auto-fix", lastAction: "ask-user", response: Response{Action: "fix", Findings: "test-1"}, wantErr: true},
+		{name: "empty and explicit actions are ambiguous", lastAction: "auto-fix", response: Response{Action: "fix", Findings: "test-1"}, wantErr: true},
+		{name: "two empty actions are ambiguous", response: Response{Action: "fix", Findings: "test-1"}, wantErr: true},
+		{name: "unknown action after informational is refused", firstAction: "no-op", lastAction: "unknown", response: Response{Action: "fix", Findings: "test-1"}, wantErr: true},
+		{name: "informational after unknown action is refused", firstAction: "unknown", lastAction: "no-op", response: Response{Action: "approve"}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 2, AutoFixLimit: &limit, Findings: `{"findings":[{"id":"test-1","action":"` + test.firstAction + `"},{"id":"test-1","action":"` + test.lastAction + `"}]}`}
+
+			args, err := ResponseArgs(selection, gate, test.response)
+
+			if test.wantErr {
+				if err == nil || len(args) != 0 {
+					t.Fatalf("got %q, %v; want refusal without native arguments", args, err)
+				}
+			} else if err != nil || !slices.Equal(args, test.want) {
+				t.Fatalf("got %q, %v; want %q", args, err, test.want)
+			}
+		})
+	}
+}
+
 func TestResponseRefusesUnsafeAndStaleDecisions(t *testing.T) {
 	selection, err := testPolicy(t).Select("ordinary")
 	if err != nil {
@@ -115,15 +182,30 @@ func TestResponseRefusesUnsafeAndStaleDecisions(t *testing.T) {
 	ten := 10
 	valid := Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"bug","action":"auto-fix"}]}`}
 	for _, mutate := range []func(*Gate){
+		func(g *Gate) { g.RunID = "" }, func(g *Gate) { g.StepID = "" },
+		func(g *Gate) { g.Step = "" },
 		func(g *Gate) { g.AutoFixLimit = &ten },
 		func(g *Gate) { g.Status = "fixing" }, func(g *Gate) { g.Selected = "user" },
 		func(g *Gate) { g.Round = 0 }, func(g *Gate) { g.Findings = `{}` },
+		func(g *Gate) { g.Findings = `{"findings":[{"id":"","action":"no-op"}]}` },
+		func(g *Gate) { g.Findings = `{"findings":[{"id":"","action":"auto-fix"}]}` },
 		func(g *Gate) { g.Findings = `{"findings":[{"id":"bug","action":"new-unknown-action"}]}` },
 	} {
 		gate := valid
 		mutate(&gate)
 		if _, err := ResponseArgs(selection, gate, Response{Action: "fix", Findings: "bug"}); err == nil {
 			t.Fatalf("unsafe gate accepted: %+v", gate)
+		}
+	}
+	for _, mutate := range []func(*Selection){
+		func(s *Selection) { s.Class = "unknown" },
+		func(s *Selection) { s.Hash = "invalid" },
+		func(s *Selection) { s.ReviewCycles++ },
+	} {
+		invalid := selection
+		mutate(&invalid)
+		if args, err := ResponseArgs(invalid, valid, Response{Action: "fix", Findings: "bug"}); err == nil || len(args) != 0 {
+			t.Fatalf("unsafe selection accepted: %q, %v", args, err)
 		}
 	}
 	for _, response := range []Response{{Action: "skip"}, {Action: "approve"}, {Action: "fix"}, {Action: "fix", Findings: "absent"}} {

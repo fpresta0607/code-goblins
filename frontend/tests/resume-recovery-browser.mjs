@@ -27,13 +27,13 @@ try {
     const response = await page.request.get(origin + "/api/snapshot");
     const snapshot = await response.json();
     return snapshot.tasks.find((task) => task.id === "managed-task")?.action_error;
-  }).toContain("cfo pipeline migrate managed-task");
+  }).toContain("another validation run owns the branch");
   await expect(card("managed-task").locator(".card-status-text")).toHaveText("Paused by you");
   await expect(page.getByRole("button", { name: "Resume managed-task", exact: true })).toBeEnabled();
   if (env.CFO_RESUME_SCREENSHOT) await page.screenshot({ path: env.CFO_RESUME_SCREENSHOT, fullPage: true });
   await context.close();
   await browser.close();
-  stdout.write("Real board clicks: direct PR resumed; managed policy refusal remained paused with actionable CFO evidence.\n");
+  stdout.write("Real board clicks: direct PR resumed; foreign validation refusal remained paused with actionable CFO evidence.\n");
 } finally {
   await server.close();
 }

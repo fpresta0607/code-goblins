@@ -199,7 +199,7 @@ test("a goblin at work, blocked or asking after its pull request rode says so, a
   const riding = train("testing", "riding");
   for (const [name, goblin, status] of [
     ["working on its next change", sid({ phase: "working", report: "working" }), "Working"],
-    ["blocked", sid({ phase: "blocked", report: "blocked", reason: "Needs a key" }), "Blocked"],
+    ["blocked", sid({ phase: "blocked", report: "blocked", reason: "Needs a key" }), "Waiting"],
     ["asking the CFO", sid({ phase: "blocked", reason: "Waiting on the CFO: which key?" }), "Waiting on the CFO"],
     ["waiting on another goblin", sid({ phase: "waiting", report: "waiting", waiting_on: "cg-other" }), "Waiting on cg-other"],
   ] as const) {

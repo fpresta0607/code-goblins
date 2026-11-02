@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	codegoblins "github.com/fpresta0607/code-goblins"
 	"github.com/fpresta0607/code-goblins/internal/actionsbilling"
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/auth"
@@ -60,6 +61,7 @@ const usage = `usage: cfo <command> [args]
 Run as goblins with no command, from any folder, it is the quick start: one Enter at a time it checks which of Claude Code, Codex and pi this machine has and is signed in to, offers to install or sign in to the one you choose, finds the supervisor or starts one in the background, and starts the CFO in the Code Goblins home when none runs, in a native terminal of its own that outlives every window. It ends on one screen with the board's link: Enter shows the CFO's terminal here, and B or Ctrl+click on the link opens the board. Later runs skip what is already set up, and a running CFO keeps its terminal and its harness. goblins setup shows the choice of agent again. goblins --harness claude|codex|pi names the agent instead of asking, remembered for later starts. goblins --board finds or starts the supervisor the same way and opens the board in the browser every time, without starting or showing a CFO in this terminal. Where the desktop window, goblins-window.exe, sits beside goblins, B opens the board in it instead of the browser; goblins --window shows the window without starting or showing a CFO here, and goblins --window --background keeps it in the tray. goblins --window --locate, which the window runs when it is started alone, from the Start menu or at login, finds or starts the supervisor and prints the board's address and the state folder for the window to show.
 
 commands:
+  help      [<command> [<subcommand>] | contract <topic>]: read only the requested embedded command or procedure contract; with no topic, list available references
   version   print the cfo version
   serve     run the persistent native supervisor and embedded browser board on loopback
   remote    on|status|off: private phone access to the board and CFO terminal over your Tailscale account
@@ -542,6 +544,9 @@ func invokedAsGoblins() bool {
 }
 
 func runWithRuntime(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+	if len(args) > 0 && args[0] == "help" {
+		return runHelp(args[1:], stdout, stderr, codegoblins.Contract)
+	}
 	defer aboveTheWork(args)()
 	if runtime.goblins && len(args) == 1 && args[0] == "--board" {
 		return runBoardLauncher(stdout, stderr, runtime)

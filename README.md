@@ -145,7 +145,7 @@ Stopped or failed trains that landed nothing stay accessible under Train history
 A click on that card opens the train's panel: one row per pull request with its goblin and current run state, with attempt history folded below for retries, failures and shared runs.
 `cfo pr train <project>` starts one by hand, or joins the one running, and waits until it is over.
 A project's manifest can let a train of one pull request land on that pull request's own green CI run instead of testing the same tree again, and can make one alone wait longer for a second to share a run with.
-See [Merge trains](AGENTS.md#merge-trains).
+See [Merge trains](docs/contract/delivery.md#merge-trains).
 
 ### Project-scoped credentials
 
@@ -176,7 +176,7 @@ irm https://github.com/fpresta0607/code-goblins/releases/latest/download/install
 Both are the same install, so use whichever you like: the setup if you want a window, the one line if you live in a terminal.
 Each puts the Code Goblins app and the `cfo` command line (also called `goblins`) together in one folder, `%LOCALAPPDATA%\CodeGoblins`, adds its `bin` folder to your PATH and Code Goblins to the Start menu and the desktop, installs the tools the goblins use where they are missing, and opens [the desktop app](#the-desktop-app).
 Each also merges a few permission rules into your Claude Code settings, `~/.claude/settings.json`, keeping your own and backing the file up first, and takes out the CFO's hooks an older build wrote there, since the CFO's terminal starts with its own: the rules let a Claude Code CFO in auto mode put questions, run items, reviews and documents in front of you in the Command Center, which [Safety model](#safety-model) explains.
-The hooks act only in the CFO's own session, the agent native terminal `cfo` runs, so a Claude Code session you open yourself, in the desktop app or a terminal, is never given the fleet's digest, lock or wakes ([The CFO's own session](AGENTS.md#the-cfos-own-session)).
+The hooks act only in the CFO's own session, the agent native terminal `cfo` runs, so a Claude Code session you open yourself, in the desktop app or a terminal, is never given the fleet's digest, lock or wakes ([The CFO's own session](docs/contract/supervision.md#the-cfos-own-session)).
 Each also turns on **Start at login**, so Code Goblins starts in the tray when you sign in and brings back what a restart ended; untick it in the setup to keep it off, and [Opening, closing and restarting](#opening-closing-and-restarting) says how to change it later.
 Where this machine can have a Dev Drive, the setup and the board's first page each offer once, unticked, to put the goblins' worktrees and caches on one, with a sentence saying what it is and that it is not a Defender exclusion; a machine that cannot have one is told why in one line and works as before ([A Dev Drive for the busiest folders](#a-dev-drive-for-the-busiest-folders-optional)).
 Each also sets up [dictation](#dictating-in-the-app), under "Setting up dictation": it downloads the speech model and the engine that runs it, 483 MB, keeps each only when it matches the SHA-256 the build pins, and puts them in the home, so the first time you dictate it simply works.
@@ -212,7 +212,7 @@ The one-line install runs it only when it matches the release's `SHA256SUMS`, an
 A signed `cfo.exe` saved from a browser names SIQstack LLC as its publisher, and SmartScreen can still stop it with "Windows protected your PC" until enough people have run it; Smart App Control, where it is on, blocks only the unsigned ones of v0.4.0 to v0.5.1.
 [On a fresh PC](docs/install.md#on-a-fresh-pc) shows how to check the checksum yourself and what to do if Microsoft Defender flags a build.
 
-Your data lives in the CFO home on your machine, `%LOCALAPPDATA%\CodeGoblins` for every install, `-Dev` included, outside every project repository, and [Uninstall](#uninstall) keeps it unless you choose otherwise.
+Your data lives in the [CFO home](#your-data) on your machine, and [Uninstall](#uninstall) keeps it unless you choose otherwise.
 It needs no backup repository: backing it up is only your own choice, and [Your data](#your-data) shows what is in it.
 [docs/install.md](docs/install.md) has the details: what each step does, what it needs, and the projects folder.
 
@@ -608,11 +608,7 @@ Progress probes run together under one 10-second deadline, so stalled probes do 
 A goblin whose latest report is a wait on its own helper takes the helper's progress as its own, on its card and in this check, and draws no wake while the helper is watched, since the helper's own check reports its stall.
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
-If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
-Under pipeline policy v6 the restarted run carries the task's launch selection, so it runs on the harness the goblin comes back on.
-Only a run holding gate commits it never pushed has its custody recovered before the restart; a run that had pushed its head, such as one paused on its pull request's CI, is restarted from the branch as the goblin left it, follow-up commits the goblin pushed since included.
-A memory pause interrupts no validation: the goblin's gate run keeps running, and Resume tells the goblin which run is still running, so it picks that run back up and starts no other.
-A run a pause could not abort is left to its goblin the same way, and never fails the Resume.
+For paused validation, follow the [pipeline resume contract](docs/pipeline.md#resuming-a-paused-task).
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
 
 Stop opens a confirmation offering **Pause instead (Recommended)**, **Stop and delete** and **Cancel**, without typing.
@@ -813,7 +809,7 @@ New items also stay under the badge, and the browser tab's title counts what is 
 A goblin's item stays until you answer or clear it, the goblin withdraws it, or the goblin is cleaned up, since you may not have seen it yet.
 Nothing the goblin reports closes it, done included.
 A wait also closes when the CFO answers it, a delivered document stays even after its goblin is cleaned up, and the CFO can clear a stale item with a reason.
-Several items stack up one card at a time, the CFO's first and then goblins in the In progress order, each goblin's by longest wait, then goblins you have not placed, by longest wait: each card's action row has **Back**, its place such as 2 of 4, and **Skip**, which leaves the card as it is and shows the next, on the left and its answer on the right, and you can swipe.
+Several items stack up one card at a time; [the board reference](docs/native-board.md#deliberate-cfo-questions) describes their order and navigation.
 Closing keeps every item for later.
 The moment you send, a check draws with **Sent** and the next open item follows by itself while the answer is delivered in the background; the last one ends on **You're all done** and the Command Center closes.
 **Back** to a question you answered shows it with your answer checked and its other choices open: pick another and **Change answer** sends the change once.
@@ -989,6 +985,9 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 ```
 
 ## Core commands
+
+Run `cfo help` to list available topics, then request one command or procedure, such as `cfo help auth request` or `cfo help contract dispatch`.
+See the [help reference](docs/commands/help.md) for lookup and failure behavior.
 
 ```text
 cfo doctor
@@ -1195,8 +1194,9 @@ $env:CFO_HOME = 'C:\Users\you\AppData\Local\CodeGoblins'; $env:CFO_STATE_OVERRID
 
 ## Your data
 
-Everything the fleet writes lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins`, for every install.
-It stays local and private: nothing in it is pushed anywhere, and no repository ever holds it, the code-goblins clone included, which holds source only.
+Everything the fleet writes lives in one folder on your machine, the CFO home: `%LOCALAPPDATA%\CodeGoblins` by default for release and source builds.
+It stays local and private: nothing in it is pushed anywhere.
+Existing checkout homes follow the [legacy checkout activation boundary](docs/contract/ownership.md#legacy-checkout-activation).
 
 ```text
 <CFO home>\
@@ -1253,10 +1253,11 @@ With one, the home's three busiest folders, `worktrees\`, `scratch\` and `caches
 Everything else stays where it is: the home's `state\`, `data\`, `config\` and `bin\`, and your own checkouts.
 `cfo dev-drive` says whether this machine has or can have one and where the folders are, and `cfo doctor` says it in one line, with the fix.
 The Dev Drive Code Goblins makes is a file on the system drive, `C:\DevDrives\CodeGoblins.vhdx`, that grows as the drive fills and never shrinks by itself, so space goblins free on the Dev Drive stays taken on C:.
-`cfo dev-drive`, `cfo doctor` and the note under the board's Dev Drive row say how much of C: the file holds.
+`cfo dev-drive` and `cfo doctor` say how much of C: the file holds.
 Windows tells that size only to a process that may open the file, and the file's folder is open to administrators and Windows alone, so without administrator rights they say so instead of guessing.
 
-Setting one up is a button: **Set up** beside **Dev Drive** in the CFO's Workspace panel on the board, with one short note under it.
+Setting one up is a button: **Set up** beside **Dev Drive** in the CFO's Workspace panel on the board.
+The row appears only for an available action, a step waiting in the Command Center or request feedback; otherwise it takes no space.
 Each step that needs you then arrives as its own Command Center item, one at a time, each saying in one line what it does and what it changes, each safe to run twice:
 
 1. **Create the Code Goblins Dev Drive** (administrator, so Windows asks you to confirm): a dynamically expanding VHDX, 200 GB at most and less on a smaller disk, at `C:\DevDrives\CodeGoblins.vhdx`, formatted as a Dev Drive on the first free letter from D:, and a startup task that attaches it at every boot, since Windows does not attach a VHD again after a restart. A machine that already has a Dev Drive skips this and uses it.
@@ -1269,7 +1270,7 @@ A step that failed shows its output on its item, and **Try again** on the panel 
 
 A home that an older build set up in a code-goblins checkout moves with `cfo home move`: its dry run lists every file it would move with its SHA-256, the counts before and after and a digest proving nothing is dropped, and `cfo home move --apply --plan <digest>`, at a quiet point with the supervisor stopped, moves it by rename, so it needs no room for a second copy, reads it all back, and installs the build into the new home.
 The build applying the move must meet the [source-build requirements](#development).
-[AGENTS.md](AGENTS.md#the-cfo-home) describes each file in full.
+[The CFO home](docs/contract/home.md#the-cfo-home) describes each file in full.
 
 ## Safety model
 

@@ -28,6 +28,38 @@ async function open(page: Page, tasks: Record<string, unknown>[] = BOARD) {
 const columns = (page: Page) => page.locator(".task-board").evaluate((board) => getComputedStyle(board).gridTemplateColumns.split(" ").length);
 const inProgress = (page: Page) => page.getByRole("region", { name: "In progress", exact: true });
 
+for (const width of [390, 1707]) {
+  test(`blocked goblins read Waiting across board views at ${width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize({ width, height: 1000 });
+    const waits = [
+      { id: "gate-wait", reason: "Review gate needs approval before continuing", status: "Waiting" },
+      { id: "dependency-wait", reason: "Wait for the dependency task to land before continuing", status: "Waiting" },
+      { id: "cfo-wait", reason: "Waiting on the CFO: Which dependency should land first?", status: "Waiting on the CFO" },
+    ];
+    await open(page, waits.map(({ id, reason }) => task(id, "blocked", { report: "blocked", reason })));
+    if (width === 1707) await page.getByRole("button", { name: "Close panel" }).click();
+
+    // Act and assert
+    for (const { id, reason, status } of waits) {
+      const card = inProgress(page).locator(`[data-sort-id='${id}']`);
+      await expect(card.locator(".card-status-text")).toHaveText(status);
+      await expect(card.locator(".plain-status")).toHaveClass(/phase-blocked/);
+      await card.screenshot({ path: testInfo.outputPath(`${id}-${width}.png`) });
+      await card.locator(".task-card").click();
+      const header = await openTaskList(page);
+      await expect(header.locator(".panel-status")).toHaveText(status);
+      await expect(header).toContainText(reason.replace("Waiting on the CFO: ", ""));
+      if (width === 390) await page.getByRole("button", { name: "Back to Board" }).click();
+    }
+    await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+    for (const { id, status } of waits) {
+      const node = page.locator(width === 390 ? ".workflow-node" : ".flow-node").filter({ has: page.locator("strong").getByText(id, { exact: true }) });
+      await expect(node.locator(width === 390 ? ".node-status" : ".card-status-text")).toHaveText(status);
+    }
+  });
+}
+
 test.describe("on a wide screen", () => {
   test.use({ viewport: { width: 2400, height: 1300 } });
 
