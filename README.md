@@ -221,7 +221,8 @@ See [updating and what it preserves](docs/install.md#updating).
 ### Uninstall
 
 Use **Settings → Apps → Installed apps → Code Goblins → Uninstall**, or run `goblins uninstall`.
-Your home and work are kept; see [installation and removal details](docs/install.md).
+By default, uninstall saves the home's `data` and `config` folders and unlanded goblin work in `Code Goblins kept` in your user folder, then removes the home and stored credentials.
+See [uninstall options and retention details](docs/commands/uninstall.md).
 
 ## Your data
 
