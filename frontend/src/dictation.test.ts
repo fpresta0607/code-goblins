@@ -442,6 +442,29 @@ test("closing the terminal drops queued words and cancels recognition", () => {
   assert.equal(current.abortCount, 1);
 });
 
+test("pending dictation stays clearable after recording stops and ends on completion or disposal", (context) => {
+  // Arrange
+  const pending: boolean[] = [];
+  const subject = new Dictation({ heard: () => {}, listening: () => {}, problem: () => {}, failed: () => {}, pending: (value: boolean) => pending.push(value) }, () => SlowRecognizer, "en-GB");
+  context.after(() => subject.dispose());
+
+  // Act
+  subject.start();
+  subject.stop();
+
+  // Assert
+  assert.equal(pending.at(-1), true);
+  const first = FakeRecognizer.made.at(-1);
+  assert.ok(first instanceof SlowRecognizer);
+  first.answer("finished words");
+  assert.equal(pending.at(-1), false);
+  subject.start();
+  subject.stop();
+  assert.equal(pending.at(-1), true);
+  subject.dispose();
+  assert.equal(pending.at(-1), false);
+});
+
 test("dictation queues belong to separate terminals", () => {
   const firstPane = dictation(SlowRecognizer);
   const secondPane = dictation(SlowRecognizer);

@@ -39,6 +39,7 @@ export function appendDictation(prior: string, heard: string): string {
 // with, and model is that model's name once the supervisor has said it.
 export function useDictation(type: (text: string, isSent: boolean) => void, instance: string) {
   const [listening, setListening] = useState(false);
+  const [hasPending, setPending] = useState(false);
   const [note, setNote] = useState<Note>(NO_NOTE);
   const [model, setModel] = useState("");
   const typeText = useRef(type);
@@ -132,11 +133,17 @@ export function useDictation(type: (text: string, isSent: boolean) => void, inst
     const failed = (reason: string) => reportToCfo("dictation", reason);
     // A set-up that failed was shown until now.
     setNote((prior) => prior.lasting && !following.current ? NO_NOTE : prior);
-    dictation.current ??= new Dictation({ heard, listening: setListening, problem, failed }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
+    dictation.current ??= new Dictation({ heard, listening: setListening, pending: setPending, problem, failed }, () => recognizerFor(() => token.current), navigator.language || "en-US", openMicrophone);
     dictation.current.start(at);
   }, [follow]);
   const stop = useCallback(() => dictation.current?.stop(), []);
   const cancel = useCallback(() => dictation.current?.cancel(), []);
+  const discard = useCallback(() => {
+    dictation.current?.dispose();
+    dictation.current = null;
+    followsDictation.current = false;
+    setListening(false);
+  }, []);
   const toggle = useCallback((at: number) => {
     if (dictation.current?.isListening) dictation.current.stop(true);
     else start(at);
@@ -153,5 +160,5 @@ export function useDictation(type: (text: string, isSent: boolean) => void, inst
     return !meaning.swallow;
   }, [start, stop]);
   const level = useCallback(() => dictation.current?.level() ?? 0, []);
-  return { listening, note: note.text, key, start, stop, cancel, toggle, level, model };
+  return { listening, hasPending, note: note.text, key, start, stop, cancel, discard, toggle, level, model };
 }

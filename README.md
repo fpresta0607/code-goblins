@@ -656,6 +656,12 @@ A goblin's panel, and the CFO's, shows its conversation or its task list, chosen
 Modern Chat shows a Claude Code, Codex or pi session's conversation as messages while its harness runs in a native terminal: your prompts on the right, its replies as plain prose on the left with their code blocks and **Copy**, its thinking folded to one line, and each run of tool calls as a quiet stack of rows that unfold to what came back and an edit's diff.
 **Jump to latest** returns to the end, and **Ctrl+Plus**, **Ctrl+Minus** and **Ctrl+0**, or the wheel turned with **Ctrl+Shift** or the right button held, size its text.
 Under it is the message box: **Send** or **Enter** types what you wrote into the session's terminal, **Shift+Enter** starts a new line, your draft is kept, and Send becomes **Stop** while the session works.
+**Clear message**, the trash button beside the input, clears all unsent typed or dictated text, including every line and the saved draft, in the CFO's and goblins' Modern Chat boxes and any local message box shown in Classic.
+It cancels that box's active or pending app dictation so late words cannot restore the cleared text, and returns focus to the empty field for replacement typing.
+In Classic, the replacement field stays visible until a successful Send or you move focus outside the box.
+Attachments, Speech history and already sent or queued messages are preserved; clearing sends no message or terminal keys, interrupts no turn and leaves terminal history intact.
+It clears only this message field; text already in the native terminal's input must be edited there.
+The button is disabled while sending or when the field is empty with no app dictation pending.
 While the session works, or its harness shows a screen with nothing to choose, such as a usage limit, what you send waits at the bottom of the conversation as a queued message with **Edit**, **Send now** and **Cancel**, and reaches the harness alone, in the order sent, once the harness can take it; **Send now** types it into the turn and has the harness take it at once, as its own send-now key does: **Ctrl+X Ctrl+S** in Claude Code.
 A harness with no such key takes it at its next tool call.
 Along the box's bottom edge are Add files, the style menu (Modern or Classic, Speech history and Open in Windows Terminal), the permission mode, the model and the effort, each of which lists what the session's harness offers, the microphone and Send; `/` lists the session's commands and `@` its files.
