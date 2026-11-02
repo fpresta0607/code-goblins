@@ -167,11 +167,18 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
 		return failure.IsRefused && failure.Operation == paused.Operation && failure.Updated.Equal(paused.Updated)
 	})
-	// What memory would start or bring back, a reported production defect, a
-	// goblin paused for memory or the next queued task, waits while runs wait
-	// in the machine's heavy line for memory, so the goblins closer to done get
-	// it first. A goblin whose pause cleared for anything else still resumes.
-	isHeldByLine := hold != "" && (defect != "" || len(ready) > 0 && ready[0].Pause.Reason == "memory" || len(ready) == 0 && (len(queued) > 0 || memoryPending != ""))
+	// What memory would start or bring back, the queue with a reported
+	// production defect in it and every goblin paused for memory, waits while
+	// runs wait in the machine's heavy line for memory, so the goblins closer
+	// to done get it first. A goblin whose pause cleared for anything else
+	// still resumes.
+	isHeldByLine := false
+	if hold != "" {
+		isMemoryPause := func(paused state.Lifecycle) bool { return paused.Pause.Reason == "memory" }
+		isHeldByLine = len(queued) > 0 || memoryPending != "" || slices.ContainsFunc(ready, isMemoryPause)
+		defect, queued, memoryPending = "", nil, ""
+		ready = slices.DeleteFunc(ready, isMemoryPause)
+	}
 	// What would start by itself waits while the performance cores are busy.
 	// A reported production defect does not, nor what the Overlord started.
 	waitsOnProcessors, busy := "", ""
@@ -197,8 +204,6 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Text = "resuming " + asked[0].task + ", which the Overlord resumed"
 		}
 		s.runAsked()
-	case isHeldByLine:
-		record.Text = "nothing starts: " + hold
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		startErr = s.startQueued(defect, false)
@@ -208,6 +213,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 	case len(ready) > 0:
 		record.Text = "resuming " + ready[0].ID
 		problems = errors.Join(problems, s.resumeAutomatically(ready[0]))
+	case isHeldByLine:
+		record.Text = "nothing starts: " + hold
 	case len(queued) > 0 && memoryPending == "":
 		record.Text = "starting " + queued[0]
 		startErr = s.startQueued(queued[0], false)

@@ -99,21 +99,25 @@ func heavyLineWithAWaiter(t *testing.T, isHeld bool) {
 // six heavy steps of live goblins waiting in the heavy line for memory, and
 // the memory floor paused it at 19:47Z (#1926). At a reading over the
 // next-start mark, what memory would start or bring back waits while a run
-// waits in the line for memory, and the scheduler's line says why; a goblin
-// whose pause cleared for anything else still resumes, and with the line
-// clear everything starts as before.
+// waits in the line for memory, a reported production defect included, and
+// the scheduler's line says why; a goblin whose pause cleared for anything
+// else still resumes, and with the line clear everything starts as before.
 func TestTheSchedulerWaitsWhileARunWaitsInTheHeavyLineForMemory(t *testing.T) {
+	const task, defect = "- **next-task** - Ship it", "- **next-task** - Repair production (priority: production-defect)"
 	for _, test := range []struct {
 		name     string
+		row      string
 		pause    string
 		isHeld   bool
 		dispatch []string
 	}{
-		{name: "a queued task behind a run held for memory", isHeld: true},
-		{name: "a queued task beside an empty line", dispatch: []string{"spawn", "next-task"}},
-		{name: "a goblin paused for memory behind a run held for memory", pause: "memory", isHeld: true},
-		{name: "a goblin paused for memory beside an empty line", pause: "memory", dispatch: []string{"resume", "paused-task"}},
-		{name: "a goblin whose date passed behind a run held for memory", pause: "dependency", isHeld: true, dispatch: []string{"resume", "paused-task"}},
+		{name: "a queued task behind a run held for memory", row: task, isHeld: true},
+		{name: "a queued task beside an empty line", row: task, dispatch: []string{"spawn", "next-task"}},
+		{name: "a production defect behind a run held for memory", row: defect, isHeld: true},
+		{name: "a goblin paused for memory behind a run held for memory", row: task, pause: "memory", isHeld: true},
+		{name: "a goblin paused for memory beside an empty line", row: task, pause: "memory", dispatch: []string{"resume", "paused-task"}},
+		{name: "a goblin whose date passed behind a run held for memory", row: task, pause: "dependency", isHeld: true, dispatch: []string{"resume", "paused-task"}},
+		{name: "a goblin whose date passed beside a production defect held for memory", row: defect, pause: "dependency", isHeld: true, dispatch: []string{"resume", "paused-task"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -123,7 +127,7 @@ func TestTheSchedulerWaitsWhileARunWaitsInTheHeavyLineForMemory(t *testing.T) {
 			service.Options.Dispatch.HeavyLine = MachineHeavyLine
 			heavyLineWithAWaiter(t, test.isHeld)
 			now := time.Now().UTC()
-			queueBriefedTask(t, h, "- **next-task** - Ship it", plainBrief)
+			queueBriefedTask(t, h, test.row, plainBrief)
 			switch test.pause {
 			case "memory":
 				pausedGoblin(t, h, "paused-task", "memory", "", now.Add(-time.Hour))
