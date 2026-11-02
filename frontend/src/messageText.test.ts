@@ -21,7 +21,7 @@ test("local PDF examples inside inline code remain literal with the document ren
   assert.equal(html(link), `<p>${link}</p>`, "other shared message renderers keep their existing text contract");
 });
 
-for (const label of ["Retail **candidate** PDF", "Retail *candidate* PDF", "**Retail *candidate* PDF**"]) {
+for (const label of ["Retail **candidate** PDF", "Retail *candidate* PDF", "**Retail *candidate* PDF**", "`Retail candidate PDF`", "`Retail candidate` PDF", "Retail `candidate` PDF"]) {
   for (const target of ["D:/task/report.pdf", String.raw`D:\task\report.pdf`, "/task/report%20(approved).pdf"]) {
     const link = `[${label}](${target})`;
     const card = `<span data-document="${target}">Retail candidate PDF</span>`;
@@ -55,6 +55,18 @@ test("document rendering preserves enclosing emphasis, web links and emphasized 
 
   assert.equal(shown, `<p><strong>Before ${card}: after.</strong></p><p><em>Read ${card} now.</em></p><p>Example: <code>${link}</code>.</p><p><a class="message-link" href="https://example.com/report" target="_blank" rel="noreferrer">https://example.com/report</a></p>`);
   assert.equal(html(link), "<p>[Retail <strong>candidate</strong> PDF](D:/task/report.pdf)</p>");
+});
+
+test("a code-styled document label keeps its card while code holding or crossing a link stays literal", () => {
+  const card = (label: string, path: string, key: number) => createElement("span", { key, "data-document": path }, label);
+  const text = "Example: `[Retail PDF](D:/task/report.pdf)` beside [`Retail` PDF](D:/task/report.pdf) and [Retail `PDF](D:/task/report.pdf) now`.";
+
+  const shown = renderToStaticMarkup(messageElements(text, undefined, undefined, card));
+  const inWebAddress = renderToStaticMarkup(messageElements("https://example.com/[`Retail` PDF](D:/task/report.pdf)", undefined, undefined, card));
+
+  assert.equal(shown, '<p>Example: <code>[Retail PDF](D:/task/report.pdf)</code> beside <span data-document="D:/task/report.pdf">Retail PDF</span> and [Retail <code>PDF](D:/task/report.pdf) now</code>.</p>');
+  assert.equal(inWebAddress, '<p><a class="message-link" href="https://example.com/[" target="_blank" rel="noreferrer">https://example.com/[</a><code>Retail</code> PDF](D:/task/report.pdf)</p>');
+  assert.equal(html("[`Retail` PDF](D:/task/report.pdf)"), "<p>[<code>Retail</code> PDF](D:/task/report.pdf)</p>", "other shared message renderers keep their existing text contract");
 });
 
 test("document labels and adjacent web addresses keep their separate actions", () => {

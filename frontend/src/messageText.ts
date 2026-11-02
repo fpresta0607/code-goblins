@@ -1,5 +1,5 @@
 import { createElement, Fragment, type ReactNode } from "react";
-import { documentLinks } from "./document-links.ts";
+import { documentLinks, type DocumentLink } from "./document-links.ts";
 import { scrawlLink } from "./scrawl-link.ts";
 
 // A question or message as its asker wrote it, with the little structure the
@@ -34,14 +34,16 @@ export const isWebLink = (value: string) => /^https?:\/\/[^\s<>"'`]+$/.test(valu
 // the displayed and copied address stays as the asker wrote it.
 export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer" }, address);
 
+// A document link that starts inside a web address is part of the address.
+function documentsOutsideWebLinks(text: string): DocumentLink[] {
+  const webLinks = [...text.matchAll(WEB_LINK)];
+  return documentLinks(text).filter((link) => !webLinks.some((web) => web.index < link.start && web.index + web[0].length > link.start));
+}
+
 function coverDocuments(text: string, hasDocuments: boolean): string {
   if (!hasDocuments) return text;
   let covered = text;
-  const webLinks = [...text.matchAll(WEB_LINK)];
-  for (const link of documentLinks(text)) {
-    if (webLinks.some((web) => web.index < link.start && web.index + web[0].length > link.start)) continue;
-    covered = covered.slice(0, link.start) + "~".repeat(link.end - link.start) + covered.slice(link.end);
-  }
+  for (const link of documentsOutsideWebLinks(text)) covered = covered.slice(0, link.start) + "~".repeat(link.end - link.start) + covered.slice(link.end);
   return covered;
 }
 
@@ -59,7 +61,10 @@ function linkSpans(text: string, bold: boolean, hasDocuments = false): Span[] {
 }
 
 function spans(text: string, hasDocuments = false): Span[] {
-  const codes = [...text.matchAll(CODE)];
+  // A code value inside a document link belongs to its label, so the link
+  // stays whole for its card, while a link inside a code value stays code.
+  const documents = hasDocuments ? documentsOutsideWebLinks(text) : [];
+  const codes = [...text.matchAll(CODE)].filter((code) => !documents.some((link) => link.start < code.index && code.index + code[0].length <= link.end));
   const out: Span[] = [];
   const add = (from: number, to: number, bold: boolean) => {
     for (const code of codes) {
