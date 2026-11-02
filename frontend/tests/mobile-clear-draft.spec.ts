@@ -162,36 +162,46 @@ for (const who of ["CFO", "goblin"] as const) {
     });
   }
 
-  test(`phone Classic Clear message keeps the ${who} box after a queued message Cancel removes itself`, async ({ page }) => {
-    // Arrange
-    const name = who === "CFO" ? "CFO" : NAME;
-    const task = who === "CFO" ? "" : GOBLIN.id;
-    const actions: object[] = [];
-    const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued" }] }));
-    await page.route("**/api/actions", async (route) => { actions.push(route.request().postDataJSON()); await route.fulfill({ json: {} }); });
-    if (who === "goblin") await openGoblin(page);
-    else await page.keyboard.press("Control+Alt+1");
-    const composer = box(page, name);
-    const input = field(page, name);
-    await input.fill("Unsent words");
-    await composer.getByRole("button", { name: "Clear message", exact: true }).tap();
-    await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
-    await expect(input).toBeFocused();
-    const cancel = composer.locator('.queued-message[data-queued="q1"]').getByRole("button", { name: "Cancel", exact: true });
+  // Cancel removes itself once the board answers; Send now stays disabled
+  // while the board has not answered.
+  for (const control of ["Cancel", "Send now"] as const) {
+    const outcome = control === "Cancel" ? "Cancel removes itself" : "Send now waits unanswered";
+    test(`phone Classic Clear message keeps the ${who} box after a queued message ${outcome}`, async ({ page }) => {
+      // Arrange
+      const name = who === "CFO" ? "CFO" : NAME;
+      const task = who === "CFO" ? "" : GOBLIN.id;
+      const actions: object[] = [];
+      const relay = await open(page, snapshot({ actions: [{ id: "q1", kind: "message", task_id: task, text: "Already queued", status: "queued", can_send_now: true }] }));
+      await page.route("**/api/actions", async (route) => {
+        actions.push(route.request().postDataJSON());
+        if (control === "Cancel") await route.fulfill({ json: {} });
+      });
+      if (who === "goblin") await openGoblin(page);
+      else await page.keyboard.press("Control+Alt+1");
+      const composer = box(page, name);
+      const input = field(page, name);
+      await input.fill("Unsent words");
+      await composer.getByRole("button", { name: "Clear message", exact: true }).tap();
+      await (await boxMenu(page, name)).getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+      await expect(input).toBeFocused();
+      const button = composer.locator('.queued-message[data-queued="q1"]').getByRole("button", { name: control, exact: true });
 
-    // Act
-    await cancel.tap();
+      // Act
+      await button.tap();
 
-    // Assert
-    await expect(cancel).toHaveCount(0);
-    expect(actions).toEqual([expect.objectContaining({ kind: "message_withdraw", target: "q1" })]);
-    await expect(input).toBeFocused();
-    await expect(composer).toBeVisible();
-    await page.keyboard.insertText("Replacement text");
-    await expect(input).toHaveValue("Replacement text");
-    expect(typed(relay)).toBe("");
-    expect(relay.submissions).toEqual([]);
-  });
+      // Assert
+      if (control === "Cancel") await expect(button).toHaveCount(0);
+      else await expect(button).toBeDisabled();
+      await expect.poll(() => actions).toEqual([expect.objectContaining({ kind: control === "Cancel" ? "message_withdraw" : "message_now", target: "q1" })]);
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+      await expect(composer).toBeVisible();
+      await input.tap();
+      await page.keyboard.insertText("Replacement text");
+      await expect(input).toHaveValue("Replacement text");
+      expect(typed(relay)).toBe("");
+      expect(relay.submissions).toEqual([]);
+    });
+  }
 }
 
 for (const state of ["recording", "awaiting transcription"] as const) {

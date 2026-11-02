@@ -1490,7 +1490,7 @@ The session's terminal lies laid out unseen behind the messages, in the same box
 Send, or Enter, types what he wrote as one paste, bracketed as the harness asked, then presses Enter, and Shift+Enter starts a new line.
 Clear message, the trash button beside the input, clears all unsent typed or dictated text, every line and the saved draft, in the CFO's and goblins' Modern Chat boxes and any local message box shown in Classic.
 It cancels that box's active or pending app dictation so late words cannot restore the cleared text, and returns the focus to the empty field for replacement typing.
-In Classic the replacement field stays visible until a Send succeeds or the focus moves outside the box.
+In Classic the replacement field stays visible until a Send succeeds or he presses or moves the focus outside the box.
 Attachments, Speech history and messages already sent or queued are kept; clearing sends no message and no terminal keys, interrupts no turn and leaves terminal history as it is.
 It clears only this box: text already in the native terminal's input is edited there.
 Like every control in the box it shows no tip; its accessible description says it clears only this message field.

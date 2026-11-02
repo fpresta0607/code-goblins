@@ -155,8 +155,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const outgoing = [draft.trim(), ...attached].filter(Boolean).join("\n");
   const [isSending, setSending] = useState(false);
   const [isReplacing, setReplacing] = useState(false);
-  const blurCheck = useRef(0);
-  useEffect(() => () => cancelAnimationFrame(blurCheck.current), []);
+  const composerSection = useRef<HTMLElement>(null);
   // Why the last Send found no terminal to type into, or why a paste could
   // not be kept, until the draft changes.
   const [unsent, setUnsentText] = useState("");
@@ -260,6 +259,16 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setCaret(0);
     field.current?.focus();
   };
+  useEffect(() => {
+    if (!isReplacing) return;
+    const leave = (event: Event) => { if (event.target instanceof Node && !composerSection.current?.contains(event.target)) setReplacing(false); };
+    document.addEventListener("pointerdown", leave, true);
+    document.addEventListener("focusin", leave, true);
+    return () => {
+      document.removeEventListener("pointerdown", leave, true);
+      document.removeEventListener("focusin", leave, true);
+    };
+  }, [isReplacing]);
   const isActive = !!(adding || isSending || unsent || dictation.listening || isReplacing);
   useEffect(() => {
     onActive?.(terminal, isActive);
@@ -747,18 +756,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   const isTouch = matchMedia(TOUCH_SCREEN).matches;
   // data-queues says a Send now goes to the board's queue rather than into the
   // terminal, which no note tells him (queueNote).
-  return <section className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}
-    onBlur={(event) => {
-      const section = event.currentTarget, left = event.target;
-      if (!isReplacing) return;
-      if (event.relatedTarget) { if (!section.contains(event.relatedTarget)) setReplacing(false); return; }
-      cancelAnimationFrame(blurCheck.current);
-      blurCheck.current = requestAnimationFrame(() => {
-        if (section.contains(document.activeElement)) return;
-        if (!left.isConnected) field.current?.focus({ preventScroll: true });
-        else if (document.hasFocus()) setReplacing(false);
-      });
-    }}>
+  return <section ref={composerSection} className="composer" aria-label={"Messages to " + name} data-queues={savesThroughBoard || holdsForTurn ? "" : undefined}>
     {/* A screen reader hears the note from this line, which stays as its
         words change, and a refusal from its banner at once. */}
     <p className="sr-only" role="status">{note}</p>
