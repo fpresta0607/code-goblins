@@ -66,13 +66,6 @@ Nothing edits the machine's `config.yaml` for a run, so two tasks on different h
 A no-mistakes build that cannot apply a selection refuses the launch before it takes the branch: a build with no launch assertion rejects the flag, and a build that proves but cannot apply rejects the `apply` field.
 The driver then says which build v6 needs.
 A repository's own `agent` field does not stop a v6 start, because the run's selection replaces it.
-Resume restores the contributor's terminal and retains its original validation run, source, findings and repair history.
-Pause persists that run's identity before process teardown, including terminal runs and live runs left alone by a memory pause.
-It reads the saved run identity without recovering branch custody, starting validation or replacing the run.
-A different current run, unreadable state or a run without a saved pause identity refuses the resume instead of adopting another run.
-A still-live original run is named in the contributor's resume instruction, so it continues that run without starting another beside it.
-Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
-Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
 
 ### A second harness only when named
 
@@ -110,7 +103,7 @@ no-mistakes proves Codex, Claude Code and pi selections only, so a goblin on any
 
 A cycle means one repair followed by another review, after the initial review.
 The driver counts completed rounds from the native database, so the budget is durable within a native run and restarting the CLI mid-run does not reset it.
-A new run started on the same branch after a terminal failed or cancelled run begins a fresh budget, because it is validating new code.
+A new run for independent work begins a fresh budget; a published CI correction uses [handback](#driving-a-task) to retain its original run's spent allowance.
 After two or three repair cycles, actionable review findings remain unresolved.
 A clean last review can still pass.
 The driver never turns budget exhaustion into approval, skips a step, or uses `--yes`.
@@ -164,13 +157,25 @@ It accepts every forward transition, from any of v1 to v5 to any later version, 
 Between two v6 policies, which can differ only in the fallback the operator names, it moves the task to the current one the same way.
 The same frozen policy is a no-op; downgrades and invalid snapshots are refused.
 Before replacing either owned field, it writes a task-local transaction journal containing the validated old and new snapshots and the expected audit event.
-An interrupted command resumes that journal under the same pipeline, cleanup and metadata locks before any pipeline command trusts the snapshot hash.
+An interrupted command resumes that journal under the same pipeline, cleanup and metadata locks before `run`, `respond`, `recover` or `migrate` trusts the snapshot hash.
 The task-scoped metadata lock also serializes `cfo pr check` and `cfo switch`, so neither command can publish a stale whole-record update over the migrated hash.
 Migration removes its journal only after the snapshot replacement, metadata hash update, and audit append have all completed while that lock remains held.
 Recovery finishes the migration once or rolls both owned fields back when audit persistence fails, without overwriting unrelated task metadata.
 An append reported as successful commits the audit without a second read, while an errored append whose persisted state cannot be reread leaves the forward journal intact for retry.
 The task status receives one line containing the class, cap, old hash and new hash.
 Migration never changes a worktree, native run row, gate ref, origin ref, or review result.
+
+## Resuming a paused task
+
+Resume restores the contributor's terminal and retains its original validation run, source, findings and repair history.
+Pause persists that run's identity before process teardown, including terminal runs and live runs left alone by a memory pause.
+Resume reads the saved run identity without recovering branch custody, starting validation or replacing the run.
+A different current run, unreadable state or a run without a saved pause identity refuses the resume instead of adopting another run.
+A direct-PR task whose current branch has no gate can resume even when its saved pause names an earlier branch's run.
+A still-live original run is named in the contributor's resume instruction, so it continues that run without starting another beside it.
+Resume does not select validation agents or migrate the frozen policy; an older policy alone does not block contributor restoration.
+Actual validation requires an explicit supported pipeline command, which still enforces the frozen policy and launch selection.
+Continuing retained terminal work requires its supported source-bound continuation, not a replacement run with fresh repair allowance.
 
 ## Driving a task
 

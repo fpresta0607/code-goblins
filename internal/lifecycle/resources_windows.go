@@ -175,7 +175,8 @@ func ownResources(ctx context.Context, h home.Home, meta state.TaskMeta, command
 	return resources, nil
 }
 
-// withGate adds the task's open gate run, and its worktree, to resources.
+// withGate adds the task's latest gate identity and, for a live run, its
+// worktree to resources.
 func withGate(ctx context.Context, meta state.TaskMeta, gate pipeline.Reader, resources Resources) (Resources, error) {
 	var err error
 	resources.Gate, err = TaskGate(ctx, meta, gate)
@@ -234,9 +235,9 @@ const stopBound = 10 * time.Second
 // in record.
 //
 // A memory pause leaves the task's open gate run alone: the run is no part
-// of what it ends, so nothing sweeps the run's worktree, aborts it or records
-// it for a restart, and its goblin picks it back up when it resumes. A run
-// holds an hour or more of review and tests, the pause is taken for the
+// of what it ends, so nothing sweeps the run's worktree or aborts it. Its
+// identity is still saved for the resume check. A run holds an hour or more
+// of review and tests, the pause is taken for the
 // goblin's own memory, and on a machine short of memory the abort itself
 // fails: on 2026-10-09 Murray's memory pause could not abort his live run,
 // and no resume could bring him back.
