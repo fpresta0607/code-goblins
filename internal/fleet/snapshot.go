@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -145,7 +144,7 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 	if endpoint == nil {
 		return Snapshot{}, errors.New("fleet: endpoint reader is required")
 	}
-	backlog, err := ReadBacklog(h)
+	backlog, err := ReadCurrentBacklog(h)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -177,7 +176,6 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("fleet: read task metadata %q: %w", id, err)
 		}
-		snapshot.Backlog.Queued = slices.DeleteFunc(snapshot.Backlog.Queued, func(row BacklogRow) bool { return row.Structured && row.ID == id })
 		current, err := crewstate.Resolve(ctx, h.State, id, endpoint)
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("fleet: resolve current state for %q: %w", id, err)
@@ -255,9 +253,6 @@ func BuildSnapshot(ctx context.Context, h home.Home, endpoint EndpointReader) (S
 		outcome, err := state.ReadOutcome(h.State, id)
 		if err != nil {
 			return Snapshot{}, err
-		}
-		if outcome.Phase == "done" {
-			snapshot.Backlog.Queued = slices.DeleteFunc(snapshot.Backlog.Queued, func(row BacklogRow) bool { return row.Structured && row.ID == id })
 		}
 		if record, err := state.ReadLifecycle(h.State, id); err == nil && record.Generation == outcome.Generation {
 			if status := record.TeardownStatus(); status != "" {

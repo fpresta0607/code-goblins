@@ -28,7 +28,9 @@ The target for a home is small: the binaries, records under 200 MB, capped cache
 | `data/backlog.md` | Open work in three sections. `## Queued` is work waiting to start, and `tasks-axi` manages its rows; they are in priority order, top first, so dispatch from the top. The Supreme Overlord reorders them by dragging Tasks on the board, which moves each row with its indented detail lines and changes nothing else in the file; the row of a task that already has a live task record is in progress, not queued, and stays where it is. `## Parked` is work set aside on purpose: nothing lists it as work to start, and moving a row back under Queued revives it. A row parked in place with `(hold-kind: parked)` counts as parked too. `## Done` is finished work: when cleanup retires a delivered task, its row moves there by itself with its detail lines. |
 | `data/overlord.md` | The Supreme Overlord's standing directives, word for word. |
 | `data/memory/` | The CFO's memory: `MEMORY.md`, its index, and one file per fact (see [Memory](../../AGENTS.md#memory)). |
-| `data/memory-archive.md` | Memory the `stow` skill retired; never loaded. |
+| `data/memory-archive.md` | Recoverable history governed by the [memory contract](memory.md). |
+| `data/memory/startup.json` | Verified warm ranges and cold routes over original source owners, optional memory layers; see [memory](memory.md). No automatic legacy migration. |
+| `config/startup-memory-budget`, `config/startup-context-budget` | Estimated-token allowances for combined memory and complete captured startup packages; see [budgets](memory.md#budgets-and-exceptions). |
 | `data/routing.json` | The execution lanes, yours to tune. |
 | `data/projects/<project>/` | One folder per project, named for its checkout's folder: `auth.json`, `worktree.json`, `project.json` and `services.json`. |
 | `data/<task>/` | One folder per task that is queued or under way: `brief.md` (what to do), `report.md` (what a scout found or a ship task delivered), `decisions.md` (the rulings made for it, each with its date) and `deliverables/` (files handed to the Overlord). |

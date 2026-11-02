@@ -36,6 +36,7 @@ import (
 // the dir.
 func newPrimaryHome(t *testing.T) string {
 	t.Helper()
+	t.Setenv("CFO_STATE_OVERRIDE", "")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("# home"), 0o644); err != nil {
 		t.Fatal(err)
@@ -54,6 +55,53 @@ func newPrimaryHome(t *testing.T) string {
 	}
 	t.Setenv("CFO_HOME", dir)
 	return dir
+}
+
+func TestRunHookSessionStartRevalidatesChangedAuthorityAcrossResumeSources(t *testing.T) {
+	for _, source := range []string{"resume", "reload", "fork"} {
+		for _, mode := range []string{"legacy", "catalog", "corrupt catalog"} {
+			t.Run(source+"/"+mode, func(t *testing.T) {
+				root := newCFOHome(t)
+				dataDir := filepath.Join(root, "data")
+				writeMemoryCatalog(t, dataDir, "Original authority.\n", "Cold incident history.\n")
+				if mode == "legacy" {
+					if err := os.Remove(filepath.Join(dataDir, "memory", "startup.json")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				var first, diagnostics bytes.Buffer
+				if exit := runHook("session-start", strings.NewReader(`{"session_id":"same","source":"startup"}`), &first, &diagnostics); exit != 0 {
+					t.Fatal(diagnostics.String())
+				}
+				if err := os.WriteFile(filepath.Join(root, "state", "cfo-conversation.json"), []byte(`{"harness":"claude","session":"same"}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if mode == "catalog" {
+					writeMemoryCatalog(t, dataDir, "Corrected authority.\n", "Cold incident history.\n")
+				} else if err := os.WriteFile(filepath.Join(dataDir, "overlord.md"), []byte("Corrected authority.\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+
+				var output bytes.Buffer
+				exit := runHook("session-start", strings.NewReader(fmt.Sprintf(`{"session_id":"same","source":%q}`, source)), &output, &diagnostics)
+
+				if exit != 0 || !strings.Contains(output.String(), "Read all of it") || strings.Contains(output.String(), "do not read it again") {
+					t.Fatalf("changed authority bypassed resume composition: %s; %s", output.String(), diagnostics.String())
+				}
+				long, err := os.ReadFile(filepath.Join(root, "state", digest.FullDigestFile))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode == "corrupt catalog" {
+					if !bytes.Contains(long, []byte("MEMORY UNREADABLE")) || bytes.Contains(long, []byte("Corrected authority.")) {
+						t.Fatalf("invalid memory selected legacy authority: %s", long)
+					}
+				} else if !bytes.Contains(long, []byte("Corrected authority.")) || mode == "catalog" && bytes.Contains(long, []byte("Cold incident history.")) {
+					t.Fatalf("resume did not compose current selective authority: %s", long)
+				}
+			})
+		}
+	}
 }
 
 func TestRunHookPretoolSubagentDeniesInPrimaryHome(t *testing.T) {
@@ -1560,9 +1608,6 @@ func TestRunHookSessionStartResumeNoMarkerFallsThrough(t *testing.T) {
 	}
 }
 
-// A CFO brought back on the conversation the home last registered is told
-// its conversation read the long digest already; one on another conversation
-// is told to read it.
 func TestRunHookSessionStartTellsAResumedConversationNotToReadTheLongDigestAgain(t *testing.T) {
 	for _, testCase := range []struct {
 		name, source, session, want string
@@ -1576,6 +1621,10 @@ func TestRunHookSessionStartTellsAResumedConversationNotToReadTheLongDigestAgain
 			dir := newCFOHome(t)
 			if err := os.WriteFile(filepath.Join(dir, "state", "cfo-conversation.json"), []byte(`{"harness":"claude","session":"conversation-1","host":"cfo","pid":1,"updated":"2026-10-27T12:00:00Z"}`), 0600); err != nil {
 				t.Fatal(err)
+			}
+			var previous, previousErrors bytes.Buffer
+			if exit := runHook("session-start", strings.NewReader(`{"session_id":"conversation-1","source":"startup"}`), &previous, &previousErrors); exit != 0 {
+				t.Fatal(previousErrors.String())
 			}
 			var stdout, stderr bytes.Buffer
 
@@ -1592,8 +1641,6 @@ func TestRunHookSessionStartTellsAResumedConversationNotToReadTheLongDigestAgain
 		})
 	}
 }
-
-const sessionStartNudge = "CFO: operational input may be waiting; run cfo drain if supervision was active. For an explicit user decision, publish cfo question --id <stable-id> --text <question> [--option <choice>] [--recommend <exact-choice>] from the registered primary shell. Answers return as normal messages to the same CFO, not native prompt-tool responses.\n"
 
 // TestRunHookSessionStartRouting pre-writes the session lock and completion
 // marker for the harness of the CFO's own session, which this test process
@@ -1612,14 +1659,14 @@ func TestRunHookSessionStartRouting(t *testing.T) {
 	}
 
 	for _, source := range []string{"resume", "reload", "fork"} {
-		t.Run(source+" with marker prints the nudge", func(t *testing.T) {
+		t.Run(source+" with marker validates current context", func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			exit := runHook("session-start", strings.NewReader(`{"session_id":"s1","source":"`+source+`"}`), &stdout, &stderr)
 			if exit != 0 {
 				t.Fatalf("exit = %d, want 0; stderr=%s", exit, stderr.String())
 			}
-			if got := withoutRegistration(t, stdout.String()); got != sessionStartNudge {
-				t.Errorf("stdout = %q, want exactly %q before the registration", got, sessionStartNudge)
+			if got := withoutRegistration(t, stdout.String()); !strings.Contains(got, "READ THIS NEXT:") {
+				t.Errorf("resume bypassed validated composition: %q", got)
 			}
 			if stderr.Len() != 0 {
 				t.Errorf("stderr = %q, want empty", stderr.String())
@@ -1823,10 +1870,7 @@ func TestRunHookSessionStartDigestSaysAFKModeIsOn(t *testing.T) {
 	}
 }
 
-// A resumed session gets the short nudge instead of the digest, so while AFK
-// mode is on the nudge carries its banner: every way a session starts tells
-// the CFO it is on.
-func TestRunHookSessionStartNudgeSaysAFKModeIsOn(t *testing.T) {
+func TestRunHookSessionStartResumePreservesAFKAuthority(t *testing.T) {
 	// Arrange
 	dir := newCFOHome(t)
 	state := filepath.Join(dir, "state")
@@ -1847,9 +1891,8 @@ func TestRunHookSessionStartNudgeSaysAFKModeIsOn(t *testing.T) {
 
 	// Assert
 	banner := afk.BannerFor(state)
-	want := sessionStartNudge + banner + "\n"
-	if got := withoutRegistration(t, stdout.String()); exit != 0 || banner == "" || got != want {
-		t.Fatalf("exit=%d stdout=%q, want the nudge and then AFK mode's banner %q before the registration", exit, got, want)
+	if got := withoutRegistration(t, stdout.String()); exit != 0 || banner == "" || !strings.Contains(got, "AFK MODE") || !strings.Contains(got, "READ THIS NEXT:") {
+		t.Fatalf("exit=%d stdout=%q, want AFK authority and validated composition", exit, got)
 	}
 }
 

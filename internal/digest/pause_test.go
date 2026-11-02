@@ -2,10 +2,12 @@ package digest
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -23,8 +25,10 @@ func TestBothDigestsShowPauseReasonAndResumeCondition(t *testing.T) {
 		t.Fatal(err)
 	}
 	var full bytes.Buffer
-	writeMetaEntry(h.State, meta.ID, 5, &werr{w: &full})
-	for _, text := range []string{fleetLine(h.State, meta.ID), full.String()} {
+	if err := ComposeReadOnly(h, "inspection", &full); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{fleetLine(context.Background(), h.State, meta.ID, fleet.NewTerminalEndpoint(h.State, nil)), full.String()} {
 		if !strings.Contains(text, "Paused for the allowance; resumes at 2026-10-03T00:00:00Z") {
 			t.Fatalf("digest hid the pause condition: %s", text)
 		}

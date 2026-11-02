@@ -37,7 +37,7 @@ type CFOCapability struct {
 func CFOCapabilities() []CFOCapability {
 	typed := []string{
 		"it is woken only in a native terminal, where the wake line is typed while it sits idle at an empty prompt",
-		"no session-start hook: it runs cfo session-start and reads data/overlord.md and the memory index itself",
+		"no session-start digest: it runs cfo session-start to validate current memory and retrieves relevant cold authority with cfo memory retrieve",
 		"no turn-end guard and no pre-tool guards",
 	}
 	return []CFOCapability{

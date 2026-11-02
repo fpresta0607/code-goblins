@@ -83,7 +83,7 @@ func TestRoutedContractReachesEveryHarnessOnInstallAndUpdate(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, entry := range entries {
-				if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cfo-") {
+				if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "cfo-") && entry.Name() != "stow" {
 					continue
 				}
 				if !slices.Contains(mapping.Installed, entry.Name()) {
