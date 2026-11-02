@@ -113,3 +113,72 @@ test("a browser that cannot open a PDF keeps its safe download action", async ({
   await document.getByRole("link", { name: "Download PDF", exact: true }).click();
   expect(await (await downloaded).failure()).toBeNull();
 });
+
+test("a PDF link in thinking stays plain text with no card", async ({ page }) => {
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-thought", seq: 0, at, kind: "reply", blocks: [{ kind: "thinking", text: `Check ${LINK} first.` }] }], more: false });
+  await openGoblin(page);
+  const log = page.getByRole("log", { name: "Messages of " + NAME, exact: true });
+
+  await log.locator(".message-thinking summary").click();
+
+  await expect(log.locator(".message-thinking .message-words")).toHaveText(`Check ${LINK} first.`);
+  await expect(log.getByRole("group", { name: LABEL, exact: true })).toHaveCount(0);
+});
+
+test("Open PDF pressed from the keyboard moves focus to the ready Open PDF link", async ({ page }) => {
+  await page.addInitScript(() => { window.open = () => null; });
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], more: false });
+  await page.route("**/api/messages?*", (route) => route.fulfill({ contentType: "application/pdf", body: PDF }));
+  await openGoblin(page);
+  const document = page.getByRole("group", { name: LABEL, exact: true });
+  await document.getByRole("button", { name: "Open PDF", exact: true }).focus();
+
+  await page.keyboard.press("Enter");
+
+  await expect(document.getByRole("link", { name: "Open PDF", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(document.getByRole("link", { name: "Download PDF", exact: true })).toBeFocused();
+});
+
+test("a PDF whose answer never starts says it timed out rather than refused", async ({ page }) => {
+  await page.clock.install();
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], more: false });
+  await page.route("**/api/messages?*", () => {});
+  await openGoblin(page);
+  const document = page.getByRole("group", { name: LABEL, exact: true });
+  await document.getByRole("button", { name: "Open PDF", exact: true }).click();
+  await expect(document.getByRole("button", { name: "Loading PDF...", exact: true })).toBeDisabled();
+
+  await page.clock.runFor(30_000);
+
+  await expect(document.getByRole("status")).toHaveText("Opening that PDF timed out. Try again.");
+  await expect(document.getByRole("button", { name: "Open PDF", exact: true })).toBeEnabled();
+});
+
+test("a PDF still downloading after its answer starts is not cut off", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript((pdf) => {
+    window.open = () => null;
+    const send = window.fetch;
+    window.fetch = (input, init) => {
+      if (!String(input).includes("document=")) return send(input, init);
+      const signal = init?.signal;
+      const body = new ReadableStream<Uint8Array>({ start(controller) {
+        signal?.addEventListener("abort", () => controller.error(signal.reason));
+        window.addEventListener("fixture-pdf-finished", () => { controller.enqueue(new TextEncoder().encode(pdf)); controller.close(); }, { once: true });
+      } });
+      return Promise.resolve(new Response(body, { headers: { "Content-Type": "application/pdf" } }));
+    };
+  }, PDF.toString());
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], more: false });
+  await openGoblin(page);
+  const document = page.getByRole("group", { name: LABEL, exact: true });
+  await document.getByRole("button", { name: "Open PDF", exact: true }).click();
+  await expect(document.getByRole("button", { name: "Loading PDF...", exact: true })).toBeDisabled();
+
+  await page.clock.runFor(60_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("fixture-pdf-finished")));
+
+  await expect(document.getByRole("link", { name: "Open PDF", exact: true })).toHaveAttribute("href", /^blob:/);
+  await expect(document.getByRole("status")).toHaveCount(0);
+});

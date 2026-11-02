@@ -11,9 +11,10 @@ const document = (label: string, target: string, key: number) => <MessageDocumen
 // each with its language and a Copy, its headings in bold, and the prose
 // between them with messageText's bold, code, lists, tables and links, so
 // markup in a message is shown, never run.
-export function MessageText({ text }: { text: string }) {
+export function MessageText({ text, isThinking = false }: { text: string; isThinking?: boolean }) {
+  const documentCard = isThinking ? undefined : document;
   return <div className="message-words">{textParts(text).map((part, at) => part.kind === "code"
     ? <CodeBlock key={at} text={part.text} language={part.language} />
-    : part.kind === "heading" ? <p key={at} className="message-heading">{inlineElements(part.text, undefined, undefined, document)}</p>
-      : <Fragment key={at}>{messageElements(part.text, undefined, undefined, document)}</Fragment>)}</div>;
+    : part.kind === "heading" ? <p key={at} className="message-heading">{inlineElements(part.text, undefined, undefined, documentCard)}</p>
+      : <Fragment key={at}>{messageElements(part.text, undefined, undefined, documentCard)}</Fragment>)}</div>;
 }

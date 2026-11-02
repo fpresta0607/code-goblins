@@ -284,8 +284,16 @@ func TestSessionDocumentsRejectQueryTokensAndForeignOrigins(t *testing.T) {
 	}
 }
 
+func TestSessionDocumentPathsRefuseSharesAndDevicesBeforeOpening(t *testing.T) {
+	for _, target := range []string{`\\server\share\candidate.pdf`, "//server/share/candidate.pdf", `/\server\share\candidate.pdf`, `\/server/share/candidate.pdf`, `\\.\C:\candidate.pdf`} {
+		if isDocumentPath(target) {
+			t.Errorf("share or device path %q passed the document path check", target)
+		}
+	}
+}
+
 func TestSessionDocumentsRefuseInvalidAccessWithoutDisclosingPaths(t *testing.T) {
-	for _, name := range []string{"no token", "stale generation", "cross task", "unreferenced", "outside root", "traversal", "encoded traversal", "UNC", "device", "ADS", "not PDF", "wrong extension", "over limit", "missing", "directory", "malformed encoding"} {
+	for _, name := range []string{"no token", "stale generation", "cross task", "unreferenced", "outside root", "traversal", "encoded traversal", "UNC", "UNC slash then backslash", "UNC backslash then slash", "device", "ADS", "not PDF", "wrong extension", "over limit", "missing", "directory", "malformed encoding"} {
 		t.Run(name, func(t *testing.T) {
 			board, meta, transcript := documentBoard(t)
 			file := filepath.Join(meta.Worktree, "candidate.pdf")
@@ -312,6 +320,10 @@ func TestSessionDocumentsRefuseInvalidAccessWithoutDisclosingPaths(t *testing.T)
 				target = filepath.Dir(file) + "/%2e%2e/" + filepath.Base(meta.Worktree) + "/candidate.pdf"
 			case "UNC":
 				target = `\\server\share\candidate.pdf`
+			case "UNC slash then backslash":
+				target = `/\server\share\candidate.pdf`
+			case "UNC backslash then slash":
+				target = `\/server/share/candidate.pdf`
 			case "device":
 				target = `\\?\C:\candidate.pdf`
 			case "ADS":

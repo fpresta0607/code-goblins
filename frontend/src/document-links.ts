@@ -18,7 +18,7 @@ export function documentLinks(text: string): DocumentLink[] {
     let decoded: string;
     try { decoded = decodeURIComponent(target); }
     catch { continue; }
-    if (!/^(?:[a-z]:[\\/]|\/(?!\/))/i.test(decoded) || !/\.pdf$/i.test(decoded) || /[<>"|?*]/.test(decoded) || [...decoded].some((character) => character.charCodeAt(0) < 32)) continue;
+    if (!/^(?:[a-z]:[\\/]|\/(?![\\/]))/i.test(decoded) || !/\.pdf$/i.test(decoded) || /[<>"|?*]/.test(decoded) || [...decoded].some((character) => character.charCodeAt(0) < 32)) continue;
     links.push({ start: match.index, end, label: match[1], target });
   }
   return links;

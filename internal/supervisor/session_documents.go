@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -71,8 +72,14 @@ func (h *HTTP) messageDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func isDocumentPath(path string) bool {
-	if len(path) > 4096 || !filepath.IsAbs(path) || strings.HasPrefix(path, `\\`) || strings.HasPrefix(path, "//") || !strings.EqualFold(filepath.Ext(path), ".pdf") || strings.ContainsAny(path, "\x00\r\n<>\"|?*") {
+	if len(path) > 4096 || !filepath.IsAbs(path) || len(path) > 1 && strings.Trim(path[:2], `\/`) == "" || !strings.EqualFold(filepath.Ext(path), ".pdf") || strings.ContainsAny(path, "\x00\r\n<>\"|?*") {
 		return false
+	}
+	if runtime.GOOS == "windows" {
+		volume := strings.ToLower(filepath.VolumeName(path))
+		if len(volume) != 2 || volume[0] < 'a' || volume[0] > 'z' {
+			return false
+		}
 	}
 	local := strings.ReplaceAll(path, `\`, "/")
 	if len(local) > 2 && local[1] == ':' {
