@@ -30,6 +30,11 @@ type Choice struct {
 // conversation's.
 const panelRowLimit = 30
 
+// paneEdge starts the top edge Claude Code 2.1.316 draws over the pane a
+// question or a permission prompt opens in, a row of ▔ that may end in a
+// notice, so the turn's reply and spinner above it are never the panel's.
+var paneEdge = strings.Repeat("▔", 8)
+
 var (
 	// numberedChoice is a numbered choice's row, its focus mark first when it
 	// has the focus: ❯ or > for Claude Code, › for Codex and → for pi.
@@ -42,8 +47,8 @@ var (
 
 // ReadPanel reads screen, a harness's screen with something of its own open,
 // as a Panel. The panel is the screen's last rows below the conversation: up
-// to the last full-width rule, the last row of a message the conversation
-// draws (● for Claude Code, • for Codex) or panelRowLimit rows.
+// to the last full-width rule or pane edge, the last row of a message the
+// conversation draws (● for Claude Code, • for Codex) or panelRowLimit rows.
 func ReadPanel(screen []string) Panel {
 	region := panelRegion(screen)
 	start, choices, end := numberedChoices(region)
@@ -67,7 +72,7 @@ func panelRegion(screen []string) []string {
 	start := end
 	for start > 0 && end-start < panelRowLimit {
 		row := strings.TrimSpace(screen[start-1])
-		if isRule(screen[start-1]) || strings.HasPrefix(row, "●") || strings.HasPrefix(row, "•") || strings.HasPrefix(row, "⎿") {
+		if isRule(screen[start-1]) || strings.HasPrefix(row, paneEdge) || strings.HasPrefix(row, "●") || strings.HasPrefix(row, "•") || strings.HasPrefix(row, "⎿") {
 			break
 		}
 		start--
