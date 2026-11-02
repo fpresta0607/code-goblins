@@ -154,11 +154,12 @@ func TestACheckpointOfAnEmptyHomeSaysWhatIsEmpty(t *testing.T) {
 	checkpoint := readCheckpoint(t, h, time.Date(2026, 10, 2, 18, 30, 0, 0, time.UTC))
 
 	for header, want := range map[string]string{
-		"== FLEET ==":             "(no goblins in flight)",
-		"== HOLDS AND FREEZES ==": "AFK mode is off.\nNo goblin is paused or stopped.",
-		"== OPEN QUESTIONS ==":    "Nothing waits on the Overlord in the Command Center.\nNo goblin waits on your answer.",
-		"== OWED ==":              "No wake waits to be acknowledged.",
-		"== READ THIS NEXT ==":    "no cfo-handoff-*.md",
+		"== FLEET ==":              "(no goblins in flight)",
+		"== HOLDS AND FREEZES ==":  "AFK mode is off.\nNo goblin is paused or stopped.",
+		"== OPEN QUESTIONS ==":     "Nothing waits on the Overlord in the Command Center.\nNo goblin waits on your answer.",
+		"== WAITING ON THE CFO ==": "No goblin waits on the CFO.",
+		"== OWED ==":               "No wake waits to be acknowledged.",
+		"== READ THIS NEXT ==":     "no cfo-handoff-*.md",
 	} {
 		if body := section(t, checkpoint, header); !strings.Contains(body, want) {
 			t.Errorf("%s lacks %q:\n%s", header, want, body)

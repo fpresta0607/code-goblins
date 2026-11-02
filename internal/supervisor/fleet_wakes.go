@@ -115,6 +115,9 @@ type fleetWakes struct {
 	// checks said at its last poll, for its goblin's card.
 	Checks map[string]reportedChecks `json:"checks,omitempty"`
 	Hosted map[string]HostedChecks   `json:"hosted,omitempty"`
+	// KeptOff holds, by goblin pull request, why no merge train takes it as
+	// the last poll that listed it read it: a draft, or one held.
+	KeptOff map[string]string `json:"kept_off,omitempty"`
 	// Unstarted holds, by pull request, the head whose checks all concluded
 	// before any of its repository's workflows reported, and when a poll
 	// first saw that.
@@ -294,7 +297,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), writeFleetWakes(stateDir, w))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now), writeFleetWakes(stateDir, w))
 	var unreadable error
 	if s.Options.CI != nil {
 		repos := make([]string, 0, len(w.Unreadable))
@@ -729,6 +732,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		}
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
+		if listed != nil {
+			w.recordKeptOff(mine, listed)
+		}
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		// A refusal one of these reads met holds the overlap read and the
 		// train as it holds the next polls: the hold refused the train's read
@@ -749,6 +755,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	errs = errors.Join(errs, s.advanceUnwatchedTrains(ctx, runner, w, repos, currentTime), s.keepTrains(now))
 	maps.DeleteFunc(w.SameArea, func(id string, _ sameArea) bool {
 		return !slices.ContainsFunc(goblins, func(goblin ciGoblin) bool { return goblin.id == id })
+	})
+	maps.DeleteFunc(w.KeptOff, func(url string, _ string) bool {
+		return !slices.ContainsFunc(goblins, func(goblin ciGoblin) bool { return slices.Contains(goblin.pullRequests, url) })
 	})
 	for url, checks := range w.Checks {
 		if now.Sub(checks.At) >= ciRecordFor {
