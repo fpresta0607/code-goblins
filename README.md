@@ -608,11 +608,7 @@ Progress probes run together under one 10-second deadline, so stalled probes do 
 A goblin whose latest report is a wait on its own helper takes the helper's progress as its own, on its card and in this check, and draws no wake while the helper is watched, since the helper's own check reports its stall.
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
-If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
-Under pipeline policy v6 the restarted run carries the task's launch selection, so it runs on the harness the goblin comes back on.
-Only a run holding gate commits it never pushed has its custody recovered before the restart; a run that had pushed its head, such as one paused on its pull request's CI, is restarted from the branch as the goblin left it, follow-up commits the goblin pushed since included.
-A memory pause interrupts no validation: the goblin's gate run keeps running, and Resume tells the goblin which run is still running, so it picks that run back up and starts no other.
-A run a pause could not abort is left to its goblin the same way, and never fails the Resume.
+For paused validation, follow the [pipeline resume contract](docs/pipeline.md#resuming-a-paused-task).
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
 
 Stop opens a confirmation offering **Pause instead (Recommended)**, **Stop and delete** and **Cancel**, without typing.
