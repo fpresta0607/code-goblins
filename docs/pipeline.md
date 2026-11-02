@@ -816,21 +816,18 @@ It prints the pick before it runs anything, and `--plan` prints it with each che
 This is the pick for a change to three files of `internal/supervisor`:
 
 ```text
-cfo gate prepush: 3 files changed since 3301d7c9, which picks 10 checks to run within 15m0s
+cfo gate prepush: 3 files changed since 3301d7c9, which picks 9 checks to run within 15m0s
 1. imports of 5 packages and their tests (an import cycle fails every test of its package)
 2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name)
-3. guard tests of cmd/cfo (they read every command main.go dispatches)
-   - TestEveryCommandSaysWhetherItActsAsTheCFO
-   - TestEveryCommandIsAControlOrStaysAtNormalOnPurpose
-4. guard tests of internal/gatetest (they read every tracked file against this policy)
+3. guard tests of internal/gatetest (they read every tracked file against this policy)
    - TestTheRepositoryPolicyAccountsForEveryTrackedFile
    - TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist
-5. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
-6. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
-7. tests of internal/supervisor but for 179 slower ones (changed)
-8. go vet of 5 packages (they build against what changed)
-9. tests of internal/digest (imports internal/supervisor)
-10. tests of cmd/cfo but for 152 slower ones (imports internal/supervisor)
+4. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+5. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+6. tests of internal/supervisor but for 179 slower ones (changed)
+7. go vet of 5 packages (they build against what changed)
+8. tests of internal/digest (imports internal/supervisor)
+9. tests of cmd/cfo but for 152 slower ones (imports internal/supervisor)
 left to CI:
 - 179 tests of internal/supervisor (they take 2s or longer each here, 29m2s in all, and are in files the change did not touch)
 - 152 tests of cmd/cfo (they take 2s or longer each here, 1h10m23s in all)
@@ -840,7 +837,7 @@ policy: config/verify.json version 1 at 3301d7c9
 The first check that fails ends the run with exit 1, and its last line names the check and the tests:
 
 ```text
-cfo gate prepush: failed at check 7 of 10, tests of internal/supervisor but for 179 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
+cfo gate prepush: failed at check 6 of 9, tests of internal/supervisor but for 179 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
 ```
 
 A test that fails runs once more by itself before it fails the push.
