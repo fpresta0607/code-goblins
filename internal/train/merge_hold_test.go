@@ -644,3 +644,37 @@ func TestIneligibleCancelledRiderIsNeverRetriedOrBlamed(t *testing.T) {
 		})
 	}
 }
+
+func TestALandedRunWhoseBranchReadFailsIsNeverToldAsHoldingItsMerge(t *testing.T) {
+	t.Parallel()
+	// Arrange: the green run merges, and the branch read that ends the train
+	// fails once.
+	s := newScratch(t)
+	github := newFakeGitHub(s)
+	first := github.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+	second := github.open(12, "feat/b", s.branch("feat/b", "b.txt", "b\n"))
+	riders, _ := Riders([]PullRequest{first, second}, "main", fleetAccount, goblinsFor(first, second), nil)
+	engine := s.engine(github)
+	started, err := engine.Start(context.Background(), s.repository(), riders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	github.unansweredBranchReads = 1
+	isHoldNotice := func(text string) bool { return strings.Contains(text, "holds its merge") }
+
+	// Act: the train merges, and its finish cannot read the branch.
+	cut, cutError := engine.Advance(context.Background(), started.ID)
+
+	// Assert: the landed run holds nothing and no hold is told.
+	if cutError == nil || cut.IsFinished() || runLog(cut)[0] != "1 #11 #12 landed" || cut.History[0].MergeHold != "" || slices.ContainsFunc(s.cfo, isHoldNotice) {
+		t.Fatalf("landed run read as holding after a failed branch read: %+v, %v, notices %q", cut, cutError, s.cfo)
+	}
+
+	// Act: the next poll reads the branch.
+	landed := s.step(engine, started.ID)
+
+	// Assert
+	if landed.State != StateLanded || !slices.Equal(github.merged, []int{11, 12}) || slices.ContainsFunc(s.cfo, isHoldNotice) {
+		t.Fatalf("train %s, merged %v, notices %q: want it landed with no hold told", landed.State, github.merged, s.cfo)
+	}
+}

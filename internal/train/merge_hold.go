@@ -8,13 +8,8 @@ import (
 
 func (e Engine) holdBranch(ctx context.Context, t *Train, cause error) error {
 	t.Note = cause.Error()
-	for i := len(t.History) - 1; i >= 0; i-- {
-		if run := &t.History[i]; len(run.Passed) > 0 {
-			if run.MergeHold == "" {
-				run.MergeHold = cause.Error()
-			}
-			break
-		}
+	if run := t.openRun(); run != nil && len(run.Passed) > 0 && run.MergeHold == "" {
+		run.MergeHold = cause.Error()
 	}
 	if err := e.save(t); err != nil {
 		return errors.Join(cause, err)
