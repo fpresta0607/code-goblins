@@ -62,6 +62,39 @@ test("showing a terminal and returning to Chat keep one connection and stop its 
   await expect.poll(() => typed(relay)).toBe(pasted("Continue after switching back") + "\r");
 });
 
+test("Chat sends through a replacement terminal hidden before its first size claim", async ({ page }) => {
+  // Arrange
+  const relay = await open(page);
+  await openGoblin(page);
+  relay.say({ type: "screen", asking: true, open: true, working: false, panel: { rows: ["Continue?"], choices: [{ text: "Yes", number: 1, focused: true }] } });
+  await page.getByRole("button", { name: "Show the terminal", exact: true }).click();
+  await expect(page.locator(".terminal-view:not(.staged) > .xterm")).toBeVisible();
+  // Back to messages is pressed in the same turn the replacement view opens
+  // its surface in the shown terminal, so its connection cannot open and
+  // claim a size first.
+  await page.evaluate(() => {
+    const observer = new MutationObserver(() => {
+      if (document.querySelectorAll(".xterm").length < 2) return;
+      observer.disconnect();
+      [...document.querySelectorAll("button")].find((button) => button.textContent === "Back to messages")?.click();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+
+  // Act
+  relay.drop();
+  await expect.poll(() => relay.views).toBe(2);
+  await expect(page.locator(".xterm")).toHaveCount(0);
+  await expect(page.locator(".terminal-view")).toHaveCount(1);
+  await field(page).fill("Continue after the replacement");
+  await field(page).press("Enter");
+
+  // Assert
+  await expect.poll(() => relay.typed).toEqual([pasted("Continue after the replacement"), "\r"]);
+  expect(relay.submissions).toHaveLength(1);
+  await expect(page.locator(".xterm")).toHaveCount(0);
+});
+
 for (const isCfo of [true, false]) {
   for (const completion of ["repaint", "fallback"] as const) {
     test(`${isCfo ? "CFO" : "goblin"} terminal reopens after its first ${completion} completes while hidden`, async ({ page }) => {

@@ -195,13 +195,16 @@ export class TerminalView {
     if (!shown) {
       this.shouldFocus = false;
       this.presentation.append(...this.element.childNodes);
+      this.readyIfDrawn();
       return;
     }
     this.element.append(this.presentation);
-    if (!this.term.element) {
+    if (!this.sized) {
       clearTimeout(this.fallback);
       this.fallback = undefined;
       this.element.classList.add("staged");
+    }
+    if (!this.term.element) {
       this.term.open(this.element);
       drawOnGpu(this.term);
       this.term.textarea?.setAttribute("aria-label", "Terminal input");
@@ -371,13 +374,13 @@ export class TerminalView {
     });
   }
 
-  // An unopened view can become input-ready without a rendered screen;
-  // an opened surface also waits for its claimed size's repaint.
+  // A hidden view that claimed no size can become input-ready without a
+  // rendered screen; a claimed surface also waits for that size's repaint.
   private readyIfDrawn(): void {
     // Chat needs the input link after replay, without opening a renderer or
     // claiming the native terminal's size. Give its initial screen reading
     // the same bounded wait as a visible view's first repaint.
-    if (!this.term.element && this.history >= 0 && this.consumed >= this.history && !this.frames.updating) {
+    if (!this.isShown && !this.sized && this.history >= 0 && this.consumed >= this.history && !this.frames.updating) {
       if (this.screenState) this.markReady();
       else this.fallback ??= setTimeout(() => this.markReady(), READY_FALLBACK_MS);
       return;
@@ -406,7 +409,7 @@ export class TerminalView {
   private markReady(): void {
     if (this.disposed) return;
     clearTimeout(this.fallback);
-    if (this.isReady) { if (this.isAccepted) this.promote(); return; }
+    if (this.isReady) { if (this.isAccepted && this.element.classList.contains("staged")) this.promote(); return; }
     this.isReady = true;
     requestAnimationFrame(() => {
       if (this.disposed || this.socket.readyState !== WebSocket.OPEN) return;
