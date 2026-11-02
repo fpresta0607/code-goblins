@@ -332,7 +332,8 @@ export class Dictation {
   }
 
   // dispose stops listening without typing anything, for a terminal going
-  // away, and drops the words still on their way.
+  // away or a box clearing its message, and drops the words still on their
+  // way.
   dispose(): void {
     this.hold = this.latest = null;
     this.release();
