@@ -590,7 +590,11 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 	}
 	instruction := oneLine(line)
 	typed := instruction
-	if primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !isHarnessCommand(instruction) {
+	// A "?" typed at an empty prompt line opens Claude Code's and Codex's
+	// shortcut help rather than writing itself, as the live CFO's Claude Code
+	// did with the Overlord's lone "?" on 2026-11-02, so a line that starts with
+	// one goes as a paste, which every harness writes as it is.
+	if strings.HasPrefix(instruction, "?") || primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !isHarnessCommand(instruction) {
 		typed = herdr.CleanPaste("\x1b[200~" + instruction + "\x1b[201~")
 		instruction = strings.TrimSuffix(strings.TrimPrefix(typed, "\x1b[200~"), "\x1b[201~")
 	}
@@ -672,16 +676,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}
-			sendNowWhy := ""
-			switch {
-			case !busy:
-				sendNowWhy = "It was not typed into a turn."
-			case isHarnessCommand(instruction):
-				sendNowWhy = commandWaits
-			case screens.SendNow == "":
-				sendNowWhy = "Its harness has no key that takes it sooner."
-			}
-			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session}, CanSendNow: sendNowWhy == "", SendNowWhy: sendNowWhy}, nil
+			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session, Typed: instruction}}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

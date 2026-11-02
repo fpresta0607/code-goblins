@@ -253,9 +253,9 @@ type Service struct {
 	// issues for meeting them again.
 	errorClassesMet   map[string]time.Time
 	errorClassesFiled map[string]bool
-	// answersDue wakes the worker as the answers held for the Overlord's next
-	// one come due. Only the worker touches it.
-	answersDue   *time.Timer
+	// heldDue wakes the worker as what the store holds for a moment comes
+	// due. Only the worker touches it.
+	heldDue      *time.Timer
 	workProgress map[string]WorkProgress
 	ciDurations  []CIDuration
 	sameArea     map[string]sameArea
@@ -830,7 +830,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
-	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.submitHandedBack(ctx), s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
@@ -1121,7 +1121,7 @@ func evaluationPending(actions []Action, task string) bool {
 const actionTimeout = 45 * time.Second
 
 func (s *Service) process(ctx context.Context) {
-	defer s.wakeAsHeldAnswersComeDue()
+	defer s.wakeAsHeldComeDue()
 	for i := 0; i < maxActions && ctx.Err() == nil; i++ {
 		if !s.Store.HasRunnable() {
 			break
@@ -1137,19 +1137,20 @@ func (s *Service) process(ctx context.Context) {
 	}
 }
 
-// wakeAsHeldAnswersComeDue wakes the worker the moment the answers the store
-// holds for the Overlord's next one can go, so an answer alone is never held
-// past answerBatchWindow: left to the loop, it would go at whichever cycle
-// came after, up to two seconds later. Only the worker calls it.
-func (s *Service) wakeAsHeldAnswersComeDue() {
-	if s.answersDue != nil {
-		s.answersDue.Stop()
+// wakeAsHeldComeDue wakes the worker the moment what the store holds for a
+// moment can go, the answers held for the Overlord's next one or a message
+// to the CFO at the end of its undo window, so neither is held past its
+// window: left to the loop, it would go at whichever cycle came after, up to
+// two seconds later. Only the worker calls it.
+func (s *Service) wakeAsHeldComeDue() {
+	if s.heldDue != nil {
+		s.heldDue.Stop()
 	}
-	wait := s.Store.answersDueIn()
+	wait := s.Store.heldDueIn()
 	if wait <= 0 {
 		return
 	}
-	s.answersDue = time.AfterFunc(wait, func() {
+	s.heldDue = time.AfterFunc(wait, func() {
 		select {
 		case s.work <- struct{}{}:
 		default:

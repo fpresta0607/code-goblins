@@ -111,6 +111,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 	keep := false
 	// A screen is drawn in one write, so a read never finds it half drawn. The
 	// turn's line reads as a turn to both Claude Code's and Codex's screens.
+	// The cursor then rests at the end of the prompt line, as a harness keeps
+	// it, so what is typed shows on that line, as in a harness's composer.
 	drawComposer := func(text string, isWorking bool) {
 		rows := []string{}
 		if said != "" {
@@ -120,8 +122,10 @@ func TestNativeTerminalProgram(t *testing.T) {
 			rows = append(rows, "✽ Pondering… (esc to interrupt)")
 		}
 		rule := strings.Repeat("─", 80)
+		prompt, column := 0, 0
 		switch composer {
 		case "codex":
+			prompt, column = len(rows), 3+len([]rune(text))
 			if text == "" {
 				text = "Ask Codex to do anything"
 			}
@@ -130,14 +134,16 @@ func TestNativeTerminalProgram(t *testing.T) {
 			if isWorking {
 				rows = append(rows, "── ⠸ Working ──")
 			}
+			prompt, column = len(rows)+1, 1+len([]rune(text))
 			rows = append(rows, rule, text, rule, "0.0%/1.0M (auto)")
 		default:
+			prompt, column = len(rows)+1, 3+len([]rune(text))
 			rows = append(rows, rule, "❯ "+text, rule, mode)
 			if footer != "" {
 				rows = append(rows, footer)
 			}
 		}
-		fmt.Print("\x1b[2J\x1b[H" + strings.Join(rows, "\r\n") + "\r\n")
+		fmt.Printf("\x1b[2J\x1b[H%s\x1b[%d;%dH", strings.Join(rows, "\r\n"), prompt+1, column)
 	}
 	lines := bufio.NewScanner(os.Stdin)
 	recordNativeExitPhase(t, phases, "scanner ready")

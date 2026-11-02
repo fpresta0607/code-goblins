@@ -571,7 +571,13 @@ func isRule(row string) bool {
 
 // Shows reports whether screen shows text typed into the composer: its end,
 // where the composer's cursor keeps it in view, or the placeholder of a paste.
+// Where the composer can be read, only its rows count: a short text such as
+// "?" is on most screens somewhere, as in Claude Code's "? for shortcuts",
+// and a harness that took its key as a shortcut shows it nowhere else.
 func (s Screens) Shows(screen []string, typed string) bool {
+	if composer, isRead := s.composer(screen); isRead {
+		screen = composer
+	}
 	compact := compactScreen(screen)
 	end := []rune(compactScreen([]string{typed}))
 	if len(end) > 40 {

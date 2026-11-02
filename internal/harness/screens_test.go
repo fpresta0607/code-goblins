@@ -503,6 +503,46 @@ func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
 	}
 }
 
+// On 2026-11-02 the board typed the Overlord's "?" into the CFO's Claude Code,
+// which took the key as its shortcut help and left its prompt line empty, and
+// read the "?" as typed from the footer's "? for shortcuts", so it pressed
+// Enter on nothing and the message stranded as sent. Typed text shows only in
+// a composer it can read, never in the conversation or the footer around it.
+func TestTypedTextShowsOnlyInAComposerItCanRead(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏸ manual mode on · ? for shortcuts"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		typed  string
+		shows  bool
+	}{
+		"claude footer hint":         {Claude, []string{"● Shall I merge it?", "", rule, "❯ ", rule, claudeFooter}, "?", false},
+		"claude composer":            {Claude, []string{"● Shall I merge it?", "", rule, "❯ ?", rule, claudeFooter}, "?", true},
+		"claude queued above":        {Claude, []string{"✽ Reticulating… (esc to interrupt)", "  yes", "", rule, "❯ Press up to edit queued messages", rule, claudeFooter}, "yes", false},
+		"claude paste placeholder":   {Claude, []string{"● Here is a ?", "", rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, "?", true},
+		"codex footer hint":          {Codex, []string{"• Is it merged?", "", "› Ask Codex to do anything", "", "  ? for shortcuts                    100% context left"}, "?", false},
+		"codex composer":             {Codex, []string{"• Is it merged?", "", "› ?", "", "  ? for shortcuts                    100% context left"}, "?", true},
+		"pi conversation":            {Pi, []string{"Is it merged?", rule, "", rule, piFooter}, "?", false},
+		"pi composer":                {Pi, []string{"Is it merged?", rule, "?", rule, piFooter}, "?", true},
+		"claude composer unreadable": {Claude, []string{"❯ ?"}, "?", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			shows := screens.Shows(test.screen, test.typed)
+
+			// Assert
+			if shows != test.shows {
+				t.Errorf("Shows(%q, %q) = %v, want %v", test.screen, test.typed, shows, test.shows)
+			}
+		})
+	}
+}
+
 func TestOnlyACompleteRetainedComposerCanBeSubmittedAfterADialog(t *testing.T) {
 	rule := strings.Repeat("─", 80)
 	instruction := "Read the saved instruction and continue the unfinished work."

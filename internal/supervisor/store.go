@@ -551,16 +551,35 @@ func (s *Store) queuedMessage(id, task string) (*Action, error) {
 	if id == "" {
 		return nil, errors.New("that message was not named")
 	}
-	for i := range s.db.Actions {
-		a := &s.db.Actions[i]
-		if a.ID == id && a.TaskID == task && a.Kind == "message" {
-			if a.Status != "queued" {
-				return nil, errors.New("that message is no longer waiting")
-			}
-			return a, nil
-		}
+	at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
+	if at < 0 || s.db.Actions[at].Status != "queued" {
+		return nil, s.noLongerHeld(id, task)
 	}
-	return nil, errors.New("that message is no longer waiting")
+	return &s.db.Actions[at], nil
+}
+
+// noLongerHeld says in plain words where message id to task went once the
+// board no longer holds it, for a Send now, Edit or Cancel that came after it
+// left, so he reads at once what became of it rather than that nothing was
+// done (the Overlord, 2026-11-02, of a Cancel on a message the CFO had taken:
+// "this question mark is stuck and lost"). The caller holds s.mu.
+func (s *Store) noLongerHeld(id, task string) error {
+	who, subject := "the CFO", "The CFO"
+	if task != "" {
+		who, subject = task, task
+	}
+	at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == id && a.TaskID == task && a.Kind == "message" })
+	switch {
+	case at < 0:
+		return errors.New("That message is no longer on the board.")
+	case s.db.Actions[at].Status == "running" && s.db.Actions[at].Awaiting == nil:
+		return errors.New("It is being typed for " + who + " right now.")
+	case s.db.Actions[at].Status == "running":
+		return errors.New("It was already typed into " + who + "'s turn.")
+	case s.db.Actions[at].Status == "succeeded":
+		return errors.New(subject + " already took it.")
+	}
+	return errors.New("It already left the board.")
 }
 
 // SendQueuedMessageNow clears a queued message's wait so the worker types it
@@ -595,60 +614,6 @@ func (s *Store) SendQueuedMessageNow(id, task string) (Action, error) {
 		return Action{}, err
 	}
 	return *a, nil
-}
-
-// claimTypedMessage claims Send now on the message action id names for task
-// that was typed into its session's turn and still waits in its harness's own
-// queue: one that can be sent now is marked sent now under the store's lock,
-// so however often he presses, its key is pressed once. It returns the message
-// as it stood before the claim, and whether there is one.
-func (s *Store) claimTypedMessage(id, task string) (Action, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	at := slices.IndexFunc(s.db.Actions, func(typed Action) bool {
-		return typed.ID == id && typed.TaskID == task && typed.Kind == "message" && typed.Status == "running" && typed.Awaiting != nil
-	})
-	if at < 0 {
-		return Action{}, false, nil
-	}
-	typed := &s.db.Actions[at]
-	claimed := *typed
-	if typed.IsSentNow || !typed.CanSendNow {
-		return claimed, true, nil
-	}
-	typed.IsSentNow, typed.CanSendNow, typed.UpdatedAt = true, false, time.Now().UTC()
-	return claimed, true, s.save()
-}
-
-// releaseTypedMessage gives back the claim on the typed message id whose key
-// could not be pressed: it is not sent now, and Send now is offered again
-// while it still waits.
-func (s *Store) releaseTypedMessage(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	at := slices.IndexFunc(s.db.Actions, func(sent Action) bool { return sent.ID == id })
-	if at < 0 {
-		return nil
-	}
-	sent := &s.db.Actions[at]
-	sent.IsSentNow, sent.CanSendNow, sent.UpdatedAt = false, sent.Status == "running" && sent.Awaiting != nil, time.Now().UTC()
-	return s.save()
-}
-
-// markTypedMessageSent says on the claimed message id, while it still waits,
-// that its key went. One settled meanwhile keeps the words it settled with.
-func (s *Store) markTypedMessageSent(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	at := slices.IndexFunc(s.db.Actions, func(sent Action) bool {
-		return sent.ID == id && sent.Status == "running" && sent.Awaiting != nil
-	})
-	if at < 0 {
-		return nil
-	}
-	sent := &s.db.Actions[at]
-	sent.Message, sent.UpdatedAt = sentNowInTurn, time.Now().UTC()
-	return s.save()
 }
 
 // holdCommand takes Send now off a queued message that is a command, which
@@ -855,6 +820,9 @@ func (s *Store) queue(a Action) (Action, error) {
 	a.Status = "queued"
 	a.CreatedAt = time.Now().UTC()
 	a.UpdatedAt = a.CreatedAt
+	// His words to the CFO wait out their undo window on the board, which
+	// Send now skips.
+	a.CanSendNow = message && a.TaskID == "" && !isHarnessCommand(a.Text)
 	// The answer already chosen sends nothing, but is kept, so a retry of the
 	// same request finds it done.
 	if isSame {
@@ -1099,9 +1067,6 @@ func (s *Store) ProcessOne(ctx context.Context, execute func(context.Context, Ac
 				awaiting.QuietSince = awaiting.Since
 			}
 			completed.Awaiting, completed.Message = &awaiting, result.Reason
-			if a.Kind == "message" {
-				completed.CanSendNow, completed.SendNowWhy = result.CanSendNow, result.SendNowWhy
-			}
 		} else {
 			completed.Status = "succeeded"
 			completed.Message = result.Reason

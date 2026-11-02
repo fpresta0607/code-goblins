@@ -2,17 +2,14 @@ package supervisor
 
 import (
 	"context"
-	"errors"
 	"os"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
-	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -34,6 +31,9 @@ type Awaiting struct {
 	// Session is the CFO's harness session, whose record is searched; a
 	// goblin's record is the one its harness keeps for its worktree.
 	Session string `json:"session,omitempty"`
+	// Typed is the line as typed, which its terminal's prompt line shows
+	// again when its harness hands it back unsent.
+	Typed string `json:"typed,omitempty"`
 	// QuietSince is the last time the terminal's screen showed a turn under
 	// way, or Since when it has shown none.
 	QuietSince time.Time `json:"quiet_since"`
@@ -117,7 +117,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 		case !looked:
 			continue
 		case seen.Took:
-			a.Status, a.Awaiting, a.Advice, a.CanSendNow = "succeeded", nil, "", false
+			a.Status, a.Awaiting, a.Advice = "succeeded", nil, ""
 			a.Message = "Taken by " + who + ", as its own record of the conversation shows."
 			s.deliveredReview(a.ID, waiting.Task)
 		case a.Status != "running":
@@ -125,9 +125,9 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 			if now.Sub(waiting.Since) < deliveryForget {
 				continue
 			}
-			a.Awaiting, a.CanSendNow = nil, false
+			a.Awaiting = nil
 		case seen.Gone:
-			a.Status, a.Awaiting, a.CanSendNow = "uncertain", nil, false
+			a.Status, a.Awaiting = "uncertain", nil
 			a.Advice = "The terminal of " + who + " closed before it took your answer. Give " + who + " your answer once it is running again."
 			a.Message = a.Advice
 		case seen.Working:
@@ -137,7 +137,7 @@ func (s *Store) settleDeliveries(now time.Time, look func(Awaiting) terminalLook
 			waiting.QuietSince = now
 			a.Awaiting = &waiting
 		case now.Sub(waiting.QuietSince) >= deliveryQuiet:
-			a.Status, a.CanSendNow = "uncertain", false
+			a.Status = "uncertain"
 			a.Advice = "Your answer was typed for " + who + ", which has not picked it up. Open its terminal and press Enter if your answer is waiting in its box; if it is not there, type it to " + who + "."
 			a.Message = a.Advice
 		default:
@@ -177,65 +177,100 @@ func (s *Service) behindGoblinsTurn(task string, since time.Time, text, unwatche
 	return Evaluation{Reason: sentToGoblin, Awaiting: awaitingGoblinDelivery(meta, since, text)}
 }
 
-// sendMessageNow has a message he asked for now go at once: one the board
-// holds is typed at its next safe moment, as Store.SendQueuedMessageNow says,
-// and one already typed into the CFO's turn, which waits in its harness's own
-// queue, is taken at once by that harness's send-now key, as the key does in
-// its terminal (the Overlord, 2026-10-30: "when sent now it actually sends now
-// same way termianl expereince down with ctrl x crtl s"). A goblin's message
-// reaches its turn only by Send now, whose delivery pressed the key once the
-// message was in its harness's queue, or says it could not. The typed
-// message is claimed before its key is pressed, so the key goes once however
-// often he presses, and given back when it could not be pressed.
-func (s *Service) sendMessageNow(ctx context.Context, id, task string) error {
-	typed, isTyped, err := s.Store.claimTypedMessage(id, task)
-	switch {
-	case !isTyped:
-		_, err := s.Store.SendQueuedMessageNow(id, task)
-		return err
-	case typed.IsSentNow:
-		return nil
-	case !typed.CanSendNow:
-		return errors.New(typed.SendNowWhy)
-	}
-	if err == nil {
-		err = pressSendNow(ctx, s, *typed.Awaiting)
-	}
-	if err != nil {
-		return errors.Join(err, s.Store.releaseTypedMessage(id))
-	}
-	return s.Store.markTypedMessageSent(id)
-}
-
-// pressSendNow presses the send-now key of the CFO's harness for a message
-// typed into its turn, once its composer shows empty. It is a variable so a
-// test can stand in for the terminal.
-var pressSendNow = func(ctx context.Context, s *Service, waiting Awaiting) error {
-	// Nothing else types into the CFO while its key is pressed.
-	s.Options.CFO.typing.Lock()
-	defer s.Options.CFO.typing.Unlock()
-	record, err := host.ReadRecord(s.Store.Home.State, waiting.Host)
-	if err != nil || !host.Running(record) {
-		return errors.New("Its terminal is not running.")
-	}
-	screens, _ := harness.NativeScreens(harness.Kind(waiting.Harness))
-	err = spawn.Service{StateDir: s.Store.Home.State}.SendNow(ctx, record, screens)
-	switch {
-	case errors.Is(err, spawn.ErrUnsentWords):
-		return errors.New("Its prompt line holds words that were never sent.")
-	case errors.Is(err, fleet.ErrNotTyped):
-		return errors.New("Its terminal is not ready to take it yet.")
-	}
-	return err
-}
-
 // awaitingGoblinDelivery is the delivery of text, typed into meta's native
 // terminal at since, that its harness has not yet been seen taking. It takes
 // the recipient the delivery was verified against, never a fresh read: a
 // record that disappeared or was replaced meanwhile must not turn the delivery
 // into a different task's, nor bind it to a generation that never took it.
 func awaitingGoblinDelivery(meta state.TaskMeta, since time.Time, text string) *Awaiting {
-	return &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text))}
+	return &Awaiting{Task: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Since: since, Digest: monitor.TextDigest(goblinLine(text)), Typed: goblinLine(text)}
+}
+
+// submitHandedBack submits again each delivery its harness handed back to its
+// prompt line unsent. Claude Code, Codex and pi each put the lines typed into
+// a turn back on the prompt line when that turn is interrupted (Claude Code
+// 2.1.316 does so in its cancelAndDrainPending), so a message of his typed
+// into a turn he then stopped with the box's Stop sat there unsent while its
+// bubble said Sent (the Overlord, 2026-11-02: "nor do they work with
+// interrupts"). The turn it waited for is over, so it goes as the next
+// prompt, once the terminal waits idle with it on its prompt line and nothing
+// else there. A terminal's prompt line that holds several such lines, joined,
+// is submitted once.
+func (s *Service) submitHandedBack(ctx context.Context) error {
+	waiting := map[string][]Awaiting{}
+	for _, a := range s.Store.Snapshot().Actions {
+		if a.Status == "running" && a.Awaiting != nil && a.Awaiting.Typed != "" {
+			terminal := a.Awaiting.Host
+			if terminal == "" {
+				terminal = a.Awaiting.Task
+			}
+			waiting[terminal] = append(waiting[terminal], *a.Awaiting)
+		}
+	}
+	var handedBack []string
+	for terminal, deliveries := range waiting {
+		if s.submitOnto(ctx, terminal, deliveries) {
+			handedBack = append(handedBack, terminal)
+		}
+	}
+	return s.Store.markHandedBack(handedBack, time.Now().UTC())
+}
+
+// submitOnto presses the submit key in terminal when its harness waits idle
+// with one of deliveries, all typed into it, back on its prompt line, and
+// reports whether it did. Nothing else types into the CFO's terminal
+// meanwhile.
+func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []Awaiting) bool {
+	first := deliveries[0]
+	if first.Host != "" && s.Options.CFO != nil {
+		s.Options.CFO.typing.Lock()
+		defer s.Options.CFO.typing.Unlock()
+	}
+	if first.Task != "" {
+		if meta, err := state.ReadTaskMeta(s.Store.Home.State, first.Task); err != nil || meta.SpawnGen != first.Generation {
+			return false
+		}
+	}
+	screens, readable := harness.NativeScreens(harness.Kind(first.Harness))
+	record, err := host.ReadRecord(s.Store.Home.State, terminal)
+	if !readable || err != nil || !host.Running(record) {
+		return false
+	}
+	rows, err := host.ReadScreen(record)
+	if err != nil || !screens.IsReady(rows) || !screens.ComposerHoldsText(rows) || !slices.ContainsFunc(deliveries, func(a Awaiting) bool { return screens.Shows(rows, a.Typed) }) {
+		return false
+	}
+	client, err := host.Dial(record)
+	if err != nil {
+		return false
+	}
+	defer client.Close()
+	submit := "\r"
+	if first.Harness == "codex" {
+		submit = "\x1b[F\r"
+	}
+	return ctx.Err() == nil && client.Input([]byte(submit)) == nil
+}
+
+// markHandedBack has each delivery waiting in the terminals named submitted
+// again at now, so it waits anew for its harness to take it, and is not
+// called unarrived for the quiet of the turn that was stopped.
+func (s *Store) markHandedBack(terminals []string, now time.Time) error {
+	if len(terminals) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.db.Actions {
+		a := &s.db.Actions[i]
+		if a.Status != "running" || a.Awaiting == nil || !slices.Contains(terminals, a.Awaiting.Host) && !slices.Contains(terminals, a.Awaiting.Task) {
+			continue
+		}
+		waiting := *a.Awaiting
+		waiting.QuietSince = now
+		a.Awaiting, a.Message, a.UpdatedAt = &waiting, "Its turn was stopped, so it was submitted as the next prompt.", now
+	}
+	return s.save()
 }
 
 // lookAtTerminal reads the terminal a delivery waits in: gone when its host
