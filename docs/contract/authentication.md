@@ -67,7 +67,7 @@ Any command a goblin starts can read what its terminal carries and spend with it
   A brief names a service, never a value.
 - `cfo spawn` reads that line.
   A name the manifest does not declare refuses the spawn and says what the manifest does declare, and `--yolo` does not clear it.
-- Every new task, including a helper, must state its Authentication choices under the [brief readiness contract](../commands/brief.md).
+- Every new task states explicit `credentials:` and `mcp:` choices, a helper under the [helper contract](dispatch.md#helper-goblins) and every other task under the [brief readiness contract](../commands/brief.md).
 - Briefs generated from backlog rows or root issues explicitly record the manifest's `"default": true` service names, or `credentials: none`, and `mcp: none` when written.
   A later change to the manifest's defaults does not change those brief choices.
 - Only the services a task carries are probed, and only one of those that is red refuses its spawn.

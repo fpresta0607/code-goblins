@@ -15,6 +15,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -513,8 +514,8 @@ func TestAHelperRequiresExplicitAuthenticationChoices(t *testing.T) {
 	_, err := f.service.Spawn(ctx, f.request)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "explicitly name credentials and mcp") {
-		t.Fatalf("Spawn = %v, want incomplete authentication refused", err)
+	if !errors.Is(err, fleet.ErrBriefNotReady) || !strings.Contains(err.Error(), "helper contract") || strings.Contains(err.Error(), "brief ready") {
+		t.Fatalf("Spawn = %v, want incomplete authentication refused under the helper contract", err)
 	}
 	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
 		t.Fatalf("unfinished authentication published a task: %v", readErr)
@@ -626,8 +627,8 @@ func TestAHelperOfAnOlderParentRequiresExplicitAuthenticationChoices(t *testing.
 	_, err := f.service.Spawn(ctx, f.request)
 
 	// Assert
-	if err == nil || !strings.Contains(err.Error(), "explicitly name credentials and mcp") {
-		t.Fatalf("Spawn = %v, want incomplete authentication refused", err)
+	if !errors.Is(err, fleet.ErrBriefNotReady) || !strings.Contains(err.Error(), "helper contract") || strings.Contains(err.Error(), "brief ready") {
+		t.Fatalf("Spawn = %v, want incomplete authentication refused under the helper contract", err)
 	}
 	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
 		t.Fatalf("unfinished authentication published a task: %v", readErr)
