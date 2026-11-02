@@ -30,9 +30,14 @@ type Reading struct {
 
 type Reader struct{ Commands execx.Runner }
 
-func (r Reader) Read(ctx context.Context, now time.Time) Reading {
+func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 	now = now.UTC()
-	reading := Reading{Status: "unavailable", Month: now.Format("2006-01"), CheckedAt: now, Detail: "Could not read GitHub Actions billing usage."}
+	reading := Reading{Status: "unavailable", Month: month, CheckedAt: now, Detail: "Could not read GitHub Actions billing usage."}
+	reportMonth, err := time.Parse("2006-01", month)
+	if err != nil {
+		reading.Detail = "Invalid GitHub Actions report month."
+		return reading
+	}
 	result, err := r.Commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"api", "user"}})
 	if err != nil || result.ExitCode != 0 {
 		reading.Detail = "Could not read the signed-in GitHub account. Check gh authentication."
@@ -45,7 +50,7 @@ func (r Reader) Read(ctx context.Context, now time.Time) Reading {
 		reading.Detail = "GitHub did not return a signed-in account."
 		return reading
 	}
-	endpoint := fmt.Sprintf("users/%s/settings/billing/usage?year=%d&month=%d", url.PathEscape(account.Login), now.Year(), now.Month())
+	endpoint := fmt.Sprintf("users/%s/settings/billing/usage?year=%d&month=%d", url.PathEscape(account.Login), reportMonth.Year(), reportMonth.Month())
 	result, err = r.Commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"api", endpoint}})
 	if err != nil || result.ExitCode != 0 {
 		// Raw CLI errors can contain private repository names and credentials.

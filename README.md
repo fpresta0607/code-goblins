@@ -515,6 +515,13 @@ Beside the meter, a ring around the Claude or OpenAI mark shows that subscriptio
 A mark appears only while a live CFO or goblin terminal runs that harness, and shows **?** when the reading is stale, unavailable or needs a sign-in; hover, focus or hold a ring for its reset time, the reading's age and the reserve.
 Under a floor of 0 the reserve reads **No reserve, runs to 0%**.
 While a pi goblin runs on an OpenRouter key, a dial with OpenRouter's mark beside them shows that key's spend in dollars, with its ring what is left of the key's own limit and its tip the limit and the window it resets over; the spend is the whole key's, shared by everything that uses it, never a sum of what the goblins used.
+
+The GitHub Actions amount in the CFO's bar follows the viewing device's current calendar month, switching at local midnight when the month changes while the board stays open.
+At 00:30 UTC on November 1, a device in Chicago requests October's GitHub report while one in Tokyo shows November's; each amount comes from that month's report without rebucketing GitHub's usage dates or charges.
+Open the amount for its repository breakdown and actual reading and last-attempt times, displayed in the device's local time.
+While the matching report is loading or unavailable, the board shows no amount; an old reading for that month is marked **Old**.
+The [board reference](docs/native-board.md#local-endpoint-boundaries) describes the report request and shared cache.
+
 The first eligible task is marked **Next up**.
 The supervisor uses each free slot for the paused goblin highest in your In progress order whose condition has cleared, then for the queue in the Overlord's order.
 Slots go by memory alone: a start needs 5 GB of memory and of commit free, and no count of goblins holds one back, however many run.
