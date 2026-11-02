@@ -701,13 +701,16 @@ func (r *trainCIRunner) Run(_ context.Context, request execx.Request) (execx.Res
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected")}, nil
 }
 
-// runningTrain writes a train testing its pull request in checkout.
+// runningTrain writes a train testing its pull request in checkout, with the
+// unfinished run that pull request tests, as every train records it.
 func runningTrain(t *testing.T, h home.Home, checkout string) train.Train {
 	t.Helper()
+	pushed := time.Now().UTC()
 	running := train.Train{
 		Schema: train.Schema, ID: "r-20261007-160000", Repository: "o/r", Checkout: checkout, Base: "main", Branch: train.BranchPrefix + "20261007-160000",
-		PR: "https://github.com/o/r/pull/900", State: train.StateTesting, Head: "abc1234", BaseSHA: "1234567", Pushed: time.Now().UTC(), Runs: 1,
-		Cars: []train.Car{{Number: 11, URL: "https://github.com/o/r/pull/11", State: train.CarRiding}},
+		PR: "https://github.com/o/r/pull/900", State: train.StateTesting, Head: "abc1234", BaseSHA: "1234567", Pushed: pushed, Runs: 1,
+		Cars:    []train.Car{{Number: 11, URL: "https://github.com/o/r/pull/11", State: train.CarRiding}},
+		History: []train.Run{{Number: 1, Riders: []int{11}, Base: "1234567", Head: "abc1234", Pushed: pushed, PR: "https://github.com/o/r/pull/900"}},
 	}
 	data, err := json.Marshal(running)
 	if err != nil {
@@ -761,7 +764,7 @@ func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(runner.calls, "gh pr view "+running.PR+" --json state,headRefOid,statusCheckRollup") {
+	if !slices.Contains(runner.calls, "gh pr view "+running.PR+" --json state,headRefOid,statusCheckRollup,mergeStateStatus") {
 		t.Fatalf("calls = %q, want the train's CI read although no goblin works in its repository", runner.calls)
 	}
 	kept, err := train.Read(h.State, running.ID)
