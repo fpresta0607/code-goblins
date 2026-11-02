@@ -103,7 +103,8 @@ type fleetWakes struct {
 	MemoryLow bool `json:"memory_low,omitempty"`
 	// IdleSince is when the scheduler first found work it could not start
 	// while memory was free, for the idle wake.
-	IdleSince time.Time `json:"idle_since,omitzero"`
+	IdleSince    time.Time          `json:"idle_since,omitzero"`
+	RootReadings []rootStartReading `json:"root_readings,omitempty"`
 	// DiskLow says disk_low woke since a reading was last at or above the
 	// disk floor.
 	DiskLow bool `json:"disk_low,omitempty"`
@@ -297,7 +298,9 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now), writeFleetWakes(stateDir, w))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now))
+	w.RootReadings = s.currentRootReadings()
+	err = errors.Join(err, writeFleetWakes(stateDir, w))
 	var unreadable error
 	if s.Options.CI != nil {
 		repos := make([]string, 0, len(w.Unreadable))
