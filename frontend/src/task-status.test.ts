@@ -6,7 +6,7 @@ import { withClicks } from "./task-clicks.ts";
 import { idleView } from "./terminalOrder.ts";
 import { taskSummary } from "./task-words.ts";
 import { parseSnapshot, type Snapshot } from "./types.ts";
-import { taskColumn, workflowNodes } from "./workflow.ts";
+import { nodeStatus, taskColumn, workflowNodes } from "./workflow.ts";
 
 // The Overlord, 2026-10-08, of a Tasks card reading "Not started" with Start
 // while the supervisor had already started Zane, and of Zane's panel with no
@@ -21,6 +21,32 @@ const board = (task: Record<string, unknown>, available = 9): Snapshot => parseS
   tasks: [{ id: "zane", title: "Train history", project: "code-goblins", verified: false, brief: true, ...task }],
 });
 const zane = (snapshot: Snapshot) => snapshot.tasks[0];
+
+for (const [name, reason, text] of [
+  ["a gate", "Review gate needs approval before continuing", "Waiting"],
+  ["a dependency", "Wait for the dependency task to land before continuing", "Waiting"],
+  ["the CFO", "Waiting on the CFO: Which dependency should land first?", "Waiting on the CFO"],
+]) {
+  test(`a blocked goblin awaiting ${name} reads Waiting and keeps its reason and phase`, () => {
+    // Arrange
+    const snapshot = board({ phase: "blocked", report: "blocked", reason });
+    const task = zane(snapshot);
+
+    // Act
+    const status = taskStatus(task, snapshot);
+    const node = workflowNodes(snapshot).find((node) => node.task?.id === task.id)!;
+    const summary = taskSummary(task, snapshot.tasks, status.text);
+
+    // Assert
+    assert.deepEqual(status, { text, phase: "blocked" });
+    assert.equal(nodeStatus(node, false, snapshot.tasks), text);
+    assert.equal(taskColumn(task), "In progress");
+    assert.equal(task.phase, "blocked");
+    assert.equal(task.reason, reason);
+    assert.equal(summary.isFailure, false);
+    assert.ok([summary.sentence, ...summary.details].join(" ").includes(reason.replace("Waiting on the CFO: ", "")));
+  });
+}
 
 test("a queued task reads Queued, with the queued dot, and waits in Tasks", () => {
   // Arrange

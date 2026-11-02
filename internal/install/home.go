@@ -50,7 +50,7 @@ func (s Service) formerHome() (string, error) {
 }
 
 // homeFolders are the folders every home holds beside data\, which the
-// install lays out separately; AGENTS.md's CFO home section describes each.
+// install lays out separately; docs/contract/home.md describes each.
 var homeFolders = []string{home.BinDir, "state", home.WorktreesDir, home.ScratchDir, home.CachesDir}
 
 // writeHome sets up the home: its folders, the contract, the policy files

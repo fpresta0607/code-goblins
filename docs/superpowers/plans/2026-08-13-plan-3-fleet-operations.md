@@ -2,7 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-> **Superseded - treehouse removed.** The `internal/treehouse` package, its pooled-lease acquisition, and the `treehouse` doctor check were all removed: spawn now creates a plain git worktree at `<project>/.worktrees/gb-<id>` through `internal/worktree`, and cleanup removes it through `worktree.Service.Return`. Where the notes below point at `internal/treehouse`, read the `internal/worktree` doc comments and the "Project worktree environment" section of `AGENTS.md` instead. Task 2 and the treehouse text elsewhere remain historical and are not re-synced.
+> **Superseded - treehouse removed.**
+> Where the notes below point at `internal/treehouse`, read the [worktree contract](../../contract/worktrees.md#project-worktree-environment) and `internal/worktree` doc comments instead.
+> Task 2 and the treehouse text elsewhere remain historical and are not re-synced.
 
 > **Superseded — treehouse acquisition and Herdr pane adapter.** The pane-scoped acquisition design this plan originally specified was replaced during implementation: spawn acquires a pooled worktree through `treehouse get --lease --json`, where the durable lease is the allocation evidence, and the `treehouse.Pane` / `herdr.Pane` / `RunPane` / `ForegroundCWD` adapters were removed as dead code. The affected sections are Task 2 (acquisition) and Task 3 (pane adapter); their authoritative owners are the `internal/treehouse` doc comments, `docs/superpowers/specs/2026-08-12-windows-native-fork-design.md` §10, and `docs/plans/2026-08-13-herdr-operational-compatibility-design.md`. Everything else below remains the historical plan and is not re-synced.
 
@@ -10,7 +12,9 @@
 
 > **Superseded — monitor classification and wake cadence.** The Task 4 classification contract below (immediate `unchanged_idle` staleness, no idle grace, and no launch/parked/awaiting-answer states) was reworked during the spawn/wake hardening pass: a freshly launched pane now classifies as `launching`, a parked goblin as `parked`, a finished turn (agent_status `done`) as `awaiting_answer`, and a pane only reaches `stale` after a genuine idle/stall window. The authoritative owner is the `internal/monitor` doc comments; the Task 4 task text below remains historical and is not re-synced.
 
-> **Superseded - native text sends.** The Task 8 text-send contract below (type once with `pane send-text`, settle, retry Enter, and confirm from the Herdr agent or composer state) was replaced: `cfo send` now submits through `herdr agent prompt` once and confirms from Herdr's own monotonic agent counters, and composer inspection is gone along with the `--no-auto-submit` flag that selected between its resubmission strategies. Only an explicitly addressed `<session>:<pane-id>` pane holding no registered agent is still typed into, and that delivery is always reported unconfirmed. The authoritative owners are the `internal/fleet` and `internal/herdr` doc comments plus the `cfo send` rows in `AGENTS.md`; the Task 8 task text below remains historical and is not re-synced.
+> **Superseded - native text sends.**
+> See the [cfo send reference](../../commands/send.md) for the current targeting and delivery contract.
+> The Task 8 task text below remains historical and is not re-synced.
 
 **Goal:** Build the Windows-native fleet operations needed to acquire isolated treehouse worktrees, run real Claude Code, Codex, and Pi sessions in Herdr, persist restart-safe task state, steer and inspect Code Goblins, and render one typed fleet view.
 

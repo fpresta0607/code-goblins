@@ -1,0 +1,13 @@
+# cfo afk
+
+`cfo afk on [--asked "<his words>"] \| off [--asked "<his words>"] \| status \| report \| log --kind <kind> --what "<what>" --evidence "<evidence>" [--link <url>] [--option "<choice>"]... [--recommend "<choice>"] [--run <command.ps1\|command.sh> [--admin]] \| strike --at <when> --reason "<why>" \| settle --at <when> --how "<what became of it>"`
+
+[AFK mode](../contract/afk.md#afk-mode), the Supreme Overlord's switch for running the fleet while he is away.
+`on` and `off` are his: without `--asked` the supervisor makes the switch only for a process it proves runs in a terminal of his own, and refuses yours and a goblin's.
+You make it only when he asks you to in his own words in your conversation, with `--asked` and those words quoted exactly: the supervisor then makes it only for a process it proves runs under the registered CFO, never for a goblin or a gate agent, and records that the CFO switched it at his ask with his words.
+`off` prints the report of the stretch, and `report` prints it again.
+`status` says whether it is on, since when and from where, its terms, what you decided so far and what waits on him in the Command Center.
+`log` is how you, the registered CFO, record a decision made under its authority that no other command logs, with its evidence: `--kind` is `left` for a decision you would have asked him, answered yourself with your recommendation and acted on, which takes `--answer` (your choice), `--diagnosis` (what is wrong, found to its cause), `--tried` (what you already tried) and two or more `--option` choices with an optional `--recommend`, `his` for a step only he can take, which becomes one card in his Command Center when AFK mode turns off, the card `cfo run-request` or `cfo question` makes (a command he runs names its file with `--run <command.ps1|command.sh>`, with `--admin` to run it as administrator, and becomes a run item, and every other step gives two or more `--option` and a `--recommend` that is one of them, which its card offers with Other), `deploy`, `migration`, `install` or `other`, or `merge` or `answer` for one the log did not take from `cfo pr merge` or `cfo answer`, which log their own, and it is refused while AFK mode is off.
+`strike` strikes through a line you logged by mistake, named by its `at` in `state/afk.audit`, with your reason: the log keeps the line and the strike, and his page of the stretch shows it struck in its Record.
+`settle` settles a `his` line you saw to later in the stretch that is on, named by its `at`, with what became of it: his page of the stretch shows it settled in its Record, not as needing him.
+All but `status` and `report` need `cfo serve` running

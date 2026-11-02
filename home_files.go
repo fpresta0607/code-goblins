@@ -5,9 +5,10 @@ package codegoblins
 import "embed"
 
 // Contract is the CFO's operating contract and the docs the contract links
-// to. The binary owns these: every install brings a home's copies up to date.
+// to. Installed homes refresh these from the binary; tracked checkout homes
+// keep their own copies.
 //
-//go:embed AGENTS.md CLAUDE.md docs/pipeline.md docs/native-board.md docs/remote-access.md
+//go:embed AGENTS.md CLAUDE.md LICENSE docs/pipeline.md docs/native-board.md docs/remote-access.md docs/load-map.md docs/contract docs/commands
 var Contract embed.FS
 
 // Skills are the skills Code Goblins ships, one folder each under
