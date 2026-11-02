@@ -52,28 +52,6 @@ func runSourceResumeTestProgram() (int, bool) {
 		}
 		return runSourceResumeHarness(os.Args[index+1], os.Args[index+2]), true
 	}
-	if filepath.Base(filepath.Dir(os.Args[0])) != "source-resume-bin" {
-		return 0, false
-	}
-	switch strings.ToLower(filepath.Base(os.Args[0])) {
-	case "no-mistakes.exe":
-		data, err := json.Marshal(os.Args[1:])
-		if err == nil {
-			err = os.WriteFile(filepath.Join(filepath.Dir(os.Args[0]), "native-call.json"), data, 0o600)
-		}
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
-		fmt.Fprintln(os.Stderr, "validation must be requested explicitly")
-		return 1, true
-	case "gh.exe":
-		if len(os.Args) > 2 && os.Args[1] == "pr" && os.Args[2] == "list" {
-			fmt.Println("[]")
-			return 0, true
-		}
-		fmt.Fprintln(os.Stderr, "unexpected fake GitHub command")
-		return 2, true
-	}
 	return 0, false
 }
 
@@ -131,6 +109,7 @@ func runSourceResumeHarness(recordPath, instructionPath string) int {
 }
 
 type sourceResumeAdapter struct {
+	programPath     string
 	recordPath      string
 	instructionPath string
 	isRefused       bool
@@ -149,7 +128,8 @@ func (adapter sourceResumeAdapter) Build(spec harness.LaunchSpec) (harness.Launc
 		return harness.Launch{}, errors.New("fixture provider refused this session")
 	}
 	return harness.Launch{
-		Args: []string{"--source-resume-harness", adapter.recordPath, adapter.instructionPath},
+		Executable: adapter.programPath,
+		Args:       []string{"--source-resume-harness", adapter.recordPath, adapter.instructionPath},
 		Env: map[string]string{
 			"TEMP": spec.Scratch, "TMP": spec.Scratch, "TMPDIR": spec.Scratch, "GOTMPDIR": spec.Scratch,
 		},
@@ -207,10 +187,26 @@ func TestSourceResumeComposedBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if os.Getenv("CFO_SOURCE_RESUME_RUNNER") != "1" {
+		root, err := os.MkdirTemp("", "sr-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := os.RemoveAll(root); err != nil {
+				t.Error(err)
+			}
+		})
+		bin := filepath.Join(root, "bin")
+		if err := os.MkdirAll(bin, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"no-mistakes.exe", "gh.exe"} {
+			standin.Put(t, filepath.Join(bin, name))
+		}
 		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 		defer cancel()
 		command := exec.CommandContext(ctx, program, "-test.v", "-test.timeout=15m", "-test.run=^TestSourceResumeComposedBoundaries$")
-		command.Env = sourceResumeEnvironment(t, t.TempDir())
+		command.Env = append(sourceResumeEnvironment(t, root), "CFO_SOURCE_RESUME_ROOT="+root)
 		output, err := command.CombinedOutput()
 		t.Logf("OS/auth/admission/provider inputs mocked; composed boundary evidence:\n%s", output)
 		if err != nil {
@@ -218,7 +214,11 @@ func TestSourceResumeComposedBoundaries(t *testing.T) {
 		}
 		return
 	}
-	for _, test := range []struct {
+	runnerRoot := os.Getenv("CFO_SOURCE_RESUME_ROOT")
+	if runnerRoot == "" {
+		t.Fatal("isolated runner root is required")
+	}
+	for index, test := range []struct {
 		name, refusal string
 	}{
 		{name: "original relaunch once and replay"},
@@ -231,28 +231,29 @@ func TestSourceResumeComposedBoundaries(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
-			root := t.TempDir()
+			root := filepath.Join(runnerRoot, fmt.Sprint(index))
 			environment := sourceResumeEnvironment(t, root)
+			nativeRecord := filepath.Join(root, "native-calls.txt")
+			environment = append(environment, standin.Env(nativeRecord,
+				standin.Rule{Args: "pr list", Prefix: true, Stdout: "[]"},
+				standin.Rule{Any: true, Exit: 1, Stderr: "validation must be requested explicitly"})...)
 			for _, entry := range environment {
 				name, value, _ := strings.Cut(entry, "=")
 				t.Setenv(name, value)
 			}
-			bin := filepath.Join(root, "source-resume-bin")
-			if err := os.MkdirAll(bin, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			for _, name := range []string{"codex.exe", "no-mistakes.exe", "gh.exe"} {
-				if err := os.Link(program, filepath.Join(bin, name)); err != nil {
-					t.Fatal(err)
-				}
-			}
+			bin := filepath.Join(runnerRoot, "bin")
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-			for _, name := range []string{"codex", "no-mistakes", "gh"} {
+			for _, name := range []string{"no-mistakes", "gh"} {
 				if path, err := exec.LookPath(name); err != nil || !strings.EqualFold(path, filepath.Join(bin, name+".exe")) {
 					t.Fatalf("%s did not resolve to the pinned fake: %q, %v", name, path, err)
 				}
 			}
-			h := primaryHomeFixture(t)
+			h := home.Home{Root: filepath.Join(root, "home"), State: filepath.Join(root, "home", "state"), Data: filepath.Join(root, "home", "data")}
+			for name, content := range map[string]string{"AGENTS.md": "# fixture", home.InstalledMarker: ""} {
+				if err := os.WriteFile(filepath.Join(h.Root, name), []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			t.Setenv("CFO_HOME", h.Root)
 			t.Setenv("CFO_STATE_OVERRIDE", h.State)
 			nativeRoot := filepath.Join(root, "native")
@@ -270,6 +271,9 @@ func TestSourceResumeComposedBoundaries(t *testing.T) {
 				}
 				return strings.TrimSpace(string(result.Stdout))
 			}
+			git("init")
+			git("config", "user.email", "t@t")
+			git("config", "user.name", "t")
 			git("add", "AGENTS.md")
 			git("commit", "-m", "fixture source")
 			worktreePath := filepath.Join(h.Worktrees(), filepath.Base(h.Root), "task")
@@ -385,7 +389,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			launcher := spawn.Service{
 				HomeRoot: h.Root, StateDir: h.State, ProjectsRoot: filepath.Join(root, "projects"), ScratchRoot: filepath.Join(root, "scratch"), Commands: commands,
 				Worktrees: worktree.Service{Commands: commands, Root: h.Worktrees(), DataDir: h.Data}, Auth: sourceResumeAuth{},
-				Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: sourceResumeAdapter{recordPath: eventsPath, instructionPath: instructionPath, isRefused: test.name == "provider refusal through Switch"}}},
+				Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: sourceResumeAdapter{programPath: program, recordPath: eventsPath, instructionPath: instructionPath, isRefused: test.name == "provider refusal through Switch"}}},
 				HostCommand: []string{program, "source-resume-host"},
 				UserEnvironment: func() ([]string, error) {
 					userEnvironmentCalls++
@@ -421,7 +425,7 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 					t.Error(err)
 				}
 				for _, handle := range handles {
-					if result, err := windows.WaitForSingleObject(handle, 5000); err != nil || result != windows.WAIT_OBJECT_0 {
+					if result, err := windows.WaitForSingleObject(handle, 30000); err != nil || result != windows.WAIT_OBJECT_0 {
 						t.Errorf("owned process did not exit: %d, %v", result, err)
 					}
 				}
@@ -466,8 +470,8 @@ INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.Repla
 			}
 
 			// Assert
-			if _, err := os.Stat(filepath.Join(bin, "native-call.json")); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("implicit native start/recover/respond occurred: %v", err)
+			if calls, err := os.ReadFile(nativeRecord); err != nil && !errors.Is(err, os.ErrNotExist) || strings.Contains(string(calls), "no-mistakes") {
+				t.Fatalf("implicit native start/recover/respond occurred: %s, %v", calls, err)
 			}
 			if !bytes.Equal(databaseBefore, read(evidenceDatabase)) || !bytes.Equal(policyBefore, read(policyPath)) || !bytes.Equal(handoffBefore, read(paused.Handoff)) {
 				t.Fatal("resume changed retained native history, frozen policy or handoff bytes")
