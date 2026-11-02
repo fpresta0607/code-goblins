@@ -15,10 +15,8 @@ import (
 )
 
 const (
-	// noCIWithin is how long a pushed run waits for GitHub to show its head
-	// and for a check to appear on it: a run whose push was lost is pushed
-	// again, and a repository whose CI never starts stops its train rather
-	// than holding it, and every pull request on it, for ever.
+	// noCIWithin bounds the wait for GitHub to show the expected head and a
+	// check on a published pull request before green proof is recorded.
 	noCIWithin = 20 * time.Minute
 	// RunDeadline bounds a run whose checks never finish, as when the
 	// repository's runners are down.
@@ -26,9 +24,8 @@ const (
 	// maxMoved is how many runs in a row the base may move during before the
 	// train stops: on a main that never holds still nothing it tests lands.
 	maxMoved = 3
-	// maxErrors is how many steps in a row may fail before the train stops.
-	// A failed step leaves the train as its record says, for the next step
-	// to take on, since most failures are a network or a restart.
+	// maxErrors bounds transient failures before green proof and ordinary
+	// merge attempts; green proof and interrupted landings stay recoverable.
 	maxErrors = 5
 	// mergedReads bounds how often GitHub is read for the pull requests a run
 	// landed to show as merged, and mergedReadAfter is the pause between.
@@ -40,7 +37,9 @@ var (
 	// ErrRunning says a train is already running on the repository.
 	ErrRunning = errors.New("a merge train is already running on this repository")
 	// ErrBusy says another process is taking the train's next step.
-	ErrBusy = errors.New("another process is moving this merge train")
+	ErrBusy          = errors.New("another process is moving this merge train")
+	errMergeRefused  = errors.New("the tested pull request did not merge")
+	errBranchCustody = errors.New("the train branch identity must be reconciled")
 )
 
 // Repository is where a train runs: the GitHub repository as owner/name, a
@@ -76,9 +75,9 @@ type Engine struct {
 	// Wait pauses before GitHub is read again for what a run landed.
 	Wait func(time.Duration)
 	// TellGoblin types text into a goblin's terminal, and TellCFO reaches
-	// the CFO.
+	// the CFO. A nonempty identity denotes a durable one-time notice.
 	TellGoblin func(ctx context.Context, task, text string) error
-	TellCFO    func(ctx context.Context, text string) error
+	TellCFO    func(ctx context.Context, identity, text string) error
 	// Landed, when set, hears of each pull request the train merged, once it
 	// is recorded: AFK mode's log keeps what merged while he is away.
 	Landed func(ctx context.Context, t Train, car Car)
@@ -92,7 +91,8 @@ type Engine struct {
 // them onto repo's base, pushes them and opens the train's pull request. A
 // train already running on repo is refused with ErrRunning. A train none of
 // whose riders merges cleanly onto the base stops at once without CI. A
-// start cut short is kept, and its next step builds it.
+// start cut short is kept, and its next step resumes the recorded build or
+// publication.
 func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train, error) {
 	if len(riders) == 0 {
 		return Train{}, errors.New("merge train: no pull request rides")
@@ -130,6 +130,10 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 		// counted as Advance counts each later one.
 		if ctx.Err() == nil && !t.IsFinished() {
 			t.Errors = 1
+			if errors.Is(err, errBranchCustody) {
+				err = e.holdBranch(ctx, &t, err)
+				return t, err
+			}
 			err = errors.Join(err, e.save(&t))
 		}
 		return t, err
@@ -144,16 +148,11 @@ func (e Engine) Start(ctx context.Context, repo Repository, riders []Car) (Train
 	return t, nil
 }
 
-// Advance takes the running train id one step. While its CI runs it changes
-// nothing. A green run lands its riders, by merging the train's own pull
-// request, and then tests the waiting half, if a red run left one, on a pull
-// request of its own; a red run has its failed checks run again
-// once, and red a second time it halves its riders, or blames the one rider
-// it had. A run on a base that moved since is built again on the
-// new base and tested again, since what it proved is not what would land.
-// A step that fails leaves the train as recorded and counts against it, and
-// the train stops once maxErrors steps in a row failed. Another process
-// taking the train's step is ErrBusy.
+// Advance takes the running train id one step under its repository lock.
+// A failed step resumes from the persisted record. Green merge holds,
+// interrupted landings and unknown branch identities preserve custody
+// instead of ending the train at the ordinary transient-error limit.
+// Another process taking the train's step is ErrBusy.
 func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	t, err := Read(e.StateDir, id)
 	if err != nil || t.IsFinished() {
@@ -167,9 +166,12 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	if t, err = Read(e.StateDir, id); err != nil || t.IsFinished() {
 		return t, err
 	}
+	if err := e.notifyMergeHold(ctx, &t); err != nil {
+		return t, err
+	}
 	stepErr := e.step(ctx, &t)
 	if stepErr == nil {
-		if t.Errors > 0 {
+		if run := t.openRun(); t.Errors > 0 && (run == nil || run.MergeHold == "") {
 			t.Errors = 0
 			return t, e.save(&t)
 		}
@@ -184,27 +186,70 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 	if err != nil || kept.IsFinished() {
 		return kept, errors.Join(stepErr, err)
 	}
+	if errors.Is(stepErr, errBranchCustody) {
+		err = e.holdBranch(ctx, &kept, stepErr)
+		return kept, err
+	}
 	kept.Errors++
+	if kept.Landing {
+		return kept, errors.Join(stepErr, e.save(&kept))
+	}
+	if run := kept.openRun(); run != nil && len(run.Passed) > 0 && (kept.Errors >= maxErrors || errors.Is(stepErr, errMergeRefused) && strings.Contains(stepErr.Error(), "base branch policy prohibits the merge")) {
+		err = e.holdMerge(ctx, &kept, stepErr.Error(), run.MergeReadiness)
+		return kept, err
+	}
 	if kept.Errors < maxErrors {
 		return kept, errors.Join(stepErr, e.save(&kept))
 	}
 	note := fmt.Sprintf("its step failed %d times in a row, last: %v", kept.Errors, stepErr)
-	if kept.Landing {
-		note += fmt.Sprintf(". It stopped while landing, and its pull request %s lands every pull request of the run or none, so read whether it merged", kept.PR)
-	}
 	err = e.finish(ctx, &kept, StateFailed, note)
+	if errors.Is(err, errBranchCustody) {
+		err = e.holdBranch(ctx, &kept, err)
+	}
 	return kept, err
 }
 
 // step takes the train's next step from what its record says.
 func (e Engine) step(ctx context.Context, t *Train) error {
-	if run := t.openRun(); t.Landing || run != nil && run.OwnRun != "" {
-		return e.land(ctx, t)
+	run := t.openRun()
+	if t.Landing && len(t.carsIn(CarRiding)) == 0 {
+		return e.recordLanding(ctx, t)
 	}
-	if t.Head == "" || t.PR == "" {
+	if t.Landing || run != nil && len(run.Passed) > 0 {
+		commit := t.Head
+		if run != nil && run.OwnRun != "" {
+			commit = t.Cars[t.carsIn(CarRiding)[0]].Head
+		}
+		onBase, err := e.isOnBase(ctx, *t, commit)
+		if err != nil {
+			return err
+		}
+		if onBase {
+			t.Landing = true
+			if err := e.save(t); err != nil {
+				return err
+			}
+			return e.recordLanding(ctx, t)
+		}
+		t.Landing = false
+	}
+	if run != nil && run.OwnRun == "" && run.PR == "" {
+		changed, err := e.recheck(ctx, t)
+		if err != nil {
+			return err
+		}
+		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
+			return e.rebuild(ctx, t, strings.Join(changed, "; "))
+		}
+		if err := e.publish(ctx, t); err != nil {
+			return err
+		}
+	}
+	if run == nil || t.Head == "" || t.PR == "" && run.OwnRun == "" {
 		return e.rebuild(ctx, t, "")
 	}
-	outcome, failed, err := e.ci(ctx, *t)
+	outcome, checks, readiness, err := e.ci(ctx, *t)
 	if err != nil {
 		return err
 	}
@@ -214,7 +259,42 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 			return err
 		}
 	}
+	if run != nil && len(run.Passed) > 0 {
+		if outcome == "stale" && run.OwnRun == "" {
+			return e.holdMerge(ctx, t, "the train head no longer matches the green proof", readiness)
+		}
+		if outcome != "stale" && outcome != "closed" {
+			base, err := e.baseSHA(ctx, *t)
+			if err != nil {
+				return err
+			}
+			if base != t.BaseSHA {
+				return e.rebuildOnMovedBase(ctx, t, base)
+			}
+		}
+		if outcome != "passed" && outcome != "closed" {
+			changed, err := e.recheck(ctx, t)
+			if err != nil {
+				return err
+			}
+			if len(changed) > 0 {
+				t.endRun(RunChanged, "")
+				return e.rebuild(ctx, t, "the green proof no longer applies, since "+strings.Join(changed, "; "))
+			}
+			return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
+		}
+	}
 	if outcome == "failed" {
+		_, failed := checksOutcome(checks)
+		if run != nil {
+			run.Failed = failedChecks(failed)
+			if len(run.FailedOnce) > 0 {
+				run.RetryChecks = checks
+			}
+			if err := e.save(t); err != nil {
+				return err
+			}
+		}
 		if outcome, err = e.secondTry(ctx, t, failed); err != nil {
 			return err
 		}
@@ -230,12 +310,26 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 	case outcome == "pending" && waited >= RunDeadline:
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI on its pull request %s did not finish within %s of the push", t.PR, RunDeadline))
 	case outcome == "passed":
+		if run != nil {
+			if len(run.Passed) == 0 {
+				run.Passed = checks
+				run.Failed = nil
+				if err := e.save(t); err != nil {
+					return err
+				}
+			} else if !sameChecks(run.Passed, checks) {
+				return e.holdMerge(ctx, t, "the checks no longer match the green proof", readiness)
+			}
+		}
 		if err := e.noteFailedOnce(ctx, t); err != nil {
 			return err
 		}
-		return e.land(ctx, t)
+		return e.land(ctx, t, readiness)
 	case outcome == "failed":
+		_, failed := checksOutcome(checks)
 		return e.halve(ctx, t, failed)
+	case outcome == "changed":
+		return e.rebuild(ctx, t, t.Note)
 	}
 	return nil
 }
@@ -243,28 +337,37 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 // ci reads the CI of the train's pull request at its head: "stale" until
 // GitHub shows the head, "none" while no check on it ran, "pending" until
 // every check on it concluded, "closed" once the pull request is not open,
-// else "passed" or "failed" with the checks that failed.
-func (e Engine) ci(ctx context.Context, t Train) (string, []Check, error) {
-	out, err := e.run(ctx, t.Checkout, "gh", "pr", "view", t.PR, "--json", "state,headRefOid,statusCheckRollup")
+// else "passed" or "failed", with the observed checks.
+// It also returns GitHub's current merge readiness.
+func (e Engine) ci(ctx context.Context, t Train) (string, []Check, string, error) {
+	url, head := t.PR, t.Head
+	if run := t.openRun(); run != nil && run.OwnRun != "" {
+		url, head = run.PR, t.Cars[t.carsIn(CarRiding)[0]].Head
+	}
+	out, err := e.run(ctx, t.Checkout, "gh", "pr", "view", url, "--json", "state,headRefOid,statusCheckRollup,mergeStateStatus")
 	if err != nil {
-		return "", nil, fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
+		return "", nil, "", fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
 	}
 	var view struct {
 		State      string `json:"state"`
 		HeadRefOid string `json:"headRefOid"`
 		Checks     Checks `json:"statusCheckRollup"`
+		Readiness  string `json:"mergeStateStatus"`
 	}
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
-		return "", nil, fmt.Errorf("merge train %s: gh reported its CI in a shape it cannot read: %w", t.ID, err)
+		return "", nil, "", fmt.Errorf("merge train %s: gh reported its CI in a shape it cannot read: %w", t.ID, err)
+	}
+	if view.State != "OPEN" && view.State != "CLOSED" && view.State != "MERGED" || view.HeadRefOid == "" {
+		return "", nil, view.Readiness, fmt.Errorf("merge train %s: GitHub did not identify its pull request state and head", t.ID)
 	}
 	if view.State != "OPEN" {
-		return "closed", nil, nil
+		return "closed", nil, view.Readiness, nil
 	}
-	if view.HeadRefOid != t.Head {
-		return "stale", nil, nil
+	if view.HeadRefOid != head {
+		return "stale", nil, view.Readiness, nil
 	}
-	outcome, failed := checksOutcome(view.Checks)
-	return outcome, failed, nil
+	outcome, _ := checksOutcome(view.Checks)
+	return outcome, view.Checks, view.Readiness, nil
 }
 
 func (e Engine) save(t *Train) error {

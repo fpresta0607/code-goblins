@@ -20,6 +20,7 @@ type riderRun struct {
 	run        int
 	merge      string
 	number     int
+	status     string
 	conclusion string
 	extra      []Check
 }
@@ -27,11 +28,24 @@ type riderRun struct {
 // riderView answers gh pr view for a pull request with its own run: its head
 // as the remote has it, and its checks.
 func (f *fakeGitHub) riderView(url string) (execx.Result, error) {
-	own := f.ownRuns[url]
 	head := f.s.git(f.s.remote, "rev-parse", "refs/heads/"+f.pulls[url].branch)
-	checks := append([]Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: cmp.Or(own.conclusion, "SUCCESS"), DetailsURL: fmt.Sprintf("https://github.com/o/r/actions/runs/%d/job/%d", own.run, own.run*10)}}, own.extra...)
-	data, err := json.Marshal(map[string]any{"headRefOid": head, "statusCheckRollup": checks})
+	state := "OPEN"
+	if f.pulls[url].isClosed {
+		state = "CLOSED"
+	} else if f.pulls[url].isMerged {
+		state = "MERGED"
+	}
+	data, err := json.Marshal(map[string]any{"state": state, "headRefOid": head, "statusCheckRollup": f.riderChecks(url), "mergeStateStatus": cmp.Or(f.readiness, "CLEAN")})
 	return execx.Result{Stdout: data}, err
+}
+
+func (f *fakeGitHub) riderChecks(url string) Checks {
+	own := f.ownRuns[url]
+	check := Check{Kind: "CheckRun", Name: "test", Status: cmp.Or(own.status, "COMPLETED"), Conclusion: cmp.Or(own.conclusion, "SUCCESS"), DetailsURL: fmt.Sprintf("https://github.com/o/r/actions/runs/%d/job/%d", own.run, own.run*10)}
+	if check.Status != "COMPLETED" {
+		check.Conclusion = ""
+	}
+	return append(Checks{check}, own.extra...)
 }
 
 // actionsAPI answers the reads of a pull request's own run: its jobs, and the
@@ -124,6 +138,139 @@ func TestALoneRiderWhoseOwnRunTestedTodaysMainLandsWithNoTrainRun(t *testing.T) 
 	}
 }
 
+func TestOwnRunKeepsInitialCheckCustodyBeforeItsFirstAdvance(t *testing.T) {
+	for _, observation := range []string{"read failures", "red checks", "pending checks", "changed green identity"} {
+		t.Run(observation, func(t *testing.T) {
+			s := newScratch(t)
+			github := newFakeGitHub(s)
+			pr := provenRider(s, github, 5)
+			riders, _ := Riders([]PullRequest{pr}, "main", fleetAccount, goblinsFor(pr), nil)
+			started, err := s.engine(github).Start(context.Background(), landsLoneRider(s), riders)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proof := Checks{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: "https://github.com/o/r/actions/runs/705/job/7050"}}
+			kept, err := Read(s.state, started.ID)
+			if err != nil || !slices.Equal(kept.History[0].Passed, proof) {
+				t.Fatalf("initial own-run check proof was not persisted: %+v, %v", kept, err)
+			}
+			github.readiness = "BLOCKED"
+			switch observation {
+			case "read failures":
+				github.unanswered["view"] = maxErrors + 2
+			case "red checks":
+				github.ownRuns[pr.URL].conclusion = "FAILURE"
+			case "pending checks":
+				github.ownRuns[pr.URL].status = "IN_PROGRESS"
+			case "changed green identity":
+				github.ownRuns[pr.URL].run++
+			}
+
+			for range maxErrors + 2 {
+				_, _ = s.engine(github).Advance(context.Background(), started.ID)
+			}
+			kept, err = Read(s.state, started.ID)
+
+			if err != nil || kept.IsFinished() || kept.Runs != 1 || kept.Cars[0].State != CarRiding || kept.Head != started.Head || kept.BaseSHA != started.BaseSHA || kept.History[0].MergeHold == "" || !slices.Equal(kept.History[0].Passed, proof) {
+				t.Fatalf("initial proof was lost during %s: %+v, %v", observation, kept, err)
+			}
+			if len(github.mergeCalls()) != 0 || len(github.rerunCalls()) != 0 || github.created != 0 || len(s.told) != 0 {
+				t.Fatalf("initial proof triggered fresh work or blame: merges %v, reruns %v, created %d, blame %q", github.mergeCalls(), github.rerunCalls(), github.created, s.told)
+			}
+			if observation == "read failures" {
+				errors := kept.Errors
+				kept = s.step(s.engine(github), started.ID)
+				if kept.Errors != errors || !slices.Equal(kept.History[0].Passed, proof) {
+					t.Fatalf("successful polling reset held custody or error budget: %+v", kept)
+				}
+			}
+		})
+	}
+}
+
+func TestOwnRunCheckChangesHoldThroughBothEligibilityPaths(t *testing.T) {
+	for _, observation := range []string{"failed", "pending"} {
+		for _, phase := range []string{"before polling", "during landing recheck"} {
+			t.Run(observation+"/"+phase, func(t *testing.T) {
+				s, github, held := newHeldTrain(t, true)
+				proof := slices.Clone(held.History[0].Passed)
+				failures := slices.Clone(held.History[0].MergeFailures)
+				own := github.ownRuns[held.Cars[0].URL]
+				changeChecks := func() {
+					if observation == "failed" {
+						own.conclusion = "FAILURE"
+					} else {
+						own.status = "IN_PROGRESS"
+					}
+				}
+				if phase == "before polling" {
+					changeChecks()
+				} else {
+					github.beforeList = changeChecks
+				}
+
+				for range 3 {
+					kept := s.step(s.engine(github), held.ID)
+					if kept.IsFinished() || kept.Cars[0].State != CarRiding || kept.Runs != 1 || kept.Head != held.Head || kept.BaseSHA != held.BaseSHA || kept.Errors != held.Errors || kept.History[0].MergeAttempts != 1 || !slices.Equal(kept.History[0].Passed, proof) || !slices.Equal(kept.History[0].MergeFailures, failures) {
+						t.Fatalf("changed own-run evidence withdrew the source or lost custody: %+v", kept)
+					}
+				}
+				if len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || github.created != 0 || len(github.closed) != 0 || len(s.told) != 0 || len(s.cfo) != 2 {
+					t.Fatalf("changed evidence triggered compute, blame, or another notice: merges %v, reruns %v, notices %q", github.mergeCalls(), github.rerunCalls(), s.cfo)
+				}
+
+				own.status, own.conclusion = "", ""
+				github.readiness = "BLOCKED"
+				s.step(s.engine(github), held.ID)
+				delete(github.refuse, held.Cars[0].URL)
+				github.readiness = "CLEAN"
+				landed := s.step(s.engine(github), held.ID)
+
+				if landed.State != StateLanded || landed.Runs != 1 || !slices.Equal(landed.History[0].Passed, proof) || landed.History[0].MergeAttempts != 2 || len(github.mergeCalls()) != 2 || len(github.rerunCalls()) != 0 {
+					t.Fatalf("restored original proof did not land without fresh CI: %+v", landed)
+				}
+			})
+		}
+	}
+}
+
+func TestOwnRunProofStillHonorsActualRiderWithdrawal(t *testing.T) {
+	for _, change := range []string{"held", "closed", "draft", "moved", "conflicting", "review required", "changes requested", "different base", "cross repository"} {
+		t.Run(change, func(t *testing.T) {
+			s, github, held := newHeldTrain(t, true)
+			car := held.Cars[0]
+			github.ownRuns[car.URL].conclusion = "FAILURE"
+			pull := github.pulls[car.URL]
+			switch change {
+			case "held":
+				pull.isHeld = true
+			case "closed":
+				pull.isClosed = true
+			case "draft":
+				pull.isDraft = true
+			case "moved":
+				s.extend(car.Branch, "more.txt", "more\n")
+			case "conflicting":
+				pull.mergeable = "CONFLICTING"
+			case "review required":
+				pull.reviewDecision = "REVIEW_REQUIRED"
+			case "changes requested":
+				pull.reviewDecision = "CHANGES_REQUESTED"
+			case "different base":
+				pull.baseRefName = "release"
+			case "cross repository":
+				pull.isCrossRepository = true
+			}
+
+			stopped := s.step(s.engine(github), held.ID)
+
+			if !stopped.IsFinished() || stopped.Cars[0].State != CarReturned || stopped.Runs != 1 || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || github.created != 0 || len(s.told) != 0 || !slices.Equal(stopped.History[0].Passed, held.History[0].Passed) {
+				t.Fatalf("own-run custody ignored actual withdrawal or blamed it: %+v", stopped)
+			}
+		})
+	}
+}
+
 // mergeBody is the body gh was asked to merge the pull request at url with.
 func mergeBody(gh *fakeGitHub, url string) string {
 	for _, args := range gh.calls {
@@ -137,8 +284,9 @@ func mergeBody(gh *fakeGitHub, url string) string {
 func TestALoneRiderWhoseOwnRunDoesNotProveTheTreeThatWouldLandGetsATrainRun(t *testing.T) {
 	t.Parallel()
 	cases := map[string]struct {
-		isOptedOut bool
-		arrange    func(s *scratch, gh *fakeGitHub, pr PullRequest)
+		isOptedOut   bool
+		isIneligible bool
+		arrange      func(s *scratch, gh *fakeGitHub, pr PullRequest)
 	}{
 		"its repository leaves it off": {isOptedOut: true},
 		"its merge ref's first parent is an older main": {arrange: func(s *scratch, _ *fakeGitHub, _ PullRequest) {
@@ -151,13 +299,13 @@ func TestALoneRiderWhoseOwnRunDoesNotProveTheTreeThatWouldLandGetsATrainRun(t *t
 		"its run checked out another pull request's merge": {arrange: func(_ *scratch, gh *fakeGitHub, pr PullRequest) {
 			gh.ownRuns[pr.URL].number = 6
 		}},
-		"its run's check failed": {arrange: func(_ *scratch, gh *fakeGitHub, pr PullRequest) {
+		"its run's check failed": {isIneligible: true, arrange: func(_ *scratch, gh *fakeGitHub, pr PullRequest) {
 			gh.ownRuns[pr.URL].conclusion = "FAILURE"
 		}},
 		"a check no workflow run stands behind sits beside it": {arrange: func(_ *scratch, gh *fakeGitHub, pr PullRequest) {
 			gh.ownRuns[pr.URL].extra = []Check{{Kind: "StatusContext", Context: "scan", State: "SUCCESS", TargetURL: "https://scan.example/report"}}
 		}},
-		"its head moved since its run": {arrange: func(s *scratch, _ *fakeGitHub, pr PullRequest) {
+		"its head moved since its run": {isIneligible: true, arrange: func(s *scratch, _ *fakeGitHub, pr PullRequest) {
 			s.extend(pr.HeadRefName, "more.txt", "more\n")
 		}},
 	}
@@ -181,6 +329,12 @@ func TestALoneRiderWhoseOwnRunDoesNotProveTheTreeThatWouldLandGetsATrainRun(t *t
 			// Assert
 			if err != nil {
 				t.Fatal(err)
+			}
+			if c.isIneligible {
+				if gh.created != 0 || started.Runs != 0 || started.Cars[0].State != CarReturned || len(gh.mergeCalls()) != 0 {
+					t.Fatalf("train %+v, PRs %d, merges %v: want the ineligible source returned before compute", started, gh.created, gh.mergeCalls())
+				}
+				return
 			}
 			if gh.created != 1 || started.PR != gh.trainURL || !s.hasBranch(started.Branch) || started.History[0].OwnRun != "" {
 				t.Fatalf("opened %d pull requests, run %+v: want a train run pushed and opened, standing on nothing else", gh.created, started.History)

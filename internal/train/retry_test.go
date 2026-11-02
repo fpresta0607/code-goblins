@@ -255,8 +255,8 @@ func TestAFinishedTrainNamesEachCheckThatFailedOnceAndPassedWhenItRanAgain(t *te
 		State: StateStopped, Runs: 3, PR: "https://github.com/o/r/pull/900",
 		Cars: []Car{{Number: 1, State: CarLanded}, {Number: 2, State: CarCulprit}},
 		History: []Run{
-			{Number: 1, Riders: []int{1, 2}, Result: RunFailed, FailedOnce: []FailedCheck{check("conpty"), check("rest"), check("all")}, Failed: []FailedCheck{check("rest"), check("all")}},
-			{Number: 2, Riders: []int{1}, Result: RunLanded, FailedOnce: []FailedCheck{check("spawn")}},
+			{Number: 1, Riders: []int{1, 2}, Result: RunFailed, FailedOnce: []FailedCheck{check("conpty"), check("rest"), check("all")}, Failed: []FailedCheck{check("rest"), check("all")}, RetryChecks: Checks{{Kind: "CheckRun", Name: "conpty", Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: check("conpty").Link}}},
+			{Number: 2, Riders: []int{1}, Result: RunLanded, FailedOnce: []FailedCheck{check("spawn")}, RetryChecks: Checks{{Kind: "CheckRun", Name: "spawn", Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: check("spawn").Link}}},
 			{Number: 3, Riders: []int{2}, Result: RunStopped, FailedOnce: []FailedCheck{check("cmd")}},
 			{Number: 4, Riders: []int{2}, Result: RunFailed, Failed: []FailedCheck{check("rest")}},
 		},
@@ -274,5 +274,110 @@ func TestAFinishedTrainNamesEachCheckThatFailedOnceAndPassedWhenItRanAgain(t *te
 		if strings.Contains(summary, never) {
 			t.Fatalf("summary %q names %q, which was red twice or never finished its second try", summary, never)
 		}
+	}
+}
+
+func TestAbandonedRedRunKeepsFailuresBeforeRetryOrRebuild(t *testing.T) {
+	for _, transition := range []string{"retry", "rebuild"} {
+		t.Run(transition, func(t *testing.T) {
+			s := newScratch(t)
+			github := newFakeGitHub(s)
+			first := github.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+			second := github.open(12, "feat/b", s.branch("feat/b", "b.txt", "b\n"))
+			github.breaks = []string{second.HeadRefOid}
+			riders, _ := Riders([]PullRequest{first, second}, "main", fleetAccount, goblinsFor(first, second), nil)
+			engine := s.engine(github)
+			started, err := engine.Start(context.Background(), s.repository(), riders)
+			if err != nil {
+				t.Fatal(err)
+			}
+			github.unanswered["run rerun"] = 1
+			if _, err := engine.Advance(context.Background(), started.ID); err == nil {
+				t.Fatal("want the first retry request to fail")
+			}
+			github.pulls[second.URL].isHeld = true
+
+			var rebuilt Train
+			if transition == "retry" {
+				rebuilt = s.step(s.engine(github), started.ID)
+			} else {
+				rebuilt, err = Read(s.state, started.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := s.engine(github).rebuild(context.Background(), &rebuilt, "retry interrupted"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			landed := s.step(s.engine(github), started.ID)
+
+			failure := []FailedCheck{{Name: "test", Link: "https://github.com/o/r/actions/runs/101/job/1011"}}
+			if rebuilt.History[0].Result != RunChanged || !slices.Equal(rebuilt.History[0].Failed, failure) || !slices.Equal(rebuilt.History[0].FailedOnce, failure) || landed.State != StateLanded || landed.Cars[1].State != CarReturned || len(github.rerunCalls()) != 1 || len(s.told) != 0 || strings.Contains(s.cfo[len(s.cfo)-1], "passed on the second try") {
+				t.Fatalf("abandoned red run invented success or lost failures: %+v, final %+v, notices %q", rebuilt.History[0], landed, s.cfo)
+			}
+		})
+	}
+}
+
+func TestRetrySuccessRequiresAnObservedSuccessfulCheck(t *testing.T) {
+	for _, result := range []string{RunLanded, RunMoved, RunChanged, RunFailed} {
+		for _, observation := range []string{"missing", "pending", "skipped", "neutral", "other workflow", "other repository", "success"} {
+			t.Run(result+"/"+observation, func(t *testing.T) {
+				run := Run{Number: 1, Result: result, FailedOnce: []FailedCheck{{Name: "test", Link: "https://github.com/o/r/actions/runs/101/job/1011"}}}
+				check := Check{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS", DetailsURL: "https://github.com/o/r/actions/runs/101/job/1012"}
+				switch observation {
+				case "pending":
+					check.Status, check.Conclusion = "IN_PROGRESS", ""
+				case "skipped":
+					check.Conclusion = "SKIPPED"
+				case "neutral":
+					check.Conclusion = "NEUTRAL"
+				case "other workflow":
+					check.DetailsURL = "https://github.com/o/r/actions/runs/102/job/1022"
+				case "other repository":
+					check.DetailsURL = "https://github.com/other/r/actions/runs/101/job/1012"
+				}
+				if observation != "missing" {
+					run.RetryChecks = Checks{check}
+				}
+
+				summary := (Engine{}).summary(Train{State: StateStopped, History: []Run{run}})
+
+				if strings.Contains(summary, "passed on the second try") != (observation == "success") {
+					t.Fatalf("%s produced unsupported retry success: %q", observation, summary)
+				}
+			})
+		}
+	}
+}
+
+func TestAbandonedRedRetryReportsOnlyObservedSuccessfulChecks(t *testing.T) {
+	s := newScratch(t)
+	github := newFakeGitHub(s)
+	first := github.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+	second := github.open(12, "feat/b", s.branch("feat/b", "b.txt", "b\n"))
+	github.breaks = []string{second.HeadRefOid}
+	riders, _ := Riders([]PullRequest{first, second}, "main", fleetAccount, goblinsFor(first, second), nil)
+	started, err := s.engine(github).Start(context.Background(), s.repository(), riders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := github.workflowOf(started.Head)
+	workflow.extra = []Check{{Kind: "CheckRun", Name: "recovered", Status: "COMPLETED", Conclusion: "FAILURE", DetailsURL: "https://github.com/o/r/actions/runs/101/job/1013"}}
+	s.step(s.engine(github), started.ID)
+	github.pulls[second.URL].isHeld = true
+	workflow.extra[0].Conclusion = "SUCCESS"
+	workflow.extra[0].DetailsURL = "https://github.com/o/r/actions/runs/101/job/1014"
+
+	s.step(s.engine(github), started.ID)
+	landed := s.step(s.engine(github), started.ID)
+	kept, err := Read(s.state, started.ID)
+
+	if err != nil || landed.State != StateLanded || len(kept.History[0].RetryChecks) != 2 || !slices.Equal(kept.History[0].Failed, []FailedCheck{{Name: "test", Link: "https://github.com/o/r/actions/runs/101/job/1012"}}) {
+		t.Fatalf("retry observations not preserved: %+v, %v", kept, err)
+	}
+	last := s.cfo[len(s.cfo)-1]
+	if !strings.Contains(last, "failed once and passed on the second try: recovered (https://github.com/o/r/actions/runs/101/job/1013) in run 1") || strings.Contains(last, "second try: test") || len(s.told) != 0 {
+		t.Fatalf("want only the observed successful retry reported, without blame: %q, %q", last, s.told)
 	}
 }

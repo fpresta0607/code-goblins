@@ -1,21 +1,6 @@
-// Package train lands several green pull requests on a repository's default
-// branch with one CI run: a merge train.
-//
-// Landing pull requests one at a time costs one CI run each, in a row, since
-// every merge makes the other green runs stale. A train merges the green ones
-// onto main in queue order on a branch of its own, each with a merge commit
-// that names it, opens a pull request for that branch, and lets CI test the
-// combination once. When the run is green the train's own pull request
-// merges: main takes the commit CI tested, and GitHub marks each pull request
-// that rode merged, since main then holds its head. When it is red its failed
-// checks run again once, since a check can fail by chance, and when it is red
-// a second time the train is halved until the one pull request that breaks it
-// is found; every half that passes lands on the way, by a pull request of its
-// own.
-//
-// So a train that landed leaves nothing closed without merging on GitHub,
-// which GitHub draws in red. One that did not land its last run leaves that
-// run's pull request closed, saying why: the one place it says so.
+// Package train builds and lands green pull requests together using durable
+// merge-train records. See docs/contract/delivery.md for the merge-train
+// contract, including rider eligibility, holds, retries and recovery.
 package train
 
 import (
@@ -57,7 +42,7 @@ const keepFor = 7 * 24 * time.Hour
 
 // A train's states.
 const (
-	// StateTesting is a train whose pull request CI is testing.
+	// StateTesting is an active train awaiting CI or a permitted landing.
 	StateTesting = "testing"
 	// StateLanded is a finished train whose every tested pull request landed.
 	StateLanded = "landed"
@@ -95,8 +80,7 @@ const (
 	RunFailed = "failed"
 	// RunMoved passed, but the base moved during it, so it was tested again.
 	RunMoved = "moved"
-	// RunChanged passed, but a rider changed after it rode, so the rest was
-	// tested again without it.
+	// RunChanged ended because its riders or base changed before landing.
 	RunChanged = "changed"
 	// RunRepushed was built again before CI decided it, as when GitHub never
 	// showed its push.
@@ -193,19 +177,28 @@ type Car struct {
 // workflow runs behind its checks, PR is the rider's own pull request, and
 // Head the merge commit GitHub made of it, which those runs tested.
 type Run struct {
-	Number     int           `json:"number"`
-	Riders     []int         `json:"riders"`
-	Base       string        `json:"base"`
-	Head       string        `json:"head"`
-	Pushed     time.Time     `json:"pushed"`
-	Result     string        `json:"result,omitempty"`
-	Link       string        `json:"link,omitempty"`
-	PR         string        `json:"pr,omitempty"`
-	FailedOnce []FailedCheck `json:"failed_once,omitempty"`
-	Failed     []FailedCheck `json:"failed,omitempty"`
-	OnceTests  []string      `json:"failed_once_tests,omitempty"`
-	OnceUnread string        `json:"failed_once_unread,omitempty"`
-	OwnRun     string        `json:"own_run,omitempty"`
+	Number      int           `json:"number"`
+	Riders      []int         `json:"riders"`
+	Base        string        `json:"base"`
+	Head        string        `json:"head"`
+	Pushed      time.Time     `json:"pushed"`
+	Result      string        `json:"result,omitempty"`
+	Link        string        `json:"link,omitempty"`
+	PR          string        `json:"pr,omitempty"`
+	FailedOnce  []FailedCheck `json:"failed_once,omitempty"`
+	Failed      []FailedCheck `json:"failed,omitempty"`
+	RetryChecks Checks        `json:"retry_checks,omitempty"`
+	OnceTests   []string      `json:"failed_once_tests,omitempty"`
+	OnceUnread  string        `json:"failed_once_unread,omitempty"`
+	OwnRun      string        `json:"own_run,omitempty"`
+	Passed      Checks        `json:"passed_checks,omitempty"`
+	// MergeAttempts is spent before each merge call, including one whose
+	// answer is lost; polling and holds never replenish it.
+	MergeAttempts   int      `json:"merge_attempts,omitempty"`
+	MergeFailures   []string `json:"merge_failures,omitempty"`
+	MergeHold       string   `json:"merge_hold,omitempty"`
+	MergeReadiness  string   `json:"merge_readiness,omitempty"`
+	IsMergeNotified bool     `json:"merge_notified,omitempty"`
 }
 
 // FailedCheck is a check that ended red: its name and its page.
@@ -236,7 +229,7 @@ const foundOnBase = "already on "
 // last run.
 func (t Train) LandingEvidence(car Car) string {
 	if strings.HasPrefix(car.Note, foundOnBase) {
-		return fmt.Sprintf("merge train %s found %s already on %s, landed by an earlier run of the train or an earlier train", t.ID, car.URL, t.Base)
+		return fmt.Sprintf("merge train %s found %s already on %s (selected head %s)", t.ID, car.URL, t.Base, short(car.Head))
 	}
 	for _, run := range t.History {
 		if run.Result == RunLanded && run.OwnRun != "" && slices.Contains(run.Riders, car.Number) {

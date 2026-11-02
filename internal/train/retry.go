@@ -17,7 +17,8 @@ var actionsRun = regexp.MustCompile(`^https://github\.com/[^/]+/[^/]+/actions/ru
 // by chance, so the failed jobs of each workflow run behind a failed check
 // run again, once, and only a check red a second time is a failure. It
 // returns "failed" once the failure stands, and "pending" while a second try
-// is asked for or awaited.
+// is asked for or awaited, or "changed" when a rider or base change retires
+// the run before another retry.
 //
 // Whether a workflow run was tried again is read from GitHub's own count of
 // its attempts and never from the train's record: a step cut short after it
@@ -67,14 +68,23 @@ func (e Engine) secondTry(ctx context.Context, t *Train, failed []Check) (string
 	if len(due) == 0 {
 		return "pending", nil
 	}
-	if run := t.openRun(); run != nil && len(run.FailedOnce) == 0 {
-		run.FailedOnce = failedChecks(failed)
-	}
-	t.Note = fmt.Sprintf("CI failed once on %s (%s), so its failed checks run again before any pull request is blamed", t.numbers(t.carsIn(CarRiding)), checkNames(failed))
-	if err := e.save(t); err != nil {
-		return "", err
-	}
 	for _, id := range due {
+		changed, err := e.recheck(ctx, t)
+		if err != nil {
+			return "", err
+		}
+		if len(changed) > 0 {
+			t.endRun(RunChanged, "")
+			t.Note = "CI was not retried, since " + strings.Join(changed, "; ")
+			return "changed", e.save(t)
+		}
+		if run := t.openRun(); run != nil && len(run.FailedOnce) == 0 {
+			run.FailedOnce = failedChecks(failed)
+		}
+		t.Note = fmt.Sprintf("CI failed once on %s (%s), so its failed checks run again before any pull request is blamed", t.numbers(t.carsIn(CarRiding)), checkNames(failed))
+		if err := e.save(t); err != nil {
+			return "", err
+		}
 		if _, err := e.run(ctx, t.Checkout, "gh", "run", "rerun", id, "--failed", "--repo", t.Repository); err != nil {
 			return "", fmt.Errorf("merge train %s: run the failed jobs of workflow run %s again: %w", t.ID, id, err)
 		}
@@ -112,8 +122,19 @@ func (t Train) passedOnSecondTry() string {
 		default:
 			continue
 		}
+		checks := run.RetryChecks
+		if len(run.Passed) > 0 {
+			checks = run.Passed
+		}
 		for _, check := range run.FailedOnce {
-			if !slices.ContainsFunc(run.Failed, func(again FailedCheck) bool { return again.Name == check.Name }) {
+			if slices.ContainsFunc(checks, func(again Check) bool {
+				if again.name() != check.Name || !again.isConcluded() || !again.isPassed() || !again.hasRun() {
+					return false
+				}
+				firstRun := actionsRun.FindStringSubmatch(check.Link)
+				nextRun := actionsRun.FindStringSubmatch(again.link())
+				return firstRun != nil && nextRun != nil && firstRun[0] == nextRun[0]
+			}) {
 				passed = append(passed, fmt.Sprintf("%s in run %d", check, run.Number))
 			}
 		}

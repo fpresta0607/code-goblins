@@ -14,15 +14,20 @@ import (
 // While the base's own push CI is red at the commit the run was built on,
 // the failure may be the base's, so no rider is blamed and the train stops.
 func (e Engine) halve(ctx context.Context, t *Train, failed []Check) error {
-	t.Moved = 0
-	riders := t.carsIn(CarRiding)
 	red, err := e.redOnBase(ctx, *t)
 	if err != nil {
 		return err
 	}
-	if run := t.openRun(); run != nil {
-		run.Failed = failedChecks(failed)
+	changed, err := e.recheck(ctx, t)
+	if err != nil {
+		return err
 	}
+	if len(changed) > 0 {
+		t.endRun(RunChanged, "")
+		return e.rebuild(ctx, t, "no rider was blamed, since "+strings.Join(changed, "; "))
+	}
+	t.Moved = 0
+	riders := t.carsIn(CarRiding)
 	t.endRun(RunFailed, firstLink(failed))
 	if red != "" {
 		return e.finish(ctx, t, StateFailed, fmt.Sprintf("CI failed on %s (%s), and %s's own push CI is red at %s (%s), so no pull request is blamed: fix %s first", t.numbers(riders), checkNames(failed), t.Base, short(t.BaseSHA), red, t.Base))
