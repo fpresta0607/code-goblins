@@ -47,7 +47,7 @@ When it names an open pull request, a teammate's branch or an issue that overlap
 When it names an open issue the work answers, name that issue in the brief's Task as a `#N` line, so the task takes it up instead of opening a duplicate.
 `cfo spawn` runs the same check itself and refuses to start a task where a teammate has work in flight until you repeat it with `--overlap-ok "<why>"`.
 Never dispatch over an overlap you have not read.
-6. **Spawn it.** `cfo spawn <id> --project <name|path> --brief data/<id>/brief.md [--title "<short title>"] [--mode <mode>] [--yolo]`.
+6. **Spawn it.** `cfo brief ready <id>` once the brief is final, then `cfo spawn <id> --project <name|path> --brief data/<id>/brief.md [--title "<short title>"] [--mode <mode>] [--yolo]`.
 The lane table picks harness, model, and effort from the brief; add `--harness` only for the Supreme Overlord's stated preference.
 Give `--title` whenever the task has no backlog row with a title of its own: the board and the task's ticket name it by that title, and by its bare id without one.
 7. **Supervise it.** `cfo fleet-view` is fleet truth; `cfo runtime` is machine truth (what is running, whose it is, and what the machine has left before you dispatch another: start the next goblin only when its Dispatch line reads ready); `cfo peek <id>` reads a goblin's tail; `cfo send <id> "<steer>"` redirects it.
