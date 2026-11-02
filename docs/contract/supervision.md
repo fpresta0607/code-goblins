@@ -77,7 +77,8 @@
   Once it has waited 10 minutes, the supervisor's minute sweep wakes you as a `check` wake keyed by the goblin, starting `cfo_wait:`, naming the goblin, what it waits for (its report cut short, or the row) and how long it has waited, with your next step, and again at most once every 30 minutes while the wait lasts.
   Whether a pull request is a draft or held is what the last CI poll that listed it read, by the train's own rule, so a hold that comes off ends the wait at the next poll.
   A `cfo` row you moved to Done still holds its goblin, since nothing but you tells it or resumes it, and the wake then says to tell it or resume it.
-  The wait ends, and wakes no more, as soon as the goblin reports again, its harness takes a prompt such as your answer, a pause other than until a `cfo` row takes hold, it stops or it is retired; a pause that failed while the goblin carries on ends nothing, and its next wait starts its own 10 minutes.
+  The wait ends, and wakes no more, as soon as the goblin reports again, its harness takes a prompt such as your answer, a pause other than until a `cfo` row takes hold, it stops or it is retired, and its next wait starts its own 10 minutes.
+  A pause that fails while the goblin carries on does not end the wait by itself, though the pause request typed into the goblin is a prompt and ends a wait it reported before; a wait it reports after the failed pause wakes you as any other.
   A wait by design, on CI, a deploy, another goblin's task, a backlog row of another kind, the Overlord or memory, raises nothing here.
   The session digest and the compact checkpoint list each such goblin under WAITING ON THE CFO with how long it has waited, and the checkpoint says no goblin waits on your answer only when that list and its open questions are both empty.
   On 2026-11-02 a goblin waited two hours on a pull request held for your review, with its checks passed, while the checkpoint said no goblin waited on your answer.
