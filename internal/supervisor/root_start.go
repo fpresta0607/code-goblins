@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -145,7 +144,7 @@ func (root rootStart) refusal() string {
 // pickup interval before another read. A changed brief or identity is new.
 func (s *Service) rootStartRefusal(root rootStart) StartRefusal {
 	if refusal, kind := rootLocalRefusal(s.Store.Home, root); refusal.Reason != "" {
-		s.keepRootStart(root, kind, refusal.Reason)
+		s.tellRootStart(root, kind, refusal.Reason)
 		return refusal
 	}
 	now := time.Now().UTC()
@@ -161,7 +160,7 @@ func (s *Service) rootStartRefusal(root rootStart) StartRefusal {
 				problem := root
 				problem.Problem = bounded(err.Error(), 500)
 				reason := problem.refusal()
-				s.keepRootStart(root, "identity", reason)
+				s.tellRootStart(root, "identity", reason)
 				return StartRefusal{Reason: reason, Waits: true}
 			}
 		}
@@ -289,47 +288,19 @@ func (s *Service) keepRootStart(root rootStart, kind, reason string) {
 // Only checkFleet persists these readings. The independent turn reader may
 // consume closure, but open evidence never gives it authority to start work.
 func (s *Service) currentRootReadings() []rootStartReading {
-	h := s.Store.Home
 	now := time.Now().UTC()
+	var current []rootStartReading
 	s.mu.Lock()
-	readings := make(map[rootStart]rootStartReading, len(s.rootStarts))
 	for root, reading := range s.rootStarts {
 		if reading.current(root, now) {
-			readings[root] = reading
+			current = append(current, reading)
 		}
 	}
 	s.mu.Unlock()
-	if len(readings) == 0 {
-		return nil
-	}
-	backlog, err := fleet.ReadBacklog(h)
-	if err != nil {
-		return nil
-	}
-	var current []rootStartReading
-	for _, id := range queuedCandidates(h) {
-		if len(current) == rootReadingsLimit {
-			break
-		}
-		if _, err := os.Stat(filepath.Join(h.State, id+".meta")); !errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		queued, err := backlog.ReadQueuedTask(h, id)
-		if err != nil {
-			continue
-		}
-		brief := filepath.Join(h.Data, id, "brief.md")
-		plan := startPlan{id: id, brief: brief, project: briefProject(brief), isRoot: queued.Row.Priority == RootPriority}
-		if plan.project == "" {
-			plan.project = queued.Row.Repo
-		}
-		if root := rootForStart(h, queued, plan); root != nil {
-			if reading, exists := readings[*root]; exists {
-				current = append(current, reading)
-			}
-		}
-	}
 	sort.Slice(current, func(i, j int) bool { return current[i].Root.Task < current[j].Root.Task })
+	if len(current) > rootReadingsLimit {
+		current = current[:rootReadingsLimit]
+	}
 	return current
 }
 

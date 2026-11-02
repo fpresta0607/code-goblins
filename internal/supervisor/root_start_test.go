@@ -555,7 +555,7 @@ func TestUnreadableFleetStateNeverProvesRootClosure(t *testing.T) {
 	}
 }
 
-func TestNewRootReadingsReplacePersistedClosureAndKeepOnlyCandidates(t *testing.T) {
+func TestNewRootReadingsReplacePersistedClosure(t *testing.T) {
 	for _, test := range []struct {
 		name, issueState string
 		issueErr         error
@@ -592,14 +592,6 @@ func TestNewRootReadingsReplacePersistedClosureAndKeepOnlyCandidates(t *testing.
 			watched, err := readFleetWakes(h.State)
 			if err != nil || len(watched.RootReadings) != 1 || watched.RootReadings[0].Result == rootVerifiedClosed || !WorkWaits(h) || len(spawner.recorded()) != 0 {
 				t.Fatalf("readings=%v err=%v spawns=%v, want new non-closure evidence", watched.RootReadings, err, spawner.recorded())
-			}
-			writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Parked\n- [ ] root-widgets-7 - Root (repo: widgets)\n")
-			if err := service.checkFleet(t.Context(), rootNow.Add(3*time.Minute)); err != nil {
-				t.Fatal(err)
-			}
-			watched, err = readFleetWakes(h.State)
-			if err != nil || len(watched.RootReadings) != 0 {
-				t.Fatalf("non-candidate evidence survived: %v %v", watched.RootReadings, err)
 			}
 		})
 	}
@@ -662,6 +654,73 @@ func TestClosedRootEvidenceRechecksLocalIdentityAndOwnership(t *testing.T) {
 			}
 			if len(spawner.recorded()) != 0 || reads.Load() != 1 {
 				t.Errorf("spawns=%v reads=%d, want none and the original read only", spawner.recorded(), reads.Load())
+			}
+		})
+	}
+}
+
+func TestClearedLocalRootEvidenceNeverOutlivesItsCause(t *testing.T) {
+	for _, test := range []struct {
+		name, want     string
+		arrange, clear func(*testing.T, *Service, home.Home)
+	}{
+		{name: "live owner ends", want: "belongs to widgets-follow-up", arrange: func(t *testing.T, _ *Service, h home.Home) {
+			fileRootAsLiveTask(t, h, "widgets-follow-up", rootIssue(7).URL)
+		}, clear: func(t *testing.T, _ *Service, h home.Home) {
+			if err := os.Remove(state.TaskMetaPath(h.State, "widgets-follow-up")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "project mapping restored", want: "differs", arrange: func(t *testing.T, service *Service, _ home.Home) {
+			if err := service.checkFleet(t.Context(), rootNow); err != nil {
+				t.Fatal(err)
+			}
+			waitRootReading(t, service)
+			service.Options.RootIssues.Repository = func(context.Context, string) (string, error) { return "acme/other", nil }
+		}, clear: func(_ *testing.T, service *Service, _ home.Home) {
+			service.Options.RootIssues.Repository = func(context.Context, string) (string, error) { return rootRepository, nil }
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: local evidence refuses the root over several passes.
+			service, h, spawner, reads := rootStartBoard(t, "closed", nil)
+			test.arrange(t, service, h)
+			for _, minute := range []int{1, 2} {
+				if err := service.checkFleet(t.Context(), rootNow.Add(time.Duration(minute)*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				waitRootReading(t, service)
+			}
+			test.clear(t, service, h)
+
+			// Act: the scheduler passes after the local evidence clears.
+			for _, minute := range []int{3, 4} {
+				if err := service.checkFleet(t.Context(), rootNow.Add(time.Duration(minute)*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				waitRootReading(t, service)
+			}
+			err := service.startQueued("root-widgets-7", false)
+
+			// Assert: GitHub's closure decides, not the cleared local reason.
+			var refusal StartRefusal
+			if !errors.As(err, &refusal) || !refusal.Held || refusal.Waits || !strings.Contains(refusal.Reason, "is closed") {
+				t.Errorf("Start=%v, want the verified closure", err)
+			}
+			service.mu.Lock()
+			waiting := slices.Clone(service.scheduling.Waiting)
+			service.mu.Unlock()
+			if len(waiting) != 0 || reads.Load() != 1 || len(spawner.recorded()) != 0 {
+				t.Errorf("waiting=%v reads=%d spawns=%v, want none, one bounded read and none", waiting, reads.Load(), spawner.recorded())
+			}
+			var notices []string
+			for _, record := range fleetWakeRecords(t, h, "notify") {
+				if strings.Contains(record.Detail, test.want) {
+					notices = append(notices, record.Detail)
+				}
+			}
+			if len(notices) != 1 {
+				t.Errorf("local notices=%v, want one", notices)
 			}
 		})
 	}
