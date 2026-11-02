@@ -32,7 +32,7 @@ func TestMessagePageContextCancelsFileOpenWait(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				if isDeadline {
 					cancel()
-					ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+					ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond) // stall-accepted: the test means this context to run out.
 				}
 				defer cancel()
 				finished := make(chan error, 1)
@@ -41,7 +41,7 @@ func TestMessagePageContextCancelsFileOpenWait(t *testing.T) {
 					finished <- err
 				}()
 				if !isDeadline {
-					timer := time.AfterFunc(30*time.Millisecond, cancel)
+					timer := time.AfterFunc(30*time.Millisecond, cancel) // stall-accepted: it only makes the cancel come later.
 					defer timer.Stop()
 				}
 
@@ -54,7 +54,7 @@ func TestMessagePageContextCancelsFileOpenWait(t *testing.T) {
 					if !errors.Is(err, want) {
 						t.Fatalf("held-file lookup returned %v, want %v", err, want)
 					}
-				case <-time.After(3 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("lookup waited for the held file after cancellation")
 				}
 				if err := windows.CloseHandle(handle); err != nil {

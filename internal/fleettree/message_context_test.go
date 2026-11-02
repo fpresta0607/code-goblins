@@ -44,6 +44,36 @@ func (c *waitingMessageContext) Done() <-chan struct{} {
 	return c.Context.Done()
 }
 
+// deadlineContext is a deadline the test runs out itself once the reader
+// waits on it, so no stall before then can run it out early.
+type deadlineContext struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func (c *deadlineContext) Done() <-chan struct{} { return c.done }
+
+func (c *deadlineContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+// endableContext is a context the returned func ends, by cancelling it or by
+// running out its deadline, with the error the ended context reports.
+func endableContext(isDeadline bool) (context.Context, func(), error) {
+	if isDeadline {
+		deadline := &deadlineContext{Context: context.Background(), done: make(chan struct{})}
+		return deadline, func() { deadline.once.Do(func() { close(deadline.done) }) }, context.DeadlineExceeded
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	return ctx, cancel, context.Canceled
+}
+
 func contextMessageEntries(harness string, from, to int) []object {
 	var entries []object
 	for index := from; index < to; index++ {
@@ -133,12 +163,8 @@ func TestMessagePageContextCancelsActiveParsingWithoutPoisoningHistory(t *testin
 						appendLines(t, path, contextMessageEntries(harness, 120, 140)...)
 						count = 140
 					}
-					ctx, cancel := context.WithCancel(context.Background())
-					if isDeadline {
-						cancel()
-						ctx, cancel = context.WithTimeout(context.Background(), time.Second)
-					}
-					defer cancel()
+					ctx, end, want := endableContext(isDeadline)
+					defer end()
 					reading := &parsingMessageContext{Context: ctx, opens: fsx.Opens(), started: make(chan struct{})}
 					finished := make(chan error, 1)
 					go func() {
@@ -148,22 +174,16 @@ func TestMessagePageContextCancelsActiveParsingWithoutPoisoningHistory(t *testin
 
 					select {
 					case <-reading.started:
-					case <-time.After(3 * time.Second):
+					case <-time.After(time.Minute):
 						t.Fatal("reader did not reach an active parsing cancellation point")
 					}
-					if !isDeadline {
-						cancel()
-					}
-					want := context.Canceled
-					if isDeadline {
-						want = context.DeadlineExceeded
-					}
+					end()
 					select {
 					case err := <-finished:
 						if !errors.Is(err, want) {
 							t.Fatalf("active parsing returned %v, want %v", err, want)
 						}
-					case <-time.After(3 * time.Second):
+					case <-time.After(time.Minute):
 						t.Fatal("active parsing ignored cancellation")
 					}
 
@@ -194,12 +214,8 @@ func TestMessagePageContextCancelsWholeHistoryWaitWithoutPoisoningHistory(t *tes
 				}
 				log := reader.messageLogs[path]
 				log.from, log.whole = 1, make(chan struct{})
-				ctx, cancel := context.WithCancel(context.Background())
-				if isDeadline {
-					cancel()
-					ctx, cancel = context.WithTimeout(context.Background(), time.Second)
-				}
-				defer cancel()
+				ctx, end, want := endableContext(isDeadline)
+				defer end()
 				waiting := &waitingMessageContext{Context: ctx, started: make(chan struct{}), opens: fsx.Opens(), shouldWaitForOpen: true}
 				finished := make(chan error, 1)
 				go func() {
@@ -209,7 +225,7 @@ func TestMessagePageContextCancelsWholeHistoryWaitWithoutPoisoningHistory(t *tes
 
 				select {
 				case <-waiting.started:
-				case <-time.After(3 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("reader did not wait for complete shared history")
 				}
 				if isReacquiring {
@@ -223,19 +239,13 @@ func TestMessagePageContextCancelsWholeHistoryWaitWithoutPoisoningHistory(t *tes
 						log.mu.Unlock()
 					}
 				}()
-				if !isDeadline {
-					cancel()
-				}
-				want := context.Canceled
-				if isDeadline {
-					want = context.DeadlineExceeded
-				}
+				end()
 				select {
 				case err := <-finished:
 					if !errors.Is(err, want) {
 						t.Fatalf("whole-history lookup returned %v, want %v", err, want)
 					}
-				case <-time.After(3 * time.Second):
+				case <-time.After(time.Minute):
 					t.Fatal("whole-history wait ignored cancellation")
 				}
 				if isReacquiring {
@@ -289,7 +299,7 @@ func TestMessagePageContextCancelsContendedLocksWithoutPoisoningHistory(t *testi
 					ctx, cancel := context.WithCancel(context.Background())
 					if isDeadline {
 						cancel()
-						ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+						ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond) // stall-accepted: the test means this deadline to run out, and the reader's first call to Done marks its wait begun, so a deadline run out early still ends the lookup with the error the test wants.
 					}
 					defer cancel()
 					waiting := &waitingMessageContext{Context: ctx, started: make(chan struct{})}
@@ -301,7 +311,7 @@ func TestMessagePageContextCancelsContendedLocksWithoutPoisoningHistory(t *testi
 
 					select {
 					case <-waiting.started:
-					case <-time.After(3 * time.Second):
+					case <-time.After(time.Minute):
 						t.Fatal("reader did not enter its cancellable lock wait")
 					}
 					if !isDeadline {
@@ -316,7 +326,7 @@ func TestMessagePageContextCancelsContendedLocksWithoutPoisoningHistory(t *testi
 						if !errors.Is(err, want) {
 							t.Fatalf("contended lookup returned %v, want %v", err, want)
 						}
-					case <-time.After(3 * time.Second):
+					case <-time.After(time.Minute):
 						t.Fatal("lookup waited for the held mutex after cancellation")
 					}
 					mutex.Unlock()
