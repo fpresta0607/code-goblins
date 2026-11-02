@@ -278,7 +278,7 @@ func TestInterruptedPublicationKeepsItsRecordedRunAndExternalCommits(t *testing.
 				kept, _ = s.engine(github).Advance(context.Background(), held.ID)
 			}
 
-			if kept.IsFinished() || kept.Runs != 2 || kept.Head != saved.Head || hasExternalCommit && kept.Errors != saved.Errors+maxErrors+2 ||!slices.Equal(kept.History[0].Passed, proof) || !slices.Equal(kept.History[0].MergeFailures, failures) || kept.History[0].MergeAttempts != 1 || len(github.pushes) != pushes || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != published || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(s.cfo) != 2 {
+			if kept.IsFinished() || kept.Runs != 2 || kept.Head != saved.Head || hasExternalCommit && kept.Errors != saved.Errors+maxErrors+2 || !slices.Equal(kept.History[0].Passed, proof) || !slices.Equal(kept.History[0].MergeFailures, failures) || kept.History[0].MergeAttempts != 1 || len(github.pushes) != pushes || s.git(s.remote, "rev-parse", "refs/heads/"+held.Branch) != published || len(github.mergeCalls()) != 1 || len(github.rerunCalls()) != 0 || len(s.cfo) != 2 {
 				t.Fatalf("recovery duplicated validation or lost branch custody: %+v, pushes %d -> %d, notices %q", kept, pushes, len(github.pushes), s.cfo)
 			}
 			if hasExternalCommit && s.fileOn(published, "external.txt") != "external\n" {
@@ -301,7 +301,7 @@ func TestUnknownBranchIdentityCannotExhaustIntoCleanup(t *testing.T) {
 			t.Fatal("want unknown branch identity reported without cleanup")
 		}
 	}
-	if kept.IsFinished() || kept.Head != held.Head || kept.Runs != 1 || kept.Errors != held.Errors+maxErrors+2 ||!slices.Equal(kept.History[0].Passed, held.History[0].Passed) || len(github.pushes) != pushes || len(github.closed) != 0 || len(github.mergeCalls()) != 1 || len(s.cfo) != 2 || !s.hasBranch(held.Branch) {
+	if kept.IsFinished() || kept.Head != held.Head || kept.Runs != 1 || kept.Errors != held.Errors+maxErrors+2 || !slices.Equal(kept.History[0].Passed, held.History[0].Passed) || len(github.pushes) != pushes || len(github.closed) != 0 || len(github.mergeCalls()) != 1 || len(s.cfo) != 2 || !s.hasBranch(held.Branch) {
 		t.Fatalf("unknown branch identity discarded custody: %+v, notices %q", kept, s.cfo)
 	}
 }
