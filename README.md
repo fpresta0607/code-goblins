@@ -215,6 +215,7 @@ See [conversation recovery and fresh starts](docs/native-board.md#a-cfo-whose-te
 `cfo` and `goblins` name the same CLI.
 Use `cfo help` to list topics, then ask for one command, such as `cfo help auth request`.
 The [help reference](docs/commands/help.md), [operator contract](AGENTS.md) and [pipeline guide](docs/pipeline.md) cover fleet operation and verification levels.
+See the [update command reference](docs/commands/update.md) for installing a candidate build and recovering an update.
 
 For persistent Command Center reviews:
 
@@ -230,6 +231,10 @@ See the [review command reference](docs/commands/review.md) for withdrawal and c
 **Update Code Goblins** in Command Center offers published releases; `goblins update` does the same from your terminal.
 Updates verify release downloads, keep the home and running sessions, and roll back a build whose board does not start.
 See [updating and what it preserves](docs/install.md#updating).
+
+The program folder retains only the current build once older copies are no longer in use.
+The janitor retries removal of old copies and leaves the folder alone during an unfinished update.
+Verified rollback and recovery copies in `state\update` are kept.
 
 ### Uninstall
 
