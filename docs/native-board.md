@@ -591,7 +591,8 @@ The supervisor keeps a session's record after its task retires, as it last repor
 A live task record no native hook reported hangs under the CFO, because cfo spawn is how every task record was dispatched: under the reported CFO session, or under a supervisor root drawn when none reported, which opens the CFO terminal and names a stale registration.
 A goblin's session hangs there too when the parent it reported is not in the tree, whoever started or resumed it, and the canvas and the lineage list draw the same family.
 A goblin records the session its start explicitly names (`CFO_SESSION_ID` plus `CFO_SESSION_HARNESS`) as its parent, else the registered live CFO's session, else the session its start runs in (`CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID` or `PI_SESSION_ID`), so a goblin the supervisor starts, resumes or switches by itself records the CFO too; a helper never takes the CFO, since its record names its goblin.
-The CFO's status on every surface, its panel's Task view and its root on the canvas and in the lineage list, comes from the registered CFO's own session, which the snapshot names as `cfo_session`: an older CFO's session, ended or still marked running, never stands in for it (the Overlord, 2026-10-17: "it says session ended when it's truly working") and leaves the canvas, while a goblin in progress it started hangs under the CFO; with no registration naming a session, the newest CFO session still running is read, and while the registered CFO has reported no session, or its session has ended, its panel reads Supervising and the canvas draws the supervisor root.
+The CFO's status on the canvas and in the lineage list comes from the registered CFO's own session, which the snapshot names as `cfo_session`: an older CFO's session, ended or still marked running, never stands in for it (the Overlord, 2026-10-17: "it says session ended when it's truly working") and leaves the canvas, while a goblin in progress it started hangs under the CFO; with no registration naming a session, the newest CFO session still running is read, and while the registered CFO has reported no session, or its session has ended, the canvas draws the supervisor root.
+Its Task view omits the runtime status strip and, when there are no header details to show, leaves no space or divider before Workspace.
 Completed history and unstarted briefs stay on the board, not in the tree.
 Directory names and temporal proximity never establish parentage.
 Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
@@ -1394,7 +1395,7 @@ Beside it, the words the harness says it is doing, or Working when it says none,
 The typing slides a window over the word to each letter's edge, and the shimmer is a light band crossing it, both by transform alone.
 Every word is in the page from the start, laid unseen in the one place, and shows in its turn by its own animations, which come round again while the turn runs, so nothing in the page changes as the words rotate (the CFO, 2026-10-30: "nothing moves when nothing runs"): a working panel at rest recalculates the page's style 2 or 3 times in 3 seconds, and React draws nothing again.
 It carries an accessible name, the harness's own words or Working, and reduced motion keeps the helix still and shows those words whole.
-Working cards, tree rows and a panel's Task view show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
+Working cards, tree rows and a goblin's Task view show the board's still blue status dot instead; the indicator is only in Modern Chat's working spot.
 Running tool calls keep a static state mark.
 The CFO's own panel shows the indicator at its reply's end while it works, as a goblin's does.
 

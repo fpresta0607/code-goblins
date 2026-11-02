@@ -18,7 +18,7 @@ const snapshot = (fields: Record<string, unknown> = {}) => ({
 async function open(page: Page, first: object) {
   await holdStream(page, first);
   await page.route("**/api/**", (route) => {
-    if (new URL(route.request().url()).pathname === "/api/workspace") return route.fulfill({ json: { project: "", repository: "", root: "C:\\Users\\op\\AppData\\Local\\CodeGoblins", branch: "", harness: "claude", model: "Reported: claude-opus-5-5", notes: [] } });
+    if (new URL(route.request().url()).pathname === "/api/workspace") return route.fulfill({ json: { project: "", repository: "code-goblins", root: "C:\\dev\\code-goblins", branch: "", harness: "claude", model: "Reported: claude-opus-5-5", notes: [] } });
     return route.fulfill({ status: 404, json: { error: "No fixture for this resource" } });
   });
   await page.goto("/");
@@ -42,23 +42,79 @@ const lines = (locator: Locator) => locator.evaluate((element) => {
 });
 const pageScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-// The Overlord, 2026-10-17, with the CFO panel reading Session ended while a
-// Claude Code CFO worked: the header reads the registered CFO's own session,
-// and an older CFO's ended session never stands in for it, whether or not the
-// registered CFO has reported its session yet.
-test("the CFO's panel header reads the registered CFO, never an ended CFO session", async ({ page }) => {
+test("the CFO task panel omits runtime status with or without its registered session", async ({ page }) => {
   const endedPi = { id: "pi/old-cfo", native_id: "old-cfo", harness: "pi", role: "cfo", phase: "ended", model: "openrouter/deepseek/deepseek-v4.1-flash" };
   const live = { id: "claude/live-cfo", native_id: "live-cfo", harness: "claude", role: "cfo", phase: "active", model: "claude-opus-5-5" };
-  for (const [sessions, said] of [[[endedPi, live], "Working"], [[endedPi], "Supervising"]] as const) {
+  for (const sessions of [[endedPi, live], [endedPi]] as const) {
     await open(page, snapshot({ cfo_session: "claude/live-cfo", sessions }));
-    await expect(page.locator(".panel-status")).toHaveText(said);
-    await expect(page.locator(".panel-status")).not.toHaveText(/Session ended/);
+    await expect(page.locator(".panel-header-details .panel-status")).toHaveCount(0);
+    await expect(page.locator("#panel-title")).toHaveText("CFO");
   }
 });
 
 for (const [size, viewport] of [["desktop", { width: 1280, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {
   test.describe(`at ${size} width`, () => {
     test.use({ viewport });
+
+    test("the CFO task view removes the finished strip and empty Dev Drive without reserving space", async ({ page }, testInfo) => {
+      // Arrange
+      await open(page, snapshot({
+        cfo_session: "cfo-1",
+        sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", phase: "settled", runtime: { state: "settled" } }],
+        dev_drive: drive({ state: "on", line: "on: the home's worktrees, scratch and caches are on D:\\CodeGoblins", note: "The worktrees and caches are on D:\\CodeGoblins.", action: "", waiting: "" }),
+      }));
+      const panel = page.locator(".goblin-panel");
+      const details = panel.locator(".panel-header-details");
+      const workspace = panel.locator(".workspace-details");
+      const summary = workspace.locator("> summary");
+      await panel.screenshot({ path: testInfo.outputPath(`cfo-task-collapsed-${size}.png`) });
+
+      // Act
+      await summary.focus();
+      await page.keyboard.press("Enter");
+      await expect(workspace.getByText("CFO project root", { exact: true })).toBeVisible();
+      await panel.screenshot({ path: testInfo.outputPath(`cfo-task-workspace-${size}.png`) });
+
+      // Assert
+      await expect.soft(details.locator(".panel-status")).toHaveCount(0, { timeout: 1000 });
+      await expect.soft(details).toBeHidden({ timeout: 1000 });
+      const taskBox = await box(panel.locator("section.panel-task"));
+      const workspaceBox = await box(workspace);
+      await testInfo.attach(`cfo-task-layout-${size}`, { body: JSON.stringify({ workspaceTopGap: workspaceBox.y - taskBox.y, workspaceHeight: workspaceBox.height, statusRows: await details.locator(".panel-status").count(), devDriveRows: await workspace.locator(".dev-drive-setting").count() }), contentType: "application/json" });
+      expect.soft(workspaceBox.y - taskBox.y).toBeLessThanOrEqual(1);
+      await expect.soft(workspace).toHaveCSS("border-top-width", "0px", { timeout: 1000 });
+      await expect.soft(workspace.getByText("Dev Drive", { exact: true })).toHaveCount(0, { timeout: 1000 });
+      await expect.soft(workspace.locator(".dev-drive-setting")).toHaveCount(0, { timeout: 1000 });
+      await expect.soft(workspace.locator(".disclosure-content > :last-child")).toHaveClass("chat-style-setting", { timeout: 1000 });
+      expect(await pageScroll(page)).toBe(0);
+      await expect(summary).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(workspace).not.toHaveAttribute("open");
+      await page.keyboard.press("Tab");
+      const remote = panel.locator(".remote-access > summary");
+      await expect(remote).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(panel.locator(".remote-access")).toHaveAttribute("open", "");
+      await expect(panel.getByRole("switch", { name: "AFK mode" })).toBeEnabled();
+      await expect(panel.getByRole("heading", { name: "CFO", exact: true })).toBeVisible();
+    });
+
+    test("the CFO task view keeps its AFK report and pending update notice", async ({ page }) => {
+      // Arrange
+      await open(page, snapshot({ afk: { state: "off", page: "/fixture-report" }, cfo_update: { harness: "claude", pending: true } }));
+      const details = page.locator(".panel-header-details");
+      const asked: unknown[] = [];
+      await page.route("**/api/cfo/update", (route) => { asked.push(route.request().postDataJSON()); return route.fulfill({ json: {} }); });
+
+      // Act
+      await page.getByRole("button", { name: "Cancel the Claude Code update" }).click();
+
+      // Assert
+      await expect(details.getByRole("button", { name: "Open your last AFK report" })).toBeVisible();
+      await expect(details).toContainText("Restarts onto the Claude Code update when its turn ends.");
+      await expect(details.locator(".panel-status")).toHaveCount(0);
+      await expect.poll(() => asked).toEqual([{ cancel: true }]);
+    });
 
     test("Restart the CFO sits under Harness in the CFO's task panel, on one line with its harness, and the header has none", async ({ page }, testInfo) => {
       // Arrange
