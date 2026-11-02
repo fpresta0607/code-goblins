@@ -73,6 +73,76 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
     await page.keyboard.press("Escape");
     await expect(history).toHaveCount(0);
   });
+
+  // The Overlord, 2026-11-02: "I hate the container padding, the X is
+  // squished and each record has no margin in the internal container."
+  test(`speech history keeps one inset for its title, records and foot, its close with room, and a gap between records, in ${label}`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height });
+    await open(page);
+    await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: DICTATIONS } }));
+    await openGoblin(page);
+
+    // Act
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+
+    // Assert
+    const history = page.getByRole("dialog", { name: "Speech history" });
+    await expect(history.locator("li")).toHaveCount(DICTATIONS.length);
+    const shape = await history.evaluate((card) => {
+      const rect = (selector: string) => card.querySelector(selector)!.getBoundingClientRect();
+      const text = (selector: string) => {
+        const range = document.createRange();
+        range.selectNodeContents(card.querySelector(selector)!);
+        return range.getBoundingClientRect();
+      };
+      const edge = card.getBoundingClientRect(), close = rect(".voice-close"), title = rect(".voice-card-title"), list = rect("ul");
+      const records = [...card.querySelectorAll("li")].map((record) => record.getBoundingClientRect());
+      return {
+        insets: [text(".voice-card-title").left, text("li .voice-meta").left, text(".voice-footer").left].map((left) => Math.round(left - edge.left)),
+        closeRoom: Math.min(close.top - edge.top, edge.right - close.right),
+        closeCentred: Math.abs((close.top + close.bottom) / 2 - (title.top + title.bottom) / 2),
+        closeOverList: close.bottom - list.top,
+        gaps: records.slice(1).map((record, at) => record.top - records[at].bottom),
+        recordInset: text("li .voice-meta").left - records[0].left,
+      };
+    });
+    expect(new Set(shape.insets).size, "title, records and foot start at one inset: " + shape.insets.join(", ")).toBe(1);
+    expect(shape.closeRoom, "the close keeps off the card's edges").toBeGreaterThanOrEqual(8);
+    expect(shape.closeCentred, "the close sits on the title's row").toBeLessThanOrEqual(2);
+    expect(shape.closeOverList, "the close stays out of the list").toBeLessThanOrEqual(0);
+    for (const gap of shape.gaps) expect(gap, "a gap between records").toBeGreaterThanOrEqual(4);
+    expect(shape.recordInset, "a record's words keep off its edge").toBeGreaterThanOrEqual(10);
+  });
+
+  // The Overlord, 2026-11-02: "When you click off the modal for speech
+  // dictation it should close."
+  test(`a press off speech history closes it, and one on a record does not, in ${label}`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width, height });
+    await open(page);
+    await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: DICTATIONS } }));
+    await openGoblin(page);
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    const history = page.getByRole("dialog", { name: "Speech history" });
+
+    // Act and Assert: a press on a record's words keeps it.
+    await history.getByText("open the review page", { exact: true }).click();
+    await expect(history).toBeVisible();
+
+    // Act and Assert: a press in the box beneath it closes it.
+    await field(page).click();
+    await expect(history).toHaveCount(0);
+    await expect(field(page)).toBeFocused();
+
+    // Act and Assert: opened again, Escape closes it with the keyboard on
+    // the page rather than in the box.
+    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    await expect(history).toBeVisible();
+    await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+    await page.keyboard.press("Escape");
+    await expect(history).toHaveCount(0);
+  });
 }
 
 
