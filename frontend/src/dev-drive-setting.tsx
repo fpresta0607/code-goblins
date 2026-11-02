@@ -21,6 +21,7 @@ export function DevDriveSetting({ drive, instance }: { drive: DevDriveView; inst
     setPending(false);
   };
   const label = actionLabels[drive.action];
+  if (!label && !drive.waiting && !feedback) return null;
   return <div className="dev-drive-setting">
     <strong>Dev Drive</strong>
     {label && <button className="secondary" disabled={pending} onClick={() => void ask()}>{label}</button>}
