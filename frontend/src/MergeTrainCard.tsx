@@ -33,7 +33,7 @@ export function MergeTrainCard({ train, tasks, now, selected, onSelect }: { trai
       <span className="train-title"><strong>Merge train</strong><span className="card-repo">{train.repository} into {train.base}</span></span>
     </button>
     {look.url
-      ? <a className={"train-status train-" + look.tone} href={look.url} target="_blank" rel="noreferrer" aria-label={look.text + ": open the train's pull request"} {...tip}>{status}</a>
+      ? <a className={"train-status train-" + look.tone} href={look.url} target="_blank" rel="noreferrer" aria-label={look.text + (train.deploy_hold && train.state === "testing" ? ": open the deploy run" : ": open the train's pull request")} {...tip}>{status}</a>
       : <span className={"train-status train-" + look.tone} {...tip}>{status}</span>}
     {trainSection(train) === "Train history" && train.note && <p className="train-note">{train.note}</p>}
     {train.cars.length > 0 && <ol className="train-cars" aria-label="Pull requests on the train">

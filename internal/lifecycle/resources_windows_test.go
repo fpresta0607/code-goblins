@@ -48,20 +48,20 @@ func TestTaskResourcesContinuesAfterConfirmedLegacyPaneAbsence(t *testing.T) {
 	}
 }
 
-type gateRunRunner struct{ status string }
+type gateRunRunner struct{ status, worktree string }
 
 func (runner gateRunRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	switch request.Name {
 	case "git":
 		return execx.Result{Stdout: []byte("gb-fixture\n")}, nil
 	case "sqlite3":
-		row := fmt.Sprintf(`[{"id":"run-1","repo_id":"repo-1","branch":"gb-fixture","status":%q,"head":"%s","intent":"saved intent","worktree":""}]`, runner.status, strings.Repeat("a", 40))
+		row := fmt.Sprintf(`[{"id":"run-1","repo_id":"repo-1","branch":"gb-fixture","status":%q,"head":"%s","intent":"saved intent","worktree":%q}]`, runner.status, strings.Repeat("a", 40), runner.worktree)
 		return execx.Result{Stdout: []byte(row)}, nil
 	}
 	return execx.Result{}, fmt.Errorf("unexpected command: %s", request.Name)
 }
 
-func TestTaskResourcesInterruptsOnlyAnOpenGateRun(t *testing.T) {
+func TestTaskResourcesRetainsIdentityAndSweepsOnlyAnOpenGateRun(t *testing.T) {
 	for _, status := range []string{"completed", "failed", "cancelled", "ci_monitor_interrupted", "running"} {
 		t.Run(status, func(t *testing.T) {
 			directory := t.TempDir()
@@ -74,12 +74,16 @@ func TestTaskResourcesInterruptsOnlyAnOpenGateRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			meta := state.TaskMeta{ID: "fixture", Backend: "native", Project: directory, Worktree: filepath.Join(directory, ".worktrees", "gb-fixture"), TaskTmp: filepath.Join(stateDir, "tasktmp", "fixture")}
-			resources, err := TaskResources(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: gateRoot, Commands: gateRunRunner{status: status}})
+			gateWorktree := filepath.Join(gateRoot, "worktrees", "repo-1", "run-1")
+			resources, err := TaskResources(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: gateRoot, Commands: gateRunRunner{status: status, worktree: gateWorktree}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if isInterrupted := resources.Gate.ID != ""; isInterrupted != (status == "running") {
-				t.Fatalf("latest %s run interrupted=%v: %+v", status, isInterrupted, resources.Gate)
+			if resources.Gate.ID != "run-1" || resources.Gate.Status != status {
+				t.Fatalf("latest %s run identity was lost: %+v", status, resources.Gate)
+			}
+			if isSwept := slices.Contains(resources.Directories, gateWorktree); isSwept != (status == "running") {
+				t.Fatalf("latest %s run swept=%v: %+v", status, isSwept, resources)
 			}
 		})
 	}
@@ -116,17 +120,22 @@ func TestAMemoryPauseLeavesAnOpenGateRunAlone(t *testing.T) {
 				t.Fatal(err)
 			}
 			meta := state.TaskMeta{ID: "fixture", Backend: "native", Project: directory, Worktree: filepath.Join(directory, ".worktrees", "gb-fixture"), TaskTmp: filepath.Join(stateDir, "tasktmp", "fixture")}
-			record := state.Lifecycle{ID: meta.ID, Action: testCase.action, Pause: testCase.pause}
+			record := state.Lifecycle{ID: meta.ID, Action: testCase.action, Pause: testCase.pause, Operation: "capture-run", Phase: "pausing"}
+			gateWorktree := filepath.Join(gateRoot, "worktrees", "repo-1", "run-1")
 
 			// Act
-			resources, _, err := StopTask(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: gateRoot, Commands: gateRunRunner{status: "running"}}, &record)
+			resources, _, err := StopTask(t.Context(), home.Home{Root: filepath.Dir(stateDir), State: stateDir}, meta, pipeline.Reader{Root: gateRoot, Commands: gateRunRunner{status: "running", worktree: gateWorktree}}, &record)
 
 			// Assert
 			if err != nil {
 				t.Fatal(err)
 			}
-			if isInterrupted := resources.Gate.ID != ""; isInterrupted != testCase.isInterrupted {
+			if isInterrupted := slices.Contains(resources.Directories, gateWorktree); isInterrupted != testCase.isInterrupted {
 				t.Errorf("gate run interrupted = %v, want %v: %+v", isInterrupted, testCase.isInterrupted, resources.Gate)
+			}
+			saved, err := state.ReadLifecycle(stateDir, meta.ID)
+			if err != nil || saved.GateRun != "run-1" || saved.GateIntent != "saved intent" || saved.GateHead != strings.Repeat("a", 40) {
+				t.Fatalf("persisted validation identity = %+v, %v", saved, err)
 			}
 		})
 	}

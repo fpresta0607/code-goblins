@@ -3,7 +3,9 @@
 Date: 2026-08-12
 Status: approved, revised same day with the rebrand and the treehouse, AXI, and easy-run requirements
 
-> **Superseded - treehouse removed; in-repo git worktrees.** The treehouse allocator this spec names (Decisions record, section 2 child processes, section 5, section 10) was removed: `cfo spawn` creates a plain git worktree at `<project>/.worktrees/gb-<id>` inside the project, registered in the clone's `info/exclude`, and provisions it from the project's `data/projects/<name>/worktree.json`; `cfo cleanup` removes and prunes it, and `cfo doctor` no longer checks a treehouse binary. The authoritative owners are the `internal/worktree` doc comments and the "Project worktree environment" section of `AGENTS.md`. The treehouse statements below remain the historical design and are not re-synced.
+> **Superseded - treehouse removed.**
+> See the [worktree contract](../../contract/worktrees.md#project-worktree-environment) and `internal/worktree` doc comments for the current allocation and provisioning rules.
+> The treehouse statements below remain the historical design and are not re-synced.
 
 ## Goal
 

@@ -48,6 +48,12 @@ func (e Engine) land(ctx context.Context, t *Train) error {
 		if deploy != nil {
 			return e.holdForDeploy(ctx, t, *deploy)
 		}
+		if t.DeployHold != nil {
+			t.DeployHold, t.Note = nil, ""
+			if err := e.save(t); err != nil {
+				return err
+			}
+		}
 		changed, err := e.recheck(ctx, t)
 		if err != nil {
 			return err

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { batchCars, batchRuns, carLook, carName, isTrainOver, trainLook, trainSection } from "./merge-train.ts";
 import type { MergeTrain, TrainCar, TrainCheck, TrainRun } from "./types.ts";
+import { parseSnapshot } from "./types.ts";
 
 const PR = "https://github.com/o/r/pull/";
 const car = (number: number, state: string, note = ""): TrainCar => ({ number, url: PR + number, title: "change " + number, task: "g" + number, goblin: "", goblin_title: "", head: "", state, note });
@@ -17,6 +18,29 @@ const CHANCE: TrainCheck = { name: "go (conpty)", link: "https://github.com/o/r/
 // times, and the train that landed its pull requests with two more.
 const failed = train({ id: "r-1", pr: PR + "522", state: "failed", runs: 3, cars: [car(517, "returned"), car(519, "returned")], history: [run(1, [517, 519], "moved"), run(2, [517, 519], "moved"), run(3, [517, 519], "moved")] });
 const landed = train({ id: "r-2", pr: PR + "526", state: "landed", runs: 1, earlier: [failed], cars: [car(517, "landed"), car(519, "landed"), car(520, "landed"), car(524, "landed"), car(523, "conflict")], history: [run(1, [517, 519, 520, 524], "landed")] });
+
+for (const [status, conclusion, text, tone] of [
+  ["completed", "failure", "Held: main's Deploy site concluded failure", "failed"],
+  ["completed", "cancelled", "Held: main's Deploy site concluded cancelled", "failed"],
+  ["in_progress", "", "Waiting on main's Deploy site", "pending"],
+  ["queued", "", "Waiting on main's Deploy site", "pending"],
+] as const) {
+  test(`a train held by a ${status} ${conclusion} deploy names it and opens its run`, () => {
+    // Arrange
+    const url = "https://github.com/o/r/actions/runs/31";
+    const held = { ...train({ cars: [car(1, "riding")], history: [run(1, [1], "")] }), deploy_hold: { workflow: "Deploy site", status, conclusion, url } };
+
+    // Act: read the wire format through the board's snapshot parser.
+    const parsed = parseSnapshot({ healthy: true, merge_trains: [held] }).merge_trains![0];
+
+    // Assert
+    assert.deepEqual(trainLook(parsed), { text, tone, url });
+    assert.equal(trainSection(parsed), "In progress");
+    assert.deepEqual(batchRuns(parsed)[0], { number: 1, riders: [1], text: "CI passed", tone: "passed", url: held.pr, once: [] });
+    assert.equal(trainLook({ ...parsed, state: "landed", cars: [car(1, "landed")] }).text, "Landed");
+    assert.equal(trainLook({ ...held, deploy_hold: { ...held.deploy_hold, url: "https://evil.example/run" } }).url, "");
+  });
+}
 
 test("a train says in plain words where it stands, in its tone, and opens its pull request", () => {
   for (const [given, text, tone] of [

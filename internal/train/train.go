@@ -137,7 +137,8 @@ type Train struct {
 	History []Run `json:"history,omitempty"`
 	// Landing says the run passed and its riders are being merged, so a
 	// step cut short in the middle merges the rest rather than reading CI.
-	Landing bool `json:"landing,omitempty"`
+	Landing    bool        `json:"landing,omitempty"`
+	DeployHold *DeployHold `json:"deploy_hold,omitempty"`
 	// Moved counts the runs in a row the base moved during, and Errors the
 	// steps in a row that failed.
 	Moved    int       `json:"moved,omitempty"`

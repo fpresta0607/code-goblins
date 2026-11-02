@@ -53,7 +53,7 @@ In order, it:
 3. Sets up the CFO home it picked, as [the table above](#which-home-it-installs) says, normally `%LOCALAPPDATA%\CodeGoblins`: the CFO's contract, the default policy, the program as `bin\cfo.exe` and `bin\goblins.exe`, and the desktop window beside them as `goblins-window.exe` and the hook program as `cfo-hook.exe` where the release ships them, with the `state`, `data`, `worktrees`, `scratch` and `caches` folders beside `bin`.
    The skills Code Goblins ships go once into `~\.agents\skills`, which Codex and Pi read, with a junction to each from Claude Code's skills folder, and `state\harnesses.json` records where each harness keeps its configuration; nothing in a harness folder that Code Goblins did not put there is changed.
    `CFO_HOME` and the home's `bin` on your PATH are set for your user.
-   The CFO's hooks go into no settings file of yours: [the CFO's own session](../AGENTS.md#the-cfos-own-session), the one `goblins` starts in native terminal `cfo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
+   The CFO's hooks go into no settings file of yours: [the CFO's own session](contract/supervision.md#the-cfos-own-session), the one `goblins` starts in native terminal `cfo`, starts with them, so a Claude Code session you open yourself, in the desktop app or a terminal, runs none of them and never holds the fleet.
    Where an older build merged them into your `~/.claude/settings.json`, the install takes them out, backing the file up first and keeping your own hooks.
    The same write adds allow rules for the commands that only put an item in front of you in the Command Center (`cfo question`, `cfo run-request`, `cfo review`, `cfo present`, `cfo deliver` and `cfo auth request`), so Claude Code's auto mode approves them without its classifier unless `autoMode.classifyAllShell` is on ([Safety model](../README.md#safety-model) says why these and no others); `settings.json.cfo-install.rules` beside the file records which ones it added, for the uninstall.
    Windows then starts Code Goblins at login, in the tray, which brings back what a restart ended, unless Start at login was turned off: the setup's box, `-NoStartAtLogin` given to `install.ps1` run as a file, or `cfo install --start-at-login off`; `-StartAtLogin` and `--start-at-login on` turn it back on.
@@ -266,9 +266,9 @@ Rerun it after you pull, to rebuild.
 
 ## Where your data lives
 
-The fleet keeps everything it writes in the CFO home, `%LOCALAPPDATA%\CodeGoblins`, for every install, `-Dev` included.
-The home is outside every repository: goblins work in git worktrees of your checkouts, kept in the home's `worktrees` folder, so a checkout gains no folder and no file, and each goblin's temporary files go to the home's `scratch` folder and leave with the task.
-The janitor keeps the home small, and the board and `cfo runtime` show what it holds; [AGENTS.md](../AGENTS.md#the-cfo-home) describes each folder.
+The [data overview](../README.md#your-data) describes where the fleet keeps its files for release and source builds.
+[The CFO home](contract/home.md#the-cfo-home) describes each folder and the janitor's cleanup rules.
+The board and `cfo runtime` show what it holds.
 It all stays on your machine: Code Goblins needs no backup repository, account or service for it.
 Backing the home up, for example its `data` folder to a private git repository, is only your own choice.
 `goblins uninstall`, or Uninstall on Code Goblins in Windows' Installed apps, which both installs add it to, removes everything Code Goblins made and leaves your PC as the install found it.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // A push to the base starts its deploy workflows, those whose names say
@@ -26,6 +27,18 @@ type deployRun struct {
 	HeadSHA    string `json:"headSha"`
 	URL        string `json:"url"`
 }
+
+// DeployHold is the base deploy keeping a green train from merging, with
+// the last reminder time kept across supervisor restarts.
+type DeployHold struct {
+	Workflow   string    `json:"workflow"`
+	Status     string    `json:"status"`
+	Conclusion string    `json:"conclusion"`
+	URL        string    `json:"url"`
+	Notified   time.Time `json:"notified"`
+}
+
+const DEPLOY_REMINDER_INTERVAL = 30 * time.Minute
 
 // unverifiedDeploy reads the base's newest push runs and returns the deploy
 // that keeps the train from merging: a run of a deploy workflow that has not
@@ -61,8 +74,8 @@ func (e Engine) unverifiedDeploy(ctx context.Context, t Train) (*deployRun, erro
 }
 
 // holdForDeploy keeps the train from merging while deploy has not finished
-// successfully, and says what it waits on in its note and to the CFO, once
-// for each thing it waits on: a deploy that ended otherwise than successfully
+// successfully, and says what it waits on in its note and to the CFO, again
+// every half hour: a deploy that ended otherwise than successfully
 // waits for a run of it, or of a fix, that passes. The next step reads the
 // base's deploys again.
 func (e Engine) holdForDeploy(ctx context.Context, t *Train, deploy deployRun) error {
@@ -70,13 +83,14 @@ func (e Engine) holdForDeploy(ctx context.Context, t *Train, deploy deployRun) e
 	if deploy.Status == "completed" {
 		note = fmt.Sprintf("holds its merge, since %s's %s run at %s concluded %s (%s): run it again or land its fix, and the train merges once %s's deploy has finished successfully", t.Base, deploy.Workflow, short(deploy.HeadSHA), deploy.Conclusion, deploy.URL, t.Base)
 	}
-	if note == t.Note {
+	if note == t.Note && t.DeployHold != nil && t.DeployHold.Status == deploy.Status && e.Now().Sub(t.DeployHold.Notified) < DEPLOY_REMINDER_INTERVAL {
 		return nil
 	}
 	t.Note = note
+	t.DeployHold = &DeployHold{Workflow: deploy.Workflow, Status: deploy.Status, Conclusion: deploy.Conclusion, URL: deploy.URL, Notified: e.Now().UTC()}
 	if err := e.save(t); err != nil {
 		return err
 	}
-	e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s %s", t.Repository, t.ID, note))
+	e.tellCFO(ctx, fmt.Sprintf("merge_train: %s train %s %s; held pull requests: %s", t.Repository, t.ID, note, t.numbers(t.carsIn(CarRiding))))
 	return nil
 }

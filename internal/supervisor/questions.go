@@ -440,10 +440,10 @@ type cfoAnswer struct {
 // choice the way cfo send types, its notify reads answered so cfo drain
 // retires it without --ack-blocking, and the supervisor records which choice
 // closed the question, that the CFO gave it, and when. Only the registered
-// primary CFO may answer. It returns the choice it delivered, and whether the
-// goblin was in a turn, so its harness takes the answer at its next tool call:
-// that is a delivery, submitted once, and it is recorded like one, so neither
-// the CFO nor the board sends a second decision.
+// primary CFO may answer. It returns the accepted choice and whether it waits
+// for the goblin's resume or its harness's next tool call. A paused answer
+// uses the board's resume-note owner; only a submission to a working terminal
+// needs a delivery record, so neither path sends a second decision.
 func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note string) (chosen string, queued bool, err error) {
 	_, release, err := c.CallerIdentity()
 	if err != nil {
@@ -513,9 +513,19 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	if goblinIdentity(meta) != q.Identity {
 		return "", false, errors.New("the goblin's task restarted or ended; nothing was sent")
 	}
+	isSaved := false
+	if meta.Backend == "native" {
+		isSaved, err = savePausedAnswer(c.State, q.Task, q.Identity, text)
+		if err != nil {
+			return "", false, err
+		}
+	}
 	sent := time.Now().UTC()
-	_, err = c.SendGoblin(ctx, q.Task, q.Identity, text)
-	queued = errors.Is(err, fleet.ErrQueuedForToolCall)
+	if !isSaved {
+		_, err = c.SendGoblin(ctx, q.Task, q.Identity, text)
+	}
+	isWaitingForToolCall := errors.Is(err, fleet.ErrQueuedForToolCall)
+	queued = isSaved || isWaitingForToolCall
 	if err != nil && !queued {
 		return "", false, err
 	}
@@ -524,7 +534,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 	// conversation shows it took the answer, so the decision never vanishes
 	// from supervision before the goblin has it.
 	var awaiting *Awaiting
-	if queued {
+	if isWaitingForToolCall {
 		awaiting = awaitingGoblinDelivery(meta, sent, text)
 	}
 	var unrecorded []error
@@ -540,7 +550,7 @@ func (c *CFOConnection) AnswerGoblin(ctx context.Context, ref, option, note stri
 		unrecorded = append(unrecorded, err)
 	}
 	if err := errors.Join(unrecorded...); err != nil {
-		return chosen, queued, fmt.Errorf("delivered to %s; do not send it again, but %w", q.Task, err)
+		return chosen, queued, fmt.Errorf("accepted for %s; do not send it again, but %w", q.Task, err)
 	}
 	return chosen, queued, nil
 }

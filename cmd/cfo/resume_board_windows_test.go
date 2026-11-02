@@ -60,9 +60,9 @@ func boardResumeSwitch(stateDir string, isLocked bool) func(context.Context, hom
 	}
 }
 
-func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
+func TestBoardResumeRestoresDirectPRAndReportsForeignValidation(t *testing.T) {
 	// Arrange: the saved validation from an earlier direct-PR branch, and a
-	// managed task whose frozen chain differs from the machine's. Only the
+	// managed task whose branch now belongs to another run. Only the
 	// external terminal launch and gate tools are substituted.
 	policy := versionSixPolicy(t, pipeline.Reviewer{})
 	h, root := gateHome(t, policy, operatorMachineConfig)
@@ -125,7 +125,7 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 			Resume: func(ctx context.Context, meta state.TaskMeta, prior state.Lifecycle) error {
 				var commands execx.Runner = absentResumeGate{}
 				if meta.Mode == "no-mistakes" {
-					commands = &resumedGateRunner{}
+					commands = refusingGateRunner{run: "foreign-run", intent: "ship safely"}
 				}
 				return resumeTask(ctx, h, runtime, commands, pipeline.Reader{Root: root, Commands: commands}, meta, prior, nil)
 			},
@@ -242,7 +242,7 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 			if task.Phase != "working" || task.ActionError != "" || record.Phase != "running" || meta.SpawnGen == "generation-1" {
 				t.Fatalf("direct-PR task did not resume: %+v %+v", task, record)
 			}
-		} else if task.Phase != "paused" || !strings.Contains(task.ActionError, "cfo pipeline migrate managed-task") || !reflect.DeepEqual(record, paused[task.ID]) || meta.SpawnGen != "generation-1" {
+		} else if task.Phase != "paused" || !strings.Contains(task.ActionError, "another validation run owns the branch") || !reflect.DeepEqual(record, paused[task.ID]) || meta.SpawnGen != "generation-1" {
 			t.Fatalf("managed refusal lost its recovery instruction or pause: %+v %+v", task, record)
 		}
 	}
@@ -252,7 +252,7 @@ func TestBoardResumeRecoversDirectPRAndReportsPolicyDrift(t *testing.T) {
 	}
 	isReported := false
 	for _, record := range records {
-		if record.Key == "managed-task" && strings.Contains(record.Detail, "resume failed:") && strings.Contains(record.Detail, "cfo pipeline migrate managed-task") {
+		if record.Key == "managed-task" && strings.Contains(record.Detail, "resume failed:") && strings.Contains(record.Detail, "another validation run owns the branch") {
 			isReported = true
 		}
 	}
@@ -277,7 +277,7 @@ func awaitResumeBoard(t *testing.T, board *supervisor.Service, stateDir, id, wan
 			if task.ID != id {
 				continue
 			}
-			if wantPhase == "paused" && task.Phase == "paused" && strings.Contains(task.ActionError, "cfo pipeline migrate "+id) {
+			if wantPhase == "paused" && task.Phase == "paused" && strings.Contains(task.ActionError, "another validation run owns the branch") {
 				return
 			}
 			if wantPhase != "working" || task.Phase != "working" {

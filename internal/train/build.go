@@ -14,6 +14,9 @@ import (
 // the next run, saying why in the note. The record says first that a build
 // is due, so a step cut short anywhere in it is built again by the next one.
 func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
+	if t.DeployHold != nil {
+		t.DeployHold, t.Note = nil, ""
+	}
 	if why != "" {
 		t.Note = why
 	}

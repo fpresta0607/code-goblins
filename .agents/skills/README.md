@@ -10,11 +10,14 @@ This directory holds the skills Code Goblins itself provides, each tracked once,
   The checks live in `cfo project check`, so the skill is the same text for every harness and names no tool of one.
 - `smart-routing` - guides the CFO's worker model and reasoning effort choices through the existing lanes, current capabilities, quota and evidence of verified completion.
 
+The cfo-* skills are precise trigger entry points for the extracted operating contract.
+The [ownership inventory](../../docs/contract/ownership.md) maps every original section, skill trigger, command reference and staged First Mate follow-up, and owns the [source-checkout and installed-home loading rules](../../docs/contract/ownership.md#loading-and-installation).
+Their policy bodies stay in `docs/contract/`, which installation carries into a home, rather than being duplicated per harness or relative to a shared skill directory.
+
 ## Which harness reads this directory
 
 - **Codex and Pi** read `.agents/skills/` in the project directly.
-- **Claude Code** reads `.claude/skills/`, which `install.cmd -Dev` makes a directory junction to this directory.
-  Without `install.cmd -Dev`, create it from the repository root: `cmd /c mklink /J .claude\skills .agents\skills`.
+- **Claude Code** discovers the installed skills through the user-scope junctions described in the [load map](../../docs/load-map.md#claude-code-the-cfo-and-claude-goblins).
 
 A skill with the same name at user scope competes with the copy here: Claude Code uses the user copy, Codex lists both, and Pi uses this one.
 Keep one copy of each name per machine.

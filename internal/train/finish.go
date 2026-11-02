@@ -20,6 +20,7 @@ import (
 // half that passed merged its own. The branch is the train's own, and it is
 // already gone where GitHub deletes a merged pull request's branch itself.
 func (e Engine) finish(ctx context.Context, t *Train, state, note string) error {
+	t.DeployHold = nil
 	t.State, t.Note, t.Finished, t.Landing = state, note, e.Now().UTC(), false
 	t.endRun(RunStopped, "")
 	for _, i := range append(t.carsIn(CarRiding), t.carsIn(CarWaiting)...) {
