@@ -102,7 +102,7 @@ A run whose base moved before it landed is built again on the new tip and tested
 This also applies after a partial landing: only the eligible remaining source is validated on the changed base.
 Every step is recorded before it acts, so a restart or a network failure in the middle of one, even halfway through landing, is taken on by the next step, and a merge that went through although its answer was lost is found on the branch.
 Before publishing, rebuilding or finishing, the train checks the remote branch against its recorded heads; branch writes and deletion require an exact conditional lease, so an externally added commit is never overwritten or deleted.
-An unknown or changed branch identity holds for reconciliation, including during restart and error cleanup.
+An unknown or changed branch identity holds for reconciliation, including during restart and error cleanup; each poll it holds counts as a failed step, so it reaches you after three consecutive failed polls, but it never stops the train.
 A successful push whose acknowledgement was lost resumes publication of the recorded head without rebuilding or pushing it again, and an unrecorded open train pull request is recovered by its branch.
 Before green proof, transient command and network failures retain their bounded handling: a failed step is retried on the next poll, reaches you after three consecutive failed polls and stops after five, unless landing recovery or branch identity requires a hold.
 A run without green proof whose checks never appear stops after 20 minutes and one whose checks never finish after three hours.

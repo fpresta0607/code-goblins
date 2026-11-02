@@ -187,6 +187,7 @@ func (e Engine) Advance(ctx context.Context, id string) (Train, error) {
 		return kept, errors.Join(stepErr, err)
 	}
 	if errors.Is(stepErr, errBranchCustody) {
+		kept.Errors++
 		err = e.holdBranch(ctx, &kept, stepErr)
 		return kept, err
 	}
