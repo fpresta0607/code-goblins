@@ -1055,6 +1055,19 @@ button.dialogue-portrait:hover::before { background: #12202a; }
 .question-body ul { padding-left: 22px; }
 .question-body li + li { margin-top: 4px; }
 .question-body strong { color: #fff; font-weight: 700; }
+/* The evidence after a question's "Details:" line folds under one quiet line
+   below the decision, a touch target tall, and reads in smaller, dimmer type
+   at the card's width, however long its identifiers. A question's bullets,
+   and a code value in its sentences, get room to read: the value at the size
+   of the words around it, its 44 px copy button keeping its reach without
+   pushing its line apart from the next. */
+.question-details { min-width: 0; color: #c4d4df; }
+.question-details > summary { min-height: 44px; font-size: 1rem; font-weight: 600; }
+.question-evidence { color: #c4d4df; font-size: 1rem; }
+.question-evidence strong { color: #e3ecef; }
+:is(.question-decision, .question-evidence) li + li { margin-top: 8px; }
+:is(.question-decision, .question-evidence) :is(p, li) code { font-size: .875em; }
+:is(.question-decision, .question-evidence) :is(p, li) .copy-value .icon-button { margin-block: -9px; }
 .inbox-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .count-pill { flex: none; padding: 2px 12px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--ghost-bg); color: #dfe9ef; font-weight: 800; white-space: nowrap; }
 .card-stage { position: relative; }
