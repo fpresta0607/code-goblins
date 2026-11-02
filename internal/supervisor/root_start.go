@@ -54,7 +54,7 @@ type rootStartReading struct {
 }
 
 func (reading rootStartReading) current(root rootStart, now time.Time) bool {
-	if reading.Root != root || root.Problem != "" || root.Task == "" || root.Project == "" || root.Repository == "" || root.Number <= 0 || root.Revision == "" || reading.At.IsZero() || now.Before(reading.At) || now.Sub(reading.At) >= rootPickupEvery {
+	if reading.Root != root || now.Before(reading.At) || now.Sub(reading.At) >= rootPickupEvery {
 		return false
 	}
 	switch reading.Result {
