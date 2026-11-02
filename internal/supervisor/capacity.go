@@ -3,6 +3,8 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // CheckLaunch refuses a start, a resume or a spawn while memory or commit is
@@ -35,4 +37,34 @@ func (s *Service) processorsBusy() string {
 		return ""
 	}
 	return processors.shortfall()
+}
+
+// MachineHeavyLine says that runs wait in the machine's heavy line for memory
+// at the reading memory, as cfo gate turns reads that line, or "" when none
+// does.
+func MachineHeavyLine(memory Memory) (string, error) {
+	dir, err := verify.AdmissionDir()
+	if err != nil {
+		return "", err
+	}
+	return verify.MemoryHold(dir, memory.Available, memory.CommitAvailable)
+}
+
+// heavyLineHold says why the supervisor starts nothing and resumes no goblin
+// paused for memory by itself at this reading: runs wait in the machine's
+// heavy line for memory. Their goblins came first, and a session started now
+// takes the room they wait for, so the floor pauses it minutes later (#1926).
+// It is "" when none waits or the line is not read. A line that cannot be
+// read holds nothing, as processors that cannot be read hold nothing, and is
+// reported once it stays unread failingPasses readings in a row.
+func (s *Service) heavyLineHold(w *fleetWakes, memory Memory) (string, error) {
+	dispatch := s.Options.Dispatch
+	if dispatch == nil || dispatch.HeavyLine == nil {
+		return "", nil
+	}
+	hold, err := dispatch.HeavyLine(memory)
+	if err != nil {
+		err = fmt.Errorf("the machine's heavy line cannot be read, so no start waits on it: %w", err)
+	}
+	return hold, w.failing("heavy-line", err)
 }

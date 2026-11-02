@@ -1634,6 +1634,7 @@ func TestGateTurnsJSONGivesTheLine(t *testing.T) {
 		Holding   []map[string]any `json:"holding"`
 		Waiting   []map[string]any `json:"waiting"`
 		Memory    map[string]any   `json:"memory"`
+		Hold      *string          `json:"hold"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &report); exit != 0 || err != nil {
 		t.Fatalf("cfo gate turns --json exited %d, printing %q (%v), and said %q; want the line as JSON", exit, stdout.String(), err, stderr.String())
@@ -1653,6 +1654,9 @@ func TestGateTurnsJSONGivesTheLine(t *testing.T) {
 	}
 	if floor, isNumber := report.Memory["floor_bytes"].(float64); !isNumber || floor <= 0 {
 		t.Errorf("the floor is %v; want the bytes the line's head waits for", report.Memory["floor_bytes"])
+	}
+	if report.Hold == nil || *report.Hold != "" {
+		t.Errorf("the hold is %v; want it there and empty, since the waiter is short of no memory", report.Hold)
 	}
 }
 

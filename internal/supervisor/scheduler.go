@@ -35,9 +35,11 @@ type WaitingWork struct {
 // defect, then the paused goblin highest in the Overlord's In progress order
 // whose pause cleared, then the top of the queue, with a picked-up root issue
 // after every other queued task, unless a goblin paused for memory comes back
-// first. It says what it did, and what could run and did not, with why; a
-// board that cannot start goblins schedules nothing and says nothing.
-func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory) (*Scheduling, error) {
+// first. What it would start, or resume from a memory pause, waits while hold
+// says runs wait in the machine's heavy line for memory. It says what it did,
+// and what could run and did not, with why; a board that cannot start
+// goblins schedules nothing and says nothing.
+func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory, hold string) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
 	}
@@ -165,6 +167,11 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
 		return failure.IsRefused && failure.Operation == paused.Operation && failure.Updated.Equal(paused.Updated)
 	})
+	// What memory would start or bring back, a reported production defect, a
+	// goblin paused for memory or the next queued task, waits while runs wait
+	// in the machine's heavy line for memory, so the goblins closer to done get
+	// it first. A goblin whose pause cleared for anything else still resumes.
+	isHeldByLine := hold != "" && (defect != "" || len(ready) > 0 && ready[0].Pause.Reason == "memory" || len(ready) == 0 && (len(queued) > 0 || memoryPending != ""))
 	// What would start by itself waits while the performance cores are busy.
 	// A reported production defect does not, nor what the Overlord started.
 	waitsOnProcessors, busy := "", ""
@@ -190,6 +197,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Text = "resuming " + asked[0].task + ", which the Overlord resumed"
 		}
 		s.runAsked()
+	case isHeldByLine:
+		record.Text = "nothing starts: " + hold
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		startErr = s.startQueued(defect, false)

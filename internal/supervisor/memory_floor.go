@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
@@ -18,18 +19,26 @@ import (
 // under the floor, the supervisor pauses the live goblin lowest in the
 // Overlord's In progress order that is not pushing or merging, through the
 // pause the allowance floor uses, one goblin at a time, and the scheduler
-// resumes it once memory is back at the next-start mark. While AFK mode is on, its log keeps each pause for the
-// report of the stretch.
+// resumes it once memory is back at the next-start mark and no run waits in
+// the machine's heavy line for memory. While AFK mode is on, its log keeps
+// each pause for the report of the stretch.
 
 // gitPushOrMerge are the git commands that push or merge, which a goblin is
 // left to finish rather than paused in the middle of.
 var gitPushOrMerge = []string{"push", "merge", "pull", "rebase", "cherry-pick", "am"}
 
+// freshResume is how long a goblin resumed from a memory pause is paused at
+// the memory floor only when no other goblin may be. Its resume cost a
+// session start and a handoff, and on 2026-11-02 the floor paused goblins
+// within ten minutes of their start or resume, each the lowest in the order
+// (#1926).
+const freshResume = 10 * time.Minute
+
 // pauseAtMemoryFloor takes a reading under the floor, the w.MemoryBelow-th in
-// a row, of memory: from the second on, while nothing else starts or
+// a row, of memory at now: from the second on, while nothing else starts or
 // changes, it pauses the lowest goblin it may. A change under way frees what
 // it frees only once it ends, so the count starts again after it.
-func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory) error {
+func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory, now time.Time) error {
 	if w.MemoryBelow < 2 {
 		return nil
 	}
@@ -40,25 +49,34 @@ func (s *Service) pauseAtMemoryFloor(w *fleetWakes, memory Memory) error {
 		w.MemoryBelow = 0
 		return nil
 	}
-	meta, record, found, problems := s.lowestToPause()
+	pick, found, problems := s.lowestToPause(now)
 	if !found {
 		return problems
 	}
-	evidence := fmt.Sprintf("%.1f GB of memory and %.1f GB of commit free on two readings in a row, under the %.0f GB floor; %s was the lowest goblin in the In progress order not pushing or merging",
-		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), gigabytes(memoryFloor), meta.ID)
-	began, err := s.pauseAtFloor(meta, record, "memory", "", evidence)
+	evidence := fmt.Sprintf("%.1f GB of memory and %.1f GB of commit free on two readings in a row, under the %.0f GB floor; %s was %s",
+		gigabytes(memory.Available), gigabytes(memory.CommitAvailable), gigabytes(memoryFloor), pick.meta.ID, pick.why)
+	began, err := s.pauseAtFloor(pick.meta, pick.record, "memory", "", evidence)
 	if began {
 		w.MemoryBelow = 0
 	}
 	return errors.Join(problems, err)
 }
 
-// lowestToPause is the goblin the memory floor pauses: of the native goblins
-// whose terminal host runs, that are not paused or changing and whose last
-// pause at the memory floor did not fail, the lowest in the Overlord's In
-// progress order that is not pushing or merging. Processes that cannot be
-// listed tell nothing of either, so the lowest is paused then.
-func (s *Service) lowestToPause() (state.TaskMeta, state.Lifecycle, bool, error) {
+// floorPick is the goblin the memory floor pauses, and why it is that one.
+type floorPick struct {
+	meta   state.TaskMeta
+	record state.Lifecycle
+	why    string
+}
+
+// lowestToPause is the goblin the memory floor pauses at a reading at now:
+// of the native goblins whose terminal host runs, that are not paused or
+// changing and whose last pause at the memory floor did not fail, the lowest
+// in the Overlord's In progress order that is not pushing or merging and did
+// not resume from a memory pause in the last freshResume, or the lowest that
+// did when no other may be paused. Processes that cannot be listed tell
+// nothing of pushing or merging, so the lowest is paused then.
+func (s *Service) lowestToPause(now time.Time) (floorPick, bool, error) {
 	stateDir := s.Store.Home.State
 	type candidate struct {
 		meta   state.TaskMeta
@@ -94,14 +112,28 @@ func (s *Service) lowestToPause() (state.TaskMeta, state.Lifecycle, bool, error)
 		}
 		candidates = append(candidates, candidate{meta, record, hostRecord})
 	}
+	const lowest = "the lowest goblin in the In progress order not pushing or merging"
 	processes, unlisted := proc.Processes()
+	spared := ""
+	var fresh floorPick
 	for _, one := range candidates {
 		if unlisted == nil && pushingOrMerging(one.host.HostPID, processes, proc.Arguments) {
 			continue
 		}
-		return one.meta, one.record, true, problems
+		isFresh := one.record.Generation == one.meta.SpawnGen && one.record.Action == "resume" && one.record.Phase == "running" && one.record.Pause != nil && one.record.Pause.Reason == "memory" && now.Sub(one.record.Updated) < freshResume
+		if !isFresh {
+			why := lowest
+			if spared != "" {
+				why += fmt.Sprintf(" past %s, which resumed from a memory pause in the last %d minutes", spared, int(freshResume/time.Minute))
+			}
+			return floorPick{one.meta, one.record, why}, true, problems
+		}
+		if spared == "" {
+			spared = one.meta.ID
+			fresh = floorPick{one.meta, one.record, fmt.Sprintf("%s, and every goblin it could pause resumed from a memory pause in the last %d minutes", lowest, int(freshResume/time.Minute))}
+		}
 	}
-	return state.TaskMeta{}, state.Lifecycle{}, false, problems
+	return fresh, spared != "", problems
 }
 
 // pushingOrMerging reports whether a process under the terminal host hostPID

@@ -1626,8 +1626,9 @@ func TestGateTurnsSaysWhenTheLineIsEmpty(t *testing.T) {
 }
 
 // A run that waits for memory waits with the turn free, so cfo gate turns
-// says the turn is free, who waits, and that the machine is short of the
-// memory a run waits for.
+// says the turn is free, who waits, that the machine is short of the memory a
+// run waits for, and that the supervisor starts no goblin by itself
+// meanwhile (#1926).
 func TestGateTurnsShowsARunWaitingForMemory(t *testing.T) {
 	// Arrange
 	store := t.TempDir()
@@ -1647,8 +1648,9 @@ func TestGateTurnsShowsARunWaitingForMemory(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	waiter := fmt.Sprintf("1. a run that waits (pid %d), for ", os.Getpid())
-	if len(lines) != 4 || lines[0] != "turn: free" || lines[1] != "waiting:" || !strings.HasPrefix(lines[2], waiter) || lines[3] != "memory: 1.0 GB physical and 16.0 GB commit are available; both require the 4.0 GB floor" {
-		t.Errorf("cfo gate turns printed %q; want the turn free, the one waiting run, then the memory the machine is short of", lines)
+	goblins := "goblins: the supervisor starts none and resumes none paused for memory by itself while 1 run waits in the machine's heavy line for the 4.0 GB of memory and commit its next run needs"
+	if len(lines) != 5 || lines[0] != "turn: free" || lines[1] != "waiting:" || !strings.HasPrefix(lines[2], waiter) || lines[3] != "memory: 1.0 GB physical and 16.0 GB commit are available; both require the 4.0 GB floor" || lines[4] != goblins {
+		t.Errorf("cfo gate turns printed %q; want the turn free, the one waiting run, the memory the machine is short of, then that no goblin starts by itself", lines)
 	}
 }
 
@@ -1669,6 +1671,7 @@ func TestGateTurnsShowsEachRunsMemoryWhereItIsWeighed(t *testing.T) {
 			`^waiting:$`,
 			`^1\. a run that waits \(pid \d+\), for \d+s, expected to use 6\.0 GB$`,
 			`^memory: 8\.0 GB physical and 8\.0 GB commit are available; both require the 10\.0 GB floor$`,
+			`^goblins: the supervisor starts none and resumes none paused for memory by itself while 1 run waits in the machine's heavy line for the 10\.0 GB of memory and commit its next run needs$`,
 		},
 	} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
