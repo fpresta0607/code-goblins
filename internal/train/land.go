@@ -52,13 +52,16 @@ func (e Engine) land(ctx context.Context, t *Train, readiness string) error {
 				return err
 			}
 		}
-		changed, err := e.recheck(ctx, t)
+		changed, base, err := e.recheck(ctx, t)
 		if err != nil {
 			return err
 		}
 		if len(changed) > 0 {
 			t.endRun(RunChanged, "")
 			return e.rebuild(ctx, t, "nothing merged, since "+strings.Join(changed, "; ")+", so the rest is tested again without it")
+		}
+		if base != t.BaseSHA {
+			return e.rebuildOnMovedBase(ctx, t, base)
 		}
 		if run := t.openRun(); run != nil && run.OwnRun != "" {
 			car := t.Cars[t.carsIn(CarRiding)[0]]
@@ -141,37 +144,37 @@ func (e Engine) landTrainRun(ctx context.Context, t *Train, riders []int) error 
 
 // recheck reconciles selected heads already on the fetched base before
 // classifying withdrawals. It checks only riding cars, so a waiting half
-// cannot invalidate the current run's proof, and reports what changed.
-func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
+// cannot invalidate the current run's proof, and reports what changed, with
+// the base it read. A base that moved changes no rider, so a red run still
+// tries again and splits; only a merge, which would land an untested tree,
+// acts on it.
+func (e Engine) recheck(ctx context.Context, t *Train) ([]string, string, error) {
 	if len(t.carsIn(CarRiding)) == 0 {
-		return nil, nil
+		return nil, "", nil
 	}
 	open, err := e.openPulls(ctx, *t)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	base, err := e.baseSHA(ctx, *t)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if _, err := e.run(ctx, t.Checkout, "git", "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", "refs/heads/"+t.Base); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var changed []string
-	if t.BaseSHA != "" && base != t.BaseSHA {
-		changed = append(changed, t.Base+" moved during the rider recheck")
-	}
 	for _, i := range t.carsIn(CarRiding) {
 		car := &t.Cars[i]
 		isLanded, err := e.isOnFetchedBase(ctx, *t, car.Head, base)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if isLanded {
 			t.endRun(RunChanged, "")
 			car.State, car.Note = CarLanded, foundOnBase+t.Base
 			if err := e.save(t); err != nil {
-				return nil, err
+				return nil, "", err
 			}
 			if e.Landed != nil {
 				e.Landed(ctx, *t, *car)
@@ -198,7 +201,7 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
 			case pr.ReviewDecision == "CHANGES_REQUESTED" || pr.ReviewDecision == "REVIEW_REQUIRED":
 				why = "it waits on a review"
 			case pr.Mergeable != "MERGEABLE":
-				return nil, fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number)
+				return nil, "", fmt.Errorf("merge train %s: #%d's mergeability is unknown", t.ID, car.Number)
 			default:
 				why = ""
 				if outcome, _ := checksOutcome(pr.Checks); outcome != "passed" && !slices.ContainsFunc(t.History, func(run Run) bool {
@@ -213,7 +216,7 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, error) {
 			changed = append(changed, fmt.Sprintf("#%d %s", car.Number, why))
 		}
 	}
-	return changed, nil
+	return changed, base, nil
 }
 
 // openPulls reads the open pull requests into the train's base as GitHub has

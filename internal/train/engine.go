@@ -235,7 +235,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 		t.Landing = false
 	}
 	if run != nil && run.OwnRun == "" && run.PR == "" {
-		changed, err := e.recheck(ctx, t)
+		changed, _, err := e.recheck(ctx, t)
 		if err != nil {
 			return err
 		}
@@ -274,7 +274,7 @@ func (e Engine) step(ctx context.Context, t *Train) error {
 			}
 		}
 		if outcome != "passed" && outcome != "closed" {
-			changed, err := e.recheck(ctx, t)
+			changed, _, err := e.recheck(ctx, t)
 			if err != nil {
 				return err
 			}

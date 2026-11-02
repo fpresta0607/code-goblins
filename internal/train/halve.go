@@ -18,7 +18,7 @@ func (e Engine) halve(ctx context.Context, t *Train, failed []Check) error {
 	if err != nil {
 		return err
 	}
-	changed, err := e.recheck(ctx, t)
+	changed, _, err := e.recheck(ctx, t)
 	if err != nil {
 		return err
 	}

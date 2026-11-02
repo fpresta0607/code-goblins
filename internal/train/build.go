@@ -18,7 +18,7 @@ func (e Engine) rebuild(ctx context.Context, t *Train, why string) error {
 	if _, err := e.branchHead(ctx, *t); err != nil {
 		return err
 	}
-	changed, err := e.recheck(ctx, t)
+	changed, _, err := e.recheck(ctx, t)
 	if err != nil {
 		return err
 	}

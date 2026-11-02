@@ -69,7 +69,7 @@ func (e Engine) secondTry(ctx context.Context, t *Train, failed []Check) (string
 		return "pending", nil
 	}
 	for _, id := range due {
-		changed, err := e.recheck(ctx, t)
+		changed, _, err := e.recheck(ctx, t)
 		if err != nil {
 			return "", err
 		}

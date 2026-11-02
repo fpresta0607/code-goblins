@@ -381,3 +381,37 @@ func TestAbandonedRedRetryReportsOnlyObservedSuccessfulChecks(t *testing.T) {
 		t.Fatalf("want only the observed successful retry reported, without blame: %q, %q", last, s.told)
 	}
 }
+
+func TestARedRunTriesAgainAndSplitsThoughItsBaseMoved(t *testing.T) {
+	t.Parallel()
+	// Arrange: #12 breaks CI on every try, and main moves under each step.
+	s := newScratch(t)
+	gh := newFakeGitHub(s)
+	first := gh.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+	second := gh.open(12, "feat/b", s.branch("feat/b", "b.txt", "b\n"))
+	gh.breaks = []string{second.HeadRefOid}
+	riders, _ := Riders([]PullRequest{first, second}, "main", fleetAccount, goblinsFor(first, second), nil)
+	engine := s.engine(gh)
+	started, err := engine.Start(context.Background(), s.repository(), riders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.advanceMain("outside.txt", "outside\n")
+
+	// Act: the run is red once.
+	retrying := s.step(engine, started.ID)
+
+	// Assert: its failed jobs run again rather than the whole train on the new main.
+	if retrying.Runs != 1 || !slices.Equal(runLog(retrying), []string{"1 #11 #12 open"}) || !slices.Equal(gh.rerunCalls(), []string{"101"}) {
+		t.Fatalf("after one red run on a moved base: runs %q, reruns %v, note %q: want the failed jobs run again", runLog(retrying), gh.rerunCalls(), retrying.Note)
+	}
+
+	// Act: main moves again and the second try is red too.
+	s.advanceMain("later.txt", "later\n")
+	halved := s.step(engine, started.ID)
+
+	// Assert: the train is halved rather than rebuilt whole.
+	if got := carStates(halved); !slices.Equal(got, []string{"#11=riding", "#12=waiting"}) || !slices.Equal(runLog(halved), []string{"1 #11 #12 failed", "2 #11 open"}) || halved.BaseSHA != s.main() || len(gh.rerunCalls()) != 1 {
+		t.Fatalf("after a second red run on a moved base: cars %v, runs %q, reruns %v, note %q: want the first half alone on the new main", got, runLog(halved), gh.rerunCalls(), halved.Note)
+	}
+}

@@ -582,3 +582,29 @@ func TestAdvanceLeavesAFinishedTrainAlone(t *testing.T) {
 		t.Fatalf("advance of a landed train = %s, %v, with %d new gh calls", again.State, err, len(gh.calls)-calls)
 	}
 }
+
+func TestABaseThatMovesDuringTheLandingRecheckCountsAsAMovedRun(t *testing.T) {
+	t.Parallel()
+	// Arrange: the run is green, and main moves while the riders are rechecked
+	// before the merge.
+	s := newScratch(t)
+	gh := newFakeGitHub(s)
+	first := gh.open(11, "feat/a", s.branch("feat/a", "a.txt", "a\n"))
+	second := gh.open(12, "feat/b", s.branch("feat/b", "b.txt", "b\n"))
+	riders, _ := Riders([]PullRequest{first, second}, "main", fleetAccount, goblinsFor(first, second), nil)
+	engine := s.engine(gh)
+	started, err := engine.Start(context.Background(), s.repository(), riders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var moved string
+	gh.beforeList = func() { moved = s.advanceMain("outside.txt", "outside\n") }
+
+	// Act
+	retest := s.step(engine, started.ID)
+
+	// Assert: nothing merged, and the run counts toward the moved-base limit.
+	if retest.Moved != 1 || !slices.Equal(runLog(retest), []string{"1 #11 #12 moved", "2 #11 #12 open"}) || retest.BaseSHA != moved || len(gh.mergeCalls()) != 0 {
+		t.Fatalf("train moved %d times, runs %q, base %s, merges %v: want the run counted as moved and tested again on the new main", retest.Moved, runLog(retest), short(retest.BaseSHA), gh.mergeCalls())
+	}
+}
