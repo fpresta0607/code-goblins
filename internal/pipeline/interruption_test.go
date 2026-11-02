@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +17,6 @@ type interruptionRunner struct {
 	commands     []string
 	failMerge    bool
 	pins         map[string]string
-	startRun     bool
-	endStatus    string
 	gateHead     string
 	gateDirty    bool
 	editsCommit  string
@@ -31,21 +28,6 @@ func (runner *interruptionRunner) Run(_ context.Context, request execx.Request) 
 	runner.commands = append(runner.commands, command)
 	if strings.Contains(command, "axi abort --run") {
 		runner.run.Status = "cancelled"
-	}
-	// no-mistakes recovers custody only from a run holding commits it never
-	// pushed: one whose head is its push binding is refused, as the gate's
-	// own tests of a pushed run's recovery hold.
-	if strings.Contains(command, "axi sync --recover") && runner.run.PushedHead != "" && runner.run.PushedHead == runner.run.Head {
-		return execx.Result{ExitCode: 1, Stdout: []byte("error: nothing was recovered: the live remote contains commits outside the persisted pipeline push binding; no files or refs were changed")}, nil
-	}
-	if strings.Contains(command, "axi run --intent") {
-		if runner.startRun {
-			runner.run.ID, runner.run.Status = "new-run", "running"
-			if runner.endStatus != "" {
-				runner.run.Status = runner.endStatus
-			}
-		}
-		return execx.Result{ExitCode: 1, Stderr: []byte("bounded wait elapsed")}, nil
 	}
 	if request.Name == "sqlite3" {
 		data, _ := json.Marshal([]InterruptedRun{runner.run})
@@ -188,79 +170,45 @@ func TestInterruptPreservesTheGateWorktreeBeyondItsRecordedHead(t *testing.T) {
 	}
 }
 
-// A run its goblin's pause could not stop is still live when the goblin
-// resumes: the resume goes on, the goblin picks its run back up, and no
-// replacement is started beside it. On 2026-10-09 Murray was paused for
-// memory with his gate run live, the pause could not abort the run, and each
-// of three resumes ended failed with "paused validation has not stopped; no
-// replacement run was started" until the CFO switched him by hand.
-func TestRestartInterruptedLeavesARunStillLiveToItsGoblin(t *testing.T) {
-	// Arrange
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	live := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "running", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
-	runner := &interruptionRunner{run: live, startRun: true}
-	reader := Reader{Root: root, Commands: runner}
-
-	// Act
-	err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), live, nil)
-
-	// Assert
-	if err != nil {
-		t.Errorf("restart = %v, want the resume to go on with its run still live", err)
-	}
-	if commands := strings.Join(runner.commands, "\n"); strings.Contains("\n"+commands, "\nno-mistakes ") {
-		t.Errorf("commands:\n%s\nwant the live run left alone, with no recovery, replacement or abort", commands)
-	}
-}
-
-func TestRestartInterruptedChecksAcceptedRunAfterBoundedWaitExpires(t *testing.T) {
-	for _, starts := range []bool{true, false} {
-		t.Run(map[bool]string{true: "accepted", false: "refused"}[starts], func(t *testing.T) {
-			root := t.TempDir()
-			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
-			runner := &interruptionRunner{run: prior, startRun: starts}
-			reader := Reader{Root: root, Commands: runner}
-			err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil)
-			if (err == nil) != starts {
-				t.Fatalf("restart: %v", err)
-			}
-			commands := strings.Join(runner.commands, "\n")
-			if strings.Index(commands, "axi sync --recover") > strings.Index(commands, "axi run --intent") {
-				t.Fatal("started validation before recovery")
-			}
-			if starts {
-				if err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil); err != nil {
+func TestResumeInterruptedRetainsTheExactRunWithoutMutation(t *testing.T) {
+	for _, status := range []string{"cancelled", "failed", "completed", "ci_monitor_interrupted", "running", "pending"} {
+		for _, test := range []struct {
+			name, pushed string
+		}{
+			{"published its head", strings.Repeat("a", 40)},
+			{"moved past its push", strings.Repeat("b", 40)},
+			{"never pushed", ""},
+		} {
+			t.Run(status+"/"+test.name, func(t *testing.T) {
+				// Arrange
+				root := t.TempDir()
+				if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if strings.Count(strings.Join(runner.commands, "\n"), "axi run --intent") != 1 {
-					t.Fatal("retry restarted the replacement validation")
+				prior := InterruptedRun{ID: "original-run", RepoID: "repo", Branch: "feat/task", Status: status, Head: strings.Repeat("a", 40), PushedHead: test.pushed, Intent: "retain history"}
+				runner := &interruptionRunner{run: prior}
+				reader := Reader{Root: root, Commands: runner}
+				for attempt := 0; attempt < 2; attempt++ {
+					// Act
+					current, err := reader.ResumeInterrupted(t.Context(), "project", prior)
+					// Assert
+					if err != nil || current != prior {
+						t.Fatalf("resume = %+v, %v", current, err)
+					}
+					if len(runner.commands) != attempt+1 || !strings.HasPrefix(runner.commands[attempt], "sqlite3 -readonly -json ") {
+						t.Fatalf("commands = %q, want only one read per resume", runner.commands)
+					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
 
-// A run that published its head holds nothing for custody recovery to
-// return, so its replacement starts from the branch as its goblin left it.
-// On 2026-10-17 cg-canvas-live-only was paused on the CI of the pull request
-// its gate had opened, with its goblin's one follow-up commit on it, and its
-// resume was refused with "nothing was recovered: the live remote contains
-// commits outside the persisted pipeline push binding".
-func TestRestartInterruptedRecoversOnlyARunHoldingUnpublishedCommits(t *testing.T) {
-	head := strings.Repeat("a", 40)
-	for _, test := range []struct {
-		name, pushed  string
-		shouldRecover bool
-	}{
-		{"published its head", head, false},
-		{"moved past its push", strings.Repeat("b", 40), true},
-		{"never pushed", "", true},
+func TestResumeInterruptedRefusesChangedIdentity(t *testing.T) {
+	for _, test := range []struct{ name, id, intent, want string }{
+		{"different run with identical intent", "other-run", "retain history", "another validation run owns"},
+		{"different run with different intent", "other-run", "Unrelated work", "another validation run owns"},
+		{"same run with changed intent", "original-run", "other work", "saved validation intent changed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
@@ -268,60 +216,17 @@ func TestRestartInterruptedRecoversOnlyARunHoldingUnpublishedCommits(t *testing.
 			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: head, PushedHead: test.pushed, Intent: "Keep the gate fixes"}
-			runner := &interruptionRunner{run: prior, startRun: true}
-
+			prior := InterruptedRun{ID: "original-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "retain history"}
+			current := prior
+			current.ID, current.Status, current.Intent = test.id, "failed", test.intent
+			runner := &interruptionRunner{run: current}
 			// Act
-			err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil)
-
+			_, err := (Reader{Root: root, Commands: runner}).ResumeInterrupted(t.Context(), "project", prior)
 			// Assert
-			if err != nil {
-				t.Fatalf("restart = %v, want the replacement started", err)
-			}
-			commands := strings.Join(runner.commands, "\n")
-			recovery, start := strings.Index(commands, "axi sync --recover"), strings.Index(commands, "axi run --intent Keep the gate fixes")
-			if start < 0 || (recovery >= 0) != test.shouldRecover || recovery > start {
-				t.Fatalf("commands:\n%s\nwant recovery %v before the replacement starts", commands, test.shouldRecover)
+			if err == nil || !strings.Contains(err.Error(), test.want) || len(runner.commands) != 1 || !strings.HasPrefix(runner.commands[0], "sqlite3 -readonly -json ") {
+				t.Fatalf("resume = %v, commands = %q", err, runner.commands)
 			}
 		})
-	}
-}
-
-func TestRestartInterruptedAcceptsAReplacementThatAlreadyEnded(t *testing.T) {
-	for _, status := range []string{"failed", "cancelled"} {
-		t.Run(status, func(t *testing.T) {
-			root := t.TempDir()
-			if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
-			runner := &interruptionRunner{run: prior, startRun: true, endStatus: status}
-			reader := Reader{Root: root, Commands: runner}
-			for attempt := 0; attempt < 2; attempt++ {
-				if err := reader.RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil); err != nil {
-					t.Fatalf("attempt %d: replacement that %s blocked Resume: %v", attempt, status, err)
-				}
-			}
-			if count := strings.Count(strings.Join(runner.commands, "\n"), "axi run --intent"); count != 1 {
-				t.Fatalf("started %d replacement runs", count)
-			}
-		})
-	}
-}
-
-func TestRestartInterruptedRefusesARunWithAnotherIntent(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
-	other := prior
-	other.ID, other.Status, other.Intent = "other-run", "failed", "Unrelated work"
-	runner := &interruptionRunner{run: other}
-	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, nil)
-	commands := strings.Join(runner.commands, "\n")
-	if err == nil || strings.Contains("\n"+commands, "\nno-mistakes ") {
-		t.Fatalf("restart over another intent: %v\n%s", err, commands)
 	}
 }
 
@@ -365,69 +270,6 @@ func TestInterruptRejectsAnotherGateRun(t *testing.T) {
 	_, err := (Reader{Root: root, Commands: runner}).Interrupt(context.Background(), "project", t.TempDir(), "feat/task", "requested")
 	if err == nil || len(runner.commands) != 1 {
 		t.Fatalf("replacement gate changed: %v %v", runner.commands, err)
-	}
-}
-
-// A gate that runs on its task's own harness carries that as a launch
-// selection, so the run Resume starts in place of a paused one carries it
-// too. Without it the replacement ran whatever the machine's chain named.
-func TestRestartInterruptedStartsTheReplacementUnderItsLaunchSelection(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
-	runner := &interruptionRunner{run: prior, startRun: true}
-	selected := []string{"--launch-nonce", "cfo-1", "--validation-generation", "frozen", "--launch-assertion", "launch-selection.json"}
-
-	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, func(context.Context) ([]string, error) {
-		return selected, nil
-	})
-
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "no-mistakes axi run --intent Keep the gate fixes --wait 45s " + strings.Join(selected, " ")
-	if commands := strings.Join(runner.commands, "\n"); !strings.Contains(commands+"\n", want+"\n") {
-		t.Fatalf("commands:\n%s\nwant the replacement started as %q", commands, want)
-	}
-}
-
-func TestRestartInterruptedAsksForNoLaunchSelectionItWillNotUse(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	live := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "running", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
-	runner := &interruptionRunner{run: live}
-
-	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), live, func(context.Context) ([]string, error) {
-		t.Error("a run still live was given a launch selection")
-		return nil, nil
-	})
-
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestRestartInterruptedStartsNothingWithoutItsLaunchSelection(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "state.sqlite"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	prior := InterruptedRun{ID: "paused-run", RepoID: "repo", Branch: "feat/task", Status: "cancelled", Head: strings.Repeat("a", 40), Intent: "Keep the gate fixes"}
-	runner := &interruptionRunner{run: prior, startRun: true}
-
-	err := (Reader{Root: root, Commands: runner}).RestartInterrupted(context.Background(), "project", t.TempDir(), prior, func(context.Context) ([]string, error) {
-		return nil, errors.New("no gate agent can be proved")
-	})
-
-	if err == nil || !strings.Contains(err.Error(), "no gate agent can be proved") {
-		t.Fatalf("error = %v, want the refused launch selection", err)
-	}
-	if commands := strings.Join(runner.commands, "\n"); strings.Contains("\n"+commands, "\nno-mistakes ") {
-		t.Fatalf("commands:\n%s\nwant nothing recovered or started on the machine's own chain", commands)
 	}
 }
 
