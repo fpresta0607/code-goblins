@@ -75,8 +75,7 @@ type Evaluation struct {
 	// waits for its harness to report taking it; its action keeps it.
 	Awaiting *Awaiting `json:"-"`
 	// CanSendNow is whether a queued message could be typed into its session
-	// on a retry, or one typed into a turn taken at once by its harness's
-	// send-now key, and SendNowWhy says why not when it could not.
+	// on a retry, and SendNowWhy says why not when it could not.
 	CanSendNow bool   `json:"-"`
 	SendNowWhy string `json:"-"`
 }
@@ -112,13 +111,13 @@ type Action struct {
 	// for its harness to report taking it.
 	Awaiting *Awaiting `json:"awaiting,omitempty"`
 	// CanSendNow is whether he may ask for a queued message to be typed now,
-	// or for one typed into a turn to be taken at once by its harness's
-	// send-now key, and SendNowWhy says why not, in plain words.
+	// and SendNowWhy says why not, in plain words.
 	CanSendNow bool   `json:"can_send_now,omitempty"`
 	SendNowWhy string `json:"send_now_why,omitempty"`
-	// IsSentNow says he asked for a queued message now, so its delivery types
-	// it even into a turn, for the harness to take at once where it has a
-	// send-now key, and otherwise at its next tool call.
+	// IsSentNow says he asked for a queued message now: one to the CFO skips
+	// its undo window, and one to a goblin is typed even into a turn, for the
+	// harness to take at once where it has a send-now key, and otherwise at
+	// its next tool call.
 	IsSentNow bool `json:"sent_now,omitempty"`
 	// Advice is what the Overlord should do about a delivery that never
 	// arrived, in his words; the board shows it as written.
