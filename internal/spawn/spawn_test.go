@@ -357,7 +357,6 @@ func TestSpawnScoutOmitsShipFields(t *testing.T) {
 	f.request.Kind = "scout"
 	f.request.Mode = ""
 	f.request.Yolo = false
-	writeFile(t, f.brief, "Investigate the reported behavior.\n")
 
 	result, err := f.service.Spawn(context.Background(), f.request)
 	if err != nil {
