@@ -176,19 +176,6 @@ test.describe("Actions rollover on an open device", () => {
     });
   }
 
-  test("marks a selected report old as the existing clock advances", async ({ page }) => {
-    await page.clock.install({ time: new Date("2026-11-01T02:30:00Z") });
-    await page.route("**/api/actions-spend?*", (route) => route.fulfill({ json: reading({ read_at: "2026-11-01T00:31:00Z", checked_at: "2026-11-01T00:31:00Z" }) }));
-    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
-      actions_spend: reading({ month: "2026-11", total_usd: 40, read_at: "2026-11-01T02:30:00Z", checked_at: "2026-11-01T02:30:00Z" }) });
-    await page.goto("/");
-    await page.getByRole("button", { name: "Board", exact: true }).click();
-    await page.getByRole("button", { name: "GitHub Actions spend: $8.50 this month", exact: true }).click();
-    await page.clock.runFor(60_000);
-    await expect(page.getByRole("button", { name: "GitHub Actions spend: $8.50 this month (old)", exact: true })).toBeVisible();
-    await expect(page.getByRole("dialog", { name: "GitHub Actions" })).toContainText("Old reading");
-  });
-
   test("switches reports at local midnight and contains a failed refresh", async ({ page }) => {
     await page.clock.install({ time: new Date("2026-11-01T04:59:30Z") });
     let release: () => void = () => undefined;

@@ -33,9 +33,7 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
     return () => controller.abort();
   }, [shouldRequest, month, instance, now]);
   if (!usage) return null;
-  const source = usage.month === month ? usage : cached?.reading;
-  const reading: ActionsSpend | undefined = source?.status === "available" && now - Date.parse(source.read_at) >= 7_200_000
-    ? { ...source, status: "stale", detail: "The last GitHub Actions usage reading is old." } : source;
+  const reading = usage.month === month ? usage : cached?.reading;
   const amount = reading?.total_usd;
   const hasTotal = amount != null && (reading?.status === "available" || reading?.status === "stale");
   const isOld = reading?.status === "stale";

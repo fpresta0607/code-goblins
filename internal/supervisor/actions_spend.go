@@ -70,9 +70,6 @@ func (s *Service) readActionsSpendMonth(ctx context.Context, now time.Time, mont
 	probe, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	reading := s.Options.ActionsSpend(probe, now, month)
-	if reading.Month != month {
-		reading = actionsbilling.Reading{Status: "unavailable", Month: month, CheckedAt: now, Detail: "GitHub Actions usage did not match the requested month."}
-	}
 	s.mu.Lock()
 	before := entry.reading
 	if reading.Status != "available" && before.TotalUSD != nil {

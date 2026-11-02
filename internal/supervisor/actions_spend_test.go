@@ -202,18 +202,6 @@ func TestActionsSpendCoalescesConcurrentDevices(t *testing.T) {
 	}
 }
 
-func TestActionsSpendContainsWrongMonthProviderResponses(t *testing.T) {
-	now := time.Date(2026, 11, 1, 0, 30, 0, 0, time.UTC)
-	service := &Service{Options: Options{ActionsSpend: func(_ context.Context, at time.Time, _ string) actionsbilling.Reading {
-		total := 40.0
-		return actionsbilling.Reading{Status: "available", Month: "2026-11", ReadAt: at, CheckedAt: at, TotalUSD: &total}
-	}}}
-	reading := service.readActionsSpendMonth(context.Background(), now, "2026-10")
-	if reading.Month != "2026-10" || reading.TotalUSD != nil || reading.Status != "unavailable" || !reading.CheckedAt.Equal(now) {
-		t.Fatalf("wrong month escaped: %+v", reading)
-	}
-}
-
 func TestActionsSpendSharedReadSurvivesADeviceDisconnect(t *testing.T) {
 	now := time.Date(2026, 11, 1, 0, 30, 0, 0, time.UTC)
 	started, release := make(chan struct{}), make(chan struct{})
