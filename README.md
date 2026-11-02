@@ -216,6 +216,15 @@ See [conversation recovery and fresh starts](docs/native-board.md#a-cfo-whose-te
 Use `cfo help` to list topics, then ask for one command, such as `cfo help auth request`.
 The [help reference](docs/commands/help.md), [operator contract](AGENTS.md) and [pipeline guide](docs/pipeline.md) cover fleet operation and verification levels.
 
+For persistent Command Center reviews:
+
+```text
+cfo review --id <stable-id> --title "<what to look at>" [--task <id>] [--image <path>]... [--lavish <url|html-file> [--reopen]]
+```
+
+Use `--reopen` only at the owner's request to revisit an ended review.
+See the [review command reference](docs/commands/review.md) for withdrawal and clearing.
+
 ### Updates and uninstall
 
 **Update Code Goblins** in Command Center offers published releases; `goblins update` does the same from your terminal.
