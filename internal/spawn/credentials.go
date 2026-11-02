@@ -62,20 +62,13 @@ func (s Service) parentNeed(parent state.TaskMeta) (auth.Need, error) {
 // since a helper that starts without what its brief says it needs fails at
 // the work instead of at the request.
 func helperNeed(parentID string, parent, brief auth.Need) (auth.Need, error) {
-	need := parent
-	if !brief.IsUnstated {
-		if refusal := helperRefusal(parentID, "credentials", "service", parent.Services, brief.Services); refusal != "" {
-			return auth.Need{}, errors.New(refusal)
-		}
-		need.Services = brief.Services
+	if refusal := helperRefusal(parentID, "credentials", "service", parent.Services, brief.Services); refusal != "" {
+		return auth.Need{}, errors.New(refusal)
 	}
-	if !brief.IsMCPUnstated {
-		if refusal := helperRefusal(parentID, "mcp", "MCP server", parent.MCPServers, brief.MCPServers); refusal != "" {
-			return auth.Need{}, errors.New(refusal)
-		}
-		need.MCPServers = brief.MCPServers
+	if refusal := helperRefusal(parentID, "mcp", "MCP server", parent.MCPServers, brief.MCPServers); refusal != "" {
+		return auth.Need{}, errors.New(refusal)
 	}
-	return need, nil
+	return auth.Need{Services: brief.Services, MCPServers: brief.MCPServers}, nil
 }
 
 // helperRefusal says which names a helper's brief asks for that its parent

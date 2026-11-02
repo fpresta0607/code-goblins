@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -214,6 +215,36 @@ func TestHelperRefusalRecommendsExplicitAuthenticationChoices(t *testing.T) {
 			}
 			if strings.Contains(refusal, "leaves out") || strings.Contains(refusal, "inherit") {
 				t.Errorf("refusal recommends implicit inheritance: %s", refusal)
+			}
+		})
+	}
+}
+
+// A helper carries only what its own brief names, which narrows its parent's
+// grants: a line its brief leaves out gives it nothing, never its parent's
+// services or servers, and never the manifest's defaults.
+func TestHelperNeedCarriesOnlyWhatItsBriefNames(t *testing.T) {
+	parent := auth.Need{Services: []string{"database", "payments"}, MCPServers: []string{"docs"}}
+	manifest := auth.Manifest{Services: []auth.Service{{Name: "database", Default: true}, {Name: "payments"}}}
+	for _, test := range []struct {
+		name                      string
+		brief                     auth.Need
+		wantServices, wantServers []string
+	}{
+		{name: "lines left out", brief: auth.Need{IsUnstated: true, IsMCPUnstated: true}},
+		{name: "none", brief: auth.Need{}},
+		{name: "a subset", brief: auth.Need{Services: []string{"payments"}, MCPServers: []string{"docs"}}, wantServices: []string{"payments"}, wantServers: []string{"docs"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			need, err := helperNeed("parent", parent, test.brief)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if carried := manifest.Grant(need).Services; !slices.Equal(carried, test.wantServices) || !slices.Equal(need.MCPServers, test.wantServers) {
+				t.Fatalf("helper carries services %v and servers %v, want %v and %v", carried, need.MCPServers, test.wantServices, test.wantServers)
 			}
 		})
 	}
