@@ -123,6 +123,11 @@ export function waitingItems(snapshot: Snapshot, kept: ReadonlySet<string> = new
     .sort((a, b) => Number(!!task(a)) - Number(!!task(b)) || place(a) - place(b) || created(a) - created(b));
 }
 
+// hasItemWaitingOnHim says goblin id has an item in that list: its own, or a
+// decision of its that the CFO put to him.
+export const hasItemWaitingOnHim = (snapshot: Snapshot, id: string) =>
+  waitingItems(snapshot).some((item) => (item.kind === "question" && item.question.for_task || task(item)) === id);
+
 // Every item of his still open: what the board has already announced.
 export function openKeys(snapshot: Snapshot): Set<string> {
   return new Set(asItems(snapshot).filter((item) => forOverlord(item, Date.parse(snapshot.at)) && isOpen(item)).map((item) => item.key));

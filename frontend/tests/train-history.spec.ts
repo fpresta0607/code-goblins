@@ -368,7 +368,7 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       }
       await backToBoard(page);
       await expect(pausedSection(page).locator(".card-title")).toHaveText(["Otis - Ledger Clerk", "Rosie - Inline Editor", "Wes - Train Conductor", "Dolly - Rank Keeper", "Pearl - Screen Model"]);
-      await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused for memory");
+      await expect(card(page, "Otis - Ledger Clerk").locator(".card-status-text")).toHaveText("Paused until memory frees");
     });
 
     test("one card for the batch lists what it landed and what it could not merge, and no card for the train it took on", async ({ page }) => {

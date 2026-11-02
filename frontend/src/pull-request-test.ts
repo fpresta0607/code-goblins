@@ -5,8 +5,8 @@ import type { MergeTrain, Task } from "./types.ts";
 // PullRequestTest is where a goblin's pull request stands under test, read
 // the same in its panel, its canvas node and its train's card, and on its
 // card while it only waits on it: the words, their tone, the page a click
-// opens and the detail in its tip.
-export interface PullRequestTest { text: string; tone: Tone; url: string; tip: string }
+// opens, the detail in its tip, and whether a merge train says it.
+export interface PullRequestTest { text: string; tone: Tone; url: string; tip: string; isOnTrain: boolean }
 
 // pullRequestTest is where a goblin's pull request stands under test. On a
 // merge train it reads as the train's card reads it, with the train's link:
@@ -22,9 +22,18 @@ export function pullRequestTest(task: Task, trains: MergeTrain[]): PullRequestTe
   const head = task.hosted_checks?.head;
   if (train && car && (!isTrainOver(train) || !head || !car.head || car.head === head)) {
     const look = carLook(car), whole = trainLook(train);
-    return { text: look.text, tone: look.tone, url: whole.url, tip: look.tip || whole.text };
+    return { text: look.text, tone: look.tone, url: whole.url, tip: look.tip || whole.text, isOnTrain: true };
   }
-  return task.hosted_checks && hostedChecksLook(task.hosted_checks, task.pr);
+  return task.hosted_checks && { ...hostedChecksLook(task.hosted_checks, task.pr), isOnTrain: false };
+}
+
+// landingStatus is what a goblin whose done report is in reads while its pull
+// request lands, given where it stands under test: Landing on a train while
+// one carries it, else Landing, waits to merge, and the test's own words once
+// it failed, was cancelled or landed.
+export function landingStatus(test: PullRequestTest | undefined): string {
+  if (test && (test.tone === "failed" || test.tone === "cancelled" || test.isOnTrain && test.tone === "passed")) return test.text;
+  return test?.isOnTrain ? "Landing on a train" : "Landing, waits to merge";
 }
 
 // The phases a goblin that reported its pull request done sits in while it

@@ -171,18 +171,20 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
 }
 
 // What a paused goblin says on its card and its panel:
-// Paused and why, in a few words, once; the panel says what resumes it in a
+// Paused and what resumes it, in a few words, once; the panel says it in a
 // sentence behind Details. A pause is on the bench, never a wait, so it
-// never reads Waiting (the Overlord, 2026-10-16). A CI or deploy pause names
-// how long the repository's runs usually take. A pause on a goblin names the
-// goblin alone, as Paused until Benny delivers, without its title (the CFO's
-// decision 1008011, 2026-10-17).
+// never reads Waiting (the Overlord, 2026-10-16), and it names what brings
+// the goblin back, never only why it stopped, so a goblin the memory reaper
+// stopped never reads like a live one waiting its turn for the machine
+// (#1924). A CI or deploy pause names how long the repository's runs usually
+// take. A pause on a goblin names the goblin alone, as Paused until Benny
+// delivers, without its title (the CFO's decision 1008011, 2026-10-17).
 export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], usual: CIUsual[], parent?: Task): string {
   const [kind, target] = pause?.until.split(/:(.*)/s) || [];
   switch (pause?.reason) {
-    case "memory": return "Paused for memory";
-    case "allowance": return "Paused for allowance";
-    case "overlord": return parent ? "Paused with " + (parent.goblin_name || goblinName(parent)) : "Paused by you";
+    case "memory": return "Paused until memory frees";
+    case "allowance": return "Paused until the allowance resets";
+    case "overlord": return parent ? "Paused until " + (parent.goblin_name || goblinName(parent)) + " resumes" : "Paused until you resume it";
     case "question": return "Paused until you answer";
     case "ci": case "deploy": {
       const minutes = usualMinutes(usual, repositoryOf(target.split("@")[0]), pause.reason);
@@ -195,7 +197,7 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], us
       return "Paused until " + (awaited ? awaited.goblin_name || goblinName(awaited) : "another task") + " delivers";
     }
   }
-  return "Paused";
+  return "Paused until you resume it";
 }
 
 // What a queued row says in place of Queued while it waits, on its card, its

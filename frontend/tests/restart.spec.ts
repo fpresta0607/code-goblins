@@ -16,7 +16,7 @@ test("while the fleet comes back the line says what is back, and a waiting card 
   const line = page.getByRole("status").filter({ hasText: "after a restart" });
   await expect(line).toHaveText("Coming back after a restart: the CFO is back, 1 of 6 goblins is back.");
   await expect(line.getByRole("button")).toHaveCount(0);
-  await expect(page.getByText("Comes back after the restart when memory allows")).toBeVisible();
+  await expect(page.getByText("Comes back when memory frees")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("restart-coming.png") });
 });
 

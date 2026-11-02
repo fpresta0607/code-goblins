@@ -65,7 +65,7 @@ for (const width of [1440, 390]) {
       }).length);
 
       // Assert
-      expect(said).toEqual(["Paused for memory", "Paused until PR #331 merges", "Paused until you answer", "Paused by you", "Paused until CI finishes, usually 13 min"]);
+      expect(said).toEqual(["Paused until memory frees", "Paused until PR #331 merges", "Paused until you answer", "Paused until you resume it", "Paused until CI finishes, usually 13 min"]);
       expect(outside).toBe(0);
     });
 
@@ -76,7 +76,7 @@ for (const width of [1440, 390]) {
       await open(page, machine(4.6), [...WORKING, ...PAUSED]);
       const section = board(page).getByRole("region", { name: "Paused", exact: true });
 
-      await expect(section.locator(".card-status-text")).toHaveText(["Paused for memory", "Paused until PR #331 merges", "Paused until you answer", "Paused by you", "Paused until CI finishes, usually 13 min"]);
+      await expect(section.locator(".card-status-text")).toHaveText(["Paused until memory frees", "Paused until PR #331 merges", "Paused until you answer", "Paused until you resume it", "Paused until CI finishes, usually 13 min"]);
       await expect(section.locator(".card-title")).toHaveText(PAUSED.map((paused) => paused.id));
       await expect(board(page).locator(".card-status-text").filter({ hasText: /^Waiting/ })).toHaveCount(0);
     });
@@ -152,7 +152,7 @@ test.describe("on the wide board", () => {
     await expect(panel(page).getByRole("button", { name: "Pause paused-on-task", exact: true })).toHaveCount(0);
 
     // Assert: the waiting goblin, on its card and in its panel.
-    await expect(card(page, "waiting-on-task").locator(".card-status-text")).toHaveText("Waiting on Bernie - Merge Maestro");
+    await expect(card(page, "waiting-on-task").locator(".card-status-text")).toHaveText("Waiting on Bernie");
     await expect(progress.locator(".card-title").getByText("waiting-on-task", { exact: true })).toHaveCount(1);
     await expect(section.locator(".card-title").getByText("waiting-on-task", { exact: true })).toHaveCount(0);
     await select(page, "waiting-on-task");

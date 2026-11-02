@@ -76,8 +76,8 @@ const panel = (page: Page) => page.locator(".goblin-panel");
 // for it. Every one says Paused and why, never Waiting (the Overlord,
 // 2026-10-16), so nothing under it says so again.
 const PAUSES: [string, { reason: string; until?: string } | undefined, string | RegExp][] = [
-  ["Mabel", { reason: "memory" }, "Paused for memory"],
-  ["Nettle", { reason: "allowance", until: "2026-10-10T07:00:00Z" }, "Paused for allowance"],
+  ["Mabel", { reason: "memory" }, "Paused until memory frees"],
+  ["Nettle", { reason: "allowance", until: "2026-10-10T07:00:00Z" }, "Paused until the allowance resets"],
   ["Quill", { reason: "question", until: "q-7" }, "Paused until you answer"],
   ["Cogsworth", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Paused until CI finishes"],
   ["Dross", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + HEAD }, "Paused until its deploy finishes"],
@@ -107,7 +107,7 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       // Arrange
       await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause))], "Bernie");
 
-      for (const [name, status] of [["Bernie", "Paused by you"], ...PAUSES.map(([name, , status]) => [name, status])] as [string, string | RegExp][]) {
+      for (const [name, status] of [["Bernie", "Paused until you resume it"], ...PAUSES.map(([name, , status]) => [name, status])] as [string, string | RegExp][]) {
         // Act
         const detailsHeader = await select(page, name);
 
@@ -128,11 +128,11 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
       // and by him, and one paused before pauses had reasons.
       await open(page, [BERNIE, ...PAUSES.map(([name, pause]) => paused(name, pause)), paused("Old")], "Bernie");
       const cases: [string, string, string, RegExp][] = [
-        ["Mabel", "Paused for memory", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
+        ["Mabel", "Paused until memory frees", did("Mabel"), /^It resumes by itself once 5 GB of memory is free\.$/],
         ["Tansy", "Paused until Bernie delivers", did("Tansy"), /^It resumes by itself when Bernie - Merge Maestro finishes\.$/],
         ["Datura", "Paused until Sat", did("Datura"), /^It resumes by itself on Sat\.$/],
         ["Cogsworth", "Paused until CI finishes", did("Cogsworth"), /^It resumes by itself when its CI run finishes\.$/],
-        ["Bernie", "Paused by you", "PR 1523 is green. Answering the two review notes on the connector page.", /^It stays paused until you resume it\.$/],
+        ["Bernie", "Paused until you resume it", "PR 1523 is green. Answering the two review notes on the connector page.", /^It stays paused until you resume it\.$/],
         ["Old", "Paused", did("Old"), /^It stays paused until you resume it\.$/],
       ];
       const read: string[] = [];

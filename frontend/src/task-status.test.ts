@@ -23,11 +23,11 @@ const board = (task: Record<string, unknown>, available = 9): Snapshot => parseS
 const zane = (snapshot: Snapshot) => snapshot.tasks[0];
 
 for (const [name, reason, text] of [
-  ["a gate", "Review gate needs approval before continuing", "Waiting"],
-  ["a dependency", "Wait for the dependency task to land before continuing", "Waiting"],
+  ["a gate", "Review gate needs approval before continuing", "Waiting on the CFO"],
+  ["a dependency", "Wait for the dependency task to land before continuing", "Waiting on the CFO"],
   ["the CFO", "Waiting on the CFO: Which dependency should land first?", "Waiting on the CFO"],
 ]) {
-  test(`a blocked goblin awaiting ${name} reads Waiting and keeps its reason and phase`, () => {
+  test(`a blocked goblin awaiting ${name} reads Waiting on the CFO, who answers it, and keeps its reason and phase`, () => {
     // Arrange
     const snapshot = board({ phase: "blocked", report: "blocked", reason });
     const task = zane(snapshot);
@@ -175,9 +175,71 @@ test("a goblin whose spawn ended reads Starting until the supervisor has evidenc
   assert.deepEqual(read("unknown", 180), { text: "No evidence yet", phase: "unknown" });
 });
 
-test("a paused goblin reads why it waits and what resumes it, the same words on every surface", () => {
+test("a paused goblin reads what resumes it, the same words on every surface", () => {
   const snapshot = board({ phase: "paused", generation: "s1", lifecycle: { phase: "paused", action: "pause", at: "2026-10-08T11:00:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { reason: "memory", until: "", at: "2026-10-08T11:00:00Z" } } });
-  assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Paused for memory", phase: "paused" });
+  assert.deepEqual(taskStatus(zane(snapshot), snapshot), { text: "Paused until memory frees", phase: "paused" });
+});
+
+// The Overlord, 2026-11-02: "How is a goblin waiting on memory yet it's
+// still in progress?" A live goblin whose heavy step waited its turn in the
+// machine's line read Waiting on memory in In progress, and one the memory
+// reaper stopped read Paused for memory. Every goblin reads one state from a
+// small set that says whether its session runs, what it waits for and what
+// brings it back, in its column (#1924).
+test("every phase and wait of a goblin reads one state, in its column, and only a stopped goblin reads Paused", () => {
+  // Arrange
+  const TRAIN_PR = "https://github.com/o/code-goblins/pull/900", PR = "https://github.com/o/code-goblins/pull/512";
+  const nina = { id: "nina-task", title: "Other work", phase: "working", generation: "n1", goblin_name: "Nina", goblin_title: "Bug Hunter", verified: false };
+  const tree = (place: number) => ({ tree: { task_id: "zane", generation: "s1", harness: "claude", memory: 0, own_memory: 0, children: [], line_place: place } });
+  const pause = (fields: Record<string, unknown>) => ({ phase: "paused", lifecycle: { phase: "paused", action: "pause", at: "2026-11-02T19:47:00Z", kept: [], stopped: [], problems: [], handoff_saved: true, validation_restarts: false, pause: { until: "", at: "2026-11-02T19:47:00Z", ...fields } } });
+  const done = (fields: Record<string, unknown>) => ({ phase: "idle", report: "done", pr: PR, ...fields });
+  const checks = (state: string) => ({ hosted_checks: { head: "a".repeat(40), state, checks: 9, failed: state === "failed" ? ["test"] : [] } });
+  const riding = { id: "t1", repository: "o/code-goblins", base: "main", pr: TRAIN_PR, state: "testing", runs: 1, started: "2026-11-02T19:00:00Z", finished: "", note: "",
+    cars: [{ number: 512, url: PR, title: "", task: "zane", goblin: "", goblin_title: "", head: "a".repeat(40), state: "riding", note: "" }] };
+  const asksYou = { reviews: [{ id: "waiting-zane-1", identity: "g", task: "zane", title: "Waiting on you: sign in to the registry", state: "open", created_at: "2026-11-02T19:40:00Z", updated_at: "2026-11-02T19:40:00Z" }] };
+  const cases: [string, Record<string, unknown>, Record<string, unknown>, string, string, string][] = [
+    ["at work", { phase: "working" }, {}, "Working", "working", "In progress"],
+    ["its heavy step in line, place unread", { phase: "waiting", waiting_on: "memory" }, {}, "In line for the machine", "waiting", "In progress"],
+    ["its heavy step second in line", { phase: "waiting", waiting_on: "memory", ...tree(2) }, {}, "2nd in line for the machine", "waiting", "In progress"],
+    ["idle while its run is next in line", { phase: "idle", ...tree(1) }, {}, "1st in line for the machine", "waiting", "In progress"],
+    ["eleventh in line", { phase: "waiting", waiting_on: "memory", ...tree(11) }, {}, "11th in line for the machine", "waiting", "In progress"],
+    ["twenty-third in line", { phase: "waiting", waiting_on: "memory", ...tree(23) }, {}, "23rd in line for the machine", "waiting", "In progress"],
+    ["idle, nothing in line", { phase: "idle" }, {}, "Waiting on the CFO", "idle", "In progress"],
+    ["asking a question", { phase: "blocked", report: "blocked", reason: "Which key?" }, {}, "Waiting on the CFO", "blocked", "In progress"],
+    ["a helper asking its parent", { phase: "blocked", report: "blocked", reason: "Which key?", parent: "nina-task" }, {}, "Waiting on Nina", "blocked", "In progress"],
+    ["an idle helper whose parent left the board", { phase: "idle", parent: "gone-task" }, {}, "Waiting on its parent", "idle", "In progress"],
+    ["waiting on the Overlord through the CFO", { phase: "waiting", waiting_on: "overlord" }, {}, "Waiting on the CFO", "waiting", "In progress"],
+    ["waiting on the Overlord in his Command Center", { phase: "waiting", waiting_on: "overlord" }, asksYou, "Waiting on you", "waiting", "In progress"],
+    ["waiting on CI", { phase: "waiting", waiting_on: "ci" }, {}, "Waiting on CI", "waiting", "In progress"],
+    ["waiting on its deploy", { phase: "waiting", waiting_on: "deploy" }, {}, "Waiting on its deploy", "waiting", "In progress"],
+    ["waiting on a goblin", { phase: "waiting", waiting_on: "nina-task" }, {}, "Waiting on Nina", "waiting", "In progress"],
+    ["waiting on a task gone from the board", { phase: "waiting", waiting_on: "later-task" }, {}, "Waiting on later-task", "waiting", "In progress"],
+    ["waiting on its gate run", { phase: "waiting", waiting_on: "01M65HF9WKBPKK3F15TEPT3NYZ" }, {}, "Waiting on its gate", "waiting", "In progress"],
+    ["in its review gate", { phase: "review", gate_step: "test" }, {}, "In review gate: tests", "review", "In progress"],
+    ["done, its pull request on a train", done(checks("passed")), { merge_trains: [riding] }, "Landing on a train", "pr-pending", "In progress"],
+    ["done, its checks running", done(checks("pending")), {}, "Landing, waits to merge", "pr-pending", "In progress"],
+    ["done, its checks passed", done(checks("passed")), {}, "Landing, waits to merge", "pr-passed", "In progress"],
+    ["done, its checks failed", done(checks("failed")), {}, "Checks failed", "pr-failed", "In progress"],
+    ["delivered, its merge unverified", { phase: "done", report: "done", pr: PR }, {}, "Landing, waits to merge", "done", "In progress"],
+    ["paused for memory", pause({ reason: "memory" }), {}, "Paused until memory frees", "paused", "Paused"],
+    ["paused by the Overlord", pause({ reason: "overlord" }), {}, "Paused until you resume it", "paused", "Paused"],
+    ["paused until a goblin delivers", pause({ reason: "dependency", until: "task:nina-task" }), {}, "Paused until Nina delivers", "paused", "Paused"],
+    ["paused until a pull request merges", pause({ reason: "dependency", until: "pr:" + PR }), {}, "Paused until PR #512 merges", "paused", "Paused"],
+  ];
+
+  for (const [name, fields, extra, text, phase, column] of cases) {
+    const snapshot = parseSnapshot({ healthy: true, revision: 7, memory: memoryWith(9), ...extra,
+      tasks: [{ id: "zane", title: "Train history", project: "code-goblins", generation: "s1", verified: false, ...fields }, nina] });
+
+    // Act
+    const status = taskStatus(zane(snapshot), snapshot);
+
+    // Assert
+    assert.deepEqual(status, { text, phase }, name);
+    assert.equal(taskColumn(zane(snapshot)), column, name);
+    assert.equal(status.text.startsWith("Paused"), column === "Paused", name + ": only a stopped goblin reads Paused, and never under In progress");
+    assert.doesNotMatch(status.text, /memory$/, name + ": never the word memory alone");
+  }
 });
 
 test("a task with no terminal yet says its status where its terminal will be", () => {
