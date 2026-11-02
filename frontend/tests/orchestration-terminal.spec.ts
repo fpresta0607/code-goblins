@@ -76,7 +76,9 @@ for (const isCfo of [true, false]) {
       const connections = relay.views;
       const now = new Date("2026-10-27T12:00:05Z");
       await page.clock.install({ time: now });
-      await page.clock.pauseAt(now);
+      // The installed clock runs until it pauses, so it pauses a second on,
+      // never at a moment a loaded machine has already passed.
+      await page.clock.pauseAt(new Date(now.getTime() + 1000));
 
       await show.click({ force: true });
       await page.clock.runFor(200);

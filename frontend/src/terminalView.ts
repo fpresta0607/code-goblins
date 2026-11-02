@@ -97,6 +97,9 @@ export class TerminalView {
   private claimedAt = -1;
   private sized = false;
   private isReady = false;
+  // Whether ready reached the view's owner while its connection was open.
+  // Only an accepted view's replay is shown after its connection closes.
+  private isAccepted = false;
   // Whether key presses sit unread in the terminal's input, as the relay
   // last said, which may be before this view is whole.
   private isUnread = false;
@@ -393,16 +396,23 @@ export class TerminalView {
     this.readyIfDrawn();
   }
 
-  // A closed connection must not replace a current view through ready, but
-  // a replay already accepted for Chat can still be shown after it closes.
-  // Promotion can finish while hidden, so reopening the same size never
-  // waits for another repaint.
+  // A view whose connection closed before its owner accepted it is never
+  // shown, its wait for a repaint included: it has no terminal to draw, and
+  // an empty one with a cursor reads as a program at work where its closing
+  // says why (a goblin whose host a restart ended, 2026-10-20). A replay
+  // already accepted for Chat can still be shown after it closes. Promotion
+  // can finish while hidden, so reopening the same size never waits for
+  // another repaint.
   private markReady(): void {
     if (this.disposed) return;
     clearTimeout(this.fallback);
-    if (this.isReady) { this.promote(); return; }
+    if (this.isReady) { if (this.isAccepted) this.promote(); return; }
     this.isReady = true;
-    requestAnimationFrame(() => { if (!this.disposed && this.socket.readyState === WebSocket.OPEN) this.events.ready(); });
+    requestAnimationFrame(() => {
+      if (this.disposed || this.socket.readyState !== WebSocket.OPEN) return;
+      this.isAccepted = true;
+      this.events.ready();
+    });
   }
 
   private refit(): void {
@@ -425,7 +435,7 @@ export class TerminalView {
     const size = panelFit(panel.width, panel.height, this.cell(), PADDING);
     if (!size || !this.term.element) return;
     this.term.element.style.padding = `${size.top}px ${size.right}px ${size.bottom}px ${size.left}px`;
-    if (this.socket.readyState === WebSocket.CLOSED) { this.resizeGrid(size.cols, size.rows); this.promote(); return; }
+    if (this.socket.readyState === WebSocket.CLOSED) { this.resizeGrid(size.cols, size.rows); if (this.isAccepted) this.promote(); return; }
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (this.sized && this.owner && size.cols === this.claimed?.cols && size.rows === this.claimed.rows) return;
     this.owner = true;

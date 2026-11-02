@@ -101,11 +101,13 @@ for (const [name, viewport, scale] of [
       // Act
       const typed = await open(page);
 
-      // Assert: step 1, the CFO's terminal, which the first open put beside
-      // the board; the tour says how to speak, so no voice hint repeats it.
+      // Assert: step 1, the CFO's panel, which the first open put beside the
+      // board on its Chat view with no terminal drawn; the tour says how to
+      // speak, so no voice hint repeats it.
       await expect(tour(page).getByRole("heading", { name: "I'm the CFO. Tell me what to build." })).toBeVisible();
       await expect(page.locator("#panel-title")).toHaveText("CFO");
-      await expect(page.locator(".terminal-view .xterm-rows")).toContainText("READY");
+      await expect(cfoBox(page)).toBeVisible();
+      await expect(page.locator(".xterm")).toHaveCount(0);
       await expect(tour(page).getByRole("button", { name: "Next" })).toBeFocused();
       await expect(tour(page).getByRole("img", { name: "Step 1 of 3" })).toBeVisible();
       await expect(page.getByText("Speak into this terminal")).toHaveCount(0);
