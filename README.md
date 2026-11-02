@@ -183,6 +183,8 @@ AFK is your explicit switch for letting the CFO make decisions while you are awa
 Turn it on from the CFO's controls, then review the recorded decisions when you return.
 It does not grant the agent authority over steps reserved for you.
 The switch shows loading or refusal feedback when it cannot change state.
+Turning AFK off opens a report of what changed, decisions made for you and work still under way.
+Use **Change answer** to revise a decision, **Go through what needs you** to handle pending items, or **Open your last AFK report** in the CFO's Task view to reopen it.
 See the [AFK contract](docs/contract/afk.md) for authority, limits and the return report.
 
 ## Opening, closing and restarting
@@ -205,6 +207,8 @@ Run these in a terminal of your own:
 | `goblins setup` | Choose the CFO's harness again. |
 | `goblins resume` | Bring back the CFO and goblins whose terminals ended. |
 | `goblins update` | Install the latest published release. |
+
+See [conversation recovery and fresh starts](docs/native-board.md#a-cfo-whose-terminal-ended) for when reopening the CFO starts a new conversation.
 
 ### Core commands
 
@@ -241,6 +245,7 @@ Existing checkout homes retain their [legacy checkout activation boundary](docs/
 - Merges require your authority, including any explicit `yolo` or AFK delegation; eligible green pull requests can also land through the documented merge-train policy.
 - Run cards execute only after you press **Run**; browser sign-ins and other owner steps remain yours.
 - The installer backs up and merges its narrow Command Center permission rules into Claude Code settings; [the installation guide](docs/install.md) explains those changes.
+  These rules cover filing cards; `cfo answer` and `cfo send` receive no added permission because their messages instruct workers.
 
 Code Goblins coordinates delivery; it is not an operating-system sandbox.
 Keep branch protection and restrict production credentials for sensitive projects.
