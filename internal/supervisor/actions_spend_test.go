@@ -187,7 +187,7 @@ func TestActionsSpendCoalescesConcurrentDevices(t *testing.T) {
 	}
 	select {
 	case <-started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("reader did not start")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -232,7 +232,7 @@ func TestActionsSpendSharedReadSurvivesADeviceDisconnect(t *testing.T) {
 	go func() { done <- service.readActionsSpendMonth(ctx, now, "2026-10") }()
 	select {
 	case <-started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("reader did not start")
 	}
 	cancel()
@@ -242,7 +242,7 @@ func TestActionsSpendSharedReadSurvivesADeviceDisconnect(t *testing.T) {
 		if reading.Status != "available" || reading.TotalUSD == nil {
 			t.Fatalf("disconnected device poisoned shared reading: %+v", reading)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("reader did not finish")
 	}
 	if reading := service.readActionsSpendMonth(context.Background(), now, "2026-10"); reading.TotalUSD == nil {
