@@ -1,29 +1,528 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"golang.org/x/sys/windows"
+
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
 
 type sourceResumeCommands struct {
 	native     []execx.Request
 	queryError error
+}
+
+type sourceResumeEvent struct {
+	Kind   string   `json:"kind"`
+	Args   []string `json:"args,omitempty"`
+	Prompt string   `json:"prompt,omitempty"`
+}
+
+func runSourceResumeTestProgram() (int, bool) {
+	if len(os.Args) > 1 && os.Args[1] == "source-resume-host" {
+		return runHost(os.Args[2:], os.Stderr), true
+	}
+	if index := slices.Index(os.Args, "--source-resume-harness"); index > 0 {
+		if len(os.Args) != index+3 {
+			return 2, true
+		}
+		return runSourceResumeHarness(os.Args[index+1], os.Args[index+2]), true
+	}
+	if filepath.Base(filepath.Dir(os.Args[0])) != "source-resume-bin" {
+		return 0, false
+	}
+	switch strings.ToLower(filepath.Base(os.Args[0])) {
+	case "no-mistakes.exe":
+		data, err := json.Marshal(os.Args[1:])
+		if err == nil {
+			err = os.WriteFile(filepath.Join(filepath.Dir(os.Args[0]), "native-call.json"), data, 0o600)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		fmt.Fprintln(os.Stderr, "validation must be requested explicitly")
+		return 1, true
+	case "gh.exe":
+		if len(os.Args) > 2 && os.Args[1] == "pr" && os.Args[2] == "list" {
+			fmt.Println("[]")
+			return 0, true
+		}
+		fmt.Fprintln(os.Stderr, "unexpected fake GitHub command")
+		return 2, true
+	}
+	return 0, false
+}
+
+func runSourceResumeHarness(recordPath, instructionPath string) int {
+	file, err := os.OpenFile(recordPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 2
+	}
+	defer file.Close()
+	record := json.NewEncoder(file)
+	if err := record.Encode(sourceResumeEvent{Kind: "launch", Args: os.Args[1:]}); err != nil {
+		return 2
+	}
+	if err := windows.SetConsoleMode(windows.Handle(os.Stdin.Fd()), windows.ENABLE_VIRTUAL_TERMINAL_INPUT); err != nil {
+		return 2
+	}
+	draw := func(text string) {
+		fmt.Print("\x1b[2J\x1b[H\r\n\u203a " + text + "\r\n100% context left")
+	}
+	draw("Ask Codex to do anything")
+	reader := bufio.NewReader(os.Stdin)
+	var line strings.Builder
+	for {
+		character, _, err := reader.ReadRune()
+		if err != nil {
+			return 0
+		}
+		if character == '\x1b' {
+			for {
+				next, _, err := reader.ReadRune()
+				if err != nil {
+					return 2
+				}
+				if next >= '@' && next <= '~' && next != '[' {
+					break
+				}
+			}
+			continue
+		}
+		if character == '\r' {
+			if line.String() != "Read "+instructionPath+" and follow it exactly: it is your instruction from the CFO." {
+				return 2
+			}
+			prompt, err := os.ReadFile(instructionPath)
+			if err != nil || record.Encode(sourceResumeEvent{Kind: "prompt", Prompt: string(prompt)}) != nil {
+				return 2
+			}
+			fmt.Print("\x1b[2J\x1b[H\u2022 Working (0s \u2022 esc to interrupt)\r\n\u203a Ask Codex to do anything\r\n100% context left")
+			line.Reset()
+			continue
+		}
+		line.WriteRune(character)
+		draw(line.String())
+	}
+}
+
+type sourceResumeAdapter struct {
+	recordPath      string
+	instructionPath string
+	isRefused       bool
+}
+
+func (sourceResumeAdapter) Kind() harness.Kind { return harness.Codex }
+
+func (sourceResumeAdapter) Validate(context.Context, execx.Runner) error { return nil }
+
+func (sourceResumeAdapter) Control() harness.Control {
+	return harness.Control{ResumeArgs: []string{"resume"}}
+}
+
+func (adapter sourceResumeAdapter) Build(spec harness.LaunchSpec) (harness.Launch, error) {
+	if adapter.isRefused {
+		return harness.Launch{}, errors.New("fixture provider refused this session")
+	}
+	return harness.Launch{
+		Args: []string{"--source-resume-harness", adapter.recordPath, adapter.instructionPath},
+		Env: map[string]string{
+			"TEMP": spec.Scratch, "TMP": spec.Scratch, "TMPDIR": spec.Scratch, "GOTMPDIR": spec.Scratch,
+		},
+		PromptFile: spec.BriefPath,
+	}, nil
+}
+
+type sourceResumeAuth struct{}
+
+func (sourceResumeAuth) Preflight(context.Context, string, auth.Need) (auth.Result, error) {
+	return auth.Result{}, nil
+}
+
+func sourceResumeEnvironment(t *testing.T, root string) []string {
+	t.Helper()
+	var toolDirectories []string
+	for _, name := range []string{"git", "sqlite3"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			t.Fatalf("%s is required: %v", name, err)
+		}
+		toolDirectories = append(toolDirectories, filepath.Dir(path))
+	}
+	toolDirectories = append(toolDirectories, filepath.Join(os.Getenv("SystemRoot"), "System32"))
+	environment := []string{
+		"SystemRoot=" + os.Getenv("SystemRoot"), "WINDIR=" + os.Getenv("SystemRoot"),
+		"ComSpec=" + os.Getenv("ComSpec"), "PATHEXT=.COM;.EXE;.BAT;.CMD",
+		"PATH=" + strings.Join(toolDirectories, string(os.PathListSeparator)),
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=NUL", "GIT_TERMINAL_PROMPT=0",
+		"GITHUB_TOKEN=fixture-credential", "CFO_SOURCE_RESUME_RUNNER=1",
+	}
+	for _, entry := range []struct{ name, folder string }{
+		{"USERPROFILE", "profile"}, {"HOME", "profile"}, {"APPDATA", "appdata"}, {"LOCALAPPDATA", "cache"},
+		{"TEMP", "temp"}, {"TMP", "temp"}, {"TMPDIR", "temp"}, {"GOTMPDIR", "temp"},
+		{"CFO_HOME", "home"}, {"CFO_STATE_OVERRIDE", "home/state"}, {"CFO_PROJECTS_ROOT", "projects"},
+		{"CFO_VERIFY_DIR", "verify"}, {"CFO_CODEX_GUARD", "guard"}, {"XDG_CACHE_HOME", "cache"},
+		{"CODEX_HOME", "codex"}, {"CLAUDE_CONFIG_DIR", "claude"}, {"PI_CODING_AGENT_DIR", "pi"},
+	} {
+		path := filepath.Join(root, filepath.FromSlash(entry.folder))
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		environment = append(environment, entry.name+"="+path)
+	}
+	return environment
+}
+
+// The acceptance oracle is source-only resume: one contributor, the same
+// original validation history and policy, and no native start/recover/respond.
+// OS environment, auth, admission and provider inputs are mocked; Switch,
+// Launch, RunArgs, the terminal and prompt delivery execute together.
+func TestSourceResumeComposedBoundaries(t *testing.T) {
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("CFO_SOURCE_RESUME_RUNNER") != "1" {
+		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
+		defer cancel()
+		command := exec.CommandContext(ctx, program, "-test.v", "-test.timeout=15m", "-test.run=^TestSourceResumeComposedBoundaries$")
+		command.Env = sourceResumeEnvironment(t, t.TempDir())
+		output, err := command.CombinedOutput()
+		t.Logf("OS/auth/admission/provider inputs mocked; composed boundary evidence:\n%s", output)
+		if err != nil {
+			t.Fatalf("isolated seven-case runner: %v", err)
+		}
+		return
+	}
+	for _, test := range []struct {
+		name, refusal string
+	}{
+		{name: "original relaunch once and replay"},
+		{name: "original finishes during memory pause"},
+		{name: "foreign same-intent run", refusal: "another validation run owns"},
+		{name: "unreadable state", refusal: "state query failed"},
+		{name: "low memory", refusal: "Resume needs at least 5 GB"},
+		{name: "exhausted allowance", refusal: "fixture provider allowance exhausted"},
+		{name: "provider refusal through Switch", refusal: "fixture provider refused this session"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			root := t.TempDir()
+			environment := sourceResumeEnvironment(t, root)
+			for _, entry := range environment {
+				name, value, _ := strings.Cut(entry, "=")
+				t.Setenv(name, value)
+			}
+			bin := filepath.Join(root, "source-resume-bin")
+			if err := os.MkdirAll(bin, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"codex.exe", "no-mistakes.exe", "gh.exe"} {
+				if err := os.Link(program, filepath.Join(bin, name)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			for _, name := range []string{"codex", "no-mistakes", "gh"} {
+				if path, err := exec.LookPath(name); err != nil || !strings.EqualFold(path, filepath.Join(bin, name+".exe")) {
+					t.Fatalf("%s did not resolve to the pinned fake: %q, %v", name, path, err)
+				}
+			}
+			h := primaryHomeFixture(t)
+			t.Setenv("CFO_HOME", h.Root)
+			t.Setenv("CFO_STATE_OVERRIDE", h.State)
+			nativeRoot := filepath.Join(root, "native")
+			if err := os.MkdirAll(nativeRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("NM_HOME", nativeRoot)
+			commands := execx.OSRunner{}
+			workingDir := h.Root
+			git := func(args ...string) string {
+				t.Helper()
+				result, err := commands.Run(t.Context(), execx.Request{Dir: workingDir, Name: "git", Args: args})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("git %v: %v %s", args, err, result.Stderr)
+				}
+				return strings.TrimSpace(string(result.Stdout))
+			}
+			git("add", "AGENTS.md")
+			git("commit", "-m", "fixture source")
+			worktreePath := filepath.Join(h.Worktrees(), filepath.Base(h.Root), "task")
+			git("worktree", "add", "-b", "fix/source-resume", worktreePath)
+			workingDir = worktreePath
+			head := git("rev-parse", "HEAD")
+			unfinished := filepath.Join(worktreePath, "unfinished.txt")
+			if err := os.WriteFile(unfinished, []byte("author repair in progress"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			meta := state.TaskMeta{ID: "task", SpawnGen: "generation-1", FirstGen: "generation-1", Backend: "native", Harness: "codex", Model: "fixture-model", Effort: "default", Kind: "ship", Mode: "no-mistakes", HasCredentials: true, Project: h.Root, Worktree: worktreePath, TaskTmp: filepath.Join(h.State, "tasktmp", "task")}
+			if err := os.MkdirAll(meta.TaskTmp, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			meta.Brief = filepath.Join(meta.TaskTmp, "brief.md")
+			if err := os.WriteFile(meta.Brief, []byte("Retain the original validation history."), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			frozen, err := versionSixPolicy(t, pipeline.Reviewer{}).Select("high-risk")
+			if err != nil {
+				t.Fatal(err)
+			}
+			policyPath := filepath.Join(meta.TaskTmp, "pipeline.json")
+			if err := frozen.Save(policyPath); err != nil {
+				t.Fatal(err)
+			}
+			meta.PipelineHash, meta.PipelineClass = frozen.Hash, frozen.Class
+			if err := state.WriteTaskMeta(h.State, meta); err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteConversation(h.State, state.Conversation{ID: meta.ID, Generation: meta.SpawnGen, Harness: meta.Harness, Session: "fixture-session", ProvedAt: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			database := filepath.Join(nativeRoot, "state.sqlite")
+			status := "failed"
+			if test.name == "original finishes during memory pause" {
+				status = "running"
+			}
+			schema := fmt.Sprintf(`CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,status TEXT,head_sha TEXT,last_pushed_sha TEXT,intent TEXT,worktree_dir TEXT,created_at INTEGER);
+CREATE TABLE step_results(run_id TEXT,step_name TEXT,round INTEGER,spent INTEGER);
+CREATE TABLE findings(run_id TEXT,id TEXT,resolution TEXT);
+INSERT INTO repos VALUES('repo-1','%s');
+INSERT INTO runs VALUES('original-run','repo-1','fix/source-resume','%s','%s','%s','retain validation history','',1);
+INSERT INTO step_results VALUES('original-run','review',3,3);
+INSERT INTO findings VALUES('original-run','ci-1','unresolved');`, strings.ReplaceAll(filepath.ToSlash(h.Root), "'", "''"), status, head, head)
+			sqlite := func(sql string) {
+				t.Helper()
+				result, err := commands.Run(t.Context(), execx.Request{Name: "sqlite3", Args: []string{database, sql}})
+				if err != nil || result.ExitCode != 0 {
+					t.Fatalf("fixture SQLite: %v %s", err, result.Stderr)
+				}
+			}
+			sqlite(schema)
+			read := func(path string) []byte {
+				t.Helper()
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return data
+			}
+			policyBefore, databaseBefore := read(policyPath), read(database)
+			runtime := commandRuntime{resolveHome: func() (home.Home, error) { return h, nil }}
+			var output, failure bytes.Buffer
+			if code := runWithRuntime([]string{"pause", "task", "--operation", "pause-source", "--reason", "memory"}, &output, &failure, commandRuntime{
+				resolveHome: runtime.resolveHome,
+				taskLifecycle: func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+					request.IsWatched = true
+					return defaultTaskLifecycle(ctx, h, request, "")
+				},
+			}); code != 0 {
+				t.Fatalf("production pause exit %d: %s", code, &failure)
+			}
+			paused, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil || paused.GateRun != "original-run" || paused.GateHead != head || paused.GateIntent != "retain validation history" || paused.Session != "fixture-session" || !paused.HandoffSaved || !bytes.Equal(databaseBefore, read(database)) {
+				t.Fatalf("production pause lost the original context: %+v, %v", paused, err)
+			}
+			handoffBefore := read(paused.Handoff)
+			if test.name == "original finishes during memory pause" {
+				sqlite("UPDATE runs SET status='failed' WHERE id='original-run';")
+			} else if test.name == "foreign same-intent run" {
+				sqlite("INSERT INTO runs SELECT 'foreign-run',repo_id,branch,status,head_sha,last_pushed_sha,intent,worktree_dir,2 FROM runs WHERE id='original-run';")
+			}
+			evidenceDatabase := database
+			if test.name == "unreadable state" {
+				evidenceDatabase += ".retained"
+				if err := os.Rename(database, evidenceDatabase); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(database, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			databaseBefore = read(evidenceDatabase)
+			userEnvPath := filepath.Join(root, "user-env.json")
+			userEnv, err := json.Marshal(environment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(userEnvPath, userEnv, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			eventsPath := filepath.Join(root, "harness.jsonl")
+			instructionPath := filepath.Join(meta.TaskTmp, "instruction.md")
+			userEnvironmentCalls, switchCalls := 0, 0
+			admit := func() error {
+				if test.name == "exhausted allowance" {
+					return errors.New("fixture provider allowance exhausted")
+				}
+				return nil
+			}
+			launcher := spawn.Service{
+				HomeRoot: h.Root, StateDir: h.State, ProjectsRoot: filepath.Join(root, "projects"), ScratchRoot: filepath.Join(root, "scratch"), Commands: commands,
+				Worktrees: worktree.Service{Commands: commands, Root: h.Worktrees(), DataDir: h.Data}, Auth: sourceResumeAuth{},
+				Harness: harness.Registry{Adapters: map[harness.Kind]harness.Adapter{harness.Codex: sourceResumeAdapter{recordPath: eventsPath, instructionPath: instructionPath, isRefused: test.name == "provider refusal through Switch"}}},
+				HostCommand: []string{program, "source-resume-host"},
+				UserEnvironment: func() ([]string, error) {
+					userEnvironmentCalls++
+					data, err := os.ReadFile(userEnvPath)
+					if err != nil {
+						return nil, err
+					}
+					var values []string
+					err = json.Unmarshal(data, &values)
+					return values, err
+				},
+			}
+			t.Cleanup(func() {
+				record, err := host.ReadRecord(h.State, meta.ID)
+				if errors.Is(err, os.ErrNotExist) {
+					return
+				}
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				var handles []windows.Handle
+				for _, pid := range []int{record.HostPID, record.ChildPID} {
+					handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+					if err != nil {
+						t.Errorf("open owned process %d: %v", pid, err)
+						continue
+					}
+					defer windows.CloseHandle(handle)
+					handles = append(handles, handle)
+				}
+				if err := host.Close(h.State, record, 15*time.Second); err != nil {
+					t.Error(err)
+				}
+				for _, handle := range handles {
+					if result, err := windows.WaitForSingleObject(handle, 5000); err != nil || result != windows.WAIT_OBJECT_0 {
+						t.Errorf("owned process did not exit: %d, %v", result, err)
+					}
+				}
+				if end, err := host.ReadEnd(h.State, meta.ID); err != nil || end.HostPID != record.HostPID || end.ChildPID != record.ChildPID || !end.Closed {
+					t.Errorf("owned terminal exit = %+v, %v", end, err)
+				}
+			})
+			runtime.switchTask = func(ctx context.Context, _ home.Home, request spawn.SwitchRequest) (spawn.SwitchResult, error) {
+				switchCalls++
+				return launcher.Switch(ctx, request)
+			}
+			service := lifecycle.Service{StateDir: h.State, Operations: lifecycle.Operations{
+				Memory: func() (uint64, uint64, error) {
+					if test.name == "low memory" {
+						return 4 << 30, 5 << 30, nil
+					}
+					return 5 << 30, 5 << 30, nil
+				},
+				Admit: admit,
+				Resume: func(ctx context.Context, current state.TaskMeta, prior state.Lifecycle) error {
+					return resumeTask(ctx, h, runtime, commands, pipeline.Reader{Root: nativeRoot, Commands: commands}, current, prior, admit)
+				},
+				Notify: func(state.Lifecycle) error { return nil },
+			}}
+			runtime.taskLifecycle = func(ctx context.Context, _ home.Home, request lifecycle.Request, _ string) (state.Lifecycle, error) {
+				return service.Run(ctx, request)
+			}
+
+			// Act
+			output.Reset()
+			failure.Reset()
+			code := runWithRuntime([]string{"resume", "task", "--generation", meta.SpawnGen, "--operation", "resume-source"}, &output, &failure, runtime)
+			if test.refusal == "" {
+				if code != 0 {
+					t.Fatalf("composed resume exit %d: %s", code, &failure)
+				}
+					if code := runWithRuntime([]string{"resume", "task", "--generation", meta.SpawnGen, "--operation", "resume-source"}, &output, &failure, runtime); code != 0 {
+					t.Fatalf("resume replay exit %d: %s", code, &failure)
+				}
+			} else if code != 1 || !strings.Contains(failure.String(), test.refusal) {
+				t.Fatalf("refusal exit %d: %s; want %q", code, &failure, test.refusal)
+			}
+
+			// Assert
+			if _, err := os.Stat(filepath.Join(bin, "native-call.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("implicit native start/recover/respond occurred: %v", err)
+			}
+			if !bytes.Equal(databaseBefore, read(evidenceDatabase)) || !bytes.Equal(policyBefore, read(policyPath)) || !bytes.Equal(handoffBefore, read(paused.Handoff)) {
+				t.Fatal("resume changed retained native history, frozen policy or handoff bytes")
+			}
+			if git("rev-parse", "HEAD") != head || string(read(unfinished)) != "author repair in progress" {
+				t.Fatal("resume changed authored source")
+			}
+			current, err := state.ReadTaskMeta(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained, err := state.ReadLifecycle(h.State, meta.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.refusal != "" {
+				if !reflect.DeepEqual(current, meta) || !reflect.DeepEqual(retained, paused) {
+					t.Fatal("refusal changed task identity or pause context")
+				}
+				if _, err := os.Stat(eventsPath); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("refused resume launched a contributor: %v", err)
+				}
+				if _, err := os.Stat(filepath.Join(h.State, "hosts", meta.ID+".log")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("refused resume started a host: %v", err)
+				}
+				if test.name == "provider refusal through Switch" && (switchCalls != 1 || userEnvironmentCalls != 1) {
+					t.Fatal("provider refusal did not traverse the real Switch preflight")
+				}
+				return
+			}
+			if record, err := host.ReadRecord(h.State, meta.ID); err != nil || !host.Running(record) {
+				t.Fatalf("the real switch did not leave an owned contributor running: %+v, %v", record, err)
+			}
+			expected := meta
+			expected.SpawnGen, expected.ResumeOperation = current.SpawnGen, "resume-source"
+			if current.SpawnGen == meta.SpawnGen || !reflect.DeepEqual(current, expected) || retained.Generation != current.SpawnGen || retained.Session != "fixture-session" || retained.GateRun != "original-run" || retained.GateHead != head || retained.GateIntent != paused.GateIntent || retained.Handoff != paused.Handoff || retained.Phase != "running" || switchCalls != 1 || userEnvironmentCalls != 1 {
+				t.Fatalf("resume lost task lineage or validation context: task=%+v lifecycle=%+v switch=%d environment=%d", current, retained, switchCalls, userEnvironmentCalls)
+			}
+			lines := bytes.Split(bytes.TrimSpace(read(eventsPath)), []byte("\n"))
+			if len(lines) != 2 {
+				t.Fatalf("contributor launched or received a prompt more than once: %d events", len(lines))
+			}
+			var launch, delivered sourceResumeEvent
+			if err := json.Unmarshal(lines[0], &launch); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(lines[1], &delivered); err != nil {
+				t.Fatal(err)
+			}
+			if launch.Kind != "launch" || !slices.Equal(launch.Args, []string{"resume", "fixture-session", "--source-resume-harness", eventsPath, instructionPath}) || delivered.Kind != "prompt" || strings.Count(delivered.Prompt, "original-run") != 1 || !strings.Contains(delivered.Prompt, " is failed.") || !strings.Contains(delivered.Prompt, paused.Handoff) || !strings.Contains(delivered.Prompt, policyPath) {
+				t.Fatalf("actual contributor argv or delivered prompt lost retained context: %+v %+v", launch, delivered)
+			}
+			t.Log("one contributor relaunched with retained session, handoff, source, run, rounds, spend, findings and frozen policy; OS/auth/admission/provider mocked")
+		})
+	}
 }
 
 func (commands *sourceResumeCommands) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
