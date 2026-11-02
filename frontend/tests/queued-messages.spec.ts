@@ -408,6 +408,40 @@ test("his message to the CFO is Queued with its controls while held, Sent with n
   await unlabelled(log(page).locator(".message-prompt", { hasText: words }));
 });
 
+// The Overlord, 2026-11-02: "In AFK the queued functionality where it has the
+// edit and the clear should still be there." Turning AFK on wakes the CFO, so
+// a message he queued a moment before was typed into the turn that started,
+// and the board kept calling it Queued with Send now alone. AFK changes
+// nothing here: a message the board holds keeps all three controls, and one
+// typed into a turn reads Sent.
+for (const [whose, task] of [["the CFO", ""], ["a goblin", GOBLIN.id]] as const) {
+  test(`with AFK on, his message to ${whose} keeps Send now, Edit and Cancel while held, and one typed into the turn reads Sent`, async ({ page }) => {
+    // Arrange
+    const afk = { state: "on", since: new Date().toISOString(), from: "his own board (goblins-window.exe pid 4242)", decided: 0, held: [] };
+    const mine = { task_id: task, generation: task ? GOBLIN.generation : "", can_send_now: true, send_now_why: "" };
+    const held = queued({ ...mine, id: "h1", text: "close the third app too", message: "Queued for a moment, so you can still edit or cancel it." });
+    const typedIn = queued({ ...mine, id: "t1", text: "check the WebView memory", status: "running", can_send_now: false,
+      message: "Typed while it works; it takes the message at its next tool call, or as its turn ends.", awaiting: task ? { task, since: "2026-10-22T09:00:30Z" } : { since: "2026-10-22T09:00:30Z" }, created_at: "2026-10-22T08:59:00Z" });
+    const relay = await open(page, snapshot({ afk, actions: [typedIn, held], sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5", phase: "working" }] }));
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CFO");
+    }
+
+    // Act: its turn runs, as the wake AFK sends the CFO starts one.
+    relay.say({ type: "screen", asking: false, open: false, working: true });
+
+    // Assert
+    const heldBubble = entry(page).filter({ hasText: "close the third app too" });
+    await expect(heldBubble.locator(".queued-state")).toHaveText(WAITING);
+    for (const name of ["Send now", "Edit", "Cancel"]) await expect(heldBubble.getByRole("button", { name, exact: true })).toBeVisible();
+    const typedBubble = entry(page).filter({ hasText: "check the WebView memory" });
+    await expect(typedBubble.locator(".queued-state")).toHaveText("Sent");
+    await expect(typedBubble.locator(".queued-actions")).toHaveCount(0);
+  });
+}
+
 // A Send now the supervisor refuses, as for a message it typed a moment
 // before the board showed it, is a refusal of his click: it is said over the
 // box, and the CFO is not woken for it, since the supervisor answered. One
