@@ -143,8 +143,8 @@ func (root rootStart) refusal() string {
 // one bounded read runs at a time; all results, including failures, wait a
 // pickup interval before another read. A changed brief or identity is new.
 func (s *Service) rootStartRefusal(root rootStart) StartRefusal {
-	if refusal, kind := rootLocalRefusal(s.Store.Home, root); refusal.Reason != "" {
-		s.tellRootStart(root, kind, refusal.Reason)
+	if refusal, judged, kind := rootLocalRefusal(s.Store.Home, root); refusal.Reason != "" {
+		s.tellRootStart(judged, kind, refusal.Reason)
 		return refusal
 	}
 	now := time.Now().UTC()
@@ -160,7 +160,7 @@ func (s *Service) rootStartRefusal(root rootStart) StartRefusal {
 				problem := root
 				problem.Problem = bounded(err.Error(), 500)
 				reason := problem.refusal()
-				s.tellRootStart(root, "identity", reason)
+				s.tellRootStart(problem, "identity", reason)
 				return StartRefusal{Reason: reason, Waits: true}
 			}
 		}
@@ -174,20 +174,20 @@ func (s *Service) rootStartRefusal(root rootStart) StartRefusal {
 	return StartRefusal{Reason: "Root issue awaits verification of its recorded identity; nothing starts until it is confirmed open", Waits: true}
 }
 
-func rootLocalRefusal(h home.Home, root rootStart) (StartRefusal, string) {
+func rootLocalRefusal(h home.Home, root rootStart) (StartRefusal, rootStart, string) {
 	if root.Problem != "" {
-		return StartRefusal{Reason: root.refusal(), Waits: true}, "identity"
+		return StartRefusal{Reason: root.refusal(), Waits: true}, root, "identity"
 	}
 	filers, err := liveRootFilers(h)
 	if err != nil {
 		root.Problem = "the live tasks' filed root issues cannot be read: " + err.Error()
-		return StartRefusal{Reason: root.refusal(), Waits: true}, "identity"
+		return StartRefusal{Reason: root.refusal(), Waits: true}, root, "identity"
 	}
 	if filer := filers[strings.ToLower(fmt.Sprintf("https://github.com/%s/issues/%d", root.Repository, root.Number))]; filer != "" {
 		reason := fmt.Sprintf("Root issue %s#%d belongs to %s, the live task that filed it; nothing starts while it runs. Reconcile the root with %s or queue new work under a new id", root.Repository, root.Number, filer, filer)
-		return StartRefusal{Reason: reason, Waits: true}, "owned"
+		return StartRefusal{Reason: reason, Waits: true}, root, "owned"
 	}
-	return StartRefusal{}, ""
+	return StartRefusal{}, root, ""
 }
 
 func (s *Service) readRootStart(root rootStart) {
@@ -311,7 +311,7 @@ func persistedRootStartReader(h home.Home) func(rootStart) StartRefusal {
 		Repository: tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
 	}
 	return func(root rootStart) StartRefusal {
-		if refusal, _ := rootLocalRefusal(h, root); refusal.Reason != "" {
+		if refusal, _, _ := rootLocalRefusal(h, root); refusal.Reason != "" {
 			return refusal
 		}
 		unknown := StartRefusal{Reason: "Root issue awaits verification of its recorded identity; nothing starts until it is confirmed open", Waits: true}

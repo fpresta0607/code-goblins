@@ -726,6 +726,76 @@ func TestClearedLocalRootEvidenceNeverOutlivesItsCause(t *testing.T) {
 	}
 }
 
+func TestEachDistinctLocalRootProblemIsToldOnce(t *testing.T) {
+	for _, test := range []struct {
+		name, first    string
+		arrange, clear func(*testing.T, *Service, home.Home)
+	}{
+		{name: "origin unreadable", first: "cannot read origin", arrange: func(_ *testing.T, service *Service, _ home.Home) {
+			service.Options.RootIssues.Repository = func(context.Context, string) (string, error) { return "", errors.New("cannot read origin") }
+		}, clear: func(*testing.T, *Service, home.Home) {}},
+		{name: "live tasks' filed roots unreadable", first: "filed root issues cannot be read", arrange: func(t *testing.T, _ *Service, h home.Home) {
+			fileRootAsLiveTask(t, h, "widgets-other", rootIssue(8).URL)
+			taskTmp := filepath.Join(h.State, "tasktmp", "widgets-other")
+			entries, err := os.ReadDir(taskTmp)
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("filed roots=%v err=%v, want the one record", entries, err)
+			}
+			filed := filepath.Join(taskTmp, entries[0].Name())
+			if err := os.Remove(filed); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(filed, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}, clear: func(t *testing.T, _ *Service, h home.Home) {
+			if err := os.Remove(state.TaskMetaPath(h.State, "widgets-other")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange: GitHub verified the root closed.
+			service, h, spawner, reads := rootStartBoard(t, "closed", nil)
+			if err := service.checkFleet(t.Context(), rootNow); err != nil {
+				t.Fatal(err)
+			}
+			waitRootReading(t, service)
+			pass := func(minute int) {
+				if err := service.checkFleet(t.Context(), rootNow.Add(time.Duration(minute)*time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				waitRootReading(t, service)
+			}
+
+			// Act: one local problem holds over two passes, then a second does.
+			test.arrange(t, service, h)
+			pass(1)
+			pass(2)
+			test.clear(t, service, h)
+			service.Options.RootIssues.Repository = func(context.Context, string) (string, error) { return "acme/other", nil }
+			pass(3)
+			pass(4)
+
+			// Assert: each distinct problem reaches the CFO exactly once.
+			for _, want := range []string{test.first, "differs from the project's issue repository acme/other"} {
+				var notices []string
+				for _, record := range fleetWakeRecords(t, h, "notify") {
+					if strings.Contains(record.Detail, want) {
+						notices = append(notices, record.Detail)
+					}
+				}
+				if len(notices) != 1 {
+					t.Errorf("notices for %q = %v, want one", want, notices)
+				}
+			}
+			if len(spawner.recorded()) != 0 || reads.Load() != 1 {
+				t.Errorf("spawns=%v reads=%d, want none and the original read only", spawner.recorded(), reads.Load())
+			}
+		})
+	}
+}
+
 func TestAReopenedRootReturnsToOrdinarySchedulingAfterClosureExpires(t *testing.T) {
 	// Arrange
 	service, _, spawner, reads := rootStartBoard(t, "closed", nil)
