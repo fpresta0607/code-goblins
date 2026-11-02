@@ -99,7 +99,7 @@ func (c *checker) connectors(ctx context.Context) error {
 		default:
 			line := service.Name + ": " + strings.Join(own, ", ") + " is in no file tracked at " + c.repo.at() + " but documents and tests, and its entry names no tool and has no note"
 			if service.Default {
-				line += ". It is a default service, which every task whose brief has no credentials line carries"
+				line += ". It is a manifest-default service; complete automatic briefs select it explicitly, authored briefs require explicit credentials and mcp choices, and existing task records retain their recorded grants"
 			}
 			unused = append(unused, line)
 			continue

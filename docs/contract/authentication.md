@@ -47,7 +47,7 @@ The manifest holds names, probes, and links - never a credential.
   A service with no `identity` stays liveness-only and the report says so.
 - `login` is a non-interactive command `--fix` may run; `url` and `confirm` are what the browser fallback and the sign-in request use.
 - `optional: true` keeps a service a project can run without out of the blocking column.
-- `default: true` gives a service's credentials to a task whose brief names no service and does not say none, the form every brief had before a brief named them.
+- `default: true` marks a service for [default credential selection](#credentials-by-need).
   Mark only a service nearly every task of the project needs and none can spend with.
 - A service's `name` is what a brief writes to ask for it, so it holds no comma, starts and ends with no space, and is not `none`.
 - `formats`, beside `services`, is an optional list of hints for what credential values look like, which a credential request's card warns with and never refuses a value for (see [Credential requests](../native-board.md#credential-requests)).
@@ -67,8 +67,9 @@ Any command a goblin starts can read what its terminal carries and spend with it
   A brief names a service, never a value.
 - `cfo spawn` reads that line.
   A name the manifest does not declare refuses the spawn and says what the manifest does declare, and `--yolo` does not clear it.
-- A brief with no such line, the form every brief had before a brief named its services, gets the services the manifest marks `"default": true` and no other.
-  Under a manifest that marks none, such a task carries none.
+- Every new task, including a helper, must state its Authentication choices under the [brief readiness contract](../commands/brief.md).
+- Briefs generated from backlog rows or root issues explicitly record the manifest's `"default": true` service names, or `credentials: none`, and `mcp: none` when written.
+  A later change to the manifest's defaults does not change those brief choices.
 - Only the services a task carries are probed, and only one of those that is red refuses its spawn.
   A service that declares a variable one of them declares is checked with them, because an identity verdict is about the value.
 - The spawn says what it withheld on a line of its own, such as ``auth: withheld 2 of acme-api's services (neon, stripe), grant one with `cfo auth grant <id> <service>` ``, and its instruction tells the goblin which services it carries.
@@ -85,7 +86,7 @@ Any command a goblin starts can read what its terminal carries and spend with it
   A terminal running then keeps what it already holds of the service until it ends, since nothing takes a variable back out of a running process: `cfo switch <id> --restart` starts one without it.
   A service the task does not carry is refused and nothing changes.
 - A helper narrows what its parent carries and never widens it, before its preflight and its terminal.
-  Each line its brief states, `credentials:` or `mcp:`, selects exactly what it names, which must be a subset of the services and value-bearing MCP servers the parent carries: `credentials: none` and `mcp: none` give a read-only reviewer nothing, and a line its brief leaves out is its parent's, which is what a helper brief written before this carries.
+  Its explicit `credentials:` and `mcp:` lines select subsets of the services and value-bearing MCP servers the parent carries: `credentials: none` and `mcp: none` give a read-only reviewer nothing.
   A name the parent does not carry refuses the start, saying what the parent carries, rather than widening it.
   The narrowed set is the helper's record from then on, so a resume, a switch and a credential refresh keep it without reading the parent again.
   A later grant or revoke changes the parent's record alone.
@@ -96,7 +97,6 @@ Any command a goblin starts can read what its terminal carries and spend with it
 - An MCP server whose entry in the project's `.mcp.json` holds a value reaches a goblin by need, as a stored credential does.
   An entry holds a value when anything in a command server's `env` map or in a header is more than a reference to one variable: `${NAME}`, alone or after `Bearer`, holds nothing, and any other text or number does.
   Such a server is withheld unless the brief names it on an `mcp:` line beside `credentials:`, such as `mcp: supabase, linear`, or `mcp: none`.
-  A brief with no `mcp:` line names none.
   `cfo brief` writes the line as `mcp: none` and lists the servers it could name.
 - A server whose entry holds no value passes as before, and a server that authenticates by `bearerTokenEnvVar` stays under the `credentials:` line, since it reaches a goblin only when its terminal carries that variable.
 - The spawn names each server it withheld so and the line that grants one, such as ``mcp: withheld 2 servers whose entry holds a value (linear, supabase), grant one with `cfo auth grant <id> --mcp <server>` ``, and its instruction tells the goblin the same.

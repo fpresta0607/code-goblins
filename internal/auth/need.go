@@ -27,26 +27,23 @@ type Need struct {
 	// Services are the services named for the task, by their names in the
 	// project's manifest.
 	Services []string
-	// IsUnstated marks a brief that neither names a service nor says none,
-	// the form every brief had before a brief named its services. Such a task
-	// carries the services the manifest marks default and no other.
+	// IsUnstated marks an omitted credentials choice, distinct from none.
+	// New brief admission refuses it; internal default resolution and older
+	// task records still use it.
 	IsUnstated bool
 	// MCPServers are the MCP servers named for the task, by their names in
 	// the project's .mcp.json. A server whose entry there holds a value
-	// reaches the task only when it is named, so a brief with no `mcp:` line
-	// is given none of those.
+	// reaches the task only when it is named.
 	MCPServers []string
-	// IsMCPUnstated marks a brief with no `mcp:` line. A task is given none
-	// of the servers whose entry holds a value either way, so only a helper
-	// tells the two apart: it inherits its parent's servers for a line its
-	// own brief leaves out and carries what it names for one it states.
+	// IsMCPUnstated marks an omitted mcp choice, distinct from none.
+	// New brief admission refuses it, including for helpers.
 	IsMCPUnstated bool
 }
 
 // NeedFromBrief reads what a brief's Authentication section asks for: the
 // services on its `credentials:` line, separated by commas, or none, and the
-// MCP servers on its `mcp:` line in the same form. A brief with no
-// `credentials:` line is in the older form and its need is unstated.
+// MCP servers on its `mcp:` line in the same form. Missing credentials or
+// mcp lines are marked unstated; parsing alone does not establish readiness.
 //
 // A line that cannot be read is refused rather than guessed at, because the
 // two guesses are a task that starts without what it needs and a task that

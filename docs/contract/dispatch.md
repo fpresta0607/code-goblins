@@ -13,13 +13,8 @@ So what asks Windows for the temporary folder in a goblin's terminal, as a Go pr
 Everything else lands in the task's own scratch folder and goes with the task: its build output, its logs, what its shell tools and scripts put in `TEMP` or `TMPDIR`, and the folders a Go test's `t.TempDir()` makes, which follow `GOTMPDIR`.
 A goblin started before this keeps the `TMP` it was started with until it is resumed or switched.
 
-- `--brief` must be an absolute path to an existing file.
-- The brief's Authentication section decides what the goblin can reach: its `credentials:` line names the services, by their names in the project's manifest, whose credentials the goblin's terminal carries, and it carries no other ([Credentials by need](authentication.md#credentials-by-need)).
-  `credentials: none` gives it none.
-  A brief with no such line gets the services the manifest marks default.
-  A name the manifest does not declare refuses the spawn.
-  The spawn says on one `auth: withheld ...` line what it withheld, and `cfo auth grant <id> <service>` gives a running goblin one more.
-  Its `mcp:` line does the same for the MCP servers whose entry in the project's `.mcp.json` holds a value: the goblin is given the ones it names, the spawn says on one `mcp: withheld ...` line which it withheld, and `cfo auth grant <id> --mcp <server>` gives a running goblin one more at its next terminal.
+- `--brief` must be an absolute path to an existing file that satisfies the [brief readiness contract](../commands/brief.md).
+- The brief's Authentication section decides what the goblin can reach under [Credentials by need](authentication.md#credentials-by-need).
 - The brief's Verification section tells the goblin what to run before each push: `cfo verify <id>`, the fast tier of the project's record, which is the check you run by the same command.
   It replaces telling a goblin to run the tests it touched by name, which left CI as the first to run a test the change broke.
   In this repository that tier is `cfo gate prepush`.
@@ -90,7 +85,7 @@ A start that meets a `cfo spawn` you run by hand, which holds the home's spawn l
 The helper is a local-only ship task named `<parent>-h<n>`, a number no earlier helper of that parent had, in a worktree of its own on `<parent-branch>-h<n>`, cut from the parent's last commit.
 Its brief is kept at `data/<helper>/brief.md`, and its own task determines its routing independently of the parent's harness, model and effort.
 Explicit engine settings in the helper's brief override routing, while a mode other than local-only is refused before the start is recorded.
-Its project comes from its parent, and what its terminal carries is its own brief's Authentication section narrowed to no more than its parent carries: `credentials: none` and `mcp: none` for a helper that reads nothing, or a subset of the parent's services and value-bearing servers, while a line its brief leaves out is its parent's.
+Its project comes from its parent; its Authentication choices follow the [helper credential limits](authentication.md#credentials-by-need).
 It reports to its parent, not to you: its `cfo notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `cfo fleet-view` names each helper's parent.
 The parent answers its helper with `cfo send <helper> "<answer>"`, reports `cfo notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `cfo helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.
@@ -156,6 +151,8 @@ The product does this by itself in every home, with no setting, and wakes you fo
   The row closes as `done` when the task delivered and as `retired` when it did not, and the supervisor moves any row a delivered task left behind.
   A local-only task opens no pull request, so it is delivered when a done line of its current run names its report, `data/<task>/report.md`, by its full path or its path in the home, and that report is there.
 - **Work that cannot start wakes you again.** A start that failed is not retried by itself, and its card says why.
+  A brief changed during admission instead produces `start deferred: ...` and is reconsidered on the next scan with its final choices.
+  Draft briefs remain held under the [brief readiness contract](../commands/brief.md), do not block ready work behind them and raise no idle-fleet wake.
   While work like that (a failed start or resume, or a row that needs you, such as one whose brief names no project) waits 30 minutes with memory free and nothing started, an `idle` wake keyed `fleet` names each task and why, and it comes again every 30 minutes that lasts.
 - **Your turn does not end idle.** When your turn ends with no goblin at work while work that could run waits and memory is free, it is reopened with an `idle` wake keyed `turn` naming the next work and the exact command: Claude Code's turn-end guard reopens it, and for a Codex or pi CFO the supervisor queues the wake from the turn end its native hook reported and types it into its terminal.
   The same next work reopens a turn at most once every 30 minutes.

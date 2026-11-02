@@ -5,7 +5,9 @@
 package spawn
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -41,9 +43,11 @@ const (
 // Request is the complete local task creation input. Ship delivery posture is
 // explicit while scouts deliberately omit it.
 type Request struct {
-	ID          string
-	Project     string
-	BriefPath   string
+	ID        string
+	Project   string
+	BriefPath string
+	// BriefHash binds CLI routing and delivery choices to the admitted brief.
+	BriefHash   [sha256.Size]byte
 	Kind        string
 	Mode        string
 	Yolo        bool
@@ -185,13 +189,23 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := requireBrief(req); err != nil {
 		return Result{}, err
 	}
-	if err := validateDeliveryContract(req); err != nil {
+	admittedBrief, err := fsx.ReadFile(req.BriefPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read brief: %w", err)
+	}
+	if err := fleet.ValidateBriefReadiness(admittedBrief); err != nil {
+		return Result{}, err
+	}
+	if req.BriefHash != ([sha256.Size]byte{}) && req.BriefHash != sha256.Sum256(admittedBrief) {
+		return Result{}, fmt.Errorf("%w: the brief changed after routing; retry with its final choices", fleet.ErrBriefNotReady)
+	}
+	if err := validateDeliveryContract(req, admittedBrief); err != nil {
 		return Result{}, err
 	}
 	if err := validateHelperRequest(req); err != nil {
 		return Result{}, err
 	}
-	isServicesNeeded, err := s.briefNeedsServices(req.BriefPath, project)
+	isServicesNeeded, err := s.briefNeedsServices(admittedBrief, project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -247,7 +261,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// start without a credential it needs costs no terminal and no worktree.
 	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
 	// a red blocking service stops here; --yolo is the existing override.
-	need, err := s.spawnNeed(req)
+	need, err := s.spawnNeed(req, admittedBrief)
 	if err != nil {
 		return Result{}, err
 	}
@@ -311,6 +325,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := s.Admit(); err != nil {
 			return Result{}, err
 		}
+	}
+	currentBrief, err := fsx.ReadFile(req.BriefPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read brief at admission: %w", err)
+	}
+	if !bytes.Equal(currentBrief, admittedBrief) {
+		return Result{}, fmt.Errorf("%w: the brief changed during admission; retry with its final choices", fleet.ErrBriefNotReady)
 	}
 	var helper helperBase
 	if req.Parent != "" {
@@ -778,13 +799,9 @@ func requireBrief(req Request) error {
 	return nil
 }
 
-func validateDeliveryContract(req Request) error {
+func validateDeliveryContract(req Request, data []byte) error {
 	if req.Kind != "ship" {
 		return nil
-	}
-	data, err := fsx.ReadFile(req.BriefPath)
-	if err != nil {
-		return fmt.Errorf("spawn: read brief delivery contract: %w", err)
 	}
 	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		mode, found := strings.CutPrefix(line, "Delivery contract: mode=")
@@ -1017,11 +1034,7 @@ func dependencyInstruction(worktree string, install []string, refused string) st
 // task needs its project's local services (services: needed), and refuses
 // one that says so for a project that declares none, or a services line
 // spawn does not know.
-func (s Service) briefNeedsServices(briefPath, project string) (bool, error) {
-	data, err := fsx.ReadFile(briefPath)
-	if err != nil {
-		return false, fmt.Errorf("spawn: read brief: %w", err)
-	}
+func (s Service) briefNeedsServices(data []byte, project string) (bool, error) {
 	isNeeded, section := false, ""
 	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		if heading, found := strings.CutPrefix(line, "## "); found {
@@ -1040,7 +1053,7 @@ func (s Service) briefNeedsServices(briefPath, project string) (bool, error) {
 	if !isNeeded {
 		return false, nil
 	}
-	_, err = services.LoadManifest(s.Worktrees.DataDir, project)
+	_, err := services.LoadManifest(s.Worktrees.DataDir, project)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("spawn: the brief needs %s's local services, but the project declares none: write %s", auth.ProjectName(project), services.ManifestPath(s.Worktrees.DataDir, project))
 	}

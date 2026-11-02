@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
@@ -100,11 +101,12 @@ func TestStopFinishesAnInterruptedArchiveWithoutRemovingAReplacementRow(t *testi
 
 func TestStopQueuedKeepsTheTaskBrief(t *testing.T) {
 	for _, test := range []struct {
-		name, existing string
-		want           []string
+		name, existing, manifest string
+		want                     []string
 	}{
 		{name: "missing brief", want: []string{"## Project\n\nexample", "Fix login", "First detail line.\nSecond detail line."}},
 		{name: "existing brief", existing: "# Brief task\n\nThe CFO's own brief.\n", want: []string{"# Brief task\n\nThe CFO's own brief.\n"}},
+		{name: "existing brief with malformed manifest", existing: "# Brief task\r\n\r\n## Authentication\r\ncredentials: github\r\nmcp: none\r\n## Delivery\r\nmode: local-only\r\nharness: codex\r\nmodel: chosen-model\r\neffort: high\r\nclass: high-risk\r\nready: false\r\n", manifest: "{invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
@@ -118,6 +120,15 @@ func TestStopQueuedKeepsTheTaskBrief(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := os.WriteFile(brief, []byte(test.existing), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.manifest != "" {
+				path := auth.ManifestPath(h.Data, "example")
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(test.manifest), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

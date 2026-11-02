@@ -2,8 +2,10 @@ package supervisor
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
@@ -137,7 +139,7 @@ func queueBriefedTask(t *testing.T, h home.Home, row, brief string) {
 	writeFile(t, filepath.Join(h.Data, "next-task", "brief.md"), brief)
 }
 
-const plainBrief = "# Brief next-task\n\n## Project\n\nC:\\dev\\code-goblins\n\n## Task\n\nShip it.\n"
+const plainBrief = "# Brief next-task\n\n## Project\n\nC:\\dev\\code-goblins\n\n## Task\n\nShip it.\n## Acceptance criteria\nThe requested behavior works.\n## Constraints\nChange only the requested behavior.\n## Authentication\ncredentials: none\nmcp: none\n## Delivery\nmode: no-mistakes\nready: true\n"
 
 func TestSnapshotDoesNotWaitForAStartReadingMachineMemory(t *testing.T) {
 	// Arrange
@@ -312,7 +314,7 @@ func TestStartRefusesWithAClearReason(t *testing.T) {
 		{name: "no brief or project", available: 16 * gigabyte, row: "- **next-task** - Ship it", body: `{"task":"next-task"}`, want: "names no project"},
 		{name: "a task that already runs", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: plainBrief, live: true, body: `{"task":"next-task"}`, want: "already runs"},
 		{name: "a task nothing queued", available: 16 * gigabyte, row: "- **other** - Other", body: `{"task":"next-task"}`, want: "is not queued"},
-		{name: "a brief that names no project", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: "# Brief\n\n## Task\n\nShip it.\n", body: `{"task":"next-task"}`, want: "names no project"},
+		{name: "a brief that names no project", available: 16 * gigabyte, row: "- **next-task** - Ship it", brief: strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", ""), body: `{"task":"next-task"}`, want: "names no project"},
 		{name: "a harness cfo spawn does not run", available: 16 * gigabyte, row: "- **next-task** - Ship it (harness: shell)", brief: plainBrief, body: `{"task":"next-task"}`, want: "harness shell"},
 	}
 	for _, test := range tests {
@@ -420,42 +422,42 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 			name:  "automatic routing",
 			row:   "- **next-task** - Ship it (repo: code-goblins)",
 			brief: plainBrief,
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`},
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--mode", "no-mistakes"},
 		},
 		{
 			name:  "what the row and the brief name, the row first",
 			row:   "- **next-task** - Ship it (repo: code-goblins, harness: codex, model: gpt-6-astra)",
-			brief: plainBrief + "\n## Delivery\n\nkind: ship\nmode: direct-PR\neffort: high\nmodel: ignored-behind-the-row\n",
+			brief: strings.ReplaceAll(plainBrief, "mode: no-mistakes", "mode: direct-PR") + "kind: ship\neffort: high\nmodel: ignored-behind-the-row\n",
 			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6-astra", "--effort", "high", "--mode", "direct-PR"},
 		},
 		{
 			name:  "the row's repo when the brief names no project",
 			row:   "- **next-task** - Ship it (repo: PrecisionDocs-AI)",
-			brief: "# Brief\n\n## Task\n\nShip it.\n",
-			want:  []string{"spawn", "next-task", "--project", "PrecisionDocs-AI"},
+			brief: strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", ""),
+			want:  []string{"spawn", "next-task", "--project", "PrecisionDocs-AI", "--mode", "no-mistakes"},
 		},
 		{
 			name:  "explicit harness only",
 			row:   "- **next-task** - Ship it (harness: claude)",
 			brief: plainBrief,
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "claude"},
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "claude", "--mode", "no-mistakes"},
 		},
 		{
 			name:  "explicit provider model only",
 			row:   "- **next-task** - Ship it",
-			brief: plainBrief + "\n## Delivery\nmodel: provider/model-id\n",
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--model", "provider/model-id"},
+			brief: plainBrief + "model: provider/model-id\n",
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--model", "provider/model-id", "--mode", "no-mistakes"},
 		},
 		{
 			name:  "explicit effort only",
 			row:   "- **next-task** - Ship it (effort: medium)",
 			brief: plainBrief,
-			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--effort", "medium"},
+			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--effort", "medium", "--mode", "no-mistakes"},
 		},
 		{
 			name:  "every row field wins over the brief",
 			row:   "- **next-task** - Ship it (harness: codex, model: gpt-6.1-sol, effort: medium, mode: local-only)",
-			brief: plainBrief + "\n## Delivery\nharness: claude\nmodel: opus\neffort: high\nmode: direct-PR\n",
+			brief: strings.ReplaceAll(plainBrief, "mode: no-mistakes", "mode: direct-PR") + "harness: claude\nmodel: opus\neffort: high\n",
 			want:  []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--harness", "codex", "--model", "gpt-6.1-sol", "--effort", "medium", "--mode", "local-only"},
 		},
 	}
@@ -483,6 +485,7 @@ func TestStartDispatchesThroughCfoSpawnAndTellsTheCFO(t *testing.T) {
 			}
 			brief := filepath.Join(h.Data, "next-task", "brief.md")
 			want := append(append([]string{}, test.want[:4]...), append([]string{"--brief", brief}, test.want[4:]...)...)
+			want = append(want, "--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256([]byte(test.brief))))
 			if !reflect.DeepEqual(calls[0], want) {
 				t.Fatalf("cfo %v, want cfo %v", calls[0], want)
 			}
@@ -534,7 +537,8 @@ func TestAutomaticStartLeavesUnspecifiedEngineSettingsForRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := awaitDispatch(t, handler.Service, spawner, 1)
-	want := []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--brief", filepath.Join(h.Data, "next-task", "brief.md"), "--effort", "medium"}
+	want := []string{"spawn", "next-task", "--project", `C:\dev\code-goblins`, "--brief", filepath.Join(h.Data, "next-task", "brief.md"), "--effort", "medium", "--mode", "no-mistakes"}
+	want = append(want, "--brief-revision", fmt.Sprintf("brief:%x", sha256.Sum256([]byte(plainBrief))))
 	if !slices.Equal(calls[0], want) {
 		t.Fatalf("automatic start=%q, want %q", calls[0], want)
 	}

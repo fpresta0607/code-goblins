@@ -118,7 +118,7 @@ func startHeldByAllowance(h home.Home, plan startPlan, watched *fleetWakes, now 
 	}
 	var brief []byte
 	if plan.missingBrief != nil {
-		brief = []byte(fleet.QueuedBriefText(*plan.missingBrief))
+		brief = []byte(fleet.QueuedBriefText(*plan.missingBrief, nil))
 	} else if brief, err = fsx.ReadFile(plan.brief); err != nil {
 		return false
 	}

@@ -117,7 +117,6 @@ func TestSpawnRefusesAHelperOutsideLocalOnlyBeforeAnyMutation(t *testing.T) {
 	// Arrange
 	f := newFixture(t)
 	f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h1", "direct-PR"
-	writeFile(t, f.brief, "Do the work.\n")
 
 	// Act
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -137,7 +136,6 @@ func TestSpawnRefusesASecondHelperUnderTheSpawnLockBeforeAnyMutation(t *testing.
 	writeParent(t, f.stateDir, state.TaskMeta{ID: "g1", Project: f.project, Worktree: f.worktree})
 	writeParent(t, f.stateDir, state.TaskMeta{ID: "g1-h1", Project: f.project, Worktree: f.worktree + "-h1", Parent: "g1"})
 	f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h2", "local-only"
-	writeFile(t, f.brief, "Do the work.\n")
 
 	// Act
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -175,5 +173,44 @@ func TestNotifyInstructionTellsAHelperToReportToItsParentAndNeverPush(t *testing
 	}
 	if scout := notifyInstruction(state.TaskMeta{ID: "s1", Kind: "scout"}); strings.Contains(scout, "helper start") {
 		t.Errorf("a scout is offered helpers:\n%s", scout)
+	}
+}
+
+func TestHelperRefusalRecommendsExplicitAuthenticationChoices(t *testing.T) {
+	for _, test := range []struct {
+		name, key, subject string
+		carried, named     []string
+		isRefused          bool
+	}{
+		{"wider credentials", "credentials", "service", []string{"source"}, []string{"source", "database"}, true},
+		{"wider mcp", "mcp", "MCP server", []string{"docs"}, []string{"docs", "database"}, true},
+		{"no parent credentials", "credentials", "service", nil, []string{"database"}, true},
+		{"no parent mcp", "mcp", "MCP server", nil, []string{"database"}, true},
+		{"explicit subset", "credentials", "service", []string{"source", "database"}, []string{"source"}, false},
+		{"explicit none", "mcp", "MCP server", []string{"docs"}, nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			allowed := namesOr(test.carried, "none")
+
+			// Act
+			refusal := helperRefusal("parent", test.key, test.subject, test.carried, test.named)
+
+			// Assert
+			if !test.isRefused {
+				if refusal != "" {
+					t.Fatalf("explicit allowed choice refused: %s", refusal)
+				}
+				return
+			}
+			for _, want := range []string{"never widens it", "its " + test.key + " line names some of " + allowed, test.key + ": none", "Both credentials and mcp lines must be explicit"} {
+				if !strings.Contains(refusal, want) {
+					t.Errorf("refusal = %q, want %q", refusal, want)
+				}
+			}
+			if strings.Contains(refusal, "leaves out") || strings.Contains(refusal, "inherit") {
+				t.Errorf("refusal recommends implicit inheritance: %s", refusal)
+			}
+		})
 	}
 }

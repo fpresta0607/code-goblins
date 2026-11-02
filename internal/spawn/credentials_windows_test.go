@@ -80,7 +80,11 @@ func giveStandInCredentials(t *testing.T, f *fixture) auth.Store {
 // form's prose when line is empty.
 func briefAsking(t *testing.T, f *fixture, line string) {
 	t.Helper()
-	writeFile(t, f.brief, "Delivery contract: mode=no-mistakes\n\n## Task\n\nDo the work.\n\n## Authentication\n\nServices this task needs are declared in data\\projects\\primary\\auth.json.\n"+line+"\n\n## Delivery\n\nkind: ship\nmode: no-mistakes\n")
+	old := "credentials: none"
+	if strings.Contains(line, "\nmcp:") {
+		old += "\nmcp: none"
+	}
+	writeFile(t, f.brief, strings.Replace(completedSpawnBrief, old, line, 1))
 }
 
 // carriedBy is the stand-in names the harness of one launch started with,
@@ -206,34 +210,22 @@ func TestASpawnGivesATaskThatNamesNoneNoCredential(t *testing.T) {
 	}
 }
 
-// A brief in the form every brief had before a brief named its services does
-// not break, and does not keep the whole set by saying nothing: its task
-// carries the services the manifest marks default, and the spawn says which
-// were withheld and how to grant one.
-func TestASpawnOfABriefInTheOlderFormGivesOnlyTheDefaultServices(t *testing.T) {
+func TestASpawnRequiresAnExplicitCredentialChoice(t *testing.T) {
 	// Arrange
 	f := newQuickFixture(t)
 	giveStandInCredentials(t, f.fixture)
 	briefAsking(t, f.fixture, "")
 
 	// Act
-	result, err := f.service.Spawn(context.Background(), f.request)
+	_, err := f.service.Spawn(t.Context(), f.request)
 
 	// Assert
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "explicitly name credentials and mcp") {
+		t.Fatalf("Spawn = %v, want incomplete authentication refused", err)
 	}
-	if got := carriedBy(named(f.events(t), "env")[0]); !slices.Equal(got, []string{standInSource}) {
-		t.Errorf("the terminal carries %v, want only %s, which the default service declares", got, standInSource)
+	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("unfinished authentication published a task: %v", readErr)
 	}
-	if !slices.Equal(result.Meta.Credentials, []string{"source"}) {
-		t.Errorf("the record names %v, want the default service", result.Meta.Credentials)
-	}
-	withheld := regexp.MustCompile(`(?m)^auth: withheld 2 of primary's services \(database, payments\), grant one with .cfo auth grant task-7 <service>.`)
-	if !withheld.MatchString(result.Output) {
-		t.Errorf("output = %q, want one line naming the two withheld services and the command that grants one", result.Output)
-	}
-	holdsNoStandInValue(t, "the spawn's output", result.Output)
 }
 
 func TestASpawnRefusesABriefNamingAServiceTheManifestDoesNotDeclare(t *testing.T) {
@@ -428,11 +420,11 @@ func newHelperFixture(t *testing.T, mode string) *nativeFixture {
 // body given, or in the older form with no section at all when it is empty.
 func helperBriefWith(t *testing.T, f *nativeFixture, section string) {
 	t.Helper()
-	body := ""
-	if section != "" {
-		body = "\n## Authentication\n\n" + section + "\n"
+	if section != "" && !strings.Contains(section, "mcp:") {
+		section += "\nmcp: none"
 	}
-	writeFile(t, f.brief, "Do the helper's part.\n"+body)
+	body := strings.Replace(completedSpawnBrief, "credentials: none\nmcp: none", section, 1)
+	writeFile(t, f.brief, strings.ReplaceAll(body, "mode: no-mistakes", "mode: local-only"))
 }
 
 // A read-only reviewer needs no credential, and its brief selects exactly
@@ -510,10 +502,7 @@ func TestAHelperCarriesTheSubsetItsBriefNames(t *testing.T) {
 	holdsNoStandInValue(t, "the helper's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
 }
 
-// A helper's brief that states neither line, the form every helper brief had
-// before this, carries its parent's services and servers: a brief written for
-// a helper is never silently narrowed by an older form.
-func TestAHelperWhoseBriefStatesNoLineCarriesItsParents(t *testing.T) {
+func TestAHelperRequiresExplicitAuthenticationChoices(t *testing.T) {
 	// Arrange
 	f := newHelperFixture(t, "ready")
 	helperBriefWith(t, f, "")
@@ -521,24 +510,14 @@ func TestAHelperWhoseBriefStatesNoLineCarriesItsParents(t *testing.T) {
 	defer cancel()
 
 	// Act
-	result, err := f.service.Spawn(ctx, f.request)
+	_, err := f.service.Spawn(ctx, f.request)
 
 	// Assert
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "explicitly name credentials and mcp") {
+		t.Fatalf("Spawn = %v, want incomplete authentication refused", err)
 	}
-	if got, want := carriedBy(named(f.events(t), "env")[0]), []string{standInDatabase, standInPayments}; !slices.Equal(got, want) {
-		t.Errorf("the helper's terminal carries %v, want %v, as its parent's does", got, want)
-	}
-	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"database", "payments"}) {
-		t.Errorf("the helper's record names %v, want its parent's two services", result.Meta.Credentials)
-	}
-	servers, _ := mcpServersOf(t, filepath.Join(result.Meta.TaskTmp, "mcp.json"))
-	if want := []string{"by-reference", "literal-env", "literal-header", "plain"}; !slices.Equal(servers, want) {
-		t.Errorf("the helper's MCP servers = %v, want %v", servers, want)
-	}
-	if want := []string{"literal-env", "literal-header"}; !slices.Equal(result.Meta.MCPServers, want) {
-		t.Errorf("the helper's record names the MCP servers %v, want %v", result.Meta.MCPServers, want)
+	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("unfinished authentication published a task: %v", readErr)
 	}
 }
 
@@ -636,10 +615,7 @@ func TestASpawnRefusesAHelperOfAnOlderParentANonDefaultService(t *testing.T) {
 	}
 }
 
-// A helper of a parent an older build spawned whose brief states no line
-// carries what that parent carries, the manifest's default service alone,
-// and never every service its project declares.
-func TestAHelperOfAnOlderParentWhoseBriefStatesNoLineCarriesOnlyTheDefault(t *testing.T) {
+func TestAHelperOfAnOlderParentRequiresExplicitAuthenticationChoices(t *testing.T) {
 	// Arrange
 	f := newOlderParentHelperFixture(t)
 	helperBriefWith(t, f, "")
@@ -647,22 +623,15 @@ func TestAHelperOfAnOlderParentWhoseBriefStatesNoLineCarriesOnlyTheDefault(t *te
 	defer cancel()
 
 	// Act
-	result, err := f.service.Spawn(ctx, f.request)
+	_, err := f.service.Spawn(ctx, f.request)
 
 	// Assert
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "explicitly name credentials and mcp") {
+		t.Fatalf("Spawn = %v, want incomplete authentication refused", err)
 	}
-	if got := carriedBy(named(f.events(t), "env")[0]); !slices.Equal(got, []string{standInSource}) {
-		t.Errorf("the helper's terminal carries %v, want only %s", got, standInSource)
+	if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
+		t.Fatalf("unfinished authentication published a task: %v", readErr)
 	}
-	if !result.Meta.HasCredentials || !slices.Equal(result.Meta.Credentials, []string{"source"}) {
-		t.Errorf("the helper's record names %v (recorded %v), want source alone", result.Meta.Credentials, result.Meta.HasCredentials)
-	}
-	if want := "withheld 2 of app's services (database, payments)"; !strings.Contains(result.Output, want) {
-		t.Errorf("output = %q, want %q", result.Output, want)
-	}
-	holdsNoStandInValue(t, "the helper's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
 }
 
 // A helper's narrowed scope is its record's, not its parent's: a later switch
@@ -728,7 +697,6 @@ func TestAResumeOfANarrowedHelperKeepsItsScope(t *testing.T) {
 	holdsNoStandInValue(t, "the resume's output", resumed.Output)
 	holdsNoStandInValue(t, "the helper's record, status log or instruction", taskRecords(t, f.fixture, "task-7"))
 }
-
 
 // scriptNames is the variables a credential script sets, sorted.
 func scriptNames(t *testing.T, path string) []string {

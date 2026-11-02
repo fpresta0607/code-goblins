@@ -537,7 +537,7 @@ The why after it stays on the row, and the board does not show it.
 An eligible queued card has a **Start** play icon with a tooltip, and its panel has the same **Start**.
 It dispatches the task the way the CFO does, through `cfo spawn` with its brief and the harness, model, effort and mode its backlog row or brief names (Claude Code on `claude-opus-5-5` at `xhigh` when they name none), tells the CFO, puts the task at the top of In progress and opens its panel once its session is up.
 A task the supervisor starts leaves Tasks at once and reads **Starting** until its goblin is at work: your Start puts it at the top of In progress, and one the supervisor starts by itself, a production defect included, joins the bottom, so your order above it stands.
-A start that fails reads **Start failed** in red and waits in Tasks for its next Start, with why behind its panel's Details, and the CFO is told.
+Start failures and brief-change deferrals follow the [dispatch contract](docs/contract/dispatch.md#the-fleet-never-idles).
 When a brief is missing, Start writes it from the queued task and tells the CFO before dispatching.
 Start needs at least 5 GB of free memory and 5 GB of free commit (RAM plus page file, which a new program needs even while memory looks free) and free disk at or above the disk floor, and one task starts or resumes at a time.
 One click is enough: a Start or Resume clicked while another task starts or resumes, or while memory or disk is short, waits its turn and runs as soon as it can, and its card says Starting or Resuming the moment you click, or Starts at 5 GB free while memory is short.
@@ -973,7 +973,7 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 2. CFO resolves the project and writes explicit acceptance criteria.
 3. cfo auth preflights required project services.
 4. cfo tickets shows what teammates have in flight in the same area.
-5. CFO spawns one or more goblins into isolated worktrees.
+5. CFO finalizes each completed brief with cfo brief ready <id> before spawning goblins into isolated worktrees.
 6. Goblins implement, investigate, test, and report through the wake queue.
 7. CFO steers blocked work or switches harnesses when useful.
 8. no-mistakes performs bounded independent review and repair.
@@ -981,6 +981,8 @@ A missing editor or a folder that no longer exists is reported instead of guesse
 10. CFO presents the finished outcome or the smallest unresolved decision.
 11. Approved work is merged; unlanded work is never silently destroyed.
 ```
+
+See the [brief readiness contract](docs/commands/brief.md) for authoring requirements and finalizing existing queued briefs.
 
 ## Core commands
 
@@ -998,6 +1000,7 @@ goblins update [--check] [--to <tag>]
 <candidate.exe> update [--recover]
 cfo hooks install <claude|codex|pi>
 cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <mode>]
+cfo brief ready <id>
 cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <mode>] [--model <model>] [--effort <level>] [--class <class>] [--yolo]
 cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>]
 cfo send <target> <text...>

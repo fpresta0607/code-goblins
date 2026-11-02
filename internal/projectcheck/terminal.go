@@ -13,9 +13,8 @@ import (
 // terminalReach checks the second road a test run has to production: the
 // credentials a spawn writes into a task's terminal. A terminal carries the
 // stored credentials of the services its task is granted, and a test run
-// started there inherits them with no env file at all. Which services a
-// task is granted is the manifest's own answer: the ones marked default for
-// a brief with no credentials line, and the ones a brief names.
+// started there inherits them with no env file at all. The check distinguishes
+// manifest-default services from those a brief must request explicitly.
 //
 // A credential counts as within a test's reach when a tracked file a test
 // run could start reads its variable, and no test setup names it. It reads
@@ -116,12 +115,12 @@ func (c *checker) terminalReach(ctx context.Context, test string, setup testSetu
 			if test == "" {
 				severity = Critical
 			}
-			says = "a test run in a task's terminal inherits " + count(open, "credential") + " the repository reads and no test setup names, " + fmt.Sprint(openByDefault) + " of them in every task whose brief has no credentials line"
+			says = "a test run can inherit " + count(open, "credential") + " the repository reads and no test setup names, " + fmt.Sprint(openByDefault) + " of them in manifest-default services"
 			fix = "name each variable in the test setup with a value for tests, and take default off a service in " + file + " that a task should carry only when its brief names it"
 		}
 		var evidence []string
 		if len(everyTask) > 0 {
-			evidence = append(evidence, "Carried by every task whose brief has no credentials line: "+strings.Join(everyTask, ". "))
+			evidence = append(evidence, "Manifest-default services: "+strings.Join(everyTask, ". "))
 		}
 		if len(whenNamed) > 0 {
 			evidence = append(evidence, "Carried when a brief names the service: "+strings.Join(whenNamed, ". "))
@@ -134,10 +133,11 @@ func (c *checker) terminalReach(ctx context.Context, test string, setup testSetu
 			strings.Join(evidence, ". ")+". Each is named with the first tracked file that reads it. "+pins+". "+unopened+". "+step+". Read at "+c.repo.asRead(), fix)
 	}
 
-	evidence := "Every task whose brief has no credentials line carries none, since no service is marked default"
+	evidence := "No default services are selected, since no service is marked default"
 	if len(byDefault) > 0 {
-		evidence = "Every task whose brief has no credentials line carries the default services: " + strings.Join(byDefault, ", ")
+		evidence = "Manifest-default services: " + strings.Join(byDefault, ", ")
 	}
+	evidence += ". Authored briefs require explicit credentials and mcp choices; complete automatic briefs select defaults explicitly; existing task records retain their recorded grants"
 	for _, part := range []struct {
 		says  string
 		names []string

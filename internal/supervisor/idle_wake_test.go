@@ -43,7 +43,7 @@ func TestTheCFOIsWokenAgainWhileRunnableWorkWaitsAndNothingStarts(t *testing.T) 
 			name:      "its row needs the CFO",
 			available: 8,
 			arrange: func(t *testing.T, h home.Home) {
-				queueBriefedTask(t, h, "- **next-task** - Ship it", "# Brief next-task\n\n## Task\n\nShip it.\n")
+				queueBriefedTask(t, h, "- **next-task** - Ship it", strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", ""))
 			},
 			wantWhy: "next-task: The brief for next-task names no project",
 		},
