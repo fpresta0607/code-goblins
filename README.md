@@ -1251,10 +1251,11 @@ With one, the home's three busiest folders, `worktrees\`, `scratch\` and `caches
 Everything else stays where it is: the home's `state\`, `data\`, `config\` and `bin\`, and your own checkouts.
 `cfo dev-drive` says whether this machine has or can have one and where the folders are, and `cfo doctor` says it in one line, with the fix.
 The Dev Drive Code Goblins makes is a file on the system drive, `C:\DevDrives\CodeGoblins.vhdx`, that grows as the drive fills and never shrinks by itself, so space goblins free on the Dev Drive stays taken on C:.
-`cfo dev-drive`, `cfo doctor` and the note under the board's Dev Drive row say how much of C: the file holds.
+`cfo dev-drive` and `cfo doctor` say how much of C: the file holds.
 Windows tells that size only to a process that may open the file, and the file's folder is open to administrators and Windows alone, so without administrator rights they say so instead of guessing.
 
-Setting one up is a button: **Set up** beside **Dev Drive** in the CFO's Workspace panel on the board, with one short note under it.
+Setting one up is a button: **Set up** beside **Dev Drive** in the CFO's Workspace panel on the board.
+The row appears only for an available action, a step waiting in the Command Center or request feedback; otherwise it takes no space.
 Each step that needs you then arrives as its own Command Center item, one at a time, each saying in one line what it does and what it changes, each safe to run twice:
 
 1. **Create the Code Goblins Dev Drive** (administrator, so Windows asks you to confirm): a dynamically expanding VHDX, 200 GB at most and less on a smaller disk, at `C:\DevDrives\CodeGoblins.vhdx`, formatted as a Dev Drive on the first free letter from D:, and a startup task that attaches it at every boot, since Windows does not attach a VHD again after a restart. A machine that already has a Dev Drive skips this and uses it.
