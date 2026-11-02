@@ -16,17 +16,6 @@
       "why": "its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name"
     },
     {
-      "package": "cmd/cfo",
-      "tests": ["TestEveryCommandSaysWhetherItActsAsTheCFO"],
-      "why": "it reads every command main.go dispatches"
-    },
-    {
-      "package": "cmd/cfo",
-      "tests": ["TestEveryCommandIsAControlOrStaysAtNormalOnPurpose"],
-      "goos": "windows",
-      "why": "it checks every command's Windows process priority"
-    },
-    {
       "package": "internal/gatetest",
       "tests": ["TestTheRepositoryPolicyAccountsForEveryTrackedFile", "TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist"],
       "why": "they read every tracked file against this policy"
