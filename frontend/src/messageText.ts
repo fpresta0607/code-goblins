@@ -208,9 +208,10 @@ export function leadAndRest(text: string): { lead: string; rest: string } {
 
 // A question's decision and the evidence its asker put after a line that
 // reads only "Details:", which a card folds away so he reads the decision
-// first. The stored text stays whole. A text without that line, or with
-// nothing before or after it, is all decision, exactly as written.
-const DETAILS_LINE = /^[ \t]*details:[ \t]*$/im;
+// first. Trailing spaces or tabs on that line, which a PowerShell `n break
+// can leave, still count. The stored text stays whole. A text without that
+// line, or with nothing before or after it, is all decision, exactly as written.
+const DETAILS_LINE = /^Details:[ \t]*$/m;
 
 export function decisionAndDetails(text: string): { decision: string; details: string } {
   const lines = text.replace(/\r\n?/g, "\n");
