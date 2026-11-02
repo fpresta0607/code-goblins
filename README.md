@@ -608,11 +608,7 @@ Progress probes run together under one 10-second deadline, so stalled probes do 
 A goblin whose latest report is a wait on its own helper takes the helper's progress as its own, on its card and in this check, and draws no wake while the helper is watched, since the helper's own check reports its stall.
 An allowance pause that failed for the current task generation and reset waits for intervention while unrelated cleared work can continue.
 Durations are measured from the start and finish timestamps of the checks and awaited Actions runs reported by `ci_finished`; missing timestamps are left unmeasured, and check names containing `deploy` are classified as deploys.
-If validation was interrupted, its gate commits are preserved before that run is aborted; validation restarts on Resume.
-Under pipeline policy v6 the restarted run carries the task's launch selection, so it runs on the harness the goblin comes back on.
-Only a run holding gate commits it never pushed has its custody recovered before the restart; a run that had pushed its head, such as one paused on its pull request's CI, is restarted from the branch as the goblin left it, follow-up commits the goblin pushed since included.
-A memory pause interrupts no validation: the goblin's gate run keeps running, and Resume tells the goblin which run is still running, so it picks that run back up and starts no other.
-A run a pause could not abort is left to its goblin the same way, and never fails the Resume.
+For paused validation, follow the [pipeline resume contract](docs/pipeline.md#resuming-a-paused-task).
 Paused state survives a supervisor restart or reboot and produces no stale-task alarms.
 
 Stop opens a confirmation offering **Pause instead (Recommended)**, **Stop and delete** and **Cancel**, without typing.
@@ -1254,10 +1250,11 @@ With one, the home's three busiest folders, `worktrees\`, `scratch\` and `caches
 Everything else stays where it is: the home's `state\`, `data\`, `config\` and `bin\`, and your own checkouts.
 `cfo dev-drive` says whether this machine has or can have one and where the folders are, and `cfo doctor` says it in one line, with the fix.
 The Dev Drive Code Goblins makes is a file on the system drive, `C:\DevDrives\CodeGoblins.vhdx`, that grows as the drive fills and never shrinks by itself, so space goblins free on the Dev Drive stays taken on C:.
-`cfo dev-drive`, `cfo doctor` and the note under the board's Dev Drive row say how much of C: the file holds.
+`cfo dev-drive` and `cfo doctor` say how much of C: the file holds.
 Windows tells that size only to a process that may open the file, and the file's folder is open to administrators and Windows alone, so without administrator rights they say so instead of guessing.
 
-Setting one up is a button: **Set up** beside **Dev Drive** in the CFO's Workspace panel on the board, with one short note under it.
+Setting one up is a button: **Set up** beside **Dev Drive** in the CFO's Workspace panel on the board.
+The row appears only for an available action, a step waiting in the Command Center or request feedback; otherwise it takes no space.
 Each step that needs you then arrives as its own Command Center item, one at a time, each saying in one line what it does and what it changes, each safe to run twice:
 
 1. **Create the Code Goblins Dev Drive** (administrator, so Windows asks you to confirm): a dynamically expanding VHDX, 200 GB at most and less on a smaller disk, at `C:\DevDrives\CodeGoblins.vhdx`, formatted as a Dev Drive on the first free letter from D:, and a startup task that attaches it at every boot, since Windows does not attach a VHD again after a restart. A machine that already has a Dev Drive skips this and uses it.
