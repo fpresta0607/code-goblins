@@ -104,6 +104,47 @@ func TestReadBacklogMissingFileIsTypedEmpty(t *testing.T) {
 	}
 }
 
+func TestReadCurrentBacklogReportsStateFailuresWithoutInventingAQueue(t *testing.T) {
+	for _, scenario := range []string{"missing state", "unreadable state", "corrupt queued outcome"} {
+		t.Run(scenario, func(t *testing.T) {
+			h := snapshotHome(t)
+			if err := os.MkdirAll(h.Data, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- [ ] next - Next task\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "corrupt queued outcome" {
+				if err := os.MkdirAll(filepath.Join(h.State, "outcomes"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(h.State, "outcomes", "next.json"), []byte("{"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.Remove(h.State); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "unreadable state" {
+					if err := os.WriteFile(h.State, []byte("not a directory"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+
+			backlog, err := ReadCurrentBacklog(h)
+
+			if scenario == "missing state" {
+				if err != nil || len(backlog.Queued) != 1 || backlog.Queued[0].ID != "next" {
+					t.Fatalf("undispatched work disappeared with absent state: %+v, %v", backlog, err)
+				}
+			} else if err == nil {
+				t.Fatal("unreadable state was reported as a known queue")
+			}
+		})
+	}
+}
+
 func TestReadBacklogCleansWrappedURLsFromTitles(t *testing.T) {
 	h := snapshotHome(t)
 	if err := os.MkdirAll(h.Data, 0o755); err != nil {

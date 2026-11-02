@@ -856,7 +856,7 @@ Windows keeps a hidden process that asks for nothing on the efficiency cores, wh
 A goblin's harness and everything started in its terminal run at normal, a `cfo` command a goblin runs there included, and so does what a gate agent starts.
 Windows gives the child of a raised process the normal class as long as its start names none, and no start in the fleet names one but a host's and its waker's.
 `TestAHostRunsOneClassAboveItsTerminalWhichRunsAtNormal`, `TestWhatARaisedProcessStartsThroughExecxRunsAtNormal`, `TestWhatARaisedHostStartsForItsConsoleRunsAtNormalButItsWaker` and `TestARunItemARaisedSupervisorStartsRunsAtNormal` hold that for each way the fleet starts a process, `TestALaunchedHostIsStartedOneClassAboveTheWork` that a host is raised from its start, and `TestEveryProcessStartGoesThroughCommand` reports a priority class named anywhere but `internal/priority`, and a start above the work anywhere but a host's launch and its waker's start.
-`TestEveryCommandIsAControlOrStaysAtNormalOnPurpose` makes a command added to `cfo` one or the other on purpose.
+`TestEveryControlHasAnExecutablePriorityCheck` makes every control one a test runs and sees raised, and `TestNonControlsStayAtNormalPriority` holds each command listed there with why it stays at normal; a command in neither list is not a control and runs at normal.
 The last three rows are what the raise cannot reach where goblin work has every core, as on a machine with a single performance core.
 A command or a hook is started at its caller's priority and raises itself only once it runs.
 For a peek, and for the monitor's reading of a screen, the terminal's input waker asks the console for each row, and the console answers at normal priority.
