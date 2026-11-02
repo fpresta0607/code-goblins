@@ -116,7 +116,7 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
     {owner && task.phase === "queued" && <TaskAdjustment key={task.id} task={task} snapshot={snapshot} />}
     {goblinTask && <p className="panel-whole-name">{title} · {goblinTask}</p>}
     {projectLine}{helper}{partOf}
-    <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaitedLink}</p>
+    {!cfo && <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaitedLink}</p>}
     {evidence && <p className="muted">{evidence}</p>}
     {activity}{detailsRow}{actions}
     {cfo && snapshot.afk.state === "off" && snapshot.afk.page && <div className="panel-actions"><button className="labelled-button" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /><span>Open your last AFK report</span></button></div>}
