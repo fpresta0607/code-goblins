@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -21,8 +22,9 @@ var cfoWaitStarted = time.Date(2026, 10, 5, 14, 36, 0, 0, time.UTC)
 
 const (
 	waitingGoblin = "cg-waits"
-	// cfoBacklog holds a row the CFO owns and a row a goblin would take.
-	cfoBacklog = "## Queued\n- [ ] cfo-review - Review the schema plan (kind: cfo)\n- [ ] next-ship - Ship the view (kind: ship)\n"
+	// cfoBacklog holds a row the CFO owns and a row a goblin would take, and
+	// one of each done.
+	cfoBacklog = "## Queued\n- [ ] cfo-review - Review the schema plan (kind: cfo)\n- [ ] next-ship - Ship the view (kind: ship)\n## Done\n- [x] cfo-plan - Approve the rollout plan (kind: cfo)\n- [x] old-ship - Ship the list (kind: ship)\n"
 	// pulls209 is the goblin's pull request, green, with the draft flag and
 	// labels each test gives it.
 	pulls209 = `[{"number":209,"url":"https://github.com/o/r/pull/209","headRefName":"feat/wakes","headRefOid":"3d7072f8aa","baseRefName":"main","mergeable":"MERGEABLE","isDraft":%t,"labels":[%s],"author":{"login":"o"},"statusCheckRollup":[
@@ -140,7 +142,9 @@ func TestAGoblinWaitingOnTheCFOWakesItAfterTenMinutesAndEveryHalfHour(t *testing
 // Each shape of a wait on the CFO wakes it: a wait on the CFO itself, a done
 // on a pull request no merge train takes because it is a draft or held, and
 // a wait on, or a pause until, a backlog row the CFO owns, named with its
-// title. Every wait that ends by itself or is another's wakes nobody.
+// title, done or not, and any of them made by a goblin whose pause failed
+// and that carries on. Every wait that ends by itself or is another's wakes
+// nobody, and nor does a goblin whose failed pause took hold.
 func TestEachWaitOnTheCFOWakesItAndNoWaitByDesignDoes(t *testing.T) {
 	pausedUntil := func(until string) *state.PauseCondition {
 		return &state.PauseCondition{Reason: "dependency", Until: until, At: cfoWaitStarted}
@@ -150,19 +154,28 @@ func TestEachWaitOnTheCFOWakesItAndNoWaitByDesignDoes(t *testing.T) {
 		report string
 		pulls  string
 		pause  *state.PauseCondition
-		want   []string
+		// phase is the pause's phase, paused unless it says otherwise.
+		phase string
+		// isHosted gives the goblin a terminal host that runs.
+		isHosted bool
+		want     []string
 	}{
 		{name: "a wait on the CFO", report: "waiting on cfo: is the plan right?", want: []string{"waiting on cfo: is the plan right?"}},
 		{name: "a done on a draft", report: donePull209, pulls: pull209(true), want: []string{donePull209 + ", which no merge train takes: it is a draft", "review https://github.com/o/r/pull/209"}},
 		{name: "a done on a held pull request", report: donePull209, pulls: pull209(false, "Hold"), want: []string{donePull209 + ", which no merge train takes: it is held: it carries the hold label"}},
 		{name: "a wait on a row the CFO owns", report: "waiting on cfo-review: the schema plan first", want: []string{"waiting on cfo-review: the schema plan first; cfo-review is the CFO's own backlog row cfo-review (Review the schema plan)", "finish backlog row cfo-review"}},
 		{name: "a pause until a row the CFO owns", report: "working: migrating", pause: pausedUntil("task:cfo-review"), want: []string{"paused until the CFO's own backlog row cfo-review (Review the schema plan) is done", "cfo resume cg-waits"}},
+		{name: "a wait on a row the CFO finished", report: "waiting on cfo-plan: the rollout plan first", want: []string{"cfo-plan is the CFO's own backlog row cfo-plan (Approve the rollout plan), done in the backlog", `next: tell cg-waits that cfo-plan is done with cfo send cg-waits "<what>"`}},
+		{name: "a pause until a row the CFO finished", report: "working: migrating", pause: pausedUntil("task:cfo-plan"), want: []string{"paused until the CFO's own backlog row cfo-plan (Approve the rollout plan), which is done", "next: resume cg-waits with cfo resume cg-waits"}},
+		{name: "a wait on the CFO after a pause that failed", report: "waiting on cfo: is the plan right?", pause: &state.PauseCondition{Reason: "memory", At: cfoWaitStarted}, phase: "failed", isHosted: true, want: []string{"waiting on cfo: is the plan right?"}},
+		{name: "a wait on the CFO once a failed pause took hold", report: "waiting on cfo: is the plan right?", pause: &state.PauseCondition{Reason: "memory", At: cfoWaitStarted}, phase: "failed"},
 		{name: "a wait on CI", report: "waiting on ci: the checks of #209"},
 		{name: "a wait on a deploy", report: "waiting on deploy: the preview"},
 		{name: "a wait on the Overlord", report: "waiting on overlord: his sign-in"},
 		{name: "a wait on memory", report: "waiting on memory: the full suite needs 5 GB"},
 		{name: "a wait on another goblin's task", report: "waiting on cg-other: its schema lands first"},
 		{name: "a wait on a row a goblin takes", report: "waiting on next-ship: its view lands first"},
+		{name: "a wait on a row a goblin finished", report: "waiting on old-ship: its list landed"},
 		{name: "a done on a pull request a train may take", report: donePull209, pulls: pendingPull209},
 		{name: "a pause until a row a goblin takes", report: "working: migrating", pause: pausedUntil("task:next-ship")},
 		{name: "a pause until another goblin's task", report: "working: migrating", pause: pausedUntil("task:cg-other")},
@@ -173,7 +186,14 @@ func TestEachWaitOnTheCFOWakesItAndNoWaitByDesignDoes(t *testing.T) {
 			s, h, _ := waitingFleet(t, cmp.Or(test.pulls, "[]"))
 			report(t, h, cfoWaitStarted, test.report)
 			if test.pause != nil {
-				recordLifecycle(t, h, "pause", "paused", test.pause)
+				recordLifecycle(t, h, "pause", cmp.Or(test.phase, "paused"), test.pause)
+			}
+			if test.isHosted {
+				terminal, err := json.Marshal(host.Record{ID: waitingGoblin, HostPID: os.Getpid(), Started: time.Now(), Pipe: "fixture", Token: "fixture"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t, filepath.Join(h.State, "hosts", waitingGoblin+".json"), string(terminal))
 			}
 			now := cfoWaitStarted
 

@@ -82,22 +82,27 @@ func CFOWaits(h home.Home) ([]CFOWait, error) {
 // held (train.KeptOff, as the last CI poll read it), or a wait on a backlog
 // row of kind cfo, which only the CFO does, and nothing has reached it since:
 // a report it posts after, a prompt its harness took after, such as the
-// CFO's answer, or a pause, a stop or its retirement each end the wait. A
-// goblin paused until a backlog row of kind cfo is done waits on the CFO
-// too. Any other wait, on CI, a deploy, the Overlord, memory or another
-// goblin's task, ends by itself or is someone else's, and is none.
+// CFO's answer, or a pause that took hold, a stop or its retirement each end
+// the wait. A goblin paused until a backlog row of kind cfo is done waits on
+// the CFO too. Such a row still holds its goblin once the CFO moves it to
+// Done, since nothing tells the goblin or resumes it but the CFO. Any other
+// wait, on CI, a deploy, the Overlord, memory or another goblin's task, ends
+// by itself or is someone else's, and is none.
 func cfoWaits(h home.Home, keptOff map[string]string) (waits []CFOWait, unread map[string]error) {
 	backlog, backlogErr := fleet.ReadBacklog(h)
-	cfoRow := func(id string) (fleet.BacklogRow, bool, error) {
+	cfoRow := func(id string) (row fleet.BacklogRow, isDone, isCFOs bool, err error) {
 		if backlogErr != nil {
-			return fleet.BacklogRow{}, false, backlogErr
+			return fleet.BacklogRow{}, false, false, backlogErr
 		}
-		for _, row := range slices.Concat(backlog.Queued, backlog.Parked) {
-			if row.Structured && row.ID == id {
-				return row, strings.EqualFold(row.Kind, "cfo"), nil
-			}
+		isRow := func(row fleet.BacklogRow) bool { return row.Structured && row.ID == id }
+		open := slices.Concat(backlog.Queued, backlog.Parked)
+		if index := slices.IndexFunc(open, isRow); index >= 0 {
+			return open[index], false, strings.EqualFold(open[index].Kind, "cfo"), nil
 		}
-		return fleet.BacklogRow{}, false, nil
+		if index := slices.IndexFunc(backlog.Done, isRow); index >= 0 {
+			return backlog.Done[index], true, strings.EqualFold(backlog.Done[index].Kind, "cfo"), nil
+		}
+		return fleet.BacklogRow{}, false, false, nil
 	}
 	unread = map[string]error{}
 	for _, meta := range liveTasks(h.State) {
@@ -115,31 +120,40 @@ func cfoWaits(h home.Home, keptOff map[string]string) (waits []CFOWait, unread m
 }
 
 // cfoWaitOf is what meta's goblin waits on the CFO for, if it waits on it.
-// cfoRow reads the backlog row id names, and whether the CFO owns it.
-func cfoWaitOf(stateDir string, meta state.TaskMeta, cfoRow func(id string) (fleet.BacklogRow, bool, error), keptOff map[string]string) (CFOWait, bool, error) {
+// cfoRow reads the backlog row id names, whether it is done, and whether the
+// CFO owns it.
+func cfoWaitOf(stateDir string, meta state.TaskMeta, cfoRow func(id string) (row fleet.BacklogRow, isDone, isCFOs bool, err error), keptOff map[string]string) (CFOWait, bool, error) {
 	wait := CFOWait{Task: meta.ID, Goblin: meta.GoblinName}
 	record, err := state.ReadLifecycle(stateDir, meta.ID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return wait, false, err
 	}
-	if err == nil && record.Generation == meta.SpawnGen && record.Phase != "running" {
-		// A goblin paused, being paused or resumed, stopped or whose last
-		// change failed is not at its prompt, so what it reported last waits
-		// on nothing: only the pause in force says what holds it.
-		if record.Phase != "paused" || record.Pause == nil || record.Pause.Reason != "dependency" {
+	isPaused := record.Phase == "paused" || pauseTookHold(stateDir, meta.Backend, record)
+	if err == nil && record.Generation == meta.SpawnGen && (isPaused || record.SuppressesMonitoring(stateDir)) {
+		// A goblin paused, stopped, or being paused, resumed or stopped is
+		// not at its prompt, so what it reported last waits on nothing: only
+		// the pause in force says what holds it. One whose change failed
+		// carries on at its work, as its progress check reads it, unless it
+		// was a pause that took hold since.
+		if !isPaused || record.Pause == nil || record.Pause.Reason != "dependency" {
 			return wait, false, nil
 		}
 		kind, target, _ := strings.Cut(record.Pause.Until, ":")
 		if kind != "task" {
 			return wait, false, nil
 		}
-		row, isCFOs, err := cfoRow(target)
+		row, isDone, isCFOs, err := cfoRow(target)
 		if err != nil || !isCFOs {
 			return wait, false, err
 		}
 		wait.Since = record.Pause.At
-		wait.What = "paused until the CFO's own backlog row " + rowName(row) + " is done"
-		wait.Next = "finish backlog row " + row.ID + ", then resume " + meta.ID + " with cfo resume " + meta.ID
+		if isDone {
+			wait.What = "paused until the CFO's own backlog row " + rowName(row) + ", which is done"
+			wait.Next = "resume " + meta.ID + " with cfo resume " + meta.ID
+		} else {
+			wait.What = "paused until the CFO's own backlog row " + rowName(row) + " is done"
+			wait.Next = "finish backlog row " + row.ID + ", then resume " + meta.ID + " with cfo resume " + meta.ID
+		}
 		return wait, true, nil
 	}
 	lines, err := state.TailStatus(stateDir, meta.ID, 200)
@@ -163,12 +177,16 @@ func cfoWaitOf(stateDir string, meta state.TaskMeta, cfoRow func(id string) (fle
 		wait.What = quoted + ", which no merge train takes: " + keptOff[pullRequest]
 		wait.Next = fmt.Sprintf("review %s, then clear what keeps it off the train, or tell %s what to change with cfo send %s \"<what>\"", pullRequest, meta.ID, meta.ID)
 	case isWait && !slices.Contains([]string{"ci", "deploy", "overlord", "memory"}, target) && state.ValidTaskID(target) == nil:
-		row, isCFOs, err := cfoRow(target)
+		row, isDone, isCFOs, err := cfoRow(target)
 		if err != nil || !isCFOs {
 			return wait, false, err
 		}
 		wait.What = quoted + "; " + row.ID + " is the CFO's own backlog row " + rowName(row)
 		wait.Next = fmt.Sprintf("finish backlog row %s and tell %s with cfo send %s \"<what>\"", row.ID, meta.ID, meta.ID)
+		if isDone {
+			wait.What += ", done in the backlog"
+			wait.Next = fmt.Sprintf("tell %s that %s is done with cfo send %s \"<what>\"", meta.ID, row.ID, meta.ID)
+		}
 	default:
 		return wait, false, nil
 	}
