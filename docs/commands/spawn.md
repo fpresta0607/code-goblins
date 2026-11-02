@@ -4,6 +4,7 @@
 
 Dispatch one goblin (ship task).
 Prepare and finalize its brief under the [brief readiness contract](brief.md), which applies to automatic and explicit starts.
+A helper's spawn, which the supervisor runs with `--parent`, checks the [helper contract](../contract/dispatch.md#helper-goblins) instead.
 A brief changed during admission refuses this attempt before task, worktree or policy state is published; review its final choices before retrying.
 The task keeps the short title it is dispatched under, for the board and for its ticket: the one given with `--title` (one line, at most 100 characters), else the title of its row under Queued in the backlog, cut at a word to 100 characters and without a harness named at its end such as `; Claude Code`; with neither it is named by its id, never by its brief's words.
 Into a repository other people work in it first reads what they have in flight (one `cfo tickets` read against the brief): when a teammate's pull request or branch changes a file in the brief's area, or a teammate's issue matches it, it prints each overlap, starts nothing and exits 1, and starts only when repeated with `--overlap-ok "<why>"`; the reason is written to the task's status log as an `overlap-accepted:` record with what it overlaps, which is the CFO's word and never read as the task's own report, and the supervisor puts it on the task's ticket.

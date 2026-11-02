@@ -193,7 +193,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err != nil {
 		return Result{}, fmt.Errorf("spawn: read brief: %w", err)
 	}
-	if err := fleet.ValidateBriefReadiness(admittedBrief); err != nil {
+	validateBrief := fleet.ValidateBriefReadiness
+	if req.Parent != "" {
+		validateBrief = fleet.ValidateHelperBrief
+	}
+	if err := validateBrief(admittedBrief); err != nil {
 		return Result{}, err
 	}
 	if req.BriefHash != ([sha256.Size]byte{}) && req.BriefHash != sha256.Sum256(admittedBrief) {

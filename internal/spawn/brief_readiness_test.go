@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
@@ -152,5 +153,38 @@ func TestSpawnRefusesABriefChangedDuringAdmission(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !os.IsNotExist(err) {
 		t.Fatalf("changed brief published identity: %v", err)
+	}
+}
+
+func TestSpawnAdmitsAHelpersBriefOnlyForAHelper(t *testing.T) {
+	for _, test := range []struct {
+		name, parent, id, mode, brief, reason string
+	}{
+		{name: "a task spawned without a parent", mode: "no-mistakes", brief: helperOfferBrief, reason: "author the Acceptance criteria section"},
+		{name: "a helper without an mcp line", parent: "g1", id: "g1-h1", mode: "local-only", brief: strings.ReplaceAll(helperOfferBrief, "mcp: none\n", ""), reason: "helper contract"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			fixture := newFixture(t)
+			fixture.request.Parent, fixture.request.Mode = test.parent, test.mode
+			if test.id != "" {
+				fixture.request.ID = test.id
+			}
+			writeFile(t, fixture.request.BriefPath, test.brief)
+
+			// Act
+			_, err := fixture.service.Spawn(t.Context(), fixture.request)
+
+			// Assert
+			if !errors.Is(err, fleet.ErrBriefNotReady) || !strings.Contains(err.Error(), test.reason) {
+				t.Fatalf("spawn = %v, want a refusal that says %q", err, test.reason)
+			}
+			if len(fixture.events) != 0 {
+				t.Fatalf("refused brief reached collaborators: %v", fixture.events)
+			}
+			if _, err := os.Stat(filepath.Join(fixture.stateDir, fixture.request.ID+".meta")); !os.IsNotExist(err) {
+				t.Fatalf("refused brief published a task: %v", err)
+			}
+		})
 	}
 }

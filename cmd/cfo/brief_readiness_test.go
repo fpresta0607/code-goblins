@@ -477,3 +477,44 @@ func TestExplicitSpawnRefusesUnfinishedBriefBeforeRouting(t *testing.T) {
 		})
 	}
 }
+
+func TestExplicitSpawnAdmitsAHelpersBriefOnlyForAHelper(t *testing.T) {
+	const helperOfferBrief = "## Task\nWrite the migration for the accounts table.\n## Authentication\ncredentials: none\nmcp: none\n"
+	for _, test := range []struct {
+		name       string
+		flags      []string
+		isLaunched bool
+	}{
+		{name: "helper", flags: []string{"--mode", "local-only", "--parent", "g1"}, isLaunched: true},
+		{name: "not a helper"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			runtime := testCommandRuntime(t)
+			calls := 0
+			runtime.spawn = func(context.Context, home.Home, spawn.Request) (spawn.Result, error) {
+				calls++
+				return spawn.Result{}, nil
+			}
+			path := filepath.Join(t.TempDir(), "brief.md")
+			if err := os.WriteFile(path, []byte(helperOfferBrief), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var output, failure bytes.Buffer
+
+			// Act
+			code := runWithRuntime(append([]string{"spawn", "g1-h1", "--project", t.TempDir(), "--brief", path, "--harness", "codex"}, test.flags...), &output, &failure, runtime)
+
+			// Assert
+			if test.isLaunched {
+				if code != 0 || calls != 1 {
+					t.Fatalf("helper brief: exit=%d launches=%d stderr=%s", code, calls, &failure)
+				}
+				return
+			}
+			if code == 0 || calls != 0 || !strings.Contains(failure.String(), "brief is not ready") {
+				t.Fatalf("non-helper spawn of a helper's brief: exit=%d launches=%d stderr=%s", code, calls, &failure)
+			}
+		})
+	}
+}

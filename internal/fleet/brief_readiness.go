@@ -78,6 +78,28 @@ func ValidateBriefReadiness(content []byte) error {
 	return nil
 }
 
+// ValidateHelperBrief admits a helper's brief under the helper contract its
+// parent is offered: a brief of its own with explicit credentials and mcp
+// choices. Its mode is forced to local-only and its grants narrow its
+// parent's, so it needs no requirements sections, Delivery mode or ready line.
+func ValidateHelperBrief(content []byte) error {
+	text := strings.TrimSpace(string(content))
+	if text == "" {
+		return fmt.Errorf("%w: the helper contract needs a helper's brief to state its task, and this one is empty", ErrBriefNotReady)
+	}
+	if placeholder := briefPlaceholder.FindStringSubmatch(text); placeholder != nil {
+		return fmt.Errorf("%w: the helper contract needs a helper's brief of its own: replace the %s placeholder", ErrBriefNotReady, placeholder[1])
+	}
+	need, err := auth.NeedFromBrief(text)
+	if err != nil {
+		return fmt.Errorf("%w: under the helper contract, %v", ErrBriefNotReady, err)
+	}
+	if need.IsUnstated || need.IsMCPUnstated {
+		return fmt.Errorf("%w: the helper contract needs explicit credentials: and mcp: lines in a helper's Authentication section: write none, or name some of what its parent carries", ErrBriefNotReady)
+	}
+	return nil
+}
+
 // FinalizeBrief validates an author's explicit readiness transition without
 // changing any requirement or launch choice.
 func FinalizeBrief(content []byte) ([]byte, error) {

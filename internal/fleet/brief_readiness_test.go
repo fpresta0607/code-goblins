@@ -98,6 +98,46 @@ func TestBriefReadinessRequiresAuthoredRequirementsAndFinalLaunchChoices(t *test
 	}
 }
 
+// helperOfferBrief is a helper's brief as the helper offer tells a goblin to
+// write one: its task and an Authentication section with credentials: none
+// and mcp: none.
+const helperOfferBrief = "## Task\nWrite the migration for the accounts table.\n## Authentication\ncredentials: none\nmcp: none\n"
+
+func TestHelperBriefAdmissionFollowsTheHelperContract(t *testing.T) {
+	for _, test := range []struct {
+		name, content string
+		isAdmitted    bool
+	}{
+		{name: "as the helper offer states", content: helperOfferBrief, isAdmitted: true},
+		{name: "narrowed grants", content: strings.ReplaceAll(strings.ReplaceAll(helperOfferBrief, "credentials: none", "credentials: github"), "mcp: none", "mcp: docs"), isAdmitted: true},
+		{name: "empty"},
+		{name: "whitespace", content: " \r\n\t"},
+		{name: "leftover placeholder", content: strings.ReplaceAll(helperOfferBrief, "Write the migration for the accounts table.", "{TASK - describe work}")},
+		{name: "missing credentials", content: strings.ReplaceAll(helperOfferBrief, "credentials: none\n", "")},
+		{name: "missing mcp", content: strings.ReplaceAll(helperOfferBrief, "mcp: none\n", "")},
+		{name: "duplicate credentials", content: helperOfferBrief + "credentials: none\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			content := []byte(test.content)
+
+			// Act
+			err := ValidateHelperBrief(content)
+
+			// Assert
+			if test.isAdmitted {
+				if err != nil {
+					t.Fatalf("helper brief refused: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrBriefNotReady) || !strings.Contains(err.Error(), "helper contract") || strings.Contains(err.Error(), "brief ready") {
+				t.Fatalf("refusal = %v, want a helper-contract reason that never suggests cfo brief ready", err)
+			}
+		})
+	}
+}
+
 func TestQueuedBriefRecordsFinalDefaultCredentialsBeforeAdmission(t *testing.T) {
 	for _, hasDefaults := range []bool{false, true} {
 		t.Run(fmt.Sprint(hasDefaults), func(t *testing.T) {

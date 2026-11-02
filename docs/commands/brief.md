@@ -11,6 +11,7 @@ Replace every TASK, ACCEPTANCE and CONSTRAINTS placeholder, finish the credentia
 Keep it false while editing: neither the supervisor nor explicit spawn starts an unfinished brief.
 Admission requires nonempty Task, Acceptance criteria and Constraints sections without generated placeholders, explicit Authentication `credentials:` and `mcp:` choices, exactly one valid Delivery `mode:` and one `ready: true` line.
 Empty or missing requirements and unfinished or malformed choices refuse dispatch before routing or policy freezing.
+A helper's spawn checks the [helper contract](../contract/dispatch.md#helper-goblins) instead, so a helper's brief is never run through `cfo brief ready`.
 Choose credentials and MCP servers under [Credentials by need](../contract/authentication.md#credentials-by-need).
 Finalizing an unheld queued brief makes it eligible for automatic start; setting `ready: true` manually as the final edit uses the same admission contract.
 

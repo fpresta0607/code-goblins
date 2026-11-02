@@ -14,6 +14,10 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
+// helperOfferBrief is a helper's brief written as the helper offer tells a
+// goblin to: its task and an Authentication section that carries nothing.
+const helperOfferBrief = "## Task\nWrite the migration for the accounts table.\n## Authentication\ncredentials: none\nmcp: none\n"
+
 // gitIn runs git in dir and returns its trimmed output.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()

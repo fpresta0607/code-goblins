@@ -13,7 +13,7 @@ So what asks Windows for the temporary folder in a goblin's terminal, as a Go pr
 Everything else lands in the task's own scratch folder and goes with the task: its build output, its logs, what its shell tools and scripts put in `TEMP` or `TMPDIR`, and the folders a Go test's `t.TempDir()` makes, which follow `GOTMPDIR`.
 A goblin started before this keeps the `TMP` it was started with until it is resumed or switched.
 
-- `--brief` must be an absolute path to an existing file that satisfies the [brief readiness contract](../commands/brief.md).
+- `--brief` must be an absolute path to an existing file that satisfies the [brief readiness contract](../commands/brief.md), or for a helper's spawn the [helper contract](#helper-goblins).
 - The brief's Authentication section decides what the goblin can reach under [Credentials by need](authentication.md#credentials-by-need).
 - The brief's Verification section tells the goblin what to run before each push: `cfo verify <id>`, the fast tier of the project's record, which is the check you run by the same command.
   It replaces telling a goblin to run the tests it touched by name, which left CI as the first to run a test the change broke.
@@ -86,6 +86,7 @@ The helper is a local-only ship task named `<parent>-h<n>`, a number no earlier 
 Its brief is kept at `data/<helper>/brief.md`, and its own task determines its routing independently of the parent's harness, model and effort.
 Explicit engine settings in the helper's brief override routing, while a mode other than local-only is refused before the start is recorded.
 Its project comes from its parent; its Authentication choices follow the [helper credential limits](authentication.md#credentials-by-need).
+Its spawn checks the helper contract instead of brief readiness: a nonempty brief without generated TASK, ACCEPTANCE or CONSTRAINTS placeholders whose Authentication section has one explicit `credentials:` and one explicit `mcp:` line, with no Acceptance criteria, Constraints, Delivery mode or `ready: true` required and no `cfo brief ready` to run.
 It reports to its parent, not to you: its `cfo notify <helper> --done`, which needs no pull request, its `--blocked` and its `--failed` are typed into the parent's terminal, and wake you only when that terminal cannot take them.
 You are told once when each helper starts or fails to start, and `cfo fleet-view` names each helper's parent.
 The parent answers its helper with `cfo send <helper> "<answer>"`, reports `cfo notify <parent> --waiting-on <helper> "<why>"` while it only waits, which makes the helper's progress count as its own, and once the helper reports done runs `cfo helper merge <parent>`: a merge commit of the helper's branch in the parent's own worktree, then the helper retired through Stop.

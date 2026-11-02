@@ -119,7 +119,11 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	if err := fleet.ValidateBriefReadiness(briefText); err != nil {
+	validateBrief := fleet.ValidateBriefReadiness
+	if *parent != "" {
+		validateBrief = fleet.ValidateHelperBrief
+	}
+	if err := validateBrief(briefText); err != nil {
 		fmt.Fprintf(stderr, "cfo spawn: %v\n", err)
 		return 1
 	}
