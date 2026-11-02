@@ -66,7 +66,7 @@ export function dictationProblem(error: string): string {
 // which goes to the CFO rather than onto the board.
 // heard's isSent says the dictation was stopped to send its words, as a
 // second tap of a touch screen's microphone does.
-export interface DictationEvents { heard: (text: string, isSent: boolean) => void; listening: (on: boolean) => void; problem: (note: string) => void; failed: (reason: string) => void }
+export interface DictationEvents { heard: (text: string, isSent: boolean) => void; listening: (on: boolean) => void; problem: (note: string) => void; failed: (reason: string) => void; pending?: (hasPending: boolean) => void }
 
 // A Capture is one hold's use of the microphone: its track, which the
 // recognizer listens to, how loud it is right now, which the voice bubble's
@@ -163,6 +163,7 @@ export class Dictation {
     const hold: Hold = { recognizer: new (this.recognition())(), phrases: [], text: null, isListening: false, since: 0, pressed: at, isSent: false };
     this.attend(hold);
     this.pending.add(hold);
+    this.events.pending?.(true);
     this.hold = this.latest = hold;
     this.events.problem("");
     this.events.listening(true);
@@ -242,6 +243,7 @@ export class Dictation {
       this.pending.delete(prior);
       if (prior.text) this.events.heard(prior.text, prior.isSent);
     }
+    this.events.pending?.(this.pending.size > 0);
   }
 
   // begin starts hold's recognizer, on the microphone's track when one is
@@ -330,7 +332,8 @@ export class Dictation {
   }
 
   // dispose stops listening without typing anything, for a terminal going
-  // away, and drops the words still on their way.
+  // away or a box clearing its message, and drops the words still on their
+  // way.
   dispose(): void {
     this.hold = this.latest = null;
     this.release();
@@ -340,5 +343,6 @@ export class Dictation {
       if (hold.text === null) hold.recognizer.abort();
     }
     this.pending.clear();
+    this.events.pending?.(false);
   }
 }
