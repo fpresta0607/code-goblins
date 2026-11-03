@@ -760,6 +760,45 @@ func TestGoblinQuestionKeepsItsLinesOnTheBoardAndItsAnswerIsOneLine(t *testing.T
 	}
 }
 
+// The Overlord, 2026-11-02, of a goblin's question full of run IDs and
+// finding codes: its asker puts that evidence after a line that reads only
+// "Details:", which his card folds away. The board keeps that line and the
+// evidence after it as the goblin wrote them, below the decision, and the
+// choices the goblin named on its first line stay out of both.
+func TestGoblinQuestionKeepsItsDetailsLineAndEvidenceOnTheBoard(t *testing.T) {
+	// Arrange
+	store, h := testStore(t)
+	meta, _, _, _ := goblinFixture(t, store)
+	decision := "Fix the three review findings now?\n- **Recommended: fix them now.** CI could pass without running a registered test."
+	evidence := "- registry-parser-divergence | error | tools/select_tests.py:279\n- run 01M6EASKNZ3NNDFC6PWCBFHY7R on head f77bd7ee"
+	written, err := wake.ChoicesLast("Fix the three review findings now? options: Fix them now (Recommended) | Keep it parked\n- **Recommended: fix them now.** CI could pass without running a registered test.\nDetails:\n" + evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := "blocked: " + written
+	record, err := wake.Append(h.State, "notify", meta.ID, state.NormalizeStatusDetail(asked))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Act
+	if err := SurfaceNotify(h.State, meta.ID, record, asked, "", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ingestQuestions(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert
+	questions := store.Snapshot().Questions
+	if len(questions) != 1 {
+		t.Fatalf("questions = %+v, want the goblin's one question", questions)
+	}
+	if q := questions[0]; q.Text != decision+"\nDetails:\n"+evidence || !slices.Equal(q.Options, []string{"Fix them now", "Keep it parked"}) || q.Recommended != "Fix them now" {
+		t.Fatalf("surfaced question = %q %q %q, want its decision, its Details line and its evidence as written, and its two choices", q.Text, q.Options, q.Recommended)
+	}
+}
+
 // An answer follows the goblin that asked, never its successor, and never
 // arrives after the CFO has already handled the question itself.
 func TestGoblinAnswerRefusedAfterRespawnOrCFOAck(t *testing.T) {

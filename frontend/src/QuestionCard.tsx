@@ -7,8 +7,8 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { answeredBy, answeredLabel, chosenOption, outcomeIcon, questionOutcome } from "./commandQueue";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
-import { inlineElements, messageElements } from "./messageText";
-import { copyValues } from "./CopyValue";
+import { inlineElements } from "./messageText";
+import { QuestionText } from "./question-text";
 import { personaFor } from "./workflow";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { goblinName } from "./task-words";
@@ -52,7 +52,7 @@ export function QuestionCard({ question, snapshot, connected, draft, review, onD
   return <form className="question-card" aria-labelledby={"question-" + question.id} onSubmit={(event) => { event.preventDefault(); onSend(); }}>
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asks · {question.status !== "pending" ? "asked " + age(question.created_at) : "waiting " + age(question.created_at).replace(/ ago$/, "")}</span></p>
     {/* The question reads as body text: only what its asker marked is bold. */}
-    <div className="question-body" id={"question-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues, pathLinks({ kind: "question", id: question.id, instance: snapshot.instance }))}</div>
+    <QuestionText id={"question-" + question.id} text={question.text} path={pathLinks({ kind: "question", id: question.id, instance: snapshot.instance })} />
     {question.mail && <CardMail mail={question.mail} />}
     {review && <a className="icon-button raised pill-link open-inline" href={scrawlLink(review.url)} target="_blank" rel="noreferrer"><Icon name="external" /><span>Open review</span></a>}
     {images.length > 0 && <div className="question-thumbs" aria-label="Images for this question">
