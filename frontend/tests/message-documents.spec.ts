@@ -18,7 +18,7 @@ for (const width of [390, 1440]) {
       await open(page, snapshot({}, { harness: "codex" }), "", { messages: [
         { id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: REPORT }] },
         { id: "turn-end", seq: 1, at, kind: "interrupt", text: "Turn finished" },
-      ], more: false });
+      ], conversation: "pdf-conversation", more: false });
       const requests: { token: string | undefined; query: URLSearchParams }[] = [];
       await page.route("**/api/messages?*", (route) => {
         requests.push({ token: route.request().headers()["x-cfo-token"], query: new URL(route.request().url()).searchParams });
@@ -60,7 +60,7 @@ for (const width of [390, 1440]) {
     test("a fetched PDF opens through a token-free action and keeps a download fallback", async ({ page, request }) => {
       const proof = process.env.BOARD_DOCUMENT_PROOF;
       const messages: unknown = proof ? await (await request.get(proof + "/api/messages?task=cg-touch&generation=cg-touch-1&token=fixture")).json()
-        : { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: `Before ${LINK}: after.` }] }], more: false };
+        : { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: `Before ${LINK}: after.` }] }], conversation: "pdf-conversation", more: false };
       if (typeof messages !== "object" || messages === null) throw new Error("The disposable conversation is not a message page");
       await open(page, snapshot({}, { harness: "codex" }), "", messages);
       const reads: string[] = [];
@@ -101,7 +101,7 @@ for (const width of [390, 1440]) {
 
 test("a browser that cannot open a PDF keeps its safe download action", async ({ page }) => {
   await page.addInitScript(() => { window.open = () => null; });
-  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], more: false });
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], conversation: "pdf-conversation", more: false });
   await page.route("**/api/messages?*", (route) => route.fulfill({ contentType: "application/pdf", body: PDF }));
   await openGoblin(page);
   const document = page.getByRole("group", { name: LABEL, exact: true });
@@ -115,7 +115,7 @@ test("a browser that cannot open a PDF keeps its safe download action", async ({
 });
 
 test("a PDF link in thinking stays plain text with no card", async ({ page }) => {
-  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-thought", seq: 0, at, kind: "reply", blocks: [{ kind: "thinking", text: `Check ${LINK} first.` }] }], more: false });
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-thought", seq: 0, at, kind: "reply", blocks: [{ kind: "thinking", text: `Check ${LINK} first.` }] }], conversation: "pdf-conversation", more: false });
   await openGoblin(page);
   const log = page.getByRole("log", { name: "Messages of " + NAME, exact: true });
 
@@ -127,7 +127,7 @@ test("a PDF link in thinking stays plain text with no card", async ({ page }) =>
 
 test("Open PDF pressed from the keyboard moves focus to the ready Open PDF link", async ({ page }) => {
   await page.addInitScript(() => { window.open = () => null; });
-  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], more: false });
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], conversation: "pdf-conversation", more: false });
   await page.route("**/api/messages?*", (route) => route.fulfill({ contentType: "application/pdf", body: PDF }));
   await openGoblin(page);
   const document = page.getByRole("group", { name: LABEL, exact: true });
@@ -142,7 +142,7 @@ test("Open PDF pressed from the keyboard moves focus to the ready Open PDF link"
 
 test("a PDF whose answer never starts says it timed out rather than refused", async ({ page }) => {
   await page.clock.install();
-  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], more: false });
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], conversation: "pdf-conversation", more: false });
   await page.route("**/api/messages?*", () => {});
   await openGoblin(page);
   const document = page.getByRole("group", { name: LABEL, exact: true });
@@ -170,7 +170,7 @@ test("a PDF still downloading after its answer starts is not cut off", async ({ 
       return Promise.resolve(new Response(body, { headers: { "Content-Type": "application/pdf" } }));
     };
   }, PDF.toString());
-  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], more: false });
+  await open(page, snapshot({}, { harness: "codex" }), "", { messages: [{ id: "pdf-report", seq: 0, at, kind: "reply", blocks: [{ kind: "text", text: LINK }] }], conversation: "pdf-conversation", more: false });
   await openGoblin(page);
   const document = page.getByRole("group", { name: LABEL, exact: true });
   await document.getByRole("button", { name: "Open PDF", exact: true }).click();

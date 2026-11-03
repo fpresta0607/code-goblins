@@ -1,6 +1,12 @@
 import { expect, test, type Locator, type Page } from "./site";
 import { at, GOBLIN, NAME, open, openGoblin, snapshot } from "./session-board";
 
+// Chromium on a Windows machine whose own animations are off, as a CI
+// runner's may be, scrolls at once where a page asks it to scroll smoothly, so
+// the browser here scrolls smoothly whatever the machine says, as it does on
+// his PC: a Jump can then land while a smooth scroll is still under way.
+test.use({ launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--enable-smooth-scrolling"] } });
+
 // A conversation loads only what it shows (the Overlord, 2026-10-27, 12:40Z:
 // "every UI change must load intelligently ... An update re-renders only what
 // it changed, never every line"): the page holds the rows within reach of
@@ -129,23 +135,26 @@ for (const owner of ["CFO", "goblin"]) {
       await talk.evaluate((element) => { element.scrollTop -= 30; });
       const place = await reading(talk);
       await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
+      // Stop can act before the snapshot ends the turn, once the session's
+      // terminal link is up, so the change the snapshot makes is its own.
+      const stop = talk.locator(".reply-working").getByRole("button", { name: "Stop", exact: true });
+      if (isWorking) await expect(stop).toHaveAttribute("aria-disabled", "false");
       await watch(page);
 
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), board(!isWorking, 2));
       expect(await reading(talk)).toEqual(place);
-      expect(await changes(page)).toEqual(isWorking ? ["outside a message:attributes:aria-disabled", "outside a message:attributes:aria-disabled"] : []);
+      expect(await changes(page)).toEqual(isWorking ? ["outside a message:attributes:aria-disabled"] : []);
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
-      if (isWorking) await expect(talk.locator(".reply-working").getByRole("button", { name: "Stop", exact: true })).toHaveAttribute("aria-disabled", "true");
+      if (isWorking) await expect(stop).toHaveAttribute("aria-disabled", "true");
       await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 0 : 1);
-      await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText(isWorking ? "Queued" : "Sent");
-      await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(isWorking ? 1 : 0);
-      if (isWorking) await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveAttribute("aria-disabled", "true");
+      await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText("Sent");
+      await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(0);
 
       await page.getByRole("button", { name: "Jump to latest" }).click();
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 0 : 1);
       await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 1 : 0);
-      await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText(isWorking ? "Sent" : "Queued");
-      await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(isWorking ? 0 : 1);
+      await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText("Sent");
+      await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(0);
       await expect.poll(() => talk.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)).toBeLessThanOrEqual(1);
     });
   }

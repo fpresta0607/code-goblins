@@ -89,7 +89,7 @@ func (file *pictureStreamFile) ReadAt(data []byte, offset int64) (int, error) {
 		select {
 		case <-done:
 			file.isStreamed = true
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Minute):
 		}
 	})
 	return file.messageReadFile.ReadAt(data, offset)

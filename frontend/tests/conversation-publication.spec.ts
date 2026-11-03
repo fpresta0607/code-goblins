@@ -226,6 +226,9 @@ for (const owner of ["CFO", "goblin"] as const) {
     const talk = talkOf(page, name);
     await expect.poll(() => relay.views).toBeGreaterThan(0);
     relay.say({ type: "held", reason: "fixture hold" });
+    // The hold reaches the box once its terminal is up, and only then does a
+    // Send go to the board's queue rather than into the terminal.
+    await expect(box(page, name)).toHaveAttribute("data-queues", "");
     await expect(talk.locator('[data-message="m999"]')).toBeVisible();
     const place = await readNearEnd(talk, page);
     await talk.evaluate((element) => { (window as unknown as { originalRows: Element[] }).originalRows = [...element.querySelectorAll("[data-message]")]; });
@@ -272,6 +275,9 @@ for (const owner of ["CFO", "goblin"] as const) {
     const talk = talkOf(page, name);
     await expect.poll(() => relay.views).toBeGreaterThan(0);
     relay.say({ type: "held", reason: "fixture hold" });
+    // The hold reaches the box once its terminal is up, and only then does a
+    // Send go to the board's queue rather than into the terminal.
+    await expect(box(page, name)).toHaveAttribute("data-queues", "");
     await expect(talk.locator('[data-message="m999"]')).toBeVisible();
     const place = await readNearEnd(talk, page);
     await field(page, name).fill("Refused local message");
