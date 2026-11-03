@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
 import { holdClosed, remembered } from "../../src/item-state";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
@@ -60,7 +60,7 @@ function HistorySame() {
     ...prior, revision: prior.revision + 1,
     credentials: prior.credentials.map((candidate) => candidate.id === id ? { ...candidate, state: "open", closed_at: "", reason: "", generation: "9".repeat(32) } : candidate),
   }));
-  return <main><CommandCenter snapshot={holdClosed(parseSnapshot(state), closed, new Map())} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={holdClosed(parseSnapshot(state), closed, new Map())} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<HistorySame />);

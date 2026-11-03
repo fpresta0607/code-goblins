@@ -27,7 +27,7 @@ func TestTurningAFKOffKeepsTheReportOnTheBoardWithoutScrawl(t *testing.T) {
 	s, h, _ := asTheCFO(t)
 	var opened []string
 	s.Options.OpenPage = openedAt(pageLink, &opened)
-	s.Options.BoardAssets = fstest.MapFS{"assets/goblin-personas.png": {Data: []byte("faces")}}
+	s.Options.BoardAssets = fstest.MapFS{"assets/goblin-personas.webp": {Data: []byte("faces")}}
 	left := afk.Entry{Kind: afk.KindLeft, What: "Delete the idle cache database?", Evidence: "No reads since 04:00", Diagnosis: "It bills while nothing reads it", Tried: "Watched its reads", Options: []string{"Delete in a week", "Delete now"}, Answer: "Delete in a week"}
 	earlier := filepath.Join(h.State, afkReturnDir, "afk-20261014T010000.000Z")
 	if err := os.MkdirAll(earlier, 0o700); err != nil {
@@ -57,7 +57,7 @@ func TestTurningAFKOffKeepsTheReportOnTheBoardWithoutScrawl(t *testing.T) {
 	if text := string(written); !strings.Contains(text, "Delete the idle cache database?") || !strings.Contains(text, `data-item="change:`+afk.LeftQuestionID(logged[0])+`"`) {
 		t.Errorf("the page lacks the decision with the question in his History it changes")
 	}
-	if faces, err := os.ReadFile(filepath.Join(filepath.Dir(page), "goblin-personas.png")); err != nil || string(faces) != "faces" {
+	if faces, err := os.ReadFile(filepath.Join(filepath.Dir(page), "goblin-personas.webp")); err != nil || string(faces) != "faces" {
 		t.Errorf("the goblin faces beside the page = %q, %v, want the board's own", faces, err)
 	}
 	var cards []Review
@@ -94,8 +94,8 @@ func TestTurningAFKOffKeepsTheReportOnTheBoardWithoutScrawl(t *testing.T) {
 		t.Error("report reused a response nonce")
 	}
 	faces := httptest.NewRecorder()
-	handler.ServeHTTP(faces, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:12345"+strings.TrimSuffix(view.Page, "index.html")+"goblin-personas.png", nil))
-	if faces.Code != http.StatusOK || faces.Body.String() != "faces" || faces.Header().Get("Content-Type") != "image/png" {
+	handler.ServeHTTP(faces, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:12345"+strings.TrimSuffix(view.Page, "index.html")+"goblin-personas.webp", nil))
+	if faces.Code != http.StatusOK || faces.Body.String() != "faces" || faces.Header().Get("Content-Type") != "image/webp" {
 		t.Fatalf("report picture = %d %q, want the copied image", faces.Code, faces.Body.String())
 	}
 }

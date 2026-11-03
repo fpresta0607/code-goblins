@@ -141,11 +141,14 @@ for (const [size, viewport, scale] of [["the Overlord's window", { width: 1707, 
   });
 }
 
-test("opening a task panel reads no diff; Changes reads its files when opened, and a file's diff when that file is opened", async ({ page }) => {
+test("opening a task panel reads no diff; Changes reads its files when opened, and a file's diff, and the code that draws one, when that file is opened", async ({ page }) => {
   // Arrange
   const calls: string[] = [];
+  const requested: string[] = [];
+  page.on("request", (request) => requested.push(new URL(request.url()).pathname));
   await open(page, calls);
   const reads = (kind: string) => calls.filter((call) => call.includes("/" + kind + "?"));
+  const diffCode = () => requested.filter((path) => /^\/assets\/DiffView-[^/]*\.js$/.test(path));
 
   // Act
   await select(page, "An OpenClaw-style quick start in the goblins command");
@@ -168,13 +171,15 @@ test("opening a task panel reads no diff; Changes reads its files when opened, a
   await expect(changes.locator("details.file-review[open]")).toHaveCount(0);
   expect(reads("files")).toHaveLength(1);
   expect(reads("diff")).toEqual([]);
+  expect(diffCode()).toEqual([]);
 
   // Act: open one file.
   await changes.locator("details.file-review > summary").filter({ hasText: "frontend/src/workflow.ts" }).click();
 
-  // Assert: only that file's diff is read.
+  // Assert: only that file's diff is read, and the diff view arrives for it.
   await expect(changes.locator(".diff-view")).toHaveCount(1);
   expect(reads("diff")).toEqual(["/api/tasks/cg-goblins-quickstart/diff?revision=&path=frontend%2Fsrc%2Fworkflow.ts"]);
+  expect(diffCode()).toHaveLength(1);
 });
 
 test("Workspace, Harness and Connections are closed sections like those below them, and Workspace opens on what it showed", async ({ page }) => {

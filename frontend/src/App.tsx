@@ -6,15 +6,14 @@ import type { Task } from "./types";
 import { useItemState } from "./use-item-state";
 import { useTaskClicks } from "./use-task-clicks";
 import { withClicks } from "./task-clicks";
-import { childSelection, Lineage, type Selection } from "./Lineage";
 import { Board, type BoardLayout } from "./Board";
-import { Orchestration } from "./Orchestration";
-import { CommandCenter, type CommandFocus } from "./CommandCenter";
+import { CommandCenterMenu } from "./command-center-menu";
+import type { CommandFocus } from "./CommandCenter";
 import { ComebackBanner } from "./ComebackBanner";
 import { useActivity } from "./useActivity";
 import { livePresentations } from "./activity";
 import { useReview } from "./review";
-import { ownsTaskSession } from "./lineageTree";
+import { childSelection, ownsTaskSession, type Selection } from "./lineageTree";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
 import { Avatar } from "./Avatar";
@@ -58,6 +57,10 @@ import { taskStatus } from "./task-status";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
+// Orchestration, and on a small screen the family tree that takes its place,
+// arrive the first time it is shown.
+const Orchestration = boardPage(() => import("./Orchestration").then((module) => module.Orchestration), "Orchestration");
+const Lineage = boardPage(() => import("./Lineage").then((module) => module.Lineage), "Orchestration");
 // The build this tab last reloaded onto the supervisor's because a page could
 // not arrive, kept for the tab's life. A browser that cannot keep it never
 // reloads for a missing page, since it could not tell a second reload from
@@ -541,7 +544,7 @@ export function App() {
             only while the board is not live (the Overlord, 2026-10-28: "dont
             need live status pill in top right corner of desktop"). */}
         {!(connected && inDesktopApp()) && <Notice tone={connected ? "info" : "warning"}>{connection}</Notice>}
-        {snapshot && <CommandCenter snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
+        {snapshot && <CommandCenterMenu snapshot={snapshot} connected={connected} presentations={presentations} focus={commandFocus} onUnsent={setHasUnsentAnswers} onSent={sent} />}
         {!paneOpen && !compact && <button onClick={() => setPaneOpen(true)}>Open {selected ? "details" : "CFO"}</button>}
       </div>
     </header>
@@ -554,11 +557,11 @@ export function App() {
       <main ref={canvas} className="canvas-region" aria-label={view} hidden={panelWide || fillsPhone}>
         {!snapshot || !cardStart ? <div className="empty-state" role="status"><h2>Connecting to the supervisor</h2><p>Loading tasks and native sessions.</p></div>
           : view === "Board" ? <Board presentations={presentations} snapshot={snapshot} layout={boardLayout} selected={task?.id} selectedTrain={train?.id} now={now} freshNow={freshNow} onSelect={selectTask} onSelectTrain={(train, source) => select({ train: train.id }, source)} onOpenCfo={openCfo} onOpenCommand={() => setCommandFocus({ key: "", at: Date.now() })} onStartCfo={() => setFirstRunChoice("")} />
-            : compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
+            : <Suspense fallback={<p className="loading" role="status">Loading Orchestration…</p>}>{compact ? <Lineage onOpenCfo={openCfo} presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} project="" selected={!child && selectedSession ? { session: selectedSession.id } : selected} onSelect={select} />
               : <Orchestration presentations={presentations} effects={effects} snapshot={snapshot} now={now} freshNow={freshNow} connected={connected}
                 selected={child ? "child:" + child.id : selectedSession ? "session:" + selectedSession.id : selected?.task ? "task:" + selected.task : ""}
                 onSelect={(node, source) => select(node.session ? { session: node.session.id } : node.task ? { task: node.task.id } : {}, source)}
-                onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCfo={openCfo} />}
+                onChild={(task, baby, source) => select(childSelection(task, baby), source)} onOpenCfo={openCfo} />}</Suspense>}
       </main>
       {divided && <PaneDivider workspace={workspace} pane={pane} width={paneSize} onWidth={setPaneSize} onResizing={setResizing} onDone={(width) => store(PANE_WIDTH_KEY, String(width))} />}
       <aside ref={pane} className="context-pane" hidden={!paneOpen} tabIndex={-1} aria-label={view === "Board" ? "Task review" : "Goblin panel"}>

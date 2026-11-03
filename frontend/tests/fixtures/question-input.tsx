@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { CommandCenter } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -11,7 +11,7 @@ const SNAPSHOT = parseSnapshot({ healthy: true, instance: "fixture", revision: 1
 ] });
 
 function QuestionInput() {
-  return <main><CommandCenter snapshot={SNAPSHOT} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={SNAPSHOT} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<QuestionInput />);

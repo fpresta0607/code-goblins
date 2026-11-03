@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -20,7 +21,7 @@ const snapshot = parseSnapshot({ healthy: true, instance: "fixture", revision: 1
 function DeliveredPage() {
   const [focus, setFocus] = useState<CommandFocus | null>(null);
   useEffect(() => setFocus({ key: "review:" + delivered.id, at: 1 }), []);
-  return <main><CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<DeliveredPage />);

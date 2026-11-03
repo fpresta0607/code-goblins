@@ -1,5 +1,15 @@
-import type { Session, Task } from "./types.ts";
+import type { Session, Task, TreeNode } from "./types.ts";
 import { goblinName } from "./task-words.ts";
+
+// child is a baby goblin of the task's goblin, by its id in the goblin's
+// family tree.
+export interface Selection { session?: string; task?: string; child?: string; train?: string }
+
+// childSelection is what opening a goblin's baby goblin selects: a helper
+// goblin's own task, since a helper is a goblin of its own, or else the baby
+// goblin in its goblin's panel.
+export const childSelection = (task: Task, child: TreeNode): Selection =>
+  child.kind === "helper" ? { task: child.id.replace(/^helper:/, "") } : { task: task.id, child: child.id };
 
 export function ownsTaskSession(node?: Session, task?: Task): boolean {
   return (

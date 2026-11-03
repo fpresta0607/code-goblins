@@ -96,7 +96,7 @@ func (s *Service) afkUnderWay() (underWay, next []afk.Ongoing) {
 const afkReturnDir = "afk-return"
 
 // afkFaces are the board's pictures of its goblins the return page wears.
-var afkFaces = []string{"goblin-personas.png", "goblin-specialists.png", "goblin-specialists-2.png", "goblin-app.png"}
+var afkFaces = []string{"goblin-personas.webp", "goblin-specialists.webp", "goblin-specialists-2.webp", "goblin-app.png"}
 
 // makeReturnPage writes the page a stretch of AFK mode ends with into its own
 // folder under the state directory: the report as the walkthrough he reads,

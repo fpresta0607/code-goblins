@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Alerts } from "../../src/Alerts";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -43,7 +44,7 @@ function Page() {
       setSaid("opened the Command Center at " + key);
       setFocus({ key, at: Date.now() });
     }} />
-    <CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={ignore} />
   </main>;
 }
 

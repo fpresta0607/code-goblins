@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import type { Snapshot, Task } from "./types";
 import {
   array,
@@ -11,7 +11,7 @@ import {
 import { useResource } from "./api";
 import { age } from "./presentation";
 import { changeSummary } from "./diff";
-import { DiffView } from "./DiffView";
+import { boardPage } from "./board-page";
 import { WorkspaceDetails } from "./WorkspaceDetails";
 import { Disclosure } from "./Disclosure";
 import { Icon } from "./Icon";
@@ -20,6 +20,10 @@ import type { ReviewControls } from "./review";
 import { pullRequestBadge, safePullRequest } from "./workflow";
 import { hasChildren, running } from "./fleet-tree";
 import { WhatsWorking } from "./WhatsWorking";
+
+// A file's diff, with the syntax colouring it draws, arrives the first time
+// one is opened.
+const DiffView = boardPage(() => import("./DiffView").then((module) => module.DiffView), "code preview");
 
 // A read that failed says what could not be read, in one sentence, with the
 // supervisor's error behind Details.
@@ -37,8 +41,9 @@ function FileReview({ task, path, revision, reviews, connected }: {
     parseDiff,
   );
   if (diff.error) return <RetryRead retry={diff.reload} />;
-  if (!diff.data) return <p className="loading" role="status">Loading code preview…</p>;
-  return <DiffView diff={diff.data} reviews={reviews} connected={connected} />;
+  const loading = <p className="loading" role="status">Loading code preview…</p>;
+  if (!diff.data) return loading;
+  return <Suspense fallback={loading}><DiffView diff={diff.data} reviews={reviews} connected={connected} /></Suspense>;
 }
 
 // A change set's summary comes first, with the pull request's files on

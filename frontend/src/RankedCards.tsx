@@ -84,7 +84,7 @@ export function RankedCards({ list, tasks, instance, revision, empty, renderCard
   };
   return <>
     <div ref={frameRef} className="fit-list" onPointerDown={onFramePointerDown} onPointerUp={fit.onPointerUp} onPointerCancel={fit.onPointerCancel}>
-      <div ref={listRef} className={"task-cards ranked" + (isNumbered ? " numbered" : "")}>
+      <div ref={listRef} className={"task-cards ranked" + (isNumbered ? " numbered" : "") + (list === "progress" ? " unpaged" : "")}>
         {shown.slice(fit.start, fit.end).map((task, at) => { const index = fit.start + at; return <div key={task.id} className="ranked-item" data-sort-id={task.id} data-fit-key={fitKey(task.id, index)} onPointerDown={onPointerDown} onKeyDown={onKeyDown} onClickCapture={onClickCapture}>
           {rank(index)}
           <RenderBoundary scope="card">{renderCard(task, rankLabel(index, shown.length), index)}</RenderBoundary>
