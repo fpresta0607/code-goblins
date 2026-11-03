@@ -236,7 +236,7 @@ An explicitly selected finding with an empty action is actionable only when the 
 Review remains fail-closed for empty or unknown actions.
 Fix responses name concrete actionable finding IDs; selecting an `ask-user` finding is an explicit decision, never automatic consent.
 Approval is accepted only when every finding is explicitly `no-op`, or the findings list is empty.
-The one exception is the CFO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand.
+The one exception is the CFO's own decision: `respond <id> --action approve --accept <ids>` takes the open findings as they stand, except a recorded required test environment refusal, which only a successful Test retry clears, as [the binding](#any-command-in-the-line) says.
 It is honoured only from the registered primary CFO process, proven as `cfo question` proves it, and a goblin running it on its own gate is refused before anything is recorded.
 The IDs must be exactly the gate's open `ask-user` and `auto-fix` findings, no more and no fewer; a finding with an empty action still needs its fix.
 The task's status log records `pipeline-findings-accepted` with the step, run, round and IDs before approve reaches the gate.
@@ -562,7 +562,7 @@ A gate shows a step's output only once the step has ended, so while a run waits 
 | Exit code | Last line on standard error | What happened |
 | --- | --- | --- |
 | 125 | `cfo gate turn: this run takes no turn: <reason>`, `cfo gate turn: run it without cfo gate turn: <command>`, or `cfo gate turn: the run ended its command, since free memory or commit stayed under the desktop reserve: <detail>` | The run gave no result of its command's. Either the line ended the command for the machine's memory, or the command was never started. The line's store or the machine's memory could not be read, the run's record could not be begun, the wait was interrupted, standard output or error was no file, as a process's always is, the command waits on a gate, which the line before the last says, or the arguments named no command, which also prints the usage. |
-| 126 | `cfo gate turn: the command did not start: <error>` | A required environment binding was refused before admission, or a turn was taken and given back and `<program>` could not be started, or the run's custody of it could not be recorded first. |
+| 126 | `cfo gate turn: the command did not start: <error>` | A required environment binding was refused before admission or once the turn was taken, or a turn was taken and given back and `<program>` could not be started, or the run's custody of it could not be recorded first. |
 
 Neither is a test result, so a caller reads 125 as "the machine gave this run no turn" and never asks an agent to repair tests that did not run.
 A command that itself exits 125 or 126 is told apart by the last line, which then is not `cfo gate turn`'s unless the run named what its command left running or why it ended the command.
@@ -707,7 +707,7 @@ It has no budget and no timeout, no disk floor, which `cfo gate test` keeps for 
 
 **A gate behind it.**
 A gate puts every run's test command behind the line, with no repository naming it, by starting the command behind four words: `cfo gate turn --`, then exactly the program and arguments it starts today.
-On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with `--as` before the `--` when the gate names its run.
+On this machine that is `cfo gate turn -- cmd.exe /c <command string>`, started as an argument list with no shell in front, with the run's `--gate-run` and `--test-comparison-sha` identity and its `--as` name before the `--`, as the setting below gives them.
 The words go in front of the whole command as a list and are never joined to the command string, where `a && b` would put only `a` behind the turn.
 This is the contract the no-mistakes fork's wrapper setting is built against.
 The fork's side, as task cg-gate-fork-minutes built it, is a setting in the machine's `~/.no-mistakes/config.yaml`, on since the installed `cfo` has `cfo gate turn`, as an older `cfo` refuses `gate turn` with exit 2, which a gate reads as a failed test command:
@@ -718,7 +718,7 @@ test_command_wrapper:
   refusal_prefix: "cfo gate turn: "
 ```
 
-The fork fills `{repo}`, `{branch}`, `{run}` and `{run_short}` once, then starts these arguments with no shell in front:
+The fork fills `{repo}`, `{branch}`, `{run}` and `{run_short}` once, and `{test_comparison_sha}` with the comparison its Test step selected, then starts these arguments with no shell in front:
 
 ```text
 C:\dev\code-goblins\bin\cfo.exe  gate  turn  --gate-run  <full run id>  --test-comparison-sha  <resolved Test comparison SHA>  --as  "PrecisionDocs feat/x, run 01M4FG7F"  --  C:\WINDOWS\system32\cmd.exe  /c  <the command string, as one argument>
