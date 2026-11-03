@@ -21,7 +21,7 @@ func TestSpawnStartsAHelperOnABranchCutFromItsParentsLastCommit(t *testing.T) {
 	f.service.Worktrees.Commands = execx.OSRunner{}
 	f.service.Commands = execx.OSRunner{}
 	f.request.Project, f.request.Parent, f.request.Mode = project, "task", "local-only"
-	writeFile(t, f.brief, "Do the helper's part.\n")
+	writeFile(t, f.brief, helperOfferBrief)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 

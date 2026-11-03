@@ -2,6 +2,7 @@ package fleettree
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -122,11 +123,13 @@ func (l *claudeLog) update() error {
 		*l = *newClaudeLog(l.path)
 	}
 	l.written = info.ModTime().UTC()
-	l.read, err = readOn(file, l.read, info.Size(), func(_ int64, lines [][]byte) {
+	l.read, err = readOn(context.Background(), file, l.read, info.Size(), func(start int64, lines [][]byte) (int64, error) {
 		for _, line := range lines {
 			l.entry(line)
+			start += int64(len(line)) + 1
 		}
 		l.stamp(lines)
+		return start, nil
 	})
 	return err
 }
@@ -135,13 +138,19 @@ func (l *claudeLog) update() error {
 // each, a read's entries at a time with the offset of the first, and returns
 // the offset after the last entry handed. An entry still being written, with
 // no newline yet, is left for the next read.
-func readOn(file io.ReaderAt, offset, size int64, each func(start int64, lines [][]byte)) (int64, error) {
+func readOn(ctx context.Context, file io.ReaderAt, offset, size int64, each func(start int64, lines [][]byte) (int64, error)) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return offset, err
+	}
 	if offset >= size {
 		return offset, nil
 	}
 	buffer := make([]byte, min(claudeReadChunk, size-offset))
 	var carry []byte
 	for next := offset; next < size; {
+		if err := ctx.Err(); err != nil {
+			return offset, err
+		}
 		count, err := file.ReadAt(buffer[:min(int64(len(buffer)), size-next)], next)
 		if err != nil && !errors.Is(err, io.EOF) {
 			return offset, err
@@ -156,8 +165,10 @@ func readOn(file io.ReaderAt, offset, size int64, each func(start int64, lines [
 			carry = data
 			continue
 		}
-		each(offset, bytes.Split(data[:last], []byte("\n")))
-		offset = next - int64(len(data)-last-1)
+		offset, err = each(offset, bytes.Split(data[:last], []byte("\n")))
+		if err != nil {
+			return offset, err
+		}
 		carry = append([]byte(nil), data[last+1:]...)
 	}
 	return offset, nil

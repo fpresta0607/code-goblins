@@ -78,9 +78,9 @@ type Service struct {
 	Optional bool `json:"optional,omitempty"`
 	// Note explains a service whose purpose is not obvious from its name.
 	Note string `json:"note,omitempty"`
-	// Default gives this service's credentials to a task whose brief names no
-	// service and does not say none, the form every brief had before a brief
-	// named its services. A brief that names services gets exactly those.
+	// Default includes this service in Grant's default selection for complete
+	// automatic briefs and task records that predate explicit grants.
+	// It does not permit omitted credentials in a new authored brief.
 	Default bool `json:"default,omitempty"`
 }
 

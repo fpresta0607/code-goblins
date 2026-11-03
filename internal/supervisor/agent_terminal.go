@@ -198,6 +198,10 @@ func (h *HTTP) messagesLocator(query url.Values) (func() (string, error), error)
 // then the messages that began or changed, as they are written.
 func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	if query.Has("document") {
+		h.messageDocument(w, r)
+		return
+	}
 	// A browser's event stream cannot send the board's token in a header,
 	// so it comes in the query, as a terminal view's does.
 	if subtle.ConstantTimeCompare([]byte(query.Get("token")), []byte(h.Service.Instance)) != 1 {

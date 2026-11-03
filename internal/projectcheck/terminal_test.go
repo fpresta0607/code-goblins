@@ -6,8 +6,7 @@ import (
 )
 
 // terminalAuth declares four services with no value in it, as every auth
-// manifest does: two a task carries whatever its brief says, and two it
-// carries only when its brief names them.
+// manifest does: two marked default and two not.
 const terminalAuth = `{"project":"northwind","services":[
 	{"name":"github","method":"cli","env":["GITHUB_TOKEN"],"probe":["gh","auth","status"],"default":true},
 	{"name":"postgres","method":"env","env":["DATABASE_URL"],"default":true},
@@ -40,8 +39,8 @@ func terminalFiles(more map[string]string) map[string]string {
 // also writes the stored credentials of a task's services into the task's
 // terminal, and a test run inherits those with no env file at all. The check
 // read env files only. It now reads auth.json and names what a terminal
-// carries that the repository reads and no test setup names: what every task
-// carries by default, and what a task carries when its brief names a service.
+// carries that the repository reads and no test setup names, separating
+// manifest-default services from the other explicitly selected services.
 func TestTheCredentialsATasksTerminalCarriesAreWithinATestRunsReach(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -56,12 +55,12 @@ func TestTheCredentialsATasksTerminalCarriesAreWithinATestRunsReach(t *testing.T
 	if finding.Severity != High || finding.Area != AreaGate {
 		t.Errorf("terminal-reaches-production is %s in %s, want high in gate", finding.Severity, finding.Area)
 	}
-	contains(t, "says", finding.Says, "4 credentials", "every task")
+	contains(t, "says", finding.Says, "4 credentials", "manifest-default services")
 	byDefault, named, split := strings.Cut(finding.Evidence, "Carried when a brief names the service: ")
 	if !split {
 		t.Fatalf("evidence %q does not say what a task carries when its brief names a service", finding.Evidence)
 	}
-	contains(t, "what every task carries", byDefault, "whose brief has no credentials line", "postgres: DATABASE_URL (src/db.py)")
+	contains(t, "default selection", byDefault, "Manifest-default services", "postgres: DATABASE_URL (src/db.py)")
 	contains(t, "what a named service carries", named, "plaid: PLAID_CLIENT_ID (src/plaid.py), PLAID_SECRET (src/plaid.py)", "supabase: SUPABASE_SERVICE_ROLE_KEY (src/admin.py)", "The credential store is not opened")
 	for _, wrong := range []string{"GITHUB_TOKEN", "NEXT_PUBLIC_SUPABASE_URL"} {
 		if strings.Contains(finding.Evidence, wrong) {
@@ -71,6 +70,12 @@ func TestTheCredentialsATasksTerminalCarriesAreWithinATestRunsReach(t *testing.T
 	examined := only(t, report, "terminal-credentials-examined")
 	contains(t, "says", examined.Says, "4 services", "5 variables", "4 of them read by the repository", "0 of those named by the test setup")
 	contains(t, "evidence", examined.Evidence, "Read by no tracked file: github: GITHUB_TOKEN", "Left out as publishable: NEXT_PUBLIC_SUPABASE_URL", "Optional, so carried only when stored: supabase")
+	contains(t, "selection contract", examined.Evidence, "Authored briefs require explicit credentials and mcp choices", "complete automatic briefs select defaults explicitly", "existing task records retain their recorded grants")
+	for _, line := range []string{finding.Says, finding.Evidence, finding.Fix, examined.Evidence} {
+		if strings.Contains(line, "no credentials line") || strings.Contains(line, "every task") {
+			t.Errorf("terminal diagnostic still describes implicit admission: %q", line)
+		}
+	}
 }
 
 // How bad the line is follows who carries the credential and what bounds the
@@ -84,8 +89,8 @@ func TestHowBadATerminalsReachIsFollowsWhoCarriesItAndWhatBoundsTheTestStep(t *t
 		severity         Severity
 		says             string
 	}{
-		{"carried by every task, behind the repository's own test command", terminalAuth, gate, High, "every task"},
-		{"carried by every task, with the test step an agent's choice", terminalAuth, "", Critical, "every task"},
+		{"a manifest-default service, behind the repository's own test command", terminalAuth, gate, High, "manifest-default services"},
+		{"a manifest-default service, with the test step an agent's choice", terminalAuth, "", Critical, "manifest-default services"},
 		{"carried only when a brief names the service", named, gate, Medium, "whose brief names"},
 		{"carried only when a brief names the service, with the test step an agent's choice", named, "", Medium, "whose brief names"},
 	} {
@@ -191,8 +196,8 @@ func TestAProjectThatDeclaresNoServicesCarriesNoCredentialIntoATerminal(t *testi
 	contains(t, "evidence", examined.Evidence, "auth.json")
 }
 
-// A manifest with no default service gives a task whose brief has no
-// credentials line nothing, and the line says so by name.
+// A manifest with no default service gives complete automatic briefs an
+// explicit none choice, and the line says so by name.
 func TestAManifestWithNoDefaultServiceSaysEveryTaskCarriesNothingByDefault(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -203,7 +208,7 @@ func TestAManifestWithNoDefaultServiceSaysEveryTaskCarriesNothingByDefault(t *te
 	report := f.check()
 
 	// Assert
-	contains(t, "evidence", only(t, report, "terminal-credentials-examined").Evidence, "carries none, since no service is marked default")
+	contains(t, "evidence", only(t, report, "terminal-credentials-examined").Evidence, "No default services are selected, since no service is marked default", "Authored briefs require explicit credentials and mcp choices")
 }
 
 // A variable named for tests is a test value by the manifest's own word,

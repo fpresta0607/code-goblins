@@ -10,9 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
+
+// helperOfferBrief is a helper's brief written as the helper offer tells a
+// goblin to: its task and an Authentication section that carries nothing.
+const helperOfferBrief = "## Task\nWrite the migration for the accounts table.\n## Authentication\ncredentials: none\nmcp: none\n"
 
 // gitIn runs git in dir and returns its trimmed output.
 func gitIn(t *testing.T, dir string, args ...string) string {
@@ -117,7 +122,6 @@ func TestSpawnRefusesAHelperOutsideLocalOnlyBeforeAnyMutation(t *testing.T) {
 	// Arrange
 	f := newFixture(t)
 	f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h1", "direct-PR"
-	writeFile(t, f.brief, "Do the work.\n")
 
 	// Act
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -137,7 +141,6 @@ func TestSpawnRefusesASecondHelperUnderTheSpawnLockBeforeAnyMutation(t *testing.
 	writeParent(t, f.stateDir, state.TaskMeta{ID: "g1", Project: f.project, Worktree: f.worktree})
 	writeParent(t, f.stateDir, state.TaskMeta{ID: "g1-h1", Project: f.project, Worktree: f.worktree + "-h1", Parent: "g1"})
 	f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h2", "local-only"
-	writeFile(t, f.brief, "Do the work.\n")
 
 	// Act
 	_, err := f.service.Spawn(context.Background(), f.request)
@@ -175,5 +178,74 @@ func TestNotifyInstructionTellsAHelperToReportToItsParentAndNeverPush(t *testing
 	}
 	if scout := notifyInstruction(state.TaskMeta{ID: "s1", Kind: "scout"}); strings.Contains(scout, "helper start") {
 		t.Errorf("a scout is offered helpers:\n%s", scout)
+	}
+}
+
+func TestHelperRefusalRecommendsExplicitAuthenticationChoices(t *testing.T) {
+	for _, test := range []struct {
+		name, key, subject string
+		carried, named     []string
+		isRefused          bool
+	}{
+		{"wider credentials", "credentials", "service", []string{"source"}, []string{"source", "database"}, true},
+		{"wider mcp", "mcp", "MCP server", []string{"docs"}, []string{"docs", "database"}, true},
+		{"no parent credentials", "credentials", "service", nil, []string{"database"}, true},
+		{"no parent mcp", "mcp", "MCP server", nil, []string{"database"}, true},
+		{"explicit subset", "credentials", "service", []string{"source", "database"}, []string{"source"}, false},
+		{"explicit none", "mcp", "MCP server", []string{"docs"}, nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			allowed := namesOr(test.carried, "none")
+
+			// Act
+			refusal := helperRefusal("parent", test.key, test.subject, test.carried, test.named)
+
+			// Assert
+			if !test.isRefused {
+				if refusal != "" {
+					t.Fatalf("explicit allowed choice refused: %s", refusal)
+				}
+				return
+			}
+			for _, want := range []string{"never widens it", "its " + test.key + " line names some of " + allowed, test.key + ": none", "Both credentials and mcp lines must be explicit"} {
+				if !strings.Contains(refusal, want) {
+					t.Errorf("refusal = %q, want %q", refusal, want)
+				}
+			}
+			if strings.Contains(refusal, "leaves out") || strings.Contains(refusal, "inherit") {
+				t.Errorf("refusal recommends implicit inheritance: %s", refusal)
+			}
+		})
+	}
+}
+
+// A helper carries only what its own brief names, which narrows its parent's
+// grants: a line its brief leaves out gives it nothing, never its parent's
+// services or servers, and never the manifest's defaults.
+func TestHelperNeedCarriesOnlyWhatItsBriefNames(t *testing.T) {
+	parent := auth.Need{Services: []string{"database", "payments"}, MCPServers: []string{"docs"}}
+	manifest := auth.Manifest{Services: []auth.Service{{Name: "database", Default: true}, {Name: "payments"}}}
+	for _, test := range []struct {
+		name                      string
+		brief                     auth.Need
+		wantServices, wantServers []string
+	}{
+		{name: "lines left out", brief: auth.Need{IsUnstated: true, IsMCPUnstated: true}},
+		{name: "none", brief: auth.Need{}},
+		{name: "a subset", brief: auth.Need{Services: []string{"payments"}, MCPServers: []string{"docs"}}, wantServices: []string{"payments"}, wantServers: []string{"docs"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Act
+			need, err := helperNeed("parent", parent, test.brief)
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if carried := manifest.Grant(need).Services; !slices.Equal(carried, test.wantServices) || !slices.Equal(need.MCPServers, test.wantServers) {
+				t.Fatalf("helper carries services %v and servers %v, want %v and %v", carried, need.MCPServers, test.wantServices, test.wantServers)
+			}
+		})
 	}
 }

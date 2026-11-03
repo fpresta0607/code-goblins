@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"cmp"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -476,7 +477,7 @@ type messageBatch struct {
 	lines           []messageBatchLine
 }
 
-func readMessageBatch(path string, open func(string) (messageReadFile, error), previous messageFileState, offset, from, reach int64) (messageBatch, error) {
+func readMessageBatch(ctx context.Context, path string, open func(string) (messageReadFile, error), previous messageFileState, offset, from, reach int64) (messageBatch, error) {
 	forceReset := false
 	for attempt := 0; attempt < 2; attempt++ {
 		batch, changed, err := func() (messageBatch, bool, error) {
@@ -522,13 +523,20 @@ func readMessageBatch(path string, open func(string) (messageReadFile, error), p
 				}
 				start = batch.from
 			}
-			batch.end, err = readOn(file, start, info.Size(), func(at int64, lines [][]byte) {
+			// A read whose ctx ends stops at the last whole entry it read,
+			// which the batch still holds once the file is checked, so its
+			// caller keeps what it read before it reports the end.
+			batch.end, err = readOn(ctx, file, start, info.Size(), func(at int64, lines [][]byte) (int64, error) {
 				for _, line := range lines {
+					if err := ctx.Err(); err != nil {
+						return at, err
+					}
 					batch.lines = append(batch.lines, messageBatchLine{offset: at, data: bytes.Clone(line)})
 					at += int64(len(line)) + 1
 				}
+				return at, nil
 			})
-			if err != nil {
+			if err != nil && ctx.Err() == nil {
 				return messageBatch{}, errors.Is(err, io.EOF), err
 			}
 			if err := batch.state.capture(file, info, min(batch.end, max(batch.from, allowedFrom)), batch.end); err != nil {
@@ -564,12 +572,12 @@ func readMessageBatch(path string, open func(string) (messageReadFile, error), p
 // A first read of a conversation longer than reach, when reach is not 0,
 // begins at the first entry of its last reach bytes, and the whole
 // conversation is read beside it. The caller holds l.mu.
-func (l *messageLog) update(epoch func() uint64, reach int64) error {
-	return l.updateWith(epoch, reach, openMessageFile)
+func (l *messageLog) update(ctx context.Context, epoch func() uint64, reach int64) error {
+	return l.updateWith(ctx, epoch, reach, openMessageFileContext(ctx))
 }
 
-func (l *messageLog) updateWith(epoch func() uint64, reach int64, open func(string) (messageReadFile, error)) error {
-	batch, err := readMessageBatch(l.path, open, l.fileState, l.read, l.from, reach)
+func (l *messageLog) updateWith(ctx context.Context, epoch func() uint64, reach int64, open func(string) (messageReadFile, error)) error {
+	batch, err := readMessageBatch(ctx, l.path, open, l.fileState, l.read, l.from, reach)
 	if err != nil {
 		return err
 	}
@@ -585,7 +593,7 @@ func (l *messageLog) updateWith(epoch func() uint64, reach int64, open func(stri
 	if startWhole {
 		l.readWhole(epoch)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // entryAfter is where the first entry at or after offset begins: just past
@@ -618,7 +626,7 @@ func (l *messageLog) readWhole(epoch func() uint64) {
 		defer close(done)
 		whole := &messageLog{path: l.path}
 		whole.reset(0)
-		err := whole.update(epoch, 0)
+		err := whole.update(context.Background(), epoch, 0)
 		l.mu.Lock()
 		defer l.mu.Unlock()
 		if l.epoch != tail {
@@ -626,7 +634,7 @@ func (l *messageLog) readWhole(epoch func() uint64) {
 		}
 		if err == nil {
 			// Read on to what was written while the whole was read.
-			err = whole.update(epoch, 0)
+			err = whole.update(context.Background(), epoch, 0)
 		}
 		if err != nil {
 			l.wholeErr = err
@@ -1225,15 +1233,37 @@ func shared(message Message) Message {
 // and only those.
 const messageLogIdle = 5 * time.Minute
 
+func lockMessages(ctx context.Context, mutex *sync.Mutex) error {
+	if ctx.Done() == nil {
+		mutex.Lock()
+		return nil
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if mutex.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
 // messageLog is the log of the conversation at path, read on to its end, with
 // its mu held for the caller to unlock.
-func (r *Reader) messageLog(path string) (*messageLog, error) {
+func (r *Reader) messageLog(ctx context.Context, path string, reach int64) (*messageLog, error) {
 	now := time.Now()
 	if r.Now != nil {
 		now = r.Now()
 	}
 	epoch := func() uint64 { return messageEpoch.Add(1) }
-	r.messagesMu.Lock()
+	if err := lockMessages(ctx, &r.messagesMu); err != nil {
+		return nil, err
+	}
 	if r.messageLogs == nil {
 		r.messageLogs = map[string]*messageLog{}
 	}
@@ -1253,10 +1283,17 @@ func (r *Reader) messageLog(path string) (*messageLog, error) {
 	log.asked = now
 	r.forgetIdleMessages(now)
 	r.messagesMu.Unlock()
-	log.mu.Lock()
-	if err := log.update(epoch, messageTailReach); err != nil {
+	if err := lockMessages(ctx, &log.mu); err != nil {
+		return nil, err
+	}
+	if err := log.update(ctx, epoch, reach); err != nil {
 		log.mu.Unlock()
-		r.messagesMu.Lock()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		if lockErr := lockMessages(ctx, &r.messagesMu); lockErr != nil {
+			return nil, lockErr
+		}
 		if r.messageLogs[path] == log {
 			delete(r.messageLogs, path)
 		}
@@ -1288,49 +1325,74 @@ func (r *Reader) forgetIdleMessages(now time.Time) {
 // Claude Code conversation, a pi session or a Codex rollout, each read by its
 // own harness's entries.
 func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCursor, error) {
+	return r.messagePage(context.Background(), path, before, messageTailReach)
+}
+
+func (r *Reader) MessagePageContext(ctx context.Context, path string, before int) (MessagePage, MessageCursor, error) {
+	return r.messagePage(ctx, path, before, 0)
+}
+
+func (r *Reader) messagePage(ctx context.Context, path string, before int, reach int64) (MessagePage, MessageCursor, error) {
 	if isPiSession(path) {
-		log, err := r.piLog(path)
+		log, err := r.piLog(ctx, path)
 		if err != nil {
 			return MessagePage{}, MessageCursor{}, err
 		}
 		defer log.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
 		cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
 		page := log.page(before)
 		page.Conversation = cursor.Conversation()
 		return page, cursor, nil
 	}
 	if isCodexRollout(path) {
-		log, err := r.codexLog(path)
+		log, err := r.codexLog(ctx, path)
 		if err != nil {
 			return MessagePage{}, MessageCursor{}, err
 		}
 		defer log.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
 		cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
 		page := log.page(before)
 		page.Conversation = cursor.Conversation()
 		return page, cursor, nil
 	}
-	log, err := r.messageLog(path)
+	log, err := r.messageLog(ctx, path, reach)
 	if err != nil {
 		return MessagePage{}, MessageCursor{}, err
 	}
-	defer log.mu.Unlock()
 	// A page that reaches the first message of a read of the conversation's
 	// tail waits for the whole of it, which a failed read of the whole
 	// starts once more.
 	isRetried := false
-	for before >= 0 && log.from > 0 && log.end(before) <= MessagesPerPage {
+	for log.from > 0 && (reach == 0 || before >= 0 && log.end(before) <= MessagesPerPage) {
 		if log.wholeErr != nil {
 			if isRetried {
-				return MessagePage{}, MessageCursor{}, log.wholeErr
+				err := log.wholeErr
+				log.mu.Unlock()
+				return MessagePage{}, MessageCursor{}, err
 			}
 			log.readWhole(func() uint64 { return messageEpoch.Add(1) })
 			isRetried = true
 		}
 		whole := log.whole
 		log.mu.Unlock()
-		<-whole
-		log.mu.Lock()
+		select {
+		case <-ctx.Done():
+			return MessagePage{}, MessageCursor{}, ctx.Err()
+		case <-whole:
+		}
+		if err := lockMessages(ctx, &log.mu); err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
+	}
+	defer log.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return MessagePage{}, MessageCursor{}, err
 	}
 	cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
 	page := log.page(before)
@@ -1371,7 +1433,7 @@ func (r *Reader) UsageAt(path string, cursor MessageCursor) *Usage {
 // reader takes a page again.
 func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, now MessageCursor, isAnew bool, err error) {
 	if isPiSession(path) {
-		log, err := r.piLog(path)
+		log, err := r.piLog(context.Background(), path)
 		if err != nil {
 			return nil, MessageCursor{}, false, err
 		}
@@ -1380,7 +1442,7 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		return messages, now, isAnew, nil
 	}
 	if isCodexRollout(path) {
-		log, err := r.codexLog(path)
+		log, err := r.codexLog(context.Background(), path)
 		if err != nil {
 			return nil, MessageCursor{}, false, err
 		}
@@ -1388,7 +1450,7 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		messages, now, isAnew = log.since(cursor)
 		return messages, now, isAnew, nil
 	}
-	log, err := r.messageLog(path)
+	log, err := r.messageLog(context.Background(), path, messageTailReach)
 	if err != nil {
 		return nil, MessageCursor{}, false, err
 	}
@@ -1440,7 +1502,7 @@ func (r *Reader) messagePicture(path, conversation, id string, open func(string)
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
-	err := log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
+	err := log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
 	isCurrent := conversation != "" && conversation == (MessageCursor{epoch: log.epoch}).Conversation()
 	at, isKept := log.pictures[id]
 	state := log.fileState
@@ -1476,7 +1538,7 @@ func (r *Reader) messagePicture(path, conversation, id string, open func(string)
 		return "", nil, err
 	}
 	log.mu.Lock()
-	err = log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
+	err = log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
 	isCurrent = conversation == (MessageCursor{epoch: log.epoch}).Conversation()
 	log.mu.Unlock()
 	if err != nil {
@@ -1495,6 +1557,12 @@ type messageReadFile interface {
 
 func openMessageFile(path string) (messageReadFile, error) {
 	return fsx.Open(path)
+}
+
+// openMessageFileContext opens a conversation's file as openMessageFile
+// does, with its retries bounded by ctx.
+func openMessageFileContext(ctx context.Context) func(string) (messageReadFile, error) {
+	return func(path string) (messageReadFile, error) { return fsx.OpenContext(ctx, path) }
 }
 
 type pictureFile interface {

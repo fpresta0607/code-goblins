@@ -1,6 +1,7 @@
 package fleettree
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -354,7 +355,7 @@ func TestMessageUpdateRejectsRewriteDuringIncrementalRead(t *testing.T) {
 				answer("a2", "reply-2", textBlock("new reply")),
 			}
 		}, func(r *Reader, path string, epoch func() uint64, open func(string) (messageReadFile, error)) error {
-			return r.messageLogs[path].updateWith(epoch, 0, open)
+			return r.messageLogs[path].updateWith(context.Background(), epoch, 0, open)
 		}, func(r *Reader, path string) []Message { return r.messageLogs[path].messages }, func(r *Reader, path string) string { return fmt.Sprintf("%#v", r.messageLogs[path]) }},
 		{"codex", func(t *testing.T, home string) (string, object) {
 			return codexRollout(t, home, "race", codexUserSaid("first")), codexUserSaid("more")
@@ -364,7 +365,7 @@ func TestMessageUpdateRejectsRewriteDuringIncrementalRead(t *testing.T) {
 				codexOutput("call-1", "done"), codexTurnContext("model-two"), codexLine("token_usage_record", object{"usage": object{"input_tokens": 20, "output_tokens": 4, "total_tokens": 24}}), codexUserSaid("more"), codexCompleted("UserMessage", object{"id": "image-2", "content": []object{{"type": "image", "url": "data:image/png;base64,bmV3"}}}),
 			}
 		}, func(r *Reader, path string, epoch func() uint64, open func(string) (messageReadFile, error)) error {
-			return r.codexLogs[path].updateWith(epoch, open)
+			return r.codexLogs[path].updateWith(context.Background(), epoch, open)
 		}, func(r *Reader, path string) []Message { return r.codexLogs[path].messages }, func(r *Reader, path string) string { return fmt.Sprintf("%#v", r.codexLogs[path]) }},
 		{"pi", func(t *testing.T, home string) (string, object) {
 			return piSession(t, home, piHeader(), piMessageEntry("same", "", "user", object{"content": "first"})), piMessageEntry("next", "same", "user", object{"content": "more"})
@@ -374,7 +375,7 @@ func TestMessageUpdateRejectsRewriteDuringIncrementalRead(t *testing.T) {
 				piMessageEntry("next", "result", "assistant", object{"model": "model-two", "usage": object{"input": 12, "output": 5}, "content": []object{{"type": "text", "text": "more"}}}),
 			}
 		}, func(r *Reader, path string, epoch func() uint64, open func(string) (messageReadFile, error)) error {
-			return r.piLogs[path].updateWith(epoch, open)
+			return r.piLogs[path].updateWith(context.Background(), epoch, open)
 		}, func(r *Reader, path string) []Message { return r.piLogs[path].messages }, func(r *Reader, path string) string { return fmt.Sprintf("%#v", r.piLogs[path]) }},
 	}
 	for _, test := range tests {

@@ -346,10 +346,8 @@ An env file is one of two roads a test run has to production.
 The other needs no file: a spawn writes the stored credentials of a task's services into the task's terminal, and a test run started there inherits them.
 `link` in `worktree.json` does not touch that road.
 
-Which services a task carries is the auth manifest's own answer, asked through the function a spawn uses:
-
-- a task whose brief has no `credentials:` line carries the services `auth.json` marks `default`, and no other
-- a task whose brief names services carries exactly those
+Service selection for new briefs and existing task records follows [Credentials by need](contract/authentication.md#credentials-by-need).
+The check evaluates the manifest's default service set separately from services a brief must request explicitly.
 
 The gate area reads `auth.json` and names, for each service, the variables a terminal would carry.
 A variable counts as within a test run's reach when both of these hold:
@@ -361,11 +359,11 @@ A publishable name is left out, as on the env file line, and so is a variable na
 Both are named on the line that says what was examined.
 
 What is left is `terminal-reaches-production`, with each variable beside the first tracked file that reads it.
-It is `high` when a default service carries one, since every task with no credentials line then does, and `critical` when the gate names no test command as well.
+It is `high` when a default service carries one, and `critical` when the gate names no test command as well.
 It is `medium` when only a service a brief has to name carries one.
 The fix is in the repository, a test setup that names each variable with a value for tests, or in the home, taking `default` off a service or keeping it off the credentials line of a task that runs the tests.
 
-The line `terminal-credentials-examined` says what was read either way: each service with its variables, which every task carries by default, which are read by no tracked file, which were left out as publishable, and which services are optional.
+The line `terminal-credentials-examined` says what was read either way: each service with its variables, which services are marked default, which are read by no tracked file, which were left out as publishable, and which services are optional.
 The check reads `auth.json` and the repository and never opens the credential store.
 So it names variables, and cannot say whether one is stored or whether what it holds is a test value: a terminal carries a variable only when the store holds it.
 

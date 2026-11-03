@@ -82,23 +82,34 @@ for (const width of [1440, 390]) {
     await expect(dial.locator(".key-spend-spent")).toHaveText("$9.04");
     await expect(dial.locator(".key-spend-budget")).toHaveText("/ $50 this week");
     await expect(dial).toHaveAccessibleDescription(/Spent \$9\.04 of \$50 this week\./);
-    // The canvas card's foot is one row of 28px marks, so the dollars and the
-    // budget they count against sit on one line there, and the card holds all
-    // of it inside its border at either width.
+    // The card holds all of it inside its border at either width.
     const layout = await card.evaluate((element) => {
-      const foot = element.querySelector<HTMLElement>(".flow-node-foot");
+      const box = (part: Element) => { const { left, top, right, bottom } = part.getBoundingClientRect(); return { left, top, right, bottom }; };
+      const parts = [...element.querySelectorAll(".key-spend-spent, .key-spend-budget, .key-spend-dial .subscription-ring, .flow-node-foot .card-harness, .flow-node-foot .icon-button")];
       return {
         overflows: element.scrollWidth > element.clientWidth + 1,
-        footHeight: foot?.offsetHeight ?? 0,
+        card: box(element),
+        parts: parts.map((part) => ({ name: part.className.toString(), ...box(part) })),
         values: getComputedStyle(element.querySelector<HTMLElement>(".key-spend-values")!).flexDirection,
       };
     });
     expect(layout.overflows).toBe(false);
-    // The canvas foot is one row of 28px marks, so its dollars and budget sit
-    // on one line; the reported workflow list has the room for two.
+    // On the canvas at its fit zoom the foot wraps rather than crowds: the
+    // dollars, the budget, the ring and the foot's controls each keep their
+    // own box inside the card. The reported workflow list has the room to
+    // put the budget under the dollars.
     if (width === 1440) {
-      expect(layout.values).toBe("row");
-      expect(layout.footHeight).toBeLessThanOrEqual(28);
+      const { card: bounds, parts } = layout;
+      expect(parts.length).toBeGreaterThanOrEqual(3);
+      for (const [index, part] of parts.entries()) {
+        expect(part.left, part.name + " inside the card").toBeGreaterThanOrEqual(bounds.left - 1);
+        expect(part.right, part.name + " inside the card").toBeLessThanOrEqual(bounds.right + 1);
+        expect(part.bottom, part.name + " inside the card").toBeLessThanOrEqual(bounds.bottom + 1);
+        for (const other of parts.slice(index + 1)) {
+          const isApart = part.right <= other.left || other.right <= part.left || part.bottom <= other.top || other.bottom <= part.top;
+          expect(isApart, part.name + " clear of " + other.name).toBe(true);
+        }
+      }
     } else {
       expect(layout.values).toBe("column");
     }

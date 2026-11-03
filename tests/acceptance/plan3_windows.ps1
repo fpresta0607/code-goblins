@@ -477,13 +477,39 @@ try {
 
     foreach ($harness in @('claude', 'codex', 'pi')) {
         $id = 'accept-' + $harness
-        $brief = Join-Path $fixtureRoot ($id + '.brief.md')
+        $brief = Invoke-Checked -FilePath $cfo -Arguments @('brief', $id, '--project', $project, '--mode', 'local-only') -Description "create $harness acceptance brief"
         Assert-ContainedPath -Root $fixtureRoot -Path $brief -Description "$harness brief"
         @(
-            'Delivery contract: mode=local-only',
+            "# Brief $id",
+            '',
+            '## Project',
+            '',
+            $project,
+            '',
+            '## Task',
+            '',
             "Print exactly this marker: $marker",
-            'Exit after printing the marker.'
+            '',
+            '## Acceptance criteria',
+            '',
+            'Exit after printing the marker.',
+            '',
+            '## Constraints',
+            '',
+            'Do not modify project files or use project credentials or MCP servers.',
+            '',
+            '## Authentication',
+            '',
+            'credentials: none',
+            'mcp: none',
+            '',
+            '## Delivery',
+            '',
+            'kind: ship',
+            'mode: local-only',
+            'ready: false'
         ) | Set-Content -LiteralPath $brief
+        Invoke-Checked -FilePath $cfo -Arguments @('brief', 'ready', $id) -Description "finalize $harness acceptance brief" | Out-Host
 
         $spawn = Invoke-Checked -FilePath $cfo -Arguments @('spawn', $id, '--project', $project, '--brief', $brief, '--harness', $harness, '--mode', 'local-only') -Description "spawn $harness acceptance worker"
         $worker = [pscustomobject]@{ ID = $id; Worktree = $null; Meta = $null }

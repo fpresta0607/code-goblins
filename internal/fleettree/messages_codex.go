@@ -2,7 +2,9 @@ package fleettree
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"math"
 	"path/filepath"
@@ -137,12 +139,12 @@ func (l *codexMessageLog) reset(epoch uint64) {
 // update parses the entries written since the last read. A rollout that shrank
 // was replaced, and is read again from its start as a read of its own. The
 // caller holds l.mu.
-func (l *codexMessageLog) update(epoch func() uint64) error {
-	return l.updateWith(epoch, openMessageFile)
+func (l *codexMessageLog) update(ctx context.Context, epoch func() uint64) error {
+	return l.updateWith(ctx, epoch, openMessageFileContext(ctx))
 }
 
-func (l *codexMessageLog) updateWith(epoch func() uint64, open func(string) (messageReadFile, error)) error {
-	batch, err := readMessageBatch(l.path, open, l.fileState, l.read, 0, 0)
+func (l *codexMessageLog) updateWith(ctx context.Context, epoch func() uint64, open func(string) (messageReadFile, error)) error {
+	batch, err := readMessageBatch(ctx, l.path, open, l.fileState, l.read, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -153,7 +155,7 @@ func (l *codexMessageLog) updateWith(epoch func() uint64, open func(string) (mes
 		l.entry(line.data, line.offset)
 	}
 	l.read, l.fileState = batch.end, batch.state
-	return nil
+	return ctx.Err()
 }
 
 // entry folds one rollout entry, at offset in the file, into the log.
@@ -354,7 +356,7 @@ func (r *Reader) codexMessagePicture(path, conversation, id string, open func(st
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
-	err := log.update(func() uint64 { return messageEpoch.Add(1) })
+	err := log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) })
 	isCurrent := conversation != "" && conversation == (MessageCursor{epoch: log.epoch}).Conversation()
 	at, isKept := log.pictures[id]
 	state := log.fileState
@@ -388,7 +390,7 @@ func (r *Reader) codexMessagePicture(path, conversation, id string, open func(st
 		return "", nil, err
 	}
 	log.mu.Lock()
-	err = log.update(func() uint64 { return messageEpoch.Add(1) })
+	err = log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) })
 	isCurrent = conversation == (MessageCursor{epoch: log.epoch}).Conversation()
 	log.mu.Unlock()
 	if err != nil {
@@ -541,13 +543,15 @@ func isCodexRollout(path string) bool {
 
 // codexLog is the log of the rollout at path, read on to its end, with its mu
 // held for the caller to unlock.
-func (r *Reader) codexLog(path string) (*codexMessageLog, error) {
+func (r *Reader) codexLog(ctx context.Context, path string) (*codexMessageLog, error) {
 	now := time.Now()
 	if r.Now != nil {
 		now = r.Now()
 	}
 	epoch := func() uint64 { return messageEpoch.Add(1) }
-	r.messagesMu.Lock()
+	if err := lockMessages(ctx, &r.messagesMu); err != nil {
+		return nil, err
+	}
 	if r.codexLogs == nil {
 		r.codexLogs = map[string]*codexMessageLog{}
 	}
@@ -567,10 +571,17 @@ func (r *Reader) codexLog(path string) (*codexMessageLog, error) {
 	log.asked = now
 	r.forgetCodexLogs(now)
 	r.messagesMu.Unlock()
-	log.mu.Lock()
-	if err := log.update(epoch); err != nil {
+	if err := lockMessages(ctx, &log.mu); err != nil {
+		return nil, err
+	}
+	if err := log.update(ctx, epoch); err != nil {
 		log.mu.Unlock()
-		r.messagesMu.Lock()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		if lockErr := lockMessages(ctx, &r.messagesMu); lockErr != nil {
+			return nil, lockErr
+		}
 		if r.codexLogs[path] == log {
 			delete(r.codexLogs, path)
 		}
