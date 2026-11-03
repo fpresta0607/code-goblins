@@ -2797,9 +2797,12 @@ Only the one or two calendar months possible across UTC-12 through UTC+14 within
 The snapshot's `actions_spend` remains the UTC month's report; the board selects the device's local calendar month from the existing page clock and requests this endpoint when that month differs, using the same clock to check refresh eligibility.
 It asks again an hour after the reading's `checked_at`, kept between the device's next whole minute and an hour after the answer arrived, so a device clock ahead of or behind the supervisor's neither asks on every update nor keeps a reading for hours.
 The existing billing reader receives the selected report month separately from the real reading time and requests that exact GitHub monthly report.
+A reading's `total` holds the month's Actions `minutes`, `used_usd` (their value at GitHub's list price, its `grossAmount`) and `billed_usd` (what GitHub bills once public repositories and the plan's included minutes are free, its `netAmount`), each dollar figure rounded to the cent, and is null when nothing was read; what GitHub covered is used less billed.
+`repositories` lists every repository with Actions use that month, highest use first, with the same three figures, so a repository GitHub covers in full stays listed; only usage in minutes counts as minutes, and storage counts in dollars alone.
+The board's bar shows the billed total with the month's use beside it, quieter, and its panel shows used, covered and billed, then the repositories, then one line saying when it was read.
 The supervisor shares its cache by month across devices and its background reader, starts at most one GitHub read per month per hour, and evicts months outside the accepted range.
 Concurrent requests for a month share one read bounded to 30 seconds; disconnecting one device does not cancel it, and the supervisor stopping does.
-A failed billing refresh preserves that month's previous total as `stale`, with its original `read_at` and the new `checked_at`; without a previous total it remains `unavailable`, and an available reading becomes `stale` after two hours.
+A failed billing refresh preserves that month's previous total as `stale`, with its original `read_at`, the new `checked_at` and the failure's `detail`; without a previous total it remains `unavailable`, and an available reading becomes `stale` after two hours with no `detail` of its own.
 The mocked regressions in `internal/actionsbilling/usage_test.go`, `internal/supervisor/actions_spend_test.go` and `frontend/tests/actions-spend.spec.ts` cover the reader, cache, request boundaries and device calendars.
 
 ## Build and verification

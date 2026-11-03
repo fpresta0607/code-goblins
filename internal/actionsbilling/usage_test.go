@@ -2,6 +2,8 @@ package actionsbilling
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -40,26 +42,88 @@ func reader(github *billingGitHub) Reader {
 	return Reader{GitHub: githubtest.Client(github)}
 }
 
-func TestReadSumsOnlyActionsNetByRepository(t *testing.T) {
+// usageItem is one line of GitHub's billing usage report.
+func usageItem(date, product, repository, unit string, quantity, gross, net float64) string {
+	return fmt.Sprintf(`{"date":%q,"product":%q,"sku":"Actions Linux","repositoryName":%q,"unitType":%q,"quantity":%v,"pricePerUnit":0.006,"grossAmount":%v,"discountAmount":%v,"netAmount":%v}`,
+		date, product, repository, unit, quantity, gross, gross-net, net)
+}
+
+func usageReport(items ...string) string {
+	return `{"usageItems":[` + strings.Join(items, ",") + `]}`
+}
+
+// servedJSON is the reading's use as the board receives it.
+func servedJSON(t *testing.T, reading Reading) string {
+	t.Helper()
+	all, err := json.Marshal(reading)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(all, &fields); err != nil {
+		t.Fatal(err)
+	}
+	served, err := json.Marshal(map[string]json.RawMessage{"total": fields["total"], "repositories": fields["repositories"]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(served)
+}
+
+func TestReadKeepsTheUseOfAMonthGitHubFullyCovers(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	github := &billingGitHub{usage: `{"usageItems":[
-		{"date":"2026-10-01","product":"Actions","repositoryName":"example-user/fern","grossAmount":100,"netAmount":2.25},
-		{"date":"2026-10-02","product":"actions","repositoryName":"example-user/fern","netAmount":1.25},
-		{"date":"2026-10-02","product":"actions","repositoryName":"example-user/moss","netAmount":5},
-		{"date":"2026-10-02","product":"actions","repositoryName":"example-user/public-example","grossAmount":80,"netAmount":0},
-		{"date":"2026-10-02","product":"packages","repositoryName":"example-user/other","netAmount":20},
-		{"date":"2026-09-30","product":"actions","repositoryName":"example-user/old","netAmount":40}
-	]}`}
-	reading := reader(github).Read(context.Background(), now, now.Format("2006-01"))
-	if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != 8.5 || reading.Month != "2026-10" || !reading.ReadAt.Equal(now) {
+	github := &billingGitHub{usage: usageReport(
+		usageItem("2026-10-01T00:00:00Z", "actions", "fern", "Minutes", 400, 2.4, 0),
+		usageItem("2026-10-02T00:00:00Z", "actions", "fern", "Minutes", 200, 1.2, 0),
+		usageItem("2026-10-02T00:00:00Z", "actions", "moss", "Minutes", 100, 0.6, 0),
+		usageItem("2026-10-02T00:00:00Z", "actions", "moss", "GigabyteHours", 12.5, 0.004, 0),
+	)}
+	reading := reader(github).Read(context.Background(), now, "2026-10")
+	if reading.Status != "available" {
 		t.Fatalf("reading = %+v", reading)
 	}
-	want := []Repository{{Name: "example-user/moss", SpentUSD: 5}, {Name: "example-user/fern", SpentUSD: 3.5}}
+	want := `{"repositories":[{"name":"fern","minutes":600,"used_usd":3.6,"billed_usd":0},{"name":"moss","minutes":100,"used_usd":0.6,"billed_usd":0}],"total":{"minutes":700,"used_usd":4.2,"billed_usd":0}}`
+	if got := servedJSON(t, reading); got != want {
+		t.Fatalf("served reading\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestReadSumsAPartlyBilledMonthByRepository(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	github := &billingGitHub{usage: usageReport(
+		usageItem("2026-10-03", "actions", "fern", "Minutes", 1000, 8, 0),
+		usageItem("2026-10-04", "Actions", "moss", "Minutes", 3000, 24, 10.5),
+		usageItem("2026-10-04", "actions", "moss", "minutes", 100, 1.6, 1.6),
+		usageItem("2026-10-05", "actions", "moss", "GigabyteHours", 40, 0.0123, 0.0123),
+		usageItem("2026-10-05", "packages", "sedge", "GigabyteHours", 10, 20, 20),
+		usageItem("2026-09-30", "actions", "reed", "Minutes", 500, 40, 40),
+	)}
+	reading := reader(github).Read(context.Background(), now, now.Format("2006-01"))
+	if reading.Status != "available" || reading.Month != "2026-10" || !reading.ReadAt.Equal(now) || reading.Detail != "" {
+		t.Fatalf("reading = %+v", reading)
+	}
+	if want := (Usage{Minutes: 4100, UsedUSD: 33.61, BilledUSD: 12.11}); reading.Total == nil || *reading.Total != want {
+		t.Fatalf("total = %+v, want %+v", reading.Total, want)
+	}
+	want := []Repository{{Name: "moss", Usage: Usage{Minutes: 3100, UsedUSD: 25.61, BilledUSD: 12.11}}, {Name: "fern", Usage: Usage{Minutes: 1000, UsedUSD: 8}}}
 	if !reflect.DeepEqual(reading.Repositories, want) {
 		t.Fatalf("repositories = %+v", reading.Repositories)
 	}
 	if got := github.requests[1]; got != "users/example-user/settings/billing/usage?year=2026&month=10" {
-		t.Fatalf("billing command = %s", got)
+		t.Fatalf("billing request = %s", got)
+	}
+}
+
+func TestReadKeepsCancelledAndCreditedRepositories(t *testing.T) {
+	github := &billingGitHub{usage: usageReport(
+		usageItem("2026-10-01", "actions", "offset", "Minutes", 50, 1.25, 1.25),
+		usageItem("2026-10-02", "actions", "offset", "Minutes", 0, 0, -1.25),
+		usageItem("2026-10-02", "actions", "credit", "Minutes", 0, 0, -0.5),
+	)}
+	reading := reader(github).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
+	want := []Repository{{Name: "offset", Usage: Usage{Minutes: 50, UsedUSD: 1.25}}, {Name: "credit", Usage: Usage{BilledUSD: -0.5}}}
+	if reading.Status != "available" || reading.Total == nil || *reading.Total != (Usage{Minutes: 50, UsedUSD: 1.25, BilledUSD: -0.5}) || !reflect.DeepEqual(reading.Repositories, want) {
+		t.Fatalf("reading = %+v", reading)
 	}
 }
 
@@ -73,15 +137,17 @@ func TestReadReportsUnavailableWithoutGuessing(t *testing.T) {
 		{name: "invalid JSON", usage: `{"usageItems":`},
 		{name: "missing usage", usage: `{}`},
 		{name: "null usage", usage: `{"usageItems":null}`},
-		{name: "invalid net", usage: `{"usageItems":[{"product":"actions","date":"2026-10-01","netAmount":"2"}]}`},
-		{name: "missing net", usage: `{"usageItems":[{"product":"actions","date":"2026-10-01","repositoryName":"example-user/fern"}]}`},
-		{name: "missing repository", usage: `{"usageItems":[{"product":"actions","date":"2026-10-01","netAmount":2}]}`},
-		{name: "invalid date", usage: `{"usageItems":[{"product":"actions","date":"wrong","repositoryName":"example-user/fern","netAmount":2}]}`},
+		{name: "invalid net", usage: `{"usageItems":[{"product":"actions","date":"2026-10-01","repositoryName":"fern","unitType":"Minutes","quantity":1,"grossAmount":2,"netAmount":"2"}]}`},
+		{name: "missing net", usage: `{"usageItems":[{"product":"actions","date":"2026-10-01","repositoryName":"fern","unitType":"Minutes","quantity":1,"grossAmount":2}]}`},
+		{name: "missing gross", usage: `{"usageItems":[{"product":"actions","date":"2026-10-01","repositoryName":"fern","unitType":"Minutes","quantity":1,"netAmount":0}]}`},
+		{name: "missing quantity", usage: `{"usageItems":[{"product":"actions","date":"2026-10-01","repositoryName":"fern","unitType":"Minutes","grossAmount":2,"netAmount":0}]}`},
+		{name: "missing repository", usage: usageReport(usageItem("2026-10-01", "actions", " ", "Minutes", 1, 2, 0))},
+		{name: "invalid date", usage: usageReport(usageItem("wrong", "actions", "fern", "Minutes", 1, 2, 2))},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			github := &billingGitHub{usage: test.usage, status: test.status, failure: test.failure}
 			reading := reader(github).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
-			if reading.Status != "unavailable" || reading.TotalUSD != nil || reading.Detail == "" {
+			if reading.Status != "unavailable" || reading.Total != nil || reading.Repositories != nil || reading.Detail == "" {
 				t.Fatalf("reading = %+v", reading)
 			}
 			if test.name == "missing scope" && !strings.Contains(reading.Detail, "user") {
@@ -98,7 +164,7 @@ func TestReadRequiresASignedInAccount(t *testing.T) {
 	for _, account := range []string{`{}`, `invalid`} {
 		github := &billingGitHub{account: account}
 		reading := reader(github).Read(context.Background(), time.Now(), "2026-10")
-		if reading.TotalUSD != nil || reading.Status != "unavailable" || len(github.requests) != 1 {
+		if reading.Total != nil || reading.Status != "unavailable" || len(github.requests) != 1 {
 			t.Fatalf("reading = %+v, requests = %d", reading, len(github.requests))
 		}
 	}
@@ -115,16 +181,16 @@ func TestReadUsesTheSelectedCalendarMonth(t *testing.T) {
 
 func TestReadSelectsReportWithoutChangingTheReadingTime(t *testing.T) {
 	now := time.Date(2026, 11, 1, 0, 30, 0, 0, time.UTC)
-	github := &billingGitHub{usage: `{"usageItems":[
-		{"date":"2026-10-31","product":"actions","repositoryName":"example-user/fern","netAmount":8.5},
-		{"date":"2026-11-01","product":"actions","repositoryName":"example-user/fern","netAmount":40}
-	]}`}
+	github := &billingGitHub{usage: usageReport(
+		usageItem("2026-10-31", "actions", "fern", "Minutes", 100, 8.5, 8.5),
+		usageItem("2026-11-01", "actions", "fern", "Minutes", 500, 40, 40),
+	)}
 	reading := reader(github).Read(context.Background(), now, "2026-10")
-	if reading.Month != "2026-10" || reading.TotalUSD == nil || *reading.TotalUSD != 8.5 || !reading.ReadAt.Equal(now) || !reading.CheckedAt.Equal(now) {
+	if reading.Month != "2026-10" || reading.Total == nil || *reading.Total != (Usage{Minutes: 100, UsedUSD: 8.5, BilledUSD: 8.5}) || !reading.ReadAt.Equal(now) || !reading.CheckedAt.Equal(now) {
 		t.Fatalf("reading = %+v", reading)
 	}
 	if got := github.requests[1]; got != "users/example-user/settings/billing/usage?year=2026&month=10" {
-		t.Fatalf("billing command = %s", got)
+		t.Fatalf("billing request = %s", got)
 	}
 }
 
@@ -133,39 +199,27 @@ func TestReadRejectsInvalidMonthsBeforeCallingGitHub(t *testing.T) {
 		t.Run(month, func(t *testing.T) {
 			github := &billingGitHub{}
 			reading := reader(github).Read(context.Background(), time.Now(), month)
-			if reading.Status != "unavailable" || reading.TotalUSD != nil || len(github.requests) != 0 {
+			if reading.Status != "unavailable" || reading.Total != nil || len(github.requests) != 0 {
 				t.Fatalf("reading = %+v, requests = %d", reading, len(github.requests))
 			}
 		})
 	}
 }
 
-func TestReadEmptyUsageIsMeasuredZero(t *testing.T) {
-	github := &billingGitHub{usage: `{"usageItems":[]}`}
+func TestReadAMonthWithoutActionsUseIsMeasuredZero(t *testing.T) {
+	github := &billingGitHub{usage: usageReport(usageItem("2026-10-02", "packages", "sedge", "GigabyteHours", 10, 2, 2))}
 	reading := reader(github).Read(context.Background(), time.Now(), "2026-10")
-	if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != 0 || len(reading.Repositories) != 0 {
-		t.Fatalf("reading = %+v", reading)
-	}
-}
-
-func TestReadFiltersZeroNetAfterSummingTheRepository(t *testing.T) {
-	github := &billingGitHub{usage: `{"usageItems":[
-		{"date":"2026-10-01","product":"actions","repositoryName":"example-user/offset","netAmount":1.25},
-		{"date":"2026-10-02","product":"actions","repositoryName":"example-user/offset","netAmount":-1.25},
-		{"date":"2026-10-02","product":"actions","repositoryName":"example-user/credit","netAmount":-0.5}
-	]}`}
-	reading := reader(github).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
-	if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != -0.5 || len(reading.Repositories) != 1 || reading.Repositories[0].Name != "example-user/credit" {
-		t.Fatalf("reading = %+v", reading)
+	if want := `{"repositories":[],"total":{"minutes":0,"used_usd":0,"billed_usd":0}}`; reading.Status != "available" || servedJSON(t, reading) != want {
+		t.Fatalf("reading = %+v, served %s", reading, servedJSON(t, reading))
 	}
 }
 
 func TestReadAcceptsBillingTimestampsAndDocumentedDates(t *testing.T) {
 	for _, date := range []string{"2026-10-02", "2026-10-02T00:00:00Z", "2026-10-02T00:00:00.000Z", "2026-11-01T00:30:00+02:00"} {
 		t.Run(date, func(t *testing.T) {
-			github := &billingGitHub{usage: `{"usageItems":[{"date":"` + date + `","product":"Actions","repositoryName":"example-user/fern","netAmount":2.25}]}`}
+			github := &billingGitHub{usage: usageReport(usageItem(date, "Actions", "fern", "Minutes", 30, 2.25, 2.25))}
 			reading := reader(github).Read(context.Background(), time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), "2026-10")
-			if reading.Status != "available" || reading.TotalUSD == nil || *reading.TotalUSD != 2.25 {
+			if reading.Status != "available" || reading.Total == nil || reading.Total.BilledUSD != 2.25 || reading.Total.Minutes != 30 {
 				t.Fatalf("reading = %+v", reading)
 			}
 		})
