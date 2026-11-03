@@ -496,8 +496,9 @@ While something in the Command Center waits on him the bar says none of what it 
 The glow breathes, and holds still for a reader who asked for reduced motion.
 While no CFO runs the bar says so and offers Start the CFO instead.
 Its terminal icon and its portrait open the CFO's terminal and hand it the keyboard.
-The bar draws no mark of the harness the CFO runs, beside its portrait or in its allowance dials, and keeps only the usage (the Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons in cfo banner in top left of board, only need usage").
-With two subscriptions in use, each dial there names its provider in words instead.
+The bar draws no mark of the harness the CFO runs beside its portrait (the Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons in cfo banner in top left of board, only need usage").
+Each allowance dial on it carries its provider's icon inside its ring and no name beside it, as on the CFO's card on the canvas: the Overlord asked on 2026-11-02 for the icon in the circle in place of the Claude and Codex labels.
+A screen reader still hears each dial by its provider's name.
 While [AFK mode](#afk-mode) is on nothing glows on the bar whatever waits on the Overlord, and its line says since when it is on and who turned it on, the Overlord from his board or his terminal or the CFO at his ask, and how many decisions the CFO logged.
 AFK mode is complete autopilot, so the bar lists nothing held for him: Open Command Center, unlit, with how many wait, is its one way to whatever is there, and it is not there while nothing waits.
 A click or key on the board after five minutes with none, counted from when AFK mode turned on, is taken for the Overlord coming back: the click or key does what he meant, and the board then offers to turn AFK mode off or stay.
@@ -545,7 +546,9 @@ Whatever opens and closes on the board is the one disclosure (`frontend/src/Disc
 The Command Center's button is a menu behind its own icon, and `frontend/src/disclosure.test.ts` names any other `details` the source draws.
 A caret only ever opens or closes what it stands before: the same test names every caret the source draws, which are the disclosure's, a tree's fold on a button that says whether it is open, and the pager's two arrows.
 The panel sends no note to the CFO: the supervisor still accepts the `note` action of `POST /api/tasks/adjust`, but nothing on the board files or shows one.
-The CFO's task list holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same memory meter, drag, keyboard moves and Start; an order or a start made in either shows in both.
+The CFO's task list holds its workspace and connections and then every queued task, the same list as the Tasks column, in the same order, with the same drag, keyboard moves and Start; an order or a start made in either shows in both.
+The machine meters are drawn once on screen (#1598): at the head of the Tasks column while the board shows it, and over the CFO's queued tasks only where no Tasks column shows, as in Orchestration, beside a maximized panel and on a phone the panel fills.
+The list carries no heading there, since the column whose heading it would be is not in the panel.
 Board and Orchestration both open a goblin, and the CFO, on its one view, a Claude Code session's showing its messages ([The Messages view](#the-messages-view)); Orchestration's view defaults to the registered CFO; once opened, both views stay mounted, so switching keeps scroll position and selection.
 A Claude Code session's messages stay mounted too, from the first showing of its conversation or of the box it holds while its panel shows the session; a Classic terminal that shows neither loads no messages.
 Typing happens in the terminal itself, or in a Claude Code session's message box, which types into it.
@@ -601,7 +604,7 @@ Replayed, stale, reparenting, or cyclic input cannot silently change the tree.
 Task dependencies are rendered separately from spawned/delegated links.
 Unreported child models remain unreported even when their owning task declares a model and effort.
 A goblin's card on the canvas says what its card on the board says, with its project too and without the baby goblins the canvas draws under it: its name and title, its project and status, and in a row at its foot how long it has run, since a paused or finished goblin has no canvas card, its pull request with its number and its harness mark, drawn by the same parts as the board card's (`frontend/src/card-clock.tsx`, `frontend/src/card-pull-request.tsx`).
-The CFO's card has its weekly allowance dials and the OpenRouter key's spend and the button that opens its terminal, as the board's CFO bar has, and keeps its harness mark and the brand inside each dial.
+The CFO's card has its weekly allowance dials and the OpenRouter key's spend and the button that opens its terminal, as the board's CFO bar has, with the brand inside each dial, and keeps its harness mark, which the bar does not wear.
 On the canvas its dials wrap with gaps, and below 70% zoom a card with multiple dials hides the subscription percentages and key-spend budget labels, keeping the rings and dollar amount (`frontend/tests/orchestration-card-text.spec.ts`).
 Every card on the canvas, a baby goblin's included, holds all it says inside its border at any length, since each part keeps to its own lines and ends in an ellipsis past them (`frontend/tests/orchestration-card-text.spec.ts`).
 Dragging a card or using Alt plus an arrow key changes only its saved browser position; connectors retain their reported parent identity.
@@ -2258,7 +2261,7 @@ The supervisor then also proves the request comes from a board of the Overlord's
 A board it refuses shows one short sentence that says where to press Update, and the CFO is told what the supervisor found in a `review` wake keyed `update`, which opens with `Updating Code Goblins is the Supreme Overlord's alone`.
 Nothing presses it for him, in AFK mode or out of it, and while AFK mode is on it is held for him and announced to no one.
 Pressed, the supervisor writes a grant for exactly that item and release to `state\update\grant.json` and runs the item's command out of sight, `goblins update --to <tag> --run <item>` with the home named, which takes the grant once, within two minutes, in place of a terminal of his own.
-The card follows it from what it prints, read each second from `GET /api/runs/<id>/output`: Download, Check each file's SHA-256, Restart the board on the new version and Bring the CFO's contract and skills up to date, each done, under way or failed, with its output under Output.
+The card follows it from what it prints, read each second from `GET /api/runs/<id>/output` while the page shows, never while it is hidden in the tray or a background tab, and at once when it shows again: Download, Check each file's SHA-256, Restart the board on the new version and Bring the CFO's contract and skills up to date, each done, under way or failed, with its output under Output.
 The board is away for under a minute while the update restarts it, the card says so, and the supervisor that comes back finishes the item.
 The update is bounded, so the card never shows it under way without end: past a minute with the board away it is stopped where it is and the previous build put back, and past a minute before it changed anything it is stopped with nothing changed.
 It ends Updated, and the page reloads on the new board after a moment; Rolled back, when the new build was not installed and the previous one serves again, from its kept copy included; or Not updated, when nothing was changed, such as a download that failed its checksum, or the board did not come back.
@@ -2273,7 +2276,7 @@ A board built from a clone, whose version is not a release's, gets no item: its 
 The item runs the home's own `goblins.exe` where the home keeps it, in `bin`, or at the root of a home a build before `bin` set up.
 The desktop window follows the update beside `goblins.exe`, and one in the tray moves onto it by itself: nothing unsent, no answer in progress, and in the tray.
 A window he has open stays put, however long it goes untouched, until he closes it to the tray: the move ends the window and opens another, and on 2026-10-09 his window was replaced that way ten minutes after an update, the time a shown window then had to go untouched before it was moved.
-The page asks `POST /api/window/move`, and the supervisor, once it has proven the page is shown by his own window as the AFK switch proves it, moves only a window that runs a renamed copy beside the home's `goblins-window.exe`: it ends that window and opens the home's program through the desktop shell, so the new window starts with the desktop's environment and none of the supervisor's.
+The page asks `POST /api/window/move` once for each connection, the moment the window is in the tray: as the page hears it is hidden, or as it connects while hidden, with no timer looking again (#1598); and the supervisor, once it has proven the page is shown by his own window as the AFK switch proves it, moves only a window that runs a renamed copy beside the home's `goblins-window.exe`: it ends that window and opens the home's program through the desktop shell, so the new window starts with the desktop's environment and none of the supervisor's.
 The shell that opens it then exits, which leaves the new window with no parent at the desktop, and the board takes it as his by the program it runs.
 A window moved from the tray starts in the tray, which `state/window-move.json` tells it.
 

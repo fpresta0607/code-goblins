@@ -30,11 +30,14 @@ export type PanelView = "terminal" | "task";
 // Start (the Overlord, 2026-10-08: "why no run button when it says play in
 // panel"). The CFO's Task view also lists every queued task, as the Tasks column does,
 // and says which conversation it could not resume when it came back; its
-// Restart is in its header. A goblin's baby goblin (child) has the same
-// panel, with its name and its task above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, now, presentations, cardStart, onAnswer, onOpenTask, onHome, row }: {
+// Restart is in its header. isBoardShown says the board's Tasks column is on
+// screen beside the panel, which then holds the machine meters, so the list
+// draws them only otherwise, and under no heading of that column (#1598). A
+// goblin's baby goblin (child) has the same panel, with its name and its task
+// above its terminal, which is all it shows.
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, onHome, row }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
-  view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; maximized: boolean; side: HTMLElement | null;
+  view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; maximized: boolean; side: HTMLElement | null; isBoardShown: boolean;
   now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onHome: () => void;
   // row is the top row's controls, corner button and notice (see PanelRow).
   cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode };
@@ -65,9 +68,8 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {!task?.archived && owner ? <TaskView task={task} snapshot={snapshot} connected={connected} reviews={reviews} log={{ open: isLogOpen, onOpenChange: setLogOpen }} now={now} onRepair={onAnswer} /> : <div className="panel-content">
       {!task && !node && snapshot.cfo_conversation_left && <p className="cfo-conversation-left">{snapshot.cfo_conversation_left}</p>}
       <WorkspaceDetails task={task} node={node} runs={snapshot.runs} snapshot={snapshot} connected={connected} onRepair={onAnswer} />
-      {!task && !node && <section className="cfo-queue" aria-label="Queued tasks">
-        <h3>Tasks<span className="column-count">{queuedTasks(snapshot).length}</span></h3>
-        <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} onSelect={onOpenTask} />
+      {!task && !node && (!isBoardShown || queuedTasks(snapshot).length > 0) && <section className="cfo-queue" aria-label="Queued tasks">
+        <QueuedTasks snapshot={snapshot} now={now} presentations={presentations} hasMeters={!isBoardShown} onSelect={onOpenTask} />
       </section>}
     </div>}
   </>;
