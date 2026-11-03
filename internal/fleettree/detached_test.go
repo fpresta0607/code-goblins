@@ -360,6 +360,65 @@ func TestAHeavyLineRunWaitingInLineShowsTheLineMovingAsItsActivity(t *testing.T)
 	}
 }
 
+// The board says where a goblin's run stands in the machine's heavy line:
+// the place of its run nearest its turn, detached or one of its own
+// commands', and none while its run holds the turn or none of its waits
+// (#1924).
+func TestReadGivesTheGoblinsPlaceInTheHeavyLine(t *testing.T) {
+	cases := []struct {
+		name             string
+		parent           int
+		holding, waiting []int
+		want             int
+	}{
+		{name: "a detached run second in line", parent: 904, holding: []int{777}, waiting: []int{778, 300, 779}, want: 2},
+		{name: "a detached run next in line", parent: 904, waiting: []int{300, 778}, want: 1},
+		{name: "a run of its own command third in line", parent: 100, holding: []int{777}, waiting: []int{778, 779, 300}, want: 3},
+		{name: "a run that holds the turn", parent: 904, holding: []int{300}, waiting: []int{778}, want: 0},
+		{name: "another goblin's runs alone in line", parent: 904, holding: []int{777}, waiting: []int{778}, want: 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			launched := at.Add(-time.Hour)
+			processes := append(goblinProcesses(launched, 0),
+				Process{PID: 300, ParentPID: tc.parent, Exe: "goblins.exe", Created: 30, Started: at.Add(-10 * time.Minute), Memory: 20 * megabyte},
+			)
+			commands := maps.Clone(goblinCommands)
+			commands[300] = `C:\dev\code-goblins\bin\goblins.exe gate turn --detached -- go test ./internal/...`
+			standings := func(pids []int) []verify.Standing {
+				var runs []verify.Standing
+				for _, pid := range pids {
+					runs = append(runs, verify.Standing{Who: "a run", PID: pid, Since: at.Add(-5 * time.Minute)})
+				}
+				return runs
+			}
+			reader := Reader{
+				Home:        t.TempDir(),
+				Processes:   func() ([]Process, error) { return processes, nil },
+				Listeners:   func() (map[int][]int, error) { return map[int][]int{}, nil },
+				CommandLine: func(pid int) (string, error) { return commands[pid], nil },
+				Owner:       func(pid int) string { return map[int]string{300: "tree"}[pid] },
+				HeavyLine: func() ([]verify.Standing, []verify.Standing, error) {
+					return standings(tc.holding), standings(tc.waiting), nil
+				},
+				Now: func() time.Time { return at },
+			}
+
+			// Act
+			tree, err := reader.Read(context.Background(), Goblin{Meta: state.TaskMeta{ID: "tree", Harness: "codex"}, HarnessPID: 100})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Assert
+			if tree.LinePlace != tc.want {
+				t.Errorf("LinePlace = %d, want %d", tree.LinePlace, tc.want)
+			}
+		})
+	}
+}
+
 // A run a goblin started in the machine's heavy line with cfo gate turn
 // --detach waits there, hidden and detached, and tells the goblin how it
 // ended, so the goblin waits on it by design while it waits in line or holds

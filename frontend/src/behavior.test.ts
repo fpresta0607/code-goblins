@@ -4,6 +4,7 @@ import { changeSummary, dragRange, isDrag, parsePatchToRows, splitRows, reviewRa
 import { lineageRoots, ownsTaskSession, sessionModel, projectSessions, tasksWithoutSession, sessionTitle } from "./lineageTree.ts";
 import { alreadyKnown, deliveryMark, runFailure, runMark, submissionFor } from "./feedback.ts";
 import { parseAction, parseSnapshot, decisionText } from "./types.ts";
+import { taskStatus } from "./task-status.ts";
 import { arrange, settle, waitingOn, workflowNodes, lineageFamily, taskColumn, personaFor, nodeStatus, nativeStatus, statusPhase, statusText, asksOverlord, waitingTarget, pullRequestBadge, pullRequestIcon, pullRequestLabel, safePullRequest, fleetTraffic, reportTraffic, expireTraffic, fitScale, zoomAt, MAX_ZOOM, MIN_ZOOM, CFO_ROOT, NODE_WIDTH, NODE_HEIGHT, ROW, liveCfoSession } from "./workflow.ts";
 
 // A canvas of the board's usual shape, wider than it is tall.
@@ -26,7 +27,7 @@ test("board completion and semantic personas require the corresponding evidence"
   assert.equal(nativeStatus("busy"), "Working");
   assert.equal(nativeStatus("done"), "Turn finished");
   assert.equal(nodeStatus({id:"t",title:"",task,relation:""}), "Done, verifying");
-  assert.equal(statusText("blocked"), "Waiting");
+  assert.equal(nodeStatus({id:"t",title:"",task:{...task,phase:"blocked"},relation:""}), "Waiting on the CFO");
   assert.equal(statusText("failed"), "Failed");
 });
 
@@ -243,13 +244,13 @@ test("completed history and fleet statuses read the way the fleet reports them",
   ]}).tasks;
   assert.equal(live.activity, "working: gate test step");
   assert.equal(taskColumn(live), "In progress");
-  assert.equal(statusText(live.phase), "Waiting for input");
+  assert.equal(nodeStatus({id:"w", title:"work", task:live, relation:""}), "Waiting on the CFO");
   assert.equal(taskColumn(finished), "Completed");
   assert.equal(nodeStatus({id:"f", title:"old", task:finished, relation:""}), "Finished");
   assert.equal(taskColumn(merged), "Completed");
   assert.equal(nodeStatus({id:"m", title:"x", task:merged, relation:""}), "Merged");
   assert.equal(taskColumn(queued), "Tasks");
-  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Waiting"], ["ready", "Checks passed"]]) {
+  for (const [phase, label] of [["merged", "Merged, verifying"], ["blocked", "Waiting on the CFO"], ["ready", "Checks passed"]]) {
     const landed = {...live, phase, merged:true};
     assert.equal(taskColumn(landed), "In progress");
     assert.equal(nodeStatus({id:"l", title:"work", task:landed, relation:""}), label);
@@ -715,7 +716,7 @@ test("a pulse ends with its own report however many snapshots follow", () => {
 
 test("every status reads as plain words, never the old evidence jargon", () => {
   const words: [string, string][] = [["queued","Queued"],["working","Working"],["active","Working"],["started","Starting"],["review","In review gate"],["ready","Checks passed"],
-    ["done","Delivered"],["merged","Merged, verifying"],["idle","Waiting for input"],["blocked","Waiting"],["failed","Failed"],["unavailable","No fresh evidence"],
+    ["done","Delivered"],["merged","Merged, verifying"],["failed","Failed"],["unavailable","No fresh evidence"],
     ["stale","No fresh evidence"],["interrupted","Interrupted"],["settled","Turn finished"],["ended","Session ended"],["unknown","No evidence yet"],["","No evidence yet"]];
   for (const [phase, label] of words) assert.equal(statusText(phase), label, phase);
   for (const [phase, label] of [["busy","Working"],["idle","Waiting for input"],["unknown","No evidence yet"],["stale","No fresh evidence"]]) assert.equal(nativeStatus(phase), label, phase);
@@ -740,7 +741,7 @@ test("a goblin waiting on a question says who it is waiting on", () => {
   assert.equal(asksOverlord(snapshot, "asks"), false, "a goblin's question is the CFO's to answer");
   assert.equal(asksOverlord(snapshot, "stuck"), false, "an answered question no longer waits on the Overlord");
   assert.equal(asksOverlord(snapshot, ""), false, "the CFO's own question belongs to no goblin");
-  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}, true), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
+  assert.equal(nodeStatus({id:"a", title:"", task:asks, relation:""}), "Waiting on the CFO", "a goblin's question reaches the Overlord through the CFO");
   assert.equal(nodeStatus({id:"c", title:"", task:cfo, relation:""}), "Waiting on the CFO");
   assert.equal(nodeStatus({id:"s", title:"", task:stuck, relation:""}), "Failed");
 });
@@ -865,8 +866,8 @@ test("a waiting goblin says what it waits on, and only a wait on the Overlord re
     { id: "gate-unknown", phase: "review", verified: false },
     { id: "older", phase: "working", verified: false, waiting_on: undefined },
   ] });
-  const status = (id: string) => { const task = snapshot.tasks.find((candidate) => candidate.id === id)!; return nodeStatus({ id, title: "", task, relation: "" }, asksOverlord(snapshot, id)); };
-  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on deploy"], ["deploy", "Waiting on deploy"], ["heavy", "Waiting on memory"], ["ask", "Waiting on the CFO"],
+  const status = (id: string) => taskStatus(snapshot.tasks.find((candidate) => candidate.id === id)!, snapshot).text;
+  const cases: [string, string][] = [["billing", "Waiting on board-ui"], ["ship", "Waiting on CI"], ["release", "Waiting on its deploy"], ["deploy", "Waiting on its deploy"], ["heavy", "In line for the machine"], ["ask", "Waiting on the CFO"],
     ["gone", "Waiting on retired-task"], ["gate", "In review gate: tests"], ["gate-ci", "In review gate: CI"],
     ["gate-review", "In review gate: code review"], ["gate-lint", "In review gate: lint"], ["gate-push", "In review gate: push"], ["gate-new", "In review gate"], ["gate-unknown", "In review gate"], ["older", "Working"]];
   for (const [id, label] of cases) assert.equal(status(id), label, id);
@@ -995,6 +996,6 @@ test("a goblin waiting on another names it by its goblin name while the board ho
     { id: "c", title: "C", phase: "waiting", waiting_on: "gone", verified: false },
   ] });
   const [a, , c] = snapshot.tasks;
-  assert.equal(nodeStatus({ id: "a", title: "", task: a, relation: "" }, false, snapshot.tasks), "Waiting on Otis - Bug Hunter");
+  assert.equal(nodeStatus({ id: "a", title: "", task: a, relation: "" }, false, snapshot.tasks), "Waiting on Otis");
   assert.equal(nodeStatus({ id: "c", title: "", task: c, relation: "" }, false, snapshot.tasks), "Waiting on gone");
 });

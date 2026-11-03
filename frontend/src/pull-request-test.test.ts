@@ -48,8 +48,8 @@ const surfaces = ({ task, trains }: { task: Task; trains: MergeTrain[] }) => ({
 
 test("a goblin whose pull request rides a merge train reads the train's state with the train's link, and paused it reads Paused with the train on its chip", () => {
   const testing = train("testing", "riding");
-  const chip = { text: "Testing", tone: "pending", url: TRAIN_PR, tip: "CI tests #512" };
-  assert.deepEqual(surfaces(board(sid(checks("passed")), [testing])), { status: "Testing", phase: "pr-pending", column: "In progress", line: "", chip });
+  const chip = { text: "Testing", tone: "pending", url: TRAIN_PR, tip: "CI tests #512", isOnTrain: true };
+  assert.deepEqual(surfaces(board(sid(checks("passed")), [testing])), { status: "Landing on a train", phase: "pr-pending", column: "In progress", line: "", chip });
   for (const [name, goblin, card] of [
     ["paused until its pull request merges", pausedUntilMerge(checks("passed")), "Paused until PR #512 merges"],
     ["paused until its CI run on the pull request finishes", pausedForCI(checks("passed")), "Paused until CI finishes"],
@@ -59,24 +59,25 @@ test("a goblin whose pull request rides a merge train reads the train's state wi
   }
 });
 
-test("the train's outcome is the goblin's: Landed, or what broke, with the train's link", () => {
-  for (const [name, given, status, phase] of [
-    ["landed", train("landed", "landed"), "Landed", "pr-passed"],
-    ["broke CI", train("stopped", "culprit", { note: "#512 breaks CI on main: test" }), "Breaks CI", "pr-failed"],
-    ["its half still waits", train("testing", "waiting"), "Waits its turn", "pr-pending"],
+test("the train's outcome is the goblin's: Landed, or what broke, with the train's link, and Landing while it waits its turn", () => {
+  for (const [name, given, status, chip, phase] of [
+    ["landed", train("landed", "landed"), "Landed", "Landed", "pr-passed"],
+    ["broke CI", train("stopped", "culprit", { note: "#512 breaks CI on main: test" }), "Breaks CI", "Breaks CI", "pr-failed"],
+    ["its half still waits", train("testing", "waiting"), "Landing on a train", "Waits its turn", "pr-pending"],
   ] as const) {
     const read = surfaces(board(sid(checks("passed")), [given]));
     assert.equal(read.status, status, name);
     assert.equal(read.phase, phase, name);
     assert.equal(read.column, "In progress", name);
-    assert.equal(read.chip?.text, status, name);
+    assert.equal(read.chip?.text, chip, name);
     assert.equal(read.chip?.url, TRAIN_PR, name);
   }
 });
 
 test("a finished train no longer speaks for a pull request whose head moved since it rode, and a running one comes before a finished one", () => {
   const moved = board(sid(checks("pending", { head: "b".repeat(40), link: RUN })), [train("stopped", "culprit")]);
-  assert.equal(surfaces(moved).status, "Testing");
+  assert.equal(surfaces(moved).status, "Landing, waits to merge");
+  assert.equal(surfaces(moved).chip?.text, "Testing");
   assert.equal(surfaces(moved).chip?.url, RUN);
 
   const older = { ...train("stopped", "returned"), id: "code-goblins-20261008-120000", pr: REPO + "/pull/899" };
@@ -84,18 +85,18 @@ test("a finished train no longer speaks for a pull request whose head moved sinc
   assert.equal(surfaces(both).chip?.url, TRAIN_PR);
 });
 
-test("a goblin waiting on its own CI reads that CI's state with a link to that run", () => {
-  for (const [name, goblin, status, phase, url] of [
-    ["running, live", sid(checks("pending", { link: RUN })), "Testing", "pr-pending", RUN],
-    ["failed", sid(checks("failed", { failed: ["test"], link: RUN })), "Checks failed", "pr-failed", RUN],
-    ["passed, waiting for a train", sid(checks("passed")), "Checks passed", "pr-passed", PR + "/checks"],
+test("a goblin waiting on its own CI reads Landing, or what broke, and its chip that CI's state with a link to that run", () => {
+  for (const [name, goblin, status, chip, phase, url] of [
+    ["running, live", sid(checks("pending", { link: RUN })), "Landing, waits to merge", "Testing", "pr-pending", RUN],
+    ["failed", sid(checks("failed", { failed: ["test"], link: RUN })), "Checks failed", "Checks failed", "pr-failed", RUN],
+    ["passed, waiting for a train", sid(checks("passed")), "Landing, waits to merge", "Checks passed", "pr-passed", PR + "/checks"],
   ] as const) {
     const read = surfaces(board(goblin));
     assert.equal(read.status, status, name);
     assert.equal(read.phase, phase, name);
     assert.equal(read.column, "In progress", name);
     assert.equal(read.line, "", name);
-    assert.equal(read.chip?.text, status, name);
+    assert.equal(read.chip?.text, chip, name);
     assert.equal(read.chip?.url, url, name);
   }
 });
@@ -160,11 +161,11 @@ test("a goblin whose pull request a train fails and retries reads each train on 
   const first = (state: string, carState: string, history: object[]) => ({ ...train(state, carState, { history, runs: history.length }), id: "code-goblins-20261008-180000", pr: REPO + "/pull/899" });
   const retry = (state: string, carState: string, earlier: object) => ({ ...train(state, carState, { history: runs(1, state === "landed" ? "landed" : "") }), id: "code-goblins-20261008-190000", started: "2026-10-08T19:00:00Z", earlier: [earlier] });
   const failedFirst = first("failed", "returned", runs(3, "moved"));
-  for (const [step, trains, status, url, tip] of [
-    ["the first train tests it", [first("testing", "riding", runs(1, ""))], "Testing", REPO + "/pull/899", "CI tests #512"],
-    ["the first train failed", [failedFirst], "Rides the next train", REPO + "/pull/899", "Train failed, main kept moving"],
-    ["the retry tests it", [retry("testing", "riding", failedFirst)], "Testing", TRAIN_PR, "CI tests #512, run 4"],
-    ["the retry landed it", [retry("landed", "landed", failedFirst)], "Landed", TRAIN_PR, "Landed on run 4"],
+  for (const [step, trains, status, chip, url, tip] of [
+    ["the first train tests it", [first("testing", "riding", runs(1, ""))], "Landing on a train", "Testing", REPO + "/pull/899", "CI tests #512"],
+    ["the first train failed", [failedFirst], "Rides the next train", "Rides the next train", REPO + "/pull/899", "Train failed, main kept moving"],
+    ["the retry tests it", [retry("testing", "riding", failedFirst)], "Landing on a train", "Testing", TRAIN_PR, "CI tests #512, run 4"],
+    ["the retry landed it", [retry("landed", "landed", failedFirst)], "Landed", "Landed", TRAIN_PR, "Landed on run 4"],
   ] as const) {
     // Act
     const read = surfaces(board(sid(checks("passed")), [...trains]));
@@ -172,7 +173,7 @@ test("a goblin whose pull request a train fails and retries reads each train on 
     // Assert
     assert.equal(read.column, "In progress", step);
     assert.equal(read.status, status, step);
-    assert.deepEqual([read.chip?.text, read.chip?.url, read.chip?.tip], [status, url, tip], step);
+    assert.deepEqual([read.chip?.text, read.chip?.url, read.chip?.tip], [chip, url, tip], step);
   }
 });
 
@@ -185,7 +186,7 @@ test("a pull request a train could not merge shows in its goblin's panel with wh
 
   // Assert
   assert.equal(read.column, "In progress");
-  assert.deepEqual(read.chip, { text: "Merging main to fix a conflict", tone: "cancelled", url: TRAIN_PR, tip: "it conflicts in a.go" });
+  assert.deepEqual(read.chip, { text: "Merging main to fix a conflict", tone: "cancelled", url: TRAIN_PR, tip: "it conflicts in a.go", isOnTrain: true });
 });
 
 test("a pull request left behind by a train another took on still reads that train", () => {
@@ -199,7 +200,7 @@ test("a goblin at work, blocked or asking after its pull request rode says so, a
   const riding = train("testing", "riding");
   for (const [name, goblin, status] of [
     ["working on its next change", sid({ phase: "working", report: "working" }), "Working"],
-    ["blocked", sid({ phase: "blocked", report: "blocked", reason: "Needs a key" }), "Waiting"],
+    ["blocked", sid({ phase: "blocked", report: "blocked", reason: "Needs a key" }), "Waiting on the CFO"],
     ["asking the CFO", sid({ phase: "blocked", reason: "Waiting on the CFO: which key?" }), "Waiting on the CFO"],
     ["waiting on another goblin", sid({ phase: "waiting", report: "waiting", waiting_on: "cg-other" }), "Waiting on cg-other"],
   ] as const) {

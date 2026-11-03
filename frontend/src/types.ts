@@ -122,10 +122,12 @@ export interface Task extends Evaluation {
 }
 // FleetTree is a goblin and what runs under it as the supervisor last read
 // it: memory is its harness and everything under it, own_memory the harness
-// alone, both private bytes; unread names evidence that could not be read.
+// alone, both private bytes; line_place is the place in the machine's heavy
+// line of its run nearest its turn, 1 for the next, 0 while none waits there;
+// unread names evidence that could not be read.
 export interface FleetTree {
   task_id: string; generation: string; harness: string; memory: number; own_memory: number; conversation_at: string;
-  children: TreeNode[]; unread: string[]; source_updated_at: string; fetched_at: string;
+  children: TreeNode[]; line_place: number; unread: string[]; source_updated_at: string; fetched_at: string;
 }
 // TreeNode is one child of a goblin: a sub-agent, a background shell or
 // monitor, a job of processes (whose group says what it does: dev-server,
@@ -144,7 +146,7 @@ function parseTree(value: unknown): FleetTree {
   const t = object(value);
   return {
     task_id: string(t.task_id), generation: string(t.generation), harness: string(t.harness), memory: number(t.memory), own_memory: number(t.own_memory),
-    conversation_at: string(t.conversation_at), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
+    conversation_at: string(t.conversation_at), line_place: number(t.line_place), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
     children: array(t.children).map((child) => {
       const c = object(child);
       return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), task: string(c.task), state: string(c.state), model: string(c.model),
