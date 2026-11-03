@@ -406,6 +406,24 @@ func TestAnEngineThatExitedWhileIdleIsReplaced(t *testing.T) {
 	}
 }
 
+// A loaded engine gives its memory back a few minutes after the last
+// dictation, where it held about 850 MB for 30 minutes after each until
+// #1612, yet outlasts the pauses within one burst of the Overlord's dictation,
+// up to four minutes on the board's record, so a burst loads it once.
+func TestAnIdleEngineIsEndedAFewMinutesAfterTheLastDictation(t *testing.T) {
+	// Arrange
+	const longestPauseInABurst = 4 * time.Minute
+	const longestHold = 5 * time.Minute
+
+	// Act
+	idle := workerIdle
+
+	// Assert
+	if idle <= longestPauseInABurst || idle > longestHold {
+		t.Fatalf("a loaded engine is kept %s after the last dictation, want longer than %s and at most %s", idle, longestPauseInABurst, longestHold)
+	}
+}
+
 func TestAnIdleEngineIsEndedAndTheNextDictationLoadsItAgain(t *testing.T) {
 	idle := workerIdle
 	workerIdle = 2 * time.Second
