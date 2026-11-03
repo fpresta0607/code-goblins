@@ -5,7 +5,7 @@
 Dispatch one goblin (ship task).
 Resolve delivery from the project's `delivery.posture` and the brief's explicit surface, risk and reason, as [Delivery intake](../contract/delivery.md#delivery) specifies.
 Missing or uncertain configuration selects no-mistakes.
-An explicit `--mode` cannot silently narrow the selected rigor; a concrete Overlord exception is recorded with `--delivery-exception "<authority and reason>"`.
+An explicit `--mode` cannot narrow the selected rigor on its own: without a qualifying assessment or a concrete Overlord exception recorded with `--delivery-exception "<authority and reason>"`, a narrower mode selects no-mistakes and the spawn prints why on stderr.
 The selected mode, posture, reason and required proof are frozen before launch in `delivery.json`, bound by the task record's hash.
 The task keeps the short title it is dispatched under, for the board and for its ticket: the one given with `--title` (one line, at most 100 characters), else the title of its row under Queued in the backlog, cut at a word to 100 characters and without a harness named at its end such as `; Claude Code`; with neither it is named by its id, never by its brief's words.
 Into a repository other people work in it first reads what they have in flight (one `cfo tickets` read against the brief): when a teammate's pull request or branch changes a file in the brief's area, or a teammate's issue matches it, it prints each overlap, starts nothing and exits 1, and starts only when repeated with `--overlap-ok "<why>"`; the reason is written to the task's status log as an `overlap-accepted:` record with what it overlaps, which is the CFO's word and never read as the task's own report, and the supervisor puts it on the task's ticket.

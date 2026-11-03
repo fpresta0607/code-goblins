@@ -125,10 +125,9 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		if readErr != nil {
 			manifest = projectcfg.Manifest{}
 		}
-		selected, err := projectcfg.SelectDelivery(manifest, string(briefText), *mode, *deliveryException)
-		if err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
+		selected := projectcfg.SelectDelivery(manifest, string(briefText), *mode, *deliveryException)
+		if *mode != "" && selected.Mode != *mode {
+			fmt.Fprintf(stderr, "cfo spawn: --mode %s was not selected: %s\n", *mode, selected.Reason)
 		}
 		*mode, delivery = selected.Mode, &selected
 	} else if *mode == "" {

@@ -226,7 +226,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		// no gate can run on is refused here, before anything is built.
 		if policy.Version > 5 {
 			if err := pipeline.GateHarness(string(req.Harness)); err != nil {
-				return Result{}, fmt.Errorf("spawn: %w. Spawn it on another harness, or with --mode direct-PR, which needs no gate", err)
+				return Result{}, fmt.Errorf("spawn: %w. Spawn it on another harness, or select a mode that needs no gate through a low-risk delivery assessment under a direct-PR or local-only project posture or a CFO-authorized --delivery-exception", err)
 			}
 		}
 		selection = &chosen
@@ -970,11 +970,16 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 // then report outcomes through cfo notify so the CFO is woken with the real
 // payload rather than a guess from its screen.
 func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, refused string) string {
-	delivery := ""
-	if meta.DeliveryHash != "" {
-		delivery = " Read the frozen delivery selection at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation. Follow only its selected path and required checks; do not add manual review gates or duplicate an unchanged baseline. The implementation worker never decides its own ask-user finding: report it to the CFO and apply the returned decision through cfo pipeline respond."
+	return harness.BriefInstruction(briefPath) + deliveryInstruction(meta) + dependencyInstruction(meta.Worktree, install, refused) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
+}
+
+// deliveryInstruction points a task with a frozen delivery selection at it
+// and keeps its ask-user findings the CFO's.
+func deliveryInstruction(meta state.TaskMeta) string {
+	if meta.DeliveryHash == "" {
+		return ""
 	}
-	return harness.BriefInstruction(briefPath) + delivery + dependencyInstruction(meta.Worktree, install, refused) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
+	return " Read the frozen delivery selection at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation. Follow only its selected path and required checks; do not add manual review gates or duplicate an unchanged baseline. The implementation worker never decides its own ask-user finding: report it to the CFO and apply the returned decision through cfo pipeline respond."
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the

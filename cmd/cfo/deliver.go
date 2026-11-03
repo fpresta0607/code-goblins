@@ -88,10 +88,9 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	if loadErr != nil {
 		manifest = projectcfg.Manifest{}
 	}
-	selected, err := projectcfg.SelectDelivery(manifest, assessment, *mode, *deliveryException)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
+	selected := projectcfg.SelectDelivery(manifest, assessment, *mode, *deliveryException)
+	if *mode != "" && selected.Mode != *mode {
+		fmt.Fprintf(stderr, "cfo brief: --mode %s was not selected: %s\n", *mode, selected.Reason)
 	}
 	*mode = selected.Mode
 	body := fmt.Sprintf(`# Brief %s
@@ -220,15 +219,6 @@ func runPRCheck(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if err := os.MkdirAll(h.State, 0o700); err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	meta, err := state.ReadTaskMeta(h.State, id)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	if _, err := state.ReadTaskDelivery(meta); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

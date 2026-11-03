@@ -9,10 +9,7 @@ import (
 )
 
 func TestTaskDeliveryPreservesItsSelectionAndRejectsMutation(t *testing.T) {
-	selection, err := project.SelectDelivery(project.Manifest{}, "", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	selection := project.SelectDelivery(project.Manifest{}, "", "", "")
 	data, hash, err := selection.Encode()
 	if err != nil {
 		t.Fatal(err)

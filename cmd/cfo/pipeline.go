@@ -181,9 +181,6 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 	if err != nil {
 		return err
 	}
-	if _, err := state.ReadTaskDelivery(meta); err != nil {
-		return err
-	}
 	if meta.Mode != "no-mistakes" {
 		// A task of another mode has no gate or frozen pipeline policy, so
 		// migration cannot supply one (issue 1438).

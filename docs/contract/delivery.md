@@ -14,12 +14,13 @@ An explicitly configured direct-PR or local-only posture is standing Overlord au
 It does not narrow the strict boundaries for sensitive, mixed, unknown or malformed work.
 Only a concrete separate Overlord exception may narrow the selection beyond that standing posture, recorded with `--delivery-exception` and an explicit mode at brief and spawn.
 Defined fast-tier checks remain required for an exception.
+A narrower requested mode, from `--mode` or the brief, with neither a qualifying assessment nor that exception selects no-mistakes and records why, and brief and spawn print the reason.
 An explicit no-mistakes mode can always increase rigor.
 
 `cfo brief` and `cfo spawn` use the same resolver.
-Before the worker starts, spawn saves `state/tasktmp/<id>/delivery.json` with the mode, posture, surface, risk, reason, project checks and CI requirement.
+Before the worker starts, spawn saves `state/tasktmp/<id>/delivery.json` with the mode, posture, surface, risk, reason and project checks.
 The task record binds its bytes by `delivery_hash` and keeps its mode separately.
-Verification, pipeline entry and PR registration refuse a changed receipt or a mismatching mode.
+`cfo verify` refuses a missing or changed receipt or a mismatching mode.
 `cfo verify` uses the frozen verification tiers, time limits and declared reuse inputs without loading the live project record, even if that record is later removed or invalid.
 Tasks without a delivery receipt still read verification configuration from the live project record.
 A helper remains local-only under its parent's publication owner.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -48,10 +49,79 @@ func TestSpawnSelectsDeliveryFromProjectPostureAndChangeSurface(t *testing.T) {
 			exit := runSpawn([]string{"task", "--project", filepath.Join(t.TempDir(), "demo"), "--brief", brief, "--harness", "codex"}, &stdout, &stderr, runtime)
 
 			// Assert
-			if exit != 0 || request.Mode != test.mode || request.Delivery == nil || request.Delivery.Posture != test.posture || len(request.Delivery.Verification.Fast) != 1 || request.Delivery.RequiresCI != (test.mode != "local-only") {
+			if exit != 0 || request.Mode != test.mode || request.Delivery == nil || request.Delivery.Posture != test.posture || len(request.Delivery.Verification.Fast) != 1 {
 				t.Fatalf("exit=%d request=%+v stderr=%s", exit, request, &stderr)
 			}
 		})
+	}
+}
+
+func TestSpawnKeepsAnUnauthorizedNarrowerModeStrictAndSaysWhy(t *testing.T) {
+	for _, test := range []struct{ name, posture, brief, mode string }{
+		{"unconfigured project", "", "## Task\n\nShow the demo.\n", "local-only"},
+		{"unconfigured project", "", "## Task\n\nShow the demo.\n", "direct-PR"},
+		{"queued row", "direct-PR", fleet.QueuedBriefText(fleet.QueuedTask{Row: fleet.BacklogRow{ID: "task", Repo: "demo", Title: "Show the demo", Mode: "direct-PR"}}), "direct-PR"},
+		{"pre-upgrade root brief", "local-only", "## Task\n\n> Fix the report.\n\n## Delivery\n\nkind: ship\nmode: direct-PR\n", "direct-PR"},
+	} {
+		t.Run(test.name+"/"+test.mode, func(t *testing.T) {
+			// Arrange
+			h := testHome(t)
+			runtime := testCommandRuntimeForHome(h)
+			request := captureSpawn(&runtime, "spawned task")
+			if test.posture != "" {
+				path := project.Path(h.Data, "demo")
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"project":"demo","delivery":{"posture":%q},"verification":{"fast":[["git","status"]]}}`, test.posture)), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			brief := filepath.Join(t.TempDir(), "brief.md")
+			if err := os.WriteFile(brief, []byte(test.brief), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+
+			// Act
+			exit := runSpawn([]string{"task", "--project", filepath.Join(t.TempDir(), "demo"), "--brief", brief, "--harness", "codex", "--mode", test.mode}, &stdout, &stderr, runtime)
+
+			// Assert
+			if exit != 0 || request.Mode != "no-mistakes" || request.Delivery == nil || request.Delivery.Mode != "no-mistakes" {
+				t.Fatalf("exit=%d request=%+v stderr=%s; want the task started strict", exit, request, &stderr)
+			}
+			if notice := stderr.String(); !strings.Contains(notice, "--mode "+test.mode+" was not selected") || !strings.Contains(notice, "requested "+test.mode+" is not authorized") {
+				t.Fatalf("stderr=%q; want the reason the narrower mode was not taken", notice)
+			}
+		})
+	}
+}
+
+func TestBriefKeepsAnUnauthorizedNarrowerModeStrictAndSaysWhy(t *testing.T) {
+	// Arrange
+	h := testHome(t)
+	t.Setenv("CFO_HOME", h.Root)
+	t.Setenv("CFO_STATE_OVERRIDE", h.State)
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	exit := runBrief([]string{"task", "--project", filepath.Join(t.TempDir(), "demo"), "--mode", "local-only"}, &stdout, &stderr, testCommandRuntimeForHome(h))
+
+	// Assert
+	path := filepath.Join(h.Data, "task", "brief.md")
+	if exit != 0 || strings.TrimSpace(stdout.String()) != path {
+		t.Fatalf("exit=%d stdout=%q stderr=%s; want the brief written", exit, &stdout, &stderr)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, delivery, _ := strings.Cut(string(data), "\n## Delivery\n")
+	if !slices.Contains(strings.Split(delivery, "\n"), "mode: no-mistakes") {
+		t.Fatalf("delivery section = %q; want strict delivery recorded", delivery)
+	}
+	if notice := stderr.String(); !strings.Contains(notice, "--mode local-only was not selected") || !strings.Contains(notice, "missing or uncertain delivery configuration") {
+		t.Fatalf("stderr=%q; want the reason local-only was not taken", notice)
 	}
 }
 
@@ -91,9 +161,8 @@ func TestBriefResolvesDeliveryWithTheSameIntakePolicy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			selection, err := project.SelectDelivery(manifest, string(data), "", "")
-			if err != nil || selection.Mode != test.mode {
-				t.Fatalf("selection=%+v error=%v; want %s", selection, err, test.mode)
+			if selection := project.SelectDelivery(manifest, string(data), "", ""); selection.Mode != test.mode {
+				t.Fatalf("selection=%+v; want %s", selection, test.mode)
 			}
 		})
 	}
@@ -125,7 +194,7 @@ func TestVerifyRunsTheFrozenChecksAfterProjectConfigurationChanges(t *testing.T)
 					Fast: []project.Command{{"git", "--version"}},
 					Full: []project.Command{{"git", "version"}},
 					Deep: []project.Command{{"git", "rev-parse", "--is-inside-work-tree"}},
-				}, RequiresCI: true}
+				}}
 				data, hash, err := selection.Encode()
 				if err != nil {
 					t.Fatal(err)

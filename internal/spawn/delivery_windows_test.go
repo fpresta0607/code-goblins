@@ -11,10 +11,7 @@ import (
 func TestSpawnPersistsDeliveryBeforeTheWorkerStarts(t *testing.T) {
 	// Arrange
 	fixture := newQuickFixture(t)
-	selection, err := project.SelectDelivery(project.Manifest{}, "", "no-mistakes", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	selection := project.SelectDelivery(project.Manifest{}, "", "no-mistakes", "")
 	fixture.request.Delivery = &selection
 	isReadBeforeLaunch := false
 	fixture.request.BeforeLaunch = func() error {

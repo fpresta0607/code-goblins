@@ -31,17 +31,17 @@ type DeliverySelection struct {
 	Risk         string       `json:"risk"`
 	Reason       string       `json:"reason"`
 	Verification Verification `json:"verification"`
-	RequiresCI   bool         `json:"requires_ci"`
 }
 
 // SelectDelivery resolves intake once. Surface and risk describe the actual
 // change, never the directory it happens to edit. Only the CFO's explicit
-// exception may narrow the selected rigor.
-func SelectDelivery(manifest Manifest, brief, requested, exception string) (DeliverySelection, error) {
+// exception may narrow the selected rigor; any other narrower request selects
+// no-mistakes and records why.
+func SelectDelivery(manifest Manifest, brief, requested, exception string) DeliverySelection {
 	selection := DeliverySelection{
 		Mode: "no-mistakes", Posture: manifest.Delivery.Posture,
 		Surface: "unknown", Risk: "unknown", Reason: "missing or uncertain delivery configuration",
-		Verification: manifest.Verification, RequiresCI: true,
+		Verification: manifest.Verification,
 	}
 	fields := map[string]string{}
 	isDelivery := false
@@ -118,11 +118,10 @@ func SelectDelivery(manifest Manifest, brief, requested, exception string) (Deli
 		} else if strings.TrimSpace(exception) != "" && !strings.ContainsAny(exception, "\r\n") && hasChecks && (requested == "direct-PR" || requested == "local-only") {
 			selection.Mode, selection.Reason = requested, "explicit CFO-authorized exception: "+exception
 		} else {
-			return DeliverySelection{}, fmt.Errorf("delivery: requested %s conflicts with selected %s: %s", requested, selection.Mode, selection.Reason)
+			selection.Mode, selection.Reason = "no-mistakes", "requested "+requested+" is not authorized by the posture and assessment or by a CFO exception: "+selection.Reason
 		}
 	}
-	selection.RequiresCI = selection.Mode != "local-only"
-	return selection, nil
+	return selection
 }
 
 func (selection DeliverySelection) Encode() (string, string, error) {
