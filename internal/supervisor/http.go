@@ -145,6 +145,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, waiting.Look{Instance: instance, Items: items})
+	case r.URL.Path == "/api/actions-spend" && r.Method == "GET":
+		h.actionsSpend(w, r)
 	case r.URL.Path == "/api/items/closed" && r.Method == "GET":
 		// History when it opens, or the question the Overlord opened a
 		// Change answer on from elsewhere, such as his AFK report.

@@ -2773,6 +2773,16 @@ Per-page CSP nonces permit the terminal's generated stylesheets while inline scr
 The separate `style-src-attr 'unsafe-inline'` directive permits CSS style attributes across the page for xterm 6's ANSI truecolor rendering.
 This is a page-wide CSS-attribute compatibility allowance; style elements still require the page nonce or a same-origin source, and script, connection and framing restrictions remain unchanged.
 
+`GET /api/actions-spend?month=YYYY-MM` requires the board's current `X-CFO-Token` as well as the existing Host, Origin and cross-site checks; a missing or invalid token returns 403.
+Only the one or two calendar months possible across UTC-12 through UTC+14 within five minutes of the real request time are accepted, so a device clock slightly ahead of or behind the supervisor's still gets its month at a month's start and end; malformed or out-of-range months return 400 before any billing read.
+The snapshot's `actions_spend` remains the UTC month's report; the board selects the device's local calendar month from the existing page clock and requests this endpoint when that month differs, using the same clock to check refresh eligibility.
+It asks again an hour after the reading's `checked_at`, kept between the device's next whole minute and an hour after the answer arrived, so a device clock ahead of or behind the supervisor's neither asks on every update nor keeps a reading for hours.
+The existing billing reader receives the selected report month separately from the real reading time and requests that exact GitHub monthly report.
+The supervisor shares its cache by month across devices and its background reader, starts at most one GitHub read per month per hour, and evicts months outside the accepted range.
+Concurrent requests for a month share one read bounded to 30 seconds; disconnecting one device does not cancel it, and the supervisor stopping does.
+A failed billing refresh preserves that month's previous total as `stale`, with its original `read_at` and the new `checked_at`; without a previous total it remains `unavailable`, and an available reading becomes `stale` after two hours.
+The mocked regressions in `internal/actionsbilling/usage_test.go`, `internal/supervisor/actions_spend_test.go` and `frontend/tests/actions-spend.spec.ts` cover the reader, cache, request boundaries and device calendars.
+
 ## Build and verification
 
 Use Node 24.13.0 and the committed npm lockfile when editing the board:
