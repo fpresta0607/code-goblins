@@ -1147,6 +1147,18 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 		"a command with no --":            {os.Args[0], gateTurnTestArguments},
 		"a name with no --":               {"--as", "a named run", os.Args[0], gateTurnTestArguments},
 		"a name that is missing":          {"--as"},
+		"a run identity that is missing":  {"--gate-run"},
+		"a run missing before --":         {"--gate-run", "--", os.Args[0], gateTurnTestArguments},
+		"an empty run identity":           {"--gate-run", "", "--", os.Args[0], gateTurnTestArguments},
+		"an empty equals run identity":    {"--gate-run=", "--", os.Args[0], gateTurnTestArguments},
+		"a run given a wait's flag":       {"--gate-run", "--wait=30s", "--", os.Args[0], gateTurnTestArguments},
+		"a run identity given twice":      {"--gate-run", "run", "--gate-run", "other-run", "--", os.Args[0], gateTurnTestArguments},
+		"a run with no command":           {"--gate-run", "run", "--"},
+		"a missing comparison":            {"--test-comparison-sha"},
+		"a comparison missing before --":  {"--test-comparison-sha", "--", os.Args[0], gateTurnTestArguments},
+		"an empty comparison":             {"--test-comparison-sha", "", "--", os.Args[0], gateTurnTestArguments},
+		"a comparison without a run":      {"--test-comparison-sha", strings.Repeat("a", 40), "--", os.Args[0], gateTurnTestArguments},
+		"a comparison given twice":        {"--gate-run", "run", "--test-comparison-sha", strings.Repeat("a", 40), "--test-comparison-sha", strings.Repeat("b", 40), "--", os.Args[0], gateTurnTestArguments},
 		"an argument of no kind":          {"--level", "fast", "--", os.Args[0], gateTurnTestArguments},
 		"an empty program":                {"--", ""},
 		"a wait that is missing":          {"--wait"},
@@ -1185,7 +1197,7 @@ func TestGateTurnTakesNoTurnWithoutACommand(t *testing.T) {
 				t.Errorf("exit = %d and stdout = %q; want 125 and nothing from a command", exit, stdout.String())
 			}
 			lines := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
-			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
+			if len(lines) != 2 || lines[0] != "usage: cfo gate turn [--as <name>] [--gate-run <run-id>] [--test-comparison-sha <sha>] [--wait <duration>] [--execution-limit <duration>] [--memory <size>] [--low-priority] [--detach <log-file>] -- <program> [<argument>...]" || !strings.HasPrefix(lines[1], "cfo gate turn: this run takes no turn: ") {
 				t.Errorf("stderr = %q; want the usage, then a last line that starts cfo gate turn: this run takes no turn: ", stderr.String())
 			}
 			if _, err := os.Stat(slots); !os.IsNotExist(err) {
@@ -1897,6 +1909,22 @@ func TestGateTurnMemoryIsReadAndCarriedDetached(t *testing.T) {
 				t.Errorf("detachedArguments = %q; want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestGateTurnCarriesRunIdentityWhenDetached(t *testing.T) {
+	comparison := strings.Repeat("b", 64)
+	request, err := parseGateTurn([]string{"--gate-run", "01M676ZFNGYZBZPD10GCJH9A0Y", "--test-comparison-sha", comparison, "--", "program", "--gate-run=command-owned", "--test-comparison-sha=command-owned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	arguments := detachedArguments(request)
+	detached, err := parseGateTurn(arguments)
+
+	want := []string{"--detached", "--gate-run", "01M676ZFNGYZBZPD10GCJH9A0Y", "--test-comparison-sha", comparison, "--", "program", "--gate-run=command-owned", "--test-comparison-sha=command-owned"}
+	if !slices.Equal(arguments, want) || err != nil || !detached.isDetached || detached.gateRun != "01M676ZFNGYZBZPD10GCJH9A0Y" || detached.testComparisonSHA != comparison || !slices.Equal(detached.command, []string{"program", "--gate-run=command-owned", "--test-comparison-sha=command-owned"}) {
+		t.Fatalf("arguments=%q detached=%+v err=%v; want the full run identity and unchanged command arguments", arguments, detached, err)
 	}
 }
 

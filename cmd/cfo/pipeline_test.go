@@ -1293,6 +1293,53 @@ func TestPipelineRunLaunchesNativeAfterCheckStart(t *testing.T) {
 	}
 }
 
+func TestPipelineRunRefusesAMissingRequiredEnvironmentBeforeStartingTheGate(t *testing.T) {
+	// Arrange
+	policy, err := pipeline.Load(filepath.Join("..", "..", "config", "pipeline.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := policy.Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	h := home.Home{Root: root, State: filepath.Join(root, "state"), Data: filepath.Join(root, "data")}
+	nativeRoot, temporary, checkout := filepath.Join(root, "native"), filepath.Join(h.State, "tasktmp", "task"), filepath.Join(root, "project")
+	worktree := filepath.Join(checkout, ".worktrees", "gb-task")
+	for _, directory := range []string{nativeRoot, temporary, worktree, filepath.Join(h.Data, "projects", "project")} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := selection.Save(filepath.Join(temporary, "pipeline.json")); err != nil {
+		t.Fatal(err)
+	}
+	meta := state.TaskMeta{ID: "task", Mode: "no-mistakes", Project: checkout, Worktree: worktree, TaskTmp: temporary, PipelineClass: selection.Class, PipelineHash: selection.Hash}
+	if err := state.WriteTaskMeta(h.State, meta); err != nil {
+		t.Fatal(err)
+	}
+	config, _, err := pipeline.Render([]byte("{}"), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeRoot, "config.yaml"), config, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.Data, "projects", "project", "project.json"), []byte(`{"project":"project","test_environment":{"python_version":"3.12.10"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &pipelineStartRunner{worktree: worktree}
+
+	// Act
+	err = pipelineCommand(context.Background(), h, nativeRoot, runner, []string{"run", "task", "--intent", "reuse the verified environment"}, &bytes.Buffer{})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), "required test environment") || len(runner.native) != 0 {
+		t.Fatalf("error=%v native launches=%v; want refusal before native launch", err, runner.native)
+	}
+}
+
 // taskWorktreesRunner answers git in each directory of branches as the top
 // level of a checkout with that branch checked out, the native database's run
 // lookup with runBranch and its custody record with recovery; every other
@@ -1664,6 +1711,44 @@ func TestPipelineTestExceptionReasonIsHonouredOnlyFromTheRegisteredCFO(t *testin
 			}
 		})
 	}
+	t.Run("a required environment refusal after configuration changes", func(t *testing.T) {
+		for _, configuration := range []string{"required", "changed", "removed"} {
+			t.Run(configuration, func(t *testing.T) {
+				gate := pipeline.Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`}
+				h, nm, runner := registeredCFOStage(t, "cfo", gate)
+				h.Data = filepath.Join(h.Root, "data")
+				manifest := filepath.Join(h.Data, "projects", "project", "project.json")
+				if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(manifest, []byte(`{"project":"project","test_environment":{"python_version":"3.12.10"}}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				switch configuration {
+				case "changed":
+					if err := os.WriteFile(manifest, []byte(`{"project":"project","test_environment":{"python_version":"3.12.11"}}`), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				case "removed":
+					if err := os.Remove(manifest); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for _, flags := range [][]string{nil, {"--accept", "test-command-no-turn"}, {"--reason", "the environment is repaired"}, {"--accept", "test-command-no-turn", "--reason", "the environment is repaired"}} {
+					err := pipelineCommand(t.Context(), h, nm, runner, append([]string{"respond", "task", "--action", "approve"}, flags...), &bytes.Buffer{})
+					lines, _ := state.TailStatus(h.State, "task", 10)
+					if err == nil || !strings.Contains(err.Error(), "--action fix --findings test-command-no-turn") || len(runner.native) != 0 || len(lines) != 0 {
+						t.Fatalf("flags=%v err=%v native calls=%d status=%q; want refusal without an approval or audit", flags, err, len(runner.native), lines)
+					}
+				}
+
+				err := pipelineCommand(t.Context(), h, nm, runner, []string{"respond", "task", "--action", "fix", "--findings", "test-command-no-turn"}, &bytes.Buffer{})
+				if err != nil || len(runner.native) != 1 || strings.Join(runner.native[0].Args, " ") != "axi respond --step test --action fix --findings test-command-no-turn" {
+					t.Fatalf("retry err=%v native calls=%d; want the existing concrete retry", err, len(runner.native))
+				}
+			})
+		}
+	})
 	t.Run("a gate the engine would drop it from", func(t *testing.T) {
 		// Arrange
 		h, nm, runner := registeredCFOStage(t, "cfo", pipeline.Gate{RunID: "run", StepID: "step", Step: "review", Status: "awaiting_approval", Round: 1, Findings: `{"findings":[{"id":"note","action":"no-op"}]}`})
