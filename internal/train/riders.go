@@ -49,7 +49,7 @@ func (c *Checks) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &rollup); err != nil {
 		return err
 	}
-	*c = slices.DeleteFunc(rollup, func(check Check) bool { return check.Kind == "CheckRun" && check.Name == DraftStateCheck })
+	*c = withoutDraftState(rollup)
 	return nil
 }
 

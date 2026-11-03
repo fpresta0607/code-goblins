@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
@@ -34,7 +35,7 @@ func TestARedRunOfMainIsARootIssueOfItsWorkflowAndJobs(t *testing.T) {
 			// Act: the same run polled twice.
 			now := time.Date(2026, 10, 14, 22, 0, 0, 0, time.UTC)
 			for range 2 {
-				if _, err := pollMain(context.Background(), forge, h.State, &watched, checkout, now, record); err != nil {
+				if _, err := pollMain(context.Background(), forge, githubtest.Client(forge), "o/r", h.State, &watched, checkout, now, record); err != nil {
 					t.Fatal(err)
 				}
 				now = now.Add(time.Hour)

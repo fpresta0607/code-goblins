@@ -162,11 +162,15 @@ func (e Engine) publish(ctx context.Context, t *Train) error {
 	if t.PR == "" {
 		// A build cut short after it opened the pull request left it
 		// unrecorded: it is found by its branch rather than opened twice.
-		found, err := e.run(ctx, t.Checkout, "gh", "pr", "list", "--repo", t.Repository, "--head", t.Branch, "--state", "open", "--json", "url", "--jq", ".[0].url")
+		read, cancel := context.WithTimeout(ctx, callWithin)
+		found, err := ListPullRequests(read, e.GitHub, t.Repository, "", t.Branch)
+		cancel()
 		if err != nil {
-			return err
+			return fmt.Errorf("find the pull request of %s: %w", t.Branch, err)
 		}
-		t.PR = found
+		if len(found) > 0 {
+			t.PR = found[0].URL
+		}
 	}
 	if t.PR != "" {
 		if err := e.describe(ctx, t); err != nil {

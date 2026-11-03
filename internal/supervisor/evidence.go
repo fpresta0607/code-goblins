@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -911,17 +913,23 @@ func isNewerThanTask(task Task, answer PullRequestInfo) bool {
 	return !finished.IsZero() && answer.CreatedAt.After(finished)
 }
 
-// ghNamesNothing is gh saying GitHub holds no such pull request or repository,
-// which no later read of the same address changes.
-func ghNamesNothing(stderr string) bool {
-	return strings.Contains(stderr, "Could not resolve to a") || strings.Contains(stderr, "HTTP 404") || strings.Contains(stderr, "Not Found")
+// githubNamesNothing is GitHub saying, through gh or its API, it holds no
+// such pull request or repository, which no later read of the same address
+// changes.
+func githubNamesNothing(refusal string) bool {
+	return strings.Contains(refusal, "Could not resolve to a") || strings.Contains(refusal, "HTTP 404") || strings.Contains(refusal, "Not Found")
 }
 
-// GitHubPullRequestState asks GitHub, through gh, whether a pull request is
-// OPEN, CLOSED or MERGED, for as long as the caller's context allows. A
-// merged pull request stays merged, so it is asked about once: the board,
-// its scheduler and AFK mode each ask again every minute or two.
-func GitHubPullRequestState(commands execx.Runner) func(context.Context, string) (PullRequestInfo, error) {
+// pullRequestInfoQuery reads what PullRequestInfo holds of a pull request.
+const pullRequestInfoQuery = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){state title createdAt}}}`
+
+// GitHubPullRequestState asks GitHub whether a pull request is OPEN, CLOSED
+// or MERGED, for as long as the caller's context allows: through its API
+// (github) for a pull request on github.com, and through gh (commands) for
+// one on any other host. A merged pull request stays merged, so it is asked
+// about once: the board, its scheduler and AFK mode each ask again every
+// minute or two.
+func GitHubPullRequestState(github *githubapi.Client, commands execx.Runner) func(context.Context, string) (PullRequestInfo, error) {
 	var mu sync.Mutex
 	merged := map[string]PullRequestInfo{}
 	return func(ctx context.Context, url string) (PullRequestInfo, error) {
@@ -931,20 +939,12 @@ func GitHubPullRequestState(commands execx.Runner) func(context.Context, string)
 		if isMerged {
 			return known, nil
 		}
-		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state,title,createdAt"}})
+		answer, err := readPullRequestInfo(ctx, github, commands, url)
 		if err != nil {
-			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %w", url, err)
+			return PullRequestInfo{}, err
 		}
-		if result.ExitCode != 0 {
-			stderr := strings.TrimSpace(string(result.Stderr))
-			if ghNamesNothing(stderr) {
-				return PullRequestInfo{}, fmt.Errorf("%w: gh could not read %s: %s", ErrPullRequestNotFound, url, stderr)
-			}
-			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %s", url, stderr)
-		}
-		var answer PullRequestInfo
-		if err := json.Unmarshal(result.Stdout, &answer); err != nil || strings.TrimSpace(answer.Title) == "" {
-			return PullRequestInfo{}, errors.New("gh returned incomplete pull request details")
+		if strings.TrimSpace(answer.Title) == "" {
+			return PullRequestInfo{}, errors.New("GitHub returned incomplete pull request details")
 		}
 		switch answer.State {
 		case "MERGED":
@@ -955,9 +955,51 @@ func GitHubPullRequestState(commands execx.Runner) func(context.Context, string)
 		case "OPEN", "CLOSED":
 			return answer, nil
 		default:
-			return PullRequestInfo{}, fmt.Errorf("gh answered %q for the state of %s", answer.State, url)
+			return PullRequestInfo{}, fmt.Errorf("GitHub answered %q for the state of %s", answer.State, url)
 		}
 	}
+}
+
+// readPullRequestInfo reads the pull request at url: from GitHub's API for
+// one on github.com, else through gh.
+func readPullRequestInfo(ctx context.Context, github *githubapi.Client, commands execx.Runner, url string) (PullRequestInfo, error) {
+	_, repository, isGitHub := pullRequestBaseRepository(url)
+	if !isGitHub {
+		result, err := commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"pr", "view", url, "--json", "state,title,createdAt"}})
+		if err != nil {
+			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %w", url, err)
+		}
+		if result.ExitCode != 0 {
+			stderr := strings.TrimSpace(string(result.Stderr))
+			if githubNamesNothing(stderr) {
+				return PullRequestInfo{}, fmt.Errorf("%w: gh could not read %s: %s", ErrPullRequestNotFound, url, stderr)
+			}
+			return PullRequestInfo{}, fmt.Errorf("gh could not read %s: %s", url, stderr)
+		}
+		var answer PullRequestInfo
+		if err := json.Unmarshal(result.Stdout, &answer); err != nil {
+			return PullRequestInfo{}, errors.New("gh returned incomplete pull request details")
+		}
+		return answer, nil
+	}
+	owner, name, _ := strings.Cut(repository, "/")
+	number, _ := strconv.Atoi(url[strings.LastIndexByte(url, '/')+1:])
+	var data struct {
+		Repository *struct {
+			PullRequest *PullRequestInfo `json:"pullRequest"`
+		} `json:"repository"`
+	}
+	err := github.GraphQL(ctx, pullRequestInfoQuery, map[string]any{"owner": owner, "name": name, "number": number}, &data)
+	var refused *githubapi.GraphQLError
+	switch {
+	case githubapi.StatusOf(err) == http.StatusNotFound, errors.As(err, &refused) && githubNamesNothing(err.Error()):
+		return PullRequestInfo{}, fmt.Errorf("%w: GitHub could not read %s: %v", ErrPullRequestNotFound, url, err)
+	case err != nil:
+		return PullRequestInfo{}, fmt.Errorf("GitHub could not read %s: %w", url, err)
+	case data.Repository == nil || data.Repository.PullRequest == nil:
+		return PullRequestInfo{}, errors.New("GitHub returned incomplete pull request details")
+	}
+	return *data.Repository.PullRequest, nil
 }
 
 // spawnTime is when a task generation started, which its spawn generation

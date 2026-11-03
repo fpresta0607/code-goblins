@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 func TestTeammateOverlapsLeavesOutTheOverlordsOwnWork(t *testing.T) {
@@ -120,8 +122,8 @@ func TestApplyWritesAnOverlapAcceptedAfterTheTicketWasOpened(t *testing.T) {
 			ticket := Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude", Overlap: "accepted: PR #412 is nearly merged"}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, nil)
-			again, againErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, tc.from, ticket, nil)
+			again, againErr := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, record, ticket, nil)
 
 			// Assert
 			if err != nil || againErr != nil {

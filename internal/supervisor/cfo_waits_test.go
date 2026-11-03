@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/afk"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
@@ -58,6 +59,7 @@ func waitingFleet(t *testing.T, pulls string) (*Service, home.Home, *fakeForge) 
 	forge := forgeFor(project, waitingGoblin)
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", pulls
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	return s, h, forge
 }
 

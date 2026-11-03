@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 )
 
 // Apply moves a task's issue to its ticket and returns what it then holds.
@@ -466,24 +464,8 @@ func (g GitHub) EnsureLabels(ctx context.Context, repository string) error {
 	return nil
 }
 
-// APIError is a gh api request GitHub refused, with its HTTP status and the
-// answer it gave.
-type APIError struct {
-	Status  int
-	request string
-	message string
-	answer  string
-}
-
-func (e *APIError) Error() string {
-	return "gh api " + e.request + ": " + e.message
-}
-
-var httpStatus = regexp.MustCompile(`\(HTTP (\d{3})\)`)
-
 func hasStatus(err error, status int) bool {
-	var refused *APIError
-	return errors.As(err, &refused) && refused.Status == status
+	return githubapi.StatusOf(err) == status
 }
 
 // ShouldBackOff reports whether GitHub refused a request in a way that asks
@@ -494,30 +476,28 @@ func ShouldBackOff(err error) bool {
 }
 
 func isExistingLabel(err error) bool {
-	var refused *APIError
-	return errors.As(err, &refused) && refused.Status == 422 && strings.Contains(refused.answer, "already_exists")
+	var refused *githubapi.Error
+	return errors.As(err, &refused) && refused.Status == 422 && strings.Contains(string(refused.Answer), "already_exists")
 }
 
-// api sends one REST request through gh, each field as a string, and returns
-// GitHub's answer.
+// api sends one REST request to GitHub's API and returns GitHub's answer.
+// Each field, name=value, is a string in the request's JSON body, and one
+// whose name ends in [] is one of a list of that name, as gh api -f sends
+// them.
 func (g GitHub) api(ctx context.Context, method, path string, fields ...string) ([]byte, error) {
-	args := []string{"api", "--method", method, path}
-	for _, field := range fields {
-		args = append(args, "-f", field)
-	}
-	result, err := g.Commands.Run(ctx, execx.Request{Name: "gh", Args: args})
-	if err != nil {
-		return nil, err
-	}
-	if result.ExitCode != 0 {
-		refused := &APIError{request: method + " " + path, message: strings.TrimSpace(string(result.Stderr)), answer: string(result.Stdout)}
-		if match := httpStatus.FindStringSubmatch(refused.message); match != nil {
-			refused.Status, _ = strconv.Atoi(match[1])
+	var body any
+	if len(fields) > 0 {
+		values := map[string]any{}
+		for _, field := range fields {
+			name, value, _ := strings.Cut(field, "=")
+			if list, isList := strings.CutSuffix(name, "[]"); isList {
+				listed, _ := values[list].([]string)
+				values[list] = append(listed, value)
+			} else {
+				values[name] = value
+			}
 		}
-		if refused.message == "" {
-			refused.message = fmt.Sprintf("gh exited %d", result.ExitCode)
-		}
-		return nil, refused
+		body = values
 	}
-	return result.Stdout, nil
+	return g.API.Do(ctx, method, path, body)
 }

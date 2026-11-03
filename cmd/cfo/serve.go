@@ -182,7 +182,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	var rootIssues *supervisor.RootIssues
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
-		github := tickets.GitHub{Commands: execx.OSRunner{}}
+		github := tickets.GitHub{Commands: execx.OSRunner{}, API: runtime.githubAPI}
 		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState, ClosingPullRequests: github.OpenClosingPullRequests}
 	}
 	// The board looks for a newer release of Code Goblins; an example board
@@ -276,7 +276,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
 		Gate:             gate,
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
-		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
+		PullRequestState: supervisor.GitHubPullRequestState(runtime.githubAPI, execx.OSRunner{}),
 		FileRoot:         fileRootFrom(runtime, *example),
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
@@ -293,6 +293,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
 		CI:       cached,
+		GitHub:   runtime.githubAPI,
 		Progress: cached,
 		Reads:    reads,
 		// The Defender wakes only read what Defender recorded, as cfo

@@ -28,6 +28,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/goblinname"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -119,8 +120,11 @@ type Options struct {
 	// it, as cfo hook pre-compact and the SessionStart digest do for a Claude
 	// CFO; without it a compaction does neither.
 	CompactCFO func(h home.Home, e nativehook.Event, now time.Time) error
-	// CI runs gh and git for the CI wakes; without it no CI is watched.
+	// CI runs git for the CI wakes, and gh for what a merge train writes to
+	// GitHub, and GitHub is what they read GitHub through; without both no
+	// CI is watched.
 	CI       execx.Runner
+	GitHub   *githubapi.Client
 	Progress execx.Runner
 	// Reads answers the git reads the board repeats while the files git
 	// reads for them are unchanged, and CI and Progress run through the same

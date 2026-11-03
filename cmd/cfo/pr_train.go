@@ -62,6 +62,7 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 	}
 	engine := train.Engine{
 		Commands: commands,
+		GitHub:   runtime.githubAPI,
 		StateDir: h.State,
 		Now:      time.Now,
 		Wait:     time.Sleep,

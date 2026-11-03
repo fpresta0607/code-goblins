@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 )
 
 type Repository struct {
@@ -28,7 +29,9 @@ type Reading struct {
 	Detail       string       `json:"detail"`
 }
 
-type Reader struct{ Commands execx.Runner }
+// Reader reads the Actions spend of the account gh is signed in as from
+// GitHub's API.
+type Reader struct{ GitHub *githubapi.Client }
 
 func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 	now = now.UTC()
@@ -38,22 +41,22 @@ func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 		reading.Detail = "Invalid GitHub Actions report month."
 		return reading
 	}
-	result, err := r.Commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"api", "user"}})
-	if err != nil || result.ExitCode != 0 {
+	answer, err := r.GitHub.Do(ctx, http.MethodGet, "user", nil)
+	if err != nil {
 		reading.Detail = "Could not read the signed-in GitHub account. Check gh authentication."
 		return reading
 	}
 	var account struct {
 		Login string `json:"login"`
 	}
-	if json.Unmarshal(result.Stdout, &account) != nil || account.Login == "" {
+	if json.Unmarshal(answer, &account) != nil || account.Login == "" {
 		reading.Detail = "GitHub did not return a signed-in account."
 		return reading
 	}
 	endpoint := fmt.Sprintf("users/%s/settings/billing/usage?year=%d&month=%d", url.PathEscape(account.Login), reportMonth.Year(), reportMonth.Month())
-	result, err = r.Commands.Run(ctx, execx.Request{Name: "gh", Args: []string{"api", endpoint}})
-	if err != nil || result.ExitCode != 0 {
-		// Raw CLI errors can contain private repository names and credentials.
+	answer, err = r.GitHub.Do(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		// GitHub's own words can name private repositories.
 		reading.Detail = "Could not read GitHub Actions billing usage. Check gh authentication and the token's user scope."
 		return reading
 	}
@@ -65,7 +68,7 @@ func (r Reader) Read(ctx context.Context, now time.Time, month string) Reading {
 			NetAmount  *float64 `json:"netAmount"`
 		} `json:"usageItems"`
 	}
-	if json.Unmarshal(result.Stdout, &response) != nil || response.Items == nil {
+	if json.Unmarshal(answer, &response) != nil || response.Items == nil {
 		reading.Detail = "GitHub returned an invalid billing usage report."
 		return reading
 	}

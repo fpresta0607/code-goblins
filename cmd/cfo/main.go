@@ -29,6 +29,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -265,6 +266,9 @@ type commandRuntime struct {
 	repositoryOf func(ctx context.Context, checkout string) (string, error)
 	// github runs gh and git for cfo issue file; nil runs the machine's.
 	github execx.Runner
+	// githubAPI reads and writes GitHub's API for every command and the
+	// board: one client, so a process asks gh for a token at most once.
+	githubAPI *githubapi.Client
 	// requestHelper asks the supervisor for a goblin's helper.
 	requestHelper func(home.Home, supervisor.HelperRequest) (supervisor.HelperStart, error)
 	// requestBrowser asks the supervisor to lend or take back a login's
@@ -347,6 +351,7 @@ func (r commandRuntime) resolveProject(arg string) (string, error) {
 }
 
 func defaultCommandRuntime() commandRuntime {
+	github := githubapi.New(execx.OSRunner{})
 	return commandRuntime{
 		resolveHome:     home.Resolve,
 		requestHelper:   supervisor.RequestHelper,
@@ -481,7 +486,7 @@ func defaultCommandRuntime() commandRuntime {
 			return telemetry.SpeedHint(ctx, gatedb.Runner{Next: execx.OSRunner{}}, name)
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
-		actionsSpend: actionsbilling.Reader{Commands: execx.OSRunner{}}.Read,
+		actionsSpend: actionsbilling.Reader{GitHub: github}.Read,
 		keySpend: func(ctx context.Context, source openrouter.Source) openrouter.Reading {
 			return openrouter.Reader{Source: source}.Read(ctx)
 		},
@@ -519,8 +524,9 @@ func defaultCommandRuntime() commandRuntime {
 		},
 		setupAgent:      setupAgent,
 		choose:          onboarding.AskConsole,
-		repoActivity:    readRepositoryActivity,
+		repoActivity:    repositoryActivity(github),
 		repositoryOf:    tickets.GitHub{Commands: execx.OSRunner{}}.RepositoryOf,
+		githubAPI:       github,
 		availableMemory: supervisor.MachineMemory,
 		gateWaitLimit:   time.Hour,
 		gateBudget:      gateBudget,

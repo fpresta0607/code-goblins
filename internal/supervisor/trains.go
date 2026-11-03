@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
@@ -127,7 +127,7 @@ func doneReports(lines []string, spawned time.Time) (done, reported map[string]t
 // the read of a checkout's origin ran out of time once while its drive was
 // stalled, and woke the CFO, though the CI poll had read the same origin
 // moments before and the next poll read it again.
-func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWakes, repo string, open []train.PullRequest) error {
+func (s *Service) runTrain(ctx context.Context, runner execx.Runner, github *githubapi.Client, w *fleetWakes, repo string, open []train.PullRequest) error {
 	stateDir := s.Store.Home.State
 	repository, err := TrainRepository(ctx, runner, s.Store.Home.Data, repo)
 	if err != nil {
@@ -135,7 +135,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 	}
 	delete(w.Failing, "train repository:"+repo)
 	trains, listErr := train.List(stateDir)
-	engine := s.trainEngine(runner, repository.Slug)
+	engine := s.trainEngine(runner, github, repository.Slug)
 	if running, isRunning := train.Running(trains, repository.Slug); isRunning {
 		if err := advanceTrain(ctx, engine, running.ID); err != nil {
 			return errors.Join(listErr, err)
@@ -148,7 +148,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 		if ended, err := train.Read(stateDir, running.ID); err != nil || !ended.IsFinished() {
 			return listErr
 		}
-		if open, err = openPullRequests(ctx, runner, repo); err != nil {
+		if open, err = openPullRequests(ctx, github, repository.Slug); err != nil {
 			return listErr
 		}
 		trains, listErr = train.List(stateDir)
@@ -157,7 +157,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, w *fleetWak
 	if done := doneAndOpen(goblins, open); len(done) == 0 || len(done) < minimumRiders && !hasWaitedAlone(goblins, done[0], min(loneRiderWait, repository.LoneRiderWait)) {
 		return listErr
 	}
-	viewer, err := runOutput(ctx, runner, repo, "gh", "api", "user", "--jq", ".login")
+	viewer, err := githubAccount(ctx, github)
 	if err != nil {
 		return errors.Join(listErr, w.failing("train viewer:"+repo, fmt.Errorf("merge train: read the account gh works as in %s: %w", repo, err)))
 	}
@@ -187,8 +187,8 @@ func (s *Service) advanceUnwatchedTrains(ctx context.Context, runner execx.Runne
 		if t.IsFinished() || currentTime().Before(w.BackOff[t.Checkout]) || slices.ContainsFunc(watched, func(repo string) bool { return fsx.SamePath(repo, t.Checkout) }) {
 			continue
 		}
-		pollRunner := githubPollRunner{commands: runner, state: w, repo: t.Checkout, now: currentTime}
-		err = errors.Join(err, advanceTrain(ctx, s.trainEngine(pollRunner, t.Repository), t.ID))
+		hold := githubHold{state: w, repo: t.Checkout, now: currentTime}
+		err = errors.Join(err, advanceTrain(ctx, s.trainEngine(githubPollRunner{commands: runner, hold: hold}, s.Options.GitHub.Guarded(hold), t.Repository), t.ID))
 	}
 	return err
 }
@@ -206,15 +206,18 @@ func advanceTrain(ctx context.Context, engine train.Engine, id string) error {
 	return err
 }
 
-// openPullRequests lists repo's open pull requests as the CI poll lists them.
-func openPullRequests(ctx context.Context, runner execx.Runner, repo string) ([]train.PullRequest, error) {
-	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", train.ListFields)
+// openPullRequests lists repository's open pull requests as the CI poll
+// lists them.
+func openPullRequests(ctx context.Context, github *githubapi.Client, repository string) ([]train.PullRequest, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	defer cancel()
+	listed, err := train.ListPullRequests(ctx, github, repository, "", "")
 	if err != nil {
 		return nil, err
 	}
-	var open []train.PullRequest
-	if err := json.Unmarshal([]byte(out), &open); err != nil {
-		return nil, err
+	open := make([]train.PullRequest, 0, len(listed))
+	for _, pr := range listed {
+		open = append(open, pr.PullRequest())
 	}
 	return open, nil
 }
@@ -258,10 +261,11 @@ func doneAndOpen(goblins []train.Goblin, open []train.PullRequest) []string {
 
 // trainEngine is the merge train engine as the supervisor runs it: it tells
 // a goblin through its own native terminal and the CFO with a pr wake.
-func (s *Service) trainEngine(runner execx.Runner, repository string) train.Engine {
+func (s *Service) trainEngine(runner execx.Runner, github *githubapi.Client, repository string) train.Engine {
 	stateDir := s.Store.Home.State
 	return train.Engine{
 		Commands: runner,
+		GitHub:   github,
 		StateDir: stateDir,
 		Now:      time.Now,
 		Wait:     time.Sleep,

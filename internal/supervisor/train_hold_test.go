@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/train"
 )
 
@@ -15,7 +16,7 @@ func TestSupervisorRestartsKeepAGreenRefusedTrainWithoutDuplicateCI(t *testing.T
 	first, second := project.pull(11), project.pull(12)
 	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
 	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
-	if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+	if err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, project.pulls); err != nil {
 		t.Fatal(err)
 	}
 	started, err := train.List(h.State)
@@ -27,7 +28,7 @@ func TestSupervisorRestartsKeepAGreenRefusedTrainWithoutDuplicateCI(t *testing.T
 	// Act: discard each Service and its in-memory poll state.
 	for range 8 {
 		restarted := &Service{Store: service.Store}
-		if err := restarted.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+		if err := restarted.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, project.pulls); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -52,7 +53,7 @@ func TestSupervisorPublishesOneHoldWhenItsAcknowledgementIsLost(t *testing.T) {
 	first, second := project.pull(11), project.pull(12)
 	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
 	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
-	if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+	if err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, project.pulls); err != nil {
 		t.Fatal(err)
 	}
 	trains, err := train.List(h.State)
@@ -60,7 +61,7 @@ func TestSupervisorPublishesOneHoldWhenItsAcknowledgementIsLost(t *testing.T) {
 		t.Fatalf("trains %+v (%v): want one train", trains, err)
 	}
 	project.mergeRefusal = "the base branch policy prohibits the merge"
-	engine := service.trainEngine(project, "o/r")
+	engine := service.trainEngine(project, githubtest.Client(project), "o/r")
 	publish := engine.TellCFO
 	engine.TellCFO = func(ctx context.Context, identity, text string) error {
 		if err := publish(ctx, identity, text); err != nil {
@@ -73,7 +74,7 @@ func TestSupervisorPublishesOneHoldWhenItsAcknowledgementIsLost(t *testing.T) {
 	_, lostError := engine.Advance(context.Background(), trains[0].ID)
 	for range 3 {
 		restarted := &Service{Store: service.Store}
-		if err := restarted.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+		if err := restarted.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, project.pulls); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -93,7 +94,7 @@ func TestSupervisorNeverRetriesCancelledCIForHeldOrClosedRiders(t *testing.T) {
 			first, second := project.pull(11), project.pull(12)
 			reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
 			reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
-			if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+			if err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, project.pulls); err != nil {
 				t.Fatal(err)
 			}
 			project.ciConclusion = "CANCELLED"
@@ -108,7 +109,7 @@ func TestSupervisorNeverRetriesCancelledCIForHeldOrClosedRiders(t *testing.T) {
 			// Act
 			for range 3 {
 				restarted := &Service{Store: service.Store}
-				if err := restarted.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, project.pulls); err != nil {
+				if err := restarted.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, project.pulls); err != nil {
 					t.Fatal(err)
 				}
 			}

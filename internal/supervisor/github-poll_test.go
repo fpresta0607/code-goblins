@@ -2,102 +2,215 @@ package supervisor
 
 import (
 	"context"
-	"fmt"
-	"slices"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
+
+// allowanceGitHub answers every read of the account with status and header,
+// and ended runs as each answer is given, as the time a read takes passes.
+type allowanceGitHub struct {
+	status int
+	header http.Header
+	reads  int
+	ended  func()
+}
+
+func (g *allowanceGitHub) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	g.reads++
+	for name, values := range g.header {
+		w.Header()[http.CanonicalHeaderKey(name)] = values
+	}
+	if g.ended != nil {
+		g.ended()
+	}
+	if g.status != http.StatusOK {
+		githubtest.Refuse(w, g.status, "refused")
+		return
+	}
+	githubtest.Write(w, http.StatusOK, map[string]string{"login": "o"})
+}
+
+// Each answer GitHub gives holds the repository's next reads as its status
+// and its rate limit headers say, from the moment the answer arrived, and
+// holds no other repository's.
+func TestGitHubHoldWaitsOutWhatEachAnswerSays(t *testing.T) {
+	started := time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		status int
+		header http.Header
+		want   time.Duration
+	}{
+		{"spent allowance with Retry-After", http.StatusOK, http.Header{"X-RateLimit-Remaining": {"0"}, "Retry-After": {"600"}}, 640 * time.Second},
+		{"spent allowance until its reset", http.StatusOK, http.Header{"X-RateLimit-Remaining": {"0"}, "X-RateLimit-Reset": {"1791122400"}}, 4 * time.Hour},
+		{"403 with no header", http.StatusForbidden, nil, 40*time.Second + time.Hour},
+		{"429 with a Retry-After date", http.StatusTooManyRequests, http.Header{"Retry-After": {"Sun, 04 Oct 2026 10:30:00 GMT"}}, 30 * time.Minute},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			now := started
+			github := &allowanceGitHub{status: test.status, header: test.header, ended: func() { now = started.Add(40 * time.Second) }}
+			client := githubtest.Client(github)
+			state := &fleetWakes{}
+			clock := func() time.Time { return now }
+			hold := githubHold{state: state, repo: "C:/dev/project", now: clock}
+			var account struct {
+				Login string `json:"login"`
+			}
+
+			// Act
+			_ = client.Guarded(hold).Get(context.Background(), "user", &account)
+
+			// Assert
+			if until := state.BackOff["C:/dev/project"]; !until.Equal(started.Add(test.want)) {
+				t.Fatalf("backoff = %s, want %s after the read started", until, test.want)
+			}
+			if err := client.Guarded(hold).Get(context.Background(), "user", &account); err == nil || github.reads != 1 {
+				t.Fatalf("the held repository read GitHub again: reads %d, error %v", github.reads, err)
+			}
+			github.status, github.header = http.StatusOK, nil
+			other := githubHold{state: state, repo: "C:/dev/other", now: clock}
+			if err := client.Guarded(other).Get(context.Background(), "user", &account); err != nil || github.reads != 2 || account.Login != "o" {
+				t.Fatalf("one repository held another: reads %d, account %q, error %v", github.reads, account.Login, err)
+			}
+		})
+	}
+}
+
+// An answer that neither refuses nor spends the allowance holds nothing.
+func TestGitHubHoldLetsAnOrdinaryAnswerThrough(t *testing.T) {
+	// Arrange
+	github := &allowanceGitHub{status: http.StatusOK, header: http.Header{"X-RateLimit-Remaining": {"4999"}}}
+	state := &fleetWakes{}
+	hold := githubHold{state: state, repo: "C:/dev/project", now: time.Now}
+	client := githubtest.Client(github).Guarded(hold)
+	var account struct {
+		Login string `json:"login"`
+	}
+
+	// Act
+	for range 2 {
+		if err := client.Get(context.Background(), "user", &account); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Assert
+	if github.reads != 2 || len(state.BackOff) != 0 {
+		t.Fatalf("reads %d, backoff %+v, want both read and nothing held", github.reads, state.BackOff)
+	}
+}
 
 type pollResponseRunner struct {
 	result execx.Result
 	calls  []execx.Request
-	ended  func()
 }
 
 func (runner *pollResponseRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
 	runner.calls = append(runner.calls, request)
-	if runner.ended != nil {
-		runner.ended()
-	}
 	return runner.result, nil
 }
 
-func TestGitHubPollRunnerPreservesBodiesWhileObservingAllowance(t *testing.T) {
-	const repo = "C:/dev/project"
-	started := time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)
-	cases := []struct {
-		name string
-		body string
-		args []string
+// What a merge train still writes through gh holds the repository when gh
+// says GitHub refused it, as a refused read of the API does, and not
+// otherwise.
+func TestGitHubPollRunnerHoldsTheRepositoryAfterARefusedWrite(t *testing.T) {
+	for _, test := range []struct {
+		name, stderr string
+		isHeld       bool
 	}{
-		{name: "raw GraphQL JSON", body: `{"data":{"repository":{"nameWithOwner":"owner/project"}}}`, args: []string{"api", "graphql", "-f", "query=example"}},
-		{name: "jq file lines", body: "frontend/dialog.ts\ninternal/tickets/github.go\n", args: []string{"api", "repos/owner/project/pulls/1/files?per_page=100&page=1", "--jq", ".[].filename"}},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			now := started
-			commands := &pollResponseRunner{result: execx.Result{Stdout: []byte("HTTP/2.0 200 OK\r\nX-RateLimit-Remaining: 0\r\nRetry-After: 600\r\n\r\n" + testCase.body)}, ended: func() { now = started.Add(40 * time.Second) }}
-			state := &fleetWakes{}
-			runner := githubPollRunner{commands: commands, state: state, repo: repo, now: func() time.Time { return now }}
-			request := execx.Request{Name: "gh", Args: testCase.args}
+		{"forbidden", "gh: Resource not accessible by integration (HTTP 403)", true},
+		{"too many requests", "gh: HTTP 429: too many requests", true},
+		{"spent allowance", "API rate limit exceeded for user ID 1", true},
+		{"not found", "gh: Not Found (HTTP 404)", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			commands := &pollResponseRunner{result: execx.Result{ExitCode: 1, Stderr: []byte(test.stderr)}}
+			runner := githubPollRunner{commands: commands, hold: githubHold{state: &fleetWakes{}, repo: "C:/dev/project", now: time.Now}}
+			merge := execx.Request{Name: "gh", Args: []string{"pr", "merge", "https://github.com/o/r/pull/1"}}
 
-			result, err := runner.Run(context.Background(), request)
+			// Act
+			_, _ = runner.Run(context.Background(), merge)
+			_, err := runner.Run(context.Background(), merge)
 
-			if err != nil || result.ExitCode != 0 || string(result.Stdout) != testCase.body {
-				t.Fatalf("caller body = %q, exit %d, error %v, want exact %q", result.Stdout, result.ExitCode, err, testCase.body)
-			}
-			if len(commands.calls) != 1 || !slices.Contains(commands.calls[0].Args, "--include") || slices.Contains(request.Args, "--include") {
-				t.Fatalf("response headers were not requested independently of caller args: %+v", commands.calls)
-			}
-			if until := state.BackOff[repo]; !until.Equal(started.Add(640 * time.Second)) {
-				t.Fatalf("backoff = %s, want ten minutes after response receipt", until)
-			}
-			if _, err := runner.Run(context.Background(), request); err == nil || len(commands.calls) != 1 {
-				t.Fatalf("exhausted response did not stop the next page: calls %d, error %v", len(commands.calls), err)
-			}
-			other := githubPollRunner{commands: commands, state: state, repo: "C:/dev/other", now: func() time.Time { return now }}
-			if _, err := other.Run(context.Background(), request); err != nil || len(commands.calls) != 2 {
-				t.Fatalf("one repository blocked another: calls %d, error %v", len(commands.calls), err)
+			// Assert
+			if isHeld := err != nil && len(commands.calls) == 1; isHeld != test.isHeld {
+				t.Fatalf("gh ran %d times, second error %v, want held %t", len(commands.calls), err, test.isHeld)
 			}
 		})
 	}
 }
 
-func TestGitHubPollRunnerKeepsExplicitIncludeOutput(t *testing.T) {
-	output := "HTTP/2.0 200 OK\r\nX-RateLimit-Remaining: 100\r\n\r\n{}"
-	commands := &pollResponseRunner{result: execx.Result{Stdout: []byte(output)}}
-	runner := githubPollRunner{commands: commands, state: &fleetWakes{}, repo: "repo", now: func() time.Time { return time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC) }}
-	request := execx.Request{Name: "gh", Args: []string{"api", "graphql", "--include"}}
+// A command that is not gh runs whatever GitHub said.
+func TestGitHubPollRunnerLeavesOtherCommandsToRun(t *testing.T) {
+	// Arrange
+	commands := &pollResponseRunner{result: execx.Result{Stdout: []byte("main\n")}}
+	state := &fleetWakes{BackOff: map[string]time.Time{"C:/dev/project": time.Now().Add(time.Hour)}}
+	runner := githubPollRunner{commands: commands, hold: githubHold{state: state, repo: "C:/dev/project", now: time.Now}}
 
-	result, err := runner.Run(context.Background(), request)
+	// Act
+	result, err := runner.Run(context.Background(), execx.Request{Name: "git", Args: []string{"branch", "--show-current"}})
 
-	if err != nil || string(result.Stdout) != output || !slices.Equal(commands.calls[0].Args, request.Args) {
-		t.Fatalf("explicit header consumer changed: output %q, calls %v, error %v", result.Stdout, commands.calls, err)
+	// Assert
+	if err != nil || string(result.Stdout) != "main\n" || len(commands.calls) != 1 {
+		t.Fatalf("git under a hold = %q, %v after %d calls, want it run", result.Stdout, err, len(commands.calls))
 	}
 }
 
-func TestGitHubPollRunnerLeavesNonAPICommandsUnchanged(t *testing.T) {
-	for _, request := range []execx.Request{{Name: "git", Args: []string{"status"}}, {Name: "gh", Args: []string{"pr", "list", "--json", "number"}}} {
-		t.Run(fmt.Sprint(request.Name, request.Args), func(t *testing.T) {
-			commands := &pollResponseRunner{result: execx.Result{Stdout: []byte("[]")}}
-			runner := githubPollRunner{commands: commands, state: &fleetWakes{}, repo: "repo", now: time.Now}
-			result, err := runner.Run(context.Background(), request)
-			if err != nil || string(result.Stdout) != "[]" || !slices.Equal(commands.calls[0].Args, request.Args) {
-				t.Fatalf("non-API command changed: output %q, calls %v, error %v", result.Stdout, commands.calls, err)
-			}
-		})
-	}
+// recordingRunner runs each command with commands, recording it.
+type recordingRunner struct {
+	commands execx.Runner
+	requests []execx.Request
 }
 
-func TestGitHubPollRunnerDoesNotPassMalformedInjectedHeadersAsJSON(t *testing.T) {
-	commands := &pollResponseRunner{result: execx.Result{Stdout: []byte("HTTP/2.0 200 OK\r\nnot a header\r\n\r\n{}")}}
-	runner := githubPollRunner{commands: commands, state: &fleetWakes{}, repo: "repo", now: time.Now}
+func (r *recordingRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	r.requests = append(r.requests, request)
+	return r.commands.Run(ctx, request)
+}
 
-	_, err := runner.Run(context.Background(), execx.Request{Name: "gh", Args: []string{"api", "graphql"}})
+// The CI poll of a GitHub repository reads its pull requests' checks, its
+// main's push runs and their failed jobs from GitHub's API in process, and
+// starts no gh: on 2026-10-30 the poll started gh 686 times in an hour
+// (#1610).
+func TestTheCIPollOfAGitHubRepositoryStartsNoGh(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	project := t.TempDir()
+	liveGoblin(t, h, "cg-wakes", project)
+	forge := forgeFor(project, "cg-wakes")
+	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", pendingChecks, redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
+	commands := &recordingRunner{commands: forge}
+	service.Options.CI = commands
+	service.Options.GitHub = githubtest.Client(forge)
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
-	if err == nil {
-		t.Fatal("malformed injected response headers were passed to a JSON consumer")
+	// Act
+	woke := pollForge(t, service, h, &now)
+	forge.pulls = passedChecks
+	woke = append(woke, pollForge(t, service, h, &now)...)
+
+	// Assert
+	for _, request := range commands.requests {
+		if request.Name == "gh" {
+			t.Fatalf("the CI poll started gh %v", request.Args)
+		}
+	}
+	if len(commands.requests) == 0 || forge.githubCalls == 0 || forge.listCalls != 2 {
+		t.Fatalf("commands %d, GitHub reads %d, pull request listings %d, want the poll to read the checkout and GitHub", len(commands.requests), forge.githubCalls, forge.listCalls)
+	}
+	var details []string
+	for _, record := range woke {
+		details = append(details, record.Detail)
+	}
+	for _, want := range []string{"PR #209 (feat/wakes)", "all 3 passed", "main's push CI is red", "run 36740825611"} {
+		if !strings.Contains(strings.Join(details, "\n"), want) {
+			t.Errorf("wakes %q lack %q, which only the stand-in GitHub answered", details, want)
+		}
 	}
 }

@@ -3,35 +3,42 @@ package supervisor
 import (
 	"context"
 	"errors"
-	"slices"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
-// hostedRunner answers the one hosted read with the JSON a test records, and
-// runs everything else for real, so the production gh command, its field list
+// hostedRunner runs every command for real, and answers the one hosted read,
+// of a pull request through GitHub's API (ServeHTTP), with the JSON a test
+// records, or refuses it with status, so the production request, its path
 // and its decoding all run.
 type hostedRunner struct {
 	inner  execx.Runner
 	body   string
-	stderr string
-	code   int
-	calls  []execx.Request
+	status int
+	calls  []string
 }
 
 func (r *hostedRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
-	if req.Name == "gh" {
-		r.calls = append(r.calls, req)
-		return execx.Result{Stdout: []byte(r.body), Stderr: []byte(r.stderr), ExitCode: r.code}, nil
-	}
 	return r.inner.Run(ctx, req)
+}
+
+func (r *hostedRunner) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	r.calls = append(r.calls, strings.TrimPrefix(req.URL.Path, "/"))
+	if r.status != 0 {
+		githubtest.Refuse(w, r.status, "refused")
+		return
+	}
+	_, _ = w.Write([]byte(r.body))
 }
 
 // gitIn runs git in dir for the fixture, without a global configuration.
@@ -99,7 +106,7 @@ func TestCIGoblinsCollectsADoneStatusPullRequestWithoutAHostedRead(t *testing.T)
 	if err := state.AppendStatus(stateDirPath, meta.ID, "done: PR https://github.com/fpresta0607/no-mistakes/pull/24"); err != nil {
 		t.Fatal(err)
 	}
-	hosted := &hostedRunner{inner: execx.OSRunner{}, body: `{"baseRefName":"main","headRefName":"fix/daemon"}`}
+	hosted := &hostedRunner{inner: execx.OSRunner{}, body: `{"base":{"ref":"main"},"head":{"ref":"fix/daemon"}}`}
 
 	// Act
 	goblins := ciGoblins(context.Background(), hosted, stateDirPath)
@@ -119,31 +126,31 @@ func TestCIGoblinsCollectsADoneStatusPullRequestWithoutAHostedRead(t *testing.T)
 	}
 }
 
-// The overlap path reads the pull request's base with the supported field list
-// and resolves it to the fork, and an unreadable or malformed answer is an
-// incomplete read rather than another base.
+// The overlap path reads the pull request's base from the pull request in
+// the repository its address names and resolves it to the fork, and an
+// unreadable or malformed answer is an incomplete read rather than another
+// base.
 func TestResolveTargetReadsTheBaseThroughTheOverlapPath(t *testing.T) {
 	for _, c := range []struct {
 		name       string
 		body       string
-		code       int
+		status     int
 		wantTarget string
 		wantUnread bool
-		wantFields string
 	}{
-		{name: "a fork-origin base", body: `{"baseRefName":"main","headRefName":"fix/daemon"}`, wantTarget: "fork/main", wantFields: "baseRefName,headRefName"},
-		{name: "malformed output", body: `{"baseRefName":`, wantUnread: true},
-		{name: "a refused read", body: ``, code: 1, wantUnread: true},
-		{name: "an answer naming no base", body: `{"baseRefName":"","headRefName":"fix/daemon"}`, wantUnread: true},
+		{name: "a fork-origin base", body: `{"base":{"ref":"main"},"head":{"ref":"fix/daemon"}}`, wantTarget: "fork/main"},
+		{name: "malformed output", body: `{"base":`, wantUnread: true},
+		{name: "a refused read", status: http.StatusNotFound, wantUnread: true},
+		{name: "an answer naming no base", body: `{"base":{"ref":""},"head":{"ref":"fix/daemon"}}`, wantUnread: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
 			worktree := forkCheckout(t)
-			hosted := &hostedRunner{inner: execx.OSRunner{}, body: c.body, code: c.code}
+			hosted := &hostedRunner{inner: execx.OSRunner{}, body: c.body, status: c.status}
 			goblin := ciGoblin{id: "task", repo: worktree, branch: "fix/daemon", pullRequests: []string{"https://github.com/fpresta0607/no-mistakes/pull/24"}, meta: state.TaskMeta{ID: "task", Worktree: worktree}}
 
 			// Act
-			resolved := resolveTarget(context.Background(), hosted, goblin)
+			resolved := resolveTarget(context.Background(), hosted, githubtest.Client(hosted), goblin)
 
 			// Assert
 			if resolved.target != c.wantTarget {
@@ -152,15 +159,8 @@ func TestResolveTargetReadsTheBaseThroughTheOverlapPath(t *testing.T) {
 			if (resolved.targetUnread != "") != c.wantUnread {
 				t.Fatalf("targetUnread = %q, want unread=%t", resolved.targetUnread, c.wantUnread)
 			}
-			if len(hosted.calls) != 1 {
-				t.Fatalf("hosted reads = %d, want one", len(hosted.calls))
-			}
-			args := strings.Join(hosted.calls[0].Args, " ")
-			if c.wantFields != "" && !strings.Contains(args, "--json "+c.wantFields) {
-				t.Fatalf("gh args = %q, want the supported field list %q", args, c.wantFields)
-			}
-			if strings.Contains(args, "baseRepository") {
-				t.Fatalf("gh args = %q, want no unsupported field", args)
+			if !slices.Equal(hosted.calls, []string{"repos/fpresta0607/no-mistakes/pulls/24"}) {
+				t.Fatalf("hosted reads = %v, want the one pull request read", hosted.calls)
 			}
 		})
 	}
@@ -176,12 +176,12 @@ func TestResolveTargetLeavesAnOrdinaryGoblinAlone(t *testing.T) {
 		body         string
 	}{
 		{name: "no pull request"},
-		{name: "a pull request of another branch", pullRequests: []string{"https://github.com/fpresta0607/no-mistakes/pull/24"}, body: `{"baseRefName":"main","headRefName":"another/branch"}`},
+		{name: "a pull request of another branch", pullRequests: []string{"https://github.com/fpresta0607/no-mistakes/pull/24"}, body: `{"base":{"ref":"main"},"head":{"ref":"another/branch"}}`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			hosted := &hostedRunner{inner: execx.OSRunner{}, body: c.body}
 			goblin := ciGoblin{id: "task", repo: worktree, branch: "fix/daemon", pullRequests: c.pullRequests, meta: state.TaskMeta{ID: "task", Worktree: worktree}}
-			resolved := resolveTarget(context.Background(), hosted, goblin)
+			resolved := resolveTarget(context.Background(), hosted, githubtest.Client(hosted), goblin)
 			if resolved.target != "" || resolved.targetUnread != "" {
 				t.Fatalf("target = %q unread = %q, want nothing resolved", resolved.target, resolved.targetUnread)
 			}
@@ -189,8 +189,8 @@ func TestResolveTargetLeavesAnOrdinaryGoblinAlone(t *testing.T) {
 	}
 }
 
-// A recorded GitHub backoff holds the base read: the guarded runner refuses it
-// before it reaches gh, and a refusal it does meet records the backoff.
+// A recorded GitHub backoff holds the base read: the guarded client refuses it
+// before it reaches GitHub, and a refusal it does meet records the backoff.
 func TestTheBaseReadRespectsAndRecordsGitHubBackoff(t *testing.T) {
 	worktree := forkCheckout(t)
 	goblin := ciGoblin{id: "task", repo: worktree, branch: "fix/daemon", pullRequests: []string{"https://github.com/fpresta0607/no-mistakes/pull/24"}, meta: state.TaskMeta{ID: "task", Worktree: worktree}}
@@ -199,11 +199,11 @@ func TestTheBaseReadRespectsAndRecordsGitHubBackoff(t *testing.T) {
 
 	t.Run("a recorded backoff stops the read", func(t *testing.T) {
 		w := &fleetWakes{BackOff: map[string]time.Time{goblinRepo: now.Add(time.Hour)}}
-		hosted := &hostedRunner{inner: execx.OSRunner{}, body: `{"baseRefName":"main","headRefName":"fix/daemon"}`}
-		runner := githubPollRunner{commands: hosted, state: w, repo: goblinRepo, now: func() time.Time { return now }}
-		resolved := resolveTarget(context.Background(), runner, goblin)
+		hosted := &hostedRunner{inner: execx.OSRunner{}, body: `{"base":{"ref":"main"},"head":{"ref":"fix/daemon"}}`}
+		github := githubtest.Client(hosted).Guarded(githubHold{state: w, repo: goblinRepo, now: func() time.Time { return now }})
+		resolved := resolveTarget(context.Background(), hosted, github, goblin)
 		if len(hosted.calls) != 0 {
-			t.Fatalf("the base read reached gh during a recorded backoff: %v", hosted.calls)
+			t.Fatalf("the base read reached GitHub during a recorded backoff: %v", hosted.calls)
 		}
 		if resolved.target != "" {
 			t.Fatalf("target = %q, want nothing resolved during backoff", resolved.target)
@@ -212,9 +212,9 @@ func TestTheBaseReadRespectsAndRecordsGitHubBackoff(t *testing.T) {
 
 	t.Run("a refusal records the backoff", func(t *testing.T) {
 		w := &fleetWakes{}
-		hosted := &hostedRunner{inner: execx.OSRunner{}, stderr: "HTTP 403: rate limit exceeded", code: 1}
-		runner := githubPollRunner{commands: hosted, state: w, repo: goblinRepo, now: func() time.Time { return now }}
-		resolveTarget(context.Background(), runner, goblin)
+		hosted := &hostedRunner{inner: execx.OSRunner{}, status: http.StatusForbidden}
+		github := githubtest.Client(hosted).Guarded(githubHold{state: w, repo: goblinRepo, now: func() time.Time { return now }})
+		resolveTarget(context.Background(), hosted, github, goblin)
 		if len(hosted.calls) != 1 {
 			t.Fatalf("hosted reads = %d, want the one refused read", len(hosted.calls))
 		}
@@ -300,7 +300,7 @@ func TestAMovedBranchIsReResolvedBeforeItsAreaIsRead(t *testing.T) {
 			service := &Service{}
 
 			// Act
-			paths, branch, err := service.areaBranchPaths(context.Background(), runner, goblin)
+			paths, branch, err := service.areaBranchPaths(context.Background(), runner, githubtest.Client(runner), goblin)
 
 			// Assert
 			if c.wantMoving {
@@ -335,21 +335,23 @@ func writeFixtureFile(t *testing.T, dir, rel, body string) {
 }
 
 // movingBranchRunner moves the branch as the first read ends, or answers with
-// another branch from the start.
+// another branch from the start, and GitHub's API (ServeHTTP) names each pull
+// request's own base and head branch.
 type movingBranchRunner struct {
 	inner execx.Runner
 	when  string
 	reads int
 }
 
-func (r *movingBranchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
-	if req.Name == "gh" && len(req.Args) >= 2 && req.Args[0] == "pr" && req.Args[1] == "view" {
-		// Each pull request names its own base and head branch.
-		if strings.Contains(req.Args[2], "/pull/25") {
-			return execx.Result{Stdout: []byte(`{"baseRefName":"other-base","headRefName":"another/branch"}`)}, nil
-		}
-		return execx.Result{Stdout: []byte(`{"baseRefName":"main","headRefName":"fix/daemon"}`)}, nil
+func (r *movingBranchRunner) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if strings.HasSuffix(req.URL.Path, "/pulls/25") {
+		_, _ = w.Write([]byte(`{"base":{"ref":"other-base"},"head":{"ref":"another/branch"}}`))
+		return
 	}
+	_, _ = w.Write([]byte(`{"base":{"ref":"main"},"head":{"ref":"fix/daemon"}}`))
+}
+
+func (r *movingBranchRunner) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
 	if req.Name == "git" && len(req.Args) == 2 && req.Args[0] == "branch" && req.Args[1] == "--show-current" {
 		r.reads++
 		switch {
@@ -399,7 +401,7 @@ func TestAFailedRemoteReadIsUnreadRatherThanMeasuredAgainstTheDefault(t *testing
 			service := &Service{}
 
 			// Act
-			_, _, err := service.areaBranchPaths(context.Background(), runner, goblin)
+			_, _, err := service.areaBranchPaths(context.Background(), runner, githubtest.Client(http.NotFoundHandler()), goblin)
 
 			// Assert
 			if c.wantErr {

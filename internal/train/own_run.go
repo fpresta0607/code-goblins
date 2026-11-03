@@ -2,7 +2,6 @@ package train
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -38,22 +37,18 @@ const maxJobsRead = 3
 // base as GitHub would land it now: the pages of the workflow runs behind its
 // checks, and the merge commit they tested, which the checkout then holds.
 func (e Engine) ownRun(ctx context.Context, t Train, car Car, base string) (proof, merge string, checks Checks) {
-	out, err := e.run(ctx, t.Checkout, "gh", "pr", "view", car.URL, "--json", "headRefOid,statusCheckRollup")
-	if err != nil {
+	read, cancel := context.WithTimeout(ctx, callWithin)
+	view, err := viewPullRequest(read, e.GitHub, car.URL)
+	cancel()
+	if err != nil || view.HeadRefOid != car.Head {
 		return "", "", nil
 	}
-	var view struct {
-		HeadRefOid string `json:"headRefOid"`
-		Checks     Checks `json:"statusCheckRollup"`
-	}
-	if json.Unmarshal([]byte(out), &view) != nil || view.HeadRefOid != car.Head {
-		return "", "", nil
-	}
-	if outcome, _ := checksOutcome(view.Checks); outcome != "passed" {
+	viewed := view.Checks()
+	if outcome, _ := checksOutcome(viewed); outcome != "passed" {
 		return "", "", nil
 	}
 	var runs []string
-	for _, check := range view.Checks {
+	for _, check := range viewed {
 		found := actionsRun.FindStringSubmatch(check.link())
 		if check.Kind != "CheckRun" || found == nil {
 			return "", "", nil
@@ -86,7 +81,7 @@ func (e Engine) ownRun(ctx context.Context, t Train, car Car, base string) (proo
 		}
 		pages = append(pages, "https://github.com/"+t.Repository+"/actions/runs/"+id)
 	}
-	return strings.Join(pages, ", "), merge, view.Checks
+	return strings.Join(pages, ", "), merge, viewed
 }
 
 // StandsOnOwnRun says whether car, riding a train alone onto repo's base as
@@ -110,18 +105,14 @@ func (e Engine) StandsOnOwnRun(ctx context.Context, repo Repository, car Car) bo
 // run id checked out, from the log of the first of its jobs that passed and
 // fetched one, among the first maxJobsRead.
 func (e Engine) checkedOut(ctx context.Context, t Train, id string, number int) (string, error) {
-	out, err := e.run(ctx, t.Checkout, "gh", "api", fmt.Sprintf("repos/%s/actions/runs/%s/jobs?per_page=100", t.Repository, id))
-	if err != nil {
-		return "", err
-	}
 	var listed struct {
 		Jobs []struct {
 			ID         int64  `json:"id"`
 			Conclusion string `json:"conclusion"`
 		} `json:"jobs"`
 	}
-	if err := json.Unmarshal([]byte(out), &listed); err != nil {
-		return "", fmt.Errorf("gh listed the jobs of workflow run %s in a shape it cannot read: %w", id, err)
+	if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/runs/%s/jobs?per_page=100", t.Repository, id), &listed); err != nil {
+		return "", fmt.Errorf("list the jobs of workflow run %s: %w", id, err)
 	}
 	read := 0
 	for _, job := range listed.Jobs {
@@ -131,18 +122,18 @@ func (e Engine) checkedOut(ctx context.Context, t Train, id string, number int) 
 		if read++; read > maxJobsRead {
 			break
 		}
-		log, err := e.run(ctx, t.Checkout, "gh", "api", fmt.Sprintf("repos/%s/actions/jobs/%d/logs", t.Repository, job.ID))
+		log, err := e.ask(ctx, fmt.Sprintf("repos/%s/actions/jobs/%d/logs", t.Repository, job.ID))
 		if err != nil {
 			return "", err
 		}
-		found := pullMergeFetched.FindStringSubmatch(log)
+		found := pullMergeFetched.FindSubmatch(log)
 		if found == nil {
 			continue
 		}
-		if found[2] != strconv.Itoa(number) {
+		if string(found[2]) != strconv.Itoa(number) {
 			return "", fmt.Errorf("workflow run %s checked out the merge of pull request #%s, not #%d", id, found[2], number)
 		}
-		return found[1], nil
+		return string(found[1]), nil
 	}
 	return "", fmt.Errorf("no log of workflow run %s names the merge commit it checked out", id)
 }

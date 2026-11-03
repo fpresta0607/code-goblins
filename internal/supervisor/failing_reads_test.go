@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
@@ -59,10 +61,14 @@ func (forge *timedOutTrainOrigin) Run(ctx context.Context, request execx.Request
 			return execx.Result{}, context.DeadlineExceeded
 		}
 	}
-	if strings.HasPrefix(command, "gh pr list") {
-		forge.hasListed = true
-	}
 	return forge.fakeForge.Run(ctx, request)
+}
+
+// ServeHTTP answers GitHub's API as the forge does: once the poll read
+// GitHub, the next read of the origin is the merge train's.
+func (forge *timedOutTrainOrigin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	forge.hasListed = true
+	forge.fakeForge.ServeHTTP(w, r)
 }
 
 // failedBefore records that each read failed on every pass a read that keeps
@@ -123,13 +129,16 @@ func TestAReadThatFailedWakesTheCFOOnlyOnceItKeepsFailing(t *testing.T) {
 			forge := forgeFor(h.Root, "ci-task")
 			forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
 			service.Options.CI = timedOutOrigin{fakeForge: forge, isTimingOut: isTimingOut}
+			service.Options.GitHub = githubtest.Client(forge)
 			return "ci wakes: read the origin of " + filepath.Clean(h.Root) + ": context deadline exceeded"
 		}},
 		{"the origin a merge train reads of a repository a goblin works in", func(t *testing.T, h home.Home, service *Service, isTimingOut *bool) string {
 			liveGoblin(t, h, "train-task", h.Root)
 			forge := forgeFor(h.Root, "train-task")
 			forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
-			service.Options.CI = &timedOutTrainOrigin{fakeForge: forge, isTimingOut: isTimingOut}
+			origin := &timedOutTrainOrigin{fakeForge: forge, isTimingOut: isTimingOut}
+			service.Options.CI = origin
+			service.Options.GitHub = githubtest.Client(origin)
 			return "merge train: read the origin of " + filepath.Clean(h.Root) + ": context deadline exceeded"
 		}},
 	}
