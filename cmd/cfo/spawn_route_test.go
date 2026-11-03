@@ -45,7 +45,7 @@ func routedRuntime(t *testing.T, routingJSON string) (home.Home, commandRuntime)
 func briefWith(t *testing.T, task string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "brief.md")
-	body := "# Brief g\n\n## Task\n\n" + task + "\n\n## Delivery\n\nkind: ship\nmode: direct-PR\n"
+	body := strings.ReplaceAll(strings.ReplaceAll(completedCommandBrief, "do the work", task), "mode: no-mistakes", "mode: direct-PR\nkind: ship")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -399,7 +399,7 @@ func TestRunSpawnWritesTheManifestCapsuleAndDispatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	brief := filepath.Join(fixture.home.Root, "g-fresh1.brief.md")
-	if err := os.WriteFile(brief, []byte("Add a dark-mode toggle to the settings page.\n\nDelivery contract: mode=local-only\n"), 0o644); err != nil {
+	if err := os.WriteFile(brief, []byte(strings.ReplaceAll(strings.ReplaceAll(completedCommandBrief, "do the work", "Add a dark-mode toggle to the settings page."), "mode: no-mistakes", "mode: local-only")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

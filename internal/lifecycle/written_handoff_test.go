@@ -119,20 +119,23 @@ func TestWrittenHandoffSaysWhereTheTaskStands(t *testing.T) {
 			if test.isWaiting {
 				waiting, stopWaiting := context.WithCancel(t.Context())
 				waited := make(chan struct{})
+				waitingRun := "go build ./... in the worktree, task Zora (task)"
 				go func() {
 					defer close(waited)
-					if turn, err := (verify.Admission{Dir: filepath.Join(store, "slots"), Available: func() (uint64, error) { return 16 << 30, nil }, Who: "go build ./... in the worktree, task Zora (task)", Budget: time.Hour, Limit: time.Minute, Poll: 5 * time.Millisecond}).Wait(waiting); err == nil {
+					if turn, err := (verify.Admission{Dir: filepath.Join(store, "slots"), Available: func() (uint64, error) { return 16 << 30, nil }, Who: waitingRun, Budget: time.Hour, Limit: time.Minute, Poll: 5 * time.Millisecond}).Wait(waiting); err == nil {
 						t.Error("the second run took the turn the first holds")
 						_ = turn.Release()
 					}
 				}()
 				t.Cleanup(func() { stopWaiting(); <-waited })
+				// A run joins the line before it writes the card that names
+				// it, so the line counts it before it can be read by name.
 				for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-					if _, line, err := verify.MachineLine(); err == nil && len(line) == 1 {
+					if _, line, err := verify.MachineLine(); err == nil && len(line) == 1 && line[0].Who == waitingRun {
 						break
 					}
 					if time.Now().After(deadline) {
-						t.Fatal("the second run never joined the line")
+						t.Fatal("the second run never joined the line under its name")
 					}
 				}
 			}

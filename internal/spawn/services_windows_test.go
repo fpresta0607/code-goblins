@@ -14,7 +14,7 @@ func TestSpawnTellsAGoblinWhoseBriefNeedsServicesTheCommandToRun(t *testing.T) {
 	// Arrange
 	f := newQuickFixture(t)
 	closeTerminalAtEnd(t, f.stateDir, f.request.ID)
-	writeFile(t, f.brief, "Delivery contract: mode=no-mistakes\nDo the work.\n\n## Delivery\n\nkind: ship\nservices: needed\n")
+	writeFile(t, f.brief, completedSpawnBrief+"services: needed\n")
 	manifest := filepath.Join(f.dataDir, "projects", "primary", "services.json")
 	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
 		t.Fatal(err)

@@ -24,7 +24,7 @@ func TestAnUndispatchedRootWithoutVerifiedIdentityNeverReachesSpawn(t *testing.T
 	spawner := &spawnRecorder{}
 	handler, h := startBoard(t, 8*gigabyte, spawner)
 	id := "root-widgets-7"
-	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7)))
+	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7), nil))
 
 	// Act: the real fleet reading discovers and schedules briefs.
 	err := handler.Service.checkFleet(t.Context(), time.Now().UTC())
@@ -221,7 +221,7 @@ func TestRootVerificationRechecksChangedEvidenceAndExpiresFailedReads(t *testing
 	if notices := fleetWakeRecords(t, h, "notify"); len(notices) != 1 {
 		t.Fatalf("repeated notices: %v", notices)
 	}
-	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8)))
+	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8), nil))
 	err := service.startQueued("root-widgets-7", true)
 	if err == nil || !strings.Contains(err.Error(), "identities disagree") {
 		t.Fatalf("changed brief reused cached state: %v", err)
@@ -233,7 +233,7 @@ func TestRootStartUsesATicketWhenNoPickupOrGeneratedBriefRemains(t *testing.T) {
 	if err := os.Remove(filepath.Join(h.State, rootPickupsFile)); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), "## Project\nwidgets\n## Task\nResolve the root.\n")
+	writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), strings.ReplaceAll(plainBrief, "C:\\dev\\code-goblins", "widgets"))
 	writeFile(t, filepath.Join(h.Data, "backlog.md"), "## Queued\n- [ ] root-widgets-7 - Resolve the root (repo: widgets)\n")
 	if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "root-widgets-7", Repository: rootRepository, Number: 7, IsClaimed: true}); err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func rootStartBoard(t *testing.T, issueState string, issueErr error) (*Service, 
 		ClosingPullRequests: func(context.Context, string, int) ([]string, error) { return nil, nil },
 	}
 	id := "root-widgets-7"
-	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7)))
+	writeFile(t, filepath.Join(h.Data, id, "brief.md"), rootBrief("widgets", id, rootIssue(7), nil))
 	if err := writeRootPickups(h.State, []rootPickup{{Task: id, Repository: rootRepository, Number: 7, At: rootNow}}); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestIndependentRootReaderRequiresCurrentTypedClosure(t *testing.T) {
 			}
 		}},
 		{name: "brief changes", change: func(t *testing.T, h home.Home, _ *fleetWakes) {
-			writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8)))
+			writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8), nil))
 		}},
 		{name: "matching ticket added", change: func(t *testing.T, h home.Home, _ *fleetWakes) {
 			if err := tickets.WriteRecord(h.State, tickets.Record{TaskID: "root-widgets-7", Repository: rootRepository, Number: 7}); err != nil {
@@ -612,7 +612,7 @@ func TestClosedRootEvidenceRechecksLocalIdentityAndOwnership(t *testing.T) {
 			service.Options.RootIssues.Repository = func(context.Context, string) (string, error) { return "", errors.New("cannot read origin") }
 		}},
 		{name: "brief changes", want: "identities disagree", change: func(t *testing.T, _ *Service, h home.Home) {
-			writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8)))
+			writeFile(t, filepath.Join(h.Data, "root-widgets-7", "brief.md"), rootBrief("widgets", "root-widgets-7", rootIssue(8), nil))
 		}},
 		{name: "pickup changes", want: "identities disagree", change: func(t *testing.T, _ *Service, h home.Home) {
 			if err := writeRootPickups(h.State, []rootPickup{{Task: "root-widgets-7", Repository: rootRepository, Number: 8, At: rootNow}}); err != nil {
