@@ -77,7 +77,7 @@ export const MessageRow = memo(function MessageRow({ message, task, harness, pic
       ? <div key={part.at} className="message-steps">{part.calls.map((call, at) => <MessageCall key={at} call={call} task={task} picture={picture} onChild={onChild} {...fold("call:" + part.at + ":" + at)} />)}</div>
       : part.kind === "text" ? <MessageText key={part.at} text={part.text} />
         : <Disclosure key={part.at} {...fold("thinking:" + part.at)} kind="disclosure-line message-thinking" title={<><span className="thinking-label">Thinking</span><span className="thinking-preview">{inlineElements(part.text.trim().split("\n")[0])}</span></>}>
-          <MessageText text={part.text} />
+          <MessageText text={part.text} isThinking />
         </Disclosure>)}
     {isTurnEnd && (copy || when) && <div className="message-reply-actions">
       {when && <time dateTime={message.at}>{when}</time>}

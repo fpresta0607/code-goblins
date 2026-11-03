@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -395,8 +396,8 @@ var apiRequest = []byte(`{"type":"api-request`)
 // A first read of a conversation longer than reach, when reach is not 0,
 // begins at the first entry of its last reach bytes, and the whole
 // conversation is read beside it. The caller holds l.mu.
-func (l *messageLog) update(epoch func() uint64, reach int64) error {
-	file, err := fsx.Open(l.path)
+func (l *messageLog) update(ctx context.Context, epoch func() uint64, reach int64) error {
+	file, err := fsx.OpenContext(ctx, l.path)
 	if err != nil {
 		return err
 	}
@@ -415,11 +416,15 @@ func (l *messageLog) update(epoch func() uint64, reach int64) error {
 		l.read = l.from
 		l.readWhole(epoch)
 	}
-	l.read, err = readOn(file, l.read, info.Size(), func(start int64, lines [][]byte) {
+	l.read, err = readOn(ctx, file, l.read, info.Size(), func(start int64, lines [][]byte) (int64, error) {
 		for _, line := range lines {
+			if err := ctx.Err(); err != nil {
+				return start, err
+			}
 			l.entry(line, start)
 			start += int64(len(line)) + 1
 		}
+		return start, nil
 	})
 	return err
 }
@@ -453,7 +458,7 @@ func (l *messageLog) readWhole(epoch func() uint64) {
 		defer close(done)
 		whole := &messageLog{path: l.path}
 		whole.reset(0)
-		err := whole.update(epoch, 0)
+		err := whole.update(context.Background(), epoch, 0)
 		l.mu.Lock()
 		defer l.mu.Unlock()
 		if l.epoch != tail {
@@ -461,7 +466,7 @@ func (l *messageLog) readWhole(epoch func() uint64) {
 		}
 		if err == nil {
 			// Read on to what was written while the whole was read.
-			err = whole.update(epoch, 0)
+			err = whole.update(context.Background(), epoch, 0)
 		}
 		if err != nil {
 			l.wholeErr = err
@@ -1029,15 +1034,37 @@ func shared(message Message) Message {
 // and only those.
 const messageLogIdle = 5 * time.Minute
 
+func lockMessages(ctx context.Context, mutex *sync.Mutex) error {
+	if ctx.Done() == nil {
+		mutex.Lock()
+		return nil
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if mutex.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
 // messageLog is the log of the conversation at path, read on to its end, with
 // its mu held for the caller to unlock.
-func (r *Reader) messageLog(path string) (*messageLog, error) {
+func (r *Reader) messageLog(ctx context.Context, path string, reach int64) (*messageLog, error) {
 	now := time.Now()
 	if r.Now != nil {
 		now = r.Now()
 	}
 	epoch := func() uint64 { return r.messageEpoch.Add(1) }
-	r.messagesMu.Lock()
+	if err := lockMessages(ctx, &r.messagesMu); err != nil {
+		return nil, err
+	}
 	if r.messageLogs == nil {
 		r.messageLogs = map[string]*messageLog{}
 	}
@@ -1050,10 +1077,17 @@ func (r *Reader) messageLog(path string) (*messageLog, error) {
 	log.asked = now
 	r.forgetIdleMessages(now)
 	r.messagesMu.Unlock()
-	log.mu.Lock()
-	if err := log.update(epoch, messageTailReach); err != nil {
+	if err := lockMessages(ctx, &log.mu); err != nil {
+		return nil, err
+	}
+	if err := log.update(ctx, epoch, reach); err != nil {
 		log.mu.Unlock()
-		r.messagesMu.Lock()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		if lockErr := lockMessages(ctx, &r.messagesMu); lockErr != nil {
+			return nil, lockErr
+		}
 		if r.messageLogs[path] == log {
 			delete(r.messageLogs, path)
 		}
@@ -1079,43 +1113,68 @@ func (r *Reader) forgetIdleMessages(now time.Time) {
 // Claude Code conversation, a pi session or a Codex rollout, each read by its
 // own harness's entries.
 func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCursor, error) {
+	return r.messagePage(context.Background(), path, before, messageTailReach)
+}
+
+func (r *Reader) MessagePageContext(ctx context.Context, path string, before int) (MessagePage, MessageCursor, error) {
+	return r.messagePage(ctx, path, before, 0)
+}
+
+func (r *Reader) messagePage(ctx context.Context, path string, before int, reach int64) (MessagePage, MessageCursor, error) {
 	if isPiSession(path) {
-		log, err := r.piLog(path)
+		log, err := r.piLog(ctx, path)
 		if err != nil {
 			return MessagePage{}, MessageCursor{}, err
 		}
 		defer log.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
 		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
 	}
 	if isCodexRollout(path) {
-		log, err := r.codexLog(path)
+		log, err := r.codexLog(ctx, path)
 		if err != nil {
 			return MessagePage{}, MessageCursor{}, err
 		}
 		defer log.mu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
 		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
 	}
-	log, err := r.messageLog(path)
+	log, err := r.messageLog(ctx, path, reach)
 	if err != nil {
 		return MessagePage{}, MessageCursor{}, err
 	}
-	defer log.mu.Unlock()
 	// A page that reaches the first message of a read of the conversation's
 	// tail waits for the whole of it, which a failed read of the whole
 	// starts once more.
 	isRetried := false
-	for before >= 0 && log.from > 0 && log.end(before) <= MessagesPerPage {
+	for log.from > 0 && (reach == 0 || before >= 0 && log.end(before) <= MessagesPerPage) {
 		if log.wholeErr != nil {
 			if isRetried {
-				return MessagePage{}, MessageCursor{}, log.wholeErr
+				err := log.wholeErr
+				log.mu.Unlock()
+				return MessagePage{}, MessageCursor{}, err
 			}
 			log.readWhole(func() uint64 { return r.messageEpoch.Add(1) })
 			isRetried = true
 		}
 		whole := log.whole
 		log.mu.Unlock()
-		<-whole
-		log.mu.Lock()
+		select {
+		case <-ctx.Done():
+			return MessagePage{}, MessageCursor{}, ctx.Err()
+		case <-whole:
+		}
+		if err := lockMessages(ctx, &log.mu); err != nil {
+			return MessagePage{}, MessageCursor{}, err
+		}
+	}
+	defer log.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return MessagePage{}, MessageCursor{}, err
 	}
 	return log.page(before), MessageCursor{log.epoch, log.revision}, nil
 }
@@ -1127,7 +1186,7 @@ func (r *Reader) MessagePage(path string, before int) (MessagePage, MessageCurso
 // reader takes a page again.
 func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Message, now MessageCursor, isAnew bool, err error) {
 	if isPiSession(path) {
-		log, err := r.piLog(path)
+		log, err := r.piLog(context.Background(), path)
 		if err != nil {
 			return nil, MessageCursor{}, false, err
 		}
@@ -1136,7 +1195,7 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		return messages, now, isAnew, nil
 	}
 	if isCodexRollout(path) {
-		log, err := r.codexLog(path)
+		log, err := r.codexLog(context.Background(), path)
 		if err != nil {
 			return nil, MessageCursor{}, false, err
 		}
@@ -1144,7 +1203,7 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		messages, now, isAnew = log.since(cursor)
 		return messages, now, isAnew, nil
 	}
-	log, err := r.messageLog(path)
+	log, err := r.messageLog(context.Background(), path, messageTailReach)
 	if err != nil {
 		return nil, MessageCursor{}, false, err
 	}

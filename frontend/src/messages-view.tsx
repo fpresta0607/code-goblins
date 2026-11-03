@@ -4,6 +4,7 @@ import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
+import { MessageDocumentScope } from "./message-document-scope";
 import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
 import { takesMessages } from "./messages";
 import { Notice } from "./notice";
@@ -449,7 +450,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
-  return <section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
+  return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
     {phase === "connecting" && <p className="terminal-connecting" role="status"><span className="terminal-spinner" aria-hidden="true" />Connecting to the messages</p>}
@@ -502,7 +503,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           dither or usage unavailable"). */}
       {box?.(held.usage?.model || model, history, held.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
     </div>}
-  </section>;
+  </section></MessageDocumentScope>;
 }
 
 // sameWords says two texts hold the same words, however a harness wrapped or
