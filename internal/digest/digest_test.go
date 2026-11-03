@@ -83,6 +83,7 @@ func assertHeaderOrder(t *testing.T, output string, headers []string) {
 var sectionHeaders = []string{
 	"== SESSION LOCK ==",
 	"== WAKE QUEUE ==",
+	"== WAITING ON THE CFO ==",
 	"== SUPERVISION OPERATING INSTRUCTIONS ==",
 	"== READ-ONCE CONTRACT ==",
 	"== FLEET STATE ==",

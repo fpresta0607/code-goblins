@@ -3,6 +3,7 @@ package digest
 import (
 	"bytes"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,11 +133,15 @@ func WriteCheckpoint(h home.Home, now time.Time) error {
 			ew.printf("%s %s\n", record.Key, question)
 		}
 	}
+	waits, waitsErr := supervisor.CFOWaits(h)
 	if wakeErr != nil {
 		ew.printf("wake queue: UNREADABLE (%s)\n", wakeErr)
-	} else if !hasQuestion {
+	} else if !hasQuestion && len(waits) == 0 && waitsErr == nil {
 		ew.println("No goblin waits on your answer.")
 	}
+
+	ew.println("")
+	writeCFOWaits(waits, waitsErr, now, math.MaxInt, math.MaxInt, ew)
 
 	ew.println("\n== OWED ==")
 	if wakeErr != nil {
