@@ -260,7 +260,7 @@ func (s *Service) startQueued(id string, isOverlord bool) error {
 		cancel()
 		if err != nil {
 			problem := *plan.root
-			problem.problem = bounded(err.Error(), 500)
+			problem.Problem = bounded(err.Error(), 500)
 			reason := problem.refusal()
 			s.keepRootStart(*plan.root, "identity", reason)
 			return StartRefusal{Reason: reason, Waits: true}
@@ -446,15 +446,15 @@ func planStart(h home.Home, id string, finished *finishedWork, reading rowReadin
 	if root := rootForStart(h, queued, plan); root != nil {
 		plan.isRoot = true
 		plan.root = root
-		reason := "Root issue awaits verification of its recorded identity"
-		if root.problem != "" {
-			reason = root.refusal()
+		refusal := StartRefusal{Reason: "Root issue awaits verification of its recorded identity", Waits: true}
+		if root.Problem != "" {
+			refusal.Reason = root.refusal()
 		}
 		if reading.root != nil {
-			reason = reading.root(*root)
+			refusal = reading.root(*root)
 		}
-		if reason != "" {
-			return startPlan{}, StartRefusal{Reason: reason, Waits: true}
+		if refusal.Reason != "" {
+			return startPlan{}, refusal
 		}
 	}
 	settings := queuedEngine(row, parseBriefSettings(briefLines))

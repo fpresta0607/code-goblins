@@ -596,6 +596,11 @@ func TestNotifyKeepsDetailsAfterTheChoicesOutOfThem(t *testing.T) {
 			[]string{"Which timeout should the gate keep?", "The gate timed out twice at 300 s."},
 			[]string{"Re-run the gate (Recommended)", "Keep 300 s - for now"},
 		},
+		"evidence after a Details line": {
+			"Fix the three review findings now? options: Fix them now (Recommended) | Keep it parked\n- **Recommended: fix them now.** CI could pass without running a test.\nDetails:\n- registry-parser-divergence | error | tools/select_tests.py:279\n- run 01M6EASKNZ3NNDFC6PWCBFHY7R",
+			[]string{"Recommended: fix them now.", "Details:", "registry-parser-divergence | error | tools/select_tests.py:279", "run 01M6EASKNZ3NNDFC6PWCBFHY7R"},
+			[]string{"Fix them now (Recommended)", "Keep it parked"},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange

@@ -1023,6 +1023,7 @@ func TestNotifyInstructionTeachesWorkingAndWaitingReports(t *testing.T) {
 		"lead with one short sentence that is the actual question",
 		"lines of their own that start with \"- \"",
 		"mark with **two asterisks** only the verdict or the blocking item",
+		"those lines say in plain words what you recommend and why and what each choice does, and run IDs, finding codes, paths and other evidence go after a line that reads only Details:, which the board folds away",
 		"the Overlord personally (his sign-in, his click, his page)",
 		"a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CFO alone",
 		"a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options",
