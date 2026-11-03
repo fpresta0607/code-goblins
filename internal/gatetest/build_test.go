@@ -1,10 +1,68 @@
 package gatetest
 
 import (
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestFastPlanRunsRequiredGuardsWithoutRepeatingWholePackageTests(t *testing.T) {
+	for _, test := range []struct {
+		level      Level
+		isSlow     bool
+		wantGuards int
+	}{
+		{Fast, true, 1}, {Fast, false, 0}, {Affected, true, 0}, {Full, true, 0},
+	} {
+		// Arrange
+		found := branch("a/a.go")
+		slow := "[]"
+		if test.isSlow {
+			slow = `["a"]`
+		}
+		found.policy = `{"version":1,"slow_packages":` + slow + `,"guards":[{"package":"a","tests":["TestRequiredGuard"],"why":"required whole-tree contract"}]}`
+		found.hasPolicy = true
+
+		// Act
+		plan := build(found, test.level)
+
+		// Assert
+		if len(plan.Guards) != test.wantGuards {
+			t.Fatalf("level=%s slow=%t guards=%+v", test.level, test.isSlow, plan.Guards)
+		}
+		if len(plan.Guards) > 0 && !slices.Contains(plan.Guards[0].Command, "^(TestRequiredGuard)$") {
+			t.Fatalf("guard runs a whole slow package: %q", plan.Guards[0].Command)
+		}
+	}
+}
+
+func TestPlansNameAnOffPlatformGuardAsDeferred(t *testing.T) {
+	// Arrange
+	targetPlatform := "windows"
+	if runtime.GOOS == "windows" {
+		targetPlatform = "linux"
+	}
+	found := branch("a/a.go")
+	found.hasPolicy = true
+	found.policy = `{"version":1,"guards":[{"package":"c","tests":["TestPlatformGuard"],"goos":"` + targetPlatform + `","why":"platform contract"}]}`
+
+	// Act
+	plan := build(found, Fast)
+	pick := push(found, nil)
+
+	// Assert
+	for _, deferred := range [][]Deferred{plan.Left, pick.Left} {
+		if !slices.ContainsFunc(deferred, func(left Deferred) bool {
+			return strings.Contains(left.Why, "requires "+targetPlatform+"; this run is "+runtime.GOOS)
+		}) {
+			t.Fatalf("guard was not named as deferred: %+v", deferred)
+		}
+	}
+	if len(plan.Guards) != 0 || slices.ContainsFunc(pick.Steps, func(step Step) bool { return slices.Contains(step.Command, "^(TestPlatformGuard)$") }) {
+		t.Fatal("plan claims to execute an off-platform guard")
+	}
+}
 
 // branch is what git and go say about a branch that changed the given files
 // in a module with a leaf package a, a package b that imports it and a

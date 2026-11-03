@@ -17,7 +17,8 @@ type Policy struct {
 	Version int `json:"version"`
 	// SlowPackages are the directories, from the repository root with forward
 	// slashes and . for the root, of the packages whose tests take minutes:
-	// the fast level vets them and leaves their tests to the affected level.
+	// the fast level vets them and leaves their tests, but for their guards,
+	// to the affected level.
 	SlowPackages []string `json:"slow_packages"`
 	// AlonePackages are directories, as SlowPackages names them, whose tests
 	// run after the others' in a turn of their own, one package at a time,
@@ -30,19 +31,21 @@ type Policy struct {
 	// for is unknown, which requires the full level.
 	Contracts []Contract `json:"contracts"`
 	Outside   []Outside  `json:"outside"`
-	// Guards name the tests that read the whole tree, which a push runs
-	// whatever it changed.
+	// Guards name the tests that read the whole tree, which a push and every
+	// level of the gate's test step run whatever it changed.
 	Guards []Guard `json:"guards"`
 }
 
 // Guard says that Tests of Package read the whole repository, as a test that
 // reads every command or every link does, so a change anywhere can fail
 // them. Package is a directory as SlowPackages names one, and no Tests means
-// every test of it.
+// every test of it. A GOOS limits the guard to that operating system, and any
+// other defers it rather than claim it ran.
 type Guard struct {
 	Package string   `json:"package"`
 	Tests   []string `json:"tests"`
 	Why     string   `json:"why"`
+	GOOS    string   `json:"goos,omitempty"`
 }
 
 // Contract says that the tests of Packages read the files Paths name, so a

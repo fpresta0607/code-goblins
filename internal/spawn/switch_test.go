@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lifecycle"
+	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -214,6 +215,56 @@ func TestAResumeInPlaceTellsTheGoblinItsNote(t *testing.T) {
 	}
 	if instruction := delivered(t, submitted[0]); !strings.Contains(instruction, "Your session was restarted") || !strings.HasSuffix(strings.TrimSpace(instruction), note) {
 		t.Errorf("instruction = %q, want the resumed session's instruction ending with the note", instruction)
+	}
+}
+
+// A goblin relaunched on another harness, by a handoff to a fresh session or
+// on its own session, is told again to follow its frozen delivery selection
+// and to leave its ask-user findings to the CFO.
+func TestARelaunchKeepsTheFrozenDeliveryRule(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		control   harness.Control
+		isResumed bool
+	}{
+		{"handoff to a fresh session", harness.Control{StopCommand: "/exit"}, false},
+		{"its own session", harness.Control{StopCommand: "/exit", ResumeArgs: []string{"resume", "--last"}}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			f := newSwitchFixture(t, test.control)
+			receipt, hash, err := project.SelectDelivery(project.Manifest{}, "", "", "").Encode()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(f.meta.TaskTmp, "delivery.json"), []byte(receipt), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.meta.DeliveryHash = hash
+			if err := state.WriteTaskMeta(f.stateDir, f.meta); err != nil {
+				t.Fatal(err)
+			}
+			request := SwitchRequest{ID: f.meta.ID, Model: "gpt-9"}
+			if test.isResumed {
+				request.Generation, request.ResumeSession = f.meta.SpawnGen, "owned-session-7"
+			}
+
+			// Act
+			result, err := f.service.Switch(context.Background(), request)
+
+			// Assert
+			if err != nil || result.Resumed != test.isResumed {
+				t.Fatalf("result = %+v, %v; want resumed=%t", result, err, test.isResumed)
+			}
+			submitted := submittedLines(t, f.nativeFixture, 1)
+			if len(submitted) != 1 {
+				t.Fatalf("submitted = %q, want the relaunched harness's instruction", submitted)
+			}
+			instruction := delivered(t, submitted[0])
+			if !strings.Contains(instruction, "Your delivery mode is no-mistakes, frozen at "+filepath.Join(f.meta.TaskTmp, "delivery.json")) || !strings.Contains(instruction, "never decides its own ask-user finding") {
+				t.Errorf("instruction = %q, want the frozen delivery selection and the ask-user rule", instruction)
+			}
+		})
 	}
 }
 
