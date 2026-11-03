@@ -80,7 +80,8 @@ const (
 	RunFailed = "failed"
 	// RunMoved passed, but the base moved during it, so it was tested again.
 	RunMoved = "moved"
-	// RunChanged ended because its riders or base changed before landing.
+	// RunChanged ended because a rider changed before landing, including a
+	// selected head found already on the base.
 	RunChanged = "changed"
 	// RunRepushed was built again before CI decided it, as when GitHub never
 	// showed its push.
