@@ -141,6 +141,7 @@ The product does this by itself in every home, with no setting, and wakes you fo
   A task it starts by itself, a production defect included, joins the bottom of In progress, under every goblin the board lists, and only his Start puts one at the top.
   It starts or resumes a goblin by itself only while memory and commit, less the about 1 GB a new session takes, still meet the floor `cfo gate turns` shows for the next run of the machine's heavy line, so both test slots stay usable: the Supreme Overlord's rule of 2026-11-02, by free memory and no count of goblins (issue 1926).
   Short of that nothing starts, resumes or comes back after a restart by itself, a production defect included, though the CFO still comes back, `memory_ready` waits too, and the scheduler's line, `cfo gate turns` and the tip of the board's memory meter, whose fill stays amber, all say that the work waits to keep the test slots open.
+  A line that cannot be read holds nothing, and is said on the board once three readings in a row cannot read it.
   Every other choice between goblins follows his order too: the memory floor and the allowance floor pause the lowest first, and a restart brings the highest back first.
   Slots go by memory alone: no count of goblins holds a start back, however many run.
   Beyond that hold in the memory meter's tip, the board's meters say none of it in words: what it could not start reaches you as the `idle` wake below.
@@ -232,7 +233,7 @@ With goblin work kept to its cores those took 0.02, 0.07 and 0.17 seconds.
 The board shows disk free under memory and the kernel's pools, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CFO once with a `disk` wake, and again only after a reading back at or above the floor.
 The allowance floor is the percent of a measured weekly window the home keeps back, each provider's own as `config/fleet.json`'s `weekly_floor_percent` sets it and 5 percent where it sets none, which `cfo allowance-floor` reads and sets.
 At the floor the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
-The 4 GB memory floor pauses the newest live goblin not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB once a new session leaves the heavy line its next floor, whether or not [AFK mode](afk.md#afk-mode) is on.
+The 4 GB memory floor pauses the live goblin lowest in his In progress order not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB once a new session leaves the heavy line its next floor, whether or not [AFK mode](afk.md#afk-mode) is on.
 It passes over a goblin resumed from a memory pause in the last 10 minutes, and pauses one only when no other goblin may be paused.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 A session window that is used up, or a week used up under a floor of 0, is waited out rather than paused: until it renews, nothing starts or resumes on its harness, and when it renews one `allowance` wake names the goblins it stopped, since Claude Code goes on by itself only where its screen offered to; peek each and send an idle one on.
