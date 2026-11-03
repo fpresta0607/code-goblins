@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/devdrive"
 	"github.com/fpresta0607/code-goblins/internal/doctor"
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/harnessmap"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -75,7 +76,7 @@ func runDoctor(args []string, stdout, stderr io.Writer, runtime commandRuntime) 
 	}
 	releases, versions := reportHarnessVersions(stdout, probes)
 
-	querier := telemetry.Querier{Commands: execx.OSRunner{}, DBPath: telemetry.DefaultDBPath()}
+	querier := telemetry.Querier{Commands: gatedb.Runner{Next: execx.OSRunner{}}, DBPath: telemetry.DefaultDBPath()}
 	rows, note := querier.SpeedTable(context.Background())
 	if note != "" {
 		fmt.Fprintf(stdout, "telemetry: skipped (%s)\n", note)

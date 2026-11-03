@@ -16,6 +16,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -305,7 +306,7 @@ func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, run
 	if err != nil {
 		return gateTestBinding{}, err
 	}
-	reader := pipeline.Reader{Commands: execx.OSRunner{}}
+	reader := pipeline.Reader{Commands: gatedb.Runner{Next: execx.OSRunner{}}}
 	reader.Root, err = pipeline.DefaultRoot()
 	var project string
 	if err == nil {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
 	"github.com/fpresta0607/code-goblins/internal/reap"
@@ -38,7 +39,7 @@ func gateTask(root string, runtime commandRuntime) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	reader := pipeline.Reader{Root: filepath.Dir(worktrees), Commands: execx.OSRunner{}}
+	reader := pipeline.Reader{Root: filepath.Dir(worktrees), Commands: gatedb.Runner{Next: execx.OSRunner{}}}
 	source, err := reader.WorktreeSource(ctx, root)
 	if err != nil {
 		return "", err

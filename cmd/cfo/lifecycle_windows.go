@@ -11,6 +11,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
@@ -39,7 +40,7 @@ func defaultTaskLifecycle(ctx context.Context, h home.Home, request lifecycle.Re
 	if err != nil {
 		return state.Lifecycle{}, err
 	}
-	commands := execx.OSRunner{}
+	commands := gatedb.Runner{Next: execx.OSRunner{}}
 	gate := pipeline.Reader{Root: root, Commands: commands}
 	runtime := defaultCommandRuntime()
 	var resources lifecycle.Resources

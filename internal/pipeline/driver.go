@@ -42,17 +42,18 @@ func DefaultRoot() (string, error) {
 	return filepath.Join(dir, ".no-mistakes"), nil
 }
 
-// stateQueryTimeout bounds one read of the gate's database, so a wedged
-// sqlite3 cannot hold a command forever. A read takes tens of milliseconds on
-// an idle machine, but each one starts sqlite3, and a loaded machine has been
-// measured to take tens of seconds to start a program: a 5 s bound failed
-// `cfo pipeline recover` twice on 2026-10-20 while sqlite3 was installed and
-// the database readable (#1286).
+// stateQueryTimeout bounds one read of the gate's database, so a wedged read
+// cannot hold a command forever. The fleet's runners answer a read in process
+// (gatedb), in tens of milliseconds; a runner that starts sqlite3 for it
+// instead can take tens of seconds on a loaded machine just to start the
+// program: a 5 s bound failed `cfo pipeline recover` twice on 2026-10-20 while
+// sqlite3 was installed and the database readable (#1286).
 const stateQueryTimeout = time.Minute
 
-// query reads the gate's database through sqlite3 into target. A read that
-// fails says what ended it: the bound, its caller, sqlite3 failing to run,
-// or sqlite3's own refusal in its words.
+// query reads the gate's database into target with the read-only query
+// sqlite3 -readonly -json makes. A read that fails says what ended it: the
+// bound, its caller, a program that could not run, or the database's own
+// refusal in its words.
 func (r Reader) query(ctx context.Context, sql string, target interface{}) error {
 	path := filepath.Join(r.Root, "state.sqlite")
 	if _, err := os.Stat(path); err != nil {
@@ -68,11 +69,11 @@ func (r Reader) query(ctx context.Context, sql string, target interface{}) error
 	case err != nil && ctx.Err() != nil:
 		return fmt.Errorf("pipeline: state query stopped: %w", ctx.Err())
 	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Errorf("pipeline: state query timed out: sqlite3 gave no answer within %s", stateQueryTimeout)
+		return fmt.Errorf("pipeline: state query timed out: the gate's database gave no answer within %s", stateQueryTimeout)
 	case err != nil:
 		return fmt.Errorf("pipeline: state query failed: could not run sqlite3: %w", err)
 	case result.ExitCode != 0:
-		return fmt.Errorf("pipeline: state query failed: sqlite3 exited with code %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
+		return fmt.Errorf("pipeline: state query failed: the gate's database refused it: %s", strings.TrimSpace(string(result.Stderr)))
 	}
 	if strings.TrimSpace(string(result.Stdout)) == "" {
 		return json.Unmarshal([]byte("[]"), target)

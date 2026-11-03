@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -475,7 +476,7 @@ func defaultCommandRuntime() commandRuntime {
 		processPlan:   defaultProcessPlan,
 		leftRunning:   defaultLeftRunning,
 		speedHint: func(ctx context.Context, name string) string {
-			return telemetry.SpeedHint(ctx, execx.OSRunner{}, name)
+			return telemetry.SpeedHint(ctx, gatedb.Runner{Next: execx.OSRunner{}}, name)
 		},
 		quota:        quota.Reader{Commands: execx.OSRunner{}}.Read,
 		actionsSpend: actionsbilling.Reader{Commands: execx.OSRunner{}}.Read,

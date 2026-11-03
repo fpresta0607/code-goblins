@@ -49,8 +49,8 @@ func (r Reader) Run(ctx context.Context, runID string) (Progress, error) {
 	return r.newestRun(ctx, `runs.id=`+sqlString(runID))
 }
 
-// latestRun is the branch's newest run without its steps: each query starts
-// a sqlite3 process, and custody needs only the run.
+// latestRun is the branch's newest run without its steps: each query reads
+// the gate's database, and custody needs only the run.
 func (r Reader) latestRun(ctx context.Context, project, branch string) (Progress, error) {
 	return r.newestRun(ctx, `lower(replace(repos.working_path,char(92),'/'))=lower(`+sqlString(filepath.ToSlash(project))+`) AND runs.branch=`+sqlString(branch))
 }
