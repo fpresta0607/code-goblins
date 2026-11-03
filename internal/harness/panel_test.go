@@ -29,6 +29,20 @@ func TestAnOpenScreenReadsAsItsRowsChoicesAndKeys(t *testing.T) {
 				{Text: "No", Number: 3},
 			}},
 		},
+		// Claude Code 2.1.316 draws the pane its question opens in under a
+		// top edge of ▔, with its turn's reply and spinner still above it.
+		"Claude Code's question in a turn": {
+			[]string{"● Checking the deploy before the merge.", "  The gate still holds the branch, so I will", "  wait for it to let go.", "", "✢ Sublimating… (2m 51s · ↓ 9.9k tokens)", "", rule,
+				strings.Repeat("▔", 56), " Switch model?", " Your next response will be slower and use more tokens", "", " This conversation is cached for the current model. Switching to", " Haiku 5.5 means the full history gets re-read.", "", " ❯ 1. Yes, switch to Haiku 5.5", "   2. No, go back", ""},
+			Panel{Rows: []string{"Switch model?", "Your next response will be slower and use more tokens", "", "This conversation is cached for the current model. Switching to", "Haiku 5.5 means the full history gets re-read."}, Choices: []Choice{
+				{Text: "Yes, switch to Haiku 5.5", Number: 1, Focused: true},
+				{Text: "No, go back", Number: 2},
+			}},
+		},
+		"Claude Code's question under an edge with a notice at its end": {
+			[]string{"✢ Sublimating… (2m 51s · ↓ 9.9k tokens)", strings.Repeat("▔", 48) + " 1 notice ▔", " Switch model?", " ❯ 1. Yes, switch to Haiku 5.5", "   2. No, go back"},
+			Panel{Rows: []string{"Switch model?"}, Choices: []Choice{{Text: "Yes, switch to Haiku 5.5", Number: 1, Focused: true}, {Text: "No, go back", Number: 2}}},
+		},
 		"Claude Code's model picker": {
 			[]string{"● Done. The branch is pushed.", "", " Select model", " Switch between Claude models.", "", " ❯ 1. Default (recommended)", "   2. Sonnet", "   3. Haiku", "", " Enter to confirm · Esc to exit"},
 			Panel{Rows: []string{"Select model", "Switch between Claude models."}, Choices: []Choice{{Text: "Default (recommended)", Number: 1, Focused: true}, {Text: "Sonnet", Number: 2}, {Text: "Haiku", Number: 3}}, Hints: []string{"Enter to confirm · Esc to exit"}},

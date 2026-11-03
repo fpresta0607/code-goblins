@@ -58,6 +58,25 @@ export function RecentDictations({ where, anchor, model, look = "card", onPaste,
     window.addEventListener("focus", refreshDictations);
     return () => window.removeEventListener("focus", refreshDictations);
   }, []);
+  // A press anywhere off Speech history closes it, as Escape does wherever
+  // the keyboard is (the Overlord, 2026-11-02: "When you click off the modal
+  // for speech dictation it should close"), but a press on a microphone,
+  // which opens and closes it itself. A terminal's card keeps its own Escape.
+  useEffect(() => {
+    if (look !== "pane") return;
+    const away = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && (card.current?.contains(target) || target.closest(".voice-bubble"))) return;
+      onClose();
+    };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("pointerdown", away, true);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [look, onClose]);
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(""), 1400);
@@ -67,8 +86,10 @@ export function RecentDictations({ where, anchor, model, look = "card", onPaste,
   const clipboard = !!navigator.clipboard;
   const title = look === "pane" ? "Speech history" : "Recent messages";
   return <section ref={card} popover="manual" className={look === "pane" ? "popup-surface speech-pane voice-recent" : "voice-card voice-recent"} role="dialog" aria-label={title}>
-    <p className="voice-card-title">{title}</p>
-    <button className={"icon-button voice-close" + (look === "pane" ? "" : " pixel-icon")} aria-label={"Close " + title.toLowerCase()} onClick={onClose}><Icon name="close" /></button>
+    <div className="voice-head">
+      <p className="voice-card-title">{title}</p>
+      <button className={"icon-button voice-close" + (look === "pane" ? "" : " pixel-icon")} aria-label={"Close " + title.toLowerCase()} onClick={onClose}><Icon name="close" /></button>
+    </div>
     {messages.length ? <ul>{messages.map((message, index) => {
       const key = message.at + ":" + index;
       return <li key={key}>

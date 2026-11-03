@@ -7,6 +7,10 @@ const PICTURE = /\.(?:png|jpe?g|gif|webp)$/i;
 const KEPT_FILE = /^(?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/][^\\/]+$/i;
 // A line of his words that is only the path of a picture the box kept.
 const KEPT_PICTURE = /^(?:[A-Za-z]:[\\/]|[\\/]).*[\\/]composer-files[\\/]pasted-[^\\/]+\.(?:png|jpe?g|gif|webp)$/i;
+// The paths of pictures the box kept that end a line of his words, joined to
+// them by spaces: a harness's record keeps a message as the board typed it,
+// on one line. Only a path with no space in it can be told from words there.
+const JOINED_PICTURES = /(?:^|\s+)((?:(?:[A-Za-z]:[\\/]|[\\/])\S*[\\/]composer-files[\\/]pasted-[^\\/\s]+\.(?:png|jpe?g|gif|webp)\s*)+)$/i;
 
 export function isPicturePath(path: string): boolean {
   return PICTURE.test(path);
@@ -15,20 +19,28 @@ export function isPicturePath(path: string): boolean {
 // keptPictures splits his words from the pictures the box kept for them, so
 // his bubble shows each picture rather than its path.
 export function keptPictures(text: string): { text: string; paths: string[] } {
-  return keptLines(text, KEPT_PICTURE);
+  const paths: string[] = [];
+  const words = text.split("\n").flatMap((line) => {
+    const joined = line.match(JOINED_PICTURES);
+    if (joined) {
+      paths.push(...joined[1].trim().split(/\s+/));
+      const rest = line.slice(0, joined.index).trimEnd();
+      return rest.trim() ? [rest] : [];
+    }
+    if (!KEPT_PICTURE.test(line.trim())) return [line];
+    paths.push(line.trim());
+    return [];
+  });
+  return paths.length ? { text: words.join("\n").trim(), paths } : { text, paths };
 }
 
 // keptFiles splits his words from every file the box kept for them, so a
 // queued message taken back into the box shows its files as it did.
 export function keptFiles(text: string): { text: string; paths: string[] } {
-  return keptLines(text, KEPT_FILE);
-}
-
-function keptLines(text: string, kept: RegExp): { text: string; paths: string[] } {
   const paths: string[] = [];
   const words = text.split("\n").filter((line) => {
     const path = line.trim();
-    if (!kept.test(path)) return true;
+    if (!KEPT_FILE.test(path)) return true;
     paths.push(path);
     return false;
   });

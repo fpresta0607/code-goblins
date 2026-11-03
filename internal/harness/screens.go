@@ -463,15 +463,40 @@ func (s Screens) ComposerHoldsText(screen []string) bool {
 	return !s.ComposerEmpty(screen)
 }
 
-// ComposerMatches proves the complete draft survived a startup dialog.
-// Unlike Shows, a suffix, an older prompt or a collapsed paste is not enough.
+// ComposerMatches reports whether screen's composer holds typed and nothing
+// else, whitespace aside: the complete draft that survived a startup dialog,
+// or the lines a stopped turn handed back. Unlike Shows, a suffix, an older
+// prompt or a collapsed paste is not enough.
 func (s Screens) ComposerMatches(screen []string, typed string) bool {
 	if _, hasDialog := s.Dialog(screen); hasDialog {
 		return false
 	}
-	composer, isRead := s.composer(screen)
+	held, isRead := s.draft(screen)
+	want := compactScreen([]string{typed})
+	return isRead && want != "" && held == want
+}
+
+// ComposerHoldsOnePaste reports whether all screen's composer holds is one
+// paste's placeholder, as a harness shows text it collapsed as a paste.
+func (s Screens) ComposerHoldsOnePaste(screen []string) bool {
+	held, isRead := s.draft(screen)
 	if !isRead {
 		return false
+	}
+	for _, placeholder := range s.Pasted {
+		if strings.HasPrefix(held, compactScreen([]string{placeholder})) && strings.Index(held, "]") == len(held)-1 {
+			return true
+		}
+	}
+	return false
+}
+
+// draft returns what screen's composer holds, without its prompt or any
+// whitespace, and false when the composer cannot be read.
+func (s Screens) draft(screen []string) (string, bool) {
+	composer, isRead := s.composer(screen)
+	if !isRead {
+		return "", false
 	}
 	first := strings.TrimSpace(composer[0])
 	if s.Empty != nil {
@@ -482,8 +507,7 @@ func (s Screens) ComposerMatches(screen []string, typed string) bool {
 			}
 		}
 	}
-	want := compactScreen([]string{typed})
-	return want != "" && compactScreen(append([]string{first}, composer[1:]...)) == want
+	return compactScreen(append([]string{first}, composer[1:]...)), true
 }
 
 // composer reads the current draft, including rows after a blank line. A
@@ -571,7 +595,13 @@ func isRule(row string) bool {
 
 // Shows reports whether screen shows text typed into the composer: its end,
 // where the composer's cursor keeps it in view, or the placeholder of a paste.
+// Where the composer can be read, only its rows count: a short text such as
+// "?" is on most screens somewhere, as in Claude Code's "? for shortcuts",
+// and a harness that took its key as a shortcut shows it nowhere else.
 func (s Screens) Shows(screen []string, typed string) bool {
+	if composer, isRead := s.composer(screen); isRead {
+		screen = composer
+	}
 	compact := compactScreen(screen)
 	end := []rune(compactScreen([]string{typed}))
 	if len(end) > 40 {

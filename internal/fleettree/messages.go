@@ -366,6 +366,8 @@ type messageEntry struct {
 		} `json:"usage"`
 	} `json:"message"`
 	ToolUseResult json.RawMessage `json:"toolUseResult"`
+	// Effort is the level an answer ran at, which Claude Code names on each.
+	Effort string `json:"effort"`
 }
 
 type messageBlock struct {
@@ -608,6 +610,9 @@ func (l *messageLog) reply(entry messageEntry, id string, offset int64) {
 			l.usage.add(usage.InputTokens+usage.CacheCreationInputTokens, usage.OutputTokens, usage.CacheReadInputTokens, entry.Message.Model)
 			if entry.Message.Model != "" {
 				l.window = claudeContextWindow(entry.Message.Model)
+			}
+			if entry.Effort != "" {
+				l.usage.Effort = entry.Effort
 			}
 		}
 	}

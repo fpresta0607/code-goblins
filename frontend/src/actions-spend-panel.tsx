@@ -15,7 +15,7 @@ export function ActionsSpendPanel({ usage, month, onClose }: { usage?: ActionsSp
   }, []);
   const amount = usage?.total_usd;
   const hasTotal = usage && amount != null && (usage.status === "available" || usage.status === "stale");
-  const label = new Date(month + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  const label = new Date(month + "-01T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const detail = usage?.detail || (!usage ? "Waiting for this month's GitHub Actions usage." : "");
   return <dialog ref={dialog} className="actions-spend-panel" aria-labelledby={title} onKeyDown={(event) => { if (event.key === "Escape") event.stopPropagation(); }} onCancel={(event) => { event.preventDefault(); onClose(); }}>
     <div className="actions-spend-title"><h2 id={title}>GitHub Actions</h2><button className="icon-button" aria-label="Close Actions spend" onClick={onClose}><Icon name="close" /></button></div>

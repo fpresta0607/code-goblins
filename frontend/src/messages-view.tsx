@@ -479,7 +479,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               messages doesn't really work"), so whatever the session prints
               comes before them and the list, following its end, keeps them
               right above the box. */}
-          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" isWorking={isWorking} />)}
+          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
       {phase === "live" && !held.messages.length && !queued.length && <p className="messages-empty" role="status">No messages yet</p>}

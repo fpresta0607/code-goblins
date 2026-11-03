@@ -145,6 +145,8 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respond(w, 200, waiting.Look{Instance: instance, Items: items})
+	case r.URL.Path == "/api/actions-spend" && r.Method == "GET":
+		h.actionsSpend(w, r)
 	case r.URL.Path == "/api/items/closed" && r.Method == "GET":
 		// History when it opens, or the question the Overlord opened a
 		// Change answer on from elsewhere, such as his AFK report.
@@ -546,7 +548,7 @@ func (h *HTTP) action(w http.ResponseWriter, r *http.Request) {
 	// A queued message's Send now asks for it where it waits, and is never
 	// queued as a delivery of its own.
 	if a.Kind == "message_now" {
-		if err := h.Service.sendMessageNow(r.Context(), a.Target, a.TaskID); err != nil {
+		if _, err := h.Service.Store.SendQueuedMessageNow(a.Target, a.TaskID); err != nil {
 			apiError(w, 409, err.Error())
 			return
 		}

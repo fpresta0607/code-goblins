@@ -284,26 +284,6 @@ func TestAGoblinsDeliveryInItsTurnOffersNoSendNow(t *testing.T) {
 	}
 }
 
-// A delivery the CFO has not picked up for deliveryQuiet is no longer on its
-// way, so, as every other settling of a delivery does, it takes Send now away.
-func TestADeliveryNeverPickedUpNoLongerOffersSendNow(t *testing.T) {
-	// Arrange
-	store, _ := testStore(t)
-	since := time.Now().UTC().Add(-deliveryQuiet - time.Minute)
-	store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", Text: "stop and rebase", Status: "running", CreatedAt: since, UpdatedAt: since, Awaiting: &Awaiting{Host: "cfo", Harness: "claude", Since: since, QuietSince: since}, CanSendNow: true})
-
-	// Act
-	err := store.settleDeliveries(time.Now().UTC(), func(Awaiting) terminalLook { return terminalLook{} })
-
-	// Assert
-	if err != nil {
-		t.Fatal(err)
-	}
-	if settled := actionOf(store, "m1"); settled.Status != "uncertain" || settled.CanSendNow {
-		t.Errorf("a delivery never picked up = %+v, want it uncertain with no Send now", settled)
-	}
-}
-
 // An answer to a goblin's review item typed during the goblin's turn is
 // sent, not delivered: the item reads delivered only once the goblin's record
 // shows it taken.

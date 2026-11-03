@@ -2,12 +2,21 @@
    quiet buttons of the chat's own panes (popup.css, engine-pane.css) in place
    of the voice card's pixel frame. Its placement in the top layer stays the
    card's (styles.css, .voice-recent[popover]). */
-.speech-pane.voice-recent[popover] { gap: 2px; padding: 6px; border: 1px solid var(--glass-border-hover); background: #0b171cf7; filter: none; }
-.speech-pane .voice-card-title { margin: 2px 6px 6px; padding-right: 40px; color: var(--muted); font: 600 .75rem/1.6 var(--font-body); letter-spacing: .04em; text-transform: uppercase; }
-.speech-pane .voice-close { position: absolute; top: 4px; right: 4px; width: 32px; height: 32px; border-color: transparent; background: transparent; }
-.speech-pane li { padding: 8px 10px; border-top: 0; border-radius: 8px; }
-.speech-pane li:hover, .speech-pane li:focus-within { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
+.speech-pane.voice-recent[popover] { gap: 8px; padding: 12px; border: 1px solid var(--glass-border-hover); background: #0b171cf7; filter: none; }
+/* The title and its close share one row, the close with room on every side;
+   each record, the title and the foot keep the same inset from the edge (the
+   Overlord, 2026-11-02: "I hate the container padding, the X is squished and
+   each record has no margin in the internal container"). The card's own rules
+   (styles.css) are as specific and load after these, so these name the pane
+   twice. */
+.speech-pane .voice-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-left: 12px; }
+.speech-pane .voice-card-title { margin: 0; padding: 0; color: var(--muted); font: 600 .75rem/1.6 var(--font-body); letter-spacing: .04em; text-transform: uppercase; }
+.speech-pane .voice-close { flex: none; width: 36px; height: 36px; min-height: 36px; border-color: transparent; background: transparent; }
+.speech-pane .voice-close .icon { width: 18px; height: 18px; }
+.speech-pane.voice-recent ul { gap: 4px; }
+.speech-pane.voice-recent li { padding: 10px 12px; border-top: 0; border-radius: 10px; }
+.speech-pane.voice-recent li:hover, .speech-pane.voice-recent li:focus-within { background: var(--glass-bg-hover); box-shadow: 0 0 0 1px var(--glass-border-hover) inset; }
 .speech-pane .voice-text { color: #edf4f3; font-size: .875rem; line-height: 1.45; }
 .speech-pane .voice-meta { color: var(--muted); font-size: .75rem; }
-.speech-pane .voice-actions .icon-button { width: 30px; height: 30px; border-color: transparent; background: transparent; }
-.speech-pane .voice-footer, .speech-pane .voice-empty { margin: 6px 10px 4px; color: var(--muted); font-size: .8125rem; line-height: 1.45; }
+.speech-pane .voice-actions .icon-button { width: 32px; height: 32px; border-color: transparent; background: transparent; }
+.speech-pane.voice-recent .voice-footer, .speech-pane.voice-recent .voice-empty { margin: 0; padding: 10px 12px 2px; color: var(--muted); font-size: .8125rem; line-height: 1.45; }
