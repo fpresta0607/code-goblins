@@ -23,7 +23,11 @@ var (
 	urlPattern         = regexp.MustCompile(`https?://[^\s\)\]"<>]+`)
 	wrappedURLPattern  = regexp.MustCompile(`<?https?://[^\s\)\]"<>]+>?`)
 	reportPattern      = regexp.MustCompile(`data/[^\s\)]+/report\.md`)
-	trailingMetadata   = regexp.MustCompile(`(?i)\s*\(\s*(?:(?:repo|kind|priority|hold|hold-kind|hold-until|harness|model|effort|mode)\s*:\s*[^)]*|(?:since|merged|reported|done)\s+[^)]*)\s*\)\s*$`)
+	// annotation is one (key: value) a row carries, wherever it stands. A
+	// blocked-by inside one, such as a hold's reason, is its words, as
+	// tasks-axi reads it, never the row's own.
+	annotation       = regexp.MustCompile(`(?i)\(\s*(?:repo|kind|priority|hold|hold-kind|hold-until|harness|model|effort|mode)\s*:[^()]*\)`)
+	trailingMetadata = regexp.MustCompile(`(?i)\s*\(\s*(?:since|merged|reported|done)\s+[^)]*\)\s*$`)
 	// holdTag and holdUntilTag are the hold tasks-axi hold writes on a row:
 	// (hold: reason), and (hold-until: date) when it ends by itself.
 	holdTag      = regexp.MustCompile(`(?i)\(\s*hold\s*:\s*([^()]*)\)`)
@@ -230,7 +234,8 @@ func parseBacklogRow(line string) BacklogRow {
 		return BacklogRow{Raw: line}
 	}
 	rest := match[2]
-	blockers, blockedReason := parseBlockers(rest)
+	words := annotation.ReplaceAllString(rest, " ")
+	blockers, blockedReason := parseBlockers(words)
 	blockedByIDs := make([]string, len(blockers))
 	for index, blocker := range blockers {
 		blockedByIDs[index] = blocker.Target
@@ -245,7 +250,7 @@ func parseBacklogRow(line string) BacklogRow {
 	return BacklogRow{
 		Structured:    true,
 		ID:            strings.TrimSpace(match[1]),
-		Title:         backlogTitle(rest),
+		Title:         backlogTitle(words),
 		Repo:          metadataValue(rest, "repo"),
 		Kind:          metadataValue(rest, "kind"),
 		Priority:      metadataValue(rest, "priority"),

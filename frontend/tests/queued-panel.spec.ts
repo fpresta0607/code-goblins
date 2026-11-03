@@ -302,6 +302,25 @@ for (const where of ["pencil", "text"] as const) {
   });
 }
 
+// The board audit, 2026-10-27 (#1600): a queued task with no goblin named yet
+// read its title in the heading, cut short, and again whole on its task line
+// under it. Its title shows once, on the line that edits it.
+test("a queued task with no goblin named yet shows its title once, on its task line, and is headed by its id", async ({ page }) => {
+  // Arrange
+  const title = "Tailscale remote access toggle in the CFO task panel with a very long title that wraps past two lines";
+  await open(page, [], [task("queued-unnamed", "queued", { generation: "", brief: true, queue_revision: "q1", title }), WORKING]);
+
+  // Act
+  await page.locator(".task-board .task-card-shell").filter({ hasText: title }).locator(".task-card").click();
+  await expect(page.locator("#panel-title")).not.toHaveText("CFO");
+  await openTaskList(page);
+
+  // Assert
+  await expect(page.locator("#panel-title")).toHaveText("queued-unnamed");
+  await expect(taskLine(page)).toHaveText(title);
+  await expect(panel(page).getByText(title, { exact: true })).toHaveCount(1);
+});
+
 // The Overlord, 2026-10-10, of a queued panel whose task line carried a caret
 // and whose status had More under it: "the [More] dropdown is not really
 // necessary" and "I get editing pencil a little icon". The control that edits

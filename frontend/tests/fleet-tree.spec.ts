@@ -123,6 +123,42 @@ test("the goblin panel lists working children and folds finished children away",
   await expect(page.locator(".working-summary .muted")).toHaveText(", 1.0 GB its own");
 });
 
+// The board audit, 2026-10-27 (#1600): in a 348px panel beside the board a
+// row's state, time and memory took nearly all of it, so its label was 10px
+// wide and stood one letter a line, since the row put them under the label
+// only in a narrow window. A row reads its list's width instead.
+for (const { panel, window } of [{ panel: 348, window: 1440 }, { panel: 520, window: 1440 }, { panel: 0, window: 390 }]) {
+  test(`in a ${panel ? panel + "px panel" : "phone's panel " + window + " wide"} every What's working label is at least 12 characters wide and its row no taller than its words`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width: window, height: 900 });
+    await page.goto("/tests/fixtures/fleet-tree.html?view=panel");
+    if (panel) await page.locator(".context-pane").evaluate((pane: HTMLElement, width: number) => { pane.style.width = width + "px"; }, panel);
+    await page.evaluate(() => document.fonts.ready);
+    await page.getByText("2 finished").click();
+    await expect(page.locator(".working-row")).toHaveCount(4);
+
+    // Act
+    const rows = await page.locator(".working-row").evaluateAll((elements) => elements.map((row) => {
+      const what = row.querySelector(".working-what")!, label = what.querySelector("strong")!;
+      const probe = document.createElement("span");
+      probe.style.cssText = "display: inline-block; width: 12ch";
+      label.append(probe);
+      const twelve = probe.getBoundingClientRect().width;
+      probe.remove();
+      const height = (selector: string) => row.querySelector(selector)!.getBoundingClientRect().height;
+      return { label: label.textContent, width: what.getBoundingClientRect().width, twelve, height: row.getBoundingClientRect().height,
+        // Padding, border and the gap between the label and the chips under it.
+        words: Math.max(height(".baby-goblin"), height(".working-what")) + height(".working-meta") + 8 + 8 + 2 + 12 };
+    }));
+
+    // Assert
+    for (const row of rows) {
+      expect(row.width, `"${row.label}" is at least 12 characters wide`).toBeGreaterThanOrEqual(row.twelve);
+      expect(row.height, `"${row.label}" is no taller than its words and chips`).toBeLessThanOrEqual(row.words + 1);
+    }
+  });
+}
+
 // The Overlord, 2026-10-07, on the yellow "Silent 6h 41m: ..." banner a
 // goblin's card carried: "yellow banner absolutely hate it as well". A child
 // gone silent is named in the goblin's panel (the test above), never on its
