@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/host"
+	"github.com/fpresta0607/code-goblins/internal/monitor"
 )
 
 func TestNativeCFOLeavesAnUnreadyComposerUntouched(t *testing.T) {
@@ -355,9 +356,9 @@ func cfoShows(t *testing.T, stateDir, shown string) {
 // sitting there unsent while its bubble says Sent. While the turn runs it is
 // left in the harness's queue.
 func TestHisMessageInATurnHeStoppedGoesAsTheCFOsNextPrompt(t *testing.T) {
-	for _, test := range []struct{ mode, prompt string }{
-		{mode: "claude-busy", prompt: "❯ stop and rebase"},
-		{mode: "busy", prompt: "› stop and rebase"},
+	for _, test := range []struct{ mode, prompt, ready string }{
+		{mode: "claude-busy", prompt: "❯ stop and rebase", ready: "bypass permissions on"},
+		{mode: "busy", prompt: "› stop and rebase", ready: "100% context left"},
 	} {
 		t.Run(test.mode, func(t *testing.T) {
 			// Arrange
@@ -375,6 +376,9 @@ func TestHisMessageInATurnHeStoppedGoesAsTheCFOsNextPrompt(t *testing.T) {
 			inTurn := terminal.waitForLines(t, 2)
 			inTurnErr := service.submitHandedBack(context.Background())
 			typeIntoCFO(t, home.State, "\x1b", test.prompt)
+			// The prompt line is drawn before the row that shows the harness
+			// ready, so the one look below waits for the whole screen.
+			cfoShows(t, home.State, test.ready)
 
 			// Act
 			err := service.submitHandedBack(context.Background())
@@ -393,6 +397,52 @@ func TestHisMessageInATurnHeStoppedGoesAsTheCFOsNextPrompt(t *testing.T) {
 				t.Errorf("after the turn was stopped = %+v; want it submitted again, awaiting the CFO", sent)
 			}
 		})
+	}
+}
+
+// A turn he stopped puts every line typed into it back on the prompt line
+// together, which goes as one prompt, so each of those lines is taken once the
+// CFO's record shows that prompt, rather than called never picked up for
+// awaiting its own line alone. A line typed before them that is not on the
+// prompt line still awaits its own words.
+func TestLinesHandedBackTogetherAreTakenFromTheOnePromptTheyWentAs(t *testing.T) {
+	// Arrange
+	records := useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "claude-ready")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	at := time.Now().UTC()
+	for n, typed := range []string{"an earlier one", "check the tests", "stop and rebase"} {
+		since := at.Add(time.Duration(n-3) * time.Second)
+		store.db.Actions = append(store.db.Actions, Action{ID: fmt.Sprintf("m%d", n), Kind: "message", Text: typed, Status: "running", Message: sentToCFO, CreatedAt: since, UpdatedAt: since,
+			Awaiting: &Awaiting{Host: "cfo", Harness: "claude", Since: since, QuietSince: since, Digest: monitor.TextDigest(typed), Session: "session-1", Typed: typed}})
+	}
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
+	typeIntoCFO(t, home.State, "check the tests stop and rebase", "❯ check the tests stop and rebase")
+	cfoShows(t, home.State, "bypass permissions on")
+
+	// Act
+	err := service.submitHandedBack(context.Background())
+	lines := terminal.waitForLines(t, 2)
+	takenInRecord(t, records, "claude", "session-1", "", "check the tests\nstop and rebase")
+	settled := store.settleDeliveries(time.Now().UTC(), service.lookAtTerminal)
+
+	// Assert
+	if err != nil || settled != nil {
+		t.Fatalf("submitHandedBack = %v, settleDeliveries = %v; want no error", err, settled)
+	}
+	if !slices.Equal(lines[1:], []string{"accepted check the tests stop and rebase"}) {
+		t.Errorf("terminal input = %q; want the two lines submitted as one prompt", lines)
+	}
+	for _, id := range []string{"m1", "m2"} {
+		if taken := actionOf(store, id); taken.Status != "succeeded" {
+			t.Errorf("%s = %+v; want it taken from the one prompt it went in", id, taken)
+		}
+	}
+	if earlier := actionOf(store, "m0"); earlier.Status != "running" || earlier.Message != sentToCFO || earlier.Awaiting == nil || earlier.Awaiting.Digest != monitor.TextDigest("an earlier one") {
+		t.Errorf("m0 = %+v; want the line that was not on the prompt line still awaiting its own words", earlier)
 	}
 }
 

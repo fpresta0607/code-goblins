@@ -201,102 +201,116 @@ func awaitingGoblinDelivery(meta state.TaskMeta, since time.Time, text string) *
 // typed, which go as one prompt, or the placeholder of one pasted line alone.
 // Words of his before or after them leave the prompt line his to send.
 func (s *Service) submitHandedBack(ctx context.Context) error {
-	waiting := map[string][]Awaiting{}
+	waiting := map[string][]Action{}
 	for _, a := range s.Store.Snapshot().Actions {
 		if a.Status == "running" && a.Awaiting != nil && a.Awaiting.Typed != "" {
 			terminal := a.Awaiting.Host
 			if terminal == "" {
 				terminal = a.Awaiting.Task
 			}
-			waiting[terminal] = append(waiting[terminal], *a.Awaiting)
+			waiting[terminal] = append(waiting[terminal], a)
 		}
 	}
-	var handedBack []string
+	var prompts [][]Action
 	for terminal, deliveries := range waiting {
-		slices.SortFunc(deliveries, func(a, b Awaiting) int { return a.Since.Compare(b.Since) })
-		if s.submitOnto(ctx, terminal, deliveries) {
-			handedBack = append(handedBack, terminal)
+		slices.SortFunc(deliveries, func(a, b Action) int { return a.Awaiting.Since.Compare(b.Awaiting.Since) })
+		if prompt := s.submitOnto(ctx, terminal, deliveries); len(prompt) > 0 {
+			prompts = append(prompts, prompt)
 		}
 	}
-	return s.Store.markHandedBack(handedBack, time.Now().UTC())
+	return s.Store.markHandedBack(prompts, time.Now().UTC())
 }
 
 // submitOnto presses the submit key in terminal when its harness waits idle
-// with nothing on its prompt line but deliveries, all typed into it in the
-// order given, as submitHandedBack says, and reports whether it did. The
-// screen is read without the CFO's typing lock, which a delivery to the CFO
-// holds for seconds, and read again under it before the key, so nothing else
-// types into the CFO's terminal meanwhile.
-func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []Awaiting) bool {
-	first := deliveries[0]
+// with nothing on its prompt line but some of deliveries, all typed into it
+// in the order given, as submitHandedBack says, and returns those it
+// submitted as one prompt, or none. The screen is read without the CFO's
+// typing lock, which a delivery to the CFO holds for seconds, and read again
+// under it before the key, so nothing else types into the CFO's terminal
+// meanwhile.
+func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []Action) []Action {
+	first := *deliveries[0].Awaiting
 	if first.Task != "" {
 		if meta, err := state.ReadTaskMeta(s.Store.Home.State, first.Task); err != nil || meta.SpawnGen != first.Generation {
-			return false
+			return nil
 		}
 	}
 	screens, readable := harness.NativeScreens(harness.Kind(first.Harness))
 	record, err := host.ReadRecord(s.Store.Home.State, terminal)
 	if !readable || err != nil || !host.Running(record) {
-		return false
+		return nil
 	}
-	isHandedBack := func() bool {
+	handedBack := func() []Action {
 		rows, err := host.ReadScreen(record)
 		if err != nil || !screens.IsReady(rows) || !screens.ComposerHoldsText(rows) {
-			return false
+			return nil
 		}
-		if slices.ContainsFunc(deliveries, func(a Awaiting) bool { return a.Pasted }) && screens.ComposerHoldsOnePaste(rows) {
-			return true
+		if pasted := slices.IndexFunc(deliveries, func(a Action) bool { return a.Awaiting.Pasted }); pasted >= 0 && screens.ComposerHoldsOnePaste(rows) {
+			return deliveries[pasted : pasted+1]
 		}
 		for first := range deliveries {
 			joined := ""
-			for _, a := range deliveries[first:] {
-				joined += a.Typed + "\n"
+			for last, a := range deliveries[first:] {
+				joined += a.Awaiting.Typed + "\n"
 				if screens.ComposerMatches(rows, joined) {
-					return true
+					return deliveries[first : first+last+1]
 				}
 			}
 		}
-		return false
+		return nil
 	}
-	if !isHandedBack() {
-		return false
+	prompt := handedBack()
+	if len(prompt) == 0 {
+		return nil
 	}
 	if first.Host != "" && s.Options.CFO != nil {
 		s.Options.CFO.typing.Lock()
 		defer s.Options.CFO.typing.Unlock()
-		if !isHandedBack() {
-			return false
+		if prompt = handedBack(); len(prompt) == 0 {
+			return nil
 		}
 	}
 	client, err := host.Dial(record)
 	if err != nil {
-		return false
+		return nil
 	}
 	defer client.Close()
 	submit := "\r"
 	if screens.PasteTakesEnter {
 		submit = "\x1b[F\r"
 	}
-	return ctx.Err() == nil && client.Input([]byte(submit)) == nil
+	if ctx.Err() != nil || client.Input([]byte(submit)) != nil {
+		return nil
+	}
+	return prompt
 }
 
-// markHandedBack has each delivery waiting in the terminals named submitted
-// again at now, so it waits anew for its harness to take it, and is not
-// called unarrived for the quiet of the turn that was stopped.
-func (s *Store) markHandedBack(terminals []string, now time.Time) error {
-	if len(terminals) == 0 {
+// markHandedBack has each delivery of prompts, each the deliveries submitted
+// together as one prompt, submitted again at now, so it waits anew for its
+// harness to take it and is not called unarrived for the quiet of the turn
+// that was stopped. Each then awaits its prompt's text, which its harness's
+// record shows as one prompt, rather than its own line.
+func (s *Store) markHandedBack(prompts [][]Action, now time.Time) error {
+	if len(prompts) == 0 {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range s.db.Actions {
-		a := &s.db.Actions[i]
-		if a.Status != "running" || a.Awaiting == nil || !slices.Contains(terminals, a.Awaiting.Host) && !slices.Contains(terminals, a.Awaiting.Task) {
-			continue
+	for _, prompt := range prompts {
+		joined := ""
+		for _, delivery := range prompt {
+			joined += delivery.Awaiting.Typed + "\n"
 		}
-		waiting := *a.Awaiting
-		waiting.QuietSince = now
-		a.Awaiting, a.Message, a.UpdatedAt = &waiting, "Its turn was stopped, so it was submitted as the next prompt.", now
+		for _, delivery := range prompt {
+			at := slices.IndexFunc(s.db.Actions, func(a Action) bool { return a.ID == delivery.ID && a.TaskID == delivery.TaskID })
+			if at < 0 || s.db.Actions[at].Status != "running" || s.db.Actions[at].Awaiting == nil {
+				continue
+			}
+			a := &s.db.Actions[at]
+			waiting := *a.Awaiting
+			waiting.QuietSince, waiting.Digest = now, monitor.TextDigest(joined)
+			a.Awaiting, a.Message, a.UpdatedAt = &waiting, "Its turn was stopped, so it was submitted as the next prompt.", now
+		}
 	}
 	return s.save()
 }

@@ -1585,7 +1585,7 @@ func TestAQueuedWithdrawalNamesTheActionItDeletesAndNothingElse(t *testing.T) {
 		_, err := store.withdrawMessage(Action{ID: "w2", Kind: "message_withdraw", TaskID: meta.ID, Text: "same words", Target: "a2"})
 
 		// Assert: it is refused, and the first A is still there.
-		if err == nil || !strings.Contains(err.Error(), "no longer waiting") {
+		if err == nil || err.Error() != "That message is no longer on the board." {
 			t.Fatalf("a stale target reads %v, want it refused", err)
 		}
 		if got := strings.Join(order(store), ","); got != "a1:same words,b1:other words" {
@@ -1610,7 +1610,7 @@ func TestAQueuedWithdrawalNamesTheActionItDeletesAndNothingElse(t *testing.T) {
 		_, err := store.withdrawMessage(Action{ID: "w1", Kind: "message_withdraw", TaskID: meta.ID, Text: "same words", Target: "o1"})
 
 		// Assert: it is refused, and both queues are untouched.
-		if err == nil || !strings.Contains(err.Error(), "no longer waiting") {
+		if err == nil || err.Error() != "That message is no longer on the board." {
 			t.Fatalf("a cross-task target reads %v, want it refused", err)
 		}
 		if got := strings.Join(order(store), ","); got != "a1:same words,b1:other words,a2:same words,o1:same words" {

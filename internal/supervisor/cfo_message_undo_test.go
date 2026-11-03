@@ -132,7 +132,7 @@ func TestAPressOnAMessageTheBoardNoLongerHoldsSaysWhereItWent(t *testing.T) {
 		action *Action
 		want   string
 	}{
-		{name: "being typed", action: &Action{TaskID: "", Status: "running"}, want: "It is being typed for the CFO right now."},
+		{name: "being tried", action: &Action{TaskID: "", Status: "running"}, want: "The board is trying it with the CFO right now. Press again in a moment."},
 		{name: "typed into the CFO's turn", action: &Action{Status: "running", Awaiting: &Awaiting{Host: "cfo", Since: since, QuietSince: since}}, want: "It was already typed into the CFO's turn."},
 		{name: "typed into a goblin's turn", action: &Action{TaskID: "task-1", Status: "running", Awaiting: &Awaiting{Task: "task-1", Since: since, QuietSince: since}}, want: "It was already typed into task-1's turn."},
 		{name: "taken by the CFO", action: &Action{Status: "succeeded"}, want: "The CFO already took it."},

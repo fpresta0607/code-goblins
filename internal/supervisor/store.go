@@ -561,7 +561,10 @@ func (s *Store) queuedMessage(id, task string) (*Action, error) {
 // board no longer holds it, for a Send now, Edit or Cancel that came after it
 // left, so he reads at once what became of it rather than that nothing was
 // done (the Overlord, 2026-11-02, of a Cancel on a message the CFO had taken:
-// "this question mark is stuck and lost"). The caller holds s.mu.
+// "this question mark is stuck and lost"). One running with nothing awaited
+// is being tried: typed into its session, or put back to wait a moment later
+// when its session cannot take it, as a goblin in a turn has it every second.
+// The caller holds s.mu.
 func (s *Store) noLongerHeld(id, task string) error {
 	who, subject := "the CFO", "The CFO"
 	if task != "" {
@@ -572,7 +575,7 @@ func (s *Store) noLongerHeld(id, task string) error {
 	case at < 0:
 		return errors.New("That message is no longer on the board.")
 	case s.db.Actions[at].Status == "running" && s.db.Actions[at].Awaiting == nil:
-		return errors.New("It is being typed for " + who + " right now.")
+		return errors.New("The board is trying it with " + who + " right now. Press again in a moment.")
 	case s.db.Actions[at].Status == "running":
 		return errors.New("It was already typed into " + who + "'s turn.")
 	case s.db.Actions[at].Status == "succeeded":
