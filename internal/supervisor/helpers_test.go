@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -227,6 +228,13 @@ func TestAHelperIsRefusedWithWhyAndWhenToAskAgain(t *testing.T) {
 		{"busy performance cores", 6 * gigabyte, func(t *testing.T, s *Service, h home.Home) {
 			s.Options.Dispatch.Processors = processorsWithFree(0.1)
 		}, HelperRequest{Parent: "g1", Brief: helperBrief}, []string{"Only 0.6 of 6 performance cores are free", "ask again in ten minutes"}},
+		// Behind a run waiting for 6 GB on a line of two slots the line's
+		// next floor is 8 GB, so 6 GB free leaves no room for a helper's
+		// session beside it (#1926).
+		{"the heavy line keeping its next floor", 6 * gigabyte, func(t *testing.T, s *Service, h home.Home) {
+			s.Options.Dispatch.HeavyLine = MachineHeavyLine
+			heavyLine(t, 2, 6*gigabyte)
+		}, HelperRequest{Parent: "g1", Brief: helperBrief}, []string{"no helper starts, keeping the test slots open: 6.0 GB of memory and commit is free; the next test run needs 8.0 GB and a new goblin 1 GB", "ask again in ten minutes"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -256,6 +264,31 @@ func TestAHelperIsRefusedWithWhyAndWhenToAskAgain(t *testing.T) {
 				t.Errorf("a refused helper left its brief folder")
 			}
 		})
+	}
+}
+
+// A heavy line that cannot be read holds no helper, as processors that
+// cannot be read hold none, and the board says it cannot be read.
+func TestAHelperStartsWhenTheHeavyLineCannotBeReadAndTheBoardSaysSo(t *testing.T) {
+	// Arrange
+	spawner := &spawnRecorder{output: "spawned g1-h1 harness=claude kind=ship"}
+	s, _ := helperBoard(t, 6*gigabyte, spawner)
+	s.Options.Dispatch.HeavyLine = func(Memory) (string, error) { return "", errors.New("the slots' records are locked") }
+
+	// Act
+	_, err := s.acceptHelper(HelperRequest{Parent: "g1", Brief: helperBrief})
+	calls := waitForCalls(t, spawner, 1)
+	waitStartEnds(t, s)
+
+	// Assert
+	if err != nil || calls[0][0] != "spawn" || calls[0][1] != "g1-h1" {
+		t.Fatalf("acceptHelper = %v, cfo ran %q; want g1-h1 spawned", err, calls)
+	}
+	s.mu.Lock()
+	reported := s.lastError
+	s.mu.Unlock()
+	if !strings.Contains(reported, "the machine's heavy line cannot be read, so no start waits on it: the slots' records are locked") {
+		t.Errorf("the board's error is %q, want that the heavy line cannot be read", reported)
 	}
 }
 
