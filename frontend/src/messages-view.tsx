@@ -557,7 +557,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking terminal={terminal} said={held.said} canStop={held.canStop} isAllowed={canStop} ink={harnessInk(harness)} />}
+          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking terminal={terminal} task={task?.id ?? ""} said={held.said} canStop={held.canStop}
+            stopWhy={!isWorking ? "It is no longer working." : canStop ? "" : link?.held || "It cannot be stopped from here now."} ink={harnessInk(harness)} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued

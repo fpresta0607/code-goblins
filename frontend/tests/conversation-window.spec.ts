@@ -133,8 +133,9 @@ for (const owner of ["CFO", "goblin"]) {
 
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), board(!isWorking, 2));
       expect(await reading(talk)).toEqual(place);
-      expect(await changes(page)).toEqual(isWorking ? ["outside a message:attributes:aria-disabled"] : []);
+      expect(await changes(page)).toEqual(isWorking ? ["outside a message:attributes:aria-disabled", "outside a message:attributes:aria-disabled"] : []);
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
+      if (isWorking) await expect(talk.locator(".reply-working").getByRole("button", { name: "Stop", exact: true })).toHaveAttribute("aria-disabled", "true");
       await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 0 : 1);
       await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText(isWorking ? "Queued" : "Sent");
       await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(isWorking ? 1 : 0);
