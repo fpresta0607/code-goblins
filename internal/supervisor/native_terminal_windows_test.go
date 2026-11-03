@@ -112,8 +112,12 @@ func TestNativeTerminalProgram(t *testing.T) {
 	// A screen is drawn in one write, so a read never finds it half drawn. The
 	// turn's line reads as a turn to both Claude Code's and Codex's screens.
 	// The cursor then rests at the end of the prompt line, as a harness keeps
-	// it, so what is typed shows on that line, as in a harness's composer.
+	// it, so what is typed shows on that line, as in a harness's composer. A
+	// line it takes and draws nothing for is wiped from that line as the
+	// screen it last drew is drawn again, as a harness that took it does.
+	shownText, isShownWorking, isShown := "", false, false
 	drawComposer := func(text string, isWorking bool) {
+		shownText, isShownWorking, isShown = text, isWorking, true
 		rows := []string{}
 		if said != "" {
 			rows = append(rows, "> "+said)
@@ -309,6 +313,8 @@ func TestNativeTerminalProgram(t *testing.T) {
 				drawComposer("", true)
 			} else if hooked {
 				drawComposer("", false)
+			} else if isShown {
+				drawComposer(shownText, isShownWorking)
 			}
 			if hooked {
 				input, _ := json.Marshal(map[string]string{"session_id": "session-1", "cwd": args[2], "hook_event_name": "UserPromptSubmit"})

@@ -543,49 +543,86 @@ func TestTypedTextShowsOnlyInAComposerItCanRead(t *testing.T) {
 	}
 }
 
-// A turn he stops hands each line typed into it back to the prompt line,
-// where the supervisor submits it only while the composer ends with one: its
-// words, or, for a line typed as a paste, one placeholder that is all the
-// composer holds. Words or a paste he added after it, or the line anywhere
-// but the composer, never read as handed back.
-func TestOnlyTypedTextAtTheComposersEndReadsAsHandedBack(t *testing.T) {
+// A turn he stops hands the lines typed into it back to the prompt line,
+// where the supervisor submits them only while they are all it holds,
+// whitespace aside: one line, or several joined. Words of his before or after
+// them, even words that end as a lone "?" does, a paste he added, or the line
+// anywhere but the composer, never match.
+func TestAHandedBackLineMatchesOnlyAComposerHoldingItAlone(t *testing.T) {
 	rule := strings.Repeat("─", 80)
 	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
 	codexFooter := "100% context left"
 	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
 	for name, test := range map[string]struct {
-		kind     Kind
-		screen   []string
-		isPasted bool
-		ends     bool
+		kind    Kind
+		screen  []string
+		typed   string
+		matches bool
 	}{
-		"claude words":                       {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, false, true},
-		"claude words after an earlier line": {Claude, []string{rule, "❯ check the tests", "  stop and rebase", rule, claudeFooter}, false, true},
-		"claude his words after":             {Claude, []string{rule, "❯ stop and rebase and the", rule, claudeFooter}, false, false},
-		"claude his paste after":             {Claude, []string{rule, "❯ stop and rebase[Pasted text #1 +3 lines]", rule, claudeFooter}, false, false},
-		"claude his paste alone":             {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, false, false},
-		"claude pasted line":                 {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, true, true},
-		"claude his paste after a paste":     {Claude, []string{rule, "❯ [Pasted text #1 +3 lines][Pasted text #2 +5 lines]", rule, claudeFooter}, true, false},
-		"claude his words after a paste":     {Claude, []string{rule, "❯ [Pasted text #1 +3 lines] and the", rule, claudeFooter}, true, false},
-		"claude only above the composer":     {Claude, []string{"❯ stop and rebase", "", rule, "❯ and the", rule, claudeFooter}, false, false},
-		"claude composer unreadable":         {Claude, []string{"❯ stop and rebase"}, false, false},
-		"codex words":                        {Codex, []string{"› stop and rebase", "", codexFooter}, false, true},
-		"codex wrapped words":                {Codex, []string{"› check the tests and then stop", "  and rebase", "", codexFooter}, false, true},
-		"codex his words after":              {Codex, []string{"› stop and rebase and the", "", codexFooter}, false, false},
-		"codex pasted line":                  {Codex, []string{"› [Pasted Content 1200 chars]", "", codexFooter}, true, true},
-		"pi words":                           {Pi, []string{rule, "stop and rebase", rule, piFooter}, false, true},
-		"pi his paste after":                 {Pi, []string{rule, "stop and rebase[paste #1 +12 lines]", rule, piFooter}, false, false},
+		"claude words":                   {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, "stop and rebase", true},
+		"claude two lines joined":        {Claude, []string{rule, "❯ check the tests", "  stop and rebase", rule, claudeFooter}, "check the tests\nstop and rebase", true},
+		"claude his words after":         {Claude, []string{rule, "❯ stop and rebase and the", rule, claudeFooter}, "stop and rebase", false},
+		"claude his words before":        {Claude, []string{rule, "❯ and then stop and rebase", rule, claudeFooter}, "stop and rebase", false},
+		"claude a lone ?":                {Claude, []string{rule, "❯ ?", rule, claudeFooter}, "?", true},
+		"claude his question after a ?":  {Claude, []string{rule, "❯ ? is the build green?", rule, claudeFooter}, "?", false},
+		"claude his question before a ?": {Claude, []string{rule, "❯ is the build green ?", rule, claudeFooter}, "?", false},
+		"claude his paste after":         {Claude, []string{rule, "❯ stop and rebase[Pasted text #1 +3 lines]", rule, claudeFooter}, "stop and rebase", false},
+		"claude only above the composer": {Claude, []string{"❯ stop and rebase", "", rule, "❯ and the", rule, claudeFooter}, "stop and rebase", false},
+		"claude composer unreadable":     {Claude, []string{"❯ stop and rebase"}, "stop and rebase", false},
+		"codex words":                    {Codex, []string{"› stop and rebase", "", codexFooter}, "stop and rebase", true},
+		"codex wrapped words":            {Codex, []string{"› check the tests and then stop", "  and rebase", "", codexFooter}, "check the tests and then stop and rebase", true},
+		"codex his words after":          {Codex, []string{"› stop and rebase and the", "", codexFooter}, "stop and rebase", false},
+		"pi words":                       {Pi, []string{rule, "stop and rebase", rule, piFooter}, "stop and rebase", true},
+		"pi his paste after":             {Pi, []string{rule, "stop and rebase[paste #1 +12 lines]", rule, piFooter}, "stop and rebase", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Arrange
 			screens, _ := NativeScreens(test.kind)
 
 			// Act
-			ends := screens.ComposerEndsWith(test.screen, "stop and rebase", test.isPasted)
+			matches := screens.ComposerMatches(test.screen, test.typed)
 
 			// Assert
-			if ends != test.ends {
-				t.Errorf("ComposerEndsWith(%q, pasted %v) = %v, want %v", test.screen, test.isPasted, ends, test.ends)
+			if matches != test.matches {
+				t.Errorf("ComposerMatches(%q, %q) = %v, want %v", test.screen, test.typed, matches, test.matches)
+			}
+		})
+	}
+}
+
+// A line typed as a paste can come back as its harness's placeholder, which
+// is handed back only while that one placeholder is all the composer holds:
+// words or a second paste beside it are somebody else's.
+func TestAComposerHoldsOnePasteOnlyWhileItsPlaceholderIsAllThere(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
+	codexFooter := "100% context left"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		holds  bool
+	}{
+		"claude one paste":             {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, true},
+		"claude a second paste":        {Claude, []string{rule, "❯ [Pasted text #1 +3 lines][Pasted text #2 +5 lines]", rule, claudeFooter}, false},
+		"claude his words after":       {Claude, []string{rule, "❯ [Pasted text #1 +3 lines] and the", rule, claudeFooter}, false},
+		"claude his words before":      {Claude, []string{rule, "❯ and the [Pasted text #1 +3 lines]", rule, claudeFooter}, false},
+		"claude words alone":           {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, false},
+		"claude composer unreadable":   {Claude, []string{"❯ [Pasted text #1 +3 lines]"}, false},
+		"codex one paste":              {Codex, []string{"› [Pasted Content 1200 chars]", "", codexFooter}, true},
+		"pi one paste":                 {Pi, []string{rule, "[paste #1 +12 lines]", rule, piFooter}, true},
+		"pi his words after the paste": {Pi, []string{rule, "[paste #1 +12 lines] and the", rule, piFooter}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			holds := screens.ComposerHoldsOnePaste(test.screen)
+
+			// Assert
+			if holds != test.holds {
+				t.Errorf("ComposerHoldsOnePaste(%q) = %v, want %v", test.screen, holds, test.holds)
 			}
 		})
 	}

@@ -498,10 +498,11 @@ const nativeSubmitSettle = 300 * time.Millisecond
 // keys, and a bracketed path alone becomes an image.
 const claudeTypedUpTo = 512
 
-// nativeConfirm bounds how long a delivery to the native CFO waits after
-// submission to be shown taken before the delivery is left sent and awaiting
-// that, in time the machine ran (awake), since a pause of the whole machine
-// stops the CFO's harness too; nativeConfirmPoll spaces the looks.
+// nativeConfirm bounds how long a delivery to the native CFO waits for its
+// text to show, and one to an idle CFO waits after submission to be shown
+// taken before the delivery is left sent and awaiting that, in time the
+// machine ran (awake), since a pause of the whole machine stops the CFO's
+// harness too; nativeConfirmPoll spaces the looks.
 const (
 	nativeConfirm     = 5 * time.Second
 	nativeConfirmPoll = 250 * time.Millisecond
@@ -650,34 +651,31 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 	}
 	// A CFO in a turn takes the answer at its next tool call, and its prompt
 	// hook runs as its harness queues the answer, before the CFO has it, so
-	// only its own record of the conversation proves it taken.
-	digest := monitor.TextDigest(instruction)
-	session := cfoSession(c.State, primary)
-	conversation := monitor.Conversation{Harness: primary.Agent, Session: session}
+	// only its own record of the conversation proves it taken: the answer is
+	// sent once its submit key went, and settleDeliveries reads that record.
+	waiting := &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: monitor.TextDigest(instruction), Session: cfoSession(c.State, primary), Typed: instruction, Pasted: isPasted}
+	if busy {
+		return Evaluation{Reason: sentToCFO, Awaiting: waiting}, nil
+	}
 	taken, cancelTaken := awake.WithTimeout(context.Background(), nativeConfirm)
 	defer cancelTaken()
 	for {
-		if busy && conversations().Took(ctx, conversation, digest, submitted) {
-			return Evaluation{Reason: "Taken by the CFO at its next tool call, as its own record of the conversation shows."}, nil
-		}
-		if !busy {
-			if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
-				return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
-			}
+		if taken, err := NativeHostPromptSince(c.State, primary.Host, submitted); err == nil && taken {
+			return Evaluation{Reason: "Taken by the CFO in its native terminal, as its hook reported."}, nil
 		}
 		screen, err := read(record)
 		if err != nil {
 			return Evaluation{}, fmt.Errorf("the answer was submitted but the CFO's screen cannot be read: %w", err)
 		}
 		_, dialog := screens.Dialog(screen)
-		if !busy && !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
+		if !dialog && screens.IsWorking(screen) && screens.ComposerEmpty(screen) {
 			return Evaluation{Reason: "Taken by the CFO in its native terminal, which started working on your answer."}, nil
 		}
 		if taken.Err() != nil {
-			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
+			if dialog || !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}
-			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session, Typed: instruction, Pasted: isPasted}}, nil
+			return Evaluation{Reason: sentToCFO, Awaiting: waiting}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

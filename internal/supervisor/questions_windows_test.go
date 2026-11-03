@@ -410,7 +410,7 @@ func TestABoardAnswerToABusyAskerIsSentNotUnconfirmed(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if typed := terminal.lines(t); len(typed) != 1 {
+			if typed := terminal.waitForLines(t, 1); len(typed) != 1 {
 				t.Fatalf("the terminal received %q, want the answer submitted once", typed)
 			}
 			snapshot := store.Snapshot()
@@ -468,7 +468,7 @@ func TestASendToABusyAskerSaysItWaitsBehindItsTurn(t *testing.T) {
 			if asker == "cfo" && (err != nil || result.Awaiting == nil || result.Reason != sentToCFO) {
 				t.Fatalf("result = %+v, %v; want the busy CFO's delivery sent and awaiting its report", result, err)
 			}
-			if typed := terminal.lines(t); len(typed) != 1 {
+			if typed := terminal.waitForLines(t, 1); len(typed) != 1 {
 				t.Fatalf("the terminal received %q, want the text submitted once", typed)
 			}
 		})

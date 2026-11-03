@@ -196,9 +196,10 @@ func awaitingGoblinDelivery(meta state.TaskMeta, since time.Time, text string) *
 // into a turn he then stopped with the box's Stop sat there unsent while its
 // bubble said Sent (the Overlord, 2026-11-02: "nor do they work with
 // interrupts"). The turn it waited for is over, so it goes as the next
-// prompt, once the terminal waits idle with it on its prompt line and nothing
-// else there. A terminal's prompt line that holds several such lines, joined,
-// is submitted once.
+// prompt, once the terminal waits idle with nothing else on its prompt line,
+// whitespace aside: one such line, several joined in the order they were
+// typed, which go as one prompt, or the placeholder of one pasted line alone.
+// Words of his before or after them leave the prompt line his to send.
 func (s *Service) submitHandedBack(ctx context.Context) error {
 	waiting := map[string][]Awaiting{}
 	for _, a := range s.Store.Snapshot().Actions {
@@ -212,6 +213,7 @@ func (s *Service) submitHandedBack(ctx context.Context) error {
 	}
 	var handedBack []string
 	for terminal, deliveries := range waiting {
+		slices.SortFunc(deliveries, func(a, b Awaiting) int { return a.Since.Compare(b.Since) })
 		if s.submitOnto(ctx, terminal, deliveries) {
 			handedBack = append(handedBack, terminal)
 		}
@@ -220,10 +222,11 @@ func (s *Service) submitHandedBack(ctx context.Context) error {
 }
 
 // submitOnto presses the submit key in terminal when its harness waits idle
-// with one of deliveries, all typed into it, at the end of its prompt line,
-// and reports whether it did. The screen is read without the CFO's typing
-// lock, which a delivery to the CFO holds for seconds, and read again under
-// it before the key, so nothing else types into the CFO's terminal meanwhile.
+// with nothing on its prompt line but deliveries, all typed into it in the
+// order given, as submitHandedBack says, and reports whether it did. The
+// screen is read without the CFO's typing lock, which a delivery to the CFO
+// holds for seconds, and read again under it before the key, so nothing else
+// types into the CFO's terminal meanwhile.
 func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []Awaiting) bool {
 	first := deliveries[0]
 	if first.Task != "" {
@@ -238,7 +241,22 @@ func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []
 	}
 	isHandedBack := func() bool {
 		rows, err := host.ReadScreen(record)
-		return err == nil && screens.IsReady(rows) && screens.ComposerHoldsText(rows) && slices.ContainsFunc(deliveries, func(a Awaiting) bool { return screens.ComposerEndsWith(rows, a.Typed, a.Pasted) })
+		if err != nil || !screens.IsReady(rows) || !screens.ComposerHoldsText(rows) {
+			return false
+		}
+		if slices.ContainsFunc(deliveries, func(a Awaiting) bool { return a.Pasted }) && screens.ComposerHoldsOnePaste(rows) {
+			return true
+		}
+		for first := range deliveries {
+			joined := ""
+			for _, a := range deliveries[first:] {
+				joined += a.Typed + "\n"
+				if screens.ComposerMatches(rows, joined) {
+					return true
+				}
+			}
+		}
+		return false
 	}
 	if !isHandedBack() {
 		return false

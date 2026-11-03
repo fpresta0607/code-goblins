@@ -463,8 +463,10 @@ func (s Screens) ComposerHoldsText(screen []string) bool {
 	return !s.ComposerEmpty(screen)
 }
 
-// ComposerMatches proves the complete draft survived a startup dialog.
-// Unlike Shows, a suffix, an older prompt or a collapsed paste is not enough.
+// ComposerMatches reports whether screen's composer holds typed and nothing
+// else, whitespace aside: the complete draft that survived a startup dialog,
+// or the lines a stopped turn handed back. Unlike Shows, a suffix, an older
+// prompt or a collapsed paste is not enough.
 func (s Screens) ComposerMatches(screen []string, typed string) bool {
 	if _, hasDialog := s.Dialog(screen); hasDialog {
 		return false
@@ -474,21 +476,11 @@ func (s Screens) ComposerMatches(screen []string, typed string) bool {
 	return isRead && want != "" && held == want
 }
 
-// ComposerEndsWith reports whether screen's composer, read where it can be
-// and nowhere else, ends with typed: its end, as Shows reads it, or, for text
-// typed as a paste, one paste's placeholder that is all the composer holds.
-// Unlike Shows, typed anywhere but at the composer's end does not count, nor
-// does a paste's placeholder beside other words, so words or a paste somebody
-// added after it are never read as typed.
-func (s Screens) ComposerEndsWith(screen []string, typed string, isPasted bool) bool {
+// ComposerHoldsOnePaste reports whether all screen's composer holds is one
+// paste's placeholder, as a harness shows text it collapsed as a paste.
+func (s Screens) ComposerHoldsOnePaste(screen []string) bool {
 	held, isRead := s.draft(screen)
 	if !isRead {
-		return false
-	}
-	if end := typedEnd(typed); end != "" && strings.HasSuffix(held, end) {
-		return true
-	}
-	if !isPasted {
 		return false
 	}
 	for _, placeholder := range s.Pasted {
@@ -611,7 +603,11 @@ func (s Screens) Shows(screen []string, typed string) bool {
 		screen = composer
 	}
 	compact := compactScreen(screen)
-	if end := typedEnd(typed); end != "" && strings.Contains(compact, end) {
+	end := []rune(compactScreen([]string{typed}))
+	if len(end) > 40 {
+		end = end[len(end)-40:]
+	}
+	if len(end) > 0 && strings.Contains(compact, string(end)) {
 		return true
 	}
 	for _, placeholder := range s.Pasted {
@@ -620,16 +616,6 @@ func (s Screens) Shows(screen []string, typed string) bool {
 		}
 	}
 	return false
-}
-
-// typedEnd returns the end of typed a composer's cursor keeps in view: its
-// last 40 characters, without whitespace.
-func typedEnd(typed string) string {
-	end := []rune(compactScreen([]string{typed}))
-	if len(end) > 40 {
-		end = end[len(end)-40:]
-	}
-	return string(end)
 }
 
 // Chosen reports whether focused, the focused option's text, is the option

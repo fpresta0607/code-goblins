@@ -245,7 +245,7 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 		// Act
 		heAnswersTheSitting(t, s, identity, func() []string { return terminal.lines(t) })
 		s.process(context.Background())
-		typed := overlordMessages(terminal.lines(t))
+		typed := overlordMessages(terminal.waitForLines(t, 2))
 		sent := store.Snapshot().Actions
 		if len(typed) > 0 {
 			takenInRecord(t, records, "claude", "session-1", "", typed[0])

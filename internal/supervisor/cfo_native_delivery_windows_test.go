@@ -117,7 +117,7 @@ func TestHisLoneQuestionMarkReachesAClaudeCFOAsWords(t *testing.T) {
 		if err := store.ProcessOne(context.Background(), service.execute); err != nil {
 			t.Fatal(err)
 		}
-		lines := terminal.lines(t)
+		lines := terminal.waitForLines(t, 2)
 		if len(lines) == 2 && lines[1] == "queued ?" {
 			takenInRecord(t, records, "claude", "session-1", "", "?")
 		}
@@ -287,9 +287,13 @@ func TestHisNextMessageIsTypedBehindOneInABusyClaudeCFOsQueue(t *testing.T) {
 		}
 	}
 	pastUndoWindow(t, store)
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	cfoShows(t, home.State, "❯ Press up to edit queued messages")
 
 	// Act
-	err := errors.Join(store.ProcessOne(context.Background(), service.execute), store.ProcessOne(context.Background(), service.execute))
+	err := store.ProcessOne(context.Background(), service.execute)
 
 	// Assert
 	if err != nil {
@@ -320,6 +324,16 @@ func typeIntoCFO(t *testing.T, stateDir, keys, shown string) {
 	}
 	err = client.Input([]byte(keys))
 	client.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfoShows(t, stateDir, shown)
+}
+
+// cfoShows waits until the CFO's screen shows shown.
+func cfoShows(t *testing.T, stateDir, shown string) {
+	t.Helper()
+	record, err := host.ReadRecord(stateDir, "cfo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,8 +372,8 @@ func TestHisMessageInATurnHeStoppedGoesAsTheCFOsNextPrompt(t *testing.T) {
 			if err := store.ProcessOne(context.Background(), service.execute); err != nil {
 				t.Fatal(err)
 			}
-			inTurnErr := service.submitHandedBack(context.Background())
 			inTurn := terminal.waitForLines(t, 2)
+			inTurnErr := service.submitHandedBack(context.Background())
 			typeIntoCFO(t, home.State, "\x1b", test.prompt)
 
 			// Act
@@ -391,6 +405,9 @@ func TestHisOwnWordsOnTheCFOsPromptLineAreNeverSubmittedForHim(t *testing.T) {
 	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
 	at := time.Now().UTC()
 	store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", Text: "stop and rebase", Status: "running", CreatedAt: at, UpdatedAt: at, Awaiting: &Awaiting{Host: "cfo", Harness: "claude", Since: at, QuietSince: at, Typed: "stop and rebase"}})
+	if err := store.save(); err != nil {
+		t.Fatal(err)
+	}
 	typeIntoCFO(t, home.State, "and the", "❯ and the")
 
 	// Act
@@ -439,6 +456,77 @@ func TestHisPasteAfterAHandedBackMessageIsNeverSubmittedForHim(t *testing.T) {
 	}
 	if sent := actionOf(store, "m1"); sent.Status != "running" || sent.Message != sentToCFO {
 		t.Errorf("after his paste = %+v; want it still awaiting the CFO, never submitted again", sent)
+	}
+}
+
+// A lone "?" of his on the CFO's prompt line, handed back by a turn he
+// stopped, is never submitted with words of his beside it, even words that
+// end as it does: the line is submitted only while it holds nothing else.
+func TestAHandedBackQuestionMarkIsNeverSubmittedWithHisWordsBesideIt(t *testing.T) {
+	for name, words := range map[string]string{
+		"his words after it":  "? is the build green?",
+		"his words before it": "is the build green ?",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			store, home := testStore(t)
+			terminal := nativeCFOComposer(t, home.State, "claude-ready")
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			at := time.Now().UTC()
+			store.db.Actions = append(store.db.Actions, Action{ID: "m1", Kind: "message", Text: "?", Status: "running", CreatedAt: at, UpdatedAt: at, Awaiting: &Awaiting{Host: "cfo", Harness: "claude", Since: at, QuietSince: at, Typed: "?", Pasted: true}})
+			if err := store.save(); err != nil {
+				t.Fatal(err)
+			}
+			typeIntoCFO(t, home.State, words, "❯ "+words)
+
+			// Act
+			err := service.submitHandedBack(context.Background())
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(500 * time.Millisecond)
+			if lines := terminal.lines(t); len(lines) != 1 {
+				t.Errorf("terminal input = %q; want nothing submitted over his words", lines)
+			}
+			if sent := actionOf(store, "m1"); sent.Message == "Its turn was stopped, so it was submitted as the next prompt." {
+				t.Errorf("after his words = %+v; want it left on his prompt line unsubmitted", sent)
+			}
+		})
+	}
+}
+
+// A message typed into the CFO's turn is sent the moment its submit key goes:
+// the turn takes it only at its next tool call, which only the CFO's own
+// record shows, and settleDeliveries reads that record. So the delivery waits
+// on no take, and his bubble reads Sent at once rather than Queued while his
+// words already sit in the CFO's queue.
+func TestADeliveryToACFOInATurnIsSentOnceItsSubmitKeyWent(t *testing.T) {
+	for _, mode := range []string{"claude-busy", "busy"} {
+		t.Run(mode, func(t *testing.T) {
+			// Arrange
+			useConversations(t)
+			store, home := testStore(t)
+			terminal := nativeCFOComposer(t, home.State, mode)
+			service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+			started := time.Now()
+
+			// Act
+			result, err := service.deliverMessage(context.Background(), Action{Kind: "message", Text: "stop and rebase"})
+			took := time.Since(started)
+
+			// Assert
+			if err != nil || result.Reason != sentToCFO || result.Awaiting == nil || result.Awaiting.Typed != "stop and rebase" {
+				t.Fatalf("deliverMessage = %+v, %v; want it sent and awaiting the CFO's next tool call", result, err)
+			}
+			if took >= nativeConfirm {
+				t.Errorf("deliverMessage returned after %v; want it back once its submit key went, before the %v an idle CFO's take is waited for", took, nativeConfirm)
+			}
+			if lines := terminal.waitForLines(t, 2); len(lines) != 2 || lines[1] != "queued stop and rebase" {
+				t.Errorf("terminal input = %q; want the message queued in the turn once", lines)
+			}
+		})
 	}
 }
 

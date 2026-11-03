@@ -477,6 +477,40 @@ test("a Send now the supervisor refuses is said over the box and not reported to
   await expect.poll(() => reports).toEqual([lost]);
 });
 
+// An Edit the supervisor refuses, as for a message it typed into the turn as
+// he pressed, is said over the box and goes no further: the CFO is not woken
+// for it, since the supervisor answered. One that never reached the
+// supervisor is the board's own failure, and the CFO hears of that one.
+test("an Edit the supervisor refuses is said over the box and not reported to the CFO, while one that never reached it is", async ({ page }) => {
+  // Arrange
+  const REFUSED = "It was already typed into " + GOBLIN.id + "'s turn.";
+  await open(page, snapshot({ actions: [queued()] }));
+  const reports: string[] = [];
+  await page.route("**/api/cfo/report", (route) => {
+    const report = route.request().postDataJSON() as { where: string; text: string };
+    if (report.where.startsWith("taking back a message to ")) reports.push(report.text);
+    return route.fulfill({ status: 202, json: { reported: true } });
+  });
+  let isAnswered = true;
+  await page.route("**/api/actions", (route) => isAnswered ? route.fulfill({ status: 409, json: { error: REFUSED } }) : route.abort("connectionrefused"));
+  await openGoblin(page);
+  const banner = box(page).locator(".composer-banner");
+  const edit = entry(page).getByRole("button", { name: "Edit", exact: true });
+
+  // Act: one press the supervisor refuses, then one that never reaches it.
+  await edit.click();
+  await expect(banner).toHaveText("Not taken back. " + REFUSED);
+  isAnswered = false;
+  await edit.click();
+  await expect(banner).not.toHaveText("Not taken back. " + REFUSED);
+  const lost = (await banner.textContent() ?? "").replace(/^Not taken back\. /, "");
+
+  // Assert
+  expect(lost).toBeTruthy();
+  await expect(field(page)).toHaveValue("");
+  await expect.poll(() => reports).toEqual([lost]);
+});
+
 // The Overlord, 2026-10-28: "send now should be an option with all queued
 // messages". One that cannot go now says why when pressed, and asks nothing.
 // And 2026-10-29, of notices such as "that queued message is no longer
