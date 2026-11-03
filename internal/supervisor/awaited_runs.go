@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -58,18 +57,16 @@ func (s *Service) pollAwaitedRuns(ctx context.Context, watched *fleetWakes, now 
 		if failed[target] {
 			continue
 		}
-		output, err := runOutput(ctx, s.Options.CI, meta.Project, "gh", "run", "view", parts[4], "--repo", parts[0]+"/"+parts[1], "--json", "databaseId,workflowName,status,conclusion,headSha,url,attempt,startedAt,updatedAt")
+		var run ghRun
+		probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
+		err = s.Options.GitHub.Get(probe, fmt.Sprintf("repos/%s/%s/actions/runs/%s", parts[0], parts[1], parts[4]), &run)
+		cancel()
 		failed[target] = err != nil
 		if err != nil {
 			problems = errors.Join(problems, watched.failing("awaited:"+target, fmt.Errorf("awaited run %s: %w", target, err)))
 			continue
 		}
 		delete(watched.Failing, "awaited:"+target)
-		var run ghRun
-		if err := json.Unmarshal([]byte(output), &run); err != nil {
-			problems = errors.Join(problems, err)
-			continue
-		}
 		if run.Status != "completed" || run.Conclusion == "" || run.URL != target || run.HeadSHA != head {
 			continue
 		}
@@ -80,7 +77,7 @@ func (s *Service) pollAwaitedRuns(ctx context.Context, watched *fleetWakes, now 
 			watched.Checks[target] = completed
 			continue
 		}
-		once := failedOnceClause(train.FailedOnce(ctx, s.Options.CI, meta.Project, parts[0]+"/"+parts[1], run.HeadSHA, run.ID))
+		once := failedOnceClause(train.FailedOnce(ctx, s.Options.GitHub, parts[0]+"/"+parts[1], run.HeadSHA, run.ID))
 		detail := fmt.Sprintf("ci_finished: %s's awaited %s run %d completed with %s%s at %s (%s); next: resume %s in place", meta.ID, record.Pause.Reason, run.ID, run.Conclusion, once, run.HeadSHA, target, meta.ID)
 		if err := raiseFleetWake(s.Store.Home.State, "ci", meta.ID, detail); err != nil {
 			problems = errors.Join(problems, err)

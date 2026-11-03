@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -95,6 +96,7 @@ func TestHostedChecksReachTheCardOfTheGoblinWhosePullRequestTheyAreOn(t *testing
 			forge := forgeFor(project, "cg-wakes")
 			forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", hostedRollup(test.review, test.checks...)
 			s.Options.CI = forge
+			s.Options.GitHub = githubtest.Client(forge)
 
 			// Act
 			checks := cardChecks(t, s, "cg-wakes", time.Date(2026, 9, 30, 12, 31, 0, 0, time.UTC))
@@ -127,6 +129,7 @@ func TestHostedChecksShowNothingForAPullRequestWithoutChecksOrAnotherGoblins(t *
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", hostedRollup("")
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 31, 0, 0, time.UTC)
 
 	// Act
@@ -154,6 +157,7 @@ func TestHostedChecksShowNothingForAPullRequestWhoseEveryCheckWasSkipped(t *test
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs = "feat/wakes", "[]"
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 31, 0, 0, time.UTC)
 
 	// Act
@@ -198,6 +202,7 @@ func TestHostedChecksAreForgottenWithTheChecksTheyCameFrom(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", hostedRollup("", testPassed)
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 31, 0, 0, time.UTC)
 	if cardChecks(t, s, "cg-wakes", now) == nil {
 		t.Fatal("the first poll left no hosted checks on the card")

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -236,18 +238,20 @@ func TestMemoryReadyLeavesOutTheTaskBeingStarted(t *testing.T) {
 	}
 }
 
-// fakeForge answers gh and git the way GitHub and a checkout would for one
-// repository and the one goblin worktree in it, from canned output the test
-// changes between polls, and counts that repository's pull request listings.
-// Any other repository has no pull requests or runs, and any other worktree
-// no branch, as the fixture home's own task has. origin's HEAD names main
-// unless noOriginHead says the repository has none, and then originBranches
-// are the branches its origin has. runListDirs holds where push runs were
-// listed. noOrigin says the repository has no origin remote, ghFailure is
-// what gh prints when it cannot read the repository, and ghCalls counts the
-// gh calls made in it. viewer is the account gh works as, o by default.
-// runListTimeouts is how many more listings of the repository's push runs
-// time out, as they did under the fleet's load.
+// fakeForge answers git the way a checkout would, and GitHub's API
+// (ServeHTTP) the way GitHub would, for one repository, github.com/o/r, and
+// the one goblin worktree in it, from canned output the test changes between
+// polls, and counts that repository's pull request listings. Any other
+// checkout's origin is a repository of its own, with no pull requests or
+// runs, and any other worktree has no branch, as the fixture home's own task
+// has. origin's HEAD names main unless noOriginHead says the repository has
+// none, and then originBranches are the branches its origin has. runListDirs
+// holds the checkouts whose push runs were listed. noOrigin says the
+// repository has no origin remote, refusal is how GitHub refuses to read it,
+// timesOut makes every read of it run out of time, and githubCalls counts
+// what GitHub was asked of it. viewer is the account the token is of, o by
+// default. runListTimeouts is how many more listings of the repository's
+// push runs time out, as they did under the fleet's load.
 type fakeForge struct {
 	mu              sync.Mutex
 	repo            string
@@ -259,21 +263,32 @@ type fakeForge struct {
 	noOrigin        bool
 	noOriginHead    bool
 	originBranches  []string
-	ghFailure       string
-	ghCalls         int
+	refusal         forgeRefusal
+	timesOut        bool
+	githubCalls     int
 	listCalls       int
 	runListDirs     []string
 	runListTimeouts int
 	viewer          string
+	// checkouts are the other checkouts whose origin was read, by the
+	// repository each names.
+	checkouts map[string]string
 	// reflog is what git reflog prints in the goblin's worktree: every branch
 	// it had checked out, newest first.
 	reflog string
 	// once is GitHub's answer to the read of the tests that failed once,
-	// onceFailure what gh says when that read fails, and onceCalls how often
-	// it was asked.
+	// onceFailure GitHub's message when it fails that read, and onceCalls how
+	// often it was asked.
 	once        string
 	onceFailure string
 	onceCalls   int
+}
+
+// forgeRefusal is how the forge's GitHub refuses a read: with status and
+// its message.
+type forgeRefusal struct {
+	status  int
+	message string
 }
 
 func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, error) {
@@ -281,24 +296,12 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 	defer f.mu.Unlock()
 	command := req.Name + " " + strings.Join(req.Args, " ")
 	inRepo := strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(f.repo))
-	answer := func(output string) (execx.Result, error) {
-		if !inRepo {
-			output = "[]"
-		}
-		return execx.Result{Stdout: []byte(output)}, nil
-	}
-	if inRepo && req.Name == "gh" {
-		f.ghCalls++
-		if f.ghFailure != "" {
-			return execx.Result{ExitCode: 1, Stderr: []byte(f.ghFailure)}, nil
-		}
-	}
 	switch {
 	case strings.HasPrefix(command, "git config --get remote.origin.url"):
 		if inRepo && f.noOrigin {
 			return execx.Result{ExitCode: 1}, nil
 		}
-		return execx.Result{Stdout: []byte("https://github.com/o/r.git\n")}, nil
+		return execx.Result{Stdout: []byte("https://github.com/" + f.repositoryOf(req.Dir) + ".git\n")}, nil
 	case strings.HasPrefix(command, "git rev-parse --show-toplevel"):
 		return execx.Result{Stdout: []byte(req.Dir + "\n")}, nil
 	case strings.HasPrefix(command, "git branch --show-current"):
@@ -321,56 +324,174 @@ func (f *fakeForge) Run(_ context.Context, req execx.Request) (execx.Result, err
 			return execx.Result{ExitCode: 1}, nil
 		}
 		return execx.Result{Stdout: []byte("4e8bd9e536\n")}, nil
-	case strings.HasPrefix(command, "gh pr list"):
-		if inRepo {
-			f.listCalls++
+	}
+	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected " + command)}, nil
+}
+
+// repositoryOf is the GitHub repository dir's origin names: o/r for the
+// forge's repository and its worktrees, and one of its own for any other
+// checkout.
+func (f *fakeForge) repositoryOf(dir string) string {
+	if within, err := filepath.Rel(f.repo, dir); err == nil && !filepath.IsAbs(within) && within != ".." && !strings.HasPrefix(within, ".."+string(filepath.Separator)) {
+		return "o/r"
+	}
+	for repository, checkout := range f.checkouts {
+		if fsx.SamePath(checkout, dir) {
+			return repository
 		}
-		return answer(f.pulls)
-	case strings.HasPrefix(command, "gh api graphql") && strings.Contains(command, "annotations("):
+	}
+	if f.checkouts == nil {
+		f.checkouts = map[string]string{}
+	}
+	repository := fmt.Sprintf("o/checkout-%d", len(f.checkouts)+1)
+	f.checkouts[repository] = filepath.Clean(dir)
+	return repository
+}
+
+// namedRepository matches the repository a GraphQL query names in itself.
+var namedRepository = regexp.MustCompile(`repository\(owner:"([^"]+)",name:"([^"]+)"\)`)
+
+// requestedRepository is the owner/name repository a request to GitHub's API
+// reads, as its GraphQL variables, its GraphQL query or its REST path names
+// it, and empty for one that names none, such as the account's.
+func requestedRepository(path, query string, variables map[string]any) string {
+	if owner, isNamed := variables["owner"].(string); isNamed {
+		name, _ := variables["name"].(string)
+		return owner + "/" + name
+	}
+	if found := namedRepository.FindStringSubmatch(query); found != nil {
+		return found[1] + "/" + found[2]
+	}
+	if parts := strings.SplitN(path, "/", 4); len(parts) >= 3 && parts[0] == "repos" {
+		return parts[1] + "/" + parts[2]
+	}
+	return ""
+}
+
+// actionsRun matches the path of one workflow run, and of its jobs.
+var actionsRun = regexp.MustCompile(`^repos/[^/]+/[^/]+/actions/runs/[0-9]+(/jobs)?$`)
+
+// ServeHTTP answers what the CI poll asks of GitHub's API the way GitHub
+// would, from the forge's canned output: for o/r and for every repository no
+// other checkout's origin named, such as the one of a run a paused goblin
+// waits on. Another checkout's repository has no pull requests or runs.
+func (f *fakeForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	var query string
+	var variables map[string]any
+	if path == "graphql" {
+		var err error
+		if query, variables, err = githubtest.Query(r); err != nil {
+			githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	elsewhere, isElsewhere := f.checkouts[requestedRepository(path, query, variables)]
+	if !isElsewhere {
+		f.githubCalls++
+		if f.timesOut {
+			githubtest.TimeOut(w)
+			return
+		}
+		if f.refusal.status != 0 {
+			githubtest.Refuse(w, f.refusal.status, f.refusal.message)
+			return
+		}
+	}
+	// answer writes canned, gh-shaped output as GitHub's API gives it, or
+	// refuses the read as GitHub fails one when the output cannot be read.
+	answer := func(convert func([]byte) (any, error), canned string) {
+		converted, err := convert([]byte(canned))
+		if err != nil {
+			githubtest.Refuse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		githubtest.Write(w, http.StatusOK, converted)
+	}
+	switch {
+	case strings.Contains(query, "annotations("):
 		// The read of the tests that failed once: what a test gave the
 		// forge, or one workflow check with no warning for the commit and
 		// for each run the forge knows.
 		f.onceCalls++
 		if f.onceFailure != "" {
-			return execx.Result{ExitCode: 1, Stderr: []byte(f.onceFailure)}, nil
+			githubtest.Refuse(w, http.StatusBadGateway, f.onceFailure)
+			return
 		}
 		if f.once != "" {
-			return execx.Result{Stdout: []byte(f.once)}, nil
+			_, _ = w.Write([]byte(f.once))
+			return
 		}
 		suites := []string{onceSuite(0)}
 		for _, id := range regexp.MustCompile(`"databaseId":([0-9]+)`).FindAllStringSubmatch(f.runs+f.jobs, -1) {
 			run, _ := strconv.ParseInt(id[1], 10, 64)
 			suites = append(suites, onceSuite(run))
 		}
-		return execx.Result{Stdout: []byte(onceAnswer(suites...))}, nil
-	case strings.HasPrefix(command, "gh api graphql"):
-		var pulls []ghPullRequest
-		if err := json.Unmarshal([]byte(f.pulls), &pulls); err != nil {
-			return execx.Result{}, err
+		_, _ = w.Write([]byte(onceAnswer(suites...)))
+	case strings.Contains(query, "pullRequests("):
+		pulls := "[]"
+		if !isElsewhere {
+			f.listCalls++
+			pulls = f.pulls
 		}
-		comparisons := map[string]prComparison{}
-		for _, pull := range pulls {
-			comparison := prComparison{BehindBy: new(int)}
-			comparison.HeadTarget.Oid, comparison.BaseTarget.Oid = pull.HeadRefOid, "base"
-			comparisons[fmt.Sprintf("pr%d", pull.Number)] = comparison
+		answer(func(pulls []byte) (any, error) {
+			// A listing of null is an answer without the pull requests.
+			if strings.TrimSpace(string(pulls)) == "null" {
+				return map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": nil}}}, nil
+			}
+			nodes, err := githubtest.PullRequestNodes(pulls)
+			return map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}}}, err
+		}, pulls)
+	case strings.Contains(query, "compare("):
+		answer(func(pulls []byte) (any, error) {
+			var listed []struct {
+				Number     int    `json:"number"`
+				HeadRefOid string `json:"headRefOid"`
+			}
+			if err := json.Unmarshal(pulls, &listed); err != nil {
+				return nil, err
+			}
+			comparisons := map[string]prComparison{}
+			for _, pull := range listed {
+				comparison := prComparison{BehindBy: new(int)}
+				comparison.HeadTarget.Oid, comparison.BaseTarget.Oid = pull.HeadRefOid, "base"
+				comparisons[fmt.Sprintf("pr%d", pull.Number)] = comparison
+			}
+			return map[string]any{"data": map[string]any{"repository": map[string]any{"ref": comparisons}}}, nil
+		}, f.pulls)
+	case path == "user":
+		// The account the token is of owns the repository the fixtures'
+		// pull requests are in, github.com/o/r, unless a test names another.
+		githubtest.Write(w, http.StatusOK, map[string]string{"login": cmp.Or(f.viewer, "o")})
+	case actionsRun.MatchString(path) && strings.HasSuffix(path, "/jobs"):
+		_, _ = w.Write([]byte(f.jobs))
+	case actionsRun.MatchString(path):
+		// A run a paused goblin waits on is the forge's jobs output, the run
+		// as gh run view printed it.
+		answer(func(run []byte) (any, error) {
+			var viewed map[string]any
+			err := json.Unmarshal(run, &viewed)
+			return githubtest.WorkflowRun(viewed), err
+		}, f.jobs)
+	case strings.HasSuffix(path, "/actions/runs"):
+		runs := "[]"
+		if isElsewhere {
+			f.runListDirs = append(f.runListDirs, elsewhere)
+		} else {
+			f.runListDirs = append(f.runListDirs, filepath.Clean(f.repo))
+			if f.runListTimeouts > 0 {
+				f.runListTimeouts--
+				githubtest.TimeOut(w)
+				return
+			}
+			runs = f.runs
 		}
-		body, err := json.Marshal(comparisons)
-		return execx.Result{Stdout: []byte(`{"data":{"repository":{"ref":` + string(body) + `}}}`)}, err
-	case strings.HasPrefix(command, "gh api user"):
-		// The account gh works as owns the repository the fixtures' pull
-		// requests are in, github.com/o/r, unless a test names another.
-		return execx.Result{Stdout: []byte(cmp.Or(f.viewer, "o") + "\n")}, nil
-	case strings.HasPrefix(command, "gh run list"):
-		f.runListDirs = append(f.runListDirs, filepath.Clean(req.Dir))
-		if inRepo && f.runListTimeouts > 0 {
-			f.runListTimeouts--
-			return execx.Result{}, context.DeadlineExceeded
-		}
-		return answer(f.runs)
-	case strings.HasPrefix(command, "gh run view"):
-		return execx.Result{Stdout: []byte(f.jobs)}, nil
+		answer(func(runs []byte) (any, error) { return githubtest.WorkflowRuns(runs) }, runs)
+	default:
+		githubtest.Refuse(w, http.StatusNotFound, "Not Found")
 	}
-	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected " + command)}, nil
 }
 
 // forgeFor is a fake forge for goblin id working in project.
@@ -424,6 +545,7 @@ func TestCIFinishedWakesOncePerCompletionOfAGoblinsPullRequest(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", pendingChecks
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	if woke := pollForge(t, s, h, &now); len(woke) != 0 {
@@ -488,6 +610,7 @@ func TestCIFinishedWaitsForThePullRequestsWorkflows(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs = "feat/wakes", "[]"
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 7, 3, 48, 0, 0, time.UTC)
 
 	for _, step := range []struct {
@@ -533,6 +656,7 @@ func TestCIFinishedCountsARateLimitedDeployAsNotRun(t *testing.T) {
 			forge.branch, forge.runs = "feat/wakes", "[]"
 			forge.pulls = rollupWith("ed99ac3f00", "MERGEABLE", test.checks...)
 			s.Options.CI = forge
+			s.Options.GitHub = githubtest.Client(forge)
 			now := time.Date(2026, 10, 19, 5, 0, 0, 0, time.UTC)
 
 			// Act
@@ -558,6 +682,7 @@ func TestAConflictingPullRequestSaysItsWorkflowsCannotRun(t *testing.T) {
 	forge.branch, forge.runs = "feat/wakes", "[]"
 	forge.pulls = rollupWith("ed99ac3f00", "CONFLICTING", scanPassedRun)
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 7, 3, 48, 0, 0, time.UTC)
 
 	for poll := 0; poll < 10; poll++ {
@@ -583,6 +708,7 @@ func TestCIFinishedSaysWhenNoWorkflowRanForAHead(t *testing.T) {
 	forge.branch, forge.runs = "feat/wakes", "[]"
 	forge.pulls = rollupWith("ed99ac3f00", "MERGEABLE", scanPassedRun)
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 7, 3, 48, 0, 0, time.UTC)
 
 	var woke []wake.Record
@@ -607,6 +733,7 @@ func TestCIFinishedIgnoresPullRequestsNoLiveGoblinOwns(t *testing.T) {
 	forge := forgeFor(project, "cg-other")
 	forge.branch, forge.runs, forge.pulls = "feat/something-else", "[]", passedChecks
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	if woke := pollForge(t, s, h, &now); len(woke) != 0 {
@@ -626,6 +753,7 @@ func TestCIFinishedWakesWhenMainsPushCIGoesRed(t *testing.T) {
 {"databaseId":36716818409,"workflowName":"install","status":"completed","conclusion":"cancelled","headSha":"ef7ec0d57f","url":"https://github.com/o/r/actions/runs/36716818409"},
 {"databaseId":36716818403,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"ef7ec0d57f","url":"https://github.com/o/r/actions/runs/36716818403"}]`
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	red := pollForge(t, s, h, &now)
@@ -664,7 +792,7 @@ func TestARedRunOfMainWakesOnceAcrossCheckoutsOfOneRepository(t *testing.T) {
 	// Act
 	for _, checkout := range []string{t.TempDir(), t.TempDir()} {
 		forge := &fakeForge{repo: checkout, runs: runs, jobs: `{"jobs":[{"name":"test","conclusion":"failure"}]}`}
-		if _, err := pollMain(context.Background(), forge, h.State, &watched, checkout, now, nil); err != nil {
+		if _, err := pollMain(context.Background(), forge, githubtest.Client(forge), "o/r", h.State, &watched, checkout, now, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -695,6 +823,7 @@ func TestCIFinishedJudgesMainByItsNewestRunNeverAnOlderPage(t *testing.T) {
 	forge.branch, forge.pulls, forge.jobs = "feat/x", "[]", `{"jobs":[{"name":"deploy","conclusion":"failure"}]}`
 	forge.runs = "[" + deployRun(37469735276, "success") + "," + deployRun(37462939864, "success") + "]"
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
 	if green := pollForge(t, s, h, &now); len(green) != 0 {
 		t.Fatalf("a green deploy woke the CFO: %+v", green)
@@ -728,6 +857,7 @@ func TestCIFinishedKnowsMainsNewestRunWhenItsRepositoryIsWatchedAgain(t *testing
 	forge.branch, forge.pulls, forge.jobs = "feat/x", "[]", `{"jobs":[{"name":"deploy","conclusion":"failure"}]}`
 	forge.runs = "[" + deployRun(37469735276, "success") + "]"
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 6, 6, 0, 0, 0, time.UTC)
 	if green := pollForge(t, s, h, &now); len(green) != 0 {
 		t.Fatalf("a green deploy woke the CFO: %+v", green)
@@ -771,6 +901,7 @@ func TestCIFinishedJudgesEachWorkflowByItsNewestRunInAnyOrder(t *testing.T) {
 	forge.branch, forge.pulls, forge.jobs = "feat/x", "[]", `{"jobs":[{"name":"deploy","conclusion":"failure"}]}`
 	forge.runs = "[" + deployRun(37462939864, "failure") + "," + deployRun(37469735276, "success") + "]"
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
 
 	// Act
@@ -792,6 +923,7 @@ func TestCIIsPolledAtMostEveryTwoMinutes(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", pendingChecks
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	for range 5 {
@@ -815,6 +947,7 @@ func TestCIIsPolledAgainAMomentShortOfTwoMinutes(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", pendingChecks
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	polled := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	for _, reading := range []struct {
@@ -843,6 +976,7 @@ func TestCIFinishedWakesOncePerRedWorkflowOfOnePush(t *testing.T) {
 	forge.runs = `[{"databaseId":36740825612,"workflowName":"install","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825612"},
 {"databaseId":36740825611,"workflowName":"go","status":"completed","conclusion":"failure","headSha":"4e8bd9e536","url":"https://github.com/o/r/actions/runs/36740825611"}]`
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	red := pollForge(t, s, h, &now)
@@ -867,6 +1001,7 @@ func TestCIFinishedFindsMasterWhenOriginHasNoHead(t *testing.T) {
 	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", "[]", redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
 	forge.noOriginHead, forge.originBranches = true, []string{"master"}
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	red := pollForge(t, s, h, &now)
@@ -888,6 +1023,7 @@ func TestCIFinishedReportsARepositoryWithNoDefaultBranch(t *testing.T) {
 	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", "[]", redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
 	forge.noOriginHead = true
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	err := s.checkFleet(context.Background(), now)
@@ -915,6 +1051,7 @@ func TestCIFinishedNeverRepeatsForAPullRequestOpenForWeeks(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", passedChecks
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	for range 16 {
@@ -939,6 +1076,7 @@ func TestFleetWakesForgetAPullRequestNoLongerWatched(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", passedChecks
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	if woke := pollForge(t, s, h, &now); len(woke) != 1 {
 		t.Fatalf("checks all finished = %+v, want one wake", woke)
@@ -968,13 +1106,14 @@ func unreadableForge(t *testing.T) (*Service, home.Home, *fakeForge, string) {
 	liveGoblin(t, h, "cg-wakes", project)
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
-	forge.ghFailure = "To get started with GitHub CLI, please run: gh auth login"
+	forge.refusal = forgeRefusal{http.StatusUnauthorized, "Bad credentials"}
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	return s, h, forge, project
 }
 
-// A repository with no origin remote is a supported setup, not a fault: gh
-// is asked nothing about it, and it raises no error and no wake.
+// A repository with no origin remote is a supported setup, not a fault:
+// GitHub is asked nothing about it, and it raises no error and no wake.
 func TestCIUnreadableIgnoresARepositoryWithNoOrigin(t *testing.T) {
 	s, h := fleetService(t)
 	project := t.TempDir()
@@ -983,14 +1122,15 @@ func TestCIUnreadableIgnoresARepositoryWithNoOrigin(t *testing.T) {
 	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", passedChecks, redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
 	forge.noOrigin = true
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 
 	err := s.checkFleet(context.Background(), time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC))
 
 	if err != nil {
 		t.Fatalf("a repository with no origin returned %v, want no error", err)
 	}
-	if forge.ghCalls != 0 {
-		t.Fatalf("gh was called %d times in a repository with no origin, want none", forge.ghCalls)
+	if forge.githubCalls != 0 {
+		t.Fatalf("GitHub was asked %d times of a repository with no origin, want none", forge.githubCalls)
 	}
 	if woke := fleetWakeRecords(t, h, "ci"); len(woke) != 0 {
 		t.Fatalf("a repository with no origin woke the CFO: %+v", woke)
@@ -1009,7 +1149,7 @@ func TestCIUnreadableWakesOnceForAFailureMetOnThreePolls(t *testing.T) {
 		woke  int
 	}{{0, 0}, {time.Minute, 0}, {2 * time.Minute, 0}, {3 * time.Minute, 0}, {4 * time.Minute, 1}, {6 * time.Minute, 1}, {8 * time.Minute, 1}} {
 		err := s.checkFleet(context.Background(), polled.Add(reading.after))
-		if err == nil || !strings.Contains(err.Error(), "list the push runs of "+project) || !strings.Contains(err.Error(), "gh auth login") {
+		if err == nil || !strings.Contains(err.Error(), "list the push runs of "+project) || !strings.Contains(err.Error(), "Bad credentials") {
 			t.Fatalf("the reading at %s returned %v, want the named error of %s", reading.after, err, project)
 		}
 		woke := fleetWakeRecords(t, h, "ci")
@@ -1028,7 +1168,7 @@ func TestCIUnreadableWakesOnceForAFailureMetOnThreePolls(t *testing.T) {
 // state/fleet-wakes.json, and the same failure coming back wakes again.
 func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 	s, h, forge, project := unreadableForge(t)
-	signedOut := forge.ghFailure
+	signedOut, notFound := forge.refusal, forgeRefusal{http.StatusNotFound, "Not Found"}
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	poll := func() (int, error) {
 		t.Helper()
@@ -1037,16 +1177,16 @@ func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 		return len(fleetWakeRecords(t, h, "ci")), err
 	}
 	for _, step := range []struct {
-		failure string
+		refusal forgeRefusal
 		woke    int
-	}{{signedOut, 0}, {signedOut, 0}, {signedOut, 1}, {"HTTP 404: Not Found", 1}, {"HTTP 404: Not Found", 1}, {"HTTP 404: Not Found", 2}} {
-		forge.ghFailure = step.failure
+	}{{signedOut, 0}, {signedOut, 0}, {signedOut, 1}, {notFound, 1}, {notFound, 1}, {notFound, 2}} {
+		forge.refusal = step.refusal
 		if woke, _ := poll(); woke != step.woke {
-			t.Fatalf("after a poll failing with %q the CFO was woken %d times, want %d", step.failure, woke, step.woke)
+			t.Fatalf("after a poll GitHub refused with %+v the CFO was woken %d times, want %d", step.refusal, woke, step.woke)
 		}
 	}
 
-	forge.ghFailure = ""
+	forge.refusal = forgeRefusal{}
 	woke, err := poll()
 
 	if err != nil || woke != 2 {
@@ -1063,7 +1203,7 @@ func TestCIUnreadableWakesAgainForAChangedOrReturningFailure(t *testing.T) {
 	if failure, kept := remembered["unreadable"]; kept {
 		t.Fatalf("state/fleet-wakes.json still remembers a failure of %s: %s", project, failure)
 	}
-	forge.ghFailure = signedOut
+	forge.refusal = signedOut
 	for range 2 {
 		if woke, _ := poll(); woke != 2 {
 			t.Fatalf("the failure met on fewer than three polls after it cleared woke the CFO %d times, want 2", woke)
@@ -1087,6 +1227,7 @@ func TestCIRunListThatTimesOutTwiceThenReadsNeverWakesTheCFO(t *testing.T) {
 	forge.branch, forge.pulls, forge.runs = "feat/wakes", "[]", "[]"
 	forge.runListTimeouts = 2
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 
 	for poll := range 3 {
@@ -1234,7 +1375,7 @@ func TestCIUnreadableLeavesTheBoardOnceCIReadsAgain(t *testing.T) {
 	_ = s.checkFleet(context.Background(), now)
 	s.cycle(context.Background(), true)
 	unread := s.lastError
-	forge.ghFailure = ""
+	forge.refusal = forgeRefusal{}
 	pollForge(t, s, h, &now)
 
 	// Act
@@ -1277,9 +1418,9 @@ func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
 		"at the poll's first call": func(string) func(execx.Request) bool {
 			return func(execx.Request) bool { return true }
 		},
-		"at a healthy repository's first gh call": func(other string) func(execx.Request) bool {
+		"at a healthy repository's origin": func(other string) func(execx.Request) bool {
 			return func(req execx.Request) bool {
-				return req.Name == "gh" && strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(other))
+				return slices.Equal(req.Args, []string{"config", "--get", "remote.origin.url"}) && strings.EqualFold(filepath.Clean(req.Dir), filepath.Clean(other))
 			}
 		},
 	} {
@@ -1316,12 +1457,13 @@ func TestCIUnreadableRecordOutlivesAPollCutShort(t *testing.T) {
 				t.Fatalf("after the poll cut short the record holds %+v, want the one unreadable repository", remembered.Unreadable)
 			}
 			for repo, record := range remembered.Unreadable {
-				if !record.Woke || !strings.Contains(record.Failure, "gh auth login") {
+				if !record.Woke || !strings.Contains(record.Failure, "Bad credentials") {
 					t.Fatalf("after the poll cut short %s is remembered as %+v, want its failure and that it woke", repo, record)
 				}
 			}
 			restarted := &Service{Store: s.Store, Options: s.Options}
 			restarted.Options.CI = forge
+			restarted.Options.GitHub = githubtest.Client(forge)
 			for range 2 {
 				now = now.Add(ciPollEvery)
 				_ = restarted.checkFleet(context.Background(), now)
@@ -1357,6 +1499,7 @@ func TestCIFinishedWakesForAGoblinsPullRequestOnABranchItsWorktreeHeldBefore(t *
 			forge.reflog = "checkout: moving from feat/wakes to feat/next\n"
 			forge.pulls = strings.Replace(passedChecks, `"headRefOid"`, `"author":{"login":"`+test.author+`"},"headRefOid"`, 1)
 			s.Options.CI = forge
+			s.Options.GitHub = githubtest.Client(forge)
 			now := time.Date(2026, 10, 10, 13, 48, 0, 0, time.UTC)
 
 			// Act
@@ -1552,15 +1695,16 @@ func TestCIMonitorSkipsNonGitHubOrigin(t *testing.T) {
 			}
 			liveGoblin(t, h, "cg-wakes", project)
 			forge := forgeFor(project, "cg-wakes")
-			forge.ghFailure = "no GitHub host"
+			forge.refusal = forgeRefusal{http.StatusNotFound, "no GitHub host"}
 			s.Options.CI = realOriginForge{forge}
+			s.Options.GitHub = githubtest.Client(forge)
 			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 			for range 4 {
 				_ = s.checkFleet(t.Context(), now)
 				now = now.Add(ciPollEvery)
 			}
-			if forge.ghCalls != 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
-				t.Fatalf("non-GitHub origin made %d GitHub calls and raised %d wakes", forge.ghCalls, len(fleetWakeRecords(t, h, "ci")))
+			if forge.githubCalls != 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+				t.Fatalf("non-GitHub origin made %d GitHub calls and raised %d wakes", forge.githubCalls, len(fleetWakeRecords(t, h, "ci")))
 			}
 		})
 	}
@@ -1593,6 +1737,7 @@ func TestCIMonitorReportsMissingCheckoutAndRecovers(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.pulls, forge.runs = "[]", "[]"
 	s.Options.CI = realOriginForge{forge}
+	s.Options.GitHub = githubtest.Client(forge)
 	moved := filepath.Join(parent, "moved")
 	if err := os.Rename(project, moved); err != nil {
 		t.Fatal(err)
@@ -1613,8 +1758,8 @@ func TestCIMonitorReportsMissingCheckoutAndRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	remembered, err := readFleetWakes(h.State)
-	if err != nil || len(remembered.Unreadable) != 0 || forge.ghCalls == 0 {
-		t.Fatalf("after restoration: unreadable=%+v gh calls=%d error=%v", remembered.Unreadable, forge.ghCalls, err)
+	if err != nil || len(remembered.Unreadable) != 0 || forge.githubCalls == 0 {
+		t.Fatalf("after restoration: unreadable=%+v GitHub calls=%d error=%v", remembered.Unreadable, forge.githubCalls, err)
 	}
 	if remembered.Checks[trackedPR].Signature != "already reported" {
 		t.Fatalf("tracked PR lost: %+v", remembered.Checks)
@@ -1653,14 +1798,15 @@ func TestCIMonitorReportsDirectoryThatIsNotACheckout(t *testing.T) {
 	liveGoblin(t, h, "cg-wakes", project)
 	forge := forgeFor(project, "cg-wakes")
 	s.Options.CI = realOriginForge{forge}
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		_ = s.checkFleet(t.Context(), now)
 		now = now.Add(ciPollEvery)
 	}
 	wakes := fleetWakeRecords(t, h, "ci")
-	if forge.ghCalls != 0 {
-		t.Fatalf("a non-checkout made %d GitHub calls, want none", forge.ghCalls)
+	if forge.githubCalls != 0 {
+		t.Fatalf("a non-checkout made %d GitHub calls, want none", forge.githubCalls)
 	}
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, project) || !strings.Contains(wakes[0].Detail, "is not a Git checkout") || strings.Contains(wakes[0].Detail, "gh auth login") {
 		t.Fatalf("non-checkout wakes = %+v, want one saying the directory is not a Git checkout", wakes)
@@ -1681,14 +1827,15 @@ func TestCIMonitorReportsGitRefusalInsteadOfCallingTheCheckoutInvalid(t *testing
 	forge := forgeFor(project, "cg-wakes")
 	forge.pulls, forge.runs = "[]", "[]"
 	s.Options.CI = refusingCheckoutForge{fakeForge: forge, stderr: "fatal: detected dubious ownership in repository at 'https://user:fixture-password@example.invalid/repo'"}
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		_ = s.checkFleet(t.Context(), now)
 		now = now.Add(ciPollEvery)
 	}
 	wakes := fleetWakeRecords(t, h, "ci")
-	if forge.ghCalls != 0 {
-		t.Fatalf("a checkout git refused made %d GitHub calls, want none", forge.ghCalls)
+	if forge.githubCalls != 0 {
+		t.Fatalf("a checkout git refused made %d GitHub calls, want none", forge.githubCalls)
 	}
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "dubious ownership") || !strings.Contains(wakes[0].Detail, "next:") || strings.Contains(wakes[0].Detail, "is not a Git checkout") || strings.Contains(wakes[0].Detail, "fixture-password") {
 		t.Fatalf("wakes = %+v, want one reporting git's refusal, its next step and no credential", wakes)
@@ -1719,6 +1866,7 @@ func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T)
 	forge := forgeFor(moved, "cg-wakes")
 	forge.pulls, forge.runs = "[]", "[]"
 	s.Options.CI = realOriginForge{forge}
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		_ = s.checkFleet(t.Context(), now)
@@ -1728,8 +1876,8 @@ func TestCIMonitorReportsACheckoutThatMovedInsideAnotherRepository(t *testing.T)
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "not a checkout of its own") || !strings.Contains(wakes[0].Detail, "repository at "+filepath.ToSlash(fsx.LongPath(outer))) {
 		t.Fatalf("wakes = %+v, want one naming the repository that encloses it", wakes)
 	}
-	if forge.ghCalls != 0 {
-		t.Fatalf("the enclosing repository was polled %d times, want none", forge.ghCalls)
+	if forge.githubCalls != 0 {
+		t.Fatalf("the enclosing repository was polled %d times, want none", forge.githubCalls)
 	}
 }
 
@@ -1749,14 +1897,15 @@ func TestCIMonitorReportsGitHubOriginWithoutRepository(t *testing.T) {
 	liveGoblin(t, h, "cg-wakes", project)
 	forge := forgeFor(project, "cg-wakes")
 	s.Options.CI = realOriginForge{forge}
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		_ = s.checkFleet(t.Context(), now)
 		now = now.Add(ciPollEvery)
 	}
 	wakes := fleetWakeRecords(t, h, "ci")
-	if forge.ghCalls != 0 {
-		t.Fatalf("a remote naming no repository made %d GitHub calls, want none", forge.ghCalls)
+	if forge.githubCalls != 0 {
+		t.Fatalf("a remote naming no repository made %d GitHub calls, want none", forge.githubCalls)
 	}
 	if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "names no repository") || strings.Contains(wakes[0].Detail, "gh auth login") {
 		t.Fatalf("wakes = %+v, want one saying the origin names no repository", wakes)
@@ -1784,14 +1933,15 @@ func TestCIMonitorReportsGitHubOriginSpelledInNoFormGitReads(t *testing.T) {
 			liveGoblin(t, h, "cg-wakes", project)
 			forge := forgeFor(project, "cg-wakes")
 			s.Options.CI = realOriginForge{forge}
+			s.Options.GitHub = githubtest.Client(forge)
 			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 			for range 4 {
 				_ = s.checkFleet(t.Context(), now)
 				now = now.Add(ciPollEvery)
 			}
 			wakes := fleetWakeRecords(t, h, "ci")
-			if forge.ghCalls != 0 {
-				t.Fatalf("an origin git cannot read made %d GitHub calls, want none", forge.ghCalls)
+			if forge.githubCalls != 0 {
+				t.Fatalf("an origin git cannot read made %d GitHub calls, want none", forge.githubCalls)
 			}
 			if len(wakes) != 1 || !strings.Contains(wakes[0].Detail, "names no repository") || !strings.Contains(wakes[0].Detail, "set origin") || strings.Contains(wakes[0].Detail, "gh auth login") {
 				t.Fatalf("wakes = %+v, want one naming the broken origin and its repair", wakes)
@@ -1824,13 +1974,14 @@ func TestCIMonitorReadsOriginFromIncludedConfiguration(t *testing.T) {
 	forge := forgeFor(project, "cg-wakes")
 	forge.pulls, forge.runs = "[]", "[]"
 	s.Options.CI = realOriginForge{forge}
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		_ = s.checkFleet(t.Context(), now)
 		now = now.Add(ciPollEvery)
 	}
-	if forge.ghCalls == 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
-		t.Fatalf("calls=%d wakes=%+v, want the effective origin read and nothing to answer", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+	if forge.githubCalls == 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+		t.Fatalf("calls=%d wakes=%+v, want the effective origin read and nothing to answer", forge.githubCalls, fleetWakeRecords(t, h, "ci"))
 	}
 }
 
@@ -1856,13 +2007,14 @@ func TestCIMonitorSkipsAHostGitHubDoesNotServe(t *testing.T) {
 	liveGoblin(t, h, "cg-wakes", project)
 	forge := forgeFor(project, "cg-wakes")
 	s.Options.CI = realOriginForge{forge}
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		_ = s.checkFleet(t.Context(), now)
 		now = now.Add(ciPollEvery)
 	}
-	if forge.ghCalls != 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
-		t.Fatalf("an enterprise host made %d GitHub calls and raised %+v, want neither", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+	if forge.githubCalls != 0 || len(fleetWakeRecords(t, h, "ci")) != 0 {
+		t.Fatalf("an enterprise host made %d GitHub calls and raised %+v, want neither", forge.githubCalls, fleetWakeRecords(t, h, "ci"))
 	}
 }
 
@@ -1880,15 +2032,19 @@ func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
 			}
 			liveGoblin(t, h, "cg-wakes", project)
 			forge := forgeFor(project, "cg-wakes")
-			forge.ghFailure = "HTTP 404: Not Found"
+			forge.refusal = forgeRefusal{http.StatusNotFound, "Not Found"}
 			s.Options.CI = realOriginForge{forge}
+			s.Options.GitHub = githubtest.Client(forge)
 			now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 			for range 4 {
 				_ = s.checkFleet(t.Context(), now)
 				now = now.Add(ciPollEvery)
 			}
-			if forge.ghCalls == 0 || len(fleetWakeRecords(t, h, "ci")) != 1 {
-				t.Fatalf("calls=%d wakes=%+v, want GitHub failure visible", forge.ghCalls, fleetWakeRecords(t, h, "ci"))
+			// An origin that names no repository is reported as one, with
+			// nothing to ask GitHub; any other meets GitHub's refusal.
+			isAsked := remote != "https://github.com/%zz"
+			if (forge.githubCalls > 0) != isAsked || len(fleetWakeRecords(t, h, "ci")) != 1 {
+				t.Fatalf("calls=%d wakes=%+v, want the failure visible, GitHub asked %t", forge.githubCalls, fleetWakeRecords(t, h, "ci"), isAsked)
 			}
 		})
 	}
@@ -1896,7 +2052,7 @@ func TestCIMonitorKeepsGitHubAndMalformedOriginsVisible(t *testing.T) {
 
 func TestCIMonitorRedactsCredentialsFromCommandErrors(t *testing.T) {
 	s, h, forge, _ := unreadableForge(t)
-	forge.ghFailure = "cannot read ssh://user:fixture-password@github.com/o/r and user:fixture-scp-password@github.com:o/r: token=fixture-token"
+	forge.refusal = forgeRefusal{http.StatusNotFound, "cannot read ssh://user:fixture-password@github.com/o/r and user:fixture-scp-password@github.com:o/r: token=fixture-token"}
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	for range 4 {
 		err := s.checkFleet(t.Context(), now)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,16 +14,17 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
-// issueGH answers the gh api and git requests cfo issue file makes the way
-// GitHub and a checkout would. account is the account gh works as, acme
-// unless set; private names the repositories that are not public, and
-// noIssues those with issues turned off; remotes names, by a checkout's
+// issueGH answers the gh, git and GitHub API requests cfo issue file makes
+// the way gh, a checkout and GitHub would. account is the account gh works
+// as, acme unless set; private names the repositories that are not public,
+// and noIssues those with issues turned off; remotes names, by a checkout's
 // folder, each of its remotes and its address, and a checkout it does not
 // name has only origin, acme/<folder>; open is the JSON listing of the open
 // ops-root issues. Every write is recorded.
@@ -47,52 +49,55 @@ func (f *issueGH) Run(_ context.Context, req execx.Request) (execx.Result, error
 		}
 		return execx.Result{Stdout: []byte(account + "\n")}, nil
 	}
-	method, path := "GET", ""
-	fields := map[string]string{}
-	for i := 1; i < len(req.Args); i++ {
-		switch req.Args[i] {
-		case "--method":
-			i++
-			method = req.Args[i]
-		case "-f":
-			i++
-			key, value, _ := strings.Cut(req.Args[i], "=")
-			fields[key] = value
-		default:
-			path = req.Args[i]
-		}
-	}
+	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected gh " + strings.Join(req.Args, " "))}, nil
+}
+
+// ServeHTTP answers the reads and writes cfo issue file makes of GitHub's
+// API as GitHub would.
+func (f *issueGH) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.RequestURI(), "/")
 	switch {
-	case method == "GET" && strings.Contains(path, "/issues?labels=ops-root"):
+	case r.Method == http.MethodGet && strings.Contains(path, "/issues?labels=ops-root"):
 		f.reads = append(f.reads, path)
 		open := f.open
 		if open == "" {
 			open = "[]"
 		}
-		return execx.Result{Stdout: []byte(open)}, nil
-	case method == "GET" && strings.HasPrefix(path, "repos/"):
+		_, _ = w.Write([]byte(open))
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "repos/"):
 		repository := strings.TrimPrefix(path, "repos/")
 		owner, _, _ := strings.Cut(repository, "/")
-		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"owner":{"login":%q},"private":%t,"has_issues":%t}`, owner, f.private[repository], !f.noIssues[repository]))}, nil
-	case method == "POST":
+		githubtest.Write(w, http.StatusOK, map[string]any{"owner": map[string]string{"login": owner}, "private": f.private[repository], "has_issues": !f.noIssues[repository]})
+	case r.Method == http.MethodPost:
 		f.writes = append(f.writes, path)
-		if strings.HasSuffix(path, "/issues") {
-			url := "https://github.com/" + strings.TrimPrefix(path, "repos/") + "/42"
-			opened, err := json.Marshal([]struct {
-				Number int    `json:"number"`
-				Title  string `json:"title"`
-				Body   string `json:"body"`
-				URL    string `json:"html_url"`
-			}{{42, fields["title"], fields["body"], url}})
-			if err != nil {
-				return execx.Result{}, err
-			}
-			f.open = string(opened)
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"number":42,"html_url":%q}`, url))}, nil
+		var fields struct {
+			Title string `json:"title"`
+			Body  string `json:"body"`
 		}
-		return execx.Result{Stdout: []byte(`{}`)}, nil
+		if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+			githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if !strings.HasSuffix(path, "/issues") {
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		url := "https://github.com/" + strings.TrimPrefix(path, "repos/") + "/42"
+		opened, err := json.Marshal([]struct {
+			Number int    `json:"number"`
+			Title  string `json:"title"`
+			Body   string `json:"body"`
+			URL    string `json:"html_url"`
+		}{{42, fields.Title, fields.Body, url}})
+		if err != nil {
+			githubtest.Refuse(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		f.open = string(opened)
+		githubtest.Write(w, http.StatusCreated, map[string]any{"number": 42, "html_url": url})
+	default:
+		githubtest.Refuse(w, http.StatusNotFound, "Not Found")
 	}
-	return execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)")}, nil
 }
 
 // git answers git -C <checkout> remote get-url origin and git -C <checkout>
@@ -138,6 +143,7 @@ func issueRuntime(t *testing.T, gh *issueGH) (commandRuntime, home.Home) {
 		projectsRoot: func() (string, error) { return root, nil },
 		repositoryOf: tickets.GitHub{Commands: gh}.RepositoryOf,
 		github:       gh,
+		githubAPI:    githubtest.Client(gh),
 	}, h
 }
 

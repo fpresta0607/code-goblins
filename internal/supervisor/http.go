@@ -27,6 +27,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
+	"github.com/fpresta0607/code-goblins/internal/install"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/waiting"
 )
@@ -36,9 +37,13 @@ type cachedResponse struct {
 	at   time.Time
 }
 type HTTP struct {
-	Service       *Service
-	Host          string
-	Assets        fs.FS
+	Service *Service
+	Host    string
+	Assets  fs.FS
+	// GoblinHooks serves the hooks a Claude Code goblin posts to the board
+	// under install.GoblinHookPrefix, and proves each came from the goblin's
+	// own terminal: its Claude Code sends no Origin and holds no board token.
+	GoblinHooks   http.Handler
 	mu            sync.Mutex
 	cache         map[string]cachedResponse
 	gitSlots      chan struct{}
@@ -112,6 +117,14 @@ func (h *HTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 		apiError(w, 403, "Cross-site request refused")
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, install.GoblinHookPrefix) && h.GoblinHooks != nil {
+		if offMachine(r, h.Host) != "" {
+			apiError(w, 403, "A goblin's hooks post from this PC")
+			return
+		}
+		h.GoblinHooks.ServeHTTP(w, r)
 		return
 	}
 	if r.Method != "GET" && r.Method != "HEAD" {

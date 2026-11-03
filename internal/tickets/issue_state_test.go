@@ -3,6 +3,8 @@ package tickets
 import (
 	"fmt"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 func TestIssueStateDistinguishesClosedMissingAndUnreadableIdentities(t *testing.T) {
@@ -30,7 +32,7 @@ func TestIssueStateDistinguishesClosedMissingAndUnreadableIdentities(t *testing.
 			if test.body != "" {
 				commands.issues[7] = test.body
 			}
-			github := GitHub{Commands: commands}
+			github := GitHub{API: githubtest.Client(commands)}
 
 			// Act
 			state, err := github.IssueState(t.Context(), northwind, 7)

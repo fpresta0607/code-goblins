@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 // onceSuite is the checks of one workflow run as GitHub answers the read of
@@ -49,6 +51,7 @@ func TestCIFinishedNamesEachTestThatFailedOnceOnAPullRequest(t *testing.T) {
 		[2]string{"Failed once", "browser (2/4): afk.spec.ts the switch stays on"},
 		[2]string{"", "The ubuntu-latest label will migrate."}))
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 
 	// Act
@@ -86,6 +89,7 @@ func TestARedPullRequestsWakeNamesTheTestsThatFailedOnceToo(t *testing.T) {
 	forge.pulls = rollupWith("3d7072f8aa", "MERGEABLE", strings.Replace(goTestPassed, "SUCCESS", "FAILURE", 1), scanPassedRun)
 	forge.once = onceAnswer(onceSuite(41, [2]string{"Failed once", "go (conpty): example.test/internal/conpty TestKeys failed once and passed on the second try"}))
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 
 	// Act
@@ -107,10 +111,10 @@ func TestCIFinishedSaysWhenTheTestsThatFailedOnceCouldNotBeRead(t *testing.T) {
 		want          string
 	}{
 		"no test failed once":            {"", "", "all 2 passed; next:"},
-		"gh fails":                       {"", "HTTP 502: Bad Gateway", "all 2 passed, and the tests that failed once could not be read (gh exited 1: HTTP 502: Bad Gateway); next:"},
+		"GitHub fails":                   {"", "Bad Gateway", "all 2 passed, and the tests that failed once could not be read (GitHub answered POST graphql with HTTP 502: Bad Gateway); next:"},
 		"GitHub answers an error":        {`{"errors":[{"message":"Something went wrong"}]}`, "", "all 2 passed, and the tests that failed once could not be read (GitHub answered Something went wrong); next:"},
 		"GitHub lists no workflow check": {onceAnswer(), "", "all 2 passed, and the tests that failed once could not be read (GitHub listed no workflow check for 3d7072f); next:"},
-		"an answer that cannot be read":  {`<html>`, "", "all 2 passed, and the tests that failed once could not be read (gh answered in a shape that cannot be read"},
+		"an answer that cannot be read":  {`<html>`, "", "all 2 passed, and the tests that failed once could not be read (GitHub's answer to a GraphQL query could not be read"},
 		"an answer with no commit in it": {`{"data":{"repository":{"object":null}}}`, "", "all 2 passed, and the tests that failed once could not be read (GitHub listed no workflow check for 3d7072f); next:"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -124,6 +128,7 @@ func TestCIFinishedSaysWhenTheTestsThatFailedOnceCouldNotBeRead(t *testing.T) {
 			forge.pulls = rollupWith("3d7072f8aa", "MERGEABLE", goTestPassed, scanPassedRun)
 			forge.once, forge.onceFailure = test.once, test.failure
 			s.Options.CI = forge
+			s.Options.GitHub = githubtest.Client(forge)
 			now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 
 			// Act
@@ -152,6 +157,7 @@ func TestCIFinishedReadsNoTestThatFailedOnceWhereNoWorkflowReported(t *testing.T
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", passedChecks
 	forge.onceFailure = "must not be asked"
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 
 	// Act
@@ -177,6 +183,7 @@ func TestMainsRedRunNamesTheTestsThatFailedOnceInThatRun(t *testing.T) {
 		onceSuite(36740825611, [2]string{"Failed once", "go (conpty): example.test/internal/conpty TestKeys failed once and passed on the second try"}),
 		onceSuite(36740825999, [2]string{"Failed once", "one-line (pwsh): install.ps1 TestInstalls failed once and passed on the second try"}))
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 
 	// Act
@@ -205,6 +212,7 @@ func TestAnAwaitedRunNamesTheTestsThatFailedOnce(t *testing.T) {
 	forge.jobs = fmt.Sprintf(`{"databaseId":42,"workflowName":"go","status":"completed","conclusion":"success","headSha":%q,"url":%q,"attempt":1,"startedAt":"2026-10-10T12:00:00Z","updatedAt":"2026-10-10T12:09:00Z"}`, head, target)
 	forge.once = onceAnswer(onceSuite(42, [2]string{"Failed once", "go (spawn-2): example.test/internal/spawn TestSwitches failed once and passed on the second try"}), onceSuite(43, [2]string{"Failed once", "another run's test"}))
 	service.Options.CI = forge
+	service.Options.GitHub = githubtest.Client(forge)
 	watched := fleetWakes{}
 
 	// Act

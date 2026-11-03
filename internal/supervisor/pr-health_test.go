@@ -1,47 +1,112 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
+// healthForge is the fake forge, recording each read of its own repository
+// GitHub's API is asked, answering the comparison of the open pull requests
+// with comparisons, and the read named failureOn with failure, responseDelay
+// after it was asked.
 type healthForge struct {
 	*fakeForge
 	comparisons   string
-	requests      []execx.Request
+	requests      []healthRead
 	failureOn     string
-	failure       execx.Result
-	failureErr    error
+	failure       githubFailure
 	responseDelay time.Duration
 }
 
-func (f *healthForge) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
-	command := request.Name + " " + strings.Join(request.Args, " ")
-	if request.Name == "gh" && fsx.SamePath(request.Dir, f.repo) {
-		f.requests = append(f.requests, request)
-		if f.failureOn != "" && strings.HasPrefix(command, f.failureOn) {
-			time.Sleep(f.responseDelay)
-			return f.failure, f.failureErr
-		}
-		if strings.HasPrefix(command, "gh api graphql") {
-			return execx.Result{Stdout: []byte(f.comparisons)}, nil
-		}
-	}
-	return f.fakeForge.Run(ctx, request)
+// healthRead is a read of GitHub's API: its name ("pull requests", "user",
+// "compare", "push runs", "jobs" or its path) and the body it sent.
+type healthRead struct {
+	name, body string
 }
+
+// githubFailure is GitHub answering with status, header and body, or, when
+// isTimingOut, never answering.
+type githubFailure struct {
+	status      int
+	header      http.Header
+	body        string
+	isTimingOut bool
+}
+
+func (f *healthForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	var asked struct {
+		Query     string         `json:"query"`
+		Variables map[string]any `json:"variables"`
+	}
+	_ = json.Unmarshal(body, &asked)
+	read := path
+	switch {
+	case strings.Contains(asked.Query, "pullRequests("):
+		read = "pull requests"
+	case strings.Contains(asked.Query, "compare("):
+		read = "compare"
+	case strings.HasSuffix(path, "/actions/runs"):
+		read = "push runs"
+	case strings.HasSuffix(path, "/jobs"):
+		read = "jobs"
+	}
+	f.mu.Lock()
+	_, isElsewhere := f.checkouts[requestedRepository(path, asked.Query, asked.Variables)]
+	if !isElsewhere {
+		f.requests = append(f.requests, healthRead{read, string(body)})
+	}
+	f.mu.Unlock()
+	switch {
+	case isElsewhere:
+		f.fakeForge.ServeHTTP(w, r)
+	case read == f.failureOn:
+		time.Sleep(f.responseDelay)
+		f.failure.answer(w)
+	case read == "compare":
+		_, _ = w.Write([]byte(f.comparisons))
+	default:
+		f.fakeForge.ServeHTTP(w, r)
+	}
+}
+
+func (failure githubFailure) answer(w http.ResponseWriter) {
+	if failure.isTimingOut {
+		githubtest.TimeOut(w)
+		return
+	}
+	for name, values := range failure.header {
+		w.Header()[http.CanonicalHeaderKey(name)] = values
+	}
+	w.WriteHeader(failure.status)
+	_, _ = w.Write([]byte(failure.body))
+}
+
+// forbidden is GitHub refusing a read with HTTP 403 and no rate limit
+// header.
+var forbidden = githubFailure{status: http.StatusForbidden, body: `{"message":"Resource not accessible by integration"}`}
 
 func healthPull(head, mergeable string, isFork bool, checks string) string {
 	return fmt.Sprintf(`[{"number":209,"url":"https://github.com/o/r/pull/209","headRefName":"feat/wakes","headRefOid":%q,"baseRefName":"main","mergeable":%q,"isCrossRepository":%t,"author":{"login":"teammate"},"statusCheckRollup":%s}]`, head, mergeable, isFork, checks)
@@ -70,6 +135,7 @@ func healthService(t *testing.T, hasGoblin bool) (*Service, home.Home, *healthFo
 	forge := &healthForge{fakeForge: forgeFor(project, "cg-health"), comparisons: healthComparison("head-one", 0)}
 	forge.branch, forge.runs = "feat/wakes", "[]"
 	service.Options.CI = forge
+	service.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	if hasGoblin {
 		liveGoblin(t, h, "cg-health", project)
@@ -268,44 +334,43 @@ func TestPRHealthBatchesAllOpenHeadsInOneComparisonCall(t *testing.T) {
 	}
 	var comparisonCalls int
 	for _, request := range forge.requests {
-		if slices.Contains(request.Args, "graphql") {
+		if request.name == "compare" {
 			comparisonCalls++
-			query := strings.Join(request.Args, " ")
 			for _, head := range []string{"head-one", "head-two", "refs/heads/main"} {
-				if !strings.Contains(query, head) {
-					t.Errorf("comparison request lacks %s: %s", head, query)
+				if !strings.Contains(request.body, head) {
+					t.Errorf("comparison request lacks %s: %s", head, request.body)
 				}
 			}
 		}
 	}
 	if comparisonCalls != 1 || len(forge.requests) != 4 {
-		t.Fatalf("GitHub requests = %+v, want list, the account gh works as, one comparison batch and main runs", forge.requests)
+		t.Fatalf("GitHub requests = %+v, want list, the account the token is of, one comparison batch and main runs", forge.requests)
 	}
 }
 
 func TestPRHealthBackOffCoversTheRepositoryAndSurvivesRestart(t *testing.T) {
 	for _, test := range []struct {
-		name, command string
-		failure       execx.Result
-		wait          time.Duration
+		name, read string
+		failure    githubFailure
+		wait       time.Duration
 	}{
-		{"403", "gh pr list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}, time.Hour},
-		{"429", "gh pr list", execx.Result{ExitCode: 1, Stderr: []byte("gh: too many requests (HTTP 429)")}, time.Hour},
-		{"Retry-After", "gh api graphql", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: 600\r\n\r\n{}"), Stderr: []byte("gh: HTTP 429")}, 10 * time.Minute},
-		{"Retry-After date", "gh api graphql", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: Fri, 02 Oct 2026 12:10:00 GMT\r\n\r\n{}"), Stderr: []byte("gh: HTTP 429")}, 10 * time.Minute},
-		{"reset", "gh api graphql", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset: 1790943000\r\n\r\n{}"), Stderr: []byte("gh: HTTP 403")}, 10 * time.Minute},
-		{"main runs", "gh run list", execx.Result{ExitCode: 1, Stderr: []byte("gh: API rate limit exceeded")}, time.Hour},
-		{"successful exhausted response", "gh api graphql", execx.Result{Stdout: []byte("HTTP/2.0 200 OK\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset: 1790943000\r\n\r\n" + healthComparison("head-one", 0))}, 10 * time.Minute},
+		{"403", "pull requests", forbidden, time.Hour},
+		{"429", "pull requests", githubFailure{status: http.StatusTooManyRequests, body: `{"message":"too many requests"}`}, time.Hour},
+		{"Retry-After", "compare", githubFailure{status: http.StatusTooManyRequests, header: http.Header{"Retry-After": {"600"}}, body: "{}"}, 10 * time.Minute},
+		{"Retry-After date", "compare", githubFailure{status: http.StatusTooManyRequests, header: http.Header{"Retry-After": {"Fri, 02 Oct 2026 12:10:00 GMT"}}, body: "{}"}, 10 * time.Minute},
+		{"reset", "compare", githubFailure{status: http.StatusForbidden, header: http.Header{"X-RateLimit-Remaining": {"0"}, "X-RateLimit-Reset": {"1790943000"}}, body: "{}"}, 10 * time.Minute},
+		{"main runs", "push runs", githubFailure{status: http.StatusForbidden, body: `{"message":"API rate limit exceeded for user ID 1."}`}, time.Hour},
+		{"successful exhausted response", "compare", githubFailure{status: http.StatusOK, header: http.Header{"X-RateLimit-Remaining": {"0"}, "X-RateLimit-Reset": {"1790943000"}}, body: healthComparison("head-one", 0)}, 10 * time.Minute},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, h, forge, now := healthService(t, true)
 			forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
-			forge.failureOn, forge.failure = test.command, test.failure
+			forge.failureOn, forge.failure = test.read, test.failure
 			if err := service.checkFleet(context.Background(), now); err == nil {
 				t.Fatal("refused GitHub read returned no error")
 			}
 			calls := len(forge.requests)
-			if test.command == "gh pr list" && calls != 1 || test.command == "gh api graphql" && calls != 2 {
+			if test.read == "pull requests" && calls != 1 || test.read == "compare" && calls != 2 {
 				t.Fatalf("continued GitHub reads after refusal: %+v", forge.requests)
 			}
 			service = &Service{Store: service.Store, Options: service.Options}
@@ -335,7 +400,7 @@ func TestPRHealthDoesNotSuppressOtherRepositoriesDuringBackOff(t *testing.T) {
 	other := t.TempDir()
 	liveGoblin(t, h, "cg-other", other)
 	forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
-	forge.failureOn, forge.failure = "gh pr list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}
+	forge.failureOn, forge.failure = "pull requests", forbidden
 	_ = service.checkFleet(context.Background(), now)
 	forge.runListDirs = nil
 
@@ -349,8 +414,8 @@ func TestPRHealthDoesNotSuppressOtherRepositoriesDuringBackOff(t *testing.T) {
 func TestPRHealthRetryAfterStartsWhenTheResponseArrives(t *testing.T) {
 	service, h, forge, now := healthService(t, true)
 	forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
-	forge.failureOn = "gh api graphql"
-	forge.failure = execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: 600\r\n\r\n{}")}
+	forge.failureOn = "compare"
+	forge.failure = githubFailure{status: http.StatusTooManyRequests, header: http.Header{"Retry-After": {"600"}}, body: "{}"}
 	forge.responseDelay = 100 * time.Millisecond
 
 	_ = service.checkFleet(context.Background(), now)
@@ -440,7 +505,7 @@ func TestPRHealthExposesAListingAtItsLimit(t *testing.T) {
 func TestPRHealthBackOffOnRunDetailsStaysVisible(t *testing.T) {
 	service, _, forge, now := healthService(t, true)
 	forge.pulls, forge.runs = "[]", redGoRun
-	forge.failureOn, forge.failure = "gh run view", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}
+	forge.failureOn, forge.failure = "jobs", forbidden
 
 	err := service.checkFleet(context.Background(), now)
 
@@ -554,17 +619,17 @@ func TestPRUnreadWakesForTheListingLimitOnceUntilItClears(t *testing.T) {
 
 func TestCIUnreadableWakesForAPersistentRefusalOnItsSecondRetry(t *testing.T) {
 	for _, test := range []struct {
-		name, command string
-		failure       execx.Result
+		name, read string
+		failure    githubFailure
 	}{
-		{"403", "gh pr list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}},
-		{"exhausted allowance", "gh pr list", execx.Result{ExitCode: 1, Stderr: []byte("gh: API rate limit exceeded")}},
-		{"Retry-After", "gh api graphql", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: 600\r\n\r\n{}"), Stderr: []byte("gh: HTTP 429")}},
+		{"403", "pull requests", forbidden},
+		{"exhausted allowance", "pull requests", githubFailure{status: http.StatusForbidden, header: http.Header{"X-RateLimit-Remaining": {"0"}}, body: `{"message":"API rate limit exceeded for user ID 1."}`}},
+		{"Retry-After", "compare", githubFailure{status: http.StatusTooManyRequests, header: http.Header{"Retry-After": {"600"}}, body: "{}"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, h, forge, now := healthService(t, true)
 			forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
-			forge.failureOn, forge.failure = test.command, test.failure
+			forge.failureOn, forge.failure = test.read, test.failure
 			at := now
 			var lastBackOff time.Time
 			for retry, wantWoke := range []int{0, 0, 1} {
@@ -595,7 +660,7 @@ func TestCIUnreadableWakesForAPersistentRefusalOnItsSecondRetry(t *testing.T) {
 				if len(forge.requests) != calls {
 					t.Fatalf("retry %d: GitHub was read before the backoff ended: %+v", retry, forge.requests[calls:])
 				}
-				if held == nil || !strings.Contains(held.Error(), "wait out a refusal") || test.command == "gh api graphql" && !strings.Contains(held.Error(), "PR health: compare") {
+				if held == nil || !strings.Contains(held.Error(), "wait out a refusal") || test.read == "compare" && !strings.Contains(held.Error(), "PR health: compare") {
 					t.Fatalf("retry %d: the board lost the unread evidence during backoff: %v", retry, held)
 				}
 				at = lastBackOff.Add(time.Minute)
@@ -606,20 +671,19 @@ func TestCIUnreadableWakesForAPersistentRefusalOnItsSecondRetry(t *testing.T) {
 
 func TestPRUnreadKeepsBatchFailuresOnTheBoardWithoutHeadWakes(t *testing.T) {
 	for _, test := range []struct {
-		name       string
-		failure    execx.Result
-		failureErr error
+		name    string
+		failure githubFailure
 	}{
-		{"refusal", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 429 Too Many Requests\r\nRetry-After: 600\r\n\r\n{}"), Stderr: []byte("gh: HTTP 429")}, nil},
-		{"timeout", execx.Result{}, context.DeadlineExceeded},
-		{"server error", execx.Result{ExitCode: 1, Stdout: []byte("HTTP/2.0 502 Bad Gateway\r\n\r\n<html>bad gateway</html>"), Stderr: []byte("gh: HTTP 502")}, nil},
-		{"unparseable body", execx.Result{Stdout: []byte("HTTP/2.0 200 OK\r\n\r\nnot json")}, nil},
+		{"refusal", githubFailure{status: http.StatusTooManyRequests, header: http.Header{"Retry-After": {"600"}}, body: "{}"}},
+		{"timeout", githubFailure{isTimingOut: true}},
+		{"server error", githubFailure{status: http.StatusBadGateway, body: "<html>bad gateway</html>"}},
+		{"unparseable body", githubFailure{status: http.StatusOK, body: "not json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, h, forge, now := healthService(t, true)
 			forge.pulls = strings.TrimSuffix(healthPull("head-one", "CONFLICTING", false, "[]"), "]") + `,{"number":210,"url":"https://github.com/o/r/pull/210","headRefName":"other","headRefOid":"head-two","mergeable":"MERGEABLE","author":{"login":"teammate"}}]`
 			forge.runs, forge.jobs = redGoRun, `{"jobs":[{"name":"test","conclusion":"failure"}]}`
-			forge.failureOn, forge.failure, forge.failureErr = "gh api graphql", test.failure, test.failureErr
+			forge.failureOn, forge.failure = "compare", test.failure
 			for _, after := range []time.Duration{0, 2 * time.Minute} {
 				service = &Service{Store: service.Store, Options: service.Options}
 

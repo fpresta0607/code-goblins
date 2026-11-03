@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 const rootRepository = "acme/widgets"
 
-// rootGitHub answers the gh api requests root filing makes the way GitHub
-// would: open holds the open ops-root issues, each as GitHub lists it, and
-// every request is recorded.
+// rootGitHub answers the requests root filing makes to GitHub's API the way
+// GitHub would: open holds the open ops-root issues, each as GitHub lists
+// it, and every request is recorded.
 type rootGitHub struct {
 	open        []map[string]any
 	isLabelMade bool
@@ -23,41 +24,35 @@ type rootGitHub struct {
 	calls       []apiCall
 }
 
-func (f *rootGitHub) Run(_ context.Context, req execx.Request) (execx.Result, error) {
-	call := apiCall{Fields: map[string][]string{}}
-	for i := 1; i < len(req.Args); i++ {
-		switch req.Args[i] {
-		case "--method":
-			i++
-			call.Method = req.Args[i]
-		case "-f":
-			i++
-			key, value, _ := strings.Cut(req.Args[i], "=")
-			call.Fields[key] = append(call.Fields[key], value)
-		default:
-			call.Path = req.Args[i]
-		}
+func (f *rootGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	call, err := readCall(r)
+	if err != nil {
+		githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	f.calls = append(f.calls, call)
 	switch {
 	case call.Method == "GET" && strings.HasPrefix(call.Path, "repos/"+rootRepository+"/issues?labels=ops-root&state=open"):
 		if f.listFails {
-			return execx.Result{ExitCode: 1, Stderr: []byte("gh: Bad credentials (HTTP 401)")}, nil
+			answer(w, http.StatusUnauthorized, `{"message":"Bad credentials"}`)
+			return
 		}
 		out, _ := json.Marshal(f.open)
-		return execx.Result{Stdout: out}, nil
+		answer(w, http.StatusOK, string(out))
 	case call.Method == "POST" && call.Path == "repos/"+rootRepository+"/labels":
 		if f.isLabelMade {
-			return execx.Result{ExitCode: 1, Stdout: []byte(`{"message":"Validation Failed","errors":[{"resource":"Label","code":"already_exists","field":"name"}]}`), Stderr: []byte("gh: Validation Failed (HTTP 422)")}, nil
+			answer(w, http.StatusUnprocessableEntity, `{"message":"Validation Failed","errors":[{"resource":"Label","code":"already_exists","field":"name"}]}`)
+			return
 		}
 		f.isLabelMade = true
-		return execx.Result{Stdout: []byte(`{}`)}, nil
+		answer(w, http.StatusCreated, `{}`)
 	case call.Method == "POST" && call.Path == "repos/"+rootRepository+"/issues":
-		return execx.Result{Stdout: []byte(`{"number":42,"html_url":"https://github.com/` + rootRepository + `/issues/42"}`)}, nil
+		answer(w, http.StatusCreated, `{"number":42,"html_url":"https://github.com/`+rootRepository+`/issues/42"}`)
 	case call.Method == "POST" && strings.HasSuffix(call.Path, "/comments"):
-		return execx.Result{Stdout: []byte(`{"id":1}`)}, nil
+		answer(w, http.StatusCreated, `{"id":1}`)
+	default:
+		answer(w, http.StatusNotFound, `{"message":"Not Found"}`)
 	}
-	return execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)")}, nil
 }
 
 func (f *rootGitHub) writes() []apiCall {
@@ -78,7 +73,7 @@ func TestFileRootOpensALabelledIssueWithItsMarkerAndEvidence(t *testing.T) {
 	root := Root{Title: "conpty test fails under load", Body: "## What happens\nIt fails.", Key: "test:internal/conpty TestInputLeftUnread", Evidence: "run 7 of acme/widgets"}
 
 	// Act
-	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
+	filed, err := GitHub{API: githubtest.Client(fake)}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
 
 	// Assert
 	if err != nil {
@@ -126,7 +121,7 @@ func TestFileRootCommentsOnTheOpenIssueOfTheSameRoot(t *testing.T) {
 			fake := &rootGitHub{open: []map[string]any{tc.open}}
 
 			// Act
-			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, tc.root, rootNow)
+			filed, err := GitHub{API: githubtest.Client(fake)}.FileRoot(context.Background(), rootRepository, rootRepository, tc.root, rootNow)
 
 			// Assert
 			if err != nil {
@@ -155,7 +150,7 @@ func TestFileRootOpensANewIssueWhenTheOpenOnesHaveOtherRoots(t *testing.T) {
 	}}
 
 	// Act
-	filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "conpty flakes", Key: "test:internal/conpty TestX"}, rootNow)
+	filed, err := GitHub{API: githubtest.Client(fake)}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "conpty flakes", Key: "test:internal/conpty TestX"}, rootNow)
 
 	// Assert
 	if err != nil {
@@ -263,7 +258,7 @@ func TestFileRootMatchesFailedOnceSightingsToManualTestRoots(t *testing.T) {
 			root := FailedOnceRoot("go (cmd-cfo): github.com/acme/widgets/cmd/cfo TestNativeHost", "run 9")
 
 			// Act
-			filed, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
+			filed, err := GitHub{API: githubtest.Client(fake)}.FileRoot(context.Background(), rootRepository, rootRepository, root, rootNow)
 
 			// Assert
 			if err != nil {
@@ -292,7 +287,7 @@ func TestFileRootFilesNothingWhenTheOpenIssuesCannotBeRead(t *testing.T) {
 	fake := &rootGitHub{listFails: true}
 
 	// Act
-	_, err := GitHub{Commands: fake}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "x"}, rootNow)
+	_, err := GitHub{API: githubtest.Client(fake)}.FileRoot(context.Background(), rootRepository, rootRepository, Root{Title: "x"}, rootNow)
 
 	// Assert
 	if err == nil {
@@ -312,7 +307,7 @@ func TestOpenRootsRefusesMoreThanItCanRead(t *testing.T) {
 	fake := &rootGitHub{open: full}
 
 	// Act
-	_, err := GitHub{Commands: fake}.OpenRoots(context.Background(), rootRepository)
+	_, err := GitHub{API: githubtest.Client(fake)}.OpenRoots(context.Background(), rootRepository)
 
 	// Assert
 	if err == nil {
@@ -325,7 +320,7 @@ func TestOpenRootsReadsAssigneesLabelsAndAuthorStanding(t *testing.T) {
 	fake := &rootGitHub{open: []map[string]any{{"number": 3, "title": "t", "body": "b\n<!-- ops-root: k -->", "author_association": "OWNER", "assignees": []map[string]any{{"login": "someone"}}, "labels": []map[string]any{{"name": "ops-root"}}}}}
 
 	// Act
-	open, err := GitHub{Commands: fake}.OpenRoots(context.Background(), rootRepository)
+	open, err := GitHub{API: githubtest.Client(fake)}.OpenRoots(context.Background(), rootRepository)
 
 	// Assert
 	if err != nil {
@@ -354,7 +349,7 @@ func TestReadRepositoryReadsWhoseItIsAndWhetherItTakesIssues(t *testing.T) {
 			fake := &fakeGitHub{rest: map[string]string{"repos/" + rootRepository: tc.answer}}
 
 			// Act
-			got, err := GitHub{Commands: fake}.ReadRepository(context.Background(), rootRepository)
+			got, err := GitHub{Commands: fake, API: githubtest.Client(fake)}.ReadRepository(context.Background(), rootRepository)
 
 			// Assert
 			if tc.isErr {

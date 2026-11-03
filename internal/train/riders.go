@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-// ListFields is the --json field list of gh pr list that Riders reads.
-const ListFields = "number,url,title,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,mergeable,reviewDecision,labels,statusCheckRollup,author"
-
 // PullRequest is one open pull request as gh pr list reports it.
 type PullRequest struct {
 	Number            int     `json:"number"`
@@ -49,7 +46,7 @@ func (c *Checks) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &rollup); err != nil {
 		return err
 	}
-	*c = slices.DeleteFunc(rollup, func(check Check) bool { return check.Kind == "CheckRun" && check.Name == DraftStateCheck })
+	*c = withoutDraftState(rollup)
 	return nil
 }
 

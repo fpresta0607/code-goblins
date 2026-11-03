@@ -2,8 +2,8 @@ package train
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -19,13 +19,13 @@ import (
 // deploys, and merges only once every deploy on the base has finished
 // successfully.
 
-// deployRun is a push run on the base, as gh run list reports it.
+// deployRun is a push run on the base, as GitHub's API lists it.
 type deployRun struct {
-	Workflow   string `json:"workflowName"`
+	Workflow   string `json:"name"`
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
-	HeadSHA    string `json:"headSha"`
-	URL        string `json:"url"`
+	HeadSHA    string `json:"head_sha"`
+	URL        string `json:"html_url"`
 }
 
 // DeployHold is the base deploy keeping a green train from merging, with
@@ -46,16 +46,14 @@ const DEPLOY_REMINDER_INTERVAL = 30 * time.Minute
 // A skipped run deployed nothing and is passed over. It returns nil while
 // every deploy on the base has finished successfully.
 func (e Engine) unverifiedDeploy(ctx context.Context, t Train) (*deployRun, error) {
-	out, err := e.run(ctx, t.Checkout, "gh", "run", "list", "--repo", t.Repository, "--branch", t.Base, "--event", "push", "--limit", "50", "--json", "workflowName,status,conclusion,headSha,url")
-	if err != nil {
-		return nil, err
+	var listed struct {
+		Runs []deployRun `json:"workflow_runs"`
 	}
-	var runs []deployRun
-	if err := json.Unmarshal([]byte(out), &runs); err != nil {
-		return nil, fmt.Errorf("gh listed the push runs of %s in a shape it cannot read: %w", t.Repository, err)
+	if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/runs?%s", t.Repository, url.Values{"branch": {t.Base}, "event": {"push"}, "per_page": {"50"}}.Encode()), &listed); err != nil {
+		return nil, fmt.Errorf("list the push runs of %s: %w", t.Repository, err)
 	}
 	newest := map[string]bool{}
-	for _, run := range runs {
+	for _, run := range listed.Runs {
 		if !strings.Contains(strings.ToLower(run.Workflow), "deploy") || run.Conclusion == "skipped" {
 			continue
 		}

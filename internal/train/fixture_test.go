@@ -6,16 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 // scratch is a repository on a scratch remote: a bare origin, the checkout a
@@ -153,6 +158,7 @@ func (s *scratch) repository() Repository {
 func (s *scratch) engine(gh *fakeGitHub) Engine {
 	return Engine{
 		Commands: gh,
+		GitHub:   githubtest.Client(gh),
 		StateDir: s.state,
 		Now:      func() time.Time { return s.now },
 		Wait:     func(time.Duration) { s.waits++ },
@@ -191,13 +197,14 @@ func (s *scratch) goblinTold(task string) []string {
 	return lines
 }
 
-// fakeGitHub plays GitHub over the scratch remote: git runs for real, and gh
-// opens, finds, edits, merges and closes a train's pull requests, reports
-// their CI from what their head holds, runs a workflow run's failed jobs
-// again and says how that run stands, lists the open pull requests as the
-// remote has them, reports main's push runs, and merges a pull request into
-// main with a merge commit. As GitHub does, it marks a pull request merged
-// once main holds its head, however that head got there.
+// fakeGitHub plays GitHub over the scratch remote: git runs for real, gh
+// opens, edits, merges and closes a train's pull requests and runs a
+// workflow run's failed jobs again, and GitHub's API (ServeHTTP) finds a
+// train's pull request, reports their CI from what their head holds, says how
+// a workflow run stands, lists the open pull requests as the remote has them
+// and reports main's push runs. It merges a pull request into main with a
+// merge commit and, as GitHub does, marks a pull request merged once main
+// holds its head, however that head got there.
 type fakeGitHub struct {
 	s     *scratch
 	pulls map[string]*pull
@@ -252,7 +259,7 @@ type fakeGitHub struct {
 	// does the call and then loses its answer, once.
 	unanswered map[string]int
 	lost       map[string]bool
-	// mainRuns is gh run list's answer for main's push runs.
+	// mainRuns are main's push runs as GitHub's API lists them.
 	mainRuns string
 	// once is GitHub's answer to the read of the tests that failed once,
 	// onceFailure what gh says when that read fails, and onceReads how
@@ -289,7 +296,9 @@ type fakeGitHub struct {
 	// ownRuns are the pull requests whose own CI run GitHub shows, by URL
 	// (own_run_test.go).
 	ownRuns map[string]*riderRun
-	calls   [][]string
+	// calls are the gh calls and the API's reads, each read as its method,
+	// path and query, or as POST, graphql and what it asked.
+	calls [][]string
 	// commandLines are the command lines gh was started with, as they were.
 	commandLines [][]string
 }
@@ -381,16 +390,145 @@ func (f *fakeGitHub) Run(ctx context.Context, request execx.Request) (execx.Resu
 	if args[0] == "run" || args[0] == "label" {
 		call = args[0] + " " + call
 	}
+	return f.call(call, func() (execx.Result, error) { return f.answer(args) })
+}
+
+// call answers the call named call, unless it goes unanswered, as when the
+// network drops, or its answer is lost.
+func (f *fakeGitHub) call(call string, answer func() (execx.Result, error)) (execx.Result, error) {
 	if f.unanswered[call] > 0 {
 		f.unanswered[call]--
 		return execx.Result{}, errors.New("the network dropped")
 	}
-	result, err := f.answer(args)
+	result, err := answer()
 	if f.lost[call] {
 		delete(f.lost, call)
 		return execx.Result{}, errors.New("the answer was lost")
 	}
 	return result, err
+}
+
+// actionsRead is a read of a workflow run, or of the runs, jobs or a job's
+// log, in GitHub's API.
+var actionsRead = regexp.MustCompile(`^repos/o/r/actions/runs(?:/([0-9]+))?$`)
+
+// ServeHTTP answers the reads a train makes of GitHub's API, with the
+// fake's own answers given in the API's shape, under the names the calls go
+// by in unanswered and lost: "view" and "list" for a pull request and the
+// open ones, "run view" and "run list" for workflow runs, and "graphql" for
+// the tests that failed once.
+func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	if path != "graphql" {
+		f.calls = append(f.calls, []string{r.Method, path, r.URL.RawQuery})
+		found := actionsRead.FindStringSubmatch(path)
+		switch {
+		case found != nil && found[1] == "":
+			f.serve(w, "run list", func() (execx.Result, error) {
+				return execx.Result{Stdout: []byte(`{"workflow_runs":` + f.mainRuns + `}`)}, nil
+			})
+		case found != nil:
+			f.serve(w, "run view", func() (execx.Result, error) { return f.runView(found[1]) })
+		default:
+			f.serve(w, path, func() (execx.Result, error) { return f.actionsAPI(r.URL.RequestURI()[1:]) })
+		}
+		return
+	}
+	query, variables, err := githubtest.Query(r)
+	if err != nil {
+		githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	switch {
+	case strings.Contains(query, "annotations("):
+		f.calls = append(f.calls, []string{r.Method, path, "failed once"})
+		f.onceReads++
+		f.serve(w, "graphql", func() (execx.Result, error) {
+			if f.onceFailure != "" {
+				return execx.Result{ExitCode: 1, Stderr: []byte(f.onceFailure)}, nil
+			}
+			return execx.Result{Stdout: []byte(cmp.Or(f.once, onceAnswer()))}, nil
+		})
+	case strings.Contains(query, "pullRequest(number:"):
+		number, _ := variables["number"].(float64)
+		pr := fmt.Sprintf("https://github.com/%s/%s/pull/%d", variables["owner"], variables["name"], int(number))
+		f.calls = append(f.calls, []string{r.Method, path, "view " + pr})
+		f.serve(w, "view", func() (execx.Result, error) {
+			result, err := f.answer([]string{"pr", "view", pr})
+			if err != nil || result.ExitCode != 0 {
+				return result, err
+			}
+			var view map[string]any
+			if err := json.Unmarshal(result.Stdout, &view); err != nil {
+				return execx.Result{}, err
+			}
+			return graphAnswer(map[string]any{"repository": map[string]any{"pullRequest": githubtest.PullRequestNode(view)}})
+		})
+	case strings.Contains(query, "pullRequests("):
+		head, _ := variables["head"].(string)
+		base, _ := variables["base"].(string)
+		f.calls = append(f.calls, []string{r.Method, path, "list base=" + base + " head=" + head})
+		f.serve(w, "list", func() (execx.Result, error) {
+			var nodes []map[string]any
+			if head != "" {
+				if f.state[f.trainURL] == "OPEN" && head == f.trainBranch {
+					nodes = append(nodes, map[string]any{"url": f.trainURL})
+				}
+			} else {
+				listed, err := f.list()
+				if err != nil {
+					return listed, err
+				}
+				if nodes, err = githubtest.PullRequestNodes(listed.Stdout); err != nil {
+					return execx.Result{}, err
+				}
+			}
+			return graphAnswer(map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}})
+		})
+	default:
+		githubtest.Refuse(w, http.StatusBadRequest, "unexpected query "+query)
+	}
+}
+
+// graphAnswer is data as the answer to a GraphQL query.
+func graphAnswer(data any) (execx.Result, error) {
+	body, err := json.Marshal(map[string]any{"data": data})
+	return execx.Result{Stdout: body}, err
+}
+
+// httpStatus is the status a refusal that gh printed names.
+var httpStatus = regexp.MustCompile(`HTTP ([0-9]{3})`)
+
+// serve answers w with the answer to call: a call that goes unanswered is a
+// gateway's 502, and one the fake refuses is GitHub's refusal, with the
+// status it names, else 422.
+func (f *fakeGitHub) serve(w http.ResponseWriter, call string, answer func() (execx.Result, error)) {
+	result, err := f.call(call, answer)
+	switch {
+	case err != nil:
+		githubtest.Refuse(w, http.StatusBadGateway, err.Error())
+	case result.ExitCode != 0:
+		status := http.StatusUnprocessableEntity
+		if found := httpStatus.FindStringSubmatch(string(result.Stderr)); found != nil {
+			status, _ = strconv.Atoi(found[1])
+		}
+		githubtest.Refuse(w, status, strings.TrimSpace(string(result.Stderr)))
+	default:
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(result.Stdout)
+	}
+}
+
+// read is the first read of the API whose path ends with suffix, as its
+// path and query.
+func (f *fakeGitHub) read(suffix string) (string, url.Values) {
+	for _, call := range f.calls {
+		if len(call) == 3 && call[0] == http.MethodGet && strings.HasSuffix(call[1], suffix) {
+			query, _ := url.ParseQuery(call[2])
+			return call[1], query
+		}
+	}
+	return "", nil
 }
 
 func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
@@ -402,13 +540,6 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		f.opened = append(f.opened, f.trainURL)
 		f.state[f.trainURL], f.titles[f.trainURL] = "OPEN", flagValue(args, "--title")
 		return execx.Result{Stdout: []byte("Creating pull request\n" + f.trainURL + "\n")}, nil
-	case args[0] == "pr" && args[1] == "list" && slices.Contains(args, "--head"):
-		if f.state[f.trainURL] == "OPEN" && flagValue(args, "--head") == f.trainBranch {
-			return execx.Result{Stdout: []byte(f.trainURL + "\n")}, nil
-		}
-		return execx.Result{Stdout: []byte("\n")}, nil
-	case args[0] == "pr" && args[1] == "list":
-		return f.list()
 	case args[0] == "label" && args[1] == "create":
 		return f.makeLabel(args[2], slices.Contains(args, "--force"))
 	case args[0] == "pr" && args[1] == "edit" && f.state[args[2]] == "OPEN" && slices.Contains(args, "--add-label"):
@@ -421,8 +552,6 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		return f.view()
 	case args[0] == "pr" && args[1] == "view" && f.ownRuns[args[2]] != nil:
 		return f.riderView(args[2])
-	case args[0] == "api" && strings.HasPrefix(args[1], "repos/o/r/actions/"):
-		return f.actionsAPI(args[1])
 	case args[0] == "pr" && args[1] == "merge" && f.state[args[2]] != "":
 		return f.mergeTrain(args)
 	case args[0] == "pr" && args[1] == "merge":
@@ -434,20 +563,8 @@ func (f *fakeGitHub) answer(args []string) (execx.Result, error) {
 		return execx.Result{}, nil
 	case args[0] == "pr" && args[1] == "close" && f.state[args[2]] == "MERGED":
 		return execx.Result{ExitCode: 1, Stderr: []byte("Pull request " + args[2] + " can't be closed because it was already merged")}, nil
-	case args[0] == "api" && args[1] == "graphql":
-		// The read of the tests that failed once: what a test gave, or one
-		// workflow check that carries no warning.
-		f.onceReads++
-		if f.onceFailure != "" {
-			return execx.Result{ExitCode: 1, Stderr: []byte(f.onceFailure)}, nil
-		}
-		return execx.Result{Stdout: []byte(cmp.Or(f.once, onceAnswer()))}, nil
-	case args[0] == "run" && args[1] == "list":
-		return execx.Result{Stdout: []byte(f.mainRuns)}, nil
 	case args[0] == "run" && args[1] == "rerun":
 		return f.rerun(args[2], slices.Contains(args, "--failed"))
-	case args[0] == "run" && args[1] == "view":
-		return f.runView(args[2])
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected gh " + strings.Join(args, " "))}, nil
 }
@@ -498,8 +615,8 @@ func flagValue(args []string, name string) string {
 	return ""
 }
 
-// list answers gh pr list with the open pull requests at the heads their
-// branches hold on the remote. One main took by another's merge is still
+// list answers the list of the open pull requests, in the shape gh pr list
+// gave them, with the heads their branches hold on the remote. One main took by another's merge is still
 // listed while GitHub marks it late.
 func (f *fakeGitHub) list() (execx.Result, error) {
 	if before := f.beforeList; before != nil {
@@ -527,7 +644,8 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 	return execx.Result{Stdout: data}, err
 }
 
-// view answers gh pr view of the train's pull request: its head is what the
+// view answers the read of the train's pull request, in the shape gh pr
+// view gave it: its head is what the
 // remote's train branch holds, and its one check is the job of that head's
 // workflow run at its newest try, which fails when that try does. While the
 // answer lags a try that ran again, it is the try before's.
@@ -622,14 +740,14 @@ func (f *fakeGitHub) rerun(id string, isFailedOnly bool) (execx.Result, error) {
 	return execx.Result{}, nil
 }
 
-// runView answers gh run view: which try the workflow run is at and how
-// that try stands.
+// runView answers the read of a workflow run, as GitHub's API gives it:
+// which try it is at and how that try stands.
 func (f *fakeGitHub) runView(id string) (execx.Result, error) {
 	w := f.workflowByID(id)
 	if w == nil {
-		return execx.Result{ExitCode: 1, Stderr: []byte("no workflow run " + id)}, nil
+		return execx.Result{ExitCode: 1, Stderr: []byte("no workflow run " + id + " (HTTP 404)")}, nil
 	}
-	view := map[string]any{"attempt": w.tries, "status": "completed", "conclusion": "success"}
+	view := map[string]any{"run_attempt": w.tries, "status": "completed", "conclusion": "success"}
 	switch {
 	case f.pending > 0:
 		view["status"], view["conclusion"] = "in_progress", ""
@@ -640,7 +758,7 @@ func (f *fakeGitHub) runView(id string) (execx.Result, error) {
 		view["conclusion"] = w.conclusion
 	}
 	if f.noAttempt {
-		delete(view, "attempt")
+		delete(view, "run_attempt")
 	}
 	data, err := json.Marshal(view)
 	return execx.Result{Stdout: data}, err

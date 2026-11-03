@@ -27,7 +27,7 @@ func (s *Service) goblinSettings(kind harness.Kind) (string, error) {
 	if kind != harness.Claude {
 		return "", nil
 	}
-	settings, err := install.GoblinSettings(s.HomeRoot, s.StateDir)
+	settings, err := install.GoblinSettings(s.HomeRoot, s.StateDir, s.Board)
 	if err != nil {
 		return "", err
 	}

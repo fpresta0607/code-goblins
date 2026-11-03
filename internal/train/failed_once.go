@@ -2,13 +2,13 @@ package train
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 )
 
 // githubActions is the GitHub App that runs workflows. A workflow's own
@@ -40,57 +40,46 @@ const failedOnceWithin = 30 * time.Second
 // It is one call, for the commit's checks and their warnings together. A
 // read that finds no workflow check at all is an error, never an answer of
 // none: a read that stopped seeing would otherwise say that nothing failed.
-func FailedOnce(ctx context.Context, runner execx.Runner, dir, repository, sha string, run int64) ([]string, error) {
+func FailedOnce(ctx context.Context, github *githubapi.Client, repository, sha string, run int64) ([]string, error) {
 	owner, name, _ := strings.Cut(repository, "/")
 	query := fmt.Sprintf("query{repository(owner:%q,name:%q){object(oid:%q){... on Commit{checkSuites(first:10,filterBy:{appId:%d}){nodes{workflowRun{databaseId} checkRuns(first:50){nodes{annotations(first:20){nodes{title message}}}}}}}}}}", owner, name, sha, githubActions)
 	probe, cancel := context.WithTimeout(ctx, failedOnceWithin)
 	defer cancel()
-	result, err := runner.Run(probe, execx.Request{Dir: dir, Name: "gh", Args: []string{"api", "graphql", "-f", "query=" + query}})
-	if err != nil {
+	var data struct {
+		Repository struct {
+			Object struct {
+				CheckSuites struct {
+					Nodes []struct {
+						WorkflowRun *struct {
+							DatabaseID int64 `json:"databaseId"`
+						} `json:"workflowRun"`
+						CheckRuns struct {
+							Nodes []struct {
+								Annotations struct {
+									Nodes []struct {
+										Title   string `json:"title"`
+										Message string `json:"message"`
+									} `json:"nodes"`
+								} `json:"annotations"`
+							} `json:"nodes"`
+						} `json:"checkRuns"`
+					} `json:"nodes"`
+				} `json:"checkSuites"`
+			} `json:"object"`
+		} `json:"repository"`
+	}
+	// GitHub's own refusal of the query comes back in its words, first of
+	// all.
+	if err := github.GraphQL(probe, query, nil, &data); err != nil {
+		var refused *githubapi.GraphQLError
+		if errors.As(err, &refused) {
+			return nil, fmt.Errorf("GitHub answered %s", clipped(refused.Messages[0]))
+		}
 		return nil, err
-	}
-	var response struct {
-		Data struct {
-			Repository struct {
-				Object struct {
-					CheckSuites struct {
-						Nodes []struct {
-							WorkflowRun *struct {
-								DatabaseID int64 `json:"databaseId"`
-							} `json:"workflowRun"`
-							CheckRuns struct {
-								Nodes []struct {
-									Annotations struct {
-										Nodes []struct {
-											Title   string `json:"title"`
-											Message string `json:"message"`
-										} `json:"nodes"`
-									} `json:"annotations"`
-								} `json:"nodes"`
-							} `json:"checkRuns"`
-						} `json:"nodes"`
-					} `json:"checkSuites"`
-				} `json:"object"`
-			} `json:"repository"`
-		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	// gh exits 1 with GitHub's own answer when GitHub refuses the query, and
-	// with nothing when it could not ask: GitHub's words come first.
-	shape := json.Unmarshal(result.Stdout, &response)
-	switch {
-	case len(response.Errors) > 0:
-		return nil, fmt.Errorf("GitHub answered %s", clipped(response.Errors[0].Message))
-	case result.ExitCode != 0:
-		return nil, fmt.Errorf("gh exited %d: %s", result.ExitCode, clipped(strings.TrimSpace(string(result.Stderr))))
-	case shape != nil:
-		return nil, fmt.Errorf("gh answered in a shape that cannot be read: %w", shape)
 	}
 	var names []string
 	checks := 0
-	for _, suite := range response.Data.Repository.Object.CheckSuites.Nodes {
+	for _, suite := range data.Repository.Object.CheckSuites.Nodes {
 		if run != 0 && (suite.WorkflowRun == nil || suite.WorkflowRun.DatabaseID != run) {
 			continue
 		}
