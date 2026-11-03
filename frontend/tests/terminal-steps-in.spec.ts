@@ -226,6 +226,29 @@ test("Back to messages returns to the messages with the keyboard in the box, and
   expect(typed(relay)).toBe("1");
 });
 
+test("Classic chosen in the maximized panel's Workspace after Back to messages keeps the keyboard there and types nothing", async ({ page }) => {
+  // Arrange: the terminal was shown once and put back behind the messages.
+  const relay = await open(page);
+  await openGoblin(page);
+  relay.say(asking(PANELS.claude));
+  await list(page).getByRole("button", { name: "Show the terminal" }).click();
+  await expect(terminal(page)).toBeFocused();
+  await back(page).click();
+  await expect(messages(page)).toBeVisible();
+  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+  await page.locator(".panel-side .workspace-details > summary").click();
+  const classic = page.getByRole("radiogroup", { name: "Chat style", exact: true }).getByRole("radio", { name: "Classic", exact: true });
+
+  // Act
+  await classic.check();
+  await expect(terminal(page)).toBeVisible();
+  await page.keyboard.type("x");
+
+  // Assert
+  await expect(classic).toBeFocused();
+  expect(typed(relay)).toBe("");
+});
+
 test("Modern chat in Classic's row saves Modern, so the conversation stays after the switch", async ({ page }) => {
   // Arrange: this browser draws its conversations as Classic, so the panel
   // opens on the harness's terminal alone, with no Back to messages bar.

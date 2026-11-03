@@ -103,8 +103,8 @@ export function HostTerminal({ query, harness, label, reportAs, instance, visibl
   // A switch to this terminal hands it the keyboard, at once or once it is whole.
   const wantFocus = useRef(false);
   useEffect(() => {
-    if (!focus) return;
-    if (current.current && shownValue.current) current.current.focus(); else wantFocus.current = true;
+    if (!focus || !shownValue.current) return;
+    if (current.current) current.current.focus(); else wantFocus.current = true;
   }, [focus]);
   useEffect(() => {
     const container = surface.current;
