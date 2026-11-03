@@ -2,7 +2,6 @@ package train
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -41,22 +40,18 @@ func (e Engine) secondTry(ctx context.Context, t *Train, failed []Check) (string
 			continue
 		}
 		read = append(read, id)
-		out, err := e.run(ctx, t.Checkout, "gh", "run", "view", id, "--repo", t.Repository, "--json", "attempt,status,conclusion")
-		if err != nil {
-			return "", fmt.Errorf("merge train %s: read workflow run %s: %w", t.ID, id, err)
-		}
 		var workflow struct {
-			Attempt    int    `json:"attempt"`
+			Attempt    int    `json:"run_attempt"`
 			Status     string `json:"status"`
 			Conclusion string `json:"conclusion"`
 		}
-		if err := json.Unmarshal([]byte(out), &workflow); err != nil {
-			return "", fmt.Errorf("merge train %s: gh reported workflow run %s in a shape it cannot read: %w", t.ID, id, err)
+		if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/runs/%s", t.Repository, id), &workflow); err != nil {
+			return "", fmt.Errorf("merge train %s: read workflow run %s: %w", t.ID, id, err)
 		}
 		switch {
 		case workflow.Attempt < 1:
 			// An answer without the attempt would read as a first try for ever.
-			return "", fmt.Errorf("merge train %s: gh did not say which attempt workflow run %s is at", t.ID, id)
+			return "", fmt.Errorf("merge train %s: GitHub did not say which attempt workflow run %s is at", t.ID, id)
 		case workflow.Status != "completed" || workflow.Conclusion == "success":
 			// The checks read are an earlier try's: this one still runs, or
 			// passed and GitHub has yet to show it.
@@ -154,7 +149,7 @@ func (e Engine) noteFailedOnce(ctx context.Context, t *Train) error {
 	if run == nil || len(run.OnceTests) > 0 || run.OnceUnread != "" {
 		return nil
 	}
-	tests, err := FailedOnce(ctx, e.Commands, t.Checkout, t.Repository, t.Head, 0)
+	tests, err := FailedOnce(ctx, e.GitHub, t.Repository, t.Head, 0)
 	if err != nil {
 		run.OnceUnread = err.Error()
 	}

@@ -36,9 +36,9 @@ import (
 // break the tool call, so it exits 0 with a one-line stderr diagnostic
 // instead of denying or failing the request.
 func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
-	// The goblin hooks run in a goblin's own Claude Code, which starts with
-	// them (install.GoblinHooks: the key alarm runs inside the native hook
-	// after every tool call), its own Codex, whose launch carries its seal
+	// The goblin hooks run in a goblin's own Claude Code, one started before
+	// its seal and key alarm posted to the board (install.GoblinHooks), its
+	// own Codex, whose launch carries its seal
 	// (nativehook.CodexGoblinArguments), and its own pi, whose extension
 	// does (install.GoblinPiExtension), and for a goblin alone: they sit
 	// above the checks that keep every other hook to the CFO.
@@ -48,7 +48,7 @@ func runHook(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 		if name == "goblin-key-alarm" {
-			return goblinKeyAlarm("claude", "", stdin, stderr)
+			return goblinKeyAlarm("claude", "", os.Getenv, stdin, stderr)
 		}
 		return hookGoblinSeal(name, stdin, stdout, stderr)
 	}

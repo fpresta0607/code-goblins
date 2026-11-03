@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -528,7 +529,7 @@ func TestKeeperBacksOffARepositoryGitHubRefused(t *testing.T) {
 	h, checkout, github := ticketHome(t)
 	keeper := newTicketKeeper(h, github.writer(checkout))
 	tasks := []Task{liveTask("working", "")}
-	github.applyErr = &tickets.APIError{Status: 403}
+	github.applyErr = &githubapi.Error{Status: 403}
 
 	// Act
 	keeper.reconcile(context.Background(), tasks, ticketNow)

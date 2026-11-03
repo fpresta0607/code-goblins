@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -58,8 +60,8 @@ func TestPRHealthIgnoresPullRequestsInARepositoryTheFleetDoesNotOwn(t *testing.T
 		t.Fatalf("pull requests in a repository the fleet does not own woke %+v", wakes)
 	}
 	for _, request := range forge.requests {
-		if slices.Contains(request.Args, "graphql") {
-			t.Fatalf("pull requests the fleet does not watch were compared: %v", request.Args)
+		if request.name == "compare" {
+			t.Fatalf("pull requests the fleet does not watch were compared: %s", request.body)
 		}
 	}
 }
@@ -312,7 +314,7 @@ func TestPRHealthCallsAPullRequestNobodysWhileTheAccountCannotBeRead(t *testing.
 	writeFile(t, filepath.Join(h.Root, "config", "fleet.json"), `{"github_owners":["o"]}`)
 	forge.pulls = "[" + listedPull("o", 12, "feat/theirs", "head-t", "CONFLICTING", "someone") + "]"
 	forge.comparisons = behindBy(map[int]comparedHead{12: {"head-t", 0}})
-	forge.failureOn, forge.failure = "gh api user", execx.Result{ExitCode: 1, Stderr: []byte("HTTP 503")}
+	forge.failureOn, forge.failure = "user", githubFailure{status: http.StatusServiceUnavailable, body: `{"message":"Service Unavailable"}`}
 
 	// Act
 	if err := service.checkFleet(context.Background(), now); err != nil {
@@ -399,6 +401,7 @@ func TestPRHealthNamesTheGoblinOfAPullRequestFromAWorktreeInItsOwnFolders(t *tes
 			}, ",") + "]"
 			forge.comparisons = behindBy(map[int]comparedHead{210: {"head-two", 0}, 211: {"head-three", 0}, 212: {"head-hand", 0}})
 			service.Options.CI = forge
+			service.Options.GitHub = githubtest.Client(forge)
 
 			// Act
 			if err := service.checkFleet(context.Background(), time.Date(2026, 10, 14, 18, 0, 0, 0, time.UTC)); err != nil {

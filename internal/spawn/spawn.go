@@ -109,6 +109,10 @@ type Service struct {
 	// user's environment names.
 	HomeRoot string
 	StateDir string
+	// Board is the address of the home's board, which a Claude Code
+	// goblin's hooks that run at every tool call post to
+	// (install.GoblinHooks).
+	Board string
 	// ProjectsRoot is the projects root the spawning process names, which a
 	// native goblin's terminal names in place of the user's, as the CFO's
 	// terminal does; empty leaves the user's.

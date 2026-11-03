@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -69,6 +70,7 @@ func TestAwaitedRunPollReportsOnlyTheExactHeadAndItsCompletedAttempt(t *testing.
 			forge := forgeFor(h.Root, "waiting-task")
 			forge.jobs = fmt.Sprintf(`{"databaseId":42,"workflowName":"deploy","status":%q,"conclusion":"success","headSha":%q,"url":%q,"attempt":1,"startedAt":"2026-10-02T12:00:00Z","updatedAt":"2026-10-02T12:10:30Z"}`, testCase.status, testCase.head, target)
 			service.Options.CI = forge
+			service.Options.GitHub = githubtest.Client(forge)
 			watched := fleetWakes{}
 
 			for range 2 {
@@ -103,14 +105,14 @@ func TestAnAwaitedRunReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.T)
 	forge := forgeFor(h.Root, "waiting-task")
 	forge.jobs = fmt.Sprintf(`{"databaseId":42,"workflowName":"deploy","status":"in_progress","conclusion":"","headSha":%q,"url":%q,"attempt":1}`, strings.Repeat("a", 40), target)
 	service.Options.CI = forge
+	service.Options.GitHub = githubtest.Client(forge)
 	watched := fleetWakes{}
-	timedOut := `Get "https://api.github.com/repos/owner/repo/actions/runs/42": context deadline exceeded`
 
 	for poll, step := range []struct {
-		failure      string
+		isTimingOut  bool
 		shouldReport bool
-	}{{timedOut, false}, {timedOut, false}, {timedOut, true}, {"", false}, {timedOut, false}} {
-		forge.ghFailure = step.failure
+	}{{true, false}, {true, false}, {true, true}, {false, false}, {true, false}} {
+		forge.timesOut = step.isTimingOut
 
 		// Act
 		err := service.pollAwaitedRuns(t.Context(), &watched, now.Add(time.Duration(poll)*ciPollEvery))

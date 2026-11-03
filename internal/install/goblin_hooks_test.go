@@ -5,21 +5,20 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
-
-	"github.com/fpresta0607/code-goblins/internal/home"
 )
 
-// A goblin's tool call ran the native hook and the key alarm after it, and a
-// shell call the seal before it too, each hook a cfo.exe process with a
-// console host of its own. One process runs per hook event now: the seal
-// before a shell call, and after every tool call the native hook, which
-// raises the key alarm too, within the alarm's limit, the native hook
-// keeping its own inside it.
-func TestAGoblinStartsOneCfoPerHookEvent(t *testing.T) {
+// A goblin's tool call started a cfo process for its hooks, and a shell call
+// two, the seal before it and the native hook with the key alarm after it:
+// 157 of the 940 processes one goblin started in 11 minutes on 2026-10-27
+// (#1610). Both post to the board now, which does their work in its own
+// process, so no tool call starts one. Each carries the goblin's variables
+// the board reads, and its terminal's id and proof, and a seal the board
+// does not answer refuses the command, as a seal that cannot be read does.
+func TestAGoblinsToolCallsStartNoProcessForItsHooks(t *testing.T) {
 	// Arrange
 	root := t.TempDir()
-	stateDir := filepath.Join(root, "state")
-	settings, err := GoblinSettings(root, stateDir)
+	board := "http://127.0.0.1:4310"
+	settings, err := GoblinSettings(root, filepath.Join(root, "state"), board)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,29 +31,37 @@ func TestAGoblinStartsOneCfoPerHookEvent(t *testing.T) {
 	hooks := registeredHooks(t, path)
 
 	// Assert
-	executable := filepath.Join(root, home.BinDir, "cfo.exe")
 	want := map[string]registeredHook{
-		"PreToolUse":  {Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", Command: executable, Args: []string{"hook", "goblin-seal"}},
-		"PostToolUse": {Event: "PostToolUse", Command: executable, Args: []string{"native-hook", "claude", "--home", root, "--state", stateDir, "--key-alarm"}, Timeout: KeyAlarmSeconds},
+		"PreToolUse":  {Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", URL: board + GoblinSealPath, Timeout: KeyAlarmSeconds, OnFailure: "block"},
+		"PostToolUse": {Event: "PostToolUse", URL: board + GoblinToolPath, Timeout: KeyAlarmSeconds},
 	}
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		entries := slices.DeleteFunc(slices.Clone(hooks), func(hook registeredHook) bool { return hook.Event != event })
-		if expected := want[event]; len(entries) != 1 || entries[0].Matcher != expected.Matcher || entries[0].Command != expected.Command || !slices.Equal(entries[0].Args, expected.Args) || entries[0].Timeout != expected.Timeout || entries[0].Shell {
-			t.Errorf("%s hooks = %+v, want only %+v run with no shell", event, entries, expected)
+		if expected := want[event]; len(entries) != 1 || entries[0].Matcher != expected.Matcher || entries[0].URL != expected.URL || entries[0].Command != "" || entries[0].Timeout != expected.Timeout || entries[0].OnFailure != expected.OnFailure {
+			t.Fatalf("%s hooks = %+v, want only %+v", event, entries, expected)
+		}
+		entry := entries[0]
+		if !slices.Equal(entry.AllowedEnvVars, HookVariables) || len(entry.Headers) != len(HookVariables) {
+			t.Errorf("%s hook may read %q into %v, want each of %q in its own header", event, entry.AllowedEnvVars, entry.Headers, HookVariables)
+		}
+		for _, variable := range HookVariables {
+			if got := entry.Headers[HookHeader(variable)]; got != "${"+variable+"}" {
+				t.Errorf("%s hook header %s = %q, want ${%s}", event, HookHeader(variable), got, variable)
+			}
 		}
 	}
 	processes := func(tool string) int {
 		total := 0
 		for _, hook := range hooks {
-			if (hook.Event == "PreToolUse" || hook.Event == "PostToolUse") && selects(t, hook.Matcher, tool) {
+			if (hook.Event == "PreToolUse" || hook.Event == "PostToolUse") && hook.URL == "" && selects(t, hook.Matcher, tool) {
 				total++
 			}
 		}
 		return total
 	}
-	for tool, wantProcesses := range map[string]int{"Bash": 2, "PowerShell": 2, "Read": 1, "Edit": 1, "Grep": 1, "WebFetch": 1} {
-		if got := processes(tool); got != wantProcesses {
-			t.Errorf("a %s call starts %d cfo.exe for the goblin's hooks, want %d", tool, got, wantProcesses)
+	for _, tool := range []string{"Bash", "PowerShell", "Monitor", "Read", "Edit", "Grep", "WebFetch"} {
+		if got := processes(tool); got != 0 {
+			t.Errorf("a %s call starts %d processes for the goblin's hooks, want none", tool, got)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/janitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -642,7 +644,7 @@ type ciGoblin struct {
 // were.
 func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, currentTime func() time.Time) error {
 	runner := s.Options.CI
-	if runner == nil || now.Sub(w.CIPolled) < ciPollEvery-ciPollSlack {
+	if runner == nil || s.Options.GitHub == nil || now.Sub(w.CIPolled) < ciPollEvery-ciPollSlack {
 		return nil
 	}
 	w.CIPolled = now
@@ -714,7 +716,7 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 			continue
 		}
 		remote := strings.TrimSpace(string(origin.Stdout))
-		host, repository, hasRemote := splitRemote(remote)
+		host, _, hasRemote := splitRemote(remote)
 		// A repository with no origin, one kept on this machine and one hosted
 		// outside GitHub have no CI here to read, so GitHub is asked nothing
 		// about them and gh's sign-in advice is never given for one of them. An
@@ -728,7 +730,8 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		// A remote that names a GitHub host but no repository is a checkout
 		// whose origin is broken, which is reported rather than read as a
 		// repository that is merely somewhere else.
-		if !hasRemote || repository == "" {
+		slug, isSlug := githubRepository(remote)
+		if !isSlug {
 			failure := fmt.Errorf("ci wakes: the origin of %s names no repository", repo)
 			errs = errors.Join(errs, reportUnreadable(s.Store.Home.State, w, repo, failure, "set origin to the repository's own URL", now))
 			continue
@@ -739,27 +742,32 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 				mine = append(mine, goblin)
 			}
 		}
-		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
-		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
+		hold := githubHold{state: w, repo: repo, now: currentTime}
+		github := s.Options.GitHub.Guarded(hold)
+		pollRunner := githubPollRunner{commands: runner, hold: hold}
+		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, runner, github, slug, s.Store.Home.State, w, repo, mine, owners, now)
 		if listed != nil {
 			w.recordKeptOff(mine, listed)
 		}
-		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
+		mainUnreadable, mainErr := pollMain(ctx, runner, github, slug, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		// A refusal one of these reads met holds the overlap read and the
 		// train as it holds the next polls: the hold refused the train's read
 		// of the account gh works as on 2026-10-17 (#1085) and the overlap
 		// read's page (#1160), and each counted as a failing read.
 		var overlapErr, trainErr error
 		if !currentTime().Before(w.BackOff[repo]) {
-			overlapErr = s.pollOverlaps(ctx, pollRunner, w, repo, mine, currentTime)
+			overlapErr = s.pollOverlaps(ctx, runner, github, w, repo, mine, currentTime)
 		}
 		if !currentTime().Before(w.BackOff[repo]) {
-			trainErr = s.runTrain(ctx, pollRunner, w, repo, listed)
+			trainErr = s.runTrain(ctx, pollRunner, github, w, repo, listed)
 		}
+		// What GitHub answered is in these, and is shown as gh's output was:
+		// with every credential it names redacted.
+		pullsErr, mainErr = redactedError(pullsErr), redactedError(mainErr)
 		if ctx.Err() != nil {
 			return errors.Join(errs, pullsErr, mainErr)
 		}
-		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, trainErr, reportUnreadable(s.Store.Home.State, w, repo, errors.Join(pullsUnreadable, mainUnreadable), "sign gh in with gh auth login, or point origin at GitHub, or set origin's default branch with git remote set-head origin -a", now))
+		errs = errors.Join(errs, pullsErr, mainErr, overlapErr, trainErr, reportUnreadable(s.Store.Home.State, w, repo, redactedError(errors.Join(pullsUnreadable, mainUnreadable)), "sign gh in with gh auth login, or point origin at GitHub, or set origin's default branch with git remote set-head origin -a", now))
 	}
 	errs = errors.Join(errs, s.advanceUnwatchedTrains(ctx, runner, w, repos, currentTime), s.keepTrains(now))
 	maps.DeleteFunc(w.SameArea, func(id string, _ sameArea) bool {
@@ -1061,27 +1069,32 @@ func isInside(path, folder string) bool {
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-// prBaseBranch reads the base and head branch names of a pull request. The base
-// repository is not asked for: gh pr view rejects baseRepository as an unknown
-// JSON field, and the pull request's own URL names the repository its base
-// lives in. It is called only from the guarded overlap path, so its read waits
-// out a GitHub refusal and never runs on the collection pass.
-func prBaseBranch(ctx context.Context, runner execx.Runner, repo, url string) (base, head string, err error) {
-	out, err := runOutput(ctx, runner, repo, "gh", "pr", "view", url, "--json", "baseRefName,headRefName")
-	if err != nil {
-		return "", "", err
+// prBaseBranch reads the base and head branch names of a pull request on
+// github.com. The pull request's own URL names the repository its base lives
+// in. It is called only from the guarded overlap path, so its read waits out
+// a GitHub refusal and never runs on the collection pass.
+func prBaseBranch(ctx context.Context, github *githubapi.Client, url string) (base, head string, err error) {
+	_, repository, ok := pullRequestBaseRepository(url)
+	if !ok {
+		return "", "", fmt.Errorf("%s is not a github.com pull request's address", url)
 	}
+	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	defer cancel()
 	var read struct {
-		BaseRefName string `json:"baseRefName"`
-		HeadRefName string `json:"headRefName"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+		Head struct {
+			Ref string `json:"ref"`
+		} `json:"head"`
 	}
-	if err := json.Unmarshal([]byte(out), &read); err != nil {
+	if err := github.Get(ctx, "repos/"+repository+"/pulls/"+path.Base(url), &read); err != nil {
 		return "", "", err
 	}
-	if read.BaseRefName == "" || read.HeadRefName == "" {
+	if read.Base.Ref == "" || read.Head.Ref == "" {
 		return "", "", errors.New("the pull request names no base or head branch")
 	}
-	return read.BaseRefName, read.HeadRefName, nil
+	return read.Base.Ref, read.Head.Ref, nil
 }
 
 // pullRequestBaseRepository names the repository a pull request URL lives in,
@@ -1240,53 +1253,56 @@ func (w *fleetWakes) watch(goblins []ciGoblin, now time.Time) []string {
 	return repos
 }
 
-// ghPullRequest is one open pull request as gh pr list reports it.
+// ghPullRequest is one open pull request as the poll reads it.
 type ghPullRequest struct {
-	Number            int      `json:"number"`
-	URL               string   `json:"url"`
-	HeadRefName       string   `json:"headRefName"`
-	HeadRefOid        string   `json:"headRefOid"`
-	Checks            ghChecks `json:"statusCheckRollup"`
-	Mergeable         string   `json:"mergeable"`
-	IsDraft           bool     `json:"isDraft"`
-	ReviewDecision    string   `json:"reviewDecision"`
-	BaseRefName       string   `json:"baseRefName"`
-	IsCrossRepository bool     `json:"isCrossRepository"`
+	Number      int
+	URL         string
+	HeadRefName string
+	HeadRefOid  string
+	// Checks is the head's check rollup less the workflows' draft job's
+	// check, which reads whether the pull request is a draft and tests
+	// nothing (train.DraftStateCheck), whatever it concluded.
+	Checks            []ghCheck
+	Mergeable         string
+	IsDraft           bool
+	ReviewDecision    string
+	BaseRefName       string
+	IsCrossRepository bool
 	Author            struct {
-		Login string `json:"login"`
-	} `json:"author"`
+		Login string
+	}
 }
 
-// ghChecks is a head's check rollup as gh reports it, less the workflows'
-// draft job's check, which reads whether the pull request is a draft and
-// tests nothing (train.DraftStateCheck), whatever it concluded.
-type ghChecks []ghCheck
-
-func (c *ghChecks) UnmarshalJSON(data []byte) error {
-	var rollup []ghCheck
-	if err := json.Unmarshal(data, &rollup); err != nil {
-		return err
+// ghPullRequestOf is pr, as GitHub listed it, as the poll reads it.
+func ghPullRequestOf(pr train.GraphPullRequest) ghPullRequest {
+	read := ghPullRequest{Number: pr.Number, URL: pr.URL, HeadRefName: pr.HeadRefName, HeadRefOid: pr.HeadRefOid, Mergeable: pr.Mergeable, IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, BaseRefName: pr.BaseRefName, IsCrossRepository: pr.IsCrossRepository}
+	read.Author.Login = pr.Author.Login
+	for _, entry := range pr.Rollup() {
+		check := entry.Check()
+		if check.Kind == "CheckRun" && check.Name == train.DraftStateCheck {
+			continue
+		}
+		read.Checks = append(read.Checks, ghCheck{Kind: check.Kind, Name: check.Name, Context: check.Context, Status: check.Status, Conclusion: check.Conclusion, State: check.State, CompletedAt: check.CompletedAt, StartedAt: check.StartedAt, DetailsURL: check.DetailsURL, TargetURL: check.TargetURL, WorkflowName: entry.WorkflowName()})
 	}
-	*c = slices.DeleteFunc(rollup, func(check ghCheck) bool { return check.Kind == "CheckRun" && check.Name == train.DraftStateCheck })
-	return nil
+	return read
 }
 
 // ghCheck is one entry of a pull request's check rollup: a check run, with a
 // status and a conclusion, or a commit status context, with a state.
 type ghCheck struct {
-	Kind        string `json:"__typename"`
-	Name        string `json:"name"`
-	Context     string `json:"context"`
-	Status      string `json:"status"`
-	Conclusion  string `json:"conclusion"`
-	State       string `json:"state"`
-	CompletedAt string `json:"completedAt"`
-	StartedAt   string `json:"startedAt"`
-	DetailsURL  string `json:"detailsUrl"`
-	TargetURL   string `json:"targetUrl"`
+	Kind        string
+	Name        string
+	Context     string
+	Status      string
+	Conclusion  string
+	State       string
+	CompletedAt string
+	StartedAt   string
+	DetailsURL  string
+	TargetURL   string
 	// WorkflowName names the GitHub Actions workflow a check run belongs to,
 	// and is empty for another app's check, such as GitGuardian's.
-	WorkflowName string `json:"workflowName"`
+	WorkflowName string
 }
 
 func (c ghCheck) name() string {
@@ -1363,30 +1379,28 @@ func (c ghCheck) outcome() string {
 // It returns the pull requests as a merge train reads them, and why they
 // could not be listed, apart from what went wrong raising a wake; health
 // left unread stays in w.PRUnread.
-func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, owners *fleetOwners, now time.Time) (listed []train.PullRequest, unreadable, err error) {
-	out, err := runOutput(ctx, runner, repo, "gh", "pr", "list", "--state", "open", "--limit", "100", "--json", train.ListFields)
+func pollPullRequests(ctx context.Context, runner execx.Runner, github *githubapi.Client, repository, stateDir string, w *fleetWakes, repo string, goblins []ciGoblin, owners *fleetOwners, now time.Time) (listed []train.PullRequest, unreadable, err error) {
+	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	read, err := train.ListPullRequests(probe, github, repository, "", "")
+	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("ci wakes: list the open pull requests of %s: %w", repo, err), nil
 	}
-	var open []ghPullRequest
-	if err := json.Unmarshal([]byte(out), &open); err != nil {
-		return nil, fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape it cannot read: %w", repo, err), nil
-	}
-	if open == nil {
+	if read == nil {
 		return nil, fmt.Errorf("ci wakes: the open pull requests of %s were not read", repo), nil
 	}
-	for _, pr := range open {
+	open := make([]ghPullRequest, 0, len(read))
+	for _, pr := range read {
 		if pr.Number <= 0 || pr.HeadRefOid == "" || !githubPullRequest.MatchString(pr.URL) {
 			return nil, fmt.Errorf("ci wakes: an invalid pull request was listed for %s", repo), nil
 		}
-	}
-	if err := json.Unmarshal([]byte(out), &listed); err != nil {
-		return nil, fmt.Errorf("ci wakes: gh listed the open pull requests of %s in a shape a merge train cannot read: %w", repo, err), nil
+		open = append(open, ghPullRequestOf(pr))
+		listed = append(listed, pr.PullRequest())
 	}
 	carried := carriedByTrains(stateDir)
 	var errs error
 	isRunningWorkflows := runsPullRequestWorkflows(repo)
-	isFleets := func(pr ghPullRequest) bool { return owners.isAccount(ctx, runner, repo, pr.Author.Login) }
+	isFleets := func(pr ghPullRequest) bool { return owners.isAccount(ctx, github, pr.Author.Login) }
 	goblinOf := map[string]string{}
 	for _, pr := range open {
 		if owner := prOwner(goblins, pr, func() bool { return isFleets(pr) }); owner != "" {
@@ -1405,7 +1419,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			recordHostedChecks(w, pr, now)
 			errs = errors.Join(errs, reportChecks(stateDir, w, goblin.id, pr, isRunningWorkflows, now, func() ([]string, error) {
 				owner, name := pullRequestRepository(pr.URL)
-				return train.FailedOnce(ctx, runner, repo, owner+"/"+name, pr.HeadRefOid, 0)
+				return train.FailedOnce(ctx, github, owner+"/"+name, pr.HeadRefOid, 0)
 			}))
 		}
 	}
@@ -1415,7 +1429,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		isWatched := goblinOf[pr.URL] != ""
 		if !isWatched {
 			var err error
-			if isWatched, err = owners.owns(ctx, runner, repo, pr); err != nil {
+			if isWatched, err = owners.owns(ctx, github, pr); err != nil {
 				ownersErr = fmt.Errorf("PR health: the account gh works as could not be read, so only goblins' pull requests in %s were read: %w", repo, err)
 			}
 		}
@@ -1423,7 +1437,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 			watched = append(watched, pr)
 		}
 	}
-	comparisons, unreadComparisons, branch, unread := comparePullRequests(ctx, runner, repo, watched)
+	comparisons, unreadComparisons, branch, unread := comparePullRequests(ctx, runner, github, repo, watched)
 	if ctx.Err() != nil {
 		return listed, nil, errs
 	}
@@ -1480,7 +1494,7 @@ func pollPullRequests(ctx context.Context, runner execx.Runner, stateDir string,
 		if change, isNew := healthChange(record, pr, behind, now, goblin != "", isNextToLand); isNew {
 			change.goblin = goblin
 			if goblin == "" {
-				viewer, err := owners.account(ctx, runner, repo)
+				viewer, err := owners.account(ctx, github)
 				change.isFleets = err == nil && strings.EqualFold(viewer, pr.Author.Login)
 				change.isTeammates = err == nil && !change.isFleets
 			}
@@ -1607,18 +1621,18 @@ func reportChecks(stateDir string, w *fleetWakes, goblin string, pr ghPullReques
 	return nil
 }
 
-// ghRun is one workflow run as gh run list reports it.
+// ghRun is one workflow run as GitHub's API gives it.
 type ghRun struct {
-	ID         int64     `json:"databaseId"`
-	Workflow   string    `json:"workflowName"`
-	Title      string    `json:"displayTitle"`
+	ID         int64     `json:"id"`
+	Workflow   string    `json:"name"`
+	Title      string    `json:"display_title"`
 	Status     string    `json:"status"`
 	Conclusion string    `json:"conclusion"`
-	HeadSHA    string    `json:"headSha"`
-	URL        string    `json:"url"`
-	Attempt    int       `json:"attempt"`
-	StartedAt  time.Time `json:"startedAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	HeadSHA    string    `json:"head_sha"`
+	URL        string    `json:"html_url"`
+	Attempt    int       `json:"run_attempt"`
+	StartedAt  time.Time `json:"run_started_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // red reports whether a finished run failed. A cancelled run was superseded
@@ -1661,19 +1675,21 @@ func defaultBranch(ctx context.Context, runner execx.Runner, repo string) (strin
 // returns why the runs could not be read, apart from what went wrong raising
 // a wake. Each red run it wakes for whose failed jobs it read is also a root
 // issue, handed to found, when set, with the repository's checkout.
-func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *fleetWakes, repo string, now time.Time, found func(project string, root tickets.Root)) (unreadable, err error) {
+func pollMain(ctx context.Context, runner execx.Runner, github *githubapi.Client, repository, stateDir string, w *fleetWakes, repo string, now time.Time, found func(project string, root tickets.Root)) (unreadable, err error) {
 	branch, err := defaultBranch(ctx, runner, repo)
 	if err != nil {
 		return err, nil
 	}
-	out, err := runOutput(ctx, runner, repo, "gh", "run", "list", "--branch", branch, "--event", "push", "--limit", "20", "--json", "databaseId,workflowName,displayTitle,status,conclusion,headSha,url,startedAt,updatedAt")
+	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	var listed struct {
+		Runs []ghRun `json:"workflow_runs"`
+	}
+	err = github.Get(probe, fmt.Sprintf("repos/%s/actions/runs?%s", repository, url.Values{"branch": {branch}, "event": {"push"}, "per_page": {"20"}}.Encode()), &listed)
+	cancel()
 	if err != nil {
 		return fmt.Errorf("ci wakes: list the push runs of %s's %s: %w", repo, branch, err), nil
 	}
-	var runs []ghRun
-	if err := json.Unmarshal([]byte(out), &runs); err != nil {
-		return fmt.Errorf("ci wakes: gh listed the push runs of %s in a shape it cannot read: %w", repo, err), nil
-	}
+	runs := listed.Runs
 	slices.SortStableFunc(runs, func(a, b ghRun) int { return cmp.Compare(b.ID, a.ID) })
 	if len(runs) > 0 {
 		if runs[0].ID < w.NewestRuns[repo] {
@@ -1704,7 +1720,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		if !run.red() || reportedRuns[run.ID] || !w.due(key, ciWakeGap, now) {
 			continue
 		}
-		jobs, jobsErr := failedJobs(ctx, runner, repo, run.ID)
+		jobs, jobsErr := failedJobs(ctx, github, repository, repo, run.ID)
 		unreadable = errors.Join(unreadable, jobsErr)
 		head := run.HeadSHA
 		if len(head) > 7 {
@@ -1712,7 +1728,7 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 		}
 		owner, name := pullRequestRepository(run.URL)
 		detail := fmt.Sprintf("ci_finished: %s's push CI is red in %s: workflow %s, %s%s, run %d at %s (%s); next: read it with gh run view %d --log-failed and dispatch a fix",
-			branch, filepath.Base(repo), run.Workflow, jobs, failedOnceClause(train.FailedOnce(ctx, runner, repo, owner+"/"+name, run.HeadSHA, run.ID)), run.ID, head, run.URL, run.ID)
+			branch, filepath.Base(repo), run.Workflow, jobs, failedOnceClause(train.FailedOnce(ctx, github, owner+"/"+name, run.HeadSHA, run.ID)), run.ID, head, run.URL, run.ID)
 		if err := raiseFleetWake(stateDir, "ci", "main:"+filepath.Base(repo), detail); err != nil {
 			errs = errors.Join(errs, err)
 			continue
@@ -1735,20 +1751,20 @@ func pollMain(ctx context.Context, runner execx.Runner, stateDir string, w *flee
 	return unreadable, errs
 }
 
-// failedJobs names the jobs of run that failed, as the wake reads them.
-func failedJobs(ctx context.Context, runner execx.Runner, repo string, run int64) (string, error) {
-	out, err := runOutput(ctx, runner, repo, "gh", "run", "view", fmt.Sprint(run), "--json", "jobs")
+// failedJobs names the jobs of run, a workflow run of repository, the
+// GitHub repository of the checkout repo, that failed, as the wake reads
+// them.
+func failedJobs(ctx context.Context, github *githubapi.Client, repository, repo string, run int64) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	defer cancel()
 	var view struct {
 		Jobs []struct {
 			Name       string `json:"name"`
 			Conclusion string `json:"conclusion"`
 		} `json:"jobs"`
 	}
-	if err != nil {
+	if err := github.Get(ctx, fmt.Sprintf("repos/%s/actions/runs/%d/jobs?per_page=100", repository, run), &view); err != nil {
 		return "its failing jobs unread", fmt.Errorf("ci wakes: read the failing jobs of %s's run %d: %w", repo, run, err)
-	}
-	if err := json.Unmarshal([]byte(out), &view); err != nil {
-		return "its failing jobs unread", fmt.Errorf("ci wakes: cannot read the failing jobs of %s's run %d: %w", repo, run, err)
 	}
 	var failed []string
 	for _, job := range view.Jobs {
@@ -1772,13 +1788,22 @@ func runOutput(ctx context.Context, runner execx.Runner, dir, name string, args 
 	defer cancel()
 	result, err := runner.Run(ctx, execx.Request{Dir: dir, Name: name, Args: args})
 	if err != nil {
-		if safe := redact(err.Error()); safe != err.Error() {
-			return "", errors.New(safe)
-		}
-		return "", err
+		return "", redactedError(err)
 	}
 	if result.ExitCode != 0 {
 		return "", fmt.Errorf("%s %s exited %d: %s", name, args[0], result.ExitCode, bounded(redact(strings.TrimSpace(string(result.Stderr))), 300))
 	}
 	return strings.TrimSpace(string(result.Stdout)), nil
+}
+
+// redactedError is err with every credential its text names redacted, or err
+// itself, which keeps what it wraps, when its text names none.
+func redactedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if safe := redact(err.Error()); safe != err.Error() {
+		return errors.New(safe)
+	}
+	return err
 }

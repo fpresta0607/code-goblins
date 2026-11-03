@@ -25,8 +25,8 @@ type riderRun struct {
 	extra      []Check
 }
 
-// riderView answers gh pr view for a pull request with its own run: its head
-// as the remote has it, and its checks.
+// riderView answers the read of a pull request with its own run, in the
+// shape gh pr view gave it: its head as the remote has it, and its checks.
 func (f *fakeGitHub) riderView(url string) (execx.Result, error) {
 	head := f.s.git(f.s.remote, "rev-parse", "refs/heads/"+f.pulls[url].branch)
 	state := "OPEN"

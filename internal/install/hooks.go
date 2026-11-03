@@ -19,7 +19,9 @@ import (
 	"strings"
 
 	"github.com/fpresta0607/code-goblins/internal/guard"
+	"github.com/fpresta0607/code-goblins/internal/harness"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/nativehook"
 )
 
@@ -49,6 +51,33 @@ type Hook struct {
 	// AsyncRewake keeps a Stop hook alive in the background across the
 	// CFO's idle time.
 	AsyncRewake bool
+	// URL, when set, makes the entry an HTTP hook Claude Code posts to the
+	// board at, starting no process, in place of Command and Args. It
+	// carries HookVariables from the session's environment in their
+	// headers, and ShouldBlockOnFailure refuses the tool call when the board
+	// does not answer, as a seal that cannot be read refuses.
+	URL                  string
+	ShouldBlockOnFailure bool
+}
+
+// The board serves a goblin's hooks that run at every tool call at these
+// paths under GoblinHookPrefix: the seal before a command and the native
+// hook, with the key alarm, after every tool call.
+const (
+	GoblinHookPrefix = "/api/goblin-hook/"
+	GoblinSealPath   = GoblinHookPrefix + "seal"
+	GoblinToolPath   = GoblinHookPrefix + "tool"
+)
+
+// HookVariables are the variables of a goblin's environment its hooks read.
+// A command hook inherits them; an HTTP hook carries each in the header
+// HookHeader names, and the board reads them there. The terminal's id and
+// proof also prove to the board that the request came from that terminal.
+var HookVariables = []string{harness.RoleVariable, "CFO_TASK_ID", "CFO_SPAWN_GEN", "CFO_PARENT_SESSION_ID", "CFO_PARENT_HARNESS", "CFO_ROOT_SESSION_ID", host.IDVariable, host.ProofVariable}
+
+// HookHeader is the header an HTTP hook carries variable in.
+func HookHeader(variable string) string {
+	return "X-" + strings.ReplaceAll(variable, "_", "-")
 }
 
 // Hooks is the CFO hook set of the home at root, and the single place it is
@@ -98,9 +127,9 @@ func NativeHooks(root, stateDir string) []Hook {
 	return hooks
 }
 
-// KeyAlarmSeconds is how long Claude Code lets the key alarm run, its
-// default for a command hook, which the alarm ran under as a hook entry of
-// its own.
+// KeyAlarmSeconds is how long Claude Code lets the key alarm and a goblin's
+// seal run, its default for a command hook, which each ran under as a
+// command hook of its own.
 const KeyAlarmSeconds = 600
 
 // AutoCompactWindow is the window, in tokens, the CFO and every Claude Code
@@ -150,15 +179,20 @@ func CFOSettings(root, stateDir string) ([]byte, error) {
 // PowerShell, and Monitor, which watches one in the background. Then come its native
 // session hooks, and the one after every tool call also raises the key
 // alarm, which wakes the CFO when the tool's output holds a secret key: a key
-// read from a file is as exposed as one a command printed. The native hook
-// and the alarm were two hook entries, two cfo.exe processes after each tool
-// call, each with a console host of its own; as one entry they are one, with
-// the alarm's limit, and the native hook keeps its own limit inside it.
-func GoblinHooks(root, stateDir string) []Hook {
-	hooks := []Hook{{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", Command: filepath.Join(root, home.BinDir, "cfo.exe"), Args: []string{"hook", "goblin-seal"}}}
+// read from a file is as exposed as one a command printed.
+//
+// The two that run at every tool call post to the board at board, the
+// supervisor's address, which does their work in its own process: each was
+// a cfo process of its own, 157 of the 940 processes one goblin started in
+// 11 minutes on 2026-10-27 (#1610). The seal blocks the call when the board
+// does not answer. The hooks of a session's start, prompts, turns, end and
+// subagents stay commands: they run seldom, and SessionStart takes no HTTP
+// hook.
+func GoblinHooks(root, stateDir, board string) []Hook {
+	hooks := []Hook{{Name: "goblin-seal", Event: "PreToolUse", Matcher: "Bash|PowerShell|Monitor", URL: board + GoblinSealPath, Timeout: KeyAlarmSeconds, ShouldBlockOnFailure: true}}
 	for _, hook := range NativeHooks(root, stateDir) {
 		if hook.Event == "PostToolUse" {
-			hook.Args, hook.Timeout = slices.Concat(hook.Args, []string{"--key-alarm"}), KeyAlarmSeconds
+			hook = Hook{Name: "native-hook", Event: "PostToolUse", URL: board + GoblinToolPath, Timeout: KeyAlarmSeconds}
 		}
 		hooks = append(hooks, hook)
 	}
@@ -166,15 +200,17 @@ func GoblinHooks(root, stateDir string) []Hook {
 }
 
 // GoblinSettings is the Claude Code settings document a goblin starts with:
-// the goblin hooks and the auto-compact window, which Claude Code adds to
-// the user's own settings for that session alone. Each runs the home's hook program where it
-// is the same build as cfo.exe (HookCommand), which Windows starts with no
-// console host.
-func GoblinSettings(root, stateDir string) ([]byte, error) {
-	hooks := GoblinHooks(root, stateDir)
+// the goblin hooks, posting to the board at board, and the auto-compact
+// window, which Claude Code adds to the user's own settings for that session
+// alone. Each command hook runs the home's hook program where it is the same
+// build as cfo.exe (HookCommand), which Windows starts with no console host.
+func GoblinSettings(root, stateDir, board string) ([]byte, error) {
+	hooks := GoblinHooks(root, stateDir, board)
 	command := HookCommand(filepath.Join(root, home.BinDir))
 	for index := range hooks {
-		hooks[index].Command = command
+		if hooks[index].URL == "" {
+			hooks[index].Command = command
+		}
 	}
 	file := &settingsFile{values: map[string]any{"autoCompactWindow": AutoCompactWindow}}
 	if err := file.addHooks(hooks); err != nil {
@@ -279,6 +315,17 @@ func hookGroups(hooks []Hook) []hookGroup {
 			args = append(args, arg)
 		}
 		entry := map[string]any{"type": "command", "command": hook.Command, "args": args}
+		if hook.URL != "" {
+			headers, variables := map[string]any{}, make([]any, 0, len(HookVariables))
+			for _, variable := range HookVariables {
+				headers[HookHeader(variable)] = "${" + variable + "}"
+				variables = append(variables, variable)
+			}
+			entry = map[string]any{"type": "http", "url": hook.URL, "headers": headers, "allowedEnvVars": variables}
+		}
+		if hook.ShouldBlockOnFailure {
+			entry["onFailure"] = "block"
+		}
 		if hook.Timeout > 0 {
 			entry["timeout"] = json.Number(strconv.Itoa(hook.Timeout))
 		}

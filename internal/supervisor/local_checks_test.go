@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/verify"
 )
@@ -62,6 +63,7 @@ func localBoard(t *testing.T, reports ...verify.Report) *HTTP {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.runs, forge.pulls = "feat/wakes", "[]", hostedRollup("", testPassed)
 	handler.Service.Options.CI = forge
+	handler.Service.Options.GitHub = githubtest.Client(forge)
 	var read []string
 	handler.Service.Options.VerifyReports = func(name string) ([]verify.Report, error) {
 		read = append(read, name)

@@ -2,19 +2,19 @@ package tickets
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 )
 
-// GitHub reads a repository's activity through the gh the machine is signed
-// in with. The account gh is signed in as is the Overlord.
+// GitHub reads and writes a repository's issues and reads its activity
+// through GitHub's API (API), as the account gh is signed in as, which is the
+// Overlord, and reads a checkout's remotes with git (Commands).
 //
 // A read is one GraphQL query (about three points of the hourly budget every
 // goblin, gate and the CFO share), more pages of the same query only for a
@@ -23,6 +23,7 @@ import (
 // heads.
 type GitHub struct {
 	Commands execx.Runner
+	API      *githubapi.Client
 }
 
 // The read's bounds: pages per connection or pull request, and branches
@@ -223,9 +224,6 @@ type activityResponse struct {
 			} `json:"refs"`
 		} `json:"repository"`
 	} `json:"data"`
-	Errors []struct {
-		Message string `json:"message"`
-	} `json:"errors"`
 }
 
 // Read reads one repository's activity as of now, all of it within ctx. A
@@ -364,10 +362,6 @@ func (g GitHub) nextRound(ctx context.Context, r *reading) error {
 	activity := &r.activity
 	if err != nil {
 		activity.Unread = append(activity.Unread, err.Error())
-	} else {
-		for _, failure := range response.Errors {
-			activity.Unread = append(activity.Unread, fmt.Sprintf("GitHub left part of %s unread: %s", activity.Repository, failure.Message))
-		}
 	}
 	data := response.Data
 	if r.include["first"] {
@@ -456,15 +450,15 @@ func (g GitHub) nextFiles(ctx context.Context, r *reading) error {
 	pending := &r.files[0]
 	pull := &r.activity.PullRequests[pending.index]
 	page := pending.pages + 1
-	files, err := g.lines(ctx, "api", fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100&page=%d", r.activity.Repository, pull.Number, page), "--jq", ".[].filename")
-	if err != nil {
+	var files []changedFile
+	if err := g.API.Get(ctx, fmt.Sprintf("repos/%s/pulls/%d/files?per_page=100&page=%d", r.activity.Repository, pull.Number, page), &files); err != nil {
 		return err
 	}
 	pending.pages = page
 	for _, file := range files {
-		if !pending.known[file] {
-			pull.Files = append(pull.Files, file)
-			pending.known[file] = true
+		if !pending.known[file.Filename] {
+			pull.Files = append(pull.Files, file.Filename)
+			pending.known[file.Filename] = true
 		}
 	}
 	changed := r.changedFiles[pull.Number]
@@ -535,57 +529,53 @@ func (g GitHub) compareBranches(ctx context.Context, activity *Activity, now tim
 			if branch.Name != name {
 				continue
 			}
-			files, err := g.lines(ctx, "api", fmt.Sprintf("repos/%s/compare/%s...%s", activity.Repository, activity.DefaultHead, branch.Head), "--jq", ".files[].filename")
-			if err != nil {
+			var compared struct {
+				Files []changedFile `json:"files"`
+			}
+			if err := g.API.Get(ctx, fmt.Sprintf("repos/%s/compare/%s...%s", activity.Repository, activity.DefaultHead, branch.Head), &compared); err != nil {
 				activity.Unread = append(activity.Unread, fmt.Sprintf("the changed files of branch %s: %v", name, err))
 				continue
 			}
-			branch.Files = files
+			branch.Files = nil
+			for _, file := range compared.Files {
+				branch.Files = append(branch.Files, file.Filename)
+			}
 		}
 	}
 }
 
+// query asks one round of activityQuery. GitHub's refusal of part of it is
+// an error, returned with the rest it read; so is an answer that is missing
+// a connection the round asked for, returned with the answer only when it
+// read any of the others.
 func (g GitHub) query(ctx context.Context, owner, name, since string, include map[string]bool, cursors map[string]string) (activityResponse, error) {
-	args := []string{"api", "graphql", "-f", "query=" + activityQuery, "-f", "owner=" + owner, "-f", "name=" + name, "-f", "since=" + since}
+	variables := map[string]any{"owner": owner, "name": name, "since": since}
 	for _, flag := range []string{"first", "issues", "pulls", "refs"} {
-		args = append(args, "-F", flag+"="+strconv.FormatBool(include[flag]))
+		variables[flag] = include[flag]
 	}
 	for _, cursor := range []string{"issuesAfter", "pullsAfter", "refsAfter"} {
 		connection := strings.TrimSuffix(cursor, "After")
 		if include[connection] && cursors[cursor] != "" {
-			args = append(args, "-f", cursor+"="+cursors[cursor])
+			variables[cursor] = cursors[cursor]
 		}
 	}
-	result, err := g.Commands.Run(ctx, execx.Request{Name: "gh", Args: args})
-	if err != nil {
-		return activityResponse{}, fmt.Errorf("gh api graphql: %w", err)
-	}
 	var response activityResponse
-	decodeErr := json.Unmarshal(result.Stdout, &response)
+	var refused *githubapi.GraphQLError
 	var messages []string
-	for _, problem := range response.Errors {
-		messages = append(messages, problem.Message)
+	if err := g.API.GraphQL(ctx, activityQuery, variables, &response.Data); errors.As(err, &refused) {
+		messages = refused.Messages
+	} else if err != nil {
+		return activityResponse{}, err
 	}
 	repo := response.Data.Repository
-	hasRequiredConnections := repo != nil && (!include["issues"] || repo.Issues != nil) && (!include["pulls"] || repo.PullRequests != nil) && (!include["refs"] || repo.Refs != nil)
-	hasReadableConnections := repo != nil && (include["issues"] && repo.Issues != nil || include["pulls"] && repo.PullRequests != nil || include["refs"] && repo.Refs != nil)
-	if result.ExitCode != 0 && (decodeErr != nil || !hasReadableConnections || len(response.Errors) == 0) {
-		messages = append(messages, strings.TrimSpace(string(result.Stderr)))
-		return activityResponse{}, fmt.Errorf("gh api graphql exited %d: %s", result.ExitCode, strings.Join(messages, "; "))
-	}
-	if decodeErr != nil {
-		return activityResponse{}, fmt.Errorf("decode the GitHub read: %w", decodeErr)
-	}
-	if response.Data.Repository == nil {
+	if repo == nil {
 		if len(messages) > 0 {
 			return activityResponse{}, errors.New(strings.Join(messages, "; "))
 		}
-		return activityResponse{}, fmt.Errorf("repository %s/%s is not visible to gh", owner, name)
+		return activityResponse{}, fmt.Errorf("repository %s/%s is not visible to the account gh is signed in as", owner, name)
 	}
-	if result.ExitCode != 0 {
-		exitMessage := fmt.Sprintf("gh api graphql exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
-		messages = append(messages, exitMessage)
-	}
+	hasRequiredConnections := (!include["issues"] || repo.Issues != nil) && (!include["pulls"] || repo.PullRequests != nil) && (!include["refs"] || repo.Refs != nil)
+	hasReadableConnections := include["issues"] && repo.Issues != nil || include["pulls"] && repo.PullRequests != nil || include["refs"] && repo.Refs != nil
 	if !hasRequiredConnections {
 		if len(messages) == 0 {
 			messages = []string{"no error given"}
@@ -596,26 +586,14 @@ func (g GitHub) query(ctx context.Context, owner, name, since string, include ma
 		}
 		return response, err
 	}
-	if result.ExitCode != 0 {
+	if len(messages) > 0 {
 		return response, errors.New(strings.Join(messages, "; "))
 	}
 	return response, nil
 }
 
-// lines runs gh and returns its non-empty output lines.
-func (g GitHub) lines(ctx context.Context, args ...string) ([]string, error) {
-	result, err := g.Commands.Run(ctx, execx.Request{Name: "gh", Args: args})
-	if err != nil {
-		return nil, err
-	}
-	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("gh exited %d: %s", result.ExitCode, strings.TrimSpace(string(result.Stderr)))
-	}
-	var lines []string
-	for _, line := range strings.Split(string(result.Stdout), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	return lines, nil
+// changedFile is a file a pull request or a comparison changes, as GitHub's
+// API lists it.
+type changedFile struct {
+	Filename string `json:"filename"`
 }

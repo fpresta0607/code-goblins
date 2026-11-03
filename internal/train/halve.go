@@ -2,8 +2,8 @@ package train
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -60,21 +60,19 @@ func firstLink(failed []Check) string {
 // redOnBase names the workflows whose newest push run on the base, at the
 // commit the run was built on, concluded red, or "" when none did.
 func (e Engine) redOnBase(ctx context.Context, t Train) (string, error) {
-	out, err := e.run(ctx, t.Checkout, "gh", "run", "list", "--repo", t.Repository, "--branch", t.Base, "--commit", t.BaseSHA, "--event", "push", "--limit", "50", "--json", "workflowName,status,conclusion")
-	if err != nil {
-		return "", err
+	var listed struct {
+		Runs []struct {
+			Workflow   string `json:"name"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+		} `json:"workflow_runs"`
 	}
-	var runs []struct {
-		Workflow   string `json:"workflowName"`
-		Status     string `json:"status"`
-		Conclusion string `json:"conclusion"`
-	}
-	if err := json.Unmarshal([]byte(out), &runs); err != nil {
-		return "", fmt.Errorf("gh listed the push runs of %s in a shape it cannot read: %w", t.Repository, err)
+	if err := e.get(ctx, fmt.Sprintf("repos/%s/actions/runs?%s", t.Repository, url.Values{"branch": {t.Base}, "head_sha": {t.BaseSHA}, "event": {"push"}, "per_page": {"50"}}.Encode()), &listed); err != nil {
+		return "", fmt.Errorf("list the push runs of %s: %w", t.Repository, err)
 	}
 	seen := map[string]bool{}
 	var red []string
-	for _, run := range runs {
+	for _, run := range listed.Runs {
 		if seen[run.Workflow] {
 			continue
 		}

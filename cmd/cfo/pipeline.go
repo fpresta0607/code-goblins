@@ -14,6 +14,7 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -41,7 +42,7 @@ func runPipeline(args []string, stdout, stderr io.Writer, runtime commandRuntime
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	commands := execx.OSRunner{}
+	commands := gatedb.Runner{Next: execx.OSRunner{}}
 	if err := pipelineCommand(context.Background(), h, root, commands, args, stdout); err != nil {
 		fmt.Fprintln(stderr, err)
 		if errors.Is(err, pipeline.ErrUnresolved) {

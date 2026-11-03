@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 const northwind = "fpresta0607/northwind-api"
 
-// apiCall is one gh api request as GitHub would see it.
+// apiCall is one request to GitHub's API as GitHub sees it: each field of
+// its JSON body as its values, a list's under its name and [], as gh api -f
+// names them.
 type apiCall struct {
 	Method string
 	Path   string
@@ -23,7 +26,39 @@ type apiCall struct {
 
 func (c apiCall) String() string { return c.Method + " " + c.Path }
 
-// issueGitHub answers gh api writes the way GitHub would and records each
+// readCall reads r as the request it is to GitHub's API.
+func readCall(r *http.Request) (apiCall, error) {
+	call := apiCall{Method: r.Method, Path: strings.TrimPrefix(r.URL.RequestURI(), "/"), Fields: map[string][]string{}}
+	if r.ContentLength == 0 {
+		return call, nil
+	}
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return apiCall{}, err
+	}
+	for name, value := range body {
+		switch value := value.(type) {
+		case string:
+			call.Fields[name] = append(call.Fields[name], value)
+		case []any:
+			for _, item := range value {
+				call.Fields[name+"[]"] = append(call.Fields[name+"[]"], fmt.Sprint(item))
+			}
+		default:
+			return apiCall{}, fmt.Errorf("field %s is %T, not a string or a list", name, value)
+		}
+	}
+	return call, nil
+}
+
+// answer writes body with status, as GitHub answers.
+func answer(w http.ResponseWriter, status int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write([]byte(body))
+}
+
+// issueGitHub answers writes to GitHub's API the way GitHub would and records each
 // request and each issue it closed. A status in failures makes the request it
 // names fail with it, every time or only the first failTimes times. A failure
 // names a request as "METHOD path", and may add one of its fields, as in
@@ -43,40 +78,24 @@ type issueGitHub struct {
 	comments int64
 }
 
-func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, error) {
-	if req.Name != "gh" || len(req.Args) == 0 || req.Args[0] != "api" {
-		return execx.Result{}, fmt.Errorf("unexpected command %s %v", req.Name, req.Args)
-	}
-	call := apiCall{Fields: map[string][]string{}}
-	for i := 1; i < len(req.Args); i++ {
-		switch arg := req.Args[i]; arg {
-		case "--method":
-			i++
-			call.Method = req.Args[i]
-		case "-f":
-			i++
-			key, value, _ := strings.Cut(req.Args[i], "=")
-			call.Fields[key] = append(call.Fields[key], value)
-		default:
-			if strings.HasPrefix(arg, "-") {
-				return execx.Result{}, fmt.Errorf("unexpected flag %s", arg)
-			}
-			call.Path = arg
-		}
-	}
-	if call.Method == "" {
-		call.Method = "GET"
-		if len(call.Fields) > 0 {
-			call.Method = "POST"
-		}
+func (f *issueGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	call, err := readCall(r)
+	if err != nil {
+		githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	f.calls = append(f.calls, call)
+	status, body := f.answer(call)
+	answer(w, status, body)
+}
+
+// answer is GitHub's status and answer to call.
+func (f *issueGitHub) answer(call apiCall) (int, string) {
 	if status, ok := f.failure(call); ok {
-		answer := `{"message":"failed"}`
 		if status == 422 {
-			answer = `{"message":"Validation Failed","errors":[{"resource":"Label","code":"already_exists","field":"name"}]}`
+			return status, `{"message":"Validation Failed","errors":[{"resource":"Label","code":"already_exists","field":"name"}]}`
 		}
-		return execx.Result{ExitCode: 1, Stdout: []byte(answer), Stderr: []byte(fmt.Sprintf("gh: failed (HTTP %d)", status))}, nil
+		return status, `{"message":"failed"}`
 	}
 	if call.Method == "PATCH" && slices.Contains(call.Fields["state"], "closed") {
 		f.closed = append(f.closed, call.Path)
@@ -97,28 +116,28 @@ func (f *issueGitHub) Run(_ context.Context, req execx.Request) (execx.Result, e
 			f.labels = map[int][]string{}
 		}
 		f.labels[501] = slices.Clone(call.Fields["labels[]"])
-		return execx.Result{Stdout: []byte(`{"number":501,"html_url":"https://github.com/` + northwind + `/issues/501"}`)}, nil
+		return http.StatusCreated, `{"number":501,"html_url":"https://github.com/` + northwind + `/issues/501"}`
 	case call.Method == "POST" && strings.HasSuffix(call.Path, "/comments"):
 		f.comments++
-		return execx.Result{Stdout: []byte(fmt.Sprintf(`{"id":%d}`, 9000+f.comments))}, nil
+		return http.StatusCreated, fmt.Sprintf(`{"id":%d}`, 9000+f.comments)
 	case call.Method == "GET" && call.Path == "repos/"+northwind:
-		return execx.Result{Stdout: []byte(`{"full_name":"` + northwind + `"}`)}, nil
+		return http.StatusOK, `{"full_name":"` + northwind + `"}`
 	case call.Method == "GET" && isIssue == nil:
 		if body, ok := f.issues[number]; ok {
-			return execx.Result{Stdout: []byte(body)}, nil
+			return http.StatusOK, body
 		}
 		if live, ok := f.labels[number]; ok && call.Path == fmt.Sprintf("repos/%s/issues/%d", northwind, number) {
 			var labels []string
 			for _, label := range live {
 				labels = append(labels, fmt.Sprintf(`{"name":%q}`, label))
 			}
-			return execx.Result{Stdout: []byte(fmt.Sprintf(`{"number":%d,"state":"open","labels":[%s]}`, number, strings.Join(labels, ",")))}, nil
+			return http.StatusOK, fmt.Sprintf(`{"number":%d,"state":"open","labels":[%s]}`, number, strings.Join(labels, ","))
 		}
-		return execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)")}, nil
+		return http.StatusNotFound, `{"message":"Not Found"}`
 	case call.Method == "GET":
-		return execx.Result{ExitCode: 1, Stderr: []byte("gh: Not Found (HTTP 404)")}, nil
+		return http.StatusNotFound, `{"message":"Not Found"}`
 	}
-	return execx.Result{Stdout: []byte(`{}`)}, nil
+	return http.StatusOK, `{}`
 }
 
 // holding makes GitHub hold the labels each record says it wrote, on its
@@ -190,7 +209,7 @@ func TestApplyOpensAnIssueForANewTask(t *testing.T) {
 	ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: Queued}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, ticket, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, ticket, nil)
 
 	// Assert
 	if err != nil {
@@ -210,7 +229,7 @@ func TestApplyOpensAnIssueForANewTask(t *testing.T) {
 
 func TestApplyOpensNothingForATaskThatFinishedBeforeItsTicket(t *testing.T) {
 	gh := &issueGitHub{}
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: Merged, PullRequest: mergedPull}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: Merged, PullRequest: mergedPull}, nil)
 	if err != nil || record != nil || len(gh.calls) != 0 {
 		t.Fatalf("record = %+v, err = %v, requests = %v, want nothing opened", record, err, gh.requests())
 	}
@@ -247,7 +266,7 @@ func TestApplyMovesAnOpenedIssueThroughEachState(t *testing.T) {
 			tc.to.TaskID = "nw-sync"
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
 
 			// Assert
 			if err != nil {
@@ -284,7 +303,7 @@ func TestApplyWritesNothingWhileTheTicketIsUnchanged(t *testing.T) {
 	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
 
 	// Assert
 	if err != nil || len(gh.calls) != 0 || record != from {
@@ -310,12 +329,12 @@ func TestApplyRecordsAPullRequestThatAppearsWhileTheStateStays(t *testing.T) {
 			ticket := Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude", PullRequest: mergedPull}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, tc.from, ticket, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			firstPass := gh.requests()
-			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, nil)
+			again, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, record, ticket, nil)
 
 			// Assert
 			if err != nil {
@@ -341,7 +360,7 @@ func TestApplyWritesNothingOnceTheIssueIsDone(t *testing.T) {
 	gh := &issueGitHub{}
 	from := openedRecord(Merged, "goblin: claude")
 	from.IsDone = true
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Reason: FinishedUnmerged}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Reason: FinishedUnmerged}, nil)
 	if err != nil || len(gh.calls) != 0 || record != from {
 		t.Fatalf("record = %+v, err = %v, requests = %v, want a done issue left alone", record, err, gh.requests())
 	}
@@ -373,7 +392,7 @@ func TestApplyRetitlesADoneIssueAndWritesNothingElse(t *testing.T) {
 			from.IsDone, from.IsClaimed, from.Title = true, tc.isClaimed, "Old work"
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", Title: tc.title, State: Closed, Reason: FinishedUnmerged}, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", Title: tc.title, State: Closed, Reason: FinishedUnmerged}, nil)
 
 			// Assert
 			if err != nil {
@@ -412,11 +431,11 @@ func TestApplyWritesWhatTheTaskChangesAndWhereIntoTheBody(t *testing.T) {
 			ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", What: what, Area: area, State: InProgress, Harness: "claude"}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, ticket, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, tc.from, ticket, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			again, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, ticket, nil)
+			again, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, record, ticket, nil)
 
 			// Assert
 			if err != nil {
@@ -446,7 +465,7 @@ func TestApplyListsEveryPullRequestOfTheTask(t *testing.T) {
 	ticket := Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: second, PullRequests: []PullRequestLink{mergedPull, second}}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, ticket, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, ticket, nil)
 
 	// Assert
 	if err != nil {
@@ -498,7 +517,7 @@ func TestApplyClaimsTheIssueTheTaskNames(t *testing.T) {
 	issue := "repos/" + northwind + "/issues/415"
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Ignored for a claimed issue", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Ignored for a claimed issue", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
 
 	// Assert
 	if err != nil {
@@ -541,7 +560,7 @@ func TestApplyFinishesAClaimWhoseStatusCommentFailed(t *testing.T) {
 				failures:  map[string]int{comment: 502},
 				failTimes: map[string]int{comment: 1},
 			}
-			github := GitHub{Commands: gh}
+			github := GitHub{API: githubtest.Client(gh)}
 
 			// Act
 			partial, claimErr := github.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
@@ -591,7 +610,7 @@ func TestApplyOpensANewIssueWhenTheNamedOneCannotBeClaimed(t *testing.T) {
 			gh := &issueGitHub{issues: tc.issues}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
 
 			// Assert
 			var refused *ClaimRefused
@@ -616,7 +635,7 @@ func TestApplyClaimsBothIssuesABriefListsAndClosesEachOnTheMerge(t *testing.T) {
 	// Arrange: a brief whose Task lists two bare #N lines.
 	first, second := "repos/"+northwind+"/issues/1343", "repos/"+northwind+"/issues/1344"
 	gh := &issueGitHub{issues: map[int]string{1343: openIssue(1343), 1344: openIssue(1344)}}
-	github := GitHub{Commands: gh}
+	github := GitHub{API: githubtest.Client(gh)}
 	named := NamedIssues("## Task\n\n- #1343 Project Home reads an unfinished search as a miss.\n- #1344 The ordinance badge still reads pending.\n", northwind)
 
 	// Act
@@ -662,7 +681,7 @@ func TestApplyPassesOverAListedNumberThatIsNoOpenIssue(t *testing.T) {
 			named := NamedIssues("## Task\n\n- #412 merged the first half.\n- #415 the sync fails.\n- #416 the retry loops.\n", northwind)
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, named)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, named)
 
 			// Assert
 			if err != nil {
@@ -685,7 +704,7 @@ func TestApplyClaimsTheNamedIssuesItCanAndSaysWhyNotTheRest(t *testing.T) {
 	gh := &issueGitHub{issues: map[int]string{415: `{"number":415,"state":"closed"}`, 416: openIssue(416)}}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, NamedIssues("## Task\n\nResolve issues #415 and #416.\n", northwind))
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, NamedIssues("## Task\n\nResolve issues #415 and #416.\n", northwind))
 
 	// Assert
 	var refused *ClaimRefused
@@ -709,7 +728,7 @@ func TestApplyRedoesAFailedCloseOnThatIssueAlone(t *testing.T) {
 	from.Issues = []Record{issue(1343, 9001), issue(1344, 9002)}
 	gh.holding(&from)
 	merged := Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}
-	github := GitHub{Commands: gh}
+	github := GitHub{API: githubtest.Client(gh)}
 
 	// Act
 	failed, failErr := github.Apply(context.Background(), northwind, &from, merged, nil)
@@ -751,7 +770,7 @@ func TestApplyRefusesAClaimOverAnIssueSomeoneElseHas(t *testing.T) {
 			gh := &issueGitHub{issues: map[int]string{415: tc.issue}}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why the parcel layer drops the ETJ", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}, NamedIssues(tc.brief, northwind))
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", Title: "Say why the parcel layer drops the ETJ", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}, NamedIssues(tc.brief, northwind))
 
 			// Assert
 			var refused *ClaimRefused
@@ -772,7 +791,7 @@ func TestApplyAssignsTheFleetsAccountWhenItOpensOrClaims(t *testing.T) {
 	// Arrange
 	issue := "repos/" + northwind + "/issues/415"
 	gh := &issueGitHub{issues: map[int]string{415: openIssue(415)}}
-	github := GitHub{Commands: gh}
+	github := GitHub{API: githubtest.Client(gh)}
 	ticket := Ticket{TaskID: "nw-sync", Title: "Say why a billing sync fails", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}
 
 	// Act
@@ -800,7 +819,7 @@ func TestApplyClaimsAnIssueAlreadyAssignedToTheFleetsAccountWithoutAssigningItAg
 	gh := &issueGitHub{issues: map[int]string{415: `{"number":415,"state":"open","assignees":[{"login":"FPresta0607"}]}`}}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}, []NamedIssue{{Number: 415, IsListed: true}})
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude", Assignee: "fpresta0607"}, []NamedIssue{{Number: 415, IsListed: true}})
 
 	// Assert
 	if err != nil || record == nil || record.Number != 415 || !record.IsClaimed {
@@ -820,7 +839,7 @@ func TestApplyUnassignsAClaimedIssueItReleases(t *testing.T) {
 	gh.holding(from)
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCFO}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: Closed, Harness: "claude", Reason: StoppedByCFO}, nil)
 
 	// Assert
 	if err != nil {
@@ -860,7 +879,7 @@ func TestApplyReadsAnIssuesLabelsBeforeItChangesThem(t *testing.T) {
 			gh := &issueGitHub{labels: map[int][]string{501: tc.live}}
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
 
 			// Assert
 			if err != nil {
@@ -885,7 +904,7 @@ func TestApplyClaimsAndOpensNothingWhileTheRepositoryIsNotVisible(t *testing.T) 
 	gh := &issueGitHub{failures: map[string]int{"GET repos/" + northwind: 404}}
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, nil, Ticket{TaskID: "nw-sync", State: InProgress, Harness: "pi"}, []NamedIssue{{Number: 415}})
 
 	// Assert
 	var refused *ClaimRefused
@@ -925,7 +944,7 @@ func TestApplyMovesAClaimedIssueByItsStatusComment(t *testing.T) {
 			tc.to.TaskID = "nw-sync"
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, tc.from, tc.to, nil)
 
 			// Assert
 			if err != nil {
@@ -956,7 +975,7 @@ func TestApplyKeepsTheRecordWhenAWriteFails(t *testing.T) {
 	gh.holding(from)
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "HTTP 502") {
@@ -988,9 +1007,9 @@ func TestApplyRetriesAFailedCloseWithOneClosingComment(t *testing.T) {
 			}
 
 			// Act
-			failed, failErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, nil)
+			failed, failErr := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, tc.to, nil)
 			commentsAfterFailure := comments()
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, failed, tc.to, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, failed, tc.to, nil)
 
 			// Assert
 			if failErr == nil || failed != from {
@@ -1036,7 +1055,7 @@ func TestApplyPostsANewStatusCommentWhenSomeoneDeletedIt(t *testing.T) {
 			gh.holding(from)
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, tc.to, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, tc.to, nil)
 
 			// Assert
 			if err != nil {
@@ -1066,9 +1085,9 @@ func TestApplyEndsATicketWhoseIssueIsGone(t *testing.T) {
 			gh.holding(from)
 
 			// Act
-			record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
+			record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
 			firstPass := len(gh.calls)
-			again, againErr := GitHub{Commands: gh}.Apply(context.Background(), northwind, record, Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}, nil)
+			again, againErr := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, record, Ticket{TaskID: "nw-sync", State: Merged, Harness: "claude", PullRequest: mergedPull}, nil)
 
 			// Assert
 			if err != nil || record == nil || !record.IsDone {
@@ -1091,7 +1110,7 @@ func TestApplyKeepsATicketLiveWhileTheRepositoryIsNotVisible(t *testing.T) {
 	from := openedRecord(InProgress, "cfo: in progress", "goblin: claude")
 
 	// Act
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, from, Ticket{TaskID: "nw-sync", State: PROpen, Harness: "claude", PullRequest: mergedPull}, nil)
 
 	// Assert
 	if err == nil || !strings.Contains(err.Error(), "not visible") {
@@ -1106,7 +1125,7 @@ func TestApplyTakesALabelAlreadyGoneAsRemoved(t *testing.T) {
 	issue := "repos/" + northwind + "/issues/501"
 	gh := &issueGitHub{failures: map[string]int{"DELETE " + issue + "/labels/cfo:%20queued": 404}}
 	gh.holding(openedRecord(Queued, "cfo: queued"))
-	record, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, openedRecord(Queued, "cfo: queued"), Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
+	record, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, openedRecord(Queued, "cfo: queued"), Ticket{TaskID: "nw-sync", State: InProgress, Harness: "claude"}, nil)
 	if err != nil || record.State != InProgress {
 		t.Fatalf("record = %+v, err = %v, want a label someone removed by hand to count as removed", record, err)
 	}
@@ -1119,8 +1138,8 @@ func TestEnsureLabelsCreatesEachLabelOnceAndAcceptsExistingOnes(t *testing.T) {
 	exists := &issueGitHub{failures: map[string]int{"POST " + labels: 422}}
 
 	// Act
-	err := GitHub{Commands: gh}.EnsureLabels(context.Background(), northwind)
-	existsErr := GitHub{Commands: exists}.EnsureLabels(context.Background(), northwind)
+	err := GitHub{API: githubtest.Client(gh)}.EnsureLabels(context.Background(), northwind)
+	existsErr := GitHub{API: githubtest.Client(exists)}.EnsureLabels(context.Background(), northwind)
 
 	// Assert
 	if err != nil {
@@ -1144,7 +1163,7 @@ func TestEnsureLabelsCreatesEachLabelOnceAndAcceptsExistingOnes(t *testing.T) {
 
 func TestEnsureLabelsNamesAnyOtherFailure(t *testing.T) {
 	gh := &issueGitHub{failures: map[string]int{"POST repos/" + northwind + "/labels": 403}}
-	if err := (GitHub{Commands: gh}).EnsureLabels(context.Background(), northwind); err == nil || !strings.Contains(err.Error(), "HTTP 403") {
+	if err := (GitHub{API: githubtest.Client(gh)}).EnsureLabels(context.Background(), northwind); err == nil || !strings.Contains(err.Error(), "HTTP 403") {
 		t.Fatalf("err = %v, want the 403 named", err)
 	}
 }

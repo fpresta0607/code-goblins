@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/afk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
@@ -127,11 +129,10 @@ func (p *trainProject) merged() []string {
 	return merged
 }
 
-// Run runs git for real, answers gh api user with the fleet's account and gh
-// pr create with the train's pull request, whose CI it reads as green and
+// Run runs git for real, answers gh pr create with the train's pull request,
 // which it labels with a label the repository has, merges into main with a
-// merge commit and closes, makes a label, and lists the pull requests main
-// does not hold yet as open; any other gh call is unexpected.
+// merge commit and closes, makes a label and runs a workflow run again; any
+// other gh call is unexpected.
 func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
 		if len(request.Args) > 0 && request.Args[0] == "push" {
@@ -154,22 +155,6 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 	}
 	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "pr" {
 		switch {
-		case args[1] == "view":
-			conclusion := p.ciConclusion
-			if conclusion == "" {
-				conclusion = "SUCCESS"
-			}
-			view, err := json.Marshal(map[string]any{"state": "OPEN", "headRefOid": p.git(p.remote, "rev-parse", "refs/heads/"+p.branch), "statusCheckRollup": []train.Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: conclusion, DetailsURL: "https://github.com/o/r/actions/runs/101/job/1011"}}, "mergeStateStatus": "CLEAN"})
-			return execx.Result{Stdout: view}, err
-		case args[1] == "list" && slices.Contains(args, "--head") && slices.Contains(args, "--jq"):
-			if p.created > 0 && !p.closed && p.landed == "" && args[slices.Index(args, "--head")+1] == p.branch {
-				return execx.Result{Stdout: []byte("https://github.com/o/r/pull/900\n")}, nil
-			}
-			return execx.Result{}, nil
-		case args[1] == "list":
-			merged := p.merged()
-			open, err := json.Marshal(slices.DeleteFunc(slices.Clone(p.pulls), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))
-			return execx.Result{Stdout: open}, err
 		case args[1] == "merge" && args[2] == "https://github.com/o/r/pull/900":
 			p.mergeAttempts++
 			if p.mergeRefusal != "" {
@@ -189,30 +174,13 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 			return execx.Result{}, nil
 		}
 	}
-	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "run" {
-		switch request.Args[1] {
-		case "view":
-			return execx.Result{Stdout: []byte(`{"attempt":1,"status":"completed","conclusion":"cancelled"}`)}, nil
-		case "rerun":
-			p.reruns++
-			return execx.Result{}, nil
-		}
+	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "run" && request.Args[1] == "rerun" {
+		p.reruns++
+		return execx.Result{}, nil
 	}
 	if args := request.Args; request.Name == "gh" && len(args) > 2 && args[0] == "label" && args[1] == "create" {
 		p.labels = append(p.labels, args[2])
 		return execx.Result{}, nil
-	}
-	// Main has no deploy run for a green train to wait on.
-	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "run" && request.Args[1] == "list" {
-		return execx.Result{Stdout: []byte("[]")}, nil
-	}
-	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "api" && request.Args[1] == "user" {
-		p.viewerReads++
-		if p.viewerTimeouts > 0 {
-			p.viewerTimeouts--
-			return execx.Result{}, context.DeadlineExceeded
-		}
-		return execx.Result{Stdout: []byte("fleet\n")}, nil
 	}
 	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "pr" && request.Args[1] == "create" {
 		p.created++
@@ -220,6 +188,64 @@ func (p *trainProject) Run(ctx context.Context, request execx.Request) (execx.Re
 		return execx.Result{Stdout: []byte("https://github.com/o/r/pull/900\n")}, nil
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected " + request.Name + " " + strings.Join(request.Args, " "))}, nil
+}
+
+// ServeHTTP answers the reads a train makes of GitHub's API: the fleet's
+// account, the train's pull request with its CI, found by its branch, the
+// pull requests main does not hold yet as open, a cancelled workflow run and
+// no push run of main.
+func (p *trainProject) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	switch {
+	case path == "user":
+		p.viewerReads++
+		if p.viewerTimeouts > 0 {
+			p.viewerTimeouts--
+			githubtest.TimeOut(w)
+			return
+		}
+		githubtest.Write(w, http.StatusOK, map[string]string{"login": "fleet"})
+	case strings.HasSuffix(path, "/actions/runs"):
+		// Main has no deploy run for a green train to wait on.
+		githubtest.Write(w, http.StatusOK, map[string]any{"total_count": 0, "workflow_runs": []any{}})
+	case strings.Contains(path, "/actions/runs/"):
+		githubtest.Write(w, http.StatusOK, map[string]any{"run_attempt": 1, "status": "completed", "conclusion": "cancelled"})
+	case path == "graphql":
+		query, variables, err := githubtest.Query(r)
+		if err != nil {
+			githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		switch {
+		case strings.Contains(query, "pullRequest(number:"):
+			check := map[string]any{"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": cmp.Or(p.ciConclusion, "SUCCESS"), "detailsUrl": "https://github.com/o/r/actions/runs/101/job/1011"}
+			view := map[string]any{"url": "https://github.com/o/r/pull/900", "state": "OPEN", "headRefOid": p.git(p.remote, "rev-parse", "refs/heads/"+p.branch), "statusCheckRollup": []any{check}, "mergeStateStatus": "CLEAN"}
+			githubtest.Answer(w, map[string]any{"repository": map[string]any{"pullRequest": githubtest.PullRequestNode(view)}})
+		case strings.Contains(query, "pullRequests(") && variables["head"] != nil:
+			nodes := []any{}
+			if p.created > 0 && !p.closed && p.landed == "" && variables["head"] == p.branch {
+				nodes = append(nodes, map[string]any{"url": "https://github.com/o/r/pull/900"})
+			}
+			githubtest.Answer(w, map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}})
+		case strings.Contains(query, "pullRequests("):
+			merged := p.merged()
+			open, err := json.Marshal(slices.DeleteFunc(slices.Clone(p.pulls), func(pr train.PullRequest) bool { return slices.Contains(merged, pr.URL) }))
+			if err != nil {
+				githubtest.Refuse(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			nodes, err := githubtest.PullRequestNodes(open)
+			if err != nil {
+				githubtest.Refuse(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			githubtest.Answer(w, map[string]any{"repository": map[string]any{"pullRequests": map[string]any{"nodes": nodes}}})
+		default:
+			githubtest.Refuse(w, http.StatusBadGateway, "unexpected query "+query)
+		}
+	default:
+		githubtest.Refuse(w, http.StatusNotFound, "Not Found")
+	}
 }
 
 // reportDone records a live goblin id of project whose status log ends
@@ -245,7 +271,7 @@ func TestTheSupervisorStartsATrainWhenTwoGoblinsFinishedPullRequestsWaitGreen(t 
 	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
 
 	// Act
-	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second})
+	err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, []train.PullRequest{first, second})
 
 	// Assert
 	if err != nil {
@@ -277,12 +303,12 @@ func TestTheSupervisorsTrainLandsByMergingItsOwnPullRequest(t *testing.T) {
 	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
 	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
 	open := []train.PullRequest{first, second}
-	if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, open); err != nil {
+	if err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, open); err != nil {
 		t.Fatal(err)
 	}
 
 	// Act
-	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, open)
+	err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, open)
 
 	// Assert
 	if err != nil {
@@ -321,7 +347,7 @@ func TestATrainsAccountReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testing.
 
 	for poll, shouldReport := range []bool{false, false, true, false} {
 		// Act
-		err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+		err := service.runTrain(context.Background(), project, githubtest.Client(project), watched, project.checkout, []train.PullRequest{first, second})
 
 		// Assert
 		if (err != nil) != shouldReport {
@@ -349,7 +375,7 @@ func TestATrainAsksNothingWhileItsRepositoryWaitsOutARefusal(t *testing.T) {
 		`"pr12":{"behindBy":0,"headTarget":{"oid":"head-12"},"baseTarget":{"oid":"base-head"}}}}}}`
 	reportDone(t, h, "g11", forge.repo, "done: PR https://github.com/o/r/pull/11")
 	reportDone(t, h, "g12", forge.repo, "done: PR https://github.com/o/r/pull/12")
-	forge.failureOn, forge.failure = "gh run list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}
+	forge.failureOn, forge.failure = "push runs", forbidden
 	at := now
 
 	for poll := range failingPasses {
@@ -373,10 +399,8 @@ func TestATrainAsksNothingWhileItsRepositoryWaitsOutARefusal(t *testing.T) {
 	}
 	forge.failureOn = ""
 	_ = service.checkFleet(context.Background(), at)
-	if !slices.ContainsFunc(forge.requests, func(request execx.Request) bool {
-		return len(request.Args) > 1 && request.Args[0] == "api" && request.Args[1] == "user"
-	}) {
-		t.Fatal("the train never asked for the account gh works as once the hold was over")
+	if !slices.ContainsFunc(forge.requests, func(request healthRead) bool { return request.name == "user" }) {
+		t.Fatal("the train never asked for the account the token is of once the hold was over")
 	}
 }
 
@@ -414,7 +438,7 @@ func TestTheSupervisorStartsATrainForGoblinsThatWentOnWorkingAfterTheirDoneRepor
 	reportDone(t, h, "cg-dev-drive", project.checkout, "done: PR "+second.URL, "working: building its last pull request", "blocked: which drive letter?")
 
 	// Act
-	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second})
+	err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, []train.PullRequest{first, second})
 
 	// Assert
 	if err != nil {
@@ -441,7 +465,7 @@ func TestTheNextTrainStartsOnThePollItsTrainLands(t *testing.T) {
 	first, second := project.pull(11), project.pull(12)
 	reportDone(t, h, "g11", project.checkout, "done: PR "+first.URL)
 	reportDone(t, h, "g12", project.checkout, "done: PR "+second.URL)
-	if err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second}); err != nil {
+	if err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, []train.PullRequest{first, second}); err != nil {
 		t.Fatal(err)
 	}
 	third, fourth := project.pull(13), project.pull(14)
@@ -449,7 +473,7 @@ func TestTheNextTrainStartsOnThePollItsTrainLands(t *testing.T) {
 	reportDone(t, h, "g14", project.checkout, "done: PR "+fourth.URL)
 
 	// Act: the poll read all four open before the first train landed.
-	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, second, third, fourth})
+	err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, []train.PullRequest{first, second, third, fourth})
 
 	// Assert
 	if err != nil {
@@ -478,7 +502,7 @@ func TestALoneFinishedPullRequestRidesOnceItWaitedPastTheBound(t *testing.T) {
 	writeFile(t, state.StatusPath(h.State, "g21"), time.Now().Add(-loneRiderWait-time.Minute).UTC().Format(time.RFC3339)+" done: PR "+lone.URL+"\n")
 
 	// Act
-	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{lone})
+	err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, []train.PullRequest{lone})
 
 	// Assert
 	if err != nil {
@@ -500,7 +524,7 @@ func TestTheSupervisorHoldsALoneFinishedPullRequestForASecondOneAWhile(t *testin
 	reportDone(t, h, "g22", project.checkout, "working: building #22, not done with it yet")
 
 	// Act
-	err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{first, working})
+	err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, []train.PullRequest{first, working})
 
 	// Assert
 	if err != nil {
@@ -514,7 +538,7 @@ func TestTheSupervisorHoldsALoneFinishedPullRequestForASecondOneAWhile(t *testin
 func TestATrainsMergesReachAFKModesLogOnlyWhileItIsOn(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
-	engine := service.trainEngine(execx.OSRunner{}, "o/r")
+	engine := service.trainEngine(execx.OSRunner{}, nil, "o/r")
 	landed := train.Train{ID: "r-20261007-160000", PR: "https://github.com/o/r/pull/900", Head: "abcdef1234", Base: "main", BaseSHA: "1234567890"}
 	off, on := train.Car{Number: 10, URL: "https://github.com/o/r/pull/10"}, train.Car{Number: 11, URL: "https://github.com/o/r/pull/11"}
 	engine.Landed(context.Background(), landed, off)
@@ -546,7 +570,7 @@ func TestATrainsMergesReachAFKModesLogOnlyWhileItIsOn(t *testing.T) {
 func TestALineTheCFOWritesForATrainsLandingIsWithTheMergeTheTrainLogged(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
-	engine := service.trainEngine(execx.OSRunner{}, "o/r")
+	engine := service.trainEngine(execx.OSRunner{}, nil, "o/r")
 	landed := train.Train{ID: "r-20261010-160000", PR: "https://github.com/o/r/pull/900", Head: "abcdef1234", Base: "main", BaseSHA: "1234567890"}
 	if _, _, err := afk.TurnOn(h.State, "the board", nil, time.Now()); err != nil {
 		t.Fatal(err)
@@ -660,7 +684,7 @@ func TestPRHealthLeavesTrainsAndThePullRequestsTheyCarryAlone(t *testing.T) {
 	w := fleetWakes{}
 
 	// Act
-	listed, unreadable, err := pollPullRequests(context.Background(), forge, h.State, &w, forge.repo, nil, &fleetOwners{}, now)
+	listed, unreadable, err := pollPullRequests(context.Background(), forge, githubtest.Client(forge), "o/r", h.State, &w, forge.repo, nil, &fleetOwners{}, now)
 
 	// Assert
 	if err != nil || unreadable != nil {
@@ -674,13 +698,32 @@ func TestPRHealthLeavesTrainsAndThePullRequestsTheyCarryAlone(t *testing.T) {
 	}
 }
 
-// trainCIRunner answers the CI of a train's pull request as still running,
-// after timeouts reads of it time out, and refuses every other call,
-// recording each. The repository the fixture's goblin works in is hosted
-// outside GitHub, so the CI monitor asks GitHub nothing about it.
+// trainCIRunner answers the CI of a train's pull request, which GitHub's API
+// is asked (ServeHTTP), as still running, after timeouts reads of it time
+// out, and refuses every other call, recording each. The repository the
+// fixture's goblin works in is hosted outside GitHub, so the CI monitor asks
+// GitHub nothing about it.
 type trainCIRunner struct {
 	calls    []string
 	timeouts int
+}
+
+func (r *trainCIRunner) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	query, variables, err := githubtest.Query(request)
+	if err != nil || !strings.Contains(query, "pullRequest(number:") {
+		r.calls = append(r.calls, request.Method+" "+request.URL.Path)
+		githubtest.Refuse(w, http.StatusNotFound, "unexpected")
+		return
+	}
+	r.calls = append(r.calls, fmt.Sprintf("view https://github.com/%s/%s/pull/%v", variables["owner"], variables["name"], variables["number"]))
+	if r.timeouts > 0 {
+		r.timeouts--
+		githubtest.TimeOut(w)
+		return
+	}
+	check := map[string]any{"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS"}
+	view := map[string]any{"state": "OPEN", "headRefOid": "abc1234", "statusCheckRollup": []any{check}}
+	githubtest.Answer(w, map[string]any{"repository": map[string]any{"pullRequest": githubtest.PullRequestNode(view)}})
 }
 
 func (r *trainCIRunner) Run(_ context.Context, request execx.Request) (execx.Result, error) {
@@ -690,13 +733,6 @@ func (r *trainCIRunner) Run(_ context.Context, request execx.Request) (execx.Res
 	}
 	if request.Name == "git" && slices.Equal(request.Args, []string{"config", "--get", "remote.origin.url"}) {
 		return execx.Result{Stdout: []byte("https://gitlab.com/o/r.git\n")}, nil
-	}
-	if request.Name == "gh" && len(request.Args) > 1 && request.Args[0] == "pr" && request.Args[1] == "view" {
-		if r.timeouts > 0 {
-			r.timeouts--
-			return execx.Result{}, context.DeadlineExceeded
-		}
-		return execx.Result{Stdout: []byte(`{"state":"OPEN","headRefOid":"abc1234","statusCheckRollup":[{"__typename":"CheckRun","name":"test","status":"IN_PROGRESS"}]}`)}, nil
 	}
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected")}, nil
 }
@@ -730,6 +766,7 @@ func TestATrainsCIReadThatTimesOutIsReportedOnlyOnTheThirdFailingPollInARow(t *t
 	service, h := fleetService(t)
 	runner := &trainCIRunner{timeouts: 3}
 	service.Options.CI = runner
+	service.Options.GitHub = githubtest.Client(runner)
 	running := runningTrain(t, h, t.TempDir())
 	now := time.Now().UTC()
 
@@ -755,6 +792,7 @@ func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 	service, h := fleetService(t)
 	runner := &trainCIRunner{}
 	service.Options.CI = runner
+	service.Options.GitHub = githubtest.Client(runner)
 	running := runningTrain(t, h, t.TempDir())
 
 	// Act
@@ -764,7 +802,7 @@ func TestATrainKeepsMovingAfterTheGoblinsOfItsRepositoryLeft(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(runner.calls, "gh pr view "+running.PR+" --json state,headRefOid,statusCheckRollup,mergeStateStatus") {
+	if !slices.Contains(runner.calls, "view "+running.PR) {
 		t.Fatalf("calls = %q, want the train's CI read although no goblin works in its repository", runner.calls)
 	}
 	kept, err := train.Read(h.State, running.ID)
@@ -781,7 +819,7 @@ func TestARunningTrainTakesNoStepWhileItsRepositoryWaitsOutARefusal(t *testing.T
 	// Arrange
 	service, h, forge, now := healthService(t, true)
 	forge.pulls = healthPull("head-one", "MERGEABLE", false, "[]")
-	forge.failureOn, forge.failure = "gh run list", execx.Result{ExitCode: 1, Stderr: []byte("gh: forbidden (HTTP 403)")}
+	forge.failureOn, forge.failure = "push runs", forbidden
 	running := runningTrain(t, h, forge.repo)
 	// The store's own goblin works in a checkout the forge also says is o/r,
 	// whose poll would take the train's step without any hold.
@@ -923,7 +961,7 @@ func TestATrainsRepositoryReadIsReportedOnlyOnTheThirdFailingPollInARow(t *testi
 
 	for poll, shouldReport := range []bool{false, false, true, false} {
 		// Act
-		err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+		err := service.runTrain(context.Background(), project, githubtest.Client(project), watched, project.checkout, []train.PullRequest{first, second})
 
 		// Assert
 		if (err != nil) != shouldReport {
@@ -956,7 +994,7 @@ func TestATrainRunsOnEveryOriginTheCIPollReadsAsGitHub(t *testing.T) {
 			watched := &fleetWakes{}
 
 			// Act
-			err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+			err := service.runTrain(context.Background(), project, githubtest.Client(project), watched, project.checkout, []train.PullRequest{first, second})
 
 			// Assert
 			trains, listErr := train.List(h.State)
@@ -994,7 +1032,7 @@ func TestATrainsStartCutShortByATimedOutReadIsReportedOnlyOnTheThirdFailingPollI
 
 			for poll, shouldReport := range test.reports {
 				// Act
-				err := service.runTrain(context.Background(), project, watched, project.checkout, []train.PullRequest{first, second})
+				err := service.runTrain(context.Background(), project, githubtest.Client(project), watched, project.checkout, []train.PullRequest{first, second})
 
 				// Assert
 				if (err != nil) != shouldReport {
@@ -1196,7 +1234,7 @@ func TestALoneRiderThatCannotLandOnItsOwnRunWaitsItsProjectsWaitBeforeATrainRun(
 			writeFile(t, state.StatusPath(h.State, "g21"), time.Now().Add(-test.waited).UTC().Format(time.RFC3339)+" done: PR "+lone.URL+"\n")
 
 			// Act
-			err := service.runTrain(context.Background(), project, &fleetWakes{}, project.checkout, []train.PullRequest{lone})
+			err := service.runTrain(context.Background(), project, githubtest.Client(project), &fleetWakes{}, project.checkout, []train.PullRequest{lone})
 
 			// Assert
 			if err != nil {

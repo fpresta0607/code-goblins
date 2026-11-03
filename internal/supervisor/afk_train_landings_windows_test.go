@@ -20,7 +20,7 @@ func TestATrainThatFoundARiderAlreadyOnItsBaseLogsItAsMergedOnce(t *testing.T) {
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
-	engine := s.trainEngine(nil, "o/r")
+	engine := s.trainEngine(nil, nil, "o/r")
 	pull := "https://github.com/o/r/pull/821"
 	earlier := train.Train{ID: "r-134810", Base: "main"}
 	found := train.Train{ID: "r-142332", Base: "main"}
@@ -53,7 +53,7 @@ func TestATrainThatFoundARiderAlreadyOnItsBaseLogsItWithoutARun(t *testing.T) {
 	if err := SwitchAFKAtHisAsk(h, true, hisAskOn); err != nil {
 		t.Fatal(err)
 	}
-	engine := s.trainEngine(nil, "o/r")
+	engine := s.trainEngine(nil, nil, "o/r")
 	pull := "https://github.com/o/r/pull/821"
 
 	// Act

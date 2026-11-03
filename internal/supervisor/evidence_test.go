@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
@@ -1458,30 +1460,73 @@ func (r *ghRunner) Run(_ context.Context, req execx.Request) (execx.Result, erro
 	return r.result, r.err
 }
 
-// gh says an address names nothing in one of two words, for a pull request
-// number a repository does not have and for a repository GitHub does not
-// have, which a recreated repository is not. Every other refusal, an auth
-// failure, a rate limit or gh signed out, stays an ordinary failed read the
-// CFO hears of.
+// pullRequestGitHub answers every read of a pull request with state, or
+// with refusal, and counts the reads.
+type pullRequestGitHub struct {
+	state     string
+	refusal   githubAnswer
+	reads     int
+	variables map[string]any
+}
+
+// githubAnswer is GitHub refusing a request: with status and message, or,
+// with status zero, with GraphQL errors saying message.
+type githubAnswer struct {
+	status  int
+	message string
+}
+
+func (g *pullRequestGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	g.reads++
+	query, variables, err := githubtest.Query(r)
+	if err != nil || !strings.Contains(query, "pullRequest(number:$number){state title createdAt}") {
+		githubtest.Refuse(w, http.StatusBadRequest, "unexpected query")
+		return
+	}
+	g.variables = variables
+	switch {
+	case g.refusal.status != 0:
+		githubtest.Refuse(w, g.refusal.status, g.refusal.message)
+	case g.refusal.message != "":
+		githubtest.Write(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": nil}, "errors": []map[string]string{{"message": g.refusal.message}}})
+	case g.state == "":
+		githubtest.Answer(w, map[string]any{"repository": map[string]any{"pullRequest": nil}})
+	default:
+		githubtest.Answer(w, map[string]any{"repository": map[string]any{"pullRequest": map[string]any{"state": g.state, "title": "Task title", "createdAt": "2026-10-01T10:00:00Z"}}})
+	}
+}
+
+// GitHub says an address names nothing in one of three ways, for a pull
+// request number a repository does not have, for a repository GitHub does
+// not have, which a recreated repository is not, and with HTTP 404. Every
+// other refusal, an auth failure, a rate limit or no token to send, stays an
+// ordinary failed read the CFO hears of.
 func TestGitHubPullRequestStateTellsAMissingPullRequestFromOtherRefusals(t *testing.T) {
 	for _, c := range []struct {
-		name      string
-		stderr    string
-		isMissing bool
+		name       string
+		refusal    githubAnswer
+		isSignedIn bool
+		isMissing  bool
 	}{
-		{"a number the repository does not have", "GraphQL: Could not resolve to a PullRequest with the number of 1400. (repository.pullRequest)", true},
-		{"a repository GitHub does not have", `GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)`, true},
-		{"an HTTP 404", "HTTP 404: Not Found (https://api.github.com/graphql)", true},
-		{"bad credentials", "HTTP 401: Bad credentials (https://api.github.com/graphql)", false},
-		{"a rate limit", "HTTP 403: API rate limit exceeded for user ID 1.", false},
-		{"gh signed out", "To get started with GitHub CLI, please run: gh auth login", false},
+		{"a number the repository does not have", githubAnswer{message: "Could not resolve to a PullRequest with the number of 1400."}, true, true},
+		{"a repository GitHub does not have", githubAnswer{message: "Could not resolve to a Repository with the name 'o/r'."}, true, true},
+		{"an HTTP 404", githubAnswer{http.StatusNotFound, "Not Found"}, true, true},
+		{"bad credentials", githubAnswer{http.StatusUnauthorized, "Bad credentials"}, true, false},
+		{"a rate limit", githubAnswer{http.StatusForbidden, "API rate limit exceeded for user ID 1."}, true, false},
+		{"gh signed out", githubAnswer{}, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
-			gh := &ghRunner{result: execx.Result{ExitCode: 1, Stderr: []byte(c.stderr)}}
+			github := &pullRequestGitHub{state: "OPEN", refusal: c.refusal}
+			client := githubtest.Client(github)
+			if !c.isSignedIn {
+				client.Getenv = func(string) string { return "" }
+				client.Commands = &ghRunner{result: execx.Result{ExitCode: 1, Stderr: []byte("To get started with GitHub CLI, please run: gh auth login")}}
+			}
+			commands := &pollResponseRunner{}
 
 			// Act
-			_, err := GitHubPullRequestState(gh)(t.Context(), "https://github.com/o/r/pull/1400")
+			_, err := GitHubPullRequestState(client, commands)(t.Context(), "https://github.com/o/r/pull/1400")
 
 			// Assert
 			if errors.Is(err, ErrPullRequestNotFound) != c.isMissing {
@@ -1490,56 +1535,91 @@ func TestGitHubPullRequestStateTellsAMissingPullRequestFromOtherRefusals(t *test
 			if err == nil {
 				t.Fatal("a refusal read as an answer")
 			}
+			if len(commands.calls) != 0 {
+				t.Fatalf("ran %v, want a pull request on github.com read through GitHub's API alone", commands.calls)
+			}
 		})
 	}
 }
 
+// A pull request on github.com is read from GitHub's API, from the repository
+// and number its address names, and only GitHub's three states are an
+// answer.
 func TestGitHubPullRequestStateAcceptsOnlyGitHubsThreeStates(t *testing.T) {
-	const url = "https://github.com/o/r/pull/9"
 	for _, c := range []struct {
-		name   string
-		result execx.Result
-		err    error
-		want   string
+		name    string
+		state   string
+		refusal githubAnswer
+		want    string
 	}{
-		{"merged", execx.Result{Stdout: []byte(`{"state":"MERGED","title":"Task title"}`)}, nil, "MERGED"},
-		{"closed", execx.Result{Stdout: []byte(`{"state":"CLOSED","title":"Task title"}`)}, nil, "CLOSED"},
-		{"open", execx.Result{Stdout: []byte(`{"state":"OPEN","title":"Task title"}`)}, nil, "OPEN"},
-		{"unknown answer", execx.Result{Stdout: []byte(`{"state":"DRAFT","title":"Task title"}`)}, nil, ""},
-		{"empty answer", execx.Result{}, nil, ""},
-		{"gh refused", execx.Result{ExitCode: 1, Stderr: []byte("no pull requests found")}, nil, ""},
-		{"gh missing", execx.Result{}, errors.New("executable file not found"), ""},
+		{"merged", "MERGED", githubAnswer{}, "MERGED"},
+		{"closed", "CLOSED", githubAnswer{}, "CLOSED"},
+		{"open", "OPEN", githubAnswer{}, "OPEN"},
+		{"unknown answer", "DRAFT", githubAnswer{}, ""},
+		{"empty answer", "", githubAnswer{}, ""},
+		{"GitHub refused", "OPEN", githubAnswer{http.StatusBadGateway, "Bad Gateway"}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			runner := &ghRunner{result: c.result, err: c.err}
+			// Arrange
+			github := &pullRequestGitHub{state: c.state, refusal: c.refusal}
 
-			got, err := GitHubPullRequestState(runner)(t.Context(), url)
+			// Act
+			got, err := GitHubPullRequestState(githubtest.Client(github), &pollResponseRunner{})(t.Context(), "https://github.com/o/r/pull/9")
 
+			// Assert
 			if got.State != c.want || (err == nil) != (c.want != "") {
 				t.Fatalf("state = %q, %v; want %q", got, err, c.want)
+			}
+			if want := map[string]any{"owner": "o", "name": "r", "number": float64(9)}; !maps.Equal(github.variables, want) {
+				t.Fatalf("asked about %v, want %v", github.variables, want)
+			}
+		})
+	}
+}
+
+// A pull request on any other host than github.com is read through gh, as
+// before, and only GitHub's three states are an answer.
+func TestGitHubPullRequestStateReadsAnotherHostThroughGh(t *testing.T) {
+	const url = "https://ghe.example.com/o/r/pull/9"
+	for _, c := range []struct {
+		name      string
+		result    execx.Result
+		err       error
+		want      string
+		isMissing bool
+	}{
+		{"merged", execx.Result{Stdout: []byte(`{"state":"MERGED","title":"Task title"}`)}, nil, "MERGED", false},
+		{"unknown answer", execx.Result{Stdout: []byte(`{"state":"DRAFT","title":"Task title"}`)}, nil, "", false},
+		{"empty answer", execx.Result{}, nil, "", false},
+		{"gh refused", execx.Result{ExitCode: 1, Stderr: []byte("no pull requests found")}, nil, "", false},
+		{"a missing pull request", execx.Result{ExitCode: 1, Stderr: []byte("GraphQL: Could not resolve to a PullRequest with the number of 9. (repository.pullRequest)")}, nil, "", true},
+		{"gh missing", execx.Result{}, errors.New("executable file not found"), "", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Arrange
+			runner := &ghRunner{result: c.result, err: c.err}
+			github := &pullRequestGitHub{state: "OPEN"}
+
+			// Act
+			got, err := GitHubPullRequestState(githubtest.Client(github), runner)(t.Context(), url)
+
+			// Assert
+			if got.State != c.want || (err == nil) != (c.want != "") || errors.Is(err, ErrPullRequestNotFound) != c.isMissing {
+				t.Fatalf("state = %q, %v; want %q, missing %t", got, err, c.want, c.isMissing)
 			}
 			if want := []string{"pr", "view", url, "--json", "state,title,createdAt"}; runner.request.Name != "gh" || !slices.Equal(runner.request.Args, want) {
 				t.Fatalf("ran %s %v, want gh %v", runner.request.Name, runner.request.Args, want)
 			}
+			if github.reads != 0 {
+				t.Fatalf("GitHub's API was asked %d times about a pull request on another host", github.reads)
+			}
 		})
 	}
 }
 
-// countingGh is gh answering one state for every pull request, counting the
-// times it is asked.
-type countingGh struct {
-	state string
-	asked int
-}
-
-func (g *countingGh) Run(context.Context, execx.Request) (execx.Result, error) {
-	g.asked++
-	return execx.Result{Stdout: []byte(`{"state":"` + g.state + `","title":"Task title"}`)}, nil
-}
-
-// A merged pull request stays merged, so gh is asked about it once however
-// often the board, its scheduler and AFK mode ask again; one still open or
-// closed, which can be reopened, is asked about every time.
+// A merged pull request stays merged, so GitHub is asked about it once
+// however often the board, its scheduler and AFK mode ask again; one still
+// open or closed, which can be reopened, is asked about every time.
 func TestGitHubPullRequestStateAsksAboutAMergedPullRequestOnce(t *testing.T) {
 	for _, c := range []struct {
 		state string
@@ -1551,8 +1631,8 @@ func TestGitHubPullRequestStateAsksAboutAMergedPullRequestOnce(t *testing.T) {
 	} {
 		t.Run(c.state, func(t *testing.T) {
 			// Arrange
-			gh := &countingGh{state: c.state}
-			read := GitHubPullRequestState(gh)
+			github := &pullRequestGitHub{state: c.state}
+			read := GitHubPullRequestState(githubtest.Client(github), &pollResponseRunner{})
 
 			// Act
 			for range 3 {
@@ -1562,8 +1642,8 @@ func TestGitHubPullRequestStateAsksAboutAMergedPullRequestOnce(t *testing.T) {
 			}
 
 			// Assert
-			if gh.asked != c.want {
-				t.Fatalf("gh was asked %d times, want %d", gh.asked, c.want)
+			if github.reads != c.want {
+				t.Fatalf("GitHub was asked %d times, want %d", github.reads, c.want)
 			}
 		})
 	}
