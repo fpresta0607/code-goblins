@@ -132,7 +132,6 @@ type piRetained struct {
 type piPictureAt struct {
 	offset int64
 	index  int
-	digest [32]byte
 }
 
 // piCallAt is where a tool call was put in the view, so the result that answers
@@ -554,7 +553,7 @@ func (l *piMessageLog) picture(id string, offset int64, index int, block piBlock
 		return Picture{}, false
 	}
 	name := id + ":" + strconv.Itoa(index)
-	l.pictures[name] = piPictureAt{offset: offset, index: index, digest: pictureDigest(block.MIMEType, block.Data)}
+	l.pictures[name] = piPictureAt{offset: offset, index: index}
 	// The size of what the base64 would decode to, as the Claude reader sizes a
 	// picture it has not read.
 	size := len(block.Data)/4*3 - (len(block.Data) - len(strings.TrimRight(block.Data, "=")))
@@ -727,7 +726,7 @@ func (r *Reader) piMessagePicture(path, conversation, id string) (string, []byte
 		return "", nil, err
 	}
 	defer file.Close()
-	media, data, err := resolvePicture(file, path, log.fileState, at.offset, at.digest, func(line []byte) (string, string, bool) {
+	media, data, err := resolvePicture(file, path, log.fileState, at.offset, func(line []byte) (string, string, bool) {
 		entry, ok := piLine(line)
 		if !ok {
 			return "", "", false

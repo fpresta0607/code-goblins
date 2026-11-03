@@ -37,7 +37,7 @@ func TestAPiSessionRecordsWhatItSpent(t *testing.T) {
 	reader := Reader{Home: home}
 
 	// Act
-	page, _, err := reader.MessagePage(path, -1)
+	page, cursor, err := reader.MessagePage(path, -1)
 
 	// Assert
 	if err != nil {
@@ -47,7 +47,7 @@ func TestAPiSessionRecordsWhatItSpent(t *testing.T) {
 	if page.Usage == nil || *page.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", page.Usage, want)
 	}
-	if held := reader.Usage(path); held == nil || *held != want {
+	if held := reader.UsageAt(path, cursor); held == nil || *held != want {
 		t.Fatalf("a stream's usage = %+v, want %+v", held, want)
 	}
 }
@@ -277,7 +277,7 @@ func TestAClaudeSessionReadsItsModelsContextWindow(t *testing.T) {
 			reader := Reader{Home: home}
 
 			// Act
-			page, _, err := reader.MessagePage(path, -1)
+			page, cursor, err := reader.MessagePage(path, -1)
 
 			// Assert
 			if err != nil {
@@ -286,7 +286,7 @@ func TestAClaudeSessionReadsItsModelsContextWindow(t *testing.T) {
 			if page.Usage == nil || page.Usage.ContextWindow != test.window || page.Usage.ContextTokens != 200 {
 				t.Fatalf("usage = %+v, want 200 tokens of a %d window", page.Usage, test.window)
 			}
-			if held := reader.Usage(path); held == nil || held.ContextWindow != test.window {
+			if held := reader.UsageAt(path, cursor); held == nil || held.ContextWindow != test.window {
 				t.Fatalf("a stream's usage = %+v, want a %d window", held, test.window)
 			}
 		})

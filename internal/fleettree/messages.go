@@ -397,7 +397,6 @@ type blockAt struct {
 type pictureAt struct {
 	offset      int64
 	block, part int
-	digest      [32]byte
 }
 
 // reset starts the log over as the read epoch of its conversation.
@@ -1180,7 +1179,6 @@ func (l *messageLog) picture(source pictureSource, at pictureAt) (Picture, bool)
 	if at.part >= 0 {
 		id += "." + strconv.Itoa(at.part)
 	}
-	at.digest = pictureDigest(source.MediaType, source.Data)
 	l.pictures[id] = at
 	return Picture{ID: id, MediaType: source.MediaType, Bytes: len(source.Data)/4*3 - (len(source.Data) - len(strings.TrimRight(source.Data, "=")))}, true
 }
@@ -1407,47 +1405,6 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 	return messages, now, false, nil
 }
 
-// Usage is what the conversation at path says the session spent, as its last
-// read found it: nil while no read has found any usage. It reads nothing anew,
-// so a stream that already read the messages can tell the board what the
-// session has spent without parsing the file again.
-func (r *Reader) Usage(path string) *Usage {
-	if isCodexRollout(path) {
-		r.messagesMu.Lock()
-		log := r.codexLogs[path]
-		r.messagesMu.Unlock()
-		if log == nil {
-			return nil
-		}
-		log.mu.Lock()
-		defer log.mu.Unlock()
-		return usageOf(log.usage, log.usage.ContextWindow)
-	}
-	if isPiSession(path) {
-		r.messagesMu.Lock()
-		log := r.piLogs[path]
-		r.messagesMu.Unlock()
-		if log == nil {
-			return nil
-		}
-		log.mu.Lock()
-		defer log.mu.Unlock()
-		return usageOf(log.usage, log.window)
-	}
-	r.messagesMu.Lock()
-	log := r.messageLogs[path]
-	r.messagesMu.Unlock()
-	if log == nil {
-		return nil
-	}
-	log.mu.Lock()
-	defer log.mu.Unlock()
-	if log.from > 0 {
-		return nil
-	}
-	return usageOf(log.usage, log.window)
-}
-
 // usageOf is what a log holds as a page's usage, nil while it records none.
 func usageOf(held Usage, window int64) *Usage {
 	if held == (Usage{}) {
@@ -1490,7 +1447,7 @@ func (r *Reader) MessagePicture(path, conversation, id string) (string, []byte, 
 		return "", nil, err
 	}
 	defer file.Close()
-	media, data, err := resolvePicture(file, path, log.fileState, at.offset, at.digest, func(line []byte) (string, string, bool) {
+	media, data, err := resolvePicture(file, path, log.fileState, at.offset, func(line []byte) (string, string, bool) {
 		var entry messageEntry
 		var blocks []messageBlock
 		if json.Unmarshal(line, &entry) != nil || json.Unmarshal(entry.Message.Content, &blocks) != nil || at.block >= len(blocks) {
@@ -1532,11 +1489,7 @@ type pictureFile interface {
 	Stat() (os.FileInfo, error)
 }
 
-func pictureDigest(media, encoded string) [32]byte {
-	return sha256.Sum256([]byte(media + "\x00" + encoded))
-}
-
-func resolvePicture(file pictureFile, path string, state messageFileState, offset int64, digest [32]byte, extract func([]byte) (string, string, bool)) (string, []byte, error) {
+func resolvePicture(file pictureFile, path string, state messageFileState, offset int64, extract func([]byte) (string, string, bool)) (string, []byte, error) {
 	validate := func() error {
 		info, err := file.Stat()
 		if err != nil {
@@ -1550,7 +1503,7 @@ func resolvePicture(file pictureFile, path string, state messageFileState, offse
 		if err != nil {
 			return err
 		}
-		if changed || !os.SameFile(info, current) || info.Size() != current.Size() || !info.ModTime().Equal(current.ModTime()) {
+		if changed || !os.SameFile(info, current) {
 			return ErrNoRecord
 		}
 		return nil
@@ -1566,7 +1519,7 @@ func resolvePicture(file pictureFile, path string, state messageFileState, offse
 		return "", nil, err
 	}
 	media, encoded, ok := extract(line)
-	if !ok || pictureDigest(media, encoded) != digest {
+	if !ok {
 		return "", nil, ErrNoRecord
 	}
 	data, err := base64.StdEncoding.DecodeString(encoded)

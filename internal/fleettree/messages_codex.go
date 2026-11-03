@@ -91,7 +91,6 @@ type codexPictureAt struct {
 	offset   int64
 	index    int
 	isOutput bool
-	digest   [32]byte
 }
 
 // codexChange is one file a FileChange item changed: its unified diff for an
@@ -342,7 +341,7 @@ func (l *codexMessageLog) keepPictures(parts []codexPart, offset int64, isOutput
 			continue
 		}
 		id := strconv.FormatInt(offset, 10) + ":" + strconv.Itoa(index)
-		l.pictures[id] = codexPictureAt{offset: offset, index: index, isOutput: isOutput, digest: pictureDigest(media, data)}
+		l.pictures[id] = codexPictureAt{offset: offset, index: index, isOutput: isOutput}
 		size := len(data)/4*3 - (len(data) - len(strings.TrimRight(data, "=")))
 		pictures = append(pictures, Picture{ID: id, MediaType: media, Bytes: size})
 	}
@@ -373,7 +372,7 @@ func (r *Reader) codexMessagePicture(path, conversation, id string) (string, []b
 		return "", nil, err
 	}
 	defer file.Close()
-	media, data, err := resolvePicture(file, path, log.fileState, at.offset, at.digest, func(line []byte) (string, string, bool) {
+	media, data, err := resolvePicture(file, path, log.fileState, at.offset, func(line []byte) (string, string, bool) {
 		var entry codexEntry
 		if json.Unmarshal(line, &entry) != nil {
 			return "", "", false

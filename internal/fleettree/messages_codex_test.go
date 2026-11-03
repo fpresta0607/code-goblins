@@ -297,11 +297,14 @@ func TestCodexUsageUsesRecordedTotalsAndLastContext(t *testing.T) {
 	reader := Reader{Home: home}
 	want := Usage{InputTokens: 300, CacheReadTokens: 200, OutputTokens: 40, ContextTokens: 120, ContextWindow: 1000, Model: "recorded-model"}
 	for range 2 {
-		page := readCodex(t, &reader, path)
+		page, cursor, err := reader.MessagePage(path, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if page.Usage == nil || *page.Usage != want {
 			t.Fatalf("usage = %+v, want %+v", page.Usage, want)
 		}
-		if got := reader.Usage(path); got == nil || *got != want {
+		if got := reader.UsageAt(path, cursor); got == nil || *got != want {
 			t.Fatalf("stream usage = %+v, want %+v", got, want)
 		}
 	}

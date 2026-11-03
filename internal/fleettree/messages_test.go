@@ -18,24 +18,25 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/routing"
 )
 
-type pictureRaceFile struct {
+// pictureAppendFile is a transcript's open handle that lets its session
+// append a whole entry right after each look at the handle, as a live
+// session writes on while one of its pictures is read.
+type pictureAppendFile struct {
 	*os.File
-	reads  int
-	change func()
+	looks  int
+	append func()
 }
 
-func (file *pictureRaceFile) ReadAt(data []byte, offset int64) (int, error) {
-	file.reads++
-	if file.reads == 3 {
-		file.change()
-	}
-	return file.File.ReadAt(data, offset)
+func (file *pictureAppendFile) Stat() (os.FileInfo, error) {
+	info, err := file.File.Stat()
+	file.looks++
+	file.append()
+	return info, err
 }
 
-func TestPictureReadRejectsInteriorRewriteDuringResolution(t *testing.T) {
-	path := conversation(t, t.TempDir(), prompted("same", []object{
-		textBlock(strings.Repeat("a", 10000)), imageBlock([]byte("picture A")), textBlock(strings.Repeat("b", 10000)),
-	}))
+func TestPictureReadsWhileItsSessionAppends(t *testing.T) {
+	// Arrange
+	path := conversation(t, t.TempDir(), prompted("same", []object{textBlock("Look at this"), imageBlock([]byte("picture A"))}))
 	reader := Reader{}
 	page, _, err := reader.MessagePage(path, -1)
 	if err != nil || len(page.Messages) != 1 || len(page.Messages[0].Pictures) != 1 {
@@ -43,27 +44,15 @@ func TestPictureReadRejectsInteriorRewriteDuringResolution(t *testing.T) {
 	}
 	log := reader.messageLogs[path]
 	at := log.pictures[page.Messages[0].Pictures[0].ID]
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := base64.StdEncoding.EncodeToString([]byte("picture A"))
-	b := base64.StdEncoding.EncodeToString([]byte("picture B"))
-	modified := strings.Replace(string(before), a, b, 1)
-	if modified == string(before) {
-		t.Fatal("picture fixture missing")
-	}
 	file, err := fsx.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	raced := &pictureRaceFile{File: file, change: func() {
-		if err := os.WriteFile(path, []byte(modified+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}}
-	_, data, err := resolvePicture(raced, path, log.fileState, at.offset, at.digest, func(line []byte) (string, string, bool) {
+	appending := &pictureAppendFile{File: file, append: func() { appendLines(t, path, prompted("later", "written while the picture is read")) }}
+
+	// Act
+	media, data, err := resolvePicture(appending, path, log.fileState, at.offset, func(line []byte) (string, string, bool) {
 		var entry messageEntry
 		var blocks []messageBlock
 		if json.Unmarshal(line, &entry) != nil || json.Unmarshal(entry.Message.Content, &blocks) != nil || len(blocks) <= at.block {
@@ -71,8 +60,10 @@ func TestPictureReadRejectsInteriorRewriteDuringResolution(t *testing.T) {
 		}
 		return blocks[at.block].Source.MediaType, blocks[at.block].Source.Data, true
 	})
-	if raced.reads < 3 || !errors.Is(err, ErrNoRecord) || len(data) != 0 {
-		t.Fatalf("changed picture returned %q, %v after %d reads", data, err, raced.reads)
+
+	// Assert
+	if appending.looks < 2 || err != nil || media != "image/png" || string(data) != "picture A" {
+		t.Fatalf("picture read while its session appended: %q %q, %v after %d looks", media, data, err, appending.looks)
 	}
 }
 
