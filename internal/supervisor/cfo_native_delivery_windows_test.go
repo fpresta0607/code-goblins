@@ -520,6 +520,7 @@ func TestADeliveryToACFOInATurnIsSentOnceItsSubmitKeyWent(t *testing.T) {
 			if err != nil || result.Reason != sentToCFO || result.Awaiting == nil || result.Awaiting.Typed != "stop and rebase" {
 				t.Fatalf("deliverMessage = %+v, %v; want it sent and awaiting the CFO's next tool call", result, err)
 			}
+			// stall-accepted: the delivery that waited for a busy CFO's take returned after exactly nativeConfirm, so no longer bound can tell it apart.
 			if took >= nativeConfirm {
 				t.Errorf("deliverMessage returned after %v; want it back once its submit key went, before the %v an idle CFO's take is waited for", took, nativeConfirm)
 			}
