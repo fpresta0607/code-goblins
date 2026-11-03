@@ -81,7 +81,7 @@ INSERT INTO ci_handbacks VALUES('native-receipt','original-run','%s','%s',7);`, 
 			calls := 0
 			reader := Reader{Root: root, Commands: runnerFunc(func(ctx context.Context, request execx.Request) (execx.Result, error) {
 				if request.Name != "no-mistakes" {
-					return commands.Run(ctx, request)
+					return fixtureCommands{commands}.Run(ctx, request)
 				}
 				calls++
 				if len(request.Args) < 4 || strings.Join(request.Args[:3], " ") != "axi handback --expect" {

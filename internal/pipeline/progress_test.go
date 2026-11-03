@@ -221,7 +221,7 @@ INSERT INTO step_results VALUES('latest','review','awaiting_approval',1);`
 	if result.ExitCode != 0 {
 		t.Fatal(string(result.Stderr))
 	}
-	r := Reader{Root: root, Commands: execx.OSRunner{}}
+	r := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
 	p, err := r.Progress(context.Background(), "C:/project", "feat")
 	if err != nil || p.RunID != "latest" || len(p.Steps) != 1 {
 		t.Fatalf("wrong branch evidence %+v %v", p, err)
@@ -274,7 +274,7 @@ INSERT INTO step_results VALUES('run','test','running',2,1791297214,1791300000,1
 		t.Fatal(string(result.Stderr))
 	}
 
-	steps, err := (Reader{Root: root, Commands: execx.OSRunner{}}).StepDetails(context.Background(), "run")
+	steps, err := (Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}).StepDetails(context.Background(), "run")
 
 	want := []StepDetail{
 		{Name: "review", Status: "completed", StartedAt: 1791297171, LastActivityAt: 1791297214, LastActivity: "status: completed"},
@@ -298,7 +298,7 @@ func stepDatabase(t *testing.T, sql string) Reader {
 	if result.ExitCode != 0 {
 		t.Fatal(string(result.Stderr))
 	}
-	return Reader{Root: root, Commands: execx.OSRunner{}}
+	return Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
 }
 
 // A goblin can name the gate run it waits on, which may be on any branch of
