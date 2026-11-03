@@ -20,6 +20,25 @@ type RunSource struct {
 
 var commandObjectID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
+// RunProject is the project checkout the daemon recorded for a gate run,
+// which says whether its Test requires a binding before any provenance check.
+func (reader Reader) RunProject(ctx context.Context, runID string) (string, error) {
+	if !gateIdentity.MatchString(runID) {
+		return "", errors.New("pipeline: invalid configured-command run identity")
+	}
+	var rows []struct {
+		Project string `json:"project"`
+	}
+	query := `SELECT repos.working_path AS project FROM runs JOIN repos ON repos.id=runs.repo_id WHERE runs.id=` + sqlString(runID)
+	if err := reader.query(ctx, query, &rows); err != nil {
+		return "", err
+	}
+	if len(rows) != 1 || !filepath.IsAbs(rows[0].Project) {
+		return "", errors.New("pipeline: configured-command run project could not be read")
+	}
+	return rows[0].Project, nil
+}
+
 // CommandSource verifies the daemon's run identity for either its managed
 // checkout or its separate clone of the native-selected Test comparison.
 func (reader Reader) CommandSource(ctx context.Context, directory, runID, comparison string) (RunSource, error) {

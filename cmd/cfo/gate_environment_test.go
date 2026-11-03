@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/standin"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
@@ -96,7 +98,7 @@ func TestGateTurnBindsTheVerifiedEnvironmentWithoutReplacingTheConfiguredCommand
 
 			// Assert
 			want := environment + "|" + filepath.Join(environment, "Scripts", "python.exe") + "|1|1|never|daemon-sentinel"
-			if (code == "0" && exit != 0) || (code == "7" && exit != 7) || strings.TrimSpace(stdout.String()) != want || stderr.String() != "" {
+			if (code == "0" && exit != 0) || (code == "7" && exit != 7) || strings.TrimSpace(stdout.String()) != want || withoutTurnProgress(stderr.String()) != "" {
 				t.Fatalf("exit=%d stdout=%q stderr=%q; want configured exit %s and %q", exit, stdout.String(), stderr.String(), code, want)
 			}
 			if os.Getenv("UV_PROJECT_ENVIRONMENT") != "unverified-client-environment" || os.Getenv("UV_NO_SYNC") != "0" || os.Getenv("UNCHANGED_DAEMON_SETTING") != "daemon-sentinel" {
@@ -228,7 +230,7 @@ func TestGateTurnUsesNativeComparisonInsteadOfThePreviousPush(t *testing.T) {
 				exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT% & exit /b 7")
 
 				// Assert
-				if exit != 7 || strings.TrimSpace(stdout.String()) != environment || stderr.String() != "" {
+				if exit != 7 || strings.TrimSpace(stdout.String()) != environment || withoutTurnProgress(stderr.String()) != "" {
 					t.Fatalf("exit=%d stdout=%q stderr=%q; want the native-selected comparison and unchanged command exit 7", exit, stdout.String(), stderr.String())
 				}
 			})
@@ -279,7 +281,13 @@ func gateEnvironmentFixture(t *testing.T) (string, string) {
 	}
 	t.Setenv("CFO_GATE_TURN_TEST_MEMORY", filepath.Join(t.TempDir(), "plenty"))
 	t.Setenv("CFO_TASK_ID", "")
-	return environment, comparison
+	// A runner's temporary folder can be an 8.3 short name, and the binding
+	// returns the long one it resolves, so the fixture names that one.
+	resolved, err := fsx.Canonical(environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved, comparison
 }
 
 func TestGateTurnBindsOnlyTheVerifiedRunAndItsExactBaseClone(t *testing.T) {
@@ -337,7 +345,7 @@ func TestGateTurnBindsOnlyTheVerifiedRunAndItsExactBaseClone(t *testing.T) {
 					t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 				}
 			} else if scenario == "unbound wrapper" {
-				if exit != 0 || strings.TrimSpace(stdout.String()) != "unbound-command-environment" || stderr.String() != "" {
+				if exit != 0 || strings.TrimSpace(stdout.String()) != "unbound-command-environment" || withoutTurnProgress(stderr.String()) != "" {
 					t.Fatalf("exit=%d stdout=%q stderr=%q; want no binding without an explicit native run", exit, stdout.String(), stderr.String())
 				}
 			} else if exit != exitNotStarted || stdout.String() != "" || !strings.Contains(stderr.String(), "test environment") {
@@ -348,20 +356,44 @@ func TestGateTurnBindsOnlyTheVerifiedRunAndItsExactBaseClone(t *testing.T) {
 }
 
 func TestGateTurnLeavesAnUnconfiguredProjectsEnvironmentAndOwnershipAlone(t *testing.T) {
-	// Arrange
-	project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
-	comparison := writeGateSource(t, gateRoot, project, worktree, "feature")
-	t.Setenv("NM_HOME", gateRoot)
-	t.Setenv("UV_PROJECT_ENVIRONMENT", "existing-daemon-setting")
-	t.Setenv("ARBITRARY_DAEMON_SETTING", "unchanged")
-	turnLine(t)
-	var stdout, stderr lockedBuffer
+	for _, scenario := range []string{"verified source", "changed project origin", "moved managed head"} {
+		t.Run(scenario, func(t *testing.T) {
+			// Arrange
+			project, gateRoot, worktree := gateTaskFixture(t, "cg-example")
+			comparison := writeGateSource(t, gateRoot, project, worktree, "feature")
+			t.Setenv("NM_HOME", gateRoot)
+			switch scenario {
+			case "changed project origin":
+				if output, err := exec.Command("git", "-C", project, "remote", "set-url", "origin", "git@example.invalid:renamed/project.git").CombinedOutput(); err != nil {
+					t.Fatalf("change the project's origin: %s (%v)", output, err)
+				}
+			case "moved managed head":
+				sql := "UPDATE runs SET head_sha='" + strings.Repeat("1", len(comparison)) + "'"
+				if output, err := exec.Command("sqlite3", filepath.Join(gateRoot, "state.sqlite"), sql).CombinedOutput(); err != nil {
+					t.Fatalf("record another head: %s (%v)", output, err)
+				}
+			}
+			t.Setenv("UV_PROJECT_ENVIRONMENT", "existing-daemon-setting")
+			t.Setenv("ARBITRARY_DAEMON_SETTING", "unchanged")
+			turnLine(t)
+			var stdout, stderr lockedBuffer
 
-	// Act
-	exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%^|%ARBITRARY_DAEMON_SETTING%")
+			// Act
+			exit := gateTurn(turnRuntime(), &stdout, &stderr, "--gate-run", "run", "--test-comparison-sha", comparison, "--", "cmd.exe", "/d", "/c", "echo %UV_PROJECT_ENVIRONMENT%^|%ARBITRARY_DAEMON_SETTING%")
 
-	// Assert
-	if exit != 0 || strings.TrimSpace(stdout.String()) != "existing-daemon-setting|unchanged" || stderr.String() != "" {
-		t.Fatalf("exit=%d stdout=%q stderr=%q; want no borrowed binding or required fleet ownership", exit, stdout.String(), stderr.String())
+			// Assert
+			if exit != 0 || strings.TrimSpace(stdout.String()) != "existing-daemon-setting|unchanged" || withoutTurnProgress(stderr.String()) != "" {
+				t.Fatalf("exit=%d stdout=%q stderr=%q; want an unconfigured project's command run unchecked, with no borrowed binding or required fleet ownership", exit, stdout.String(), stderr.String())
+			}
+		})
 	}
 }
+
+// withoutTurnProgress is a run's standard error without the progress line
+// cfo gate turn writes when its admission took a second or more, which a
+// loaded machine causes with no other run in the line.
+func withoutTurnProgress(said string) string {
+	return turnProgress.ReplaceAllString(said, "")
+}
+
+var turnProgress = regexp.MustCompile(`(?m)^cfo gate turn: took its turn after [0-9hms]+\n`)

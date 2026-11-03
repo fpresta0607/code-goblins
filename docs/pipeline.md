@@ -768,7 +768,7 @@ No environment is created, synchronized or repaired by the binding.
 An unavailable, invalid or mismatched required binding refuses execution with exit 126 and an actionable explanation; the native wrapper parks that as an unexecuted command, never a passing baseline.
 Repair and verify the existing environment or its project setting, then request the same Test command again through `cfo pipeline respond <task> --action fix --findings test-command-no-turn`.
 `cfo pipeline respond` refuses approval of a recorded required-environment refusal, even with `--accept` or `--reason` and after the project setting changes; a successful Test retry is required.
-Projects with no `test_environment` keep their existing runner environment.
+Projects with no `test_environment` keep their existing runner environment: the wrapper reads only their project from the native run and checks no checkout provenance, so a changed local origin never stops their Test.
 The machine must have the `test_command_wrapper` configuration above pointing at the reviewed CFO build, including both native identity arguments; the managed preflight refuses a required binding when either is absent or uses another placeholder.
 The native build must support the `{test_comparison_sha}` contract delivered by [native pull request 46](https://github.com/fpresta0607/no-mistakes/pull/46).
 The CFO activates that native build and the reviewed wrapper setting together through its normal idle configuration window.

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 func TestProjectTestEnvironmentVerifiesTheInterpreterAndReturnsOnlyFixedUVSettings(t *testing.T) {
@@ -164,7 +165,13 @@ func TestProjectTestEnvironmentDoesNotBorrowAnotherProjectsBinding(t *testing.T)
 
 func existingEnvironmentFixture(t *testing.T) (data, checkout, worktree, python string) {
 	t.Helper()
-	data, checkout, worktree = t.TempDir(), t.TempDir(), t.TempDir()
+	data, checkout = t.TempDir(), t.TempDir()
+	// A runner's temporary folder can be an 8.3 short name, and the binding
+	// returns the long one it resolves, so the fixture names that one.
+	worktree, err := fsx.Canonical(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	python = filepath.Join(worktree, ".venv", "bin", "python")
 	if runtime.GOOS == "windows" {
 		python = filepath.Join(worktree, ".venv", "Scripts", "python.exe")

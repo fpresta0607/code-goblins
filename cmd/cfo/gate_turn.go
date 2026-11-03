@@ -307,19 +307,23 @@ func gateTestEnvironment(ctx context.Context, dir, runID, comparison string, run
 	}
 	reader := pipeline.Reader{Commands: execx.OSRunner{}}
 	reader.Root, err = pipeline.DefaultRoot()
-	var source pipeline.RunSource
+	var project string
 	if err == nil {
-		source, err = reader.CommandSource(ctx, dir, runID, comparison)
+		project, err = reader.RunProject(ctx, runID)
 	}
 	if err != nil {
-		return gateTestBinding{}, fmt.Errorf("required test environment: cannot verify the gate's source project: %w", err)
+		return gateTestBinding{}, fmt.Errorf("required test environment: cannot read the gate's source project: %w", err)
 	}
-	manifest, _, err := projectcfg.LoadForCheckout(h.Data, source.Project)
+	manifest, _, err := projectcfg.LoadForCheckout(h.Data, project)
 	if errors.Is(err, os.ErrNotExist) || err == nil && manifest.TestEnvironment == nil {
-		return gateTestBinding{source: source}, nil
+		return gateTestBinding{}, nil
 	}
 	if err != nil {
 		return gateTestBinding{}, fmt.Errorf("required test environment: %w", err)
+	}
+	source, err := reader.CommandSource(ctx, dir, runID, comparison)
+	if err != nil {
+		return gateTestBinding{}, fmt.Errorf("required test environment: cannot verify the gate's source project: %w", err)
 	}
 	id, err := gateTask(source.Worktree, runtime)
 	if err != nil {

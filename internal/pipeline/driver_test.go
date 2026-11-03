@@ -420,9 +420,21 @@ func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The isolated real-daemon fixture's native engine recorded these
+	// findings for its refused runs, kept verbatim but for machine paths.
+	recorded := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
 	for _, report := range []struct {
 		name, findings, finding string
 	}{
+		{"recorded native refusal", recorded("native-environment-refusal.json"), "test-command-no-turn"},
+		{"recorded native refusal through verify", recorded("native-environment-refusal-through-verify.json"), "test-command-no-turn"},
 		{"before admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`, "test-command-no-turn"},
 		{"after admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment changed while waiting; verify the project binding and retry."}]}`, "test-command-no-turn"},
 		{"base attribution", `{"findings":[{"id":"test-1","action":"ask-user","description":"configured test command exited with code 7"}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: cfo gate turn: the command did not start: required test environment: .venv is missing); every failure is attributed to this change."}`, "test-1"},
