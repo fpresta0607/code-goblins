@@ -387,6 +387,10 @@ type Service struct {
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
 	cancel context.CancelFunc
+	// lifetime is the context the service runs under, which its closing
+	// cancels: work a board request starts for every device, which no one
+	// request owns, ends with it.
+	lifetime context.Context
 	// successor is the process a stop request named to hand the watcher
 	// lock to, or 0.
 	successor atomic.Int64
@@ -450,7 +454,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel, lifetime: ctx}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}

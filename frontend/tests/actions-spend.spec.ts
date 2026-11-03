@@ -176,6 +176,67 @@ test.describe("Actions rollover on an open device", () => {
     });
   }
 
+  test("a device clock hours ahead asks for its month at most once a minute", async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-11-01T02:30:00Z") });
+    let requests = 0;
+    // The supervisor's clock is two hours behind this device's.
+    await page.route("**/api/actions-spend?*", (route) => {
+      requests++;
+      return route.fulfill({ json: reading({ read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
+    });
+    const snapshot = { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+      actions_spend: reading({ month: "2026-11", total_usd: 40, read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) };
+    await page.addInitScript((data) => {
+      const streams: EventTarget[] = [];
+      class PushedStream extends EventTarget {
+        onerror: (() => void) | null = null;
+        constructor() {
+          super();
+          streams.push(this);
+          setTimeout(() => this.dispatchEvent(new MessageEvent("snapshot", { data })));
+        }
+        close() {}
+      }
+      Object.assign(window, { EventSource: PushedStream, pushSnapshot: () => { for (const stream of streams) stream.dispatchEvent(new MessageEvent("snapshot", { data })); } });
+    }, JSON.stringify(snapshot));
+    await page.goto("/");
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+    await expect(page.getByRole("button", { name: "GitHub Actions spend: $8.50 this month", exact: true })).toBeVisible();
+    await page.clock.pauseAt(new Date("2026-11-01T02:31:30Z"));
+    await expect.poll(() => requests).toBeGreaterThanOrEqual(2);
+    const settled = requests;
+
+    for (let update = 0; update < 12; update++) {
+      await page.clock.runFor(10_000);
+      await page.evaluate(() => (window as unknown as { pushSnapshot: () => void }).pushSnapshot());
+    }
+    expect(requests - settled).toBeLessThanOrEqual(2);
+  });
+
+  test("a device clock hours behind still checks its month within the hour", async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-10-31T21:30:00Z") });
+    let requests = 0;
+    // The supervisor's clock is three hours ahead of this device's.
+    await page.route("**/api/actions-spend?*", (route) => {
+      requests++;
+      return route.fulfill({ json: requests === 1
+        ? reading({ read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" })
+        : reading({ status: "stale", read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T01:30:00Z", detail: "Could not refresh usage." }) });
+    });
+    await holdStream(page, { instance: "actions-fixture", revision: 1, healthy: true, example: true, cfo_runs: true,
+      actions_spend: reading({ month: "2026-11", total_usd: 40, read_at: "2026-11-01T00:30:00Z", checked_at: "2026-11-01T00:30:00Z" }) });
+    await page.goto("/");
+    await page.getByRole("button", { name: "Board", exact: true }).click();
+    await expect(page.getByRole("button", { name: "GitHub Actions spend: $8.50 this month", exact: true })).toBeVisible();
+    await page.clock.pauseAt(new Date("2026-10-31T21:31:00Z"));
+
+    await page.clock.runFor(58 * 60_000);
+    expect(requests).toBe(1);
+    await page.clock.runFor(2 * 60_000);
+    await expect(page.getByRole("button", { name: "GitHub Actions spend: $8.50 this month (old)", exact: true })).toBeVisible();
+    expect(requests).toBe(2);
+  });
+
   test("switches reports at local midnight and contains a failed refresh", async ({ page }) => {
     await page.clock.install({ time: new Date("2026-11-01T04:59:30Z") });
     let release: () => void = () => undefined;

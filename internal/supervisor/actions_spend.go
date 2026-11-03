@@ -24,7 +24,10 @@ func (s *Service) readActionsSpend(ctx context.Context, now time.Time) {
 	}
 	s.mu.Unlock()
 	for _, month := range months {
-		s.readActionsSpendMonth(ctx, now, month)
+		if ctx.Err() != nil {
+			return
+		}
+		s.readActionsSpendMonth(ctx, ctx, now, month)
 	}
 }
 
@@ -32,7 +35,12 @@ func isActionsSpendMonth(now time.Time, month string) bool {
 	return month >= now.UTC().Add(-12*time.Hour).Format("2006-01") && month <= now.UTC().Add(14*time.Hour).Format("2006-01")
 }
 
-func (s *Service) readActionsSpendMonth(ctx context.Context, now time.Time, month string) actionsbilling.Reading {
+// readActionsSpendMonth returns month's reading, reading it again when its
+// last read began an hour or more ago. ctx bounds only this caller's wait for
+// a read another caller started. A read this call starts is bounded by
+// lifetime instead, so one device disconnecting never cancels the reading
+// every device shares, while the service closing does.
+func (s *Service) readActionsSpendMonth(ctx, lifetime context.Context, now time.Time, month string) actionsbilling.Reading {
 	if s.Options.ActionsSpend == nil || s.Options.Example {
 		return actionsbilling.Reading{Status: "unavailable", Month: month, Detail: "GitHub Actions usage is unavailable."}
 	}
@@ -66,8 +74,7 @@ func (s *Service) readActionsSpendMonth(ctx context.Context, now time.Time, mont
 	}
 	entry.started, entry.done = now, make(chan struct{})
 	s.mu.Unlock()
-	// One device disconnecting must not cancel the reading shared by all devices.
-	probe, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	probe, cancel := context.WithTimeout(lifetime, 30*time.Second)
 	defer cancel()
 	reading := s.Options.ActionsSpend(probe, now, month)
 	s.mu.Lock()
@@ -112,5 +119,5 @@ func (h *HTTP) actionsSpend(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "Request the device's current calendar month as YYYY-MM")
 		return
 	}
-	respond(w, http.StatusOK, h.Service.readActionsSpendMonth(r.Context(), now, month))
+	respond(w, http.StatusOK, h.Service.readActionsSpendMonth(r.Context(), h.Service.lifetime, now, month))
 }

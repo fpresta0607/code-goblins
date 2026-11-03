@@ -22,8 +22,15 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
       .then(parseActionsSpend)
       .then((reading) => {
         if (controller.signal.aborted) return;
+        // checked_at is on the supervisor's clock, so the next check is kept
+        // between this device's next whole minute and an hour from now: a
+        // device clock ahead neither asks again on every update, nor one
+        // behind keeps a reading for hours.
+        const receivedAt = Date.now();
         const checkedAt = Date.parse(reading.checked_at);
-        setSelected({ reading, instance, refreshAt: (checkedAt > 0 ? checkedAt : Date.now()) + REFRESH_INTERVAL_MS });
+        const nextCheck = (checkedAt > 0 ? checkedAt : receivedAt) + REFRESH_INTERVAL_MS;
+        const nextMinute = receivedAt - (receivedAt % 60_000) + 60_000;
+        setSelected({ reading, instance, refreshAt: Math.min(Math.max(nextCheck, nextMinute), receivedAt + REFRESH_INTERVAL_MS) });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;

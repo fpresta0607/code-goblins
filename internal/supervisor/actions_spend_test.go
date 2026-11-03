@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -145,7 +146,7 @@ func TestActionsSpendSharesSelectedMonthReadsWithTheTimer(t *testing.T) {
 	}}}
 	for range 3 {
 		for month, total := range map[string]float64{"2026-10": 8.5, "2026-11": 40} {
-			reading := service.readActionsSpendMonth(context.Background(), now, month)
+			reading := service.readActionsSpendMonth(context.Background(), context.Background(), now, month)
 			if reading.Month != month || reading.TotalUSD == nil || *reading.TotalUSD != total || !reading.ReadAt.Equal(now) || !reading.CheckedAt.Equal(now) {
 				t.Fatalf("%s reading = %+v", month, reading)
 			}
@@ -179,7 +180,7 @@ func TestActionsSpendCoalescesConcurrentDevices(t *testing.T) {
 	var devices sync.WaitGroup
 	for range 8 {
 		devices.Go(func() {
-			reading := service.readActionsSpendMonth(context.Background(), now, "2026-10")
+			reading := service.readActionsSpendMonth(context.Background(), context.Background(), now, "2026-10")
 			if reading.TotalUSD == nil || *reading.TotalUSD != 8.5 {
 				t.Errorf("device reading = %+v", reading)
 			}
@@ -192,7 +193,7 @@ func TestActionsSpendCoalescesConcurrentDevices(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if reading := service.readActionsSpendMonth(ctx, now, "2026-10"); reading.TotalUSD != nil || reading.Status != "unavailable" {
+	if reading := service.readActionsSpendMonth(ctx, context.Background(), now, "2026-10"); reading.TotalUSD != nil || reading.Status != "unavailable" {
 		t.Fatalf("cancelled device reading = %+v", reading)
 	}
 	close(release)
@@ -217,7 +218,7 @@ func TestActionsSpendSharedReadSurvivesADeviceDisconnect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan actionsbilling.Reading, 1)
-	go func() { done <- service.readActionsSpendMonth(ctx, now, "2026-10") }()
+	go func() { done <- service.readActionsSpendMonth(ctx, context.Background(), now, "2026-10") }()
 	select {
 	case <-started:
 	case <-time.After(30 * time.Second):
@@ -233,8 +234,44 @@ func TestActionsSpendSharedReadSurvivesADeviceDisconnect(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("reader did not finish")
 	}
-	if reading := service.readActionsSpendMonth(context.Background(), now, "2026-10"); reading.TotalUSD == nil {
+	if reading := service.readActionsSpendMonth(context.Background(), context.Background(), now, "2026-10"); reading.TotalUSD == nil {
 		t.Fatalf("other device lost shared reading: %+v", reading)
+	}
+}
+
+func TestActionsSpendStopsReadingWhenTheServiceCloses(t *testing.T) {
+	now := time.Date(2026, 11, 1, 0, 30, 0, 0, time.UTC)
+	total := 8.5
+	var reads atomic.Int32
+	started, ended := make(chan struct{}), make(chan error, 2)
+	service := &Service{actionsSpendReadings: map[string]*actionsSpendEntry{"2026-10": {reading: actionsbilling.Reading{Status: "available", Month: "2026-10", ReadAt: now.Add(-time.Hour), TotalUSD: &total}, started: now.Add(-time.Hour)}},
+		Options: Options{ActionsSpend: func(ctx context.Context, at time.Time, month string) actionsbilling.Reading {
+			if reads.Add(1) == 1 {
+				close(started)
+			}
+			<-ctx.Done()
+			ended <- ctx.Err()
+			return actionsbilling.Reading{Status: "unavailable", Month: month, CheckedAt: at}
+		}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		service.readActionsSpend(ctx, now)
+		close(done)
+	}()
+	select {
+	case <-started:
+	case <-time.After(30 * time.Second):
+		t.Fatal("reader did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the read outlived the service")
+	}
+	if err := <-ended; !errors.Is(err, context.Canceled) || reads.Load() != 1 {
+		t.Fatalf("read ended with %v after %d reads", err, reads.Load())
 	}
 }
 
@@ -268,7 +305,7 @@ func TestActionsSpendEndpointReadsTheRequestedMonth(t *testing.T) {
 	before := time.Now()
 	month := before.UTC().Format("2006-01")
 	reads := 0
-	service := &Service{Instance: "instance-1", Options: Options{ActionsSpend: func(_ context.Context, at time.Time, selectedMonth string) actionsbilling.Reading {
+	service := &Service{Instance: "instance-1", lifetime: context.Background(), Options: Options{ActionsSpend: func(_ context.Context, at time.Time, selectedMonth string) actionsbilling.Reading {
 		reads++
 		total := 8.5
 		return actionsbilling.Reading{Status: "available", Month: selectedMonth, ReadAt: at, CheckedAt: at, TotalUSD: &total}
@@ -291,7 +328,7 @@ func TestActionsSpendEndpointReadsTheRequestedMonth(t *testing.T) {
 
 func TestActionsSpendEndpointRejectsInvalidOrUnauthenticatedRequests(t *testing.T) {
 	reads := 0
-	service := &Service{Instance: "instance-1", Options: Options{ActionsSpend: func(context.Context, time.Time, string) actionsbilling.Reading {
+	service := &Service{Instance: "instance-1", lifetime: context.Background(), Options: Options{ActionsSpend: func(context.Context, time.Time, string) actionsbilling.Reading {
 		reads++
 		return actionsbilling.Reading{}
 	}}}
