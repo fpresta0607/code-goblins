@@ -19,7 +19,7 @@ import { BrowserSignInCard } from "./browser-signin-card";
 import { signInHeading, signInOutcome } from "./browser-signins";
 import { questionAnswer, questionChoices, questionSelection } from "./questionChoices";
 import { linkedText, plainMessage } from "./messageText";
-import { personaFor } from "./workflow";
+import { personaFor, WAITING_ON_YOU } from "./workflow";
 import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
 import { ReviewCard, reviewImages } from "./ReviewCard";
 import { ImageGallery } from "./ImageGallery";
@@ -435,8 +435,8 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
       <summary className="icon-button" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
       <div className="command-center-updates">
         <h2><Avatar persona="cfo" small />Command Center</h2>
-        <section aria-label="Waiting on you">
-          <h3>Waiting on you <span className="column-count">{needing}</span>{waiting.length > 1 && <button className="primary go-through" onClick={() => { setInbox(false); setOpen(true); show(waiting[0].key); }}>Go through them</button>}</h3>
+        <section aria-label={WAITING_ON_YOU}>
+          <h3>{WAITING_ON_YOU} <span className="column-count">{needing}</span>{waiting.length > 1 && <button className="primary go-through" onClick={() => { setInbox(false); setOpen(true); show(waiting[0].key); }}>Go through them</button>}</h3>
           {/* The whole row opens its item in the Command Center, as its
               button does for the keyboard: a click on the button reaches the
               row. A page opens only from the item's card. */}

@@ -97,11 +97,11 @@ for (const width of [1440, 390]) {
       await expect(sid.getByRole("button", { name: /^(Resume|Stop) / })).toHaveCount(0);
     });
 
-    test("a goblin waiting on its own CI reads Testing, with no check on its card", async ({ page }) => {
+    test("a goblin waiting on its own CI reads Landing, with no check on its card", async ({ page }) => {
       await open(page);
       const mae = card(page, "Mae - Bug Hunter");
 
-      await expect(mae.locator(".card-status-text")).toHaveText("Testing");
+      await expect(mae.locator(".card-status-text")).toHaveText("Landing, waits to merge");
       await expect(mae.locator(".hosted-checks")).toHaveCount(0);
     });
 
@@ -112,7 +112,7 @@ for (const width of [1440, 390]) {
       const status = await read(otis.locator(".plain-status"));
       const dot = await otis.locator(".status-dot").evaluate((element) => getComputedStyle(element).backgroundColor);
 
-      expect(status.text).toBe("Paused for memory");
+      expect(status.text).toBe("Paused until memory frees");
       expect(status.color).not.toBe(AMBER);
       expect(dot).not.toBe(AMBER);
       await expect(pausedSection(page).locator(".card-title")).toHaveText(["Otis - Ledger Clerk", "Sid - Memory Keeper"]);
@@ -160,7 +160,7 @@ test.describe("in his window", () => {
 
     await select(page, "Otis - Ledger Clerk");
 
-    await expect(details(page).locator(".panel-status")).toHaveText("Paused for memory");
+    await expect(details(page).locator(".panel-status")).toHaveText("Paused until memory frees");
     await expect(ended(page).locator("h2")).toHaveText("Session paused");
   });
 
@@ -170,7 +170,7 @@ test.describe("in his window", () => {
     await select(page, "Mae - Bug Hunter");
     const detailsHeader = await openTaskList(page);
 
-    await expect(details(page).locator(".panel-status")).toHaveText("Testing");
+    await expect(details(page).locator(".panel-status")).toHaveText("Landing, waits to merge");
     await expect(detailsHeader.locator("a.hosted-checks")).toHaveAttribute("href", RUN);
   });
 });

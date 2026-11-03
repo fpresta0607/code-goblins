@@ -233,3 +233,17 @@ func (line heavyLine) movedFor(job job) time.Time {
 	}
 	return moved
 }
+
+// placeOf is the place in the line of the run of jobs' that waits nearest
+// its turn, 1 for the next run to take one, and zero while none of theirs
+// waits there.
+func (line heavyLine) placeOf(jobs []job) int {
+	for i, run := range line.waiting {
+		for _, job := range jobs {
+			if slices.ContainsFunc(job.members, func(member Process) bool { return member.PID == run.PID }) {
+				return i + 1
+			}
+		}
+	}
+	return 0
+}

@@ -35,7 +35,7 @@ test("a paused card names the goblin it waits on or resumes with by its name alo
   const dependency: PauseCondition = { reason: "dependency", until: "task:b", at: "2026-10-05T16:30:06Z" };
   const overlord: PauseCondition = { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" };
   assert.equal(pauseStatus(dependency, [otis], []), "Paused until Otis delivers");
-  assert.equal(pauseStatus(overlord, [otis], [], otis), "Paused with Otis");
+  assert.equal(pauseStatus(overlord, [otis], [], otis), "Paused until Otis resumes");
   assert.equal(pauseStatus(dependency, [{ ...otis, goblin_name: "", goblin_title: "" }], []), "Paused until B work delivers");
 });
 
@@ -195,6 +195,7 @@ test("a paused goblin's panel adds no line under its status, and its Details say
   const cases: [string, Record<string, unknown>, RegExp][] = [
     ["memory", { reason: "memory" }, /^It resumes by itself once 5 GB of memory is free\.$/],
     ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets on Oct \d+\.$/],
+    ["the PC's restart", { reason: "restart", until: "2026-11-02T08:00:00Z" }, /^It resumes by itself after the PC restarts\.$/],
     ["the Overlord", { reason: "overlord" }, /^It stays paused until you resume it\.$/],
     ["a question", { reason: "question", until: "q-7" }, /^It resumes by itself when you answer its question\.$/],
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, /^It resumes by itself when Pause, Resume and Stop on the board finishes\.$/],
@@ -251,16 +252,18 @@ test("a goblin paused for its own pull request says what it did and what resumes
 });
 
 // The Overlord, 2026-10-16: a pause is on the bench, never a wait, so a paused
-// card always reads Paused and why, in a few words, and never Waiting.
-test("a paused card reads Paused and why in a few words, never Waiting", () => {
+// card always reads Paused and what resumes it, in a few words, and never
+// Waiting (#1924).
+test("a paused card reads Paused and what resumes it in a few words, never Waiting", () => {
   // Arrange
   const blocker = task({ id: "cg-board-kill", title: "Pause, Resume and Stop on the board; Claude Code" });
   const usual: CIUsual[] = [{ repository: "o/r", kind: "ci", seconds: 13 * 60 }, { repository: "o/r", kind: "deploy", seconds: 10.5 * 60 }, { repository: "o/other", kind: "deploy", seconds: 2 * 60 }];
   const head = "@" + "a".repeat(40);
   const cases: [string, Record<string, unknown> | undefined, CIUsual[], string | RegExp][] = [
-    ["memory", { reason: "memory" }, [], "Paused for memory"],
-    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, [], "Paused for allowance"],
-    ["the Overlord", { reason: "overlord" }, [], "Paused by you"],
+    ["memory", { reason: "memory" }, [], "Paused until memory frees"],
+    ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, [], "Paused until the allowance resets"],
+    ["the PC's restart", { reason: "restart", until: "2026-11-02T08:00:00Z" }, [], "Paused until after the restart"],
+    ["the Overlord", { reason: "overlord" }, [], "Paused until you resume it"],
     ["a question", { reason: "question", until: "q-7" }, [], "Paused until you answer"],
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, [], "Paused until Pause, Resume and Stop on the board delivers"],
     ["a task gone from the board", { reason: "dependency", until: "task:cg-old" }, [], "Paused until another task delivers"],
@@ -270,7 +273,7 @@ test("a paused card reads Paused and why in a few words, never Waiting", () => {
     ["CI with none measured", { reason: "ci", until: "run:https://github.com/o/r/actions/runs/9" + head }, [], "Paused until CI finishes"],
     ["a deploy that usually takes ten and a half minutes", { reason: "deploy", until: "run:https://github.com/o/r/actions/runs/9" + head }, usual, "Paused until its deploy finishes, usually 11 min"],
     ["a deploy measured only elsewhere", { reason: "deploy", until: "run:https://github.com/o/new/actions/runs/9" + head }, usual, "Paused until its deploy finishes"],
-    ["a pause from before pauses had reasons", undefined, [], "Paused"],
+    ["a pause from before pauses had reasons", undefined, [], "Paused until you resume it"],
   ];
 
   for (const [name, pause, measured, said] of cases) {
@@ -287,8 +290,8 @@ test("a paused card reads Paused and why in a few words, never Waiting", () => {
 test("a helper paused with its parent says it resumes with its parent, in its status and behind Details", () => {
   const parent = task({ id: "g", title: "Sync the ledger" });
   for (const [withParent, card, details] of [
-    [true, "Paused with Sync the ledger", "It resumes by itself when Sync the ledger runs again."],
-    [false, "Paused by you", "It stays paused until you resume it."],
+    [true, "Paused until Sync the ledger resumes", "It resumes by itself when Sync the ledger runs again."],
+    [false, "Paused until you resume it", "It stays paused until you resume it."],
   ] as [boolean, string, string][]) {
     const helper = task({ id: "g-h1", parent: "g", phase: "paused", lifecycle: lifecycle({ pause: { reason: "overlord", until: "", at: "2026-10-05T16:30:06Z" }, with_parent: withParent }) });
     const tasks = [parent, helper];

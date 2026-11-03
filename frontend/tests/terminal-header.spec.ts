@@ -29,8 +29,8 @@ const STATES: [string, Record<string, unknown>, string, string][] = [
   ["working", {}, "Working", "working"],
   ["waiting on CI", { phase: "waiting", waiting_on: "ci" }, "Waiting on CI", "waiting"],
   ["waiting on the CFO", { phase: "waiting", waiting_on: "overlord" }, "Waiting on the CFO", "waiting"],
-  ["waiting on another goblin", { phase: "waiting", waiting_on: WANDA.id }, "Waiting on Wanda - Map Maker", "waiting"],
-  ["paused", { phase: "paused", at, lifecycle: pause }, "Paused by you", "paused"],
+  ["waiting on another goblin", { phase: "waiting", waiting_on: WANDA.id }, "Waiting on Wanda", "waiting"],
+  ["paused", { phase: "paused", at, lifecycle: pause }, "Paused until you resume it", "paused"],
   ["resuming", { phase: "resuming" }, "Resuming", "resuming"],
   ["done", { phase: "done", verified: true }, "Delivered", "done"],
 ];

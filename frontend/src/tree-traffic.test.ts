@@ -7,7 +7,7 @@ const child = (id: string, fields: Partial<TreeNode> = {}): TreeNode => ({
   id, kind: "subagent", group: "", parent: "", label: id, detail: "", task: "", state: "working", started: "2026-10-12T12:00:00Z",
   last_activity: "2026-10-12T12:01:00Z", finished: "", last_line: "", memory: 0, source_updated_at: "", fetched_at: "", ...fields,
 });
-const tree = (...children: TreeNode[]): FleetTree => ({ task_id: "g", generation: "g1", harness: "claude", memory: 0, own_memory: 0, conversation_at: "", children, unread: [], source_updated_at: "", fetched_at: "" });
+const tree = (...children: TreeNode[]): FleetTree => ({ task_id: "g", generation: "g1", harness: "claude", memory: 0, own_memory: 0, conversation_at: "", children, line_place: 0, unread: [], source_updated_at: "", fetched_at: "" });
 
 test("the first snapshot moves nothing, since nothing came before it", () => {
   // Arrange

@@ -12,7 +12,7 @@ const child = (fields: Partial<TreeNode>): TreeNode => ({
   id: "x", kind: "subagent", group: "", parent: "", label: "", detail: "", task: "", state: "working", started: ago(10), last_activity: ago(1),
   finished: "", last_line: "", memory: 0, source_updated_at: ago(1), fetched_at: ago(0), ...fields,
 });
-const tree = (children: TreeNode[]): FleetTree => ({ task_id: "g", generation: "s1", harness: "claude", memory: 2 ** 30, own_memory: 0, conversation_at: "", children, unread: [], source_updated_at: "", fetched_at: "" });
+const tree = (children: TreeNode[]): FleetTree => ({ task_id: "g", generation: "s1", harness: "claude", memory: 2 ** 30, own_memory: 0, conversation_at: "", children, line_place: 0, unread: [], source_updated_at: "", fetched_at: "" });
 
 test("Arrange wraps a fleet with a nested goblin into rows", () => {
   for (const descendants of [1, 5, 15]) {

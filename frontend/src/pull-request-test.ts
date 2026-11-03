@@ -3,10 +3,10 @@ import { carLook, isTrainOver, trainLook, type Tone } from "./merge-train.ts";
 import type { MergeTrain, Task } from "./types.ts";
 
 // PullRequestTest is where a goblin's pull request stands under test, read
-// the same in its panel, its canvas node and its train's card, and on its
-// card while it only waits on it: the words, their tone, the page a click
-// opens and the detail in its tip.
-export interface PullRequestTest { text: string; tone: Tone; url: string; tip: string }
+// the same in its panel and its train's card, and in the tone of its card
+// and canvas node while it only waits on it: the words, their tone, the page
+// a click opens, the detail in its tip, and whether a merge train says it.
+export interface PullRequestTest { text: string; tone: Tone; url: string; tip: string; isOnTrain: boolean }
 
 // pullRequestTest is where a goblin's pull request stands under test. On a
 // merge train it reads as the train's card reads it, with the train's link:
@@ -22,9 +22,18 @@ export function pullRequestTest(task: Task, trains: MergeTrain[]): PullRequestTe
   const head = task.hosted_checks?.head;
   if (train && car && (!isTrainOver(train) || !head || !car.head || car.head === head)) {
     const look = carLook(car), whole = trainLook(train);
-    return { text: look.text, tone: look.tone, url: whole.url, tip: look.tip || whole.text };
+    return { text: look.text, tone: look.tone, url: whole.url, tip: look.tip || whole.text, isOnTrain: true };
   }
-  return task.hosted_checks && hostedChecksLook(task.hosted_checks, task.pr);
+  return task.hosted_checks && { ...hostedChecksLook(task.hosted_checks, task.pr), isOnTrain: false };
+}
+
+// landingStatus is what a goblin whose done report is in reads while its pull
+// request lands, given where it stands under test: Landing on a train while
+// one carries it, else Landing, waits to merge, and the test's own words once
+// it failed, was cancelled or landed.
+export function landingStatus(test: PullRequestTest | undefined): string {
+  if (test && (test.tone === "failed" || test.tone === "cancelled" || test.isOnTrain && test.tone === "passed")) return test.text;
+  return test?.isOnTrain ? "Landing on a train" : "Landing, waits to merge";
 }
 
 // The phases a goblin that reported its pull request done sits in while it
@@ -32,13 +41,17 @@ export function pullRequestTest(task: Task, trains: MergeTrain[]): PullRequestTe
 // past the test, it says that itself.
 const AWAITING = new Set(["idle", "review", "ready", "unavailable", "unknown"]);
 
-// awaitedTest is what a goblin reads in place of its own state on its card,
-// its panel and its canvas node while all it waits on is its pull request's
-// test: live with nothing left to do since it reported the pull request done.
-// A paused goblin reads its pause, even one paused until its pull request
-// merges, and its panel still says where the pull request stands (the
-// Overlord, 2026-10-16: "paused does it means youre on the bench").
+// isAwaitingTest says all a goblin waits on is its pull request's test: live
+// with nothing left to do since it reported the pull request done, whether or
+// not a test of it is recorded yet. A paused goblin reads its pause, even one
+// paused until its pull request merges, and its panel still says where the
+// pull request stands (the Overlord, 2026-10-16: "paused does it means youre
+// on the bench").
+export const isAwaitingTest = (task: Task): boolean =>
+  !!task.pr && !task.archived && task.report === "done" && AWAITING.has(task.phase) && !(task.phase === "review" && task.gate_step) && !task.comeback;
+
+// awaitedTest is the test whose tone a goblin's card, panel and canvas node
+// draw in place of its own phase while all it waits on is that test.
 export function awaitedTest(task: Task, trains: MergeTrain[]): PullRequestTest | undefined {
-  const isOnlyWaiting = task.report === "done" && AWAITING.has(task.phase) && !(task.phase === "review" && task.gate_step) && !task.comeback;
-  return isOnlyWaiting ? pullRequestTest(task, trains) : undefined;
+  return isAwaitingTest(task) ? pullRequestTest(task, trains) : undefined;
 }
