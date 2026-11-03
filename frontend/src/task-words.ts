@@ -157,6 +157,7 @@ function resumes(pause: PauseCondition | undefined, tasks: Task[], parent?: Task
   switch (pause?.reason) {
     case "memory": return byItself + "once 5 GB of memory is free.";
     case "allowance": return byItself + "when the allowance resets " + atOrOn(pause.until) + ".";
+    case "restart": return byItself + "after the PC restarts.";
     case "question": return byItself + "when you answer its question.";
     case "ci": return byItself + "when its CI run finishes.";
     case "deploy": return byItself + "when its deploy finishes.";
@@ -184,6 +185,7 @@ export function pauseStatus(pause: PauseCondition | undefined, tasks: Task[], us
   switch (pause?.reason) {
     case "memory": return "Paused until memory frees";
     case "allowance": return "Paused until the allowance resets";
+    case "restart": return "Paused until after the restart";
     case "overlord": return parent ? "Paused until " + (parent.goblin_name || goblinName(parent)) + " resumes" : "Paused until you resume it";
     case "question": return "Paused until you answer";
     case "ci": case "deploy": {

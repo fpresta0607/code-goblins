@@ -2,7 +2,7 @@ import type { MergeTrain, Session, Snapshot, Task } from "./types.ts";
 import { ownsTaskSession, projectSessions, sessionTitle, tasksWithoutSession } from "./lineageTree.ts";
 import { goblinName, waitStatus } from "./task-words.ts";
 import { LINE_GAP } from "./fleet-tree.ts";
-import { awaitedTest, landingStatus, pullRequestTest } from "./pull-request-test.ts";
+import { awaitedTest, isAwaitingTest, landingStatus, pullRequestTest } from "./pull-request-test.ts";
 import { shortModel } from "./model-name.ts";
 
 export type Persona = "cfo" | "builder" | "reviewer" | "tester" | "planner" | "finisher" | "general"
@@ -177,7 +177,7 @@ export function asksOverlord(snapshot: Snapshot, taskID: string): boolean {
 // waitingTarget is the goblin a waiting task waits on, when it is one the
 // board shows; a wait on the Overlord, CI, a deploy or memory names no goblin.
 export function waitingTarget(snapshot: Snapshot, task: Task): Task | undefined {
-  if (task.phase !== "waiting" || Object.hasOwn(WAITS, task.waiting_on) || isInLine(task)) return undefined;
+  if (task.phase !== "waiting" || Object.hasOwn(WAITS, task.waiting_on) || task.waiting_on === "memory") return undefined;
   return snapshot.tasks.find((candidate) => candidate.id === task.waiting_on && candidate.id !== task.id);
 }
 
@@ -196,9 +196,16 @@ const GATE_RUN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 // isInLine says a live goblin waits its turn in the machine's heavy line:
 // it reported that it waits on memory, as a goblin whose run waits there
-// does, or its session is idle while a run of its waits there. Its session
-// runs and holds its memory, unlike a paused goblin's.
-export const isInLine = (task: Task): boolean => task.phase === "waiting" && task.waiting_on === "memory" || task.phase === "idle" && !!task.tree?.line_place;
+// does, while its fleet tree is unread or places a run of its there, or its
+// session is idle while a run of its waits there. Its session runs and holds
+// its memory, unlike a paused goblin's.
+export const isInLine = (task: Task): boolean =>
+  task.phase === "waiting" && task.waiting_on === "memory" && (!task.tree || task.tree.line_place > 0) || task.phase === "idle" && !!task.tree?.line_place;
+
+// isPastLine says a goblin that reported it waits on memory has no run of its
+// left in the heavy line, as its fleet tree reads: its run holds the turn, or
+// none of its runs waits there, so it works.
+const isPastLine = (task: Task): boolean => task.phase === "waiting" && task.waiting_on === "memory" && !isInLine(task);
 
 // inLineStatus is what a goblin in the heavy line reads: its place, when the
 // supervisor read one, never memory alone (#1924).
@@ -227,14 +234,22 @@ const actionFailed = (task: Task) => task.lifecycle?.phase === "failed" && !["pa
 // under way: it waits for Start, and the CFO was told why.
 const isStartFailed = (task: Task) => task.phase === "queued" && !!task.start_error && !task.starting;
 
+// isMergedUnverified says a live goblin whose done report is in, or that
+// delivered and is not verified yet, has its pull request merged, so it reads
+// Merged, verifying, never Landing.
+const isMergedUnverified = (task: Task): boolean =>
+  task.merged && !task.archived && (isAwaitingTest(task) || task.phase === "done" && !task.verified && !task.parent);
+
 // statusPhase is the phase a task's status is drawn in: the action's for one
-// that did not finish, started for one whose start is under way, its pull
-// request's test's tone for one that waits on it, and failed for a goblin
-// that did not come back or a start that failed. trains are the board's
-// merge trains.
+// that did not finish, started for one whose start is under way, merged for
+// one whose pull request merged while it lands, its pull request's test's
+// tone for one that waits on it, failed for a goblin that did not come back
+// or a start that failed, waiting for one in the heavy line and working for
+// one whose run left it. trains are the board's merge trains.
 export function statusPhase(task: Task, trains: MergeTrain[] = []): string {
   const awaited = awaitedTest(task, trains);
-  return actionFailed(task)?.phase || (task.starting ? "started" : awaited ? "pr-" + awaited.tone : task.comeback?.state === "stopped" || isStartFailed(task) ? "failed" : isInLine(task) ? "waiting" : task.phase);
+  return actionFailed(task)?.phase || (task.starting ? "started" : isMergedUnverified(task) ? "merged" : awaited ? "pr-" + awaited.tone
+    : task.comeback?.state === "stopped" || isStartFailed(task) ? "failed" : isInLine(task) ? "waiting" : isPastLine(task) ? "working" : task.phase);
 }
 
 // The status of a queued task that already finished, whose panel carries
@@ -257,8 +272,7 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
   if (node.task && isStartFailed(node.task)) return "Start failed";
   // A queued task has no session to stop: Stop removes it from the queue.
   if (node.task?.phase === "stopping" && !node.task.generation) return "Removing";
-  const awaited = node.task && ownsTaskSession(node.session, node.task) ? awaitedTest(node.task, trains) : undefined;
-  if (awaited) return landingStatus(awaited);
+  if (node.task && ownsTaskSession(node.session, node.task) && isAwaitingTest(node.task)) return node.task.merged ? statusText("merged") : landingStatus(pullRequestTest(node.task, trains));
   if (node.task && ["paused", "pausing", "resuming", "stopping", "stopped"].includes(node.task.phase)) return statusText(node.task.phase);
   if (node.task?.comeback?.state === "waiting") return "Comes back when memory frees";
   if (node.task?.comeback?.state === "stopped") return "Did not come back after the restart";
@@ -277,6 +291,7 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
     const named = (task: Task) => task.goblin_name || goblinName(task);
     if (isWaitingOnYou) return WAITING_ON_YOU;
     if (isInLine(node.task)) return inLineStatus(node.task.tree?.line_place || 0);
+    if (isPastLine(node.task)) return statusText("working");
     if ((phase === "blocked" || phase === "failed") && reason.startsWith("Waiting on the CFO")) return "Waiting on the CFO";
     // A question it asked or a session gone quiet waits on whoever answers
     // it: a helper's parent, which its reports reach, else the CFO.
@@ -289,7 +304,7 @@ export function nodeStatus(node: WorkflowNode, isWaitingOnYou = false, tasks: Ta
       return "Waiting on " + (WAITS[target] || (awaited ? named(awaited) : GATE_RUN.test(target) ? "its gate" : target));
     }
     if (phase === "review" && Object.hasOwn(GATE_STEPS, node.task.gate_step)) return "In review gate: " + GATE_STEPS[node.task.gate_step];
-    if (phase === "done" && !verified) return parent ? "Done, awaiting parent" : node.task.pr ? landingStatus(pullRequestTest(node.task, trains)) : "Done, verifying";
+    if (phase === "done" && !verified) return parent ? "Done, awaiting parent" : node.task.merged ? statusText("merged") : node.task.pr ? landingStatus(pullRequestTest(node.task, trains)) : "Done, verifying";
     return statusText(phase);
   }
   return nativeStatus(node.session?.runtime?.state || node.session?.phase || "");

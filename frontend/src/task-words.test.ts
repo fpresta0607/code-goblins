@@ -195,6 +195,7 @@ test("a paused goblin's panel adds no line under its status, and its Details say
   const cases: [string, Record<string, unknown>, RegExp][] = [
     ["memory", { reason: "memory" }, /^It resumes by itself once 5 GB of memory is free\.$/],
     ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, /^It resumes by itself when the allowance resets on Oct \d+\.$/],
+    ["the PC's restart", { reason: "restart", until: "2026-11-02T08:00:00Z" }, /^It resumes by itself after the PC restarts\.$/],
     ["the Overlord", { reason: "overlord" }, /^It stays paused until you resume it\.$/],
     ["a question", { reason: "question", until: "q-7" }, /^It resumes by itself when you answer its question\.$/],
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, /^It resumes by itself when Pause, Resume and Stop on the board finishes\.$/],
@@ -261,6 +262,7 @@ test("a paused card reads Paused and what resumes it in a few words, never Waiti
   const cases: [string, Record<string, unknown> | undefined, CIUsual[], string | RegExp][] = [
     ["memory", { reason: "memory" }, [], "Paused until memory frees"],
     ["allowance", { reason: "allowance", until: "2026-10-09T22:27:00Z" }, [], "Paused until the allowance resets"],
+    ["the PC's restart", { reason: "restart", until: "2026-11-02T08:00:00Z" }, [], "Paused until after the restart"],
     ["the Overlord", { reason: "overlord" }, [], "Paused until you resume it"],
     ["a question", { reason: "question", until: "q-7" }, [], "Paused until you answer"],
     ["a task", { reason: "dependency", until: "task:cg-board-kill" }, [], "Paused until Pause, Resume and Stop on the board delivers"],

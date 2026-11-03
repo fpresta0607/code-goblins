@@ -41,13 +41,17 @@ export function landingStatus(test: PullRequestTest | undefined): string {
 // past the test, it says that itself.
 const AWAITING = new Set(["idle", "review", "ready", "unavailable", "unknown"]);
 
-// awaitedTest is what a goblin reads in place of its own state on its card,
-// its panel and its canvas node while all it waits on is its pull request's
-// test: live with nothing left to do since it reported the pull request done.
-// A paused goblin reads its pause, even one paused until its pull request
-// merges, and its panel still says where the pull request stands (the
-// Overlord, 2026-10-16: "paused does it means youre on the bench").
+// isAwaitingTest says all a goblin waits on is its pull request's test: live
+// with nothing left to do since it reported the pull request done, whether or
+// not a test of it is recorded yet. A paused goblin reads its pause, even one
+// paused until its pull request merges, and its panel still says where the
+// pull request stands (the Overlord, 2026-10-16: "paused does it means youre
+// on the bench").
+export const isAwaitingTest = (task: Task): boolean =>
+  !!task.pr && !task.archived && task.report === "done" && AWAITING.has(task.phase) && !(task.phase === "review" && task.gate_step) && !task.comeback;
+
+// awaitedTest is the test a goblin's card, panel and canvas node draw in
+// place of its own state while all it waits on is that test.
 export function awaitedTest(task: Task, trains: MergeTrain[]): PullRequestTest | undefined {
-  const isOnlyWaiting = task.report === "done" && AWAITING.has(task.phase) && !(task.phase === "review" && task.gate_step) && !task.comeback;
-  return isOnlyWaiting ? pullRequestTest(task, trains) : undefined;
+  return isAwaitingTest(task) ? pullRequestTest(task, trains) : undefined;
 }
