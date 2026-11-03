@@ -160,7 +160,7 @@ func (s *scratch) engine(gh *fakeGitHub) Engine {
 			s.told = append(s.told, task+": "+text)
 			return nil
 		},
-		TellCFO: func(_ context.Context, text string) error {
+		TellCFO: func(_ context.Context, _ string, text string) error {
 			s.cfo = append(s.cfo, text)
 			return nil
 		},
@@ -234,12 +234,19 @@ type fakeGitHub struct {
 	marksLate int
 	// whileLanding runs once as a train's pull request merges, after the
 	// train last read its riders.
-	whileLanding func()
+	whileLanding          func()
+	beforeList            func()
+	beforePush            func(execx.Request)
+	pushes                []execx.Request
+	shouldLosePush        bool
+	shouldLosePushRead    bool
+	unansweredBranchReads int
 	// deletesBranches removes a merged pull request's branch, as a repository
 	// that deletes head branches by itself does.
 	deletesBranches bool
 	// refuse refuses the merge of a pull request URL with this text.
-	refuse map[string]string
+	refuse    map[string]string
+	readiness string
 	// unanswered is how many of a call, "merge <url>", "view" or "create",
 	// get no answer at all, as when the network drops, before one does; lost
 	// does the call and then loses its answer, once.
@@ -290,9 +297,11 @@ type fakeGitHub struct {
 // workflow is one workflow run of the train's CI: the head it tests, how
 // often it was tried, and whether its first try fails by chance.
 type workflow struct {
-	id, tries int
-	head      string
-	isFlaky   bool
+	id, tries  int
+	head       string
+	isFlaky    bool
+	conclusion string
+	extra      []Check
 }
 
 // pull is a pull request as the fake GitHub holds it.
@@ -300,6 +309,9 @@ type pull struct {
 	number                    int
 	branch                    string
 	isDraft, isHeld, isClosed bool
+	mergeable, reviewDecision string
+	baseRefName               string
+	isCrossRepository         bool
 	// isMerged says main holds its head, and late how many reads of the open
 	// pull requests still list it.
 	isMerged bool
@@ -326,7 +338,26 @@ func (f *fakeGitHub) open(number int, branch, head string) PullRequest {
 func (f *fakeGitHub) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name == "git" {
 		request.Env = gitEnv
-		return execx.OSRunner{}.Run(ctx, request)
+		if request.Args[0] == "ls-remote" && strings.HasPrefix(request.Args[len(request.Args)-1], "refs/heads/"+BranchPrefix) && f.unansweredBranchReads > 0 {
+			f.unansweredBranchReads--
+			return execx.Result{}, errors.New("branch identity unavailable")
+		}
+		if request.Args[0] == "push" {
+			f.pushes = append(f.pushes, request)
+			if before := f.beforePush; before != nil {
+				f.beforePush = nil
+				before(request)
+			}
+		}
+		result, err := (execx.OSRunner{}).Run(ctx, request)
+		if request.Args[0] == "push" && f.shouldLosePush && err == nil && result.ExitCode == 0 {
+			f.shouldLosePush = false
+			if f.shouldLosePushRead {
+				f.unansweredBranchReads = 1
+			}
+			return execx.Result{}, errors.New("push acknowledgement lost")
+		}
+		return result, err
 	}
 	if request.Name != "gh" {
 		return execx.Result{}, fmt.Errorf("unexpected command %s", request.Name)
@@ -471,6 +502,10 @@ func flagValue(args []string, name string) string {
 // branches hold on the remote. One main took by another's merge is still
 // listed while GitHub marks it late.
 func (f *fakeGitHub) list() (execx.Result, error) {
+	if before := f.beforeList; before != nil {
+		f.beforeList = nil
+		before()
+	}
 	var open []PullRequest
 	for url, p := range f.pulls {
 		if p.isClosed || p.isMerged && p.late == 0 {
@@ -479,7 +514,10 @@ func (f *fakeGitHub) list() (execx.Result, error) {
 		if p.isMerged {
 			p.late--
 		}
-		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), IsDraft: p.isDraft}
+		pr := PullRequest{URL: url, Number: p.number, HeadRefOid: f.s.git(f.s.remote, "rev-parse", "refs/heads/"+p.branch), BaseRefName: cmp.Or(p.baseRefName, "main"), IsDraft: p.isDraft, IsCrossRepository: p.isCrossRepository, Mergeable: cmp.Or(p.mergeable, "MERGEABLE"), ReviewDecision: p.reviewDecision, Checks: []Check{{Kind: "CheckRun", Name: "test", Status: "COMPLETED", Conclusion: "SUCCESS"}}}
+		if f.ownRuns[url] != nil {
+			pr.Checks = f.riderChecks(url)
+		}
 		if p.isHeld {
 			pr.Labels = []Label{{Name: HoldLabel}}
 		}
@@ -506,6 +544,9 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.isRed(w, try) {
 		check.Conclusion = "FAILURE"
 	}
+	if w.conclusion != "" {
+		check.Conclusion = strings.ToUpper(w.conclusion)
+	}
 	if f.pending > 0 && !isLagging {
 		f.pending--
 		check.Status, check.Conclusion = "IN_PROGRESS", ""
@@ -516,11 +557,11 @@ func (f *fakeGitHub) view() (execx.Result, error) {
 	if f.skipped {
 		check.Status, check.Conclusion = "COMPLETED", "SKIPPED"
 	}
-	checks := []Check{check}
+	checks := append([]Check{check}, w.extra...)
 	if f.noChecks {
 		checks = []Check{}
 	}
-	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks})
+	data, err := json.Marshal(map[string]any{"state": f.state[f.trainURL], "headRefOid": head, "statusCheckRollup": checks, "mergeStateStatus": cmp.Or(f.readiness, "CLEAN")})
 	return execx.Result{Stdout: data}, err
 }
 
@@ -594,6 +635,9 @@ func (f *fakeGitHub) runView(id string) (execx.Result, error) {
 		view["status"], view["conclusion"] = "in_progress", ""
 	case f.isRed(w, w.tries):
 		view["conclusion"] = "failure"
+	}
+	if w.conclusion != "" {
+		view["conclusion"] = w.conclusion
 	}
 	if f.noAttempt {
 		delete(view, "attempt")

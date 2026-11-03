@@ -247,10 +247,8 @@ func Riders(open []PullRequest, base, viewer string, goblins []Goblin, past []Tr
 			why = "no goblin reported it done"
 		case pr.Author.Login != viewer:
 			why = "it was opened by " + pr.Author.Login + ", not by " + viewer + ", the account the fleet works as"
-		case pr.IsDraft:
-			why = "it is a draft"
-		case isHeld(pr):
-			why = "it is held: it carries the " + HoldLabel + " label"
+		case KeptOff(pr) != "":
+			why = KeptOff(pr)
 		case pr.IsCrossRepository:
 			why = "it comes from another repository"
 		case pr.Mergeable == "CONFLICTING":
@@ -301,6 +299,19 @@ func ownerOf(goblins []Goblin, url string) (Goblin, time.Time) {
 		}
 	}
 	return Goblin{}, time.Time{}
+}
+
+// KeptOff says why no train takes pr however its checks stand: it is a
+// draft, or it carries HoldLabel. It is empty for a pull request neither
+// keeps off.
+func KeptOff(pr PullRequest) string {
+	switch {
+	case pr.IsDraft:
+		return "it is a draft"
+	case isHeld(pr):
+		return "it is held: it carries the " + HoldLabel + " label"
+	}
+	return ""
 }
 
 func isHeld(pr PullRequest) bool {

@@ -248,11 +248,14 @@ export interface Wait { kind: string; target: string; until: string; bytes: numb
 // at which the next queued task starts; with the kernel's pools, the line past
 // which the PC is better restarted (0 when the snapshot names none) and the
 // pool tags that grew most since the sign-in began, and, while commit is the
-// tighter, the apps holding the most of it.
+// tighter, the apps holding the most of it. slot_hold says why the supervisor
+// starts and resumes no goblin by itself, a new session leaving the machine's
+// heavy line short of the floor it keeps for its next test run, and is empty
+// when it may.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; pool_line: number; pool_growth: PoolGrowth[];
-  floor: number; next: number; holders: CommitHolder[];
+  floor: number; next: number; slot_hold: string; holders: CommitHolder[];
 }
 // PoolGrowth is a kernel pool tag that grew in one pool, paged or nonpaged,
 // since the sign-in began: how much, and how much it holds now.
@@ -932,11 +935,11 @@ export function parseReadings(v: Record<string, unknown>): Readings {
   return {
     at: string(v.at),
     revision: number(v.revision),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, holders }) => ({
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, slot_hold, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), pool_line: number(pool_line),
       pool_growth: array(pool_growth).map((value) => { const g = object(value); return { tag: string(g.tag), pool: string(g.pool), grown: number(g.grown), holds: number(g.holds) }; }),
-      floor: number(floor), next: number(next),
+      floor: number(floor), next: number(next), slot_hold: string(slot_hold),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({

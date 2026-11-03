@@ -68,10 +68,11 @@ const (
 // comeBack takes the next step of the comeback checkMemory planned, at a
 // memory reading at or above the floor: the CFO first, then the next goblin
 // once memory and commit read
-// at or above the next-start mark twice in a row, the performance cores have
-// room and a launch has room, one at a time. It reports whether anything
-// still waits to come back, while which nothing else starts by itself.
-func (s *Service) comeBack(memory Memory, w *fleetWakes) (bool, error) {
+// at or above the next-start mark twice in a row, hold, as SlotHold says it,
+// is empty, the performance cores have room and a launch has room, one at a
+// time. It reports whether anything still waits to come back, while which
+// nothing else starts by itself.
+func (s *Service) comeBack(memory Memory, w *fleetWakes, hold string) (bool, error) {
 	comeback := s.Options.Comeback
 	if comeback == nil || s.Options.Example {
 		return false, nil
@@ -87,10 +88,11 @@ func (s *Service) comeBack(memory Memory, w *fleetWakes) (bool, error) {
 	if !isCFOWaiting && next < 0 {
 		return false, nil
 	}
-	// The CFO comes back whatever the processors do; a goblin waits for room
-	// on the performance cores, so a restart does not bring each back
-	// straight into the last one's builds.
-	isBusy := !isCFOWaiting && s.processorsBusy() != ""
+	// The CFO comes back whatever the processors and the heavy line do; a
+	// goblin waits for room on the performance cores, so a restart does not
+	// bring each back straight into the last one's builds, and for the memory
+	// the heavy line keeps for its next test run, as a start does (#1926).
+	isBusy := !isCFOWaiting && (s.processorsBusy() != "" || hold != "")
 	s.starts.Lock()
 	if s.starting != "" || len(s.changing) > 0 || s.isCFOComingBack {
 		s.starts.Unlock()

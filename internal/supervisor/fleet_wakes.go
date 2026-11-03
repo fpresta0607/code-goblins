@@ -116,6 +116,9 @@ type fleetWakes struct {
 	// checks said at its last poll, for its goblin's card.
 	Checks map[string]reportedChecks `json:"checks,omitempty"`
 	Hosted map[string]HostedChecks   `json:"hosted,omitempty"`
+	// KeptOff holds, by goblin pull request, why no merge train takes it as
+	// the last poll that listed it read it: a draft, or one held.
+	KeptOff map[string]string `json:"kept_off,omitempty"`
 	// Unstarted holds, by pull request, the head whose checks all concluded
 	// before any of its repository's workflows reported, and when a poll
 	// first saw that.
@@ -295,7 +298,7 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 	stateDir := s.Store.Home.State
 	w, readErr := readFleetWakes(stateDir)
 	err := errors.Join(readErr, s.pauseAtAllowanceFloor(ctx, &w, now), s.pollCI(ctx, &w, now, currentTime))
-	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now))
+	err = errors.Join(err, s.checkMemory(ctx, &w, now), s.checkDisk(&w, now), s.checkProgress(ctx, &w, now), s.checkDefender(ctx, &w, now), s.checkCFOWaits(&w, now))
 	w.RootReadings = s.currentRootReadings()
 	err = errors.Join(err, writeFleetWakes(stateDir, w))
 	var unreadable error
@@ -327,15 +330,17 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // checkMemory raises memory_ready once memory and commit both read at or
 // above the next-start mark on two readings in a row while work waits for
 // memory: a queued task a Start could start now, or a live goblin whose latest
-// report is a wait on memory. It wakes once per crossing: not again until a
-// reading falls under the floor and crosses back, and never twice within
-// memoryWakeGap. A reading under the floor goes to AFK mode's memory floor.
+// report is a wait on memory, and a new goblin would still leave the
+// machine's heavy line its next floor. It wakes once per crossing: not
+// again until a reading falls under the floor and crosses back, and never
+// twice within memoryWakeGap. A reading under the floor goes to AFK mode's
+// memory floor.
 // Every check first plans the comeback for this sign-in, before memory is
 // read, so a sign-in that never reaches the floor still records itself; a
 // planning error is reported and the rest of the check still runs. Each
-// reading at or above the floor then takes the comeback's next step after a
-// restart, and while anything waits to come back nothing else starts by
-// itself and memory_ready waits.
+// reading at or above the floor then reads the machine's heavy line once and
+// takes the comeback's next step after a restart, and while anything waits to
+// come back nothing else starts by itself and memory_ready waits.
 func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time) error {
 	w.MemoryLow = false
 	dispatch := s.Options.Dispatch
@@ -385,7 +390,7 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if low < memoryFloor {
 		w.MemorySpent, w.MemoryAbove, w.MemoryLow = false, 0, true
 		w.MemoryBelow++
-		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory))
+		return errors.Join(planningErr, s.pauseAtMemoryFloor(w, memory, now))
 	}
 	w.MemoryBelow = 0
 	if low < memoryNext {
@@ -400,17 +405,19 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if update.Installing(s.Store.Home.State) {
 		return planningErr
 	}
+	hold, lineErr := s.heavyLineHold(w, memory)
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.
 	if planningErr == nil {
-		if isComing, err := s.comeBack(memory, w); isComing || err != nil {
-			return err
+		if isComing, err := s.comeBack(memory, w, hold); isComing || err != nil {
+			return errors.Join(lineErr, err)
 		}
 	}
+	planningErr = errors.Join(planningErr, lineErr)
 	if low < memoryNext {
 		return planningErr
 	}
-	scheduled, err = s.schedule(ctx, now, w, memory)
+	scheduled, err = s.schedule(ctx, now, w, memory, hold)
 	if err != nil {
 		return errors.Join(planningErr, err)
 	}
@@ -418,7 +425,9 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if err := s.wakeWhenStalled(w, scheduled, memory, now); err != nil {
 		return errors.Join(planningErr, err)
 	}
-	if w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
+	// Memory a new goblin would take from the heavy line's next floor is the
+	// test slots', so memory_ready offers it to nothing.
+	if hold != "" || w.MemoryAbove < 2 || w.MemorySpent || !w.due("memory", memoryWakeGap, now) {
 		return planningErr
 	}
 	queued, waiting := memoryWork(s.Store.Home, s.finishedWork(), s.rowReading(now, &memory))
@@ -732,6 +741,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 		}
 		pollRunner := githubPollRunner{commands: runner, state: w, repo: repo, now: currentTime}
 		listed, pullsUnreadable, pullsErr := pollPullRequests(ctx, pollRunner, s.Store.Home.State, w, repo, mine, owners, now)
+		if listed != nil {
+			w.recordKeptOff(mine, listed)
+		}
 		mainUnreadable, mainErr := pollMain(ctx, pollRunner, s.Store.Home.State, w, repo, now, s.fileFoundRoot)
 		// A refusal one of these reads met holds the overlap read and the
 		// train as it holds the next polls: the hold refused the train's read
@@ -752,6 +764,9 @@ func (s *Service) pollCI(ctx context.Context, w *fleetWakes, now time.Time, curr
 	errs = errors.Join(errs, s.advanceUnwatchedTrains(ctx, runner, w, repos, currentTime), s.keepTrains(now))
 	maps.DeleteFunc(w.SameArea, func(id string, _ sameArea) bool {
 		return !slices.ContainsFunc(goblins, func(goblin ciGoblin) bool { return goblin.id == id })
+	})
+	maps.DeleteFunc(w.KeptOff, func(url string, _ string) bool {
+		return !slices.ContainsFunc(goblins, func(goblin ciGoblin) bool { return slices.Contains(goblin.pullRequests, url) })
 	})
 	for url, checks := range w.Checks {
 		if now.Sub(checks.At) >= ciRecordFor {

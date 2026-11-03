@@ -2049,6 +2049,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
+			if dispatch.HeavyLine != nil {
+				if hold, err := dispatch.HeavyLine(memory); err == nil {
+					memory.SlotHold = hold
+				}
+			}
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {

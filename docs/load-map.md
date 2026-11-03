@@ -173,7 +173,7 @@ The gate reads it from the default branch, and `cfo pipeline run` refuses to sta
 ## The CFO's memory
 
 The Claude SessionStart hook prints the [brief startup digest](commands/session-start.md) only in the CFO's own session and names `state/session-digest.md` for the remaining context.
-Before a Claude CFO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
+Before a Claude CFO compacts, `cfo hook pre-compact` writes `state/compact-checkpoint.md` from the fleet's disk state: each goblin and its last three status lines, lifecycle holds and AFK mode, open Command Center items and unanswered goblin questions, the goblins waiting on the CFO, unacknowledged wakes, and the newest `data/cfo-handoff-*.md` by modification time.
 It runs only for the live session that holds the primary home's lock, produces no output, and never blocks compaction.
 After compaction the brief digest names that checkpoint first under READ THIS NEXT, or says it is missing, unreadable or older than fifteen minutes.
 The checkpoint warns that holds declared only in conversation are absent; the CFO's own handoff must record them.

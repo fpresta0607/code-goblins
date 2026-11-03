@@ -603,6 +603,38 @@ func TestTheComebackWaitsForMemoryAndCommitAtTheMarks(t *testing.T) {
 	}
 }
 
+// A goblin comes back by itself as one starts: only while memory and commit,
+// less the about 1 GB its session takes, still meet the floor the machine's
+// heavy line keeps for its next test run, so a restart does not bring a
+// goblin back into the room a resumed gate run waits for (#1926). Behind a
+// run waiting for 6 GB on a line of two slots that floor is 8 GB, so 6 GB
+// free holds alpha while the CFO comes back, and 9.5 GB brings it back.
+func TestTheComebackHoldsGoblinsButNotTheCFOWhileTheHeavyLineWaits(t *testing.T) {
+	// Arrange
+	recorder := &comebackRecorder{}
+	service, h, _ := comebackBoard(t, recorder, [2]float64{6, 6}, [2]float64{6, 6}, [2]float64{6, 6}, [2]float64{9.5, 9.5})
+	service.Options.Dispatch.HeavyLine = MachineHeavyLine
+	heavyLine(t, 2, 6*gigabyte)
+	closedCFO(t, h.State)
+	terminalStarted(t, h, NativeCFOTerminal, lastSignIn.Add(time.Minute))
+	workingGoblin(t, h, "alpha", lastSignIn.Add(time.Hour))
+	var came [][]string
+
+	// Act
+	for minute := range 4 {
+		reading(t, service, minute)
+		came = append(came, recorder.came())
+	}
+
+	// Assert
+	want := [][]string{{"cfo"}, {"cfo"}, {"cfo"}, {"cfo", "alpha"}}
+	for index := range want {
+		if !slices.Equal(came[index], want[index]) {
+			t.Errorf("after reading %d came back %v, want %v", index+1, came[index], want[index])
+		}
+	}
+}
+
 // A goblin that cannot come back stays stopped with the reason on its card
 // and wakes the CFO, and the goblins after it still come back.
 func TestAGoblinThatCannotComeBackStaysStoppedWithItsReasonAndBlocksNoOther(t *testing.T) {
@@ -1172,14 +1204,14 @@ func TestTheComebackDoesNotOverlapCompetingLaunchReservations(t *testing.T) {
 			wakes := fleetWakes{MemoryAbove: 2}
 
 			for range 128 {
-				isWaiting, err := service.comeBack(memory, &wakes)
+				isWaiting, err := service.comeBack(memory, &wakes, "")
 				if err != nil || !isWaiting {
 					t.Fatalf("comeback waiting %v, error %v", isWaiting, err)
 				}
 				runtime.Gosched()
 			}
 			finish()
-			if _, err := service.comeBack(memory, &wakes); err != nil {
+			if _, err := service.comeBack(memory, &wakes, ""); err != nil {
 				t.Fatal(err)
 			}
 			awaitComeback(t, service)
@@ -1210,7 +1242,7 @@ func TestManualStartRemainsAllowedWhileTheComebackWaits(t *testing.T) {
 	if response.Code != 202 {
 		t.Fatalf("manual Start = %d %s, want accepted while alpha waits", response.Code, response.Body)
 	}
-	isWaiting, err := service.comeBack(Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, &fleetWakes{MemoryAbove: 2})
+	isWaiting, err := service.comeBack(Memory{Available: 8 * gigabyte, CommitAvailable: 8 * gigabyte}, &fleetWakes{MemoryAbove: 2}, "")
 	finish()
 	waitStarted(t, handler, "next-task")
 

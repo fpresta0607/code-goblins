@@ -286,7 +286,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		OpenPage:         (axi.Lavish{Commands: execx.OSRunner{}}).Open,
 		BoardAssets:      assets,
 		FirstRun:         firstRun,
-		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard},
+		Dispatch:         &supervisor.Dispatch{Memory: supervisor.MachineMemory, Disk: func() (supervisor.Disk, error) { return supervisor.MachineDisk(h) }, CommitHolders: supervisor.CommitHolders, Processors: supervisor.MachineProcessors, GPU: supervisor.MachineGPU, HeavyLine: supervisor.MachineHeavyLine, PoolTags: supervisor.PoolTags, Spawn: spawnFromBoard},
 		CompactCFO:       compactNativeCFO,
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
