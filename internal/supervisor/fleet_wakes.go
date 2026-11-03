@@ -335,9 +335,9 @@ func (s *Service) checkFleet(ctx context.Context, now time.Time) error {
 // Every check first plans the comeback for this sign-in, before memory is
 // read, so a sign-in that never reaches the floor still records itself; a
 // planning error is reported and the rest of the check still runs. Each
-// reading at or above the floor then takes the comeback's next step after a
-// restart, and while anything waits to come back nothing else starts by
-// itself and memory_ready waits.
+// reading at or above the floor then reads the machine's heavy line once and
+// takes the comeback's next step after a restart, and while anything waits to
+// come back nothing else starts by itself and memory_ready waits.
 func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time) error {
 	w.MemoryLow = false
 	dispatch := s.Options.Dispatch
@@ -402,18 +402,18 @@ func (s *Service) checkMemory(ctx context.Context, w *fleetWakes, now time.Time)
 	if update.Installing(s.Store.Home.State) {
 		return planningErr
 	}
+	hold, lineErr := s.heavyLineHold(w, memory)
 	// What a restart ended comes back before anything else starts by itself, and no
 	// memory wake offers its room to other work while it does.
 	if planningErr == nil {
-		if isComing, err := s.comeBack(memory, w); isComing || err != nil {
-			return err
+		if isComing, err := s.comeBack(memory, w, hold); isComing || err != nil {
+			return errors.Join(lineErr, err)
 		}
 	}
+	planningErr = errors.Join(planningErr, lineErr)
 	if low < memoryNext {
 		return planningErr
 	}
-	hold, lineErr := s.heavyLineHold(w, memory)
-	planningErr = errors.Join(planningErr, lineErr)
 	scheduled, err = s.schedule(ctx, now, w, memory, hold)
 	if err != nil {
 		return errors.Join(planningErr, err)

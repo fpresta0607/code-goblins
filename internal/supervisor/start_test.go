@@ -697,6 +697,46 @@ func TestSnapshotShowsMemoryCommitAndKernelPoolsAgainstTheFloorAndTheNextStart(t
 	}
 }
 
+// Over the next-start mark the board's memory says why nothing starts by
+// itself while a new goblin's session would leave the machine's heavy line
+// short of the floor it keeps for its next test run, so the meter does not
+// say there is room for the next task (#1926). Behind a run waiting for 6 GB
+// on a line of two slots that floor is 8 GB; a line that cannot be read holds
+// nothing, as it holds no start.
+func TestSnapshotSaysWhyNothingStartsWhileTheHeavyLineKeepsTheMemory(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		available uint64
+		isUnread  bool
+		want      string
+	}{
+		{name: "6 GB free behind a run held for memory", available: 6 * gigabyte, want: "6.0 GB of memory and commit is free; the next test run needs 8.0 GB and a new goblin 1 GB"},
+		{name: "the floor and a session free", available: 9 * gigabyte},
+		{name: "a line that cannot be read", available: 6 * gigabyte, isUnread: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			handler, _ := startBoard(t, test.available, &spawnRecorder{})
+			handler.Service.Options.Dispatch.HeavyLine = MachineHeavyLine
+			heavyLine(t, 2, 6*gigabyte)
+			if test.isUnread {
+				handler.Service.Options.Dispatch.HeavyLine = func(Memory) (string, error) { return "", errors.New("the line cannot be read") }
+			}
+
+			// Act
+			snapshot, err := handler.Service.Snapshot()
+
+			// Assert
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot.Memory == nil || snapshot.Memory.SlotHold != test.want {
+				t.Fatalf("memory = %+v, want the slot hold %q", snapshot.Memory, test.want)
+			}
+		})
+	}
+}
+
 func TestSnapshotNamesTheTopCommitHoldersOnlyWhileCommitIsTheTighter(t *testing.T) {
 	holders := []CommitHolder{{Name: "ChatGPT", Commit: 11 * gigabyte}, {Name: "cfo", Commit: 6 * gigabyte}}
 	tests := []struct {

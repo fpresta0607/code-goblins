@@ -22,12 +22,24 @@ export function tighter(memory: Memory): { isCommit: boolean; free: number; tota
 
 // The memory meter at the head of Tasks: the supervisor starts the next
 // queued task, or resumes a paused goblin whose pause cleared, once memory
-// reaches the mark, and nothing starts under the floor.
+// reaches the mark and a new goblin's session leaves the machine's heavy line
+// the floor it keeps for its next test run, and nothing starts under the
+// floor.
 export function meterState(memory: Memory): { tone: "ready" | "waiting" | "under"; text: string } {
   const { isCommit, free } = tighter(memory);
   if (free < memory.floor) return { tone: "under", text: `Under the ${gigabytes(memory.floor)} GB floor: nothing starts until ${isCommit ? "commit" : "memory"} frees.` };
   if (free < memory.next) return { tone: "waiting", text: `The next task starts at ${gigabytes(memory.next)} GB free.` };
+  const hold = slotHold(memory);
+  if (hold) return { tone: "waiting", text: hold };
   return { tone: "ready", text: "Enough memory for the next task" };
+}
+
+// Why nothing starts by itself while memory reaches the mark: a new goblin's
+// session would leave the machine's heavy line short of the floor it keeps
+// for its next test run (internal/supervisor/capacity.go), or empty when one
+// may.
+function slotHold(memory: Memory): string {
+  return memory.slot_hold && tighter(memory).free >= memory.next ? `Nothing starts by itself, keeping the test slots open: ${memory.slot_hold}.` : "";
 }
 
 // The memory bar spans twice the mark at which the CFO starts the next task,
@@ -41,9 +53,10 @@ export function meterScale(memory: Memory): { fill: number; floor: number; next:
   return { fill: percent(free), floor: percent(memory.floor), next: percent(memory.next) };
 }
 
-// What the memory bar's two marks mean, for its tip.
+// What the memory bar's two marks mean, for its tip, and why nothing starts
+// by itself while memory reaches the mark.
 export function memoryMarks(memory: Memory): string {
-  return `Red mark: the ${gigabytes(memory.floor)} GB floor. Nothing starts under it. White mark: ${gigabytes(memory.next)} GB, where the next task starts.`;
+  return [`Red mark: the ${gigabytes(memory.floor)} GB floor. Nothing starts under it. White mark: ${gigabytes(memory.next)} GB, where the next task starts.`, slotHold(memory)].filter(Boolean).join(" ");
 }
 
 // What a start or a resume needs while memory or commit is under the mark,

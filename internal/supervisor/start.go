@@ -82,6 +82,9 @@ type Dispatch struct {
 // leaking memory, with the line past which the PC is better restarted
 // (pc_restart.go) and the tags that grew most since the sign-in began, and so
 // do the apps holding the most commit once commit is the tighter of the two.
+// SlotHold is why the supervisor starts and resumes no goblin by itself at
+// this reading, keeping the test slots open, or empty when it may or the
+// machine's heavy line is not read.
 type Memory struct {
 	Available       uint64         `json:"available"`
 	Total           uint64         `json:"total"`
@@ -93,6 +96,7 @@ type Memory struct {
 	PoolGrowth      []PoolGrowth   `json:"pool_growth,omitempty"`
 	Floor           uint64         `json:"floor"`
 	Next            uint64         `json:"next"`
+	SlotHold        string         `json:"slot_hold"`
 	Holders         []CommitHolder `json:"holders,omitempty"`
 }
 
