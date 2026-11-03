@@ -3,6 +3,8 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+
+	"github.com/fpresta0607/code-goblins/internal/verify"
 )
 
 // CheckLaunch refuses a start, a resume or a spawn while memory or commit is
@@ -35,4 +37,63 @@ func (s *Service) processorsBusy() string {
 		return ""
 	}
 	return processors.shortfall()
+}
+
+// sessionMemory is about what a new goblin session takes: the next-start
+// mark is the fleet's floor and this.
+const sessionMemory = memoryNext - memoryFloor
+
+// SlotHold says why no goblin starts or resumes by itself at the reading
+// memory, or "" when one may: a new session takes about 1 GB, and memory and
+// commit less that must still meet floor, what the machine's heavy line keeps
+// for its next test run as cfo gate turns shows it, so both test slots stay
+// usable. The Overlord set this rule on 2026-11-02, by free memory and no
+// count of goblins, after goblins started over the next-start mark were
+// paused at the memory floor minutes later while heavy steps waited (#1926).
+func SlotHold(floor uint64, memory Memory) string {
+	free := min(memory.Available, memory.CommitAvailable)
+	if free >= floor+sessionMemory {
+		return ""
+	}
+	return fmt.Sprintf("%.1f GB of memory and commit is free; the next test run needs %.1f GB and a new goblin 1 GB", gigabytes(free), gigabytes(floor))
+}
+
+// MachineHeavyLine is SlotHold at the reading memory for the next run of the
+// machine's heavy line: the run at its head, or one of the default estimate
+// when none waits.
+func MachineHeavyLine(memory Memory) (string, error) {
+	dir, err := verify.AdmissionDir()
+	if err != nil {
+		return "", err
+	}
+	_, waiting, err := verify.Line(dir)
+	if err != nil {
+		return "", err
+	}
+	var estimate uint64
+	if len(waiting) > 0 {
+		estimate = waiting[0].Estimate
+	}
+	floor, err := verify.HeadFloor(dir, estimate, 0)
+	if err != nil {
+		return "", err
+	}
+	return SlotHold(floor, memory), nil
+}
+
+// heavyLineHold says why the supervisor starts and resumes no goblin by
+// itself at this reading, as SlotHold says it, or "" when it may or the line
+// is not read. A line that cannot be read holds nothing, as processors that
+// cannot be read hold nothing, and is reported once it stays unread
+// failingPasses readings in a row.
+func (s *Service) heavyLineHold(w *fleetWakes, memory Memory) (string, error) {
+	dispatch := s.Options.Dispatch
+	if dispatch == nil || dispatch.HeavyLine == nil {
+		return "", nil
+	}
+	hold, err := dispatch.HeavyLine(memory)
+	if err != nil {
+		err = fmt.Errorf("the machine's heavy line cannot be read, so no start waits on it: %w", err)
+	}
+	return hold, w.failing("heavy-line", err)
 }

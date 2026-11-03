@@ -35,9 +35,11 @@ type WaitingWork struct {
 // defect, then the paused goblin highest in the Overlord's In progress order
 // whose pause cleared, then the top of the queue, with a picked-up root issue
 // after every other queued task, unless a goblin paused for memory comes back
-// first. It says what it did, and what could run and did not, with why; a
-// board that cannot start goblins schedules nothing and says nothing.
-func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory) (*Scheduling, error) {
+// first. All it would start or resume waits while hold says a new goblin
+// would leave the machine's heavy line short of its next floor. It says what
+// it did, and what could run and did not, with why; a board that cannot
+// start goblins schedules nothing and says nothing.
+func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWakes, memory Memory, hold string) (*Scheduling, error) {
 	if s.Options.Dispatch.Spawn == nil {
 		return nil, nil
 	}
@@ -165,6 +167,13 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 		record.Waiting = append(record.Waiting, WaitingWork{ID: paused.ID, Why: "its last resume failed: " + failure.Message})
 		return failure.IsRefused && failure.Operation == paused.Operation && failure.Updated.Equal(paused.Updated)
 	})
+	// Every goblin it would start or resume, a reported production defect
+	// included, waits while its session would leave the machine's heavy line
+	// short of its next floor, so both test slots stay usable (#1926).
+	isHeldByLine := hold != "" && (len(queued) > 0 || memoryPending != "" || len(ready) > 0)
+	if hold != "" {
+		defect, queued, memoryPending, ready = "", nil, "", nil
+	}
 	// What would start by itself waits while the performance cores are busy.
 	// A reported production defect does not, nor what the Overlord started.
 	waitsOnProcessors, busy := "", ""
@@ -190,6 +199,8 @@ func (s *Service) schedule(ctx context.Context, now time.Time, watched *fleetWak
 			record.Text = "resuming " + asked[0].task + ", which the Overlord resumed"
 		}
 		s.runAsked()
+	case isHeldByLine:
+		record.Text = "nothing starts, keeping the test slots open: " + hold
 	case defect != "":
 		record.Text = "starting " + defect + ", a reported production defect"
 		startErr = s.startQueued(defect, false)
