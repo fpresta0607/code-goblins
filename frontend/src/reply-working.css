@@ -25,6 +25,8 @@
 .reply-stop { display: inline-grid; flex: none; place-items: center; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; box-shadow: none; }
 .reply-stop > .icon { width: 20px; height: 20px; color: var(--bone); opacity: 0; transition: opacity .12s ease; }
 .reply-stop:is(:hover, :focus-visible) { background: var(--glass-bg-hover); }
+/* While typing is held, Stop looks as a disabled button does. */
+.reply-stop[aria-disabled="true"] { opacity: .55; cursor: default; }
 .reply-working:is(:hover, :focus-within) .reply-stop > .icon { opacity: 1; }
 @media (pointer: coarse) {
   .reply-stop > .icon { opacity: 1; }

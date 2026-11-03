@@ -39,6 +39,9 @@ const OLDER_TRIES = 3;
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
 type PublishedMessages = MessagePage & { isWorking: boolean; said: string; canStop: boolean; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
+// What the box under the conversation shows of the session: what it spent and
+// the words he sent it.
+type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 
 // A Claude Code session's messages, read only: the supervisor's stream of
 // them (/api/messages), drawn as the session's conversation. It sits in the
@@ -75,6 +78,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // The stream keeps one latest version while the displayed history stays
   // where he reads. Returning to the end publishes it once, without replay.
   const latest = useRef(held);
+  // The box speaks for the session as it is now, however far up he reads, so
+  // it follows the stream while the history he reads holds still.
+  const [composing, setComposing] = useState<Composing>({ history: [] });
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
@@ -186,9 +192,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
       heard();
-      latest.current = { ...latest.current, ...change(latest.current) };
+      const next = { ...latest.current, ...change(latest.current) };
+      latest.current = next;
       reconcile.current();
-      if (following.current) setHeld(latest.current);
+      if (following.current) setHeld(next);
+      setComposing((prior) => composerOf(prior, next));
       setReconnecting(false);
       setPhase("live");
     };
@@ -260,7 +268,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       // A page of a conversation the view no longer shows is dropped.
       if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq) return;
       reconcile.current();
-      latest.current = { ...latest.current, ...olderMessages(latest.current, page) };
+      const longer = { ...latest.current, ...olderMessages(latest.current, page) };
+      latest.current = longer;
+      setComposing((prior) => composerOf(prior, longer));
       setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);
     }).catch((error: unknown) => {
       readingOlder.current = false;
@@ -331,7 +341,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     };
   });
   useLayoutEffect(() => {
-    latest.current = { ...latest.current, isWorking, said, canStop, isLive: phase === "live", task, sent, pending, sending };
+    // Each snapshot of the board draws the panel again with new lists of the
+    // same messages, so the view publishes only what changed, or it would
+    // draw itself a second time for every snapshot.
+    const known = latest.current, isLive = phase === "live";
+    if (known.isWorking === isWorking && known.said === said && known.canStop === canStop && known.isLive === isLive && known.task === task && known.sending === sending
+      && isSameList(known.sent, sent) && isSameList(known.pending, pending)) return;
+    latest.current = { ...known, isWorking, said, canStop, isLive, task, sent, pending, sending };
     reconcile.current();
     if (following.current) setHeld(latest.current);
     else setHeld((prior) => {
@@ -486,11 +502,8 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, []);
-  const readings = usageReadings(harness, held.usage, subscriptions, spend);
-  // What he sent the session himself, oldest first, in the words he typed:
-  // Up in the box brings them back as the terminal's history does.
-  const his = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [{ at: message.at, text: (message.source === "shell" ? "!" : "") + message.text }] : []);
-  const history = his.map((row) => row.text);
+  const readings = usageReadings(harness, composing.usage, subscriptions, spend);
+  const his = ownPrompts(held.messages);
   const ends = turnEnds(held.messages, held.isWorking);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   // Once the session's record shows his words, written since the board took
@@ -573,9 +586,27 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(held.usage?.model || model, history, held.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
+      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
     </div>}
   </section>;
+}
+
+// ownPrompts is what he sent the session himself, oldest first, in the words
+// he typed: Up in the box brings them back as the terminal's history does.
+function ownPrompts(messages: MessagePage["messages"]): { at: string; text: string }[] {
+  return messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [{ at: message.at, text: (message.source === "shell" ? "!" : "") + message.text }] : []);
+}
+
+// composerOf is what the box shows of page, prior itself while that is the
+// same, so a streamed reply he reads past draws nothing.
+function composerOf(prior: Composing, page: MessagePage): Composing {
+  const history = ownPrompts(page.messages).map((row) => row.text);
+  return prior.usage === page.usage && isSameList(prior.history, history) ? prior : { usage: page.usage, history };
+}
+
+// isSameList says two lists hold the same items in the same order.
+function isSameList<T>(one: readonly T[], other: readonly T[]): boolean {
+  return one.length === other.length && one.every((item, index) => item === other[index]);
 }
 
 // sameWords says two texts hold the same words, however a harness wrapped or

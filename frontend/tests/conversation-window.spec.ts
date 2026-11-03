@@ -442,6 +442,35 @@ test("scrolling a few pixels at a time draws the view again only when it changes
   expect(steps.slice(1).map((each, step) => moved[step] ? 0 : each.draws - steps[step].draws)).toEqual(moved.map(() => 0));
 });
 
+test("a snapshot that changes nothing in the conversation draws its view once, with the panel, and never again by itself", async ({ page }) => {
+  // Arrange: the clock stands five seconds into a minute, so the board's
+  // minute clock draws nothing, and the view follows the end of a long
+  // conversation with one of his messages queued.
+  await page.clock.install({ time: new Date("2026-10-27T12:00:05Z") });
+  await countDraws(page);
+  const actions = [{ id: "q1", kind: "message", task_id: GOBLIN.id, text: "queued while busy", status: "queued", at }];
+  await open(page, snapshot({ actions }), "", LONG);
+  await openGoblin(page);
+  await expect(log(page)).toContainText("Answer 999");
+  await expect(log(page).locator(".queued-message")).toContainText("queued while busy");
+  await page.waitForTimeout(1000);
+  const draws = () => page.evaluate(() => (window as unknown as { counted: { draws: number } }).counted.draws);
+
+  // Act: five snapshots, each a new revision with nothing in the
+  // conversation changed.
+  const drawn: number[] = [];
+  for (let revision = 2; revision < 7; revision++) {
+    const before = await draws();
+    await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision, actions }));
+    await expect.poll(draws).toBeGreaterThan(before);
+    await page.waitForTimeout(300);
+    drawn.push(await draws() - before);
+  }
+
+  // Assert: each drew the view once, as the panel drew it again.
+  expect(drawn).toEqual([1, 1, 1, 1, 1]);
+});
+
 // A conversation whose last reply ran a command, whose output folds under
 // its row.
 const WITH_CALL = { messages: [...LONG.messages.slice(0, 999), { id: "m999", seq: 999, at, kind: "reply", blocks: [

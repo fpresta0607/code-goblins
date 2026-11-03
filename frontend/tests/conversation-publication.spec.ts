@@ -1,5 +1,5 @@
 ﻿import { expect, test, type Locator, type Page } from "./site";
-import { at, field, GOBLIN, NAME, open, openGoblin, send, snapshot, typed } from "./session-board";
+import { at, box, field, GOBLIN, NAME, open, openGoblin, send, snapshot, typed } from "./session-board";
 
 const conversation = "fixture-conversation";
 const reply = (seq: number, text: string) => ({ id: "m" + seq, seq, at, kind: "reply", blocks: [{ kind: "text", text }] });
@@ -42,6 +42,14 @@ async function currentRows(talk: Locator) {
     return { sameNodes: rows.length === prior.length && rows.every((row, index) => row === prior[index]),
       rows: rows.map((row) => ({ text: row.textContent, rect: row.getBoundingClientRect().toJSON() })) };
   });
+}
+
+// pressGated presses a control the message no longer allows and expects a
+// new banner over the box to say why, not one an earlier press left.
+async function pressGated(page: Page, button: Locator, why: string) {
+  await box(page).locator(".composer-banner").evaluateAll((banners) => { for (const banner of banners) banner.setAttribute("data-seen", ""); });
+  await button.evaluate((element: HTMLButtonElement) => element.click());
+  await expect(box(page).locator(".composer-banner:not([data-seen])")).toHaveText(why);
 }
 
 async function readNearEnd(talk: Locator, page: Page) {
@@ -112,6 +120,7 @@ for (const owner of ["CFO", "goblin"] as const) {
     await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
     relay.say({ type: "held", reason: "held" });
     await expect(stop).toHaveAttribute("aria-disabled", "true");
+    await expect(stop).toHaveCSS("opacity", "0.55");
     await stop.evaluate((button: HTMLButtonElement) => button.click());
     expect(typed(relay)).toBe("\x1b");
     await page.getByRole("button", { name: "Jump to latest" }).click();
@@ -164,7 +173,8 @@ test("queued presentation stays until publication while settled controls cannot 
   for (const name of ["Send now", "Edit", "Cancel"]) {
     const button = queued.getByRole("button", { name, exact: true });
     await expect(button).toHaveCount(1);
-    await button.evaluate((element: HTMLButtonElement) => element.click());
+    await expect(button).toHaveCSS("opacity", "0.55");
+    await pressGated(page, button, "It has already left the queue.");
   }
   expect(posts).toEqual([]);
   await expect(field(page)).toHaveValue("");
@@ -266,6 +276,68 @@ for (const owner of ["CFO", "goblin"] as const) {
     expect({ id: after.id, offset: after.offset, top: after.top, text: after.text }).toEqual({ id: place.id, offset: place.offset, top: place.top, text: place.text });
   });
 }
+
+for (const where of ["at the end", "while reading"] as const) {
+  test(`a send still reaching the board says so when its controls are pressed ${where}`, async ({ page }) => {
+    // Arrange: the board has not answered his send yet, and the session works.
+    const relay = await open(page, snapshot(), "", pageOf());
+    let release = () => {};
+    const response = new Promise<void>((resolve) => { release = resolve; });
+    const posted: string[] = [];
+    await page.route("**/api/actions", async (route) => {
+      posted.push(route.request().postData() ?? "");
+      await response;
+      await route.fulfill({ status: 202, json: { status: "ok" } });
+    });
+    await openGoblin(page);
+    const talk = talkOf(page);
+    await expect.poll(() => relay.views).toBeGreaterThan(0);
+    relay.say({ type: "held", reason: "fixture hold" });
+    relay.say({ type: "screen", asking: false, open: false, working: true, doing: "Cogitating" });
+    await expect(talk.locator('[data-message="m999"]')).toBeVisible();
+    if (where === "while reading") await readNearEnd(talk, page);
+    await field(page).fill("Still on its way");
+    await send(page).click();
+    await expect.poll(() => posted.length).toBe(1);
+    const own = talk.locator("[data-queued]").filter({ hasText: "Still on its way" });
+    await expect(own).toHaveCount(1);
+
+    // Act and Assert: each control looks disabled, and a press says why and
+    // asks the board nothing.
+    for (const name of ["Send now", "Edit", "Cancel"]) {
+      const button = own.getByRole("button", { name, exact: true });
+      await expect(button).toHaveAttribute("aria-disabled", "true");
+      await expect(button).toHaveCSS("opacity", "0.55");
+      await pressGated(page, button, "It is still reaching the board.");
+    }
+    expect(posted).toHaveLength(1);
+    release();
+  });
+}
+
+test("the box follows the session while he reads up: its model, what it spent and what Up recalls", async ({ page }) => {
+  // Arrange
+  await open(page, snapshot(), "", pageOf());
+  await openGoblin(page);
+  const talk = talkOf(page);
+  await expect(talk.locator('[data-message="m999"]')).toBeVisible();
+  const place = await readNearEnd(talk, page);
+  const rows = await captureRows(talk);
+
+  // Act: he sends a message from another screen, and the session records
+  // another model and what it spent, while he reads up.
+  await page.evaluate((changed) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "messages", data: { conversation: "fixture-conversation", messages: [changed] } } })), prompt(1000, "Sent while reading up"));
+  await page.evaluate((usage) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "usage", data: { conversation: "fixture-conversation", usage } } })), { input_tokens: 12000, output_tokens: 800, context_tokens: 72000, context_window: 100000, model: "changed-model" });
+
+  // Assert: the box shows them at once, and the history he reads stays put.
+  await expect(box(page).locator(".engine-control-model")).toHaveText("Changed Model");
+  await expect(page.getByRole("meter", { name: "Context", exact: true })).toHaveAttribute("aria-valuenow", "72");
+  await field(page).press("ArrowUp");
+  await expect(field(page)).toHaveValue("Sent while reading up");
+  expect(await reading(talk)).toEqual(place);
+  expect(await currentRows(talk)).toEqual({ sameNodes: true, rows });
+  await expect(talk.locator('[data-message="m1000"]')).toHaveCount(0);
+});
 
 test("a disjoint reconnect replaces the latest page and makes the missing history reachable", async ({ page }) => {
   await open(page, snapshot(), "", pageOf(messages.slice(0, 50)));

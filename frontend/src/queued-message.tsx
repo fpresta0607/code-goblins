@@ -82,6 +82,11 @@ export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, i
   const currentTyped = !!current && current.status === "running" && !!current.awaiting;
   const canActNow = asked !== "withdrawn" && currentHeld && (variant === "queue" || liveIsWorking || current?.status === "queued");
   const canSendNow = asked !== "now" && (canActNow || currentTyped && !!current?.can_send_now && (variant === "queue" || liveIsWorking));
+  // A press the message no longer allows, as one shown while he reads up
+  // that has moved on since, says why over the box: the board has it on its
+  // way, it has left the queue, or, for a send the board has not taken yet,
+  // what that send says of itself.
+  const movedWhy = current ? "It is already on its way to its session." : action.created_at ? "It has already left the queue." : action.send_now_why || "It is still reaching the board.";
   const reason = isPending ? action.message : "";
   const kept = keptPictures(action.text);
   const why = "queued-why-" + action.id;
@@ -94,12 +99,16 @@ export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, i
     <p className="sr-only" id={why}>{reason || state}</p>
     {(canAct || canSendTyped) && asked !== "withdrawn" && <div className="queued-actions">
       <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"} aria-disabled={!canSendNow}
-        onClick={() => { if (!canSendNow || !current) return; return current.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : refuse(current.send_now_why || "It cannot be typed into its session now."); }}><Icon name="arrow-up" /></button>
+        onClick={() => {
+          if (!canSendNow || !current) refuse(current?.send_now_why || movedWhy);
+          else if (current.can_send_now) void act({ kind: "message_now" }, () => setAsked("now"));
+          else refuse(current.send_now_why || "It cannot be typed into its session now.");
+        }}><Icon name="arrow-up" /></button>
       {canAct && <>
         <button type="button" className="icon-button" aria-label="Edit" disabled={isSending} aria-disabled={!canActNow}
-          onClick={() => { if (canActNow) window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id })); }}><Icon name="edit" /></button>
+          onClick={() => { if (canActNow) window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id })); else refuse(movedWhy); }}><Icon name="edit" /></button>
         <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending} aria-disabled={!canActNow}
-          onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); }}><Icon name="close" /></button>
+          onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); else refuse(movedWhy); }}><Icon name="close" /></button>
       </>}
     </div>}
   </div>;
