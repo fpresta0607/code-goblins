@@ -56,7 +56,7 @@ export function Board({ snapshot, layout, selected, selectedTrain, now, freshNow
       return <section key={column.name} className="board-column" aria-label={column.name}>
         <h2>{column.name}<span className="column-count">{tasks.length}</span></h2>
         {trains.length > 0 && <div className="train-cards">{trains.map((train) => <MergeTrainCard key={train.id} train={train} tasks={snapshot.tasks} now={now} selected={train.id === selectedTrain} onSelect={onSelectTrain} />)}</div>}
-        {column.list === "queued" ? <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={onSelect} />
+        {column.list === "queued" ? <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} hasMeters onSelect={onSelect} />
           : <RenderBoundary scope="list">{column.list ? <RankedCards list={column.list} tasks={tasks} instance={snapshot.instance} revision={snapshot.revision} empty={empty} renderCard={card} shownRef={workingShown} saves={(order) => [...order, ...(pausedShown.current.length ? pausedShown.current : ids(paused))]} />
             : <FitList items={tasks} keyOf={(task) => task.id} empty={empty} renderItem={(task) => card(task)} />}</RenderBoundary>}
         {column.list === "progress" && paused.length > 0 && <section className="paused-tasks" aria-label="Paused">

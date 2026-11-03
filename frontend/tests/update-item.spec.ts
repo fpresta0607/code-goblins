@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { expect, openItem, openTaskList, ORIGIN, type Page, type Route, test } from "./site";
 import { parseSnapshot } from "../src/types";
 
+declare global { interface Window { outputReads: number; setHidden: (isHidden: boolean) => void } }
+
 // The Overlord, 2026-10-02: "make sure updates for code goblins comes just as
 // its own special overlord command". A new release reaches him as an item of
 // its own in the Command Center, with its own look, one Update button, and
@@ -92,6 +94,49 @@ test("Update follows the run step by step, and a rollback ends on one sentence a
   expect(sent).toMatchObject({ kind: "run", run_id: "update-v0.5.0-2", generation: "u".repeat(64) });
   expect(sent).not.toHaveProperty("command");
   await expect(dialog.locator(".update-card").getByRole("heading", { name: "Update Code Goblins" })).toBeVisible();
+});
+
+// The card reads what a running update printed once a second only while the
+// page shows (#1598): a page in the tray or a background tab reads nothing,
+// and reads at once when it shows again.
+test("a running update's output is read while the page shows and never while it is hidden", async ({ page }) => {
+  // Arrange
+  await page.clock.install({ time: new Date("2026-10-06T14:06:30Z") });
+  await page.addInitScript(() => {
+    window.outputReads = 0;
+    const read = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      if (String(input instanceof Request ? input.url : input).endsWith("/api/runs/update-v0.5.0-1/output")) window.outputReads++;
+      return read(input, init);
+    };
+    let hidden = false;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    window.setHidden = (isHidden) => { hidden = isHidden; document.dispatchEvent(new Event("visibilitychange")); };
+  });
+  await page.route("**/api/runs/update-v0.5.0-1/output", (route) => route.fulfill({ json: { state: "running", output: "[1/4] Download Code Goblins v0.5.0\n" } }));
+  const dialog = await openTheItem(page);
+  await page.evaluate(() => window.updateStep("running"));
+  await expect(dialog.locator(".update-card").getByRole("status")).toHaveText("Updating");
+  await expect.poll(() => page.evaluate(() => window.outputReads)).toBeGreaterThanOrEqual(1);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 500));
+  const shownAt = await page.evaluate(() => window.outputReads);
+  await page.clock.runFor(2000);
+  await expect.poll(() => page.evaluate(() => window.outputReads)).toBe(shownAt + 2);
+
+  // Act
+  const hiddenAt = await page.evaluate(() => { window.setHidden(true); return window.outputReads; });
+  await page.clock.runFor(5000);
+
+  // Assert
+  expect(await page.evaluate(() => window.outputReads)).toBe(hiddenAt);
+
+  // Act
+  await page.evaluate(() => window.setHidden(false));
+
+  // Assert: with the clock paused, only the read as it shows can count.
+  await expect.poll(() => page.evaluate(() => window.outputReads)).toBe(hiddenAt + 1);
+  await page.clock.runFor(1000);
+  await expect.poll(() => page.evaluate(() => window.outputReads)).toBe(hiddenAt + 2);
 });
 
 test("an update that installed says so, and its item moves to History", async ({ page }) => {

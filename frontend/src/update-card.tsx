@@ -8,7 +8,9 @@ import { object, string, type ReleaseOffer, type Run } from "./types";
 import { updateOutcome, updateProgress } from "./update-progress";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 
-// How often the card reads what a running update printed, as a run card does.
+// How often the card reads what a running update printed, as a run card does,
+// while the page shows: a page hidden in the tray or a background tab reads
+// nothing, and reads at once when it shows again (#1598).
 const OUTPUT_READ_MS = 1000;
 // The Update Code Goblins item: an event, not a goblin's question. It names
 // the version this board runs and the one it installs, what is new in a few
@@ -36,9 +38,17 @@ export function UpdateCard({ run, offer, connected, sending, error, onRun, onRet
         // The board restarts during an update; the next read tries again.
       }
     };
-    void read();
-    const timer = setInterval(() => void read(), OUTPUT_READ_MS);
-    return () => { stopped = true; clearInterval(timer); };
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const follow = () => {
+      clearInterval(timer);
+      timer = undefined;
+      if (document.hidden) return;
+      void read();
+      timer = setInterval(() => void read(), OUTPUT_READ_MS);
+    };
+    follow();
+    document.addEventListener("visibilitychange", follow);
+    return () => { stopped = true; clearInterval(timer); document.removeEventListener("visibilitychange", follow); };
   }, [running, run.id]);
   const updated = run.state === "succeeded";
   const output = running ? printed : run.output;
