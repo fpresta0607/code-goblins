@@ -100,7 +100,8 @@ func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
 // QueuedBriefText is the brief WriteQueuedBrief writes for a queued row, so
 // what routes the task before its brief exists reads what spawn will. A row
 // carries no change assessment, so its task starts in no-mistakes whatever
-// mode the row asks for, and its Verification section is that mode's.
+// mode the row asks for, and its Verification section gives the checks to
+// the pipeline.
 func QueuedBriefText(queued QueuedTask) string {
 	row := queued.Row
 	mode := row.Mode

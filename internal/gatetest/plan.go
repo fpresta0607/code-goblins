@@ -51,7 +51,7 @@ type Plan struct {
 	Unknown []string
 	// Vet and Tests are the packages Level vets and tests, as import paths
 	// or ./... for every package, and Left is each test run Level leaves to
-	// a broader level, with why.
+	// a broader level or to another platform, with why.
 	Vet, Tests []string
 	Left       []Deferred
 	// Alone are the packages Level tests that the policy runs after Tests,
