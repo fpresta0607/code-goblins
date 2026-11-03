@@ -1589,7 +1589,7 @@ Each Send marks its submitted input with an ID before typing it into the host, w
 An older terminal host needs a restart to provide this output-screen protocol, and the board refuses the connection before it can accept input so the draft stays intact.
 Every key is the terminal's while it is in, Escape included, and Shift+Escape leaves it for the panel's first control.
 It steps out by itself once the harness's input line is back, and Back to messages steps out at once and chooses Modern for the board, each handing the keyboard back to the box with his draft as he left it.
-A step in or out asks the terminal for no new size, which `frontend/tests/terminal-steps-in.spec.ts` counts at the relay.
+Sizing on a step in or out follows [the message box's presentation lifecycle](#the-message-box).
 Every terminal spec whose terminal a fixture page draws, including `terminal-held`, runs a second time stepped in, in the board's own stage (the stepped-in project in `frontend/playwright.config.ts`), and the terminal specs that load the whole board run on a Codex goblin and stepped in on a Claude Code one.
 A goblin whose terminal is gone, as one that did not come back after a restart, shows its messages, its box saying Not sent, and its terminal's own notice is behind them, while its task list names what brings it back.
 
