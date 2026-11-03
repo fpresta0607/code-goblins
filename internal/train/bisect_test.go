@@ -244,7 +244,7 @@ func TestNoPullRequestIsBlamedWhileMainItselfIsRed(t *testing.T) {
 	gh := newFakeGitHub(s)
 	lone := gh.open(91, "feat/a", s.branch("feat/a", "a.txt", "a"))
 	gh.breaks = []string{lone.HeadRefOid}
-	gh.mainRuns = `[{"workflowName":"go","status":"completed","conclusion":"failure"},{"workflowName":"go","status":"completed","conclusion":"success"},{"workflowName":"frontend","status":"completed","conclusion":"success"}]`
+	gh.mainRuns = `[{"name":"go","status":"completed","conclusion":"failure"},{"name":"go","status":"completed","conclusion":"success"},{"name":"frontend","status":"completed","conclusion":"success"}]`
 	riders, _ := Riders([]PullRequest{lone}, "main", fleetAccount, goblinsFor(lone), nil)
 	engine := s.engine(gh)
 	started, err := engine.Start(context.Background(), s.repository(), riders)
@@ -266,7 +266,7 @@ func TestNoPullRequestIsBlamedWhileMainItselfIsRed(t *testing.T) {
 	if !strings.Contains(stopped.Note, "push CI is red") || !strings.Contains(stopped.Note, "go") || strings.Contains(stopped.Note, "frontend") {
 		t.Fatalf("note = %q, want main's newest red workflow named and no other", stopped.Note)
 	}
-	if run := gh.calls[slices.IndexFunc(gh.calls, func(args []string) bool { return args[0] == "run" && args[1] == "list" })]; flagValue(run, "--commit") != started.BaseSHA || flagValue(run, "--branch") != "main" {
-		t.Fatalf("gh run list = %v, want main's runs at the commit the run was built on", run)
+	if path, query := gh.read("/actions/runs"); query.Get("head_sha") != started.BaseSHA || query.Get("branch") != "main" || query.Get("event") != "push" {
+		t.Fatalf("read %s?%s, want main's push runs at the commit the run was built on", path, query.Encode())
 	}
 }

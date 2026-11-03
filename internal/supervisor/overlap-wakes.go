@@ -14,6 +14,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/monitor"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -79,7 +80,7 @@ func (s *Service) isOverlapLive(meta state.TaskMeta, now time.Time) bool {
 // off on the next poll. What a read could not read stays on the board, and
 // is returned, to wake the CFO, once it went unread failingPasses polls in a
 // row.
-func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *fleetWakes, repo string, mine []ciGoblin, currentTime func() time.Time) error {
+func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, github *githubapi.Client, w *fleetWakes, repo string, mine []ciGoblin, currentTime func() time.Time) error {
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -108,7 +109,7 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 		}
 	}
 	now := currentTime()
-	reader := tickets.GitHub{Commands: runner}
+	reader := tickets.GitHub{Commands: runner, API: github}
 	work := s.overlapReads[repo]
 	var err error
 	if work == nil {
@@ -150,7 +151,7 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 	}
 	unread := err
 	if pages > 0 {
-		unreadAreas, err := s.readOverlaps(ctx, runner, w, work.Activity(), active, now, currentTime)
+		unreadAreas, err := s.readOverlaps(ctx, runner, github, w, work.Activity(), active, now, currentTime)
 		if err != nil {
 			return err
 		}
@@ -179,7 +180,7 @@ func (s *Service) pollOverlaps(ctx context.Context, runner execx.Runner, w *flee
 // the goblin started, and keeps on each goblin's card the teammates' work its
 // area meets. It returns what it could not read, apart from what went wrong
 // telling the CFO.
-func (s *Service) readOverlaps(ctx context.Context, runner execx.Runner, w *fleetWakes, activity tickets.Activity, active []ciGoblin, now time.Time, currentTime func() time.Time) (unread, err error) {
+func (s *Service) readOverlaps(ctx context.Context, runner execx.Runner, github *githubapi.Client, w *fleetWakes, activity tickets.Activity, active []ciGoblin, now time.Time, currentTime func() time.Time) (unread, err error) {
 	repository := activity.Repository
 	if activity.Viewer.Login == "" {
 		unread = errors.New("the GitHub viewer is unread")
@@ -193,7 +194,7 @@ func (s *Service) readOverlaps(ctx context.Context, runner execx.Runner, w *flee
 				unread = errors.Join(unread, fmt.Errorf("%s generation creation time is unread", goblin.id))
 				continue
 			}
-			area, brief, branch, err := s.overlapArea(ctx, runner, goblin)
+			area, brief, branch, err := s.overlapArea(ctx, runner, github, goblin)
 			if errors.Is(err, errGoblinMoving) {
 				continue
 			}
@@ -300,12 +301,11 @@ func overlapsOf(matches tickets.Overlaps, own map[int]bool) []Overlap {
 	return overlaps
 }
 
-
 // resolveTarget reads the base of the goblin's pull request on the branch that
 // is checked out now, and names it on the goblin. A pull request of another
 // branch is not this branch's base, and one whose base cannot be read is
 // recorded as unread so the area is reported rather than measured elsewhere.
-func resolveTarget(ctx context.Context, runner execx.Runner, goblin ciGoblin) ciGoblin {
+func resolveTarget(ctx context.Context, runner execx.Runner, github *githubapi.Client, goblin ciGoblin) ciGoblin {
 	if goblin.target != "" || goblin.targetUnread != "" || len(goblin.pullRequests) == 0 || goblin.branch == "" {
 		return goblin
 	}
@@ -322,7 +322,7 @@ func resolveTarget(ctx context.Context, runner execx.Runner, goblin ciGoblin) ci
 		if !known {
 			continue
 		}
-		base, head, err := prBaseBranch(ctx, runner, goblin.repo, url)
+		base, head, err := prBaseBranch(ctx, github, url)
 		if err != nil {
 			goblin.targetUnread = url
 			continue
@@ -341,22 +341,21 @@ func resolveTarget(ctx context.Context, runner execx.Runner, goblin ciGoblin) ci
 	return goblin
 }
 
-
 // areaBranchPaths reads the files a goblin's branch changes, resolving the
-// pull request's base here, under the overlap read's own guarded runner, so a
+// pull request's base here, under the overlap read's own guarded client, so a
 // refusal holds it like every other GitHub read and the collection pass stays
 // local. A goblin that moved since collection is re-resolved for the branch
 // read now and read once more, so one branch's target is never applied to
 // another; a second move is errGoblinMoving, which is read on the next pass.
-func (s *Service) areaBranchPaths(ctx context.Context, runner execx.Runner, goblin ciGoblin) ([]string, string, error) {
-	goblin = resolveTarget(ctx, runner, goblin)
+func (s *Service) areaBranchPaths(ctx context.Context, runner execx.Runner, github *githubapi.Client, goblin ciGoblin) ([]string, string, error) {
+	goblin = resolveTarget(ctx, runner, github, goblin)
 	paths, branch, err := branchPaths(ctx, runner, goblin)
 	if err != nil {
 		return nil, "", err
 	}
 	if goblin.branch != "" && branch != goblin.branch {
 		goblin.branch, goblin.target, goblin.targetUnread = branch, "", ""
-		goblin = resolveTarget(ctx, runner, goblin)
+		goblin = resolveTarget(ctx, runner, github, goblin)
 		repaths, again, err := branchPaths(ctx, runner, goblin)
 		if err != nil {
 			return nil, "", err
@@ -381,10 +380,10 @@ var errGoblinMoving = errors.New("the goblin's branch moved through both reads")
 // poll: on 2026-10-08 a goblin that switched branches in the tens of seconds
 // between the two read as a failed read, and goblins read late ran out of
 // the shared deadline.
-func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, goblin ciGoblin) (tickets.Area, string, string, error) {
+func (s *Service) overlapArea(ctx context.Context, runner execx.Runner, github *githubapi.Client, goblin ciGoblin) (tickets.Area, string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
-	paths, branch, err := s.areaBranchPaths(ctx, runner, goblin)
+	paths, branch, err := s.areaBranchPaths(ctx, runner, github, goblin)
 	if err != nil {
 		return tickets.Area{}, "", "", err
 	}

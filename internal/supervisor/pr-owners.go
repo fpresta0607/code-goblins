@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 )
 
 // fleetOwners are the GitHub accounts whose repositories the fleet owns: the
@@ -27,33 +27,47 @@ type fleetOwners struct {
 // owns reports whether the fleet owns the repository pr is in. Its owner is
 // the one GitHub gives in the pull request's own address, never one read
 // from a remote of the checkout, whose name says nothing of whose it is.
-func (o *fleetOwners) owns(ctx context.Context, runner execx.Runner, dir string, pr ghPullRequest) (bool, error) {
+func (o *fleetOwners) owns(ctx context.Context, github *githubapi.Client, pr ghPullRequest) (bool, error) {
 	owner, _ := pullRequestRepository(pr.URL)
 	isOwner := func(name string) bool { return strings.EqualFold(name, owner) }
 	if slices.ContainsFunc(o.named, isOwner) {
 		return true, nil
 	}
-	viewer, err := o.account(ctx, runner, dir)
+	viewer, err := o.account(ctx, github)
 	return err == nil && isOwner(viewer), err
 }
 
 // account is the account gh works as, asked once a poll.
-func (o *fleetOwners) account(ctx context.Context, runner execx.Runner, dir string) (string, error) {
+func (o *fleetOwners) account(ctx context.Context, github *githubapi.Client) (string, error) {
 	if !o.isRead {
 		o.isRead = true
-		o.viewer, o.err = runOutput(ctx, runner, dir, "gh", "api", "user", "--jq", ".login")
-		if o.err == nil && o.viewer == "" {
-			o.err = errors.New("gh named no account it works as")
-		}
+		o.viewer, o.err = GitHubAccount(ctx, github)
 	}
 	return o.viewer, o.err
 }
 
 // isAccount reports whether login is the account gh works as. While that
 // account cannot be read it is nobody's.
-func (o *fleetOwners) isAccount(ctx context.Context, runner execx.Runner, dir, login string) bool {
-	viewer, err := o.account(ctx, runner, dir)
+func (o *fleetOwners) isAccount(ctx context.Context, github *githubapi.Client, login string) bool {
+	viewer, err := o.account(ctx, github)
 	return err == nil && strings.EqualFold(viewer, login)
+}
+
+// GitHubAccount is the login of the account GitHub's API works as: the one
+// gh is signed in as, whose token it sends.
+func GitHubAccount(ctx context.Context, github *githubapi.Client) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
+	defer cancel()
+	var user struct {
+		Login string `json:"login"`
+	}
+	if err := github.Get(ctx, "user", &user); err != nil {
+		return "", err
+	}
+	if user.Login == "" {
+		return "", errors.New("GitHub named no account it works as")
+	}
+	return user.Login, nil
 }
 
 // pullRequestRepository is the owner and name of the repository a pull

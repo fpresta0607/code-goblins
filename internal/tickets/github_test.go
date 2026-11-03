@@ -2,72 +2,113 @@ package tickets
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
-// fakeGitHub answers gh the way GitHub would, from canned responses, after
-// delay, and records every call, and each one's deadline, so a test can check
-// what was asked and how often.
+// fakeGitHub answers git with the origin remote, and GitHub's API the way
+// GitHub would, from canned answers, after delay, and records every call,
+// a GraphQL query's with each of its variables as name=value, and each
+// one's deadline, so a test can check what was asked and how often.
 type fakeGitHub struct {
-	graphql         []string
-	graphqlExitCode int
-	graphqlStderr   string
-	rest            map[string]string
-	restFail        map[string]string
-	remote          string
-	failGh          string
-	delay           time.Duration
-	calls           [][]string
-	deadlines       []time.Time
+	graphql []string
+	// graphqlStatus is the HTTP status GitHub answers each GraphQL query
+	// with, 200 unless it is set.
+	graphqlStatus int
+	// rest answers each REST read by its path: a pull request's files and a
+	// comparison's as their names, one a line, and any other as GitHub's
+	// JSON answer. restFail refuses each read it names.
+	rest     map[string]string
+	restFail map[string]refusal
+	remote   string
+	// refused refuses every request.
+	refused   refusal
+	delay     time.Duration
+	calls     [][]string
+	deadlines []time.Time
 }
 
-func (f *fakeGitHub) Run(ctx context.Context, req execx.Request) (execx.Result, error) {
+// refusal is GitHub refusing a request with status and its message.
+type refusal struct {
+	status  int
+	message string
+}
+
+func (f *fakeGitHub) Run(_ context.Context, req execx.Request) (execx.Result, error) {
 	f.calls = append(f.calls, append([]string{req.Name}, req.Args...))
-	if deadline, ok := ctx.Deadline(); ok {
+	if req.Name != "git" {
+		return execx.Result{}, fmt.Errorf("unexpected command %s %v", req.Name, req.Args)
+	}
+	if f.remote == "" {
+		return execx.Result{ExitCode: 2, Stderr: []byte("error: No such remote 'origin'")}, nil
+	}
+	return execx.Result{Stdout: []byte(f.remote + "\n")}, nil
+}
+
+func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.RequestURI(), "/")
+	call := []string{"api", path}
+	if path == "graphql" {
+		_, variables, err := githubtest.Query(r)
+		if err != nil {
+			githubtest.Refuse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		for name, value := range variables {
+			call = append(call, fmt.Sprintf("%s=%v", name, value))
+		}
+	}
+	f.calls = append(f.calls, call)
+	if deadline, ok := r.Context().Deadline(); ok {
 		f.deadlines = append(f.deadlines, deadline)
 	}
 	time.Sleep(f.delay)
-	if req.Name == "git" {
-		if f.remote == "" {
-			return execx.Result{ExitCode: 2, Stderr: []byte("error: No such remote 'origin'")}, nil
-		}
-		return execx.Result{Stdout: []byte(f.remote + "\n")}, nil
-	}
-	if req.Name != "gh" || len(req.Args) < 2 || req.Args[0] != "api" {
-		return execx.Result{}, fmt.Errorf("unexpected command %s %v", req.Name, req.Args)
-	}
-	if f.failGh != "" {
-		return execx.Result{ExitCode: 1, Stderr: []byte(f.failGh)}, nil
-	}
-	if req.Args[1] == "graphql" {
-		if len(f.graphql) == 0 {
-			return execx.Result{}, fmt.Errorf("no GraphQL response left for %v", req.Args)
-		}
-		response := f.graphql[0]
+	failure, isFailing := f.restFail[path]
+	switch {
+	case f.refused.status != 0:
+		githubtest.Refuse(w, f.refused.status, f.refused.message)
+	case path == "graphql" && len(f.graphql) == 0:
+		githubtest.Refuse(w, http.StatusInternalServerError, "no GraphQL answer left")
+	case path == "graphql":
+		answer := f.graphql[0]
 		f.graphql = f.graphql[1:]
-		return execx.Result{Stdout: []byte(response), ExitCode: f.graphqlExitCode, Stderr: []byte(f.graphqlStderr)}, nil
-	}
-	for _, arg := range req.Args {
-		if stderr, ok := f.restFail[arg]; ok {
-			return execx.Result{ExitCode: 1, Stderr: []byte(stderr)}, nil
+		w.WriteHeader(max(f.graphqlStatus, http.StatusOK))
+		_, _ = w.Write([]byte(answer))
+	case isFailing:
+		githubtest.Refuse(w, failure.status, failure.message)
+	default:
+		body, ok := f.rest[path]
+		if !ok {
+			githubtest.Refuse(w, http.StatusNotFound, "no REST answer for "+path)
+			return
 		}
-		if body, ok := f.rest[arg]; ok {
-			return execx.Result{Stdout: []byte(body)}, nil
+		if strings.Contains(path, "/files?") || strings.Contains(path, "/compare/") {
+			files := []map[string]string{}
+			for _, name := range strings.Fields(body) {
+				files = append(files, map[string]string{"filename": name})
+			}
+			answer, _ := json.Marshal(files)
+			if strings.Contains(path, "/compare/") {
+				answer, _ = json.Marshal(map[string]any{"files": files})
+			}
+			body = string(answer)
 		}
+		_, _ = w.Write([]byte(body))
 	}
-	return execx.Result{}, fmt.Errorf("no REST response for %v", req.Args)
 }
 
 func (f *fakeGitHub) graphqlCalls() [][]string {
 	var calls [][]string
 	for _, call := range f.calls {
-		if len(call) > 2 && call[0] == "gh" && call[2] == "graphql" {
+		if len(call) > 1 && call[0] == "api" && call[1] == "graphql" {
 			calls = append(calls, call)
 		}
 	}
@@ -124,7 +165,7 @@ func TestReadTurnsOneGitHubReadIntoActivity(t *testing.T) {
 	}
 
 	// Act
-	activity, err := GitHub{Commands: gh}.Read(context.Background(), "fpresta0607/northwind-api", testNow)
+	activity, err := GitHub{Commands: gh, API: githubtest.Client(gh)}.Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 	// Assert
 	if err != nil {
@@ -201,7 +242,7 @@ func TestReadFollowsEveryPageOfAConnectionAndNothingElse(t *testing.T) {
 	}
 
 	// Act
-	activity, err := GitHub{Commands: gh}.Read(context.Background(), "fpresta0607/northwind-api", testNow)
+	activity, err := GitHub{Commands: gh, API: githubtest.Client(gh)}.Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 	// Assert
 	if err != nil {
@@ -231,13 +272,13 @@ func TestReadNamesWhatItCouldNotRead(t *testing.T) {
 		gh   *fakeGitHub
 		want string
 	}{
-		{name: "gh fails", gh: &fakeGitHub{failGh: "HTTP 401: Bad credentials"}, want: "HTTP 401: Bad credentials"},
+		{name: "GitHub refuses", gh: &fakeGitHub{refused: refusal{401, "Bad credentials"}}, want: "HTTP 401: Bad credentials"},
 		{name: "repository not visible", gh: &fakeGitHub{graphql: []string{`{"data":{"viewer":{"login":"fpresta0607"},"repository":null},"errors":[{"message":"Could not resolve to a Repository with the name 'fpresta0607/missing'."}]}`}}, want: "Could not resolve to a Repository"},
 		{name: "repository missing without an error", gh: &fakeGitHub{graphql: []string{`{"data":{"viewer":{"login":"fpresta0607"},"repository":null}}`}}, want: "not visible"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := GitHub{Commands: tc.gh}.Read(context.Background(), "fpresta0607/missing", testNow)
+			_, err := GitHub{Commands: tc.gh, API: githubtest.Client(tc.gh)}.Read(context.Background(), "fpresta0607/missing", testNow)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want it to name %q", err, tc.want)
 			}
@@ -256,7 +297,7 @@ func TestReadNamesAFailedPerItemReadAndKeepsTheRest(t *testing.T) {
 	cases := []struct {
 		name         string
 		failing      string
-		stderr       string
+		refusal      refusal
 		wantUnread   string
 		wantPull409  []string
 		wantBranches map[string][]string
@@ -264,7 +305,7 @@ func TestReadNamesAFailedPerItemReadAndKeepsTheRest(t *testing.T) {
 		{
 			name:         "a branch compare",
 			failing:      pageCompare,
-			stderr:       "gh: No common ancestor between main0001 and pages0001. (HTTP 404)",
+			refusal:      refusal{404, "No common ancestor between main0001 and pages0001."},
 			wantUnread:   "the changed files of branch gh-pages: ",
 			wantPull409:  []string{"schema/v1/contract.json", "schema/v1/openapi.json"},
 			wantBranches: map[string][]string{"fix/118-tax-rounding": {"services/rounding.py"}, "gh-pages": nil},
@@ -272,7 +313,7 @@ func TestReadNamesAFailedPerItemReadAndKeepsTheRest(t *testing.T) {
 		{
 			name:         "a pull request's files past the first hundred",
 			failing:      pullFiles,
-			stderr:       "gh: Server Error (HTTP 502)",
+			refusal:      refusal{502, "Server Error"},
 			wantUnread:   "the changed files of pull request 409 past the first 1: ",
 			wantPull409:  []string{"schema/v1/contract.json"},
 			wantBranches: map[string][]string{"fix/118-tax-rounding": {"services/rounding.py"}, "gh-pages": {"index.html"}},
@@ -287,17 +328,17 @@ func TestReadNamesAFailedPerItemReadAndKeepsTheRest(t *testing.T) {
 				pageCompare: "index.html\n",
 			}
 			delete(rest, tc.failing)
-			gh := &fakeGitHub{graphql: []string{withPages}, rest: rest, restFail: map[string]string{tc.failing: tc.stderr}}
+			gh := &fakeGitHub{graphql: []string{withPages}, rest: rest, restFail: map[string]refusal{tc.failing: tc.refusal}}
 
 			// Act
-			activity, err := GitHub{Commands: gh}.Read(context.Background(), "fpresta0607/northwind-api", testNow)
+			activity, err := GitHub{Commands: gh, API: githubtest.Client(gh)}.Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 			// Assert
 			if err != nil {
 				t.Fatalf("one failed read failed the whole report: %v", err)
 			}
-			if len(activity.Unread) != 1 || !strings.HasPrefix(activity.Unread[0], tc.wantUnread) || !strings.Contains(activity.Unread[0], tc.stderr) {
-				t.Fatalf("unread = %q, want one entry starting %q and naming %q", activity.Unread, tc.wantUnread, tc.stderr)
+			if refused := fmt.Sprintf("HTTP %d: %s", tc.refusal.status, tc.refusal.message); len(activity.Unread) != 1 || !strings.HasPrefix(activity.Unread[0], tc.wantUnread) || !strings.Contains(activity.Unread[0], refused) {
+				t.Fatalf("unread = %q, want one entry starting %q and naming %q", activity.Unread, tc.wantUnread, refused)
 			}
 			if got := activity.PullRequests[1].Files; !slices.Equal(got, tc.wantPull409) {
 				t.Fatalf("pull request 409 files = %v, want %v", got, tc.wantPull409)
@@ -344,7 +385,7 @@ func TestReadKeepsEarlierPagesWhenALaterGraphQLReadFails(t *testing.T) {
 	first = strings.Replace(first, `"refs":{"pageInfo":{"hasNextPage":false,"endCursor":"R1"}`, `"refs":{"pageInfo":{"hasNextPage":true,"endCursor":"R1"}`, 1)
 	gh := &fakeGitHub{graphql: []string{first, `{"data":{"repository":null},"errors":[{"message":"later page unavailable"}]}`}, rest: map[string]string{"repos/fpresta0607/northwind-api/compare/main0001...tax0001": "services/rounding.py\n"}}
 
-	activity, err := (GitHub{Commands: gh}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
+	activity, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 	if err != nil {
 		t.Fatalf("a later page discarded valid earlier activity: %v", err)
@@ -367,7 +408,7 @@ func TestReadNamesGraphQLErrorsWhileKeepingReadableConnections(t *testing.T) {
 	}}}`
 	gh := &fakeGitHub{graphql: []string{response}}
 
-	activity, err := (GitHub{Commands: gh}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
+	activity, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 	if err != nil {
 		t.Fatalf("readable item connections were discarded: %v", err)
@@ -380,14 +421,14 @@ func TestReadNamesGraphQLErrorsWhileKeepingReadableConnections(t *testing.T) {
 	}
 }
 
-func TestReadKeepsReadableGraphQLErrorDataOnNonzeroExit(t *testing.T) {
+func TestReadKeepsReadableDataBesideGraphQLErrors(t *testing.T) {
 	cases := []struct {
 		name             string
 		hasGraphQLErrors bool
-		stderr           string
+		status           int
 	}{
-		{name: "readable resolver failure", hasGraphQLErrors: true, stderr: "gh: collaboration history unavailable"},
-		{name: "ordinary refusal without GraphQL errors", stderr: "gh: forbidden (HTTP 403)"},
+		{name: "readable resolver failure", hasGraphQLErrors: true},
+		{name: "ordinary refusal without GraphQL errors", status: http.StatusForbidden},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -395,9 +436,9 @@ func TestReadKeepsReadableGraphQLErrorDataOnNonzeroExit(t *testing.T) {
 			if testCase.hasGraphQLErrors {
 				first = strings.Replace(first, `{"data":`, `{"errors":[{"message":"collaboration history unavailable"}],"data":`, 1)
 			}
-			gh := &fakeGitHub{graphql: []string{first}, graphqlExitCode: 1, graphqlStderr: testCase.stderr, rest: map[string]string{"repos/fpresta0607/northwind-api/compare/main0001...tax0001": "services/rounding.py\n"}}
+			gh := &fakeGitHub{graphql: []string{first}, graphqlStatus: testCase.status, rest: map[string]string{"repos/fpresta0607/northwind-api/compare/main0001...tax0001": "services/rounding.py\n"}}
 
-			activity, err := (GitHub{Commands: gh}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
+			activity, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 			if !testCase.hasGraphQLErrors {
 				if err == nil || !strings.Contains(err.Error(), "HTTP 403") || len(activity.Issues) != 0 || len(activity.PullRequests) != 0 {
@@ -411,9 +452,8 @@ func TestReadKeepsReadableGraphQLErrorDataOnNonzeroExit(t *testing.T) {
 			if len(activity.Issues) != 1 || len(activity.PullRequests) != 2 {
 				t.Fatalf("valid item connections were lost: %+v", activity)
 			}
-			unread := strings.Join(activity.Unread, "; ")
-			if !strings.Contains(unread, "collaboration history unavailable") || !strings.Contains(unread, "exited 1") {
-				t.Fatalf("partial response failure lacks honest error/exit evidence: %v", activity.Unread)
+			if unread := strings.Join(activity.Unread, "; "); !strings.Contains(unread, "collaboration history unavailable") {
+				t.Fatalf("partial response failure lacks GitHub's error: %v", activity.Unread)
 			}
 		})
 	}
@@ -430,7 +470,7 @@ func TestOpenWorkReadsOpenItemsAndMetadataAndNoBranch(t *testing.T) {
 	}
 
 	// Act
-	pages, err := (GitHub{Commands: gh}).Continue(context.Background(), work, 5, time.Minute)
+	pages, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Continue(context.Background(), work, 5, time.Minute)
 
 	// Assert
 	if err != nil || pages != 1 || !work.IsWhole() {
@@ -454,7 +494,7 @@ func TestOpenWorkReadsItsPagesAPassAtATimeAndAsksAgainForOneThatFailed(t *testin
 	second := `{"data":{"repository":{"nameWithOwner":"fpresta0607/northwind-api","pullRequests":{"pageInfo":{"hasNextPage":false,"endCursor":"P2"},"nodes":[
 	 {"number":401,"title":"older work","createdAt":"2026-09-20T13:30:00Z","changedFiles":1,"files":{"nodes":[{"path":"services/old.py"}]},"author":{"__typename":"User","login":"ana-teammate"}}]}}}}`
 	gh := &fakeGitHub{graphql: []string{first, `{"data":{"repository":null},"errors":[{"message":"timeout"}]}`, second}, delay: 20 * time.Millisecond}
-	github := GitHub{Commands: gh}
+	github := GitHub{Commands: gh, API: githubtest.Client(gh)}
 	work, err := StartOpenWork("fpresta0607/northwind-api", testNow)
 	if err != nil {
 		t.Fatal(err)
@@ -496,8 +536,8 @@ func TestOpenWorkAsksAgainForAFilesPageThatFailed(t *testing.T) {
 		firstFiles = append(firstFiles, fmt.Sprintf("schema/file-%03d.json", number))
 	}
 	firstFiles[0] = "schema/v1/contract.json"
-	gh := &fakeGitHub{graphql: []string{firstPageWithPullFileCount(102)}, rest: map[string]string{endpoint + "&page=1": strings.Join(firstFiles, "\n") + "\n"}, restFail: map[string]string{endpoint + "&page=2": "HTTP 502: page unavailable"}}
-	github := GitHub{Commands: gh}
+	gh := &fakeGitHub{graphql: []string{firstPageWithPullFileCount(102)}, rest: map[string]string{endpoint + "&page=1": strings.Join(firstFiles, "\n") + "\n"}, restFail: map[string]refusal{endpoint + "&page=2": {502, "page unavailable"}}}
+	github := GitHub{Commands: gh, API: githubtest.Client(gh)}
 	work, err := StartOpenWork("fpresta0607/northwind-api", testNow)
 	if err != nil {
 		t.Fatal(err)
@@ -528,12 +568,12 @@ func TestReadPullFilesUsesExplicitPagesAndKeepsPartialFiles(t *testing.T) {
 	cases := []struct {
 		name       string
 		secondBody string
-		secondFail string
+		secondFail refusal
 		wantFiles  []string
 		wantUnread string
 	}{
 		{name: "complete", secondBody: "schema/last-a.json\nschema/last-b.json\n", wantFiles: append(slices.Clone(firstFiles), "schema/last-a.json", "schema/last-b.json")},
-		{name: "later failure", secondFail: "HTTP 502: page unavailable", wantFiles: firstFiles, wantUnread: "page unavailable"},
+		{name: "later failure", secondFail: refusal{502, "page unavailable"}, wantFiles: firstFiles, wantUnread: "HTTP 502: page unavailable"},
 		{name: "short page", secondBody: "schema/last-a.json\n", wantFiles: append(slices.Clone(firstFiles), "schema/last-a.json"), wantUnread: "101 of 102"},
 	}
 	for _, testCase := range cases {
@@ -542,13 +582,13 @@ func TestReadPullFilesUsesExplicitPagesAndKeepsPartialFiles(t *testing.T) {
 				endpoint + "&page=1": strings.Join(firstFiles, "\n") + "\n",
 				endpoint + "&page=2": testCase.secondBody,
 				"repos/fpresta0607/northwind-api/compare/main0001...tax0001": "services/rounding.py\n",
-			}, restFail: map[string]string{}}
-			if testCase.secondFail != "" {
+			}, restFail: map[string]refusal{}}
+			if testCase.secondFail.status != 0 {
 				delete(gh.rest, endpoint+"&page=2")
 				gh.restFail[endpoint+"&page=2"] = testCase.secondFail
 			}
 
-			activity, err := (GitHub{Commands: gh}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
+			activity, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 			if err != nil {
 				t.Fatal(err)
@@ -562,11 +602,6 @@ func TestReadPullFilesUsesExplicitPagesAndKeepsPartialFiles(t *testing.T) {
 				}
 			} else if len(activity.Unread) != 1 || !strings.Contains(activity.Unread[0], testCase.wantUnread) {
 				t.Fatalf("unread = %v, want %q", activity.Unread, testCase.wantUnread)
-			}
-			for _, call := range gh.calls {
-				if slices.Contains(call, "--paginate") {
-					t.Fatalf("hidden pagination bypasses per-response allowance checks: %v", call)
-				}
 			}
 		})
 	}
@@ -587,7 +622,7 @@ func TestReadPullFilesNamesTheExplicitPageBound(t *testing.T) {
 		gh.rest[fmt.Sprintf("%s&page=%d", endpoint, page)] = strings.Join(files, "\n") + "\n"
 	}
 
-	activity, err := (GitHub{Commands: gh}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
+	activity, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 	if err != nil {
 		t.Fatal(err)
@@ -632,58 +667,56 @@ func TestReadKeepsReadableConnectionsWhenAnotherResolverFails(t *testing.T) {
 		"issues":%s,"pullRequests":%s,"refs":%s}}}`, errors, issues, pulls, refs)
 	}
 	for _, missing := range []string{"issues", "pulls", "refs"} {
-		for _, exitCode := range []int{0, 1} {
-			for _, isLaterPage := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/exit%d/later%t", missing, exitCode, isLaterPage), func(t *testing.T) {
-					responses := []string{page(missing, false, 200, true)}
-					wantCalls := 1
-					if isLaterPage {
-						responses = append([]string{page("", true, 100, true)}, responses...)
-						wantCalls = 2
-					}
-					gh := &fakeGitHub{graphql: responses, graphqlExitCode: exitCode, graphqlStderr: "gh: resolver unavailable", rest: map[string]string{
-						"repos/fpresta0607/northwind-api/compare/main0001...tax100": "services/rounding.py\n",
-						"repos/fpresta0607/northwind-api/compare/main0001...tax200": "services/rounding.py\n",
-					}}
+		for _, isLaterPage := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/later%t", missing, isLaterPage), func(t *testing.T) {
+				responses := []string{page(missing, false, 200, true)}
+				wantCalls := 1
+				if isLaterPage {
+					responses = append([]string{page("", true, 100, true)}, responses...)
+					wantCalls = 2
+				}
+				gh := &fakeGitHub{graphql: responses, rest: map[string]string{
+					"repos/fpresta0607/northwind-api/compare/main0001...tax100": "services/rounding.py\n",
+					"repos/fpresta0607/northwind-api/compare/main0001...tax200": "services/rounding.py\n",
+				}}
 
-					activity, err := (GitHub{Commands: gh}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
+				activity, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
-					if err != nil {
-						t.Fatalf("a failed sibling connection discarded readable data: %v", err)
+				if err != nil {
+					t.Fatalf("a failed sibling connection discarded readable data: %v", err)
+				}
+				counts := map[string]int{"issues": len(activity.Issues), "pulls": len(activity.PullRequests), "refs": len(activity.Branches)}
+				for connection, count := range counts {
+					want := wantCalls
+					if connection == missing {
+						want--
 					}
-					counts := map[string]int{"issues": len(activity.Issues), "pulls": len(activity.PullRequests), "refs": len(activity.Branches)}
-					for connection, count := range counts {
-						want := wantCalls
-						if connection == missing {
-							want--
-						}
-						if count != want {
-							t.Fatalf("%s count = %d, want %d", connection, count, want)
-						}
+					if count != want {
+						t.Fatalf("%s count = %d, want %d", connection, count, want)
 					}
-					if activity.Viewer.Login != "fpresta0607" || activity.DefaultHead != "main0001" || len(activity.Events) != 1 || len(contributors(activity, testNow)) == 0 {
-						t.Fatalf("readable collaboration evidence was lost: %+v", activity)
+				}
+				if activity.Viewer.Login != "fpresta0607" || activity.DefaultHead != "main0001" || len(activity.Events) != 1 || len(contributors(activity, testNow)) == 0 {
+					t.Fatalf("readable collaboration evidence was lost: %+v", activity)
+				}
+				for _, branch := range activity.Branches {
+					if !slices.Equal(branch.Files, []string{"services/rounding.py"}) {
+						t.Fatalf("readable branch compare was lost: %+v", branch)
 					}
-					for _, branch := range activity.Branches {
-						if !slices.Equal(branch.Files, []string{"services/rounding.py"}) {
-							t.Fatalf("readable branch compare was lost: %+v", branch)
-						}
-					}
-					unread := strings.Join(activity.Unread, "; ")
-					if !strings.Contains(unread, "open "+connectionNoun[missing]) || !strings.Contains(unread, "resolver unavailable") || exitCode != 0 && !strings.Contains(unread, "exited 1") {
-						t.Fatalf("missing connection was not explicitly unread: %v", activity.Unread)
-					}
-					if got := len(gh.graphqlCalls()); got != wantCalls {
-						t.Fatalf("missing connection kept paging: calls %d, want %d", got, wantCalls)
-					}
-				})
-			}
+				}
+				unread := strings.Join(activity.Unread, "; ")
+				if !strings.Contains(unread, "open "+connectionNoun[missing]) || !strings.Contains(unread, "resolver unavailable") {
+					t.Fatalf("missing connection was not explicitly unread: %v", activity.Unread)
+				}
+				if got := len(gh.graphqlCalls()); got != wantCalls {
+					t.Fatalf("missing connection kept paging: calls %d, want %d", got, wantCalls)
+				}
+			})
 		}
 	}
 	t.Run("ordinary refusal remains fatal with missing issues", func(t *testing.T) {
-		gh := &fakeGitHub{graphql: []string{page("issues", false, 200, false)}, graphqlExitCode: 1, graphqlStderr: "gh: forbidden (HTTP 403)"}
+		gh := &fakeGitHub{graphql: []string{page("issues", false, 200, false)}, graphqlStatus: http.StatusForbidden}
 
-		activity, err := (GitHub{Commands: gh}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
+		activity, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Read(context.Background(), "fpresta0607/northwind-api", testNow)
 
 		if err == nil || !strings.Contains(err.Error(), "HTTP 403") || len(activity.PullRequests) != 0 || len(gh.calls) != 1 {
 			t.Fatalf("ordinary refusal was accepted as partial data: activity %+v, calls %v, error %v", activity, gh.calls, err)
@@ -691,17 +724,17 @@ func TestReadKeepsReadableConnectionsWhenAnotherResolverFails(t *testing.T) {
 	})
 }
 
-func TestCollaborationKeepsNonzeroResolverFailureFatal(t *testing.T) {
+func TestCollaborationKeepsAResolverFailureFatal(t *testing.T) {
 	response := fmt.Sprintf(`{"errors":[{"message":"viewer unavailable"}],"data":{"viewer":null,"repository":{
 	"isPrivate":true,"defaultBranchRef":{"name":"main","target":{"oid":"base","history":{"nodes":[]}}},
 	"recentIssues":{"nodes":[]},"recentPullRequests":{"nodes":[]},
 	"refs":{"nodes":[{"name":"feat/owner","target":{"oid":"head","committedDate":"%s","author":{"name":"Overlord","user":{"login":"fpresta0607"}}}}],"pageInfo":{"hasNextPage":false}}
 	}}}`, testNow.Format(time.RFC3339))
-	gh := &fakeGitHub{graphql: []string{response}, graphqlExitCode: 1, graphqlStderr: "gh: viewer unavailable"}
+	gh := &fakeGitHub{graphql: []string{response}}
 
-	result, err := (GitHub{Commands: gh}).Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
+	result, err := (GitHub{Commands: gh, API: githubtest.Client(gh)}).Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
 
-	if err == nil || !strings.Contains(err.Error(), "exited 1") || result.IsCollaborative {
+	if err == nil || !strings.Contains(err.Error(), "viewer unavailable") || result.IsCollaborative {
 		t.Fatalf("failed identity read enabled collaboration: result %+v, error %v", result, err)
 	}
 }

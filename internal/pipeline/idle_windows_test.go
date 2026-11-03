@@ -55,7 +55,7 @@ func TestIdleRefusesDurableActiveAndUnknownRuns(t *testing.T) {
 	if out, err := exec.Command(sqlite, path, runsFixture+`INSERT INTO runs VALUES('01RUN','repo','feat/a','completed',1);`).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
-	r := Reader{Root: dir, Commands: execx.OSRunner{}}
+	r := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
 	for _, test := range []struct {
 		status string
 		isIdle bool
@@ -125,7 +125,7 @@ func TestIdleNamesTheRunsItWaitsFor(t *testing.T) {
 				}
 				defer release()
 			}
-			release, err := Reader{Root: dir, Commands: execx.OSRunner{}}.Idle(context.Background())
+			release, err := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}.Idle(context.Background())
 			if !errors.Is(err, ErrBusy) {
 				if release != nil {
 					release()

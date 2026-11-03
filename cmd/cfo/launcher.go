@@ -78,6 +78,16 @@ func readBoardRecord(stateDir string) (boardRecord, error) {
 	return record, nil
 }
 
+// hookBoard is the board a goblin started now posts its hooks to
+// (install.GoblinHooks): the one the home's record names, or else the address
+// the home's board listens at once it starts.
+func hookBoard(stateDir string) string {
+	if record, err := readBoardRecord(stateDir); err == nil {
+		return record.URL
+	}
+	return "http://" + boardAddress()
+}
+
 // removeBoardRecord removes the record only while it still names pid, so a
 // supervisor never removes its successor's.
 func removeBoardRecord(stateDir string, pid int) {

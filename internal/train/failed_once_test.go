@@ -93,7 +93,7 @@ func TestATrainLandsAndSaysSoWhenTheTestsThatFailedOnceCannotBeRead(t *testing.T
 		arrange func(*fakeGitHub)
 		want    string
 	}{
-		"gh fails":                       {func(gh *fakeGitHub) { gh.onceFailure = "HTTP 502: Bad Gateway" }, "gh exited 1: HTTP 502: Bad Gateway"},
+		"GitHub fails":                   {func(gh *fakeGitHub) { gh.onceFailure = "HTTP 502: Bad Gateway" }, "GitHub answered POST graphql with HTTP 502: HTTP 502: Bad Gateway"},
 		"GitHub lists no workflow check": {func(gh *fakeGitHub) { gh.once = `{"data":{"repository":{"object":{"checkSuites":{"nodes":[]}}}}}` }, "GitHub listed no workflow check for "},
 	} {
 		t.Run(name, func(t *testing.T) {

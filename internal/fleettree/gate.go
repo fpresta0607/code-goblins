@@ -20,8 +20,8 @@ type GateProgress interface {
 	UsualStepTimes(ctx context.Context) (map[string]time.Duration, error)
 }
 
-// GateEvery is how long one reading of a goblin's gate stands: each starts
-// two sqlite3 processes.
+// GateEvery is how long one reading of a goblin's gate stands: each reads
+// the gate's database twice.
 const GateEvery = time.Minute
 
 // UsualEvery is how long one reading of how long gate steps usually run

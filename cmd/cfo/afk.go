@@ -293,12 +293,12 @@ func hisCommand(file string) (shell, command string, err error) {
 const pullRequestReadTimeout = 20 * time.Second
 
 // pullRequestStateReader is how the command asks GitHub about a pull request:
-// through gh, unless the runtime names another way.
+// through GitHub's API, unless the runtime names another way.
 func (r commandRuntime) pullRequestStateReader() func(context.Context, string) (supervisor.PullRequestInfo, error) {
 	if r.pullRequestState != nil {
 		return r.pullRequestState
 	}
-	return supervisor.GitHubPullRequestState(execx.OSRunner{})
+	return supervisor.GitHubPullRequestState(r.githubAPI, execx.OSRunner{})
 }
 
 // runAFKStrike sends the strike of one line the CFO logged by mistake.

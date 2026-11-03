@@ -16,6 +16,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/disk"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleetconfig"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/gatetest"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
@@ -97,7 +98,7 @@ func approvedHeads(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	summaries, err := pipeline.Reader{Root: root, Commands: execx.OSRunner{}}.ApprovedGateSummaries(ctx)
+	summaries, err := pipeline.Reader{Root: root, Commands: gatedb.Runner{Next: execx.OSRunner{}}}.ApprovedGateSummaries(ctx)
 	if err != nil {
 		return nil, err
 	}

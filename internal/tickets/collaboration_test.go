@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 )
 
 func collaborationPage(isPrivate bool, commitAuthor, branchAuthor string) string {
@@ -45,7 +47,7 @@ func TestCollaborationReadsWhoWorksThereInOneRound(t *testing.T) {
 			gh := &fakeGitHub{graphql: []string{tc.page}}
 
 			// Act
-			got, err := GitHub{Commands: gh}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
+			got, err := GitHub{Commands: gh, API: githubtest.Client(gh)}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
 
 			// Assert
 			if err != nil {
@@ -89,7 +91,7 @@ func TestCollaborationCountsOnlyCommitsAndPullRequestsAsActive(t *testing.T) {
 	gh := &fakeGitHub{graphql: []string{page}}
 
 	// Act
-	got, err := GitHub{Commands: gh}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
+	got, err := GitHub{Commands: gh, API: githubtest.Client(gh)}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
 
 	// Assert
 	if err != nil {
@@ -106,8 +108,8 @@ func TestCollaborationCountsOnlyCommitsAndPullRequestsAsActive(t *testing.T) {
 }
 
 func TestCollaborationNamesWhatItCouldNotRead(t *testing.T) {
-	gh := &fakeGitHub{failGh: "HTTP 401: Bad credentials"}
-	_, err := GitHub{Commands: gh}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
+	gh := &fakeGitHub{refused: refusal{401, "Bad credentials"}}
+	_, err := GitHub{Commands: gh, API: githubtest.Client(gh)}.Collaboration(context.Background(), "fpresta0607/northwind-api", testNow)
 	if err == nil || !strings.Contains(err.Error(), "HTTP 401") {
 		t.Fatalf("err = %v, want GitHub's failure", err)
 	}
@@ -152,7 +154,7 @@ func TestShouldBackOffReadsGitHubsRefusals(t *testing.T) {
 	for _, tc := range cases {
 		issue := "repos/" + northwind + "/issues/501"
 		gh := &issueGitHub{failures: map[string]int{"PATCH " + issue: tc.status, "GET repos/" + northwind: tc.status}}
-		_, err := GitHub{Commands: gh}.Apply(context.Background(), northwind, openedRecord(InProgress, "cfo: in progress", "goblin: claude"), Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude"}, nil)
+		_, err := GitHub{API: githubtest.Client(gh)}.Apply(context.Background(), northwind, openedRecord(InProgress, "cfo: in progress", "goblin: claude"), Ticket{TaskID: "nw-sync", State: Paused, Harness: "claude"}, nil)
 		if got := ShouldBackOff(err); got != tc.want {
 			t.Fatalf("status %d: back off = %v (err %v), want %v", tc.status, got, err, tc.want)
 		}

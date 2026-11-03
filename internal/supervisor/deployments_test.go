@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/githubtest"
 	"github.com/fpresta0607/code-goblins/internal/state"
 )
 
@@ -40,6 +41,7 @@ func cardDeployment(t *testing.T, runs ...string) map[string]any {
 	forge := forgeFor(project, "cg-wakes")
 	forge.branch, forge.pulls, forge.runs, forge.jobs = "feat/wakes", "[]", "["+strings.Join(runs, ",")+"]", `{"jobs":[]}`
 	s.Options.CI = forge
+	s.Options.GitHub = githubtest.Client(forge)
 	now := time.Date(2026, 9, 30, 12, 31, 0, 0, time.UTC)
 	if err := s.checkFleet(context.Background(), now); err != nil {
 		t.Fatal(err)

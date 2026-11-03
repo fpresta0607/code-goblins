@@ -68,14 +68,14 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 		}
 		return runHookParts(stdout, stderr,
 			hookPart{name: "the native hook", limit: nativeHookLimit, run: func(stdout, stderr io.Writer) int {
-				return nativeHookEvent(args[0], *root, *dir, bytes.NewReader(payload), stdout, stderr)
+				return nativeHookEvent(args[0], *root, *dir, os.Getenv, bytes.NewReader(payload), stdout, stderr)
 			}},
 			hookPart{name: "the key alarm", limit: keyAlarmLimit, run: func(stdout, stderr io.Writer) int {
-				return goblinKeyAlarm(args[0], *dir, bytes.NewReader(payload), stderr)
+				return goblinKeyAlarm(args[0], *dir, os.Getenv, bytes.NewReader(payload), stderr)
 			}},
 		)
 	}
-	return nativeHookEvent(args[0], *root, *dir, input, stdout, stderr)
+	return nativeHookEvent(args[0], *root, *dir, os.Getenv, input, stdout, stderr)
 }
 
 // nativeHookEvent reports one event of a harness's native hook, read from
@@ -83,8 +83,9 @@ func runNativeHook(args []string, input io.Reader, stdout, stderr io.Writer, run
 // spools the event and returns: what a Codex or pi CFO's turn end or
 // compaction asks of the fleet, the supervisor does as it ingests the event
 // (supervisor.Service.followNativeCFO), so the harness never waits on it.
-func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, stderr io.Writer) int {
-	e, err := nativehook.Normalize(input, nativehook.Context{Harness: harnessName, Role: os.Getenv("CFO_ROLE"), TaskID: os.Getenv("CFO_TASK_ID"), Generation: os.Getenv("CFO_SPAWN_GEN"), ParentSessionID: os.Getenv("CFO_PARENT_SESSION_ID"), ParentHarness: os.Getenv("CFO_PARENT_HARNESS"), RootSessionID: os.Getenv("CFO_ROOT_SESSION_ID"), HostID: os.Getenv(host.IDVariable)})
+// getenv reads the session's environment.
+func nativeHookEvent(harnessName, root, dir string, getenv func(string) string, input io.Reader, stdout, stderr io.Writer) int {
+	e, err := nativehook.Normalize(input, nativehook.Context{Harness: harnessName, Role: getenv("CFO_ROLE"), TaskID: getenv("CFO_TASK_ID"), Generation: getenv("CFO_SPAWN_GEN"), ParentSessionID: getenv("CFO_PARENT_SESSION_ID"), ParentHarness: getenv("CFO_PARENT_HARNESS"), RootSessionID: getenv("CFO_ROOT_SESSION_ID"), HostID: getenv(host.IDVariable)})
 	if errors.Is(err, nativehook.ErrUnstartedSubagent) {
 		fmt.Fprintln(stdout, "{}")
 		return 0
@@ -123,7 +124,7 @@ func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, std
 	// shows on the board as the registration state rather than in the reply.
 	// It stays in the hook: only a process in the CFO's own session can prove
 	// it is one.
-	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && os.Getenv(host.IDVariable) != "" {
+	if e.Kind == "started" && e.Role == "cfo" && e.TaskID == "" && (e.Harness == "codex" || e.Harness == "pi") && getenv(host.IDVariable) != "" {
 		_, _ = supervisor.Register(dir, e.Harness, e.SessionID)
 	}
 	return 0

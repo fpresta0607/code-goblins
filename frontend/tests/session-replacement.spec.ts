@@ -28,7 +28,17 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
       } else if (state === "ended") {
         relay.end();
         await expect(page.locator(".terminal-foot.box")).toBeVisible();
-      } else relay.drop();
+      } else {
+        // The relay turns each retry away and the gesture waits for one, so it
+        // lands after the retry that would have made the terminal live again
+        // and handed the gesture to Codex, while the board still says it is
+        // reconnecting (#1606).
+        const views = relay.views;
+        relay.refuse();
+        relay.drop();
+        await expect.poll(() => relay.views).toBeGreaterThan(views);
+        await expect(page.locator(".terminal-corner.warning")).toHaveText("Reconnecting");
+      }
       if (input === "keyboard") await page.getByRole("textbox", { name: "Terminal input", exact: true }).press("Shift+PageUp");
       // The wheel goes over the terminal's top rows, and the history is what
       // the wheel asks for.

@@ -32,9 +32,11 @@ const (
 )
 
 // workerIdle is how long a loaded engine waits for the next dictation before
-// it is ended. It stays loaded between dictations, holding about 800 MB, and
-// a dictation after a longer pause loads it again as the keys are pressed.
-var workerIdle = 30 * time.Minute
+// it is ended, giving back the 700 to 850 MB it holds. The Overlord's
+// dictations in one burst come up to four minutes apart and the bursts at
+// least eleven, and a dictation after a longer pause loads the engine again
+// as the keys are pressed, in about 2.5 s, hidden behind anything longer said.
+var workerIdle = 5 * time.Minute
 
 // workerEnvironment is all of this process's environment the worker gets:
 // what Windows needs to start a program and find its temporary folder, and no
@@ -87,9 +89,9 @@ type worker struct {
 	end     context.CancelFunc
 	input   io.Writer
 	output  io.Reader
-	log    workerLog
-	exited chan struct{}
-	idle   *time.Timer
+	log     workerLog
+	exited  chan struct{}
+	idle    *time.Timer
 	// uses counts the dictations it answered and the warmings that kept it,
 	// so an idle timer that fired while another had the turn knows it is out
 	// of date.

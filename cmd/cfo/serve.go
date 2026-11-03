@@ -21,6 +21,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/boardweb"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
@@ -181,7 +182,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	var rootIssues *supervisor.RootIssues
 	if !*example {
 		ticketKeeping = ticketWriter(execx.OSRunner{}, runtime)
-		github := tickets.GitHub{Commands: execx.OSRunner{}}
+		github := tickets.GitHub{Commands: execx.OSRunner{}, API: runtime.githubAPI}
 		rootIssues = &supervisor.RootIssues{Checkout: runtime.resolveProject, Repository: github.RepositoryOf, OpenRoots: github.OpenRoots, IssueState: github.IssueState, ClosingPullRequests: github.OpenClosingPullRequests}
 	}
 	// The board looks for a newer release of Code Goblins; an example board
@@ -233,10 +234,11 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 	}
 	// The board reads the same heads, refs and gate runs every minute: one
 	// cache answers each read while the files it reads are unchanged, so a
-	// refresh over work nobody changed starts no git and no sqlite3, and a
-	// goblin's gate custody is checked once per change of its newest run.
+	// refresh over work nobody changed starts no git, and a goblin's gate
+	// custody is checked once per change of its newest run. A read of the
+	// gate's database the cache cannot answer is read in process (gatedb).
 	reads := readcache.New()
-	cached := readcache.Runner{Cache: reads, Next: execx.OSRunner{}}
+	cached := readcache.Runner{Cache: reads, Next: gatedb.Runner{Next: execx.OSRunner{}}}
 	gate := pipeline.Reader{Root: root, Commands: cached, Custody: pipeline.NewCustodyCache()}
 	// The board's family tree and the monitor's progress evidence read
 	// through one reader, so they never disagree about what a goblin does.
@@ -274,7 +276,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		CFO:              &supervisor.CFOConnection{State: h.State, Terminals: terminal.HerdrSessions(&herdr.Client{Commands: execx.OSRunner{}, Sockets: herdr.NewSocketCache()})},
 		Gate:             gate,
 		MergedPRs:        supervisor.GitMergedPRs(supervisor.FleetRepos(h, projects)),
-		PullRequestState: supervisor.GitHubPullRequestState(execx.OSRunner{}),
+		PullRequestState: supervisor.GitHubPullRequestState(runtime.githubAPI, execx.OSRunner{}),
 		FileRoot:         fileRootFrom(runtime, *example),
 		Reconcile:        func(ctx context.Context) error { return watch.Reconcile(ctx, config) },
 		VerifyDelivery:   (supervisor.Git{}).VerifyDelivery,
@@ -291,6 +293,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		// The CI wakes only read GitHub, as PullRequestState does, so an
 		// example home keeps them.
 		CI:       cached,
+		GitHub:   runtime.githubAPI,
 		Progress: cached,
 		Reads:    reads,
 		// The Defender wakes only read what Defender recorded, as cfo
@@ -331,6 +334,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		go remoteSetting.FollowBoard(ctx, func(line string) { fmt.Fprintln(stderr, line) })
 	}
 	handler := supervisor.NewHTTP(s, listener.Addr().String(), assets)
+	handler.GoblinHooks = goblinHookHandler{home: h}
 	// After an update to a build that pins a newer speech model, the board
 	// replaces the earlier one now rather than at the first dictation.
 	handler.ReplaceDictation()

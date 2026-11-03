@@ -457,7 +457,7 @@ type gateRebaseRunner struct {
 
 func (r *gateRebaseRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "no-mistakes" {
-		return execx.OSRunner{}.Run(ctx, request)
+		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
 	}
 	switch strings.Join(request.Args, " ") {
 	case "axi sync --recover --keep-local":
@@ -624,7 +624,7 @@ type recordedHeadRunner struct {
 
 func (r *recordedHeadRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "no-mistakes" {
-		return execx.OSRunner{}.Run(ctx, request)
+		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
 	}
 	row, err := exec.Command("sqlite3", "-separator", " ", r.database, "SELECT head_sha, submitted_head_sha, COALESCE(custody_returned_at,0) FROM runs WHERE id="+sqlString(r.run)).Output()
 	if err != nil {

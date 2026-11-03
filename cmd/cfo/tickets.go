@@ -12,21 +12,24 @@ import (
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 )
 
 const ticketsUsage = "cfo tickets <project> [--brief <file>] [--files <paths>] [--json] | cfo tickets <project> --allow-public-tickets"
 
-// readRepositoryActivity reads what GitHub says is happening in the
-// repository a checkout's origin names.
-func readRepositoryActivity(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error) {
-	github := tickets.GitHub{Commands: execx.OSRunner{}}
-	repository, err := github.RepositoryOf(ctx, checkout)
-	if err != nil {
-		return tickets.Activity{}, err
+// repositoryActivity reads, through github, what GitHub says is happening in
+// the repository a checkout's origin names.
+func repositoryActivity(github *githubapi.Client) func(context.Context, string, time.Time) (tickets.Activity, error) {
+	reader := tickets.GitHub{Commands: execx.OSRunner{}, API: github}
+	return func(ctx context.Context, checkout string, now time.Time) (tickets.Activity, error) {
+		repository, err := reader.RepositoryOf(ctx, checkout)
+		if err != nil {
+			return tickets.Activity{}, err
+		}
+		return reader.Read(ctx, repository, now)
 	}
-	return github.Read(ctx, repository, now)
 }
 
 // checkoutHas reports whether a checkout has a repository path, written with
@@ -38,18 +41,18 @@ func checkoutHas(checkout string) func(repositoryPath string) bool {
 	}
 }
 
-// ticketWriter is what the supervisor keeps tickets with: gh for GitHub, and
-// the machine's projects root for a task that names its project by a bare
-// name.
+// ticketWriter is what the supervisor keeps tickets with: GitHub's API for
+// GitHub, and the machine's projects root for a task that names its project
+// by a bare name.
 func ticketWriter(commands execx.Runner, runtime commandRuntime) *supervisor.Tickets {
-	github := tickets.GitHub{Commands: commands}
+	github := tickets.GitHub{Commands: commands, API: runtime.githubAPI}
 	return &supervisor.Tickets{
 		Checkout:         runtime.resolveProject,
 		Repository:       github.RepositoryOf,
 		Collaboration:    github.Collaboration,
 		EnsureLabels:     github.EnsureLabels,
 		Apply:            github.Apply,
-		PullRequestState: supervisor.GitHubPullRequestState(commands),
+		PullRequestState: supervisor.GitHubPullRequestState(runtime.githubAPI, commands),
 	}
 }
 

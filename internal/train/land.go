@@ -2,7 +2,6 @@ package train
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -222,13 +221,15 @@ func (e Engine) recheck(ctx context.Context, t *Train) ([]string, string, error)
 // openPulls reads the open pull requests into the train's base as GitHub has
 // them now.
 func (e Engine) openPulls(ctx context.Context, t Train) ([]PullRequest, error) {
-	out, err := e.run(ctx, t.Checkout, "gh", "pr", "list", "--repo", t.Repository, "--state", "open", "--base", t.Base, "--limit", "100", "--json", "url,headRefOid,baseRefName,isDraft,isCrossRepository,mergeable,reviewDecision,labels,statusCheckRollup")
+	ctx, cancel := context.WithTimeout(ctx, callWithin)
+	defer cancel()
+	listed, err := ListPullRequests(ctx, e.GitHub, t.Repository, t.Base, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list the open pull requests of %s: %w", t.Repository, err)
 	}
-	var open []PullRequest
-	if err := json.Unmarshal([]byte(out), &open); err != nil {
-		return nil, fmt.Errorf("gh listed the open pull requests of %s in a shape it cannot read: %w", t.Repository, err)
+	open := make([]PullRequest, 0, len(listed))
+	for _, pr := range listed {
+		open = append(open, pr.PullRequest())
 	}
 	return open, nil
 }

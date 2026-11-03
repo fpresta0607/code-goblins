@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/gatedb"
 )
 
 func TestReviewDecisionBudgetAndUnresolvedFindings(t *testing.T) {
@@ -283,11 +285,11 @@ func TestAFailedStateReadNamesWhatEndedIt(t *testing.T) {
 		run  sqliteRun
 		want string
 	}{
-		{"sqlite3 never answers", context.Background(), sqliteRun{takes: time.Duration(math.MaxInt64)}, "state query timed out: sqlite3 gave no answer within 1m0s"},
+		{"sqlite3 never answers", context.Background(), sqliteRun{takes: time.Duration(math.MaxInt64)}, "state query timed out: the gate's database gave no answer within 1m0s"},
 		{"its caller stopped the read", stopped, sqliteRun{}, "state query stopped: context canceled"},
 		{"sqlite3 is not installed", context.Background(), sqliteRun{err: &exec.Error{Name: "sqlite3", Err: exec.ErrNotFound}}, `could not run sqlite3: exec: "sqlite3": executable file not found`},
-		{"the database is locked", context.Background(), sqliteRun{result: execx.Result{ExitCode: 1, Stderr: []byte("Error: database is locked\n")}}, "sqlite3 exited with code 1: Error: database is locked"},
-		{"the database is not the gate's", context.Background(), sqliteRun{result: execx.Result{ExitCode: 1, Stderr: []byte("Parse error in 4th command line argument: no such table: runs\n")}}, "sqlite3 exited with code 1: Parse error in 4th command line argument: no such table: runs"},
+		{"the database is locked", context.Background(), sqliteRun{result: execx.Result{ExitCode: 1, Stderr: []byte("Error: database is locked\n")}}, "the gate's database refused it: Error: database is locked"},
+		{"the database is not the gate's", context.Background(), sqliteRun{result: execx.Result{ExitCode: 1, Stderr: []byte("Parse error in 4th command line argument: no such table: runs\n")}}, "the gate's database refused it: Parse error in 4th command line argument: no such table: runs"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			// Arrange
@@ -302,6 +304,46 @@ func TestAFailedStateReadNamesWhatEndedIt(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The fleet's runner answers a read of the gate's database in process, so a
+// read starts no sqlite3: the board started 1,259 of them in 95 minutes on
+// 2026-11-03, one for each read (#1610). Here no sqlite3 can be found, and
+// any program the read starts fails it.
+func TestAStateReadThroughTheFleetsRunnerStartsNoProgram(t *testing.T) {
+	// Arrange
+	t.Setenv("PATH", t.TempDir())
+	root := t.TempDir()
+	writer, err := sql.Open("sqlite", filepath.Join(root, "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if _, err := writer.Exec(`PRAGMA journal_mode=WAL;
+CREATE TABLE repos(id TEXT,working_path TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,created_at INTEGER);
+INSERT INTO repos VALUES('repo','C:\work\project');
+INSERT INTO runs VALUES('run','repo','fix/connections',1);`); err != nil {
+		t.Fatal(err)
+	}
+	started := &startRecorder{}
+	reader := Reader{Root: root, Commands: gatedb.Runner{Next: started}}
+
+	// Act
+	branch, err := reader.RunBranch(context.Background(), "C:/work/project", "run")
+
+	// Assert
+	if err != nil || branch != "fix/connections" || len(started.requests) != 0 {
+		t.Fatalf("got %q, %v, started %v; want the branch read with no program started", branch, err, started.requests)
+	}
+}
+
+// startRecorder records each program it is asked to start and starts none.
+type startRecorder struct{ requests []execx.Request }
+
+func (s *startRecorder) Run(_ context.Context, req execx.Request) (execx.Result, error) {
+	s.requests = append(s.requests, req)
+	return execx.Result{}, errors.New("no program may start")
 }
 
 // The CFO takes a gate's open findings as they stand only with approve and by

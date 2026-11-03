@@ -139,7 +139,7 @@ func fileRoot(ctx context.Context, runtime commandRuntime, projectArg string, ro
 	if commands == nil {
 		commands = execx.OSRunner{}
 	}
-	github := tickets.GitHub{Commands: commands}
+	github := tickets.GitHub{Commands: commands, API: runtime.githubAPI}
 	read, err := github.ReadRepository(ctx, repository)
 	if err != nil {
 		return tickets.FiledRoot{}, err

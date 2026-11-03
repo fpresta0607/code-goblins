@@ -1,9 +1,8 @@
 // Package telemetry reads measured per-agent timing from the no-mistakes
-// state database. The repo has no sqlite driver and takes no new
-// dependencies, so reads shell out to the sqlite3 CLI with -readonly; the
-// database is never written to, and every failure mode (no database, no
-// sqlite3, a locked or unreadable file) degrades to a skip note instead of an
-// error.
+// state database with the read-only query sqlite3 -readonly -json makes, which
+// the fleet's runner answers in process (gatedb); the database is never
+// written to, and every failure mode (no database, a locked or unreadable
+// file) degrades to a skip note instead of an error.
 package telemetry
 
 import (
@@ -27,8 +26,8 @@ import (
 // group together.
 const speedTableSQL = `WITH normalized AS (SELECT CASE WHEN instr(agent, ':') > 0 THEN substr(agent, instr(agent, ':') + 1) ELSE agent END AS agent, COALESCE(NULLIF(model, ''), 'unrecorded') AS model, purpose, exit_status, step_name, duration_ms FROM agent_invocations) SELECT agent, model, purpose, exit_status, step_name, COUNT(*) AS n, AVG(duration_ms)/60000.0 AS avg_min, MAX(duration_ms)/60000.0 AS max_min FROM normalized GROUP BY agent, model, purpose, exit_status, step_name ORDER BY agent, model, purpose, step_name, exit_status`
 
-// queryTimeout bounds one sqlite3 read so a wedged CLI cannot stall spawn or
-// doctor after the work is already done.
+// queryTimeout bounds one read so a wedged one cannot stall spawn or doctor
+// after the work is already done.
 const queryTimeout = 5 * time.Second
 
 // SpeedRow is one agent, model, and role's measured timing for one pipeline
@@ -125,7 +124,7 @@ func FormatHint(agent string, rows []SpeedRow) string {
 	return fmt.Sprintf("speed hint: %s validation calls: %d successful, %d failed, %d cancelled; implementation unmeasured; doctor splits timing by model and role", agent, success, failed, cancelled)
 }
 
-// query runs one read-only statement through the sqlite3 CLI. A non-empty
+// query runs one read-only statement as sqlite3 -readonly -json. A non-empty
 // note means the query was skipped or failed tolerantly and explains why.
 func (q Querier) query(ctx context.Context, sql string) ([]byte, string) {
 	if q.Commands == nil {

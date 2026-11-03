@@ -13,7 +13,7 @@ import (
 // pushRun is a push run of workflow on main at commit, as gh run list reports
 // it, whose page names id.
 func pushRun(id int, workflow, commit, status, conclusion string) string {
-	return fmt.Sprintf(`{"workflowName":%q,"status":%q,"conclusion":%q,"headSha":%q,"url":"https://github.com/o/r/actions/runs/%d"}`, workflow, status, conclusion, commit, id)
+	return fmt.Sprintf(`{"name":%q,"status":%q,"conclusion":%q,"head_sha":%q,"html_url":"https://github.com/o/r/actions/runs/%d"}`, workflow, status, conclusion, commit, id)
 }
 
 func TestDeployHoldRepeatsAfterHalfHour(t *testing.T) {
@@ -257,9 +257,8 @@ func TestATrainWaitsForMainsRunningDeployAndMergesOnceItPassed(t *testing.T) {
 	if stillWaiting.Note != says || len(s.cfo) != 2 || s.cfo[1] != "merge_train: o/r train "+started.ID+" "+says+"; held pull requests: #11" {
 		t.Fatalf("note %q, CFO told %q: want the deploy it waits on said once", stillWaiting.Note, s.cfo)
 	}
-	read := gh.calls[slices.IndexFunc(gh.calls, func(args []string) bool { return args[0] == "run" && args[1] == "list" })]
-	if flagValue(read, "--repo") != "o/r" || flagValue(read, "--branch") != "main" || flagValue(read, "--event") != "push" {
-		t.Fatalf("gh run list = %v, want main's push runs read", read)
+	if path, query := gh.read("/actions/runs"); path != "repos/o/r/actions/runs" || query.Get("branch") != "main" || query.Get("event") != "push" {
+		t.Fatalf("read %s?%s, want main's push runs read", path, query.Encode())
 	}
 
 	// Act: the deploy passes.

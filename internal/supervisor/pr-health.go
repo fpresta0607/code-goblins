@@ -3,7 +3,6 @@ package supervisor
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/train"
 )
 
@@ -57,7 +57,7 @@ type prComparison struct {
 // comparison came back missing or invalid in an otherwise readable response,
 // and why anything was not read; a request that fails as a whole names no
 // head.
-func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, open []ghPullRequest) (comparisons map[int]*prComparison, unread []ghPullRequest, branch string, err error) {
+func comparePullRequests(ctx context.Context, runner execx.Runner, github *githubapi.Client, repo string, open []ghPullRequest) (comparisons map[int]*prComparison, unread []ghPullRequest, branch string, err error) {
 	comparisons = map[int]*prComparison{}
 	if len(open) == 0 {
 		return comparisons, nil, "", nil
@@ -75,39 +75,29 @@ func comparePullRequests(ctx context.Context, runner execx.Runner, repo string, 
 	query.WriteString("}}}")
 	probe, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
-	result, err := runner.Run(probe, execx.Request{Dir: repo, Name: "gh", Args: []string{"api", "graphql", "--include", "-f", "query=" + query.String()}})
-	if err != nil {
+	var response struct {
+		Repository struct {
+			Ref map[string]*prComparison `json:"ref"`
+		} `json:"repository"`
+	}
+	// GitHub answers a comparison it cannot make with an error beside the
+	// others it made, so its refusal of part of the query is told and the
+	// rest is read.
+	var unreadable error
+	var refused *githubapi.GraphQLError
+	switch err := github.GraphQL(probe, query.String(), nil, &response); {
+	case errors.As(err, &refused):
+		for _, failure := range refused.Messages {
+			unreadable = errors.Join(unreadable, fmt.Errorf("PR health: compare %s: %s", repo, bounded(failure, 300)))
+		}
+	case err != nil:
 		return comparisons, nil, branch, fmt.Errorf("PR health: compare the open pull requests of %s: %w", repo, err)
 	}
-	_, body, err := githubResponse(result.Stdout)
-	if err != nil {
-		return comparisons, nil, branch, fmt.Errorf("PR health: cannot read the comparison response of %s: %w", repo, err)
-	}
-	var response struct {
-		Data struct {
-			Repository struct {
-				Ref map[string]*prComparison `json:"ref"`
-			} `json:"repository"`
-		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return comparisons, nil, branch, fmt.Errorf("PR health: cannot read the comparisons of %s: %w", repo, err)
-	}
-	var unreadable error
-	for _, failure := range response.Errors {
-		unreadable = errors.Join(unreadable, fmt.Errorf("PR health: compare %s: %s", repo, bounded(failure.Message, 300)))
-	}
-	if result.ExitCode != 0 {
-		unreadable = errors.Join(unreadable, fmt.Errorf("PR health: compare %s: gh exited %d: %s", repo, result.ExitCode, bounded(strings.TrimSpace(string(result.Stderr)), 300)))
-	}
-	if response.Data.Repository.Ref == nil {
+	if response.Repository.Ref == nil {
 		return comparisons, nil, branch, errors.Join(unreadable, fmt.Errorf("PR health: GitHub returned no comparisons of %s against %s", repo, branch))
 	}
 	for _, pr := range open {
-		comparison := response.Data.Repository.Ref[fmt.Sprintf("pr%d", pr.Number)]
+		comparison := response.Repository.Ref[fmt.Sprintf("pr%d", pr.Number)]
 		if comparison == nil || comparison.BehindBy == nil || *comparison.BehindBy < 0 || comparison.HeadTarget.Oid != pr.HeadRefOid || comparison.BaseTarget.Oid == "" {
 			unreadable = errors.Join(unreadable, fmt.Errorf("PR health: comparison of %s at %s against %s was not read", pr.URL, pr.HeadRefOid, branch))
 			unread = append(unread, pr)

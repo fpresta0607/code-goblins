@@ -19,6 +19,7 @@ func hookPrograms(t *testing.T, settings []byte) map[string]bool {
 	var document struct {
 		Hooks map[string][]struct {
 			Hooks []struct {
+				Type    string `json:"type"`
 				Command string `json:"command"`
 			} `json:"hooks"`
 		} `json:"hooks"`
@@ -30,7 +31,9 @@ func hookPrograms(t *testing.T, settings []byte) map[string]bool {
 	for _, groups := range document.Hooks {
 		for _, group := range groups {
 			for _, hook := range group.Hooks {
-				commands[hook.Command] = true
+				if hook.Type == "command" {
+					commands[hook.Command] = true
+				}
 			}
 		}
 	}
@@ -64,7 +67,7 @@ func TestAGoblinsHooksRunTheHookProgramOnlyWhileItIsCfosBuild(t *testing.T) {
 			test.hook(t, filepath.Join(bin, HookProgram))
 
 			// Act
-			settings, err := GoblinSettings(root, filepath.Join(root, "state"))
+			settings, err := GoblinSettings(root, filepath.Join(root, "state"), "http://127.0.0.1:4310")
 
 			// Assert
 			if err != nil {

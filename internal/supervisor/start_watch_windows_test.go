@@ -150,27 +150,30 @@ func TestALoopOfAGoblinsCommandWakesTheCFOOnce(t *testing.T) {
 	}
 }
 
-// A Claude Code goblin's own hooks start cfo.exe before every shell call and
-// after every tool call, far more than ten times a minute when it is busy. Claude Code starts a hook given as a program and its args itself,
+// A goblin's own hooks start cfo.exe, a Codex goblin's before every shell
+// call and after every tool call, far more than ten times a minute when it is
+// busy, and a Claude Code goblin's at its prompts and turns, its hooks at
+// every tool call posting to the board instead. Claude Code starts a hook given as a program and its args itself,
 // with no shell, so each is its harness's own child, which is no loop.
 // The same command started by the goblin's shell, as a command it runs, is
-// one, which shows the readings see each start.
-func TestAGoblinsOwnHooksAtEveryToolCallAreNoLoop(t *testing.T) {
+// one, which shows the readings see each start: every one of the goblin's
+// native session hooks runs the one command line.
+func TestAGoblinsOwnHooksAreNoLoop(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		parent int
 		loops  int
 	}{
 		{"started by its harness, as Claude Code runs a hook", 100, 0},
-		{"started by its shell, as a command it runs", 102, 2},
+		{"started by its shell, as a command it runs", 102, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			fleet := newStartWatchFleet(t)
 			now := time.Now().UTC()
 			var commands []string
-			for _, hook := range install.GoblinHooks(fleet.home.Root, fleet.home.State) {
-				if hook.Event != "PreToolUse" && hook.Event != "PostToolUse" {
+			for _, hook := range install.GoblinHooks(fleet.home.Root, fleet.home.State, "http://127.0.0.1:4310") {
+				if hook.URL != "" {
 					continue
 				}
 				command := []string{syscall.EscapeArg(hook.Command)}

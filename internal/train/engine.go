@@ -2,15 +2,16 @@ package train
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/execx"
+	"github.com/fpresta0607/code-goblins/internal/githubapi"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 )
 
@@ -31,6 +32,8 @@ const (
 	// landed to show as merged, and mergedReadAfter is the pause between.
 	mergedReads     = 3
 	mergedReadAfter = 5 * time.Second
+	// callWithin bounds one command and one request to GitHub.
+	callWithin = 3 * time.Minute
 )
 
 var (
@@ -68,8 +71,10 @@ type Repository struct {
 // Each step records what is due before it acts, so a step cut short, by a
 // restart or a network, is taken on by the next one.
 type Engine struct {
-	// Commands runs git and gh.
+	// Commands runs git, and gh for what the train writes to GitHub: its pull
+	// request, its label, a rerun and a merge. GitHub is what it reads there.
 	Commands execx.Runner
+	GitHub   *githubapi.Client
 	StateDir string
 	Now      func() time.Time
 	// Wait pauses before GitHub is read again for what a run landed.
@@ -345,30 +350,24 @@ func (e Engine) ci(ctx context.Context, t Train) (string, []Check, string, error
 	if run := t.openRun(); run != nil && run.OwnRun != "" {
 		url, head = run.PR, t.Cars[t.carsIn(CarRiding)[0]].Head
 	}
-	out, err := e.run(ctx, t.Checkout, "gh", "pr", "view", url, "--json", "state,headRefOid,statusCheckRollup,mergeStateStatus")
+	read, cancel := context.WithTimeout(ctx, callWithin)
+	defer cancel()
+	view, err := viewPullRequest(read, e.GitHub, url)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("merge train %s: read its CI: %w", t.ID, err)
 	}
-	var view struct {
-		State      string `json:"state"`
-		HeadRefOid string `json:"headRefOid"`
-		Checks     Checks `json:"statusCheckRollup"`
-		Readiness  string `json:"mergeStateStatus"`
-	}
-	if err := json.Unmarshal([]byte(out), &view); err != nil {
-		return "", nil, "", fmt.Errorf("merge train %s: gh reported its CI in a shape it cannot read: %w", t.ID, err)
-	}
 	if view.State != "OPEN" && view.State != "CLOSED" && view.State != "MERGED" || view.HeadRefOid == "" {
-		return "", nil, view.Readiness, fmt.Errorf("merge train %s: GitHub did not identify its pull request state and head", t.ID)
+		return "", nil, view.MergeStateStatus, fmt.Errorf("merge train %s: GitHub did not identify its pull request state and head", t.ID)
 	}
 	if view.State != "OPEN" {
-		return "closed", nil, view.Readiness, nil
+		return "closed", nil, view.MergeStateStatus, nil
 	}
 	if view.HeadRefOid != head {
-		return "stale", nil, view.Readiness, nil
+		return "stale", nil, view.MergeStateStatus, nil
 	}
-	outcome, _ := checksOutcome(view.Checks)
-	return outcome, view.Checks, view.Readiness, nil
+	checks := view.Checks()
+	outcome, _ := checksOutcome(checks)
+	return outcome, checks, view.MergeStateStatus, nil
 }
 
 func (e Engine) save(t *Train) error {
@@ -396,7 +395,7 @@ func (e Engine) lock(repository string) (func(), error) {
 // run runs name in dir and returns its trimmed output, or an error naming
 // what it printed to stderr.
 func (e Engine) run(ctx context.Context, dir, name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, callWithin)
 	defer cancel()
 	result, err := e.Commands.Run(ctx, execx.Request{Dir: dir, Name: name, Args: args})
 	if err != nil {
@@ -406,6 +405,22 @@ func (e Engine) run(ctx context.Context, dir, name string, args ...string) (stri
 		return "", fmt.Errorf("%s %s exited %d: %s", name, strings.Join(args[:min(2, len(args))], " "), result.ExitCode, strings.TrimSpace(string(result.Stderr)))
 	}
 	return strings.TrimSpace(string(result.Stdout)), nil
+}
+
+// get reads path, relative to the root of GitHub's API, into into, bounded
+// as a command is.
+func (e Engine) get(ctx context.Context, path string, into any) error {
+	ctx, cancel := context.WithTimeout(ctx, callWithin)
+	defer cancel()
+	return e.GitHub.Get(ctx, path, into)
+}
+
+// ask reads path, relative to the root of GitHub's API, as GitHub answers it,
+// bounded as a command is.
+func (e Engine) ask(ctx context.Context, path string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, callWithin)
+	defer cancel()
+	return e.GitHub.Do(ctx, http.MethodGet, path, nil)
 }
 
 // runWithBody runs gh in dir with args and body, which gh reads from the
