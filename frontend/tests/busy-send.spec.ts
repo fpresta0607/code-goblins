@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { at, box, field, GOBLIN, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
+import { at, box, card, field, GOBLIN, NAME, open, openGoblin, PAGE, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "im not seeing queued messages appear in the
 // modern chat right away, it lags", "there's no edit or send now function
@@ -274,4 +274,27 @@ test("a prompt line holding words never sent holds a message in the queue and ty
   await expect.poll(() => posts.map((post) => post.text)).toEqual(["merge the train"]);
   await expect(field(page)).toHaveValue("");
   expect(typed(relay)).toBe("");
+});
+
+// A goblin that reported it waits on memory, whose fleet tree reads no run of
+// its left in the machine's heavy line, works while its run holds the turn,
+// so its card reads Working (#1924). Its harness's own turn ended, so its
+// panel draws no reply under way and its empty box offers Send, never a Stop
+// that would press Escape into an idle terminal.
+test("a goblin whose run took its turn in the heavy line reads Working on its card, while its idle harness offers Send, never Stop", async ({ page }) => {
+  // Arrange
+  const tree = { task_id: GOBLIN.id, generation: GOBLIN.generation, harness: GOBLIN.harness, memory: 0, own_memory: 0, children: [], line_place: 0 };
+  const relay = await open(page, snapshot({}, { phase: "waiting", waiting_on: "memory", tree }));
+  await expect(card(page, NAME).locator(".card-status-text")).toHaveText("Working");
+
+  // Act
+  await openGoblin(page);
+  await expect.poll(() => relay.views).toBeGreaterThan(0);
+  relay.say({ type: "screen", asking: false, open: false, working: false });
+
+  // Assert
+  await expect(page.getByRole("log").getByText("On it.", { exact: true })).toBeVisible();
+  await expect(page.locator(".reply-working")).toHaveCount(0);
+  await expect(box(page).locator(".composer-send")).toHaveAccessibleName("Send");
+  await expect(box(page).getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
 });

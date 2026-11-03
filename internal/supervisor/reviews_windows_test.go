@@ -477,7 +477,7 @@ func TestReviewAnswerReachesItsReporterOnceOrElseTheCFO(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := store.Snapshot()
-			if typed, elsewhere := recipient.lines(t), other.lines(t); len(typed) != 1 || !strings.Contains(typed[0], c.wantText) || len(elsewhere) != 0 {
+			if typed, elsewhere := recipient.waitForLines(t, 1), other.lines(t); len(typed) != 1 || !strings.Contains(typed[0], c.wantText) || len(elsewhere) != 0 {
 				t.Fatalf("the recipient received %q and the other terminal %q, want exactly one line carrying %q", typed, elsewhere, c.wantText)
 			}
 			if review := got.Reviews[0]; review.State != "answered" || review.Answer != "Go with the grid" || review.AnswerID != a.ID || review.Delivered != c.wantDelivery {

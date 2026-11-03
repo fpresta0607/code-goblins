@@ -2,6 +2,82 @@
 
 The goblin's branch is its deliverable.
 
+**Delivery intake.**
+
+Resolve project posture and concrete change risk before dispatch, independently of harness, review budget and merge authority.
+The project's `project.json` may declare `delivery.posture`: `no-mistakes`, `no-mistakes-prod-only`, `direct-PR`, or `local-only`.
+The brief's Delivery section records `surface: internal|product|mixed|unknown`, `risk: low` or the concrete sensitive surface, and a change-specific `reason:`.
+Internal means tooling, automation or contributor and operator process; a directory or project name does not establish that classification.
+The conditional posture chooses direct-PR only for known internal, low-risk work with defined fast-tier project checks; product work uses no-mistakes.
+Mixed, unknown or malformed assessments, missing or unreadable policy, credentials, authorization, state recovery, migrations and publication use no-mistakes.
+An explicitly configured direct-PR or local-only posture is standing Overlord authority for assessed low-risk internal or product work with a concrete reason and defined fast-tier checks.
+It does not narrow the strict boundaries for sensitive, mixed, unknown or malformed work.
+Only a concrete separate Overlord exception may narrow the selection beyond that standing posture, recorded with `--delivery-exception` and an explicit mode at brief and spawn.
+Defined fast-tier checks remain required for an exception.
+A narrower requested mode, from `--mode` or the brief, with neither a qualifying assessment nor that exception selects no-mistakes and records why, and brief and spawn print the reason.
+An explicit no-mistakes mode can always increase rigor.
+
+`cfo brief` and `cfo spawn` use the same resolver.
+Before the worker starts, spawn saves `state/tasktmp/<id>/delivery.json` with the mode, posture, surface, risk, reason and project checks.
+The task record binds its bytes by `delivery_hash` and keeps its mode separately.
+The worker's first instruction, and every relaunch's, names the frozen mode and that mode's validation owner, which supersede the brief's mode line and Verification section.
+`cfo verify` refuses a missing or changed receipt or a mismatching mode.
+`cfo verify` uses the frozen verification tiers, time limits and declared reuse inputs without loading the live project record, even if that record is later removed or invalid.
+Tasks without a delivery receipt still read verification configuration from the live project record.
+A helper remains local-only under its parent's publication owner.
+Existing tasks without this receipt retain their modes, frozen policies, findings, spent rounds and custody.
+Intake never migrates, restarts or repairs a running validation.
+
+**One validation owner.**
+
+The selected path owns its rigor.
+Simple work runs its defined project checks and required CI through the existing direct-PR or local-only route.
+Do not attach an independent model review, serial manual clean-verdict gate or second unchanged baseline.
+If the change needs independent validation, select no-mistakes instead of inventing another gate.
+Under no-mistakes, the same implementation worker drives `cfo pipeline run` and `respond` through every synchronous return.
+The pipeline alone owns review, repair, tests, documentation and publication; any focused independent question belongs within that contract.
+The CFO still inspects the concrete change and relevant proof before delivery.
+
+Once validation starts, new product requirements normally become follow-up work.
+Corrections needed for accepted behavior, equivalent behavioral test replacements and accurate documentation remain in scope, including their smallest downstream changes.
+The worker never hand-edits, commits, pushes or starts another run while the active pipeline owns the branch.
+An explicit instruction invalidating the entire change uses the existing supported custody procedure under the CFO's direction, preserving history and spent allowances.
+This contract adds no native recovery procedure or authority over another task's run.
+
+**Finding authority.**
+
+The implementation worker never decides its own ask-user finding.
+It reports the actual finding to the CFO and applies only the returned decision through the active gate.
+The CFO reconstructs accepted intent, identifies what Fix would require, then names the decision's run, step, action, finding IDs, instructions and authority.
+Reviewer labels cannot amend the accepted contract.
+Routine corrections, restoring approved behavior, completing the approved design, equivalent tests and correcting final-diff delivery evidence are autonomous CFO decisions within that contract.
+Difficulty or an unforeseen file is not a new product decision.
+Escalate unresolved product choices, a new guarantee or subsystem, a broader threat model or maintenance obligation, destructive or security-sensitive actions, and requests to waive unresolved defects.
+State the accepted requirement, proposed expansion, smallest compliant alternative, consequences and recommendation.
+When repeated findings preserve a questionable abstraction, reconsider it before another round.
+Never use `--yes`, skip required proof, approve an exhausted budget or open a fresh run to escape it.
+
+**Proof and final candidate.**
+
+Formatting and documentation belong in the candidate before final proof.
+Later changes invalidate the proof they affect; the selected path validates the final candidate.
+Publish only the commit the proof names, with every required check completed successfully on that head.
+Local same-user records cannot replace a required hosted check.
+Reuse a pass only through existing receipt checks matching source, commands and configuration, dependencies and ignored inputs, tools, environment and platform.
+Changed relevant inputs invalidate that pass; do not add a generic evidence cache or duplicate baseline.
+Required Go guards and platform deferrals follow [Verification levels](../pipeline.md#verification-levels).
+
+**Completion and scouts.**
+
+A ready result names the public PR URL and exact published head with required CI green, or a clean committed branch for local-only work.
+A draft, a different local commit or a commit present only in a disposable validation worktree is not ready for landing.
+Use existing PR check and guarded merge commands; confirm the forge's landed state before cleanup and never discard unlanded work.
+Delivery mode and merge authority remain independent.
+A scout leaves a self-contained report, and a recommendation or visual review grants no implementation authority.
+Keep a review artifact available while feedback is outstanding.
+When implementation is separately authorized, inventory scratch changes and dispatch the ship through `cfo brief` and `cfo spawn` from the proper clean base, carrying only intended implementation and regression changes and retaining the scout's report as context.
+There is no dedicated scout-promotion command in this build; a report or a mode edit never supplies missing ship authority.
+
 - `no-mistakes` - the goblin uses `cfo pipeline run`/`respond` under its frozen policy, so an exhausted review budget or fail-closed start refusal comes back as unresolved work needing your decision rather than an automatic approval; follow [docs/pipeline.md](../pipeline.md), and after a completed gate relay the PR URL and wait for merge authority, then `cfo pr merge`.
 - `direct-PR` - open the PR as a draft (`gh pr create --draft`), record it with `cfo pr check`, mark it ready (`gh pr ready <url>`) once, on the head it means to merge, report it done once that run is green, and wait for merge authority before `cfo pr merge`.
 
@@ -63,18 +139,32 @@ That is what the cut guards: a cleaned-up task's status log is kept, a task resp
 A task an older build spawned records no `first_gen` until its first relaunch, which writes the generation it ran on until then, so its reports are read from its latest relaunch as before, and a pull request it reported done before that rides once reported done again.
 It builds them from commits alone, so the project checkout's working tree and branches are never touched, each with the merge commit GitHub's own merge of it would leave, `Merge pull request #N from owner/branch`, and pushes the result with a pull request of its own, titled `chore(cfo): merge train for PRs #1, #2`: CI tests the combination once.
 A pull request that does not merge cleanly with the ones ahead of it is left off, and once the train is over its goblin is told to merge main, once per head.
-When the run is green, the train first reads every rider again: one closed, turned into a draft, labelled `hold` or moved to another head since it rode is left off and the rest is tested again, so the branch never receives part of what CI tested.
+Before initial compute, every CI retry, rebuild, split and merge, the train rechecks the selected riders against the actual base and their current pull requests, including after cancelled CI.
+A selected head already on that base is recorded and reported as landed before any withdrawal is classified, whoever merged it.
+Otherwise a rider that closed, became a draft, gained `hold`, moved heads, changed repository or base, conflicts or waits on review is left off without being retried or blamed, and only the eligible remainder is tested again.
+A rider's checks must still pass unless the train retains that rider's recorded own-run proof, whose changed checks follow the hold rules below.
+Unknown mergeability holds the step; a waiting rider is rechecked when selected for compute, so its change never invalidates a distinct green half.
 Nor does it merge while the branch deploys: a push to the branch starts its deploy workflows, those whose names say deploy, and while a push run of one has not finished, or the newest run of one ended otherwise than successfully, the train waits, says what it waits on in its note and, once for each run and how it stands, in a `merge_train:` message, and merges once that deploy has finished successfully.
 A merge during a deploy would start a second one before the first is verified, so a failed deploy could no longer be pinned to one change, and the second could overlap or cancel the first.
 A failed or cancelled deploy holds the train until a run of it, run again or started by a fix landed by hand, passes; a skipped run deployed nothing and holds nothing; and the train still tests while the branch deploys, so only its merge waits.
 Then the train merges its own pull request with a merge commit, `Merge train <id>: #1, #2`, pinned to the head CI tested: the branch takes that commit, so its tree must then equal the train's tree, and GitHub marks each pull request that rode merged, since the branch then holds its head, with its own number in the branch's history.
 A train of one pull request can stand on that pull request's own CI run instead, in a project whose manifest sets `"trains": {"land_lone_rider_on_its_run": true}`: in one week of October 2026, 44 of a private repository's 99 trains carried one pull request and tested again the very tree its own run had just passed.
 It does so only when every check on the head is a GitHub Actions check that passed, and every workflow run behind them checked out the pull request's merge commit as GitHub has it now, read from the checkout's own fetch line in the run's log, whose first parent is the branch's tip and whose second is the head that rides.
-Then it pushes nothing, opens no pull request of its own, and merges the rider's pull request, pinned to its head, after the same rechecks, and the branch must then hold the tree that run tested; a base that moved first, a merge GitHub made again since, or a check no workflow run stands behind gets a train run as before.
+With that proof it pushes nothing, opens no pull request of its own, and merges the rider's pull request, pinned to its head, after the same rechecks, and the branch must then hold the tree that run tested.
+If that proof cannot be established when the train is built, it gets a train run instead.
 It holds only where a pull request's own run starts every job a train's run would, so code-goblins, whose own runs test only what a change reaches, leaves it off.
-That one merge lands every pull request of the run or none: a merge GitHub refuses landed nothing, and the next step reads the branch and the riders again before it tries.
+That one merge lands every pull request of the run or none.
+A green run blocked by repository policy or an exhausted bounded merge budget stays active with its exact tested head and base, pull request, successful check identities, commits, refusal reasons, failures and spent attempts preserved across polls and restarts.
+It leaves its pull request open and its unchanged riders on that train, without pushing another branch, opening a replacement pull request or launching identical CI.
+Each merge attempt is spent before the command, even if its acknowledgement is lost; holding and successful polls never reset spent merge attempts or the held error budget.
+Unknown readiness holds; after a merge hold, a distinct transition to GitHub's positive readiness (`CLEAN` or `HAS_HOOKS`) permits one normal merge attempt pinned to the head, only after fresh exact head, base, rider and check validation.
+Changed successful check identities, resumed or red checks after green proof, or a changed own-run merge identity hold that proof rather than retrying its CI; actual rider withdrawal still removes the rider, and a genuinely changed base requires validation of the eligible remainder there.
+These rules apply equally to a train run and a rider's own run, whose successful checks are saved with its initial proof; deploy clearance also preserves that proof.
+Both the supervisor and `cfo pr train` publish one durable `merge_train:` hold notice through the existing `pr` wake keyed `train:<owner>/<repo>`, bound to the train and run identity.
+Failed delivery is retried without another merge attempt, and a lost publication acknowledgement cannot duplicate the notice.
+A normal operator merge of the preserved pull request is reconciled from the actual base without another merge attempt or CI run, and an interrupted landing remains recoverable even after the error budget is spent.
 The train then reads that GitHub shows each one merged, up to three times, five seconds apart, and names to you any it still shows open: one whose goblin pushed to it while the train landed keeps what was pushed after and rides the next train once its checks pass on that head.
-When the train is over it deletes its branch, its own `cfo/train-*` branch and never a goblin's, AFK mode or not, and never merges, closes or pushes to a goblin's pull request.
+When the train is over it deletes only its own `cfo/train-*` branch, AFK mode or not, subject to the branch identity check below; it never closes or pushes to a goblin's pull request.
 When it is red, the train first runs the failed jobs of that run again, once, with `gh run rerun <run> --failed`, because a check can fail by chance: only a check that is red a second time is a failure the train acts on.
 A test that failed by chance has had its second try inside its job by then ([What CI runs](delivery.md#what-ci-runs)), so what the train's second try answers is a job that failed outside its tests, such as a runner that died or an install that failed, or a test that failed twice in a row.
 A run that is green on its second try lands as a green run does, and the train's record and its `merge_train:` message name each check that failed once and passed when it ran again, with its link, so a test that fails by chance is counted and never hidden.
@@ -84,18 +174,24 @@ A red check that no workflow run stands behind, such as another service's, canno
 When the run is red a second time, the train is halved: the first half rides alone, every half that passes lands, and the halving goes on until one pull request fails alone, each of those runs with a second try of its own.
 That pull request's goblin gets the failing checks with their links, in its own terminal, and the pull requests not yet tested wait for the next train.
 No pull request is blamed while the branch's own push CI is red at the commit the run was built on: the train stops and says to fix the branch first.
-A run whose base moved before it landed is built again on the new tip and tested again, since what it proved is not what would land; after three such runs in a row the train stops and asks you to hold merges.
+A run whose base moved before it landed is built again on the new tip and tested again after reconciling heads already on that base and rechecking the remaining riders; after three such runs in a row the train stops and asks you to hold merges.
+This also applies after a partial landing: only the eligible remaining source is validated on the changed base.
 Every step is recorded before it acts, so a restart or a network failure in the middle of one, even halfway through landing, is taken on by the next step, and a merge that went through although its answer was lost is found on the branch.
-A step that fails counts against the train, which takes it again on the next poll, tells you of it once it failed on three polls in a row and stops after five; a run whose checks never appear stops after 20 minutes and one whose checks never finish after three hours.
-A start that is cut short, as by one read that ran out of time, is kept and counts as the train's first failed step, so the next poll builds the train and nobody is woken for it.
-Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting with `merge_train:`, and names any goblin it could not tell, for you to relay; while AFK mode is on, each pull request a train merges is logged as merged with the run that proved it, and one the train finds already on its base, landed by an earlier run or train, is logged as merged saying so, once in the stretch.
+Before publishing, rebuilding or finishing, the train checks the remote branch against its recorded heads; branch writes and deletion require an exact conditional lease, so an externally added commit is never overwritten or deleted.
+An unknown or changed branch identity holds for reconciliation, including during restart and error cleanup; each poll it holds counts as a failed step, so it reaches you after three consecutive failed polls, but it never stops the train.
+A successful push whose acknowledgement was lost resumes publication of the recorded head without rebuilding or pushing it again, and an unrecorded open train pull request is recovered by its branch.
+Before green proof, transient command and network failures retain their bounded handling: a failed step is retried on the next poll, reaches you after three consecutive failed polls and stops after five, unless landing recovery or branch identity requires a hold.
+A run without green proof whose checks never appear stops after 20 minutes and one whose checks never finish after three hours.
+A new train pull request receives its CI window immediately before creation, including after publication recovery; recovering an already-created pull request never renews its saved deadline.
+A start that is cut short, as by one read that ran out of time, is kept and counts as the train's first failed step, so the next poll resumes its recorded build or publication rather than starting a replacement train.
+Each outcome reaches you as a `pr` wake keyed `train:<owner>/<repo>`, starting with `merge_train:`, and names any goblin it could not tell, for you to relay; while AFK mode is on, each pull request a train merges is logged as merged with the run that proved it, and one whose selected head the train finds already on its base is logged as already there, once in the stretch.
 The supervisor writes each of those lines, from the train's own record and the state GitHub gives the pull request, whoever started the train: a `cfo pr train` started detached does not run under the registered CFO, which the log of a decision needs, so it asks the supervisor to log the landing instead of writing it.
 
 On GitHub a train that landed leaves nothing closed without merging, which GitHub draws in red: its pull request reads merged, and so does every pull request it landed.
-A train that did not land its last run closes that run's pull request with how it ended, the failed checks and what landed before it: the one place on GitHub a train that went red says so.
+A finished train that did not land its last run closes that run's pull request with how it ended, the failed checks and what landed before it: the one place on GitHub a train that went red says so.
 Halving adds no second one, because each half that passes merges a pull request of its own and the half after it opens a new one, and a train that stopped before it pushed anything opened none.
 Until 2026-10-10 a train merged each pull request by itself and closed its own without merging, so every train that had done its job read as a failed pull request.
-A train an older build started lands the new way on its next step: its pull request is retitled and labelled before it merges, and a landing that build left half done is finished by merging the train's pull request, which leaves the branch at the tree CI tested.
+A train an older build started uses the same landing checks: its pull request is retitled and labelled before it merges, and a landing that build left half done follows the partial-landing validation above.
 
 A train's pull request wears the `merge-train` label from the time it opens, and the train makes sure of the label again before it merges one, so a pull request an older build opened, or one whose label was taken off, merges wearing it too.
 The notes GitHub writes for a release list every merged pull request, and this repository's `.github/release.yml` leaves that label out, so a release's list of what changed, and the board's Update item that reads it, name each pull request a train landed and never the train.
@@ -118,3 +214,19 @@ PR health wakes leave alone a train's own pull request and the pull requests a r
 A pull request rides when it is into the default branch from this repository, opened by the account `gh` works as (a teammate's never rides, even one a goblin reported), its goblin's latest reports are `done` naming it, every check on its own head passed and at least one of them ran rather than being skipped, it is not a draft, wants no review, is not in conflict with the base, and carries no `hold` label.
 Label a pull request `hold` to keep it off every train: one only the Supreme Overlord's word merges (recovery, security, money paths) or one he said to wait on (`gh pr edit <n> --add-label hold`, after `gh label create hold` once per repository).
 A pull request a train found broken stays off trains until its head changes.
+
+**Firstmate attribution.**
+
+The intake, validation ownership, finding authority and completion contracts adapt the delivery sections of [Firstmate at bb3e690](https://github.com/kunchenguid/firstmate/tree/bb3e6906548b5c03d3212e9f060bafde982e0cf1) and its validation-supervision, ask-user-authority, ship-landing and scout-completion skills.
+The upstream notice is retained here for the adapted material.
+
+MIT License
+
+Copyright (c) 2026 Kun Chen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

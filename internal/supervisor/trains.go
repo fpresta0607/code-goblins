@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/train"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // trainsShownFor is how long the board keeps showing a finished train.
@@ -278,7 +279,10 @@ func (s *Service) trainEngine(runner execx.Runner, repository string) train.Engi
 			}
 			return err
 		},
-		TellCFO: func(_ context.Context, text string) error {
+		TellCFO: func(_ context.Context, identity, text string) error {
+			if identity != "" {
+				return wake.AppendFirstAndPublish(stateDir, identity, "pr", "train:"+repository, text)
+			}
 			return raiseFleetWake(stateDir, "pr", "train:"+repository, text)
 		},
 		Landed: func(_ context.Context, t train.Train, car train.Car) {

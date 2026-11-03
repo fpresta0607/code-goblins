@@ -247,6 +247,7 @@ func (r *Reader) Read(ctx context.Context, goblin Goblin) (Tree, error) {
 			}
 		}
 		jobs = append(jobs, left...)
+		tree.LinePlace = line.placeOf(append(slices.Clone(harness.jobs), detached.jobs...))
 		runs := map[string]bool{}
 		for _, job := range jobs {
 			runs[job.Parent] = true

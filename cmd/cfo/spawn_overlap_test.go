@@ -433,3 +433,22 @@ func TestSpawnOfAHelperReadsNoTeammatesWorkAndNamesItsParent(t *testing.T) {
 		t.Errorf("request = %+v, want a local-only helper of nw", got)
 	}
 }
+
+// A helper is local-only because the supervisor says so on every helper it
+// starts: one spawned with no mode is handed to the service with none, which
+// refuses it, never a mode the command chose for it.
+func TestSpawnOfAHelperWithNoModeChoosesNoneForIt(t *testing.T) {
+	// Arrange
+	fixture := newOverlapSpawn(t, "Say why in tasks/billing_sync.py.")
+	deps := testCommandRuntimeForHome(fixture.home)
+	got := captureSpawn(&deps, "spawned nw-h1")
+	var stdout, stderr bytes.Buffer
+
+	// Act
+	runWithRuntime([]string{"spawn", "nw-h1", "--project", fixture.checkout, "--brief", fixture.brief, "--harness", "claude", "--parent", "nw"}, &stdout, &stderr, deps)
+
+	// Assert
+	if got.Parent != "nw" || got.Mode != "" || got.Delivery != nil {
+		t.Errorf("request = %+v, stderr=%s; want a helper with no mode or delivery chosen for it", got, &stderr)
+	}
+}

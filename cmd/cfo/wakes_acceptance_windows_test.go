@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/proc"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/spawn"
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
@@ -360,9 +361,18 @@ func livePrimaryFile(stateDir string) (string, bool) {
 	return primary.Agent, true
 }
 
+// brief writes goblin id's brief and the scratch project's record: the
+// record's local-only posture and the brief's low-risk internal assessment
+// select the local-only delivery each proof spawns its goblin with.
 func (p *wakeProof) brief(t *testing.T, id, task string) string {
+	name := filepath.Base(p.project)
+	record, err := json.Marshal(projectcfg.Manifest{Project: name, Delivery: projectcfg.DeliveryPolicy{Posture: "local-only"}, Verification: projectcfg.Verification{Fast: []projectcfg.Command{{"git", "status"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProofFile(t, projectcfg.Path(p.home.Data, name), string(record))
 	path := filepath.Join(p.home.Data, id, "brief.md")
-	writeProofFile(t, path, "# Brief "+id+"\n\n## Project\n\n"+p.project+"\n\n## Task\n\n"+task+"\n")
+	writeProofFile(t, path, "# Brief "+id+"\n\n## Project\n\n"+p.project+"\n\n## Task\n\n"+task+"\n\n## Delivery\n\nsurface: internal\nrisk: low\nreason: a disposable fixture for a live harness proof\n")
 	return path
 }
 

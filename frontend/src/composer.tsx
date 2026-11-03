@@ -629,7 +629,7 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     } catch (error: unknown) {
       takenBack.current.delete(action.id);
       setUnsent("Not taken back. " + message(error));
-      reportToCfo("taking back a message to " + name, message(error));
+      if (!(error instanceof Error && error.cause !== undefined)) reportToCfo("taking back a message to " + name, message(error));
     } finally {
       setSending(false);
       requestAnimationFrame(() => field.current?.focus());

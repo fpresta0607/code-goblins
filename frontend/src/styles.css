@@ -1232,7 +1232,6 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .card-clock .icon { width: 14px; height: 14px; }
 /* The CFO's Task view lists the queue below its workspace. */
 .cfo-queue { display: grid; gap: 12px; margin-top: 20px; padding-top: 24px; border-top: 1px solid var(--border); }
-.cfo-queue h3 { display: flex; gap: 10px; align-items: center; margin: 0; }
 /* Free memory at the head of Tasks, on a bar spanning twice the mark at which
    the next task starts, marked with it and the floor, whose tip says what the
    marks mean. Every line is body size, and none sits under a bar. */
@@ -1264,7 +1263,6 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .subscription-track { stroke: var(--muted); opacity: .24; }
 .subscription-fill { stroke: var(--mint); }
 .subscription-percent { font-size: 1rem; font-variant-numeric: tabular-nums; }
-.subscription-name { color: var(--muted); font-size: .875rem; }
 .subscription-dial.reserve { color: var(--amber); }
 .subscription-dial.reserve .subscription-fill { stroke: var(--amber); }
 .subscription-dial.unknown .subscription-track { stroke-dasharray: 3 3; opacity: .6; }

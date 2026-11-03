@@ -150,6 +150,10 @@ type Tree struct {
 	// harness does not run. The board keeps it for the goblin's relaunch.
 	Session  string `json:"-"`
 	Children []Node `json:"children"`
+	// LinePlace is the place in the machine's heavy line of the goblin's
+	// run that waits nearest its turn, a child's or one of its own
+	// commands', 1 for the next to take one, and zero while none waits.
+	LinePlace int `json:"line_place,omitempty"`
 	// Unread names evidence that could not be read, so a tree that shows
 	// nothing is never mistaken for a goblin running nothing.
 	Unread          []string  `json:"unread,omitempty"`

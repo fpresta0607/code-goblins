@@ -351,3 +351,60 @@ func TestAPauseTheLogCannotTakeStillPausesAndSaysSo(t *testing.T) {
 		t.Errorf("the goblin's change problem = %q, want that it paused but its line is missing", problem)
 	}
 }
+
+// On 2026-11-02 the memory floor paused goblins within ten minutes of their
+// start or resume, each the lowest in the Overlord's order, and each resume
+// had cost a session start and a handoff (#1926). A goblin resumed from a
+// memory pause in the last ten minutes is passed over for the next lowest,
+// and paused only when no other goblin may be.
+func TestTheMemoryFloorPassesOverAGoblinJustResumedForMemory(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		pause, until string
+		ago          time.Duration
+		isAlone      bool
+		wantPaused   string
+		wantEvidence string
+	}{
+		{name: "resumed from a memory pause a minute ago", pause: "memory", ago: time.Minute, wantPaused: "older-task", wantEvidence: "older-task was the lowest goblin in the In progress order not pushing or merging past newer-task, which resumed from a memory pause in the last 10 minutes"},
+		{name: "resumed from a memory pause eleven minutes ago", pause: "memory", ago: 11 * time.Minute, wantPaused: "newer-task", wantEvidence: "newer-task was the lowest goblin in the In progress order not pushing or merging"},
+		{name: "resumed from a dependency a minute ago", pause: "dependency", until: "date:2026-11-02T19:00:00Z", ago: time.Minute, wantPaused: "newer-task", wantEvidence: "newer-task was the lowest goblin in the In progress order not pushing or merging"},
+		{name: "resumed from a memory pause a minute ago and the only goblin", pause: "memory", ago: time.Minute, isAlone: true, wantPaused: "newer-task", wantEvidence: "newer-task was the lowest goblin in the In progress order not pushing or merging, and every goblin it could pause resumed from a memory pause in the last 10 minutes"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			spawner := &spawnRecorder{}
+			low := [2]float64{3, 8}
+			s, h, older, newer, now := floorBoard(t, true, spawner, low, low)
+			resumedAt := now.Add(-test.ago)
+			condition, err := state.NewPauseCondition(test.pause, test.until, resumedAt.Add(-time.Hour))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: newer.ID, Generation: newer.SpawnGen, Operation: "auto-resume-" + newer.ID, Action: "resume", Phase: "running", Started: resumedAt, Updated: resumedAt, Pause: &condition, Reason: "Pause condition cleared"}); err != nil {
+				t.Fatal(err)
+			}
+			if test.isAlone {
+				if err := os.Remove(filepath.Join(h.State, "hosts", older.ID+".json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// Act
+			readFleet(t, s, now, 0, 1)
+			calls := awaitDispatch(t, s, spawner, 1)
+
+			// Assert
+			if len(calls) != 1 || calls[0][0] != "pause" || calls[0][1] != test.wantPaused {
+				t.Fatalf("dispatches = %v, want %s paused", calls, test.wantPaused)
+			}
+			entries, _, err := afk.Entries(h.State, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pauses := afk.Pauses(entries); len(pauses) != 1 || !strings.HasSuffix(pauses[0].Evidence, "; "+test.wantEvidence) {
+				t.Errorf("logged pauses = %+v, want one whose evidence ends %q", pauses, test.wantEvidence)
+			}
+		})
+	}
+}

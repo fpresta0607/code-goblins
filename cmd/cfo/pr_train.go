@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
 	"github.com/fpresta0607/code-goblins/internal/train"
+	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
 // trainEvery is how often cfo pr train looks at its train's CI, and
@@ -73,7 +74,12 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 			}
 			return nil
 		},
-		TellCFO: func(_ context.Context, text string) error {
+		TellCFO: func(_ context.Context, identity, text string) error {
+			if identity != "" {
+				if err := wake.AppendFirstAndPublish(h.State, identity, "pr", "train:"+repository.Slug, text); err != nil {
+					return err
+				}
+			}
 			_, err := fmt.Fprintln(stdout, text)
 			return err
 		},

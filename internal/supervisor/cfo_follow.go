@@ -179,27 +179,74 @@ func (s *Store) answersWait(now time.Time) time.Duration {
 	return answerBatchWindow - given
 }
 
-// answersDueIn is how long until the answers held for the Overlord's next one
-// can go, and zero when none is held.
-func (s *Store) answersDueIn() time.Duration {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.answersWait(time.Now())
+// cfoMessageUndo is how long a message of his to the CFO waits on the board
+// before it is typed into the CFO's terminal, so Edit and Cancel can still take
+// it back: once typed into a turn it is the harness's to take. He sees it
+// held, then typed, then taken (the CFO, 2026-11-02). It is short because the
+// CFO's turns are long and his word reaches the CFO promptly (2026-10-28).
+// Send now skips it, and a command never waits in it.
+const cfoMessageUndo = 10 * time.Second
+
+// undoWait is how long, at now, queued message a still waits for its undo
+// window to end. A clock that stepped back never lengthens the wait.
+func undoWait(a Action, now time.Time) time.Duration {
+	if a.Kind != "message" || a.TaskID != "" || a.Status != "queued" || a.IsSentNow || isHarnessCommand(a.Text) {
+		return 0
+	}
+	given := now.Sub(a.CreatedAt)
+	if given < 0 || given >= cfoMessageUndo {
+		return 0
+	}
+	return cfoMessageUndo - given
 }
 
-// nextQueued is the index of the first queued action that can run now, or -1.
-// With no CFO running, deliveries to the CFO wait, and an answer to one of its
-// questions waits while the Overlord's next one may follow it. The caller
-// holds s.mu.
+// heldDueIn is how long until the first action held for a moment can go: the
+// answers held for the Overlord's next one, or a message to the CFO in its
+// undo window. It is zero when none is held.
+func (s *Store) heldDueIn() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	soonest := s.answersWait(now)
+	for _, a := range s.db.Actions {
+		if wait := undoWait(a, now); wait > 0 && (soonest == 0 || wait < soonest) {
+			soonest = wait
+		}
+	}
+	return soonest
+}
+
+// nextQueued is the index of the queued action that can run first now, or
+// -1. With no CFO running, deliveries to the CFO wait, an answer to one of its
+// questions waits while the Overlord's next one may follow it, and a message
+// to it waits out its undo window. Every delivery goes ahead of the board's
+// own evaluations, which batches of reconciles queue fifteen at a time: on
+// 2026-11-02 his message waited 93 s behind one such batch. The caller holds
+// s.mu.
 func (s *Store) nextQueued(cfoLive bool) int {
 	now := time.Now()
 	isHeld := s.answersWait(now) > 0
+	first := -1
 	for i, a := range s.db.Actions {
-		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer") && !s.followsEarlierAnswer(i) && !s.followsEarlierMessage(i) {
-			return i
+		if a.Status == "queued" && !s.deferredUntil[a.ID].After(now) && (cfoLive || !s.waitsForCFO(a)) && !(isHeld && a.Kind == "cfo_answer") && undoWait(a, now) == 0 && !s.followsHeldMessage(i, now) && !s.followsEarlierAnswer(i) && !s.followsEarlierMessage(i) {
+			if a.Kind != "evaluate" {
+				return i
+			}
+			if first < 0 {
+				first = i
+			}
 		}
 	}
-	return -1
+	return first
+}
+
+// followsHeldMessage reports whether action i is a delivery to the CFO that
+// waits behind an earlier message of his to it still in its undo window, so
+// the CFO gets what he sends in the order he sent it, unless he asked for this
+// one now. The caller holds s.mu.
+func (s *Store) followsHeldMessage(i int, now time.Time) bool {
+	a := s.db.Actions[i]
+	return !a.IsSentNow && s.waitsForCFO(a) && slices.ContainsFunc(s.db.Actions[:i], func(earlier Action) bool { return undoWait(earlier, now) > 0 })
 }
 
 // followsEarlierAnswer reports whether action i is his change of an answer

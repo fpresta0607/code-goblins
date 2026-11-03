@@ -31,6 +31,18 @@ test("a kept picture's path inside a sentence, another folder's picture and a ke
   ]) assert.deepEqual(keptPictures(text), { text, paths: [] }, text);
 });
 
+// A harness's record keeps a message typed on one line, as the board types
+// it, so the paths the box named after his words are joined to them by
+// spaces, as the CFO's Claude Code recorded his messages on 2026-11-02.
+test("kept pictures joined onto the end of his words' line become their previews", () => {
+  for (const [text, want] of [
+    ["what is wrong here? " + WINDOWS, { text: "what is wrong here?", paths: [WINDOWS] }],
+    ["two of them " + WINDOWS + "  " + UNIX + " ", { text: "two of them", paths: [WINDOWS, UNIX] }],
+    ["first line\nsecond line " + UNIX, { text: "first line\nsecond line", paths: [UNIX] }],
+    [WINDOWS + " " + UNIX, { text: "", paths: [WINDOWS, UNIX] }],
+  ] as const) assert.deepEqual(keptPictures(text), want, text);
+});
+
 test("a message of pictures alone has no words left", () => {
   assert.deepEqual(keptPictures("  " + UNIX + "  \n" + WINDOWS), { text: "", paths: [UNIX, WINDOWS] });
 });

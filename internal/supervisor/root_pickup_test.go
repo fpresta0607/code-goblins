@@ -116,8 +116,8 @@ func TestPickUpRootsQueuesAnOpenRootOnceWithABriefThatClosesIt(t *testing.T) {
 	}
 	// A root fix is pushed for CI to judge, on any harness and with no gate
 	// daemon to depend on, and the issue's own "mode:" line never sets it.
-	if settings := briefSettings(filepath.Join(h.Data, "root-widgets-7", "brief.md")); settings["mode"] != "direct-PR" {
-		t.Errorf("the brief's mode = %q, want direct-PR", settings["mode"])
+	if settings := briefSettings(filepath.Join(h.Data, "root-widgets-7", "brief.md")); settings["mode"] != "no-mistakes" {
+		t.Errorf("the brief's mode = %q, want strict delivery for an unassessed issue", settings["mode"])
 	}
 	named := tickets.NamedIssues(string(brief), rootRepository)
 	if len(named) == 0 || named[0].Number != 7 {
@@ -164,8 +164,8 @@ func TestQueueRootRecordsDefaultCredentialsWithoutChangingQuotedIssue(t *testing
 			if err := fleet.ValidateBriefReadiness(content); err != nil {
 				t.Fatal(err)
 			}
-			if settings := briefSettings(path); settings["mode"] != "direct-PR" {
-				t.Fatalf("delivery mode = %q, want direct-PR", settings["mode"])
+			if settings := briefSettings(path); settings["mode"] != "no-mistakes" {
+				t.Fatalf("delivery mode = %q, want no-mistakes, since automatic intake starts strict", settings["mode"])
 			}
 		})
 	}

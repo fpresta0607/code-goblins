@@ -267,11 +267,13 @@ func TestACodexBoardDecisionSubmitsTheWholePasteOnceIdleAndBusy(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := oneLine(fmt.Sprintf("Overlord: User answer to CFO question %s. Question: %s Answer (Other): %s", question.ID, question.Text, action.Text))
-			events := codexSubmitEvents(t, output)
-			var submitted []codexSubmitEvent
-			for _, event := range events {
-				if event.Kind == "submitted" {
-					submitted = append(submitted, event)
+			var events, submitted []codexSubmitEvent
+			for deadline := time.Now().Add(time.Minute); len(submitted) == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				events, submitted = codexSubmitEvents(t, output), nil
+				for _, event := range events {
+					if event.Kind == "submitted" {
+						submitted = append(submitted, event)
+					}
 				}
 			}
 			if len(submitted) != 1 || submitted[0].Text != want {

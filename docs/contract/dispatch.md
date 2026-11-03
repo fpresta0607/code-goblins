@@ -15,12 +15,8 @@ A goblin started before this keeps the `TMP` it was started with until it is res
 
 - `--brief` must be an absolute path to an existing file that satisfies the [brief readiness contract](../commands/brief.md), or for a helper's spawn the [helper contract](#helper-goblins).
 - The brief's Authentication section decides what the goblin can reach under [Credentials by need](authentication.md#credentials-by-need).
-- The brief's Verification section tells the goblin what to run before each push: `cfo verify <id>`, the fast tier of the project's record, which is the check you run by the same command.
-  It replaces telling a goblin to run the tests it touched by name, which left CI as the first to run a test the change broke.
-  In this repository that tier is `cfo gate prepush`.
-  A tier that fails prints its failed check's last line, which names what failed, and the file that holds the rest.
-  A tier the record's `verification.reuse` names takes its pass on the same source and declared inputs again instead of running, as docs/project-runtime.md says.
-- `--mode` is `no-mistakes` (default), `direct-PR`, or `local-only`.
+- The brief's Verification section assigns project checks, tier execution and reuse to the [selected validation owner](delivery.md#delivery).
+- `--mode` is `no-mistakes`, `direct-PR`, or `local-only`; omitted, [delivery intake](delivery.md#delivery) resolves project posture and concrete change risk, with no-mistakes for missing or uncertain inputs.
 - Every goblin starts in a native terminal of its own.
   A pi goblin starts with `--approve` where its pi advertises it, trusting the folder's project files for that run only, so it never asks.
 - Every goblin's terminal names a browser session of its own, `CHROME_DEVTOOLS_AXI_SESSION` set to its task id, and the CFO's is `cfo`. chrome-devtools-axi keeps one bridge and one browser for each session name, so a bridge belongs to one owner and is never the tool's unnamed session, which every program of the user shares.
@@ -34,6 +30,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   A queued field saved as Automatic writes an explicit empty row override, keeping the brief and the other preferences intact.
   Start is refused under 5 GB of free memory or of free commit (RAM plus page file), while its row waits for something that has not cleared, or for good once the task already finished, which its card says.
   A task with no brief gets one written from its queued row first, with a `brief created: ...` notify so you can amend it.
+  A row carries no change assessment, so its task starts strict, and that brief's Verification section gives the checks to the pipeline whatever mode the row names.
   It puts the task at the top of In progress and wakes you with a notify: `started: the Overlord started this from the board, ...` means it is dispatched, so update its backlog row as after your own dispatch.
   A `start failed: ...` names why `cfo spawn` refused.
 
@@ -78,6 +75,7 @@ Two kinds of run still need your word first, and a brief keeps saying so:
 A goblin may ask the supervisor for one helper goblin of its own, as the Supreme Overlord answered on 2026-09-28: "Allow it through the supervisor, with memory caps".
 It writes the helper's brief to a file and runs `cfo helper start <its-id> --brief <file> --title "<short title>"` from its own terminal; the request rides the supervisor's pipe, and only a process inside that goblin's terminal can ask in its name.
 The supervisor alone starts helpers, through `cfo spawn <id>-h<n> --parent <id>`, and only within the caps: one helper per goblin at a time, a paused helper included; no helpers of helpers; a parent that is live, native, at work and on a branch; and the memory, commit, disk and live-goblin marks every Start holds (5 GB to start, never under the 4 GB floor).
+A helper also waits, as everything the supervisor starts by itself does, while memory and commit, less the about 1 GB its session takes, are short of the floor the machine's heavy line keeps for its next test run: the refusal names what is free and that floor and says to ask again in ten minutes, and a line that cannot be read holds no helper and is said on the board.
 A refusal says why and when to ask again, and one goblin starts at a time, so a helper waits behind the board's Start or a Resume, and they wait behind it.
 The board's Start and Resume are one click: one clicked while another goblin starts or resumes, or while memory or disk is short, waits its turn on the supervisor rather than being refused, and one that fails reaches you as `start failed:` or `resume failed:`.
 A message the Overlord types to a paused, resuming or starting goblin is queued and delivered once, and one its goblin cannot take within ten minutes reaches you as `message not delivered:` with his words, yours to relay.
@@ -134,9 +132,12 @@ The product does this by itself in every home, with no setting, and wakes you fo
 
 - **The supervisor starts the work.** `cfo serve` reads memory once a minute, and at each reading with 5 GB of memory and of commit free it takes one slot: a reported production defect, then the paused goblin highest in the Supreme Overlord's In progress order whose pause cleared, then the top of the queue, with a [root issue](root-issues.md#root-issues) it picked up after every other queued task, unless a goblin paused for memory comes back first.
   A task it starts by itself, a production defect included, joins the bottom of In progress, under every goblin the board lists, and only his Start puts one at the top.
+  It starts or resumes a goblin by itself only while memory and commit, less the about 1 GB a new session takes, still meet the floor `cfo gate turns` shows for the next run of the machine's heavy line, so both test slots stay usable: the Supreme Overlord's rule of 2026-11-02, by free memory and no count of goblins (issue 1926).
+  Short of that nothing starts, resumes or comes back after a restart by itself, a production defect included, though the CFO still comes back, `memory_ready` waits too, and the scheduler's line, `cfo gate turns` and the tip of the board's memory meter, whose fill stays amber, all say that the work waits to keep the test slots open.
+  A line that cannot be read holds nothing, and is said on the board once three readings in a row cannot read it.
   Every other choice between goblins follows his order too: the memory floor and the allowance floor pause the lowest first, and a restart brings the highest back first.
   Slots go by memory alone: no count of goblins holds a start back, however many run.
-  The board's meters say none of it in words: what it could not start reaches you as the `idle` wake below.
+  Beyond that hold in the memory meter's tip, the board's meters say none of it in words: what it could not start reaches you as the `idle` wake below.
 - **A row says what it waits for, and starts when that clears.** A row under `## Queued` waits while its title line carries `blocked-by: <what> - <why>`, and the scheduler starts it by itself at the first reading with memory free after every one of them cleared, with no edit to the row: `until 2026-10-10T00:00Z` (an RFC3339 time, seconds optional) once that time passes, `memory 12 GB` once a reading has that much memory and commit free, a task id once that task's outcome says it delivered, and a GitHub pull request URL once it merged.
   Write a wait in one of those forms, never a word the scheduler cannot read: one it cannot read, such as `blocked-by: quiet-night` where no task has that id, keeps the row waiting, its card says why, and it is work that cannot start, which wakes you.
   So does a wait that can never clear: a task that stopped without delivering, or a pull request closed without merging.
@@ -182,7 +183,7 @@ A gate's agent carries the mark of whichever goblin started the daemon, so it is
 A program one of Git Bash's own tools starts carries no mark when it is such a tool itself, so it is the task's by its folder or its parent alone.
 A pause that fails while the goblin's terminal still runs types into it that the pause did not take effect and it is not paused, so a goblin that already wrote its handoff carries on instead of waiting idle at its prompt, and the failed record says whether it was told.
 CI and deploy take `--until pr:<GitHub PR URL>@<40-character SHA>` or `run:<GitHub Actions run URL>@<40-character SHA>`; pause only when waiting on that run is the goblin's remaining work.
-The supervisor's one scheduler resumes memory after two readings of 5 GB free memory and commit, allowance at reset, a dependency when its task finishes or PR merges or date arrives, a question when the Overlord answers, and CI/deploy on the matching `ci_finished` record.
+The supervisor's one scheduler resumes memory after two readings of 5 GB free memory and commit, allowance at reset, a dependency when its task finishes or PR merges or date arrives, a question when the Overlord answers, and CI/deploy on the matching `ci_finished` record, each only while memory and commit, less the about 1 GB its session takes, still meet the floor the machine's heavy line keeps for its next test run.
 An Overlord pause needs his Resume, and a legacy pause with no condition also needs manual Resume.
 Pausing or stopping a goblin first pauses or stops each of its [helpers](dispatch.md#helper-goblins) through the same path, each with its own record, handoff request and card, a pause keeping the parent's condition, except a helper the parent is paused to wait on, which keeps working; the parent's own sweep then ends anything a helper's operation left.
 Resume is one card at a time, a helper's included, since each start needs its own memory; a helper paused with its parent needs no Resume of its own, since the scheduler resumes it once its parent runs again, when memory allows.
@@ -208,6 +209,7 @@ His Start or Resume overrides that order, and `(priority: production-defect)` ma
 Start, spawn and Resume share the memory/commit floor: each needs 5 GB of memory and of commit free, which keeps the 4 GB floor, and memory is the only limit on how many goblins run.
 They share the disk floor too: none starts while the home's drive has less free than `config/fleet.json`'s `disk_floor_gb`, default 15, and the refusal names what is free and the floor; `cfo gate test` starts no run under it either.
 What the supervisor starts by itself also waits for room on the processors: the next queued task, a goblin whose pause cleared, a goblin coming back after a restart and a helper start only once a quarter of the machine's performance cores sat idle since the last reading, so the Overlord's own apps keep room.
+Each of them also waits for the memory the machine's heavy line keeps for its next test run, as [the supervisor starts the work](#the-fleet-never-idles) says, so a new session never takes the room a waiting test run needs.
 Each install reads its own cores for this: on a processor with performance and efficiency cores only the performance cores count, a core counts as busy while either of its threads is, and on a processor with cores of one kind all of them count.
 A goblin's own work also keeps off half of the machine's performance cores, rounded up to whole cores: its terminal and everything started in it run on the other processor threads, so the Overlord's apps have cores no goblin's build or test takes.
 That costs the fleet speed only while its work fills every core it keeps: 59% of what it got through on every core, on the six performance cores it was measured on.
@@ -226,7 +228,8 @@ With goblin work kept to its cores those took 0.02, 0.07 and 0.17 seconds.
 The board shows disk free under memory and the kernel's pools, in the memory meter's box, and under `disk_wake_gb`, default 10, the supervisor wakes the CFO once with a `disk` wake, and again only after a reading back at or above the floor.
 The allowance floor is the percent of a measured weekly window the home keeps back, each provider's own as `config/fleet.json`'s `weekly_floor_percent` sets it and 5 percent where it sets none, which `cfo allowance-floor` reads and sets.
 At the floor the scheduler asks for a handoff and records an allowance pause with its weekly reset, the seam AFK mode shares.
-The 4 GB memory floor pauses the newest live goblin not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB, whether or not [AFK mode](afk.md#afk-mode) is on.
+The 4 GB memory floor pauses the live goblin lowest in his In progress order not pushing or merging, one at a time, with a `memory` pause the scheduler resumes at 5 GB once a new session leaves the heavy line its next floor, whether or not [AFK mode](afk.md#afk-mode) is on.
+It passes over a goblin resumed from a memory pause in the last 10 minutes, and pauses one only when no other goblin may be paused.
 Short session or model windows do not trigger this reserve, and missing or stale quota remains unknown.
 A session window that is used up, or a week used up under a floor of 0, is waited out rather than paused: until it renews, nothing starts or resumes on its harness, and when it renews one `allowance` wake names the goblins it stopped, since Claude Code goes on by itself only where its screen offered to; peek each and send an idle one on.
 One `allowance` wake also comes when a window bounding a running goblin's model passes 85 percent used, once per window and reset.

@@ -112,7 +112,7 @@ commands:
   cfo deploy <task-id> [--target <name>]
   cfo evidence <task-id>
   cfo supersede <task-id> --reason <text>
-  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <no-mistakes|direct-PR|local-only>] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--title "<short title>"] [--overlap-ok "<why>"] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom; without --title the task takes its backlog row's title, cut to 100 characters with no harness at its end, and with neither it is named by its id
+  cfo spawn <id> --project <name|path> --brief <path> [--harness <claude|codex|pi>] [--mode <no-mistakes|direct-PR|local-only>] [--delivery-exception "<authority and reason>"] [--model <model>] [--effort <level>] [--class <ordinary|high-risk|mechanical>] [--title "<short title>"] [--overlap-ok "<why>"] [--yolo]   starts the goblin in a native terminal of its own; without --harness the lane table in data/routing.json picks harness, model and effort from the brief and the quota headroom; without --title the task takes its backlog row's title, cut to 100 characters with no harness at its end, and with neither it is named by its id
   cfo title <id> "<short title>"   give a task its short title: the board shows it while the task runs, and the supervisor writes it to the ticket it opened for the task, open or closed; the one way to rename an open ticket
   cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]   change a running goblin's harness/model/effort in place, or restart it onto a harness update
   cfo send <target> [--key <key>] <text...>
@@ -123,7 +123,7 @@ commands:
   cfo tickets <project> [--brief <file>] [--files <paths>] [--json]   read-only report of what others have in flight in the project's GitHub repository: whether it is collaborative, its active contributors, open issues, open and draft PRs with their files, and branches others pushed in the last 14 days; with --brief or --files it names the PRs, branches and issues that overlap that area
   cfo tickets <project> --allow-public-tickets   let the supervisor keep each task's ticket in the project's repository although it is public, where every issue is public; asked once per repository
   cfo issue file --project <project> --title <title> [--body-file <file>] [--evidence <text>]... [--root <key>]   file a root issue found outside your brief on the project's repository with the ops-root label, or comment on the open issue of the same root. On a public repository it refuses text naming a private project, a teammate, a local path or a secret
-  cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>]
+  cfo brief <id> --project <name|path> [--kind <ship|scout>] [--mode <no-mistakes|direct-PR|local-only>] [--surface <internal|product|mixed|unknown>] [--risk <low|sensitive-surface>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]
   cfo brief ready <id>   validate a completed queued brief and finalize its ready state, preserving its authored launch and auth choices
   cfo pr check <id> <url>
   cfo pr merge <url> [--method <merge|squash|rebase>] [--delete-branch] [--verified "<what verified it>"]   where the base requires a merge queue it adds the pull request to the queue instead, never with --admin; while AFK mode is on this is the CFO's own merge word: it needs --verified, a goblin's pull request whose head holds its base's tip unless a merge queue tests the merge, and no --delete-branch, and it is logged with its evidence before it merges
@@ -193,7 +193,7 @@ type commandRuntime struct {
 	// keySpend reads the spend the OpenRouter key of one Pi credential source
 	// reports at the provider, for the board's dial.
 	keySpend     func(context.Context, openrouter.Source) openrouter.Reading
-	actionsSpend func(context.Context, time.Time) actionsbilling.Reading
+	actionsSpend func(context.Context, time.Time, string) actionsbilling.Reading
 	// now is the clock a quota reading is judged by, so a test's reading
 	// keeps the date it was taken on; nil is the real clock.
 	now func() time.Time

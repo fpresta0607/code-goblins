@@ -133,15 +133,26 @@ func TestASessionThatRecordsNoUsageHasNone(t *testing.T) {
 }
 
 // A session's effort is what its harness says it last set: Claude Code's
-// /effort, from its own result, Codex's turn context and pi's thinking level
-// change, so Modern Chat shows a change made in either view (the Overlord,
-// 2026-10-27: "they should control the same interfaces. Same session").
+// /effort, from its own result, or the level its latest answer ran at,
+// Codex's turn context and pi's thinking level change, so Modern Chat shows
+// a change made in either view (the Overlord, 2026-10-27: "they should
+// control the same interfaces. Same session").
 func TestASessionReadsTheEffortItsHarnessLastSet(t *testing.T) {
 	command := func(uuid, args string) object {
 		return prompted(uuid, "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args>"+args+"</command-args>")
 	}
 	used := answer("a1", "reply-1", textBlock("done"))
 	used["message"].(object)["usage"] = object{"input_tokens": 10, "output_tokens": 5}
+	// Claude Code 2.1.316 names on each answer the effort it ran at, which
+	// for a session started with no --effort and never given /effort is the
+	// only place its effort is written (the Overlord, 2026-11-02: "I can't see
+	// the effort level next to the model").
+	ranAt := func(uuid, id, effort string) object {
+		ran := answer(uuid, id, textBlock("done"))
+		ran["message"].(object)["usage"] = object{"input_tokens": 10, "output_tokens": 5}
+		ran["effort"] = effort
+		return ran
+	}
 	for _, test := range []struct {
 		name string
 		path func(t *testing.T, home string) string
@@ -165,6 +176,15 @@ func TestASessionReadsTheEffortItsHarnessLastSet(t *testing.T) {
 		{"Claude Code's /effort with its description", func(t *testing.T, home string) string {
 			return conversation(t, home, prompted("u1", "work"), used, command("c1", "high"), prompted("o1", "<local-command-stdout>Set effort level to high: Deeper reasoning for harder problems</local-command-stdout>"))
 		}, "high"},
+		{"Claude Code's answer, which names the effort it ran at", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), ranAt("a1", "reply-1", "xhigh"))
+		}, "xhigh"},
+		{"Claude Code's /effort after an answer at another level", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), ranAt("a1", "reply-1", "xhigh"), command("c1", "max"), prompted("o1", "<local-command-stdout>Set effort level to max</local-command-stdout>"))
+		}, "max"},
+		{"Claude Code's latest answer, after /effort", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("u1", "work"), command("c1", "max"), prompted("o1", "<local-command-stdout>Set effort level to max</local-command-stdout>"), prompted("u2", "more"), ranAt("a2", "reply-2", "low"))
+		}, "low"},
 		{"Codex's turn context", func(t *testing.T, home string) string {
 			turn := codexTurnContext("gpt-6-astra")
 			turn["payload"].(object)["effort"] = "xhigh"

@@ -38,6 +38,7 @@ for (const width of [1440, 390, 320]) {
       expect(layout.overflows).toBe(false);
       expect(layout.smallest).toBeGreaterThanOrEqual(16);
       expect(layout.ring).toBeGreaterThanOrEqual(44);
+      expect(await marks(bar)).toEqual([{ path: CLAUDE_PATH, isInside: true, words: [] }, { path: OPENAI_PATH, isInside: true, words: [] }]);
       await expect(page.locator(".subscription-dial")).toHaveCount(2);
       await expect(page.getByRole("region", { name: "Tasks", exact: true }).locator(".subscription-dial")).toHaveCount(0);
       await openai.hover();
@@ -54,6 +55,9 @@ for (const width of [1440, 390, 320]) {
       await expect(openai).toBeFocused();
       await expect(page.getByRole("tooltip")).toContainText("just now");
       await expect(openai).toHaveAccessibleDescription(/Resets.*Reading.*5% reserve/);
+      await page.keyboard.press("Shift+Tab");
+      await expect(claude).toBeFocused();
+      await expect(claude).toHaveAccessibleName("Claude weekly remaining unavailable");
       await bar.screenshot({ path: testInfo.outputPath(`dials-${width}-${colorScheme}.png`) });
     });
   }
@@ -86,29 +90,66 @@ for (const percent of [1, 5.1]) {
   });
 }
 
-// The Overlord, 2026-10-28: "remove the redundant claude or codex or pi icons
-// in cfo banner in top left of board, only need usage". The bar's dials draw
-// no brand, so two subscriptions' dials name their providers in words.
-test("the CFO's bar shows each subscription's usage with no brand mark, naming the provider when there are two", async ({ page }) => {
+// The Overlord, 2026-11-02, on the bar's "Claude 100%" and "Codex 4%": each
+// provider's icon sits inside its ring in place of its name beside it. The
+// bar still wears no mark of the harness the CFO runs (goblin-alerts.spec.ts).
+// marks reads each dial's ring: the brand path drawn in it, whether that
+// mark lies wholly inside the ring, and any words beside the ring other than
+// its percentage.
+async function marks(bar: ReturnType<Page["getByRole"]>) {
+  return bar.locator(".subscription-dial").evaluateAll((dials) => dials.map((dial) => {
+    const ring = dial.querySelector(".subscription-ring")!.getBoundingClientRect();
+    const mark = dial.querySelector<SVGSVGElement>(".subscription-ring svg");
+    const box = mark?.getBoundingClientRect();
+    const middle = box && { x: box.left + box.width / 2 - (ring.left + ring.width / 2), y: box.top + box.height / 2 - (ring.top + ring.height / 2) };
+    return {
+      path: mark?.querySelector("path")?.getAttribute("d")?.slice(0, 12) ?? "",
+      isInside: !!box && !!middle && Math.hypot(box.width / 2, box.height / 2) + Math.hypot(middle.x, middle.y) <= ring.width / 2,
+      words: [...dial.querySelectorAll<HTMLElement>(":scope > :not(.subscription-ring, .subscription-percent)")].map((element) => element.textContent),
+    };
+  }));
+}
+const CLAUDE_PATH = "m4.7144 15.9", OPENAI_PATH = "M22.2819 9.8";
+
+test("the CFO's bar draws each subscription's icon inside its ring, with no name beside it", async ({ page }) => {
   // Arrange and Act
   const bar = await open(page, [usage("claude", 40), usage("codex", 76)]);
 
   // Assert
   const claude = bar.getByRole("progressbar", { name: "Claude 40% weekly remaining" });
   const openai = bar.getByRole("progressbar", { name: "OpenAI 76% weekly remaining" });
-  await expect(claude).toHaveText("Claude40%");
-  await expect(openai).toHaveText("Codex76%");
-  await expect(bar.locator(".subscription-ring svg, .mark")).toHaveCount(0);
+  await expect(claude).toHaveText("40%");
+  await expect(openai).toHaveText("76%");
+  await expect(claude.locator(".subscription-fill")).toHaveAttribute("stroke-dasharray", "40 100");
+  await expect(openai.locator(".subscription-fill")).toHaveAttribute("stroke-dasharray", "76 100");
+  expect(await marks(bar)).toEqual([{ path: CLAUDE_PATH, isInside: true, words: [] }, { path: OPENAI_PATH, isInside: true, words: [] }]);
+  await expect(bar.locator(".mark")).toHaveCount(0);
 });
 
-test("one subscription's dial on the CFO's bar is its usage alone", async ({ page }) => {
+test("one subscription's ring carries its icon too", async ({ page }) => {
   // Arrange and Act
   const bar = await open(page, [usage("codex", 76)]);
 
   // Assert
   await expect(bar.getByRole("progressbar", { name: "OpenAI 76% weekly remaining" })).toHaveText("76%");
-  await expect(bar.locator(".subscription-ring svg, .mark")).toHaveCount(0);
+  expect(await marks(bar)).toEqual([{ path: OPENAI_PATH, isInside: true, words: [] }]);
 });
+
+// A provider with no reading yet, one that needs a sign-in and one whose
+// reading went stale each keep their icon in a ring with no fill and a "?".
+for (const status of ["unavailable", "auth_required", "stale"]) {
+  test(`a ${status} reading keeps its provider's icon in an unknown ring`, async ({ page }) => {
+    // Arrange and Act
+    const bar = await open(page, [usage("claude", status === "stale" ? 40 : null, status), usage("codex", 76)]);
+
+    // Assert
+    const claude = bar.getByRole("img", { name: "Claude weekly remaining unavailable" });
+    await expect(claude).toHaveText("?");
+    await expect(claude).toHaveClass(/unknown/);
+    await expect(claude.locator(".subscription-fill")).toHaveCount(0);
+    expect(await marks(bar)).toEqual([{ path: CLAUDE_PATH, isInside: true, words: [] }, { path: OPENAI_PATH, isInside: true, words: [] }]);
+  });
+}
 
 test("no active providers means no dials on the CFO's bar", async ({ page }) => {
   const bar = await open(page, []);

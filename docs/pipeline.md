@@ -1,7 +1,7 @@
 # Pipeline policy
 
 `config/pipeline.json` is the checked-in CFO policy for no-mistakes v1.75.1.
-The CFO remains the driver; no pipeline steps are reimplemented here.
+The [delivery contract](contract/delivery.md#delivery) assigns validation ownership; no pipeline steps are reimplemented here.
 The binary still owns review, fixes, tests, lint, documentation, push, PR creation and CI.
 
 ## Task classes
@@ -18,8 +18,9 @@ The checked-in file is v5, and a home takes v6 by writing its own, as [A gate on
 No-mistakes tasks receive a policy snapshot at `state/tasktmp/<id>/pipeline.json`, with its class and SHA-256 recorded in task metadata.
 Editing the source policy does not change a running task's snapshot, and `cfo switch` retains it.
 Direct-PR and local-only tasks retain their existing delivery paths.
-They have no gate and no frozen policy, so every `cfo pipeline` command that names one refuses it by its mode and names that mode's own route, never a migration, since no migration can give a task a gate it was never spawned with (issue 1438).
-A direct-PR task, as every picked-up root issue is, is verified by its pull request's CI, and a local-only task lands with `cfo merge-local <id>`.
+They have no gate and no frozen pipeline policy, so every `cfo pipeline` command that names one refuses it by its mode and names that mode's own route, never a migration, since no migration can give a task a gate it was never spawned with (issue 1438).
+A direct-PR task runs its selected project checks and its pull request's CI, and a local-only task lands with `cfo merge-local <id>`.
+Delivery selection and frozen project checks follow [Delivery intake](contract/delivery.md#delivery); automatic issue intake follows the [root-issue contract](contract/root-issues.md#root-issues).
 Existing no-mistakes tasks without a snapshot are not silently migrated.
 
 Policy v4 names one ordered chain for every gate role: Codex gpt-6.1-sol at xhigh effort first, through the machine's existing ChatGPT OAuth login, and Claude next when Codex cannot run.
@@ -295,7 +296,7 @@ Newly spawned tasks freeze the version the home's `config/pipeline.json` holds.
 `cfo gate test` is this repository's test step (`commands.test` in `.no-mistakes.yaml`), and it plans before it runs.
 
 ```powershell
-cfo gate test                     # fast, the default: static checks and the quick changed packages
+cfo gate test                     # fast, the default
 cfo gate test --level affected    # every package the change reaches, which CI's run also covers
 cfo gate test --level full        # every package
 cfo gate test --plan              # print the plan and run nothing
@@ -303,9 +304,15 @@ cfo gate test --plan              # print the plan and run nothing
 
 | Level | `go vet` | `go test` |
 | --- | --- | --- |
-| `fast` | the packages the change reaches | the changed packages and the packages a contract selects, unless the policy lists them as slow |
+| `fast` | the packages the change reaches | the changed packages and the packages a contract selects, unless the policy lists them as slow, plus required policy guards |
 | `affected` | the packages the change reaches | the same packages |
 | `full` | every package | every package |
+
+At every level, `cfo gate test` also selects the trusted policy's `guards`, even when no Go package changed.
+A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.
+A guard with named `tests` runs exactly those tests, so selecting it does not run unrelated slow tests; without `tests`, it runs its whole package.
+An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
+`cfo gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.
 
 A change reaches the packages that own a changed file, the packages that import one of those directly or transitively, and the packages a contract of the policy names for a changed file.
 A package owns the Go files in its directory, the files under its `testdata` folder and the files its `//go:embed` patterns cover, so a doc the binary embeds selects the package that embeds it and a doc nothing embeds selects none.
@@ -324,7 +331,8 @@ A plan gets 15 minutes.
 One that outlasts them tested nothing, so `cfo gate test` and `cfo gate prepush` exit 125 with a last line that starts `nothing was tested, since the plan stalled`, as `cfo gate turn` does for a run that took no turn, and `cfo verify` records that command as `not_run`.
 Nothing about the change failed, and the next run starts from a warmer file cache.
 The plan prints why each package is in it (`changed`, `imports <package>`, or a contract's reason with the file that changed) and every test run the level left to a broader one, with why.
-It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed:
+It then lists the changed files that are outside the Go checks, under the policy's reason for each, and the changed files the policy does not account for, so what the step does not check is read from its output and not assumed.
+This excerpt shows the package-selection part of the plan:
 
 ```text
 cfo gate test: level fast, the default, since CI runs every package; the change requires affected: the default for a change
@@ -340,36 +348,16 @@ changed files outside the Go checks:
 
 CI tests the level the change requires on the pull request, and every package in its merge train's run, whatever the local level was.
 
-The policy is `config/verify.json`:
+The repository's verification policy is `config/verify.json`.
 
-```json
-{
-  "version": 1,
-  "slow_packages": ["cmd/cfo", "internal/installscript", "internal/supervisor"],
-  "contracts": [
-    {
-      "paths": ["install.ps1", "install.cmd", "tools/pin-installer.ps1"],
-      "packages": ["internal/doctor", "internal/installscript", "internal/installtest"],
-      "why": "tests run or read these scripts"
-    }
-  ],
-  "outside": [
-    {
-      "paths": ["README.md", "docs/**"],
-      "why": "documentation and housekeeping no Go check reads"
-    }
-  ]
-}
-```
-
-`slow_packages` are the packages whose tests take minutes on a loaded machine, each named by its directory from the repository root with forward slashes, and `.` for the root package; the fast level vets them and leaves their tests to `affected`.
+`slow_packages` are the packages whose tests take minutes on a loaded machine, each named by its directory from the repository root with forward slashes, and `.` for the root package; the fast level vets them and leaves their package tests to `affected`, subject to the required guard rules above.
 
 `contracts` say what the import graph cannot see: the files a package's tests read by path, such as a script they run.
 A change to a file one of a contract's `paths` names selects the contract's `packages`, named as `slow_packages` names them, and the plan gives the contract's `why` with the file.
 A contract selects its own packages and not the packages that import them.
 
 `outside` names the files no Go check reads, each rule with why: a doc nothing embeds, or the frontend's sources, which its own checks cover.
-A change to one of them selects nothing, and the plan lists it under the rule's reason.
+A change to one of them selects no package, and the plan lists it under the rule's reason.
 
 A path is a pattern from the repository root with forward slashes: `*` and `?` match inside one name as Go's `path.Match` does, `**` stands for any number of folders, none included, and case does not count.
 A file a package owns is that package's whatever a pattern says of it, and a contract is read before `outside`.
@@ -441,7 +429,8 @@ On 2026-10-14 a run that had waited an hour and fourteen minutes reached the hea
 
 A gate shows a step's output only once the step has ended, so `cfo gate turns` prints the line from outside while the wait lasts: each run that holds a turn, the runs that wait in the order they take their turns, a low-priority run marked and behind every other, and the memory when the machine is short of it.
 At capacity two it also shows what each run is expected to use and what each holder uses now.
-`cfo gate turns --json` gives the same as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, and `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`.
+When memory and commit, less the about 1 GB a new goblin's session takes, are short of the floor for the line's next run, its last line says the supervisor starts and resumes no goblin by itself, keeping the test slots open, as the scheduler's own line says ([The fleet never idles](contract/dispatch.md#the-fleet-never-idles)).
+`cfo gate turns --json` gives the same as one JSON object, for the board to read, whose keys stay as they are and are always there, an empty line being empty lists: `capacity`, `is_weighed`, `holding` and `waiting`, each run with `who`, `pid`, `since`, `budget_seconds`, `now`, `estimate_bytes`, `used_bytes` and `is_low_priority`, `memory` with `available_bytes`, `commit_available_bytes`, `floor_bytes` and `is_short`, and `hold`, which says why no goblin starts or resumes by itself and is empty when one may.
 Under a run that holds a turn, `cfo gate turns` prints what the run says it is doing, which the run renews every five seconds while its tests run: how many packages are done, which tests are running and for how long, and the last line of its output.
 A new gate run names the task registered for its source worktree, including the owner of an extra worktree, in its turn and report.
 Its turn names the task's goblin with it, as `Zora (cg-example)`, when the task's record names one, and its report keeps the id.
@@ -802,7 +791,7 @@ It prints, for each job, how many runs in a row matched up to the newest, how ma
 
 ## Before a push
 
-`cfo gate prepush` is what a goblin runs before each push, so that CI is not the first to run a test the change broke.
+`cfo gate prepush` picks project checks before publication under the [selected validation owner](contract/delivery.md#delivery), so that CI is not the first to run a test the change broke.
 From 2026-09-05 to 2026-10-10, 164 tests failed on pull request runs of the `go` workflow.
 Of them 52 percent were in a test file the pull request had changed and 23 percent in another file of a package it had changed.
 Another 23 percent were in a package it had not touched: most of those are tests that fail by chance, and the rest are guards that read the whole tree.
@@ -812,7 +801,10 @@ Until then every brief said to run the touched tests by name and let CI run the 
 The pick is the gate step's plan and more, in the order a failure is likeliest and cheapest to find:
 
 1. The imports of every package the change reaches and of its tests, by `go list -test`, which builds nothing, takes seconds and is where an import cycle shows.
-2. The guards: the tests the policy names under `guards` in `config/verify.json`. They read the whole tree, so a change anywhere can fail them, and they run whatever changed. A new whole-tree guard is named there. A test of the policy fails a guard whose test is gone, since it would run nothing and pass.
+2. The guards, under the [verification-level rules](#verification-levels).
+   They read the whole tree, so a change anywhere can fail them.
+   A new whole-tree guard is named in the policy.
+   A test of the policy fails a guard whose test is gone, since it would run nothing and pass.
 3. The changed packages that are quick to test, and the packages a contract names for a changed file, each whole.
 4. For a change under `frontend`, the type check, the lint, the unit tests and the browser specs the change touched or names.
 5. The changed packages the policy lists as slow, without their slowest tests. They come after the board's checks because a busy machine can spend the whole limit in them: on 2026-10-10 the replays of two pull requests were ended by the limit inside the quick tests of `cmd/cfo` and `internal/supervisor`.

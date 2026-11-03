@@ -1,13 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diskBlock, diskScale, diskState, freeGigabytes, freeShare, gpuFree, gpuMarks, holdersLine, isPastPoolLine, memoryBlock, meterScale, meterState, nextChip, nextInOrder, poolMarks, poolScale, poolState, processorMarks, processorScale, processorState, queueBlock, resumeOrder, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
+import { diskBlock, diskScale, diskState, freeGigabytes, freeShare, gpuFree, gpuMarks, holdersLine, isPastPoolLine, memoryBlock, memoryMarks, meterScale, meterState, nextChip, nextInOrder, poolMarks, poolScale, poolState, processorMarks, processorScale, processorState, queueBlock, resumeOrder, startBlock, startOrder, startOutcome, tighter, turnStatus } from "./start.ts";
 import { nodeStatus } from "./workflow.ts";
 import { parseSnapshot, type Disk, type Gpu, type Memory, type Processors, type Snapshot, type Task } from "./types.ts";
 
 const GB = 2 ** 30;
 // memory is a machine with available GB of memory and, unless given, ample
 // commit and healthy kernel pools under their 7.5 GB line.
-const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, pool_line: 7.5 * GB, pool_growth: [], floor: 4 * GB, next: 5 * GB, holders: [] });
+const memory = (available: number, commit = 40): Memory => ({ available: available * GB, total: 32 * GB, commit_available: commit * GB, commit_limit: 48 * GB, paged_pool: 0.5 * GB, nonpaged_pool: 0.3 * GB, pool_line: 7.5 * GB, pool_growth: [], floor: 4 * GB, next: 5 * GB, slot_hold: "", holders: [] });
 const task = (changes: Partial<Task> = {}) => parseSnapshot({ healthy: true, tasks: [{ id: "next-task", phase: "queued", brief: true, starting: false, start_error: "", verified: false, ...changes }] }).tasks[0];
 
 test("the meter says when the next task starts", () => {
@@ -16,6 +16,27 @@ test("the meter says when the next task starts", () => {
   assert.deepEqual(meterState(memory(4.99)), { tone: "waiting", text: "The next task starts at 5 GB free." });
   assert.deepEqual(meterState(memory(5)), { tone: "ready", text: "Enough memory for the next task" });
   assert.deepEqual(meterState(memory(3.99)), { tone: "under", text: "Under the 4 GB floor: nothing starts until memory frees." });
+});
+
+// The Overlord's rule of 2026-11-02 (#1926): the supervisor starts or resumes
+// a goblin by itself only while memory, less the about 1 GB a new session
+// takes, still meets the floor the machine's heavy line keeps for its next
+// test run. Over the mark but short of that, the meter waits and its tip says
+// why; under the mark it says where the next task starts, as before.
+test("the meter waits and its tip says why while the heavy line keeps the memory a new goblin would take", () => {
+  // Arrange
+  const hold = "6.0 GB of memory and commit is free; the next test run needs 8.0 GB and a new goblin 1 GB";
+  const held = { ...memory(6), slot_hold: hold };
+  const marks = "Red mark: the 4 GB floor. Nothing starts under it. White mark: 5 GB, where the next task starts.";
+  const why = `Nothing starts by itself, keeping the test slots open: ${hold}.`;
+
+  // Act and assert
+  assert.deepEqual(meterState(held), { tone: "waiting", text: why });
+  assert.equal(memoryMarks(held), `${marks} ${why}`);
+  assert.deepEqual(meterState({ ...memory(4.5), slot_hold: hold }), { tone: "waiting", text: "The next task starts at 5 GB free." }, "under the mark the mark is what it waits for");
+  assert.equal(memoryMarks({ ...memory(4.5), slot_hold: hold }), marks);
+  assert.deepEqual(meterState(memory(6)), { tone: "ready", text: "Enough memory for the next task" }, "no hold, room for the next task");
+  assert.equal(memoryMarks(memory(6)), marks);
 });
 
 // The Overlord, 2026-10-08: "below memory disk remove the text please not
@@ -157,7 +178,7 @@ test("the pools' bar puts the line at its middle and its tip names each pool and
 
 test("the snapshot's memory carries commit, the kernel pools and the apps holding the most commit", () => {
   // Arrange
-  const wire = { available: 1, total: 2, commit_available: 3, commit_limit: 4, paged_pool: 5, nonpaged_pool: 6, pool_line: 10, floor: 7, next: 8 };
+  const wire = { available: 1, total: 2, commit_available: 3, commit_limit: 4, paged_pool: 5, nonpaged_pool: 6, pool_line: 10, floor: 7, next: 8, slot_hold: "0.0 GB of memory and commit is free; the next test run needs 4.0 GB and a new goblin 1 GB" };
   const growth = [{ tag: "Toke", pool: "paged", grown: 11, holds: 12 }];
 
   // Act

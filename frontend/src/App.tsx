@@ -54,7 +54,6 @@ import { messagesQuery } from "./session-messages";
 import { isPendingMessage, messagesTo, takesMessages } from "./messages";
 import { CHAT_STYLE_CHANGED, useChatStyle, type ChatStyle } from "./chat-style";
 import { goblinName } from "./task-words";
-import { taskStatus } from "./task-status";
 
 // The terminals load xterm, so the deck arrives the first time one is shown.
 const TerminalDeck = boardPage(() => import("./TerminalDeck").then((module) => module.TerminalDeck), "terminals");
@@ -365,7 +364,7 @@ export function App() {
   // harness works, which the box's working line shows, and that terminal's
   // link, which says what it was last told of the harness's screen.
   const cfoSession = snapshot && liveCfoSession(snapshot);
-  const isWorking = !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task && snapshot ? taskStatus(task, snapshot).phase : "") || "");
+  const isWorking = !!live?.screen?.isWorking || ["busy", "working", "active"].includes((cfoShown ? cfoSession?.runtime?.state || cfoSession?.phase : task?.phase) || "");
   // What the conversation's stats read: the session's harness, the model and
   // effort the board recorded for it, and the memory its processes hold.
   const panelHarness = cfoShown || !task ? (snapshot && snapshot.cfo_harness) || "" : task.harness;
@@ -568,7 +567,7 @@ export function App() {
           : train ? <TrainPanel key={selectionEpoch + ":train:" + train.id} train={train} tasks={snapshot.tasks} row={row} />
           : <GoblinPanel key={selectionEpoch + ":" + (selectedSession?.id || task?.id || "cfo") + ":" + (task?.generation || "") + ":" + (child?.id || "")}
             task={selected ? task : undefined} node={selected ? selectedSession : undefined} child={child} snapshot={snapshot} connected={connected} reviews={reviews}
-            view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
+            view={shownView} views={views} onView={setPanelView} maximized={panelWide} side={side} isBoardShown={view === "Board" && !panelWide && !fillsPhone} now={now} presentations={presentations} cardStart={cardStart} row={row} onAnswer={(key) => setCommandFocus({ key, at: Date.now() })}
             onOpenTask={openTask} onHome={close} />)}
         {/* The stage, the Messages view and the terminal deck in one box,
             beside the column the panel's task list is drawn into. */}

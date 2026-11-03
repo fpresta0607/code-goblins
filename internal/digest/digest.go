@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -34,6 +35,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/memory"
 	"github.com/fpresta0607/code-goblins/internal/reap"
 	"github.com/fpresta0607/code-goblins/internal/state"
+	"github.com/fpresta0607/code-goblins/internal/supervisor"
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
@@ -107,11 +109,11 @@ func (e *werr) write(text []byte) {
 }
 
 // Compose writes the long session-start digest to w, in this exact section
-// order: SESSION LOCK, AFK MODE while it is on, WAKE QUEUE, SUPERVISION
-// OPERATING INSTRUCTIONS, READ-ONCE CONTRACT, FLEET STATE, ORPHANS, CONTEXT,
-// NEXT STEP. It is what `cfo session-start` prints by hand; a hook prints
-// ComposeBrief, because a session is handed a hook's output whole only up to
-// Limit.
+// order: SESSION LOCK, AFK MODE while it is on, WAKE QUEUE, WAITING ON THE
+// CFO, SUPERVISION OPERATING INSTRUCTIONS, READ-ONCE CONTRACT, FLEET STATE,
+// ORPHANS, CONTEXT, NEXT STEP. It is what `cfo session-start` prints by
+// hand; a hook prints ComposeBrief, because a session is handed a hook's
+// output whole only up to Limit.
 //
 // A read failure anywhere below SESSION LOCK - a per-file read inside FLEET
 // STATE or CONTEXT (a path that exists but cannot be read as text, e.g. a
@@ -164,6 +166,10 @@ func composeLong(h home.Home, current fleetSample, ew *werr) error {
 	_, catalogErr := os.Lstat(filepath.Join(h.Data, filepath.FromSlash(memory.CatalogPath)))
 	hasCatalog := !errors.Is(catalogErr, os.ErrNotExist)
 	writeWakeQueue(h.State, 2500, briefErrorWidth, ew)
+	// The brief sends what its own section leaves out here, so this one lists
+	// every wait: one line for each live goblin at most.
+	waits, err := supervisor.CFOWaits(h)
+	writeCFOWaits(waits, err, time.Now(), math.MaxInt, briefErrorWidth, ew)
 	writeSupervisionInstructions(h.Data, false, ew)
 
 	var fleetState, context bytes.Buffer
@@ -221,9 +227,10 @@ func composeLong(h home.Home, current fleetSample, ew *werr) error {
 
 // ComposeBrief writes the digest a session is handed whole: within Budget
 // however large the home is, in the order a CFO needs it. SESSION LOCK, AFK
-// MODE while it is on, WAKE QUEUE with its ack line, SUPERVISION OPERATING
-// INSTRUCTIONS, FLEET with one line a goblin, READ THIS NEXT naming the file
-// that holds the long digest, READ-ONCE CONTRACT, NEXT STEP.
+// MODE while it is on, WAKE QUEUE with its ack line, WAITING ON THE CFO
+// within briefWaitsRoom, SUPERVISION OPERATING INSTRUCTIONS, FLEET with one
+// line a goblin, READ THIS NEXT naming the file that holds the long digest,
+// READ-ONCE CONTRACT, NEXT STEP.
 //
 // AFK mode's notice is printed whole, as the long digest prints it: its terms
 // are what a session starting from this digest decides under.
@@ -289,8 +296,10 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 		}
 	}
 
-	var afkMode, instructions, storage bytes.Buffer
+	var afkMode, cfoWaits, instructions, storage bytes.Buffer
 	writeAFKMode(h.State, &werr{w: &afkMode})
+	waits, waitsErr := supervisor.CFOWaits(h)
+	writeCFOWaits(waits, waitsErr, time.Now(), briefWaitsRoom, briefErrorWidth, &werr{w: &cfoWaits})
 	writeStorage(h, time.Now(), &werr{w: &storage})
 	writeSupervisionInstructions(h.Data, true, &werr{w: &instructions})
 	checkpoint := ""
@@ -324,7 +333,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 
 	// The wake queue and the fleet share what the fixed sections leave: the
 	// fleet is held to two fifths of it only while the queue needs the rest.
-	room := Budget - lockSection.Len() - afkMode.Len() - storage.Len() - instructions.Len() - len(tail(false, false))
+	room := Budget - lockSection.Len() - afkMode.Len() - cfoWaits.Len() - storage.Len() - instructions.Len() - len(tail(false, false))
 	fleetTable, isWholeFleet := briefFleet(current, room)
 	var wakeQueue bytes.Buffer
 	isWholeQueue := writeWakeQueue(h.State, max(room*3/5, room-len(fleetTable)), briefErrorWidth, &werr{w: &wakeQueue})
@@ -336,6 +345,7 @@ func composeBriefWithEndpoint(ctx context.Context, h home.Home, ownerPID int, se
 	ew.write(lockSection.Bytes())
 	ew.write(afkMode.Bytes())
 	ew.write(wakeQueue.Bytes())
+	ew.write(cfoWaits.Bytes())
 	ew.write(instructions.Bytes())
 	ew.write(fleetTable)
 	ew.write(storage.Bytes())
@@ -444,6 +454,40 @@ const fleetStatusWidth = 80
 // briefErrorWidth is how many bytes of a read failure's text the brief
 // prints inline: an error can quote the whole of what it could not read.
 const briefErrorWidth = 200
+
+// briefWaitsRoom is the most of Budget the brief's WAITING ON THE CFO
+// section takes, about seven goblins.
+const briefWaitsRoom = 1500
+
+// writeCFOWaits is the WAITING ON THE CFO section within room bytes: one
+// line for each live goblin that waits on the CFO, the one that has waited
+// longest first, with how long it has waited and what for, as the
+// supervisor's sweep reads them (supervisor.CFOWaits), and how many more a
+// section too long for room left out. It says so when no goblin waits, and
+// when a goblin's wait could not be read, with the error cut to errorWidth
+// bytes.
+func writeCFOWaits(waits []supervisor.CFOWait, err error, now time.Time, room, errorWidth int, ew *werr) {
+	var section bytes.Buffer
+	sw := &werr{w: &section}
+	sw.println("== WAITING ON THE CFO ==")
+	if err != nil {
+		sw.printf("WAITING ON THE CFO: UNREADABLE (%s)\n", cutError(err, errorWidth))
+	} else if len(waits) == 0 {
+		sw.println("No goblin waits on the CFO.")
+	}
+	more := func(left int) string {
+		return fmt.Sprintf("(+%d more goblins wait on the CFO: see WAITING ON THE CFO in the file named under READ THIS NEXT)\n", left)
+	}
+	for listed, wait := range waits {
+		line := fmt.Sprintf("%s has waited %d minutes: %s\n", wait.Who(), wait.Minutes(now), wait.What)
+		if section.Len()+len(line)+len(more(len(waits))) > room {
+			sw.printf("%s", more(len(waits)-listed))
+			break
+		}
+		sw.printf("%s", line)
+	}
+	ew.write(section.Bytes())
+}
 
 // cutError is err's text, cut to width bytes.
 func cutError(err error, width int) string {

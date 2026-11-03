@@ -153,13 +153,16 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 		return 2
 	}
 	var commands [][]string
+	for _, guard := range plan.Guards {
+		commands = append(commands, guard.Command)
+	}
 	if len(plan.Vet) > 0 {
 		commands = append(commands, append([]string{"go", "vet"}, plan.Vet...))
 	}
 	if len(plan.Tests) > 0 {
 		// -json has go test say what became of each package and each test, which
 		// the run prints as go test prints without it and records by package.
-		commands = append(commands, append([]string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
+		commands = append(commands, append(slices.Clone(gatetest.StepTestArgs), plan.Tests...))
 	}
 	if len(plan.Alone) > 0 {
 		// The packages the policy runs alone take a turn of their own, one at
@@ -525,6 +528,9 @@ func runGateTurns(stdout, stderr io.Writer, available func() (supervisor.Memory,
 	if report.Memory.IsShort {
 		fmt.Fprintf(stdout, "memory: %.1f GB physical and %.1f GB commit are available; both require the %.1f GB floor\n", verify.Gigabytes(report.Memory.AvailableBytes), verify.Gigabytes(report.Memory.CommitAvailableBytes), verify.Gigabytes(report.Memory.FloorBytes))
 	}
+	if report.Hold != "" {
+		fmt.Fprintln(stdout, "goblins: the supervisor starts and resumes none by itself, keeping the test slots open: "+report.Hold)
+	}
 	return 0
 }
 
@@ -558,6 +564,10 @@ type turnsReport struct {
 	Holding   []turnsRun  `json:"holding"`
 	Waiting   []turnsRun  `json:"waiting"`
 	Memory    turnsMemory `json:"memory"`
+	// Hold says why the supervisor starts and resumes no goblin by itself,
+	// a new session leaving the line's next run short of its floor, and is
+	// empty when it may.
+	Hold string `json:"hold"`
 }
 
 // turnsRun is one run in the line: who it is, since when it holds its turn
@@ -614,6 +624,7 @@ func readTurns(available func() (supervisor.Memory, error)) (turnsReport, error)
 		return turnsReport{}, fmt.Errorf("available memory cannot be read: %w", err)
 	}
 	report := turnsReport{
+		Hold:      supervisor.SlotHold(floor, memory),
 		Capacity:  capacity,
 		IsWeighed: capacity == 2,
 		Holding:   turnsRuns(holding),
@@ -655,6 +666,8 @@ func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
 		fmt.Fprintf(w, "cfo gate test: level %s, asked for; the change requires %s: %s\n", plan.Level, plan.Required, plan.Why)
 	}
 	switch {
+	case len(plan.Vet) == 0 && len(plan.Guards) > 0:
+		fmt.Fprintf(w, "cfo gate test: no Go package changed since %.8s; required repository guards still run\n", plan.Base)
 	case len(plan.Vet) == 0:
 		fmt.Fprintf(w, "cfo gate test: no Go package changed since %.8s, so there is nothing to test here; CI runs every package\n", plan.Base)
 	case plan.Everything:
@@ -666,6 +679,9 @@ func printGatePlan(w io.Writer, plan gatetest.Plan, defaulted bool) {
 	}
 	for _, choice := range plan.Choices {
 		fmt.Fprintln(w, "- "+choice.String())
+	}
+	for _, guard := range plan.Guards {
+		fmt.Fprintln(w, "- "+guard.String())
 	}
 	if len(plan.Left) > 0 {
 		fmt.Fprintf(w, "left to the %s level:\n", plan.Required)

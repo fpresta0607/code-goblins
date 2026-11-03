@@ -149,7 +149,7 @@ type Options struct {
 	// never while a board is built, and each source is read with the profile
 	// and environment its session started with.
 	KeySpend     func(ctx context.Context, source openrouter.Source) openrouter.Reading
-	ActionsSpend func(ctx context.Context, now time.Time) actionsbilling.Reading
+	ActionsSpend func(ctx context.Context, now time.Time, month string) actionsbilling.Reading
 	// UserEnvironment is the environment Windows gives a new process of this
 	// user, which every goblin's terminal starts from and which names Pi's
 	// own profile and any key in it; nil is this machine's, read the way a
@@ -253,9 +253,9 @@ type Service struct {
 	// issues for meeting them again.
 	errorClassesMet   map[string]time.Time
 	errorClassesFiled map[string]bool
-	// answersDue wakes the worker as the answers held for the Overlord's next
-	// one come due. Only the worker touches it.
-	answersDue   *time.Timer
+	// heldDue wakes the worker as what the store holds for a moment comes
+	// due. Only the worker touches it.
+	heldDue      *time.Timer
 	workProgress map[string]WorkProgress
 	ciDurations  []CIDuration
 	sameArea     map[string]sameArea
@@ -387,6 +387,10 @@ type Service struct {
 	// answers by closing it once its cycle has run (see lookNow).
 	looks  chan chan struct{}
 	cancel context.CancelFunc
+	// lifetime is the context the service runs under, which its closing
+	// cancels: work a board request starts for every device, which no one
+	// request owns, ends with it.
+	lifetime context.Context
 	// successor is the process a stop request named to hand the watcher
 	// lock to, or 0.
 	successor atomic.Int64
@@ -409,11 +413,10 @@ type Service struct {
 	// live Pi sessions use, by source key; keySpendPlan is what the last
 	// snapshot found live sessions using, which the dials' timer reads, and
 	// keySpendReadAt is when it last began.
-	keySpendReadings    map[string]openrouter.Reading
-	keySpendPlan        keySpendPlan
-	keySpendReadAt      time.Time
-	actionsSpendReading actionsbilling.Reading
-	actionsSpendReadAt  time.Time
+	keySpendReadings     map[string]openrouter.Reading
+	keySpendPlan         keySpendPlan
+	keySpendReadAt       time.Time
+	actionsSpendReadings map[string]*actionsSpendEntry
 	// allowance is the last reading quota-axi gave of each provider's
 	// allowance, which AFK mode's switch takes rather than reading its own.
 	allowance map[string]keptAllowance
@@ -451,7 +454,7 @@ func Start(ctx context.Context, h home.Home, options Options) (*Service, error) 
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel}
+	s := &Service{Store: store, Options: options, Git: Git{Reads: options.Reads}, Instance: hex.EncodeToString(id[:]), Started: time.Now().UTC(), subscribers: map[chan struct{}]struct{}{}, done: make(chan struct{}), work: make(chan struct{}, 1), looks: make(chan chan struct{}), releaseNow: make(chan struct{}, 1), devDriveNow: make(chan struct{}, 1), cancel: cancel, lifetime: ctx}
 	if options.Tickets != nil {
 		s.tickets = newTicketKeeper(h, options.Tickets)
 	}
@@ -830,7 +833,7 @@ func (s *Service) cycle(ctx context.Context, recover bool) {
 		reconcileErr = errors.Join(reconcileErr, s.Store.followCFO(cfo.identity), s.retellRuns(ctx))
 	}
 	reconcileErr = errors.Join(reconcileErr, s.Store.supersedeQuestions())
-	reconcileErr = errors.Join(reconcileErr, s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
+	reconcileErr = errors.Join(reconcileErr, s.submitHandedBack(ctx), s.Store.settleDeliveries(time.Now().UTC(), s.lookAtTerminal))
 	reconcileErr = errors.Join(reconcileErr, s.Store.settleQueuedSends(time.Now().UTC(), s.lookAtQueuedSend))
 	reconcileErr = errors.Join(reconcileErr, s.applyEngineChoices(ctx, time.Now().UTC()))
 	reconcileErr = errors.Join(reconcileErr, s.holdForOverlord(time.Now().UTC()))
@@ -1121,7 +1124,7 @@ func evaluationPending(actions []Action, task string) bool {
 const actionTimeout = 45 * time.Second
 
 func (s *Service) process(ctx context.Context) {
-	defer s.wakeAsHeldAnswersComeDue()
+	defer s.wakeAsHeldComeDue()
 	for i := 0; i < maxActions && ctx.Err() == nil; i++ {
 		if !s.Store.HasRunnable() {
 			break
@@ -1137,19 +1140,20 @@ func (s *Service) process(ctx context.Context) {
 	}
 }
 
-// wakeAsHeldAnswersComeDue wakes the worker the moment the answers the store
-// holds for the Overlord's next one can go, so an answer alone is never held
-// past answerBatchWindow: left to the loop, it would go at whichever cycle
-// came after, up to two seconds later. Only the worker calls it.
-func (s *Service) wakeAsHeldAnswersComeDue() {
-	if s.answersDue != nil {
-		s.answersDue.Stop()
+// wakeAsHeldComeDue wakes the worker the moment what the store holds for a
+// moment can go, the answers held for the Overlord's next one or a message
+// to the CFO at the end of its undo window, so neither is held past its
+// window: left to the loop, it would go at whichever cycle came after, up to
+// two seconds later. Only the worker calls it.
+func (s *Service) wakeAsHeldComeDue() {
+	if s.heldDue != nil {
+		s.heldDue.Stop()
 	}
-	wait := s.Store.answersDueIn()
+	wait := s.Store.heldDueIn()
 	if wait <= 0 {
 		return
 	}
-	s.answersDue = time.AfterFunc(wait, func() {
+	s.heldDue = time.AfterFunc(wait, func() {
 		select {
 		case s.work <- struct{}{}:
 		default:
@@ -2049,6 +2053,11 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	if dispatch := s.Options.Dispatch; dispatch != nil {
 		if memory, err := dispatch.Memory(); err == nil {
 			memory.Floor, memory.Next, memory.PoolLine, memory.PoolGrowth = memoryFloor, memoryNext, poolLine, poolGrowth
+			if dispatch.HeavyLine != nil {
+				if hold, err := dispatch.HeavyLine(memory); err == nil {
+					memory.SlotHold = hold
+				}
+			}
 			// Naming who holds commit reads every process, so it is done
 			// only while commit is what the meter shows.
 			if memory.CommitAvailable < memory.Available {
@@ -2169,7 +2178,7 @@ func (s *Service) Snapshot() (Snapshot, error) {
 	out.Subscriptions = s.subscriptionUsage(cfo, out)
 	out.KeySpend = s.keySpendUsage(cfo, out)
 	if s.Options.ActionsSpend != nil && !s.Options.Example {
-		reading := s.actionsSpendUsage(out.At)
+		reading := s.actionsSpendUsage(out.At, out.At.UTC().Format("2006-01"))
 		out.ActionsSpend = &reading
 	}
 	return out, nil

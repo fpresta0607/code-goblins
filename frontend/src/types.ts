@@ -122,10 +122,12 @@ export interface Task extends Evaluation {
 }
 // FleetTree is a goblin and what runs under it as the supervisor last read
 // it: memory is its harness and everything under it, own_memory the harness
-// alone, both private bytes; unread names evidence that could not be read.
+// alone, both private bytes; line_place is the place in the machine's heavy
+// line of its run nearest its turn, 1 for the next, 0 while none waits there;
+// unread names evidence that could not be read.
 export interface FleetTree {
   task_id: string; generation: string; harness: string; memory: number; own_memory: number; conversation_at: string;
-  children: TreeNode[]; unread: string[]; source_updated_at: string; fetched_at: string;
+  children: TreeNode[]; line_place: number; unread: string[]; source_updated_at: string; fetched_at: string;
 }
 // TreeNode is one child of a goblin: a sub-agent, a background shell or
 // monitor, a job of processes (whose group says what it does: dev-server,
@@ -144,7 +146,7 @@ function parseTree(value: unknown): FleetTree {
   const t = object(value);
   return {
     task_id: string(t.task_id), generation: string(t.generation), harness: string(t.harness), memory: number(t.memory), own_memory: number(t.own_memory),
-    conversation_at: string(t.conversation_at), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
+    conversation_at: string(t.conversation_at), line_place: number(t.line_place), unread: strings(t.unread), source_updated_at: string(t.source_updated_at), fetched_at: string(t.fetched_at),
     children: array(t.children).map((child) => {
       const c = object(child);
       return { id: string(c.id), kind: string(c.kind), group: string(c.group), parent: string(c.parent), label: string(c.label), detail: string(c.detail), task: string(c.task), state: string(c.state), model: string(c.model),
@@ -248,11 +250,14 @@ export interface Wait { kind: string; target: string; until: string; bytes: numb
 // at which the next queued task starts; with the kernel's pools, the line past
 // which the PC is better restarted (0 when the snapshot names none) and the
 // pool tags that grew most since the sign-in began, and, while commit is the
-// tighter, the apps holding the most of it.
+// tighter, the apps holding the most of it. slot_hold says why the supervisor
+// starts and resumes no goblin by itself, a new session leaving the machine's
+// heavy line short of the floor it keeps for its next test run, and is empty
+// when it may.
 export interface Memory {
   available: number; total: number; commit_available: number; commit_limit: number;
   paged_pool: number; nonpaged_pool: number; pool_line: number; pool_growth: PoolGrowth[];
-  floor: number; next: number; holders: CommitHolder[];
+  floor: number; next: number; slot_hold: string; holders: CommitHolder[];
 }
 // PoolGrowth is a kernel pool tag that grew in one pool, paged or nonpaged,
 // since the sign-in began: how much, and how much it holds now.
@@ -317,8 +322,7 @@ export interface Action {
   awaiting: "" | "the CFO" | "the goblin";
   advice: string;
   // can_send_now is whether he may ask for a queued message to be typed now,
-  // or for one typed into a turn to be taken at once by its harness's
-  // send-now key, and send_now_why says why not when it is off.
+  // and send_now_why says why not when it is off.
   can_send_now: boolean;
   send_now_why: string;
   text: string;
@@ -932,11 +936,11 @@ export function parseReadings(v: Record<string, unknown>): Readings {
   return {
     at: string(v.at),
     revision: number(v.revision),
-    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, holders }) => ({
+    memory: v.memory === undefined || v.memory === null ? null : (({ available, total, commit_available, commit_limit, paged_pool, nonpaged_pool, pool_line, pool_growth, floor, next, slot_hold, holders }) => ({
       available: number(available), total: number(total), commit_available: number(commit_available), commit_limit: number(commit_limit),
       paged_pool: number(paged_pool), nonpaged_pool: number(nonpaged_pool), pool_line: number(pool_line),
       pool_growth: array(pool_growth).map((value) => { const g = object(value); return { tag: string(g.tag), pool: string(g.pool), grown: number(g.grown), holds: number(g.holds) }; }),
-      floor: number(floor), next: number(next),
+      floor: number(floor), next: number(next), slot_hold: string(slot_hold),
       holders: array(holders).map((value) => { const h = object(value); return { name: string(h.name), commit: number(h.commit) }; }),
     }))(object(v.memory)),
     disk: v.disk === undefined || v.disk === null ? null : (({ drive, free, total, floor, wake }) => ({
@@ -951,18 +955,20 @@ export function parseReadings(v: Record<string, unknown>): Readings {
     },
   };
 }
+export function parseActionsSpend(value: unknown): ActionsSpend {
+  const usage = object(value);
+  const total = usage.total_usd;
+  return {
+    status: usage.status === "available" || usage.status === "stale" ? usage.status : "unavailable",
+    month: string(usage.month), total_usd: typeof total === "number" && Number.isFinite(total) ? total : null,
+    repositories: array(usage.repositories).map((value) => { const repository = object(value); return { name: string(repository.name), spent_usd: number(repository.spent_usd) }; }),
+    read_at: string(usage.read_at), checked_at: string(usage.checked_at), detail: string(usage.detail),
+  };
+}
 export function parseSnapshot(value: unknown): Snapshot {
   const v = object(value);
   return {
-    actions_spend: v.actions_spend == null ? undefined : ((usage): ActionsSpend => {
-      const total = usage.total_usd;
-      return {
-        status: usage.status === "available" || usage.status === "stale" ? usage.status : "unavailable",
-        month: string(usage.month), total_usd: typeof total === "number" && Number.isFinite(total) ? total : null,
-        repositories: array(usage.repositories).map((value) => { const repository = object(value); return { name: string(repository.name), spent_usd: number(repository.spent_usd) }; }),
-        read_at: string(usage.read_at), checked_at: string(usage.checked_at), detail: string(usage.detail),
-      };
-    })(object(v.actions_spend)),
+    actions_spend: v.actions_spend == null ? undefined : parseActionsSpend(v.actions_spend),
     key_spend: array(v.key_spend).flatMap((value) => { const spend = parseKeySpend(value); return spend ? [spend] : []; }),
     subscriptions: array(v.subscriptions).flatMap((value): SubscriptionUsage[] => {
       const usage = object(value);
