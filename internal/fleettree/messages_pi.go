@@ -702,7 +702,7 @@ func (r *Reader) forgetPiLogs(now time.Time) {
 // piMessagePicture is the picture id of the pi session at path, read back from
 // the entry that holds it. It is ErrNoRecord for a picture no read found, and
 // for a media type the board may not serve.
-func (r *Reader) piMessagePicture(path, conversation, id string) (string, []byte, error) {
+func (r *Reader) piMessagePicture(path, conversation, id string, open func(string) (messageReadFile, error)) (string, []byte, error) {
 	r.messagesMu.Lock()
 	log := r.piLogs[path]
 	r.messagesMu.Unlock()
@@ -710,23 +710,23 @@ func (r *Reader) piMessagePicture(path, conversation, id string) (string, []byte
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
-	defer log.mu.Unlock()
-	if err := log.update(func() uint64 { return messageEpoch.Add(1) }); err != nil {
+	err := log.update(func() uint64 { return messageEpoch.Add(1) })
+	isCurrent := conversation != "" && conversation == (MessageCursor{epoch: log.epoch}).Conversation()
+	at, isKept := log.pictures[id]
+	state := log.fileState
+	log.mu.Unlock()
+	if err != nil {
 		return "", nil, err
 	}
-	if conversation == "" || conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
+	if !isCurrent || !isKept {
 		return "", nil, ErrNoRecord
 	}
-	at, isKept := log.pictures[id]
-	if !isKept {
-		return "", nil, ErrNoRecord
-	}
-	file, err := fsx.Open(path)
+	file, err := open(path)
 	if err != nil {
 		return "", nil, err
 	}
 	defer file.Close()
-	media, data, err := resolvePicture(file, path, log.fileState, at.offset, func(line []byte) (string, string, bool) {
+	media, data, err := resolvePicture(file, path, state, at.offset, func(line []byte) (string, string, bool) {
 		entry, ok := piLine(line)
 		if !ok {
 			return "", "", false
@@ -745,10 +745,14 @@ func (r *Reader) piMessagePicture(path, conversation, id string) (string, []byte
 	if err != nil {
 		return "", nil, err
 	}
-	if err := log.update(func() uint64 { return messageEpoch.Add(1) }); err != nil {
+	log.mu.Lock()
+	err = log.update(func() uint64 { return messageEpoch.Add(1) })
+	isCurrent = conversation == (MessageCursor{epoch: log.epoch}).Conversation()
+	log.mu.Unlock()
+	if err != nil {
 		return "", nil, err
 	}
-	if conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
+	if !isCurrent {
 		return "", nil, ErrNoRecord
 	}
 	return media, data, nil

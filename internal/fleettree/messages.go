@@ -1418,11 +1418,20 @@ func usageOf(held Usage, window int64) *Usage {
 // its messages found it: its media type and its bytes, read back from its
 // entry. It is ErrNoRecord for a picture no read found.
 func (r *Reader) MessagePicture(path, conversation, id string) (string, []byte, error) {
+	return r.messagePicture(path, conversation, id, openMessageFile)
+}
+
+// messagePicture is MessagePicture reading the picture's entry through open.
+// Each reader holds its conversation's lock only to bring the log up to date
+// and find the picture, and again to check the conversation is still the one
+// it was found in, never while the entry is read and decoded, so the
+// conversation's stream never waits on a picture, however large its entry.
+func (r *Reader) messagePicture(path, conversation, id string, open func(string) (messageReadFile, error)) (string, []byte, error) {
 	if isCodexRollout(path) {
-		return r.codexMessagePicture(path, conversation, id)
+		return r.codexMessagePicture(path, conversation, id, open)
 	}
 	if isPiSession(path) {
-		return r.piMessagePicture(path, conversation, id)
+		return r.piMessagePicture(path, conversation, id, open)
 	}
 	r.messagesMu.Lock()
 	log := r.messageLogs[path]
@@ -1431,23 +1440,23 @@ func (r *Reader) MessagePicture(path, conversation, id string) (string, []byte, 
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
-	defer log.mu.Unlock()
-	if err := log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach); err != nil {
+	err := log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
+	isCurrent := conversation != "" && conversation == (MessageCursor{epoch: log.epoch}).Conversation()
+	at, isKept := log.pictures[id]
+	state := log.fileState
+	log.mu.Unlock()
+	if err != nil {
 		return "", nil, err
 	}
-	if conversation == "" || conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
+	if !isCurrent || !isKept {
 		return "", nil, ErrNoRecord
 	}
-	at, isKept := log.pictures[id]
-	if !isKept {
-		return "", nil, ErrNoRecord
-	}
-	file, err := fsx.Open(path)
+	file, err := open(path)
 	if err != nil {
 		return "", nil, err
 	}
 	defer file.Close()
-	media, data, err := resolvePicture(file, path, log.fileState, at.offset, func(line []byte) (string, string, bool) {
+	media, data, err := resolvePicture(file, path, state, at.offset, func(line []byte) (string, string, bool) {
 		var entry messageEntry
 		var blocks []messageBlock
 		if json.Unmarshal(line, &entry) != nil || json.Unmarshal(entry.Message.Content, &blocks) != nil || at.block >= len(blocks) {
@@ -1466,10 +1475,14 @@ func (r *Reader) MessagePicture(path, conversation, id string) (string, []byte, 
 	if err != nil {
 		return "", nil, err
 	}
-	if err := log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach); err != nil {
+	log.mu.Lock()
+	err = log.update(func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
+	isCurrent = conversation == (MessageCursor{epoch: log.epoch}).Conversation()
+	log.mu.Unlock()
+	if err != nil {
 		return "", nil, err
 	}
-	if conversation != (MessageCursor{epoch: log.epoch}).Conversation() {
+	if !isCurrent {
 		return "", nil, ErrNoRecord
 	}
 	return media, data, nil

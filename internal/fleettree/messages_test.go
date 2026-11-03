@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,6 +65,85 @@ func TestPictureReadsWhileItsSessionAppends(t *testing.T) {
 	// Assert
 	if appending.looks < 2 || err != nil || media != "image/png" || string(data) != "picture A" {
 		t.Fatalf("picture read while its session appended: %q %q, %v after %d looks", media, data, err, appending.looks)
+	}
+}
+
+// pictureStreamFile is a transcript's open handle that, the first time a
+// picture is read from it, lets its session's stream read on and waits a
+// while for that read, as the live view polls on while a picture is read.
+type pictureStreamFile struct {
+	messageReadFile
+	once       sync.Once
+	stream     func()
+	isStreamed bool
+}
+
+func (file *pictureStreamFile) ReadAt(data []byte, offset int64) (int, error) {
+	file.once.Do(func() {
+		done := make(chan struct{})
+		go func() {
+			file.stream()
+			close(done)
+		}()
+		select {
+		case <-done:
+			file.isStreamed = true
+		case <-time.After(5 * time.Second):
+		}
+	})
+	return file.messageReadFile.ReadAt(data, offset)
+}
+
+func TestPictureReadLetsItsSessionStreamOn(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte("picture A"))
+	tests := []struct {
+		name     string
+		makeFile func(*testing.T, string) string
+	}{
+		{"claude", func(t *testing.T, home string) string {
+			return conversation(t, home, prompted("same", []object{imageBlock([]byte("picture A"))}))
+		}},
+		{"codex", func(t *testing.T, home string) string {
+			return codexRollout(t, home, "picture", codexCompleted("UserMessage", object{"content": []object{{"type": "image", "url": "data:image/png;base64," + encoded}}}))
+		}},
+		{"pi", func(t *testing.T, home string) string {
+			return piSession(t, home, piHeader(), piMessageEntry("same", "", "user", object{"content": []object{{"type": "image", "data": encoded, "mimeType": "image/png"}}}))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			path := test.makeFile(t, t.TempDir())
+			reader := Reader{}
+			page, cursor, err := reader.MessagePage(path, -1)
+			if err != nil || len(page.Messages) != 1 || len(page.Messages[0].Pictures) != 1 {
+				t.Fatalf("page: %+v %v", page, err)
+			}
+			var opened *pictureStreamFile
+			var streamErr error
+			open := func(path string) (messageReadFile, error) {
+				file, err := openMessageFile(path)
+				if err != nil {
+					return nil, err
+				}
+				opened = &pictureStreamFile{messageReadFile: file, stream: func() { _, _, _, streamErr = reader.MessagesSince(path, cursor) }}
+				return opened, nil
+			}
+
+			// Act
+			media, data, err := reader.messagePicture(path, page.Conversation, page.Messages[0].Pictures[0].ID, open)
+
+			// Assert
+			if err != nil || media != "image/png" || string(data) != "picture A" {
+				t.Fatalf("picture: %s %q %v", media, data, err)
+			}
+			if opened == nil || !opened.isStreamed {
+				t.Fatal("the session's stream waited on the picture read")
+			}
+			if streamErr != nil {
+				t.Fatalf("stream read: %v", streamErr)
+			}
+		})
 	}
 }
 
