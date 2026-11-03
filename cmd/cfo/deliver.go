@@ -15,6 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
+	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/state"
@@ -23,7 +24,10 @@ import (
 
 // runBrief writes a task brief scaffold at data/<id>/brief.md and prints its
 // absolute path. It refuses to overwrite an existing brief.
-func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) int {
+func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) (code int) {
+	if len(args) > 0 && args[0] == "ready" {
+		return runBriefReady(args[1:], stdout, stderr)
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "cfo brief: task ID is required")
 		return 2
@@ -74,8 +78,26 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		return 1
 	}
 	path := filepath.Join(dir, "brief.md")
+	if err := os.MkdirAll(h.State, 0o700); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	queueLock := ".queued-" + id + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(h.State, queueLock); err != nil {
+		fmt.Fprintf(stderr, "cfo brief: %v\n", err)
+		return 1
+	}
+	defer func() {
+		if err := lock.ReleaseExclusiveNamed(h.State, queueLock); err != nil {
+			fmt.Fprintln(stderr, err)
+			code = 1
+		}
+	}()
 	if _, err := os.Stat(path); err == nil {
 		fmt.Fprintf(stderr, "cfo brief: %s already exists; refusing to overwrite\n", path)
+		return 1
+	} else if !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintln(stderr, err)
 		return 1
 	}
 	body := fmt.Sprintf(`# Brief %s
@@ -118,10 +140,13 @@ exist.
 
 ## Delivery
 
+Run cfo brief ready %s after requirements, credentials and launch settings are complete.
+Keep ready: false while editing so the supervisor and explicit spawn wait.
 kind: %s
 mode: %s
-`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", *kind, *mode)
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+ready: false
+`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", id, *kind, *mode)
+	if err := fsx.AtomicWriteFile(path, []byte(body)); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}

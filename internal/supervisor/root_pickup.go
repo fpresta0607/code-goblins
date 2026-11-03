@@ -12,9 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/auth"
 	"github.com/fpresta0607/code-goblins/internal/fleet"
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
+	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/tickets"
@@ -292,13 +294,23 @@ func rootTaskID(repository string, number int) string {
 // the bottom of the queue. The brief comes first: a row without a brief would
 // be given the generic brief of a queued row. Each step leaves what is
 // already there, so a pick-up cut short is finished by the next.
-func queueRoot(h home.Home, name, id string, issue tickets.OpenRoot) error {
+func queueRoot(h home.Home, name, id string, issue tickets.OpenRoot) (err error) {
+	queueLock := ".queued-" + id + ".lock"
+	if _, err := lock.AcquireExclusiveNamed(h.State, queueLock); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, lock.ReleaseExclusiveNamed(h.State, queueLock)) }()
 	brief := filepath.Join(h.Data, id, "brief.md")
 	if err := os.MkdirAll(filepath.Dir(brief), 0o700); err != nil {
 		return err
 	}
 	if _, err := os.Stat(brief); errors.Is(err, os.ErrNotExist) {
-		if err := fsx.AtomicWriteFile(brief, []byte(rootBrief(name, id, issue))); err != nil {
+		manifest, err := auth.LoadManifest(h.Data, name)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		body := rootBrief(name, id, issue, manifest.Grant(auth.Need{IsUnstated: true}).Services)
+		if err := fsx.AtomicWriteFile(brief, []byte(body)); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -336,7 +348,11 @@ func rootRowTitle(issue tickets.OpenRoot) string {
 // read as the brief's own. Its delivery is direct-PR: the goblin pushes and
 // CI judges, which works on every harness, where the gated pipeline needs a
 // harness a gate runs on and the machine's shared daemon running.
-func rootBrief(name, id string, issue tickets.OpenRoot) string {
+func rootBrief(name, id string, issue tickets.OpenRoot, services []string) string {
+	credentials := auth.NoServices
+	if len(services) > 0 {
+		credentials = strings.Join(services, ", ")
+	}
 	var quoted []string
 	for _, line := range strings.Split(strings.TrimSpace(rootMarker.ReplaceAllString(strings.ReplaceAll(issue.Body, "\r\n", "\n"), "")), "\n") {
 		quoted = append(quoted, strings.TrimRight("> "+line, " "))
@@ -372,7 +388,10 @@ Change only what this root needs. %s %s
 
 ## Authentication
 
-This brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s
+credentials: %s
+mcp: none
+
+The brief records the project manifest's default services when it is written. The CFO grants another with cfo auth grant. %s
 
 ## Commits
 
@@ -382,7 +401,8 @@ Never name an AI product, company, model, agent or assistant identity as a commi
 
 kind: ship
 mode: direct-PR
-`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), fleet.BriefStepCards())
+ready: true
+`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), credentials, fleet.BriefStepCards())
 }
 
 func readRootPickups(stateDir string) ([]rootPickup, error) {

@@ -18,7 +18,7 @@ func queueWork(t *testing.T, dir string) {
 	t.Helper()
 	for path, content := range map[string]string{
 		filepath.Join(dir, "data", "backlog.md"):            "## Queued\n- **next-task** - Ship it (repo: code-goblins)\n",
-		filepath.Join(dir, "data", "next-task", "brief.md"): "# Brief next-task\n\n## Project\n\nC:\\dev\\code-goblins\n\n## Task\n\nShip it.\n",
+		filepath.Join(dir, "data", "next-task", "brief.md"): "## Project\nC:\\dev\\code-goblins\n" + completedCommandBrief,
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
