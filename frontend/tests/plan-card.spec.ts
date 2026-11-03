@@ -19,7 +19,7 @@ const talk = (tool: string) => ({ messages: [
     { kind: "call", tool, subject: "", state: "done", plan: PLAN },
     { kind: "call", tool: "Read", subject: "frontend/src/terminalView.ts", state: "done" },
   ] },
-], more: false });
+], conversation: "fixture-conversation", more: false });
 
 for (const [harness, tool] of [["claude", "TodoWrite"], ["codex", "update_plan"]] as const) {
   test(`a ${harness} plan shows as a checklist card with each step's state`, async ({ page }) => {
@@ -48,7 +48,7 @@ test("a plan call that failed is its row with Failed, not a card", async ({ page
     { id: "m1", seq: 1, at, kind: "reply", blocks: [
       { kind: "call", tool: "TodoWrite", subject: "", state: "failed", result: "InputValidationError: The required parameter `todos[0].activeForm` is missing" },
     ] },
-  ], more: false });
+  ], conversation: "fixture-conversation", more: false });
 
   // Act
   await openGoblin(page);

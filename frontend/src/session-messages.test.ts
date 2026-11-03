@@ -40,8 +40,9 @@ for (const [what, value] of [["an unknown kind", served(0, { kind: "summary" })]
 }
 
 test("a page says whether older messages come before it", () => {
-  assert.deepEqual(parsePage({ messages: [served(4)], more: true }).more, true);
-  assert.throws(() => parsePage({ messages: [] }), "more is required");
+  assert.deepEqual(parsePage({ conversation: "a", messages: [served(4)], more: true }).more, true);
+  assert.throws(() => parsePage({ conversation: "a", messages: [] }), "more is required");
+  for (const conversation of [undefined, "", 4]) assert.throws(() => parsePage({ conversation, messages: [], more: false }));
 });
 
 test("a changed message takes the place of the one with its id, and a new one its place by seq", () => {
@@ -52,26 +53,29 @@ test("a changed message takes the place of the one with its id, and a new one it
 });
 
 test("a page of the same conversation keeps the older messages read before it, and another conversation's replaces them", () => {
-  const before = { messages: held(10, 11, 12, 13), more: true };
-  const renewed = pageMessages(before, { messages: held(12, 13, 14), more: true });
+  const before = { conversation: "a", messages: held(10, 11, 12, 13), more: true };
+  const renewed = pageMessages(before, { conversation: "a", messages: held(12, 13, 14), more: true });
   assert.deepEqual(seqs(renewed.messages), [10, 11, 12, 13, 14]);
   assert.equal(renewed.more, true, "the older messages' own more");
   const cleared = parseMessages([served(0, { id: "new0" })]);
-  assert.deepEqual(pageMessages(before, { messages: cleared, more: false }), { messages: cleared, more: false });
-  assert.deepEqual(pageMessages(before, { messages: [], more: false }), { messages: [], more: false }, "an empty conversation holds nothing");
-  assert.deepEqual(pageMessages({ messages: [], more: false }, { messages: held(3, 4), more: true }), { messages: held(3, 4), more: true });
+  assert.deepEqual(pageMessages(before, { conversation: "b", messages: cleared, more: false }), { conversation: "b", messages: cleared, more: false });
+  assert.deepEqual(pageMessages(before, { conversation: "b", messages: held(12, 13), more: false }), { conversation: "b", messages: held(12, 13), more: false }, "colliding IDs do not mix conversations");
+  assert.deepEqual(pageMessages(before, { conversation: "b", messages: [], more: false }), { conversation: "b", messages: [], more: false }, "an empty conversation holds nothing");
+  assert.deepEqual(pageMessages({ conversation: "", messages: [], more: false }, { conversation: "a", messages: held(3, 4), more: true }), { conversation: "a", messages: held(3, 4), more: true });
 });
 
 test("an older page goes before the first message held, and what it repeats is dropped", () => {
-  const next = olderMessages({ messages: held(5, 6), more: true }, { messages: held(2, 3, 4, 5), more: false });
+  const prior = { conversation: "a", messages: held(5, 6), more: true };
+  const next = olderMessages(prior, { conversation: "a", messages: held(2, 3, 4, 5), more: false });
   assert.deepEqual(seqs(next.messages), [2, 3, 4, 5, 6]);
   assert.equal(next.more, false);
+  assert.deepEqual(olderMessages(prior, { conversation: "b", messages: held(2, 3), more: false }), prior);
 });
 
 test("a newest page clears abandoned usage while older pagination keeps current usage", () => {
-  const before = parsePage({ messages: [served(0), served(1, { kind: "reply" })], more: false,
+  const before = parsePage({ conversation: "a", messages: [served(0), served(1, { kind: "reply" })], more: false,
     usage: { input_tokens: 12000, context_tokens: 24000, context_window: 100000, model: "recorded-model" } });
-  const reset = parsePage({ messages: [served(0)], more: false });
+  const reset = parsePage({ conversation: "b", messages: [served(0)], more: false });
 
   const next = pageMessages(before, reset);
 
@@ -188,4 +192,13 @@ test("a call's plan keeps each step's words and state, and a state the board doe
   assert.deepEqual(reply.blocks[0].plan, [{ text: "Read the touch handlers", status: "completed" }, { text: "Fix the swipe", status: "in_progress" }]);
   assert.deepEqual(parseMessages([served(5, { kind: "reply", source: undefined, blocks: [{ kind: "text", text: "Done." }] })])[0].blocks[0].plan, []);
   assert.throws(() => parseMessages([call("blocked")]));
+});
+
+test("a disjoint newest page replaces held history so older pagination can fill the gap", () => {
+  const previous = { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index)), more: false };
+  const newest = { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index + 100)), more: true };
+  const next = pageMessages(previous, newest);
+  assert.deepEqual(next, newest);
+  const recovered = olderMessages(next, { conversation: "a", messages: held(...Array.from({ length: 50 }, (_, index) => index + 50)), more: true });
+  assert.deepEqual(seqs(recovered.messages), Array.from({ length: 100 }, (_, index) => index + 50));
 });

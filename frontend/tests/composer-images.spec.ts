@@ -183,7 +183,7 @@ const PICTURED = { messages: [
   ...PAGE.messages,
   { id: "m2", seq: 2, at, kind: "prompt", source: "overlord", text: "what is wrong here?\n" + KEPT },
   { id: "m3", seq: 3, at, kind: "reply", blocks: [{ kind: "call", tool: "Read", subject: KEPT, state: "done", result: "", pictures: [{ id: "pic1", media_type: "image/png", bytes: PNG.length }] }, { kind: "text", text: "The button overlaps the title." }] },
-], more: false };
+], conversation: "fixture-conversation", more: false };
 
 for (const width of [1440, 390]) {
   test(`a picture he sent shows above his bubble, loads lazily and opens larger on click at ${width}px`, async ({ page }, testInfo) => {

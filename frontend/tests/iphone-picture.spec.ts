@@ -110,7 +110,7 @@ test("on an iPhone, Paste a picture with no picture copied says so and adds noth
 
 test("on an iPhone, a picture he sent shows above his bubble", async ({ page }) => {
   // Arrange: his message names a kept picture, as Send writes it.
-  await open(page, undefined, undefined, { messages: [...PAGE.messages, { id: "m2", seq: 2, at, kind: "prompt", source: "overlord", text: "what is wrong here?\n" + KEPT }], more: false });
+  await open(page, undefined, undefined, { messages: [...PAGE.messages, { id: "m2", seq: 2, at, kind: "prompt", source: "overlord", text: "what is wrong here?\n" + KEPT }], conversation: "fixture-conversation", more: false });
   await keepFiles(page);
 
   // Act

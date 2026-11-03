@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -41,6 +42,52 @@ func TestTheNewestPageOfALongConversationReadsOnlyItsTail(t *testing.T) {
 	older, _, olderErr := reader.MessagePage(path, newest.Messages[0].Seq)
 	if olderErr != nil || len(older.Messages) != 13 || older.Messages[0].Text != "the first words" || older.More {
 		t.Errorf("the page before it once the start is unlocked = %d messages, more %t, %v; want the first words to prompt 10", len(older.Messages), older.More, olderErr)
+	}
+}
+
+func TestNewestPageAfterWholeReadDoesNotReadLockedHead(t *testing.T) {
+	for _, isEvicted := range []bool{false, true} {
+		name := "cached"
+		if isEvicted {
+			name = "after idle eviction"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			path := conversation(t, home, longConversation()...)
+			now := time.Now()
+			reader := Reader{Home: home, Now: func() time.Time { return now }}
+			first, _, err := reader.MessagePage(path, -1)
+			if err != nil || len(first.Messages) != MessagesPerPage {
+				t.Fatalf("initial page = %+v, %v", first, err)
+			}
+			older, _, err := reader.MessagePage(path, first.Messages[0].Seq)
+			if err != nil || len(older.Messages) != 13 || older.Messages[0].Text != "the first words" {
+				t.Fatalf("older page = %+v, %v", older, err)
+			}
+			if isEvicted {
+				now = now.Add(messageLogIdle + time.Minute)
+				reader.messagesMu.Lock()
+				reader.forgetIdleMessages(now)
+				reader.messagesMu.Unlock()
+			}
+			head, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer head.Close()
+			const locked = 512 << 10
+			start := new(windows.Overlapped)
+			if err := windows.LockFileEx(windows.Handle(head.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, locked, 0, start); err != nil {
+				t.Fatal(err)
+			}
+			newest, _, readErr := reader.MessagePage(path, -1)
+			if err := windows.UnlockFileEx(windows.Handle(head.Fd()), 0, locked, 0, start); err != nil {
+				t.Fatal(err)
+			}
+			if readErr != nil || len(newest.Messages) != MessagesPerPage || newest.Messages[0].Text != "prompt 11" || newest.Conversation != first.Conversation {
+				t.Fatalf("newest page = %+v, %v; initial identity %q", newest, readErr, first.Conversation)
+			}
+		})
 	}
 }
 

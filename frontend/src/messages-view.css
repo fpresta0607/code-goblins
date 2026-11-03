@@ -172,6 +172,9 @@ div.message-call { padding-left: calc(.5em + 1.1em + .6em); }
 .queued-actions .labelled-button { min-height: 30px; padding: 2px 10px; font-size: .8125em; }
 .queued-actions .icon { width: 15px; height: 15px; }
 .queued-actions .icon-button { border: 0; background: transparent; }
+/* A press the message no longer allows looks as a disabled button does, and
+   says why when pressed. */
+.queued-actions [aria-disabled="true"] { opacity: .55; cursor: default; }
 .queued-message.queue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: .25em .6em; }
 .queued-message.queue .composer-sent-text { grid-column: 1 / -1; }
 .queued-message.queue .queued-line, .queued-message.queue .queued-actions { grid-column: 1 / -1; }

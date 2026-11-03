@@ -10,27 +10,30 @@ export const OVERSCAN_PX = 1200;
 
 export interface MessageWindow { start: number; end: number; before: number; after: number }
 
+// messageRowAt finds the first row whose bottom passes top, or the row count
+// past the end. offsets holds 0, then each row's cumulative bottom.
+export function messageRowAt(offsets: readonly number[], top: number): number {
+  let start = 0, end = offsets.length - 1;
+  while (start < end) {
+    const middle = Math.floor((start + end) / 2);
+    if (offsets[middle + 1] <= top) start = middle + 1;
+    else end = middle;
+  }
+  return start;
+}
+
 // messageWindow is which rows to draw, start to end with end excluded, for
-// rows of heights, read from top with height in view: every row that reaches
+// cumulative row offsets, read from top with height in view: every row that reaches
 // within overscan of the view, and the heights of the rows left out before
 // and after. A top past the end reads the last rows, as a view that follows
 // the newest messages does.
-export function messageWindow(heights: number[], top: number, height: number, overscan = OVERSCAN_PX): MessageWindow {
-  const total = heights.reduce((sum, each) => sum + each, 0);
+export function messageWindow(offsets: readonly number[], top: number, height: number, overscan = OVERSCAN_PX): MessageWindow {
+  const total = offsets[offsets.length - 1];
   const viewTop = Math.max(0, Math.min(top, total - height));
   const from = viewTop - overscan, to = viewTop + height + overscan;
-  let start = heights.length, end = 0, before = 0, at = 0;
-  for (let index = 0; index < heights.length; index++) {
-    const rowTop = at, rowBottom = at + heights[index];
-    at = rowBottom;
-    if (rowBottom <= from) { before = rowBottom; continue; }
-    if (rowTop >= to) break;
-    if (index < start) start = index;
-    end = index + 1;
-  }
-  if (start > end) return { start: heights.length, end: heights.length, before: total, after: 0 };
-  const drawn = heights.slice(start, end).reduce((sum, each) => sum + each, 0);
-  return { start, end, before, after: total - before - drawn };
+  const start = messageRowAt(offsets, from), last = messageRowAt(offsets, to);
+  const end = Math.min(offsets.length - 1, last + (offsets[last] < to ? 1 : 0));
+  return { start, end, before: offsets[start], after: total - offsets[end] };
 }
 
 export interface RowSpan { start: number; end: number }

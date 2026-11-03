@@ -10,9 +10,9 @@ import type { Action } from "./types";
 // the box of its session to take it back (composer.tsx).
 export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
 
-// QUEUED_NOTICE names the event a queued message sends with its task's ID and
-// what a press on it could not do, for the box of its session to say over
-// itself (composer.tsx).
+// QUEUED_NOTICE names the event a queued message, or Stop on the working row
+// he reads, sends with its task's ID and what a press on it could not do, for
+// the box of its session to say over itself (composer.tsx).
 export const QUEUED_NOTICE = "cfo-queued-notice";
 
 // One message the board holds for delivery, shown where it waits: its words,
@@ -38,7 +38,7 @@ export const QUEUED_NOTICE = "cfo-queued-notice";
 // messages"): one that cannot go now says why over the box when pressed, as
 // whatever else a press could not do does, and a press that comes after the
 // board let it go says where it went.
-export const QueuedMessage = memo(function QueuedMessage({ action, instance, name, variant, onDeleted }: QueuedProps) {
+export const QueuedMessage = memo(function QueuedMessage({ action, liveAction, instance, name, variant, onDeleted }: QueuedProps) {
   const [isSending, setSending] = useState(false);
   // What he already asked of this message, so a second press asks nothing
   // more (the Overlord, 2026-10-28: "lack of indmepotent click on teh
@@ -70,6 +70,16 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
   const isHeld = action.status === "queued" || action.status === "running" && !action.awaiting;
   const isTyped = action.status === "running" && !!action.awaiting;
   const state = isHeld ? "Queued" : isTyped ? "Sent" : messageState(action);
+  // While he reads up the row shows the message as it was, and its controls
+  // act on the board's live copy of it, which the board may hold no longer.
+  const current = liveAction === undefined ? action : liveAction;
+  const canActNow = asked !== "withdrawn" && !!current && (current.status === "queued" || current.status === "running" && !current.awaiting);
+  const canSendNow = asked !== "now" && canActNow;
+  // A press the message no longer allows, as one shown while he reads up
+  // that has moved on since, says why over the box: the board has it on its
+  // way, it has left the queue, or, for a send the board has not taken yet,
+  // what that send says of itself.
+  const movedWhy = current ? "It is already on its way to its session." : action.created_at ? "It has already left the queue." : action.send_now_why || "It is still reaching the board.";
   const reason = isHeld || isTyped ? action.message : "";
   const kept = keptPictures(action.text);
   const why = "queued-why-" + action.id;
@@ -81,24 +91,32 @@ export const QueuedMessage = memo(function QueuedMessage({ action, instance, nam
     {variant === "queue" && <p className="queued-line"><strong>{state}</strong></p>}
     <p className="sr-only" id={why}>{reason || state}</p>
     {isHeld && asked !== "withdrawn" && <div className="queued-actions">
-      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"}
-        onClick={() => action.can_send_now ? void act({ kind: "message_now" }, () => setAsked("now")) : refuse(action.send_now_why || "It cannot be typed into its session now.")}><Icon name="arrow-up" /></button>
-      <button type="button" className="icon-button" aria-label="Edit" disabled={isSending}
-        onClick={() => window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id }))}><Icon name="edit" /></button>
-      <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending}
-        onClick={() => void act({ kind: "message_withdraw", text: action.text }, () => { setAsked("withdrawn"); onDeleted?.(); })}><Icon name="close" /></button>
+      <button type="button" className="icon-button" aria-label="Send now" disabled={isSending || asked === "now"} aria-disabled={!canSendNow}
+        onClick={() => {
+          if (!canSendNow || !current) refuse(current?.send_now_why || movedWhy);
+          else if (current.can_send_now) void act({ kind: "message_now" }, () => setAsked("now"));
+          else refuse(current.send_now_why || "It cannot be typed into its session now.");
+        }}><Icon name="arrow-up" /></button>
+      <button type="button" className="icon-button" aria-label="Edit" disabled={isSending} aria-disabled={!canActNow}
+        onClick={() => { if (canActNow) window.dispatchEvent(new CustomEvent<string>(TAKE_BACK_MESSAGE, { detail: action.id })); else refuse(movedWhy); }}><Icon name="edit" /></button>
+      <button type="button" className="icon-button" aria-label="Cancel" disabled={isSending} aria-disabled={!canActNow}
+        onClick={() => { if (canActNow && current) void act({ kind: "message_withdraw", text: current.text }, () => { setAsked("withdrawn"); onDeleted?.(); }); else refuse(movedWhy); }}><Icon name="close" /></button>
     </div>}
   </div>;
 }, isSameQueued);
 
-type QueuedProps = { action: Action; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void };
+type QueuedProps = { action: Action; liveAction?: Action | null; instance: string; name: string; variant: "pane" | "queue"; onDeleted?: () => void };
 
 // Each snapshot parses every action anew, so a comparison by identity drew
 // every queued message again on every snapshot, 315 times in 120 s of a live
 // board. It is drawn again only when what it shows or sends changes.
-function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
-  const [was, is] = [prior.action, next.action];
+function isSameAction(was: Action | null | undefined, is: Action | null | undefined): boolean {
+  if (!was || !is) return was === is;
   return was.id === is.id && was.task_id === is.task_id && was.text === is.text && was.status === is.status && was.message === is.message
-    && !!was.awaiting === !!is.awaiting && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why
+    && !!was.awaiting === !!is.awaiting && was.can_send_now === is.can_send_now && was.send_now_why === is.send_now_why;
+}
+
+function isSameQueued(prior: QueuedProps, next: QueuedProps): boolean {
+  return isSameAction(prior.action, next.action) && isSameAction(prior.liveAction, next.liveAction)
     && prior.instance === next.instance && prior.name === next.name && prior.variant === next.variant && prior.onDeleted === next.onDeleted;
 }

@@ -1,22 +1,23 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { message as errorText, reportToCfo, request } from "./api";
 import { copyText } from "./clipboard";
 import { Icon } from "./Icon";
 import { keptFileAddress } from "./kept-files";
 import { MessageRow } from "./message-row";
 import { MessageDocumentScope } from "./message-document-scope";
-import { drawnSpans, ESTIMATED_ROW_PX, messageWindow } from "./message-window";
+import { drawnSpans, ESTIMATED_ROW_PX, messageRowAt, messageWindow } from "./message-window";
 import { takesMessages } from "./messages";
 import { Notice } from "./notice";
 import { ReplyWorking } from "./reply-working";
-import { changeMessages, messageFontFor, olderMessages, pageMessages, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
+import { changeMessages, messageFontFor, olderMessages, pageMessages, parseConversation, parseMessages, parsePage, parseUsage, storedMessageFont, storeMessageFont, turnEnds, type MessagePage } from "./session-messages";
 import { attachZoomGesture } from "./terminal-zoom";
-import { parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
+import { object, parseAction, string, type Action, type KeySpend, type SubscriptionUsage, type Task, type TreeNode } from "./types";
+import { useTerminalLink } from "./terminal-link";
 import { usageReadings } from "./session-usage";
 import { UsageBar } from "./usage-bar";
 import { harnessInk } from "./harness-ink";
 import { QueuedMessage } from "./queued-message";
-import { usePendingSends } from "./pending-sends";
+import { usePendingSends, type PendingSend } from "./pending-sends";
 import "./messages-view.css";
 
 // A stream that keeps dropping stops retrying and says why.
@@ -38,6 +39,10 @@ const OLDER_TRIES = 3;
 // A row with no folds open, shared so its props stay the same.
 const NO_FOLDS: ReadonlySet<string> = new Set();
 const UNREAD = "The session's messages cannot be read";
+type PublishedMessages = MessagePage & { isWorking: boolean; said: string; canStop: boolean; isLive: boolean; task?: Task; sent: Action[]; pending: Action[]; sending: PendingSend[] };
+// What the box under the conversation shows of the session: what it spent and
+// the words he sent it.
+type Composing = Pick<MessagePage, "usage"> & { history: string[] };
 
 // A Claude Code session's messages, read only: the supervisor's stream of
 // them (/api/messages), drawn as the session's conversation. It sits in the
@@ -64,10 +69,19 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
 }) {
   // What he sent that the board has not shown yet, drawn at once on its way.
   const sending = usePendingSends();
+  const link = useTerminalLink(terminal);
+  const said = link?.screen?.isWorking && link.screen.doing || "";
+  const canStop = !!link && !(task && takesMessages(task)) && !link.held;
   const list = useRef<HTMLDivElement>(null);
   const items = useRef<HTMLDivElement>(null);
-  const [held, setHeld] = useState<MessagePage>({ messages: [], more: false });
+  const [held, setHeld] = useState<PublishedMessages>({ conversation: "", messages: [], more: false, isWorking, said, canStop, isLive: false, task, sent, pending, sending });
   const heldValue = useRef(held);
+  // The stream keeps one latest version while the displayed history stays
+  // where he reads. Returning to the end publishes it once, without replay.
+  const latest = useRef(held);
+  // The box speaks for the session as it is now, however far up he reads, so
+  // it follows the stream while the history he reads holds still.
+  const [composing, setComposing] = useState<Composing>({ history: [] });
   const [phase, setPhase] = useState<"connecting" | "live" | "closed">("connecting");
   const [isReconnecting, setReconnecting] = useState(false);
   const [closedWhy, setClosedWhy] = useState("");
@@ -85,8 +99,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // how far its top lies below the list's, which stays put. pinnedTo is the
   // scroll top the list last put itself at to show its end.
   const following = useRef(true);
+  // WebKit can clamp the old scroll top while Jump replaces windowed rows,
+  // before layout settles at the newly measured end.
+  const isJumping = useRef(false);
   const anchor = useRef<{ id: string; offset: number } | null>(null);
   const pinnedTo = useRef(-1);
+  const observedTop = useRef<number | null>(null);
+  const reconcile = useRef<() => void>(() => {});
   // The page holds only the rows within reach of where he reads
   // (message-window.ts): rowHeights is each drawn row's measured height with
   // the gap after it, by its message's id, and view where he reads, kept only
@@ -174,7 +193,11 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     const take = (change: (prior: MessagePage) => MessagePage) => {
       failures = 0;
       heard();
-      setHeld(change);
+      const next = { ...latest.current, ...change(latest.current) };
+      latest.current = next;
+      reconcile.current();
+      if (following.current) setHeld(next);
+      setComposing((prior) => composerOf(prior, next));
       setReconnecting(false);
       setPhase("live");
     };
@@ -186,10 +209,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       try { const page = parsePage(JSON.parse(event.data)); olderFailures.current = { count: 0, at: 0 }; take((prior) => pageMessages(prior, page)); } catch { invalid(); }
     });
     stream.addEventListener("messages", (event: MessageEvent<string>) => {
-      try { const changed = parseMessages(JSON.parse(event.data)); take((prior) => ({ ...prior, messages: changeMessages(prior.messages, changed) })); } catch { invalid(); }
+      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const changed = parseMessages(data.messages); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, messages: changeMessages(prior.messages, changed) }; }); } catch { invalid(); }
     });
     stream.addEventListener("usage", (event: MessageEvent<string>) => {
-      try { const usage = parseUsage(JSON.parse(event.data)); take((prior) => usage ? { ...prior, usage } : prior); } catch { invalid(); }
+      try { const data = object(JSON.parse(event.data)); const conversation = parseConversation(data.conversation); const usage = parseUsage(data.usage); take((prior) => { if (prior.conversation !== conversation) throw new Error("Invalid conversation"); return { ...prior, usage }; }); } catch { invalid(); }
     });
     stream.addEventListener("unavailable", (event: MessageEvent<string>) => {
       let why = "";
@@ -216,27 +239,40 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const settle = useCallback(() => {
     const box = list.current;
     if (!box || !shownValue.current) return;
+    reconcile.current();
     if (following.current) {
-      box.scrollTop = box.scrollHeight;
+      box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
       pinnedTo.current = box.scrollTop;
+      observedTop.current = box.scrollTop;
+      isJumping.current = false;
       return;
     }
     const kept = anchor.current;
     const row = kept && [...box.querySelectorAll<HTMLElement>("[data-message]")].find((each) => each.dataset.message === kept.id);
-    if (kept && row) box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - kept.offset;
+    if (kept && row) {
+      const change = row.getBoundingClientRect().top - box.getBoundingClientRect().top - kept.offset;
+      if (Math.abs(change) > .5) box.scrollTop += change;
+    }
+    observedTop.current = box.scrollTop;
   }, []);
 
   const readOlder = useCallback(() => {
     const first = heldValue.current.messages[0];
     const failed = olderFailures.current;
-    if (readingOlder.current || !heldValue.current.more || !first || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
+    const conversation = heldValue.current.conversation;
+    if (readingOlder.current || !conversation || conversation !== latest.current.conversation || !heldValue.current.more || !first || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq || failed.count >= OLDER_TRIES || Date.now() - failed.at < OLDER_RETRY_MS) return;
     readingOlder.current = true;
-    request(address({ before: String(first.seq) })).then((value) => {
+    request(address({ before: String(first.seq), conversation })).then((value) => {
       const page = parsePage(value);
       readingOlder.current = false;
       olderFailures.current = { count: 0, at: 0 };
       // A page of a conversation the view no longer shows is dropped.
-      setHeld((prior) => prior.messages[0]?.id === first.id ? olderMessages(prior, page) : prior);
+      if (page.conversation !== conversation || heldValue.current.conversation !== conversation || latest.current.conversation !== conversation || heldValue.current.messages[0]?.id !== first.id || heldValue.current.messages[0]?.seq !== first.seq || latest.current.messages[0]?.id !== first.id || latest.current.messages[0]?.seq !== first.seq) return;
+      reconcile.current();
+      const longer = { ...latest.current, ...olderMessages(latest.current, page) };
+      latest.current = longer;
+      setComposing((prior) => composerOf(prior, longer));
+      setHeld((prior) => prior.conversation === conversation && latest.current.conversation === conversation && prior.messages[0]?.id === first.id && prior.messages[0]?.seq === first.seq ? { ...prior, ...olderMessages(prior, page) } : prior);
     }).catch((error: unknown) => {
       readingOlder.current = false;
       olderFailures.current = { count: olderFailures.current.count + 1, at: Date.now() };
@@ -246,28 +282,35 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
 
   // The rows drawn: those within reach of where he reads, or of the end while
   // he follows it, each row not measured yet taken at an estimate.
-  const heights = held.messages.map((message) => rowHeights.get(message.id) ?? ESTIMATED_ROW_PX);
+  const rowIndices = useMemo(() => new Map(held.messages.map((message, index) => [message.id, index])), [held.messages]);
+  const offsets = useMemo(() => {
+    const offsets = [0];
+    for (const message of held.messages) offsets.push(offsets[offsets.length - 1] + (rowHeights.get(message.id) ?? ESTIMATED_ROW_PX));
+    return offsets;
+  }, [held.messages, rowHeights]);
   const windowAt = (place: typeof view, isEnd: boolean) => {
-    const anchorAt = held.messages.findIndex((message) => message.id === place.anchor);
-    const readTop = anchorAt < 0 ? place.top : heights.slice(0, anchorAt).reduce((sum, each) => sum + each, 0) - place.offset;
-    return messageWindow(heights, isEnd ? Infinity : readTop, place.height);
+    const anchorAt = rowIndices.get(place.anchor);
+    const readTop = anchorAt === undefined ? place.top : offsets[anchorAt] - place.offset;
+    return messageWindow(offsets, isEnd ? Infinity : readTop, place.height);
   };
   const drawn = windowAt(view, isAtEnd);
-  const rowAt = (id: string) => id ? held.messages.findIndex((message) => message.id === id) : -1;
+  const rowAt = (id: string) => rowIndices.get(id) ?? -1;
   const spans = drawnSpans(drawn, rowAt(selected?.from ?? ""), rowAt(selected?.to ?? ""), selected?.isCollapsed ?? true);
-  const heightOf = (start: number, end: number) => heights.slice(start, end).reduce((sum, each) => sum + each, 0);
+  const heightOf = (start: number, end: number) => offsets[end] - offsets[start];
 
   // remember notes where he reads after he scrolls, draws the rows that come
   // within reach, and reads the older page once he nears the top.
-  const remember = () => {
+  const rememberPosition = () => {
     const box = list.current;
     if (!box || !shownValue.current) return;
+    observedTop.current = box.scrollTop;
     // A scroll that finds the list where it put itself is its own and keeps
     // it following: Jump to latest's lands before the rows it draws at the end
     // are measured, and those taller than their estimate push the end on.
     const isEnd = box.scrollHeight - box.scrollTop - box.clientHeight <= AT_END_PX || (following.current && box.scrollTop === pinnedTo.current);
     following.current = isEnd;
     setAtEnd(isEnd);
+    if (isEnd) setHeld(latest.current);
     const top = box.getBoundingClientRect().top;
     const first = [...box.querySelectorAll<HTMLElement>("[data-message]")].find((row) => row.getBoundingClientRect().bottom > top);
     const firstTop = first?.getBoundingClientRect().top ?? Infinity;
@@ -276,16 +319,44 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       // A jump past the rows drawn finds none of them in view, so the message
       // at the top is read from the rows' heights, where the window places
       // each row.
-      let at = (items.current?.getBoundingClientRect().top ?? top) - top, index = 0;
-      while (index < heights.length - 1 && at + heights[index] <= 0) at += heights[index++];
+      const at = (items.current?.getBoundingClientRect().top ?? top) - top;
+      const index = Math.min(held.messages.length - 1, messageRowAt(offsets, -at));
       const message = held.messages[index];
-      anchor.current = message ? { id: message.id, offset: at } : null;
+      anchor.current = message ? { id: message.id, offset: at + offsets[index] } : null;
     }
     const place = { top: box.scrollTop, height: box.clientHeight, anchor: anchor.current?.id ?? "", offset: anchor.current?.offset ?? 0 };
     const next = windowAt(place, isEnd);
     if (next.start !== drawn.start || next.end !== drawn.end || isEnd !== isAtEnd) setView(place);
+  };
+  const remember = () => {
+    rememberPosition();
+    const box = list.current;
+    if (!box || !shownValue.current) return;
     if (box.scrollTop < OLDER_WITHIN_PX) readOlder();
   };
+
+  useLayoutEffect(() => {
+    reconcile.current = () => {
+      const box = list.current;
+      if (!isJumping.current && shown && shownValue.current && box && box.clientHeight && observedTop.current !== null && box.scrollTop !== observedTop.current) rememberPosition();
+    };
+  });
+  useLayoutEffect(() => {
+    // Each snapshot of the board draws the panel again with new lists of the
+    // same messages, so the view publishes only what changed, or it would
+    // draw itself a second time for every snapshot.
+    const known = latest.current, isLive = phase === "live";
+    if (known.isWorking === isWorking && known.said === said && known.canStop === canStop && known.isLive === isLive && known.task === task && known.sending === sending
+      && isSameList(known.sent, sent) && isSameList(known.pending, pending)) return;
+    latest.current = { ...known, isWorking, said, canStop, isLive, task, sent, pending, sending };
+    reconcile.current();
+    if (following.current) setHeld(latest.current);
+    else setHeld((prior) => {
+      const localIDs = new Set([...prior.sending, ...sending].map((send) => send.id));
+      const handedOff = sent.filter((action) => localIDs.has(action.id) && (action.status === "queued" || action.status === "running" || action.status === "succeeded") && !prior.pending.some((heldAction) => heldAction.id === action.id));
+      return prior.sending === sending && !handedOff.length ? prior : { ...prior, sending, pending: [...prior.pending, ...handedOff] };
+    });
+  }, [isWorking, said, canStop, phase, task, sent, pending, sending]);
 
   // Each drawn row is measured as it lays out and again whenever it changes,
   // as a picture loads or a call unfolds; a row the hidden view lays out at
@@ -293,32 +364,35 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   useLayoutEffect(() => {
     const box = items.current;
     if (!box) return;
-    const observer = new ResizeObserver((entries) => {
+    const rows = [...box.querySelectorAll<HTMLElement>(":scope > [data-message]")];
+    const measure = () => {
       const gap = parseFloat(getComputedStyle(box).rowGap) || 0;
+      const sizes = rows.map((row) => ({ id: row.dataset.message, size: row.getBoundingClientRect().height }));
       setRowHeights((prior) => {
         let next: Map<string, number> | null = null;
-        for (const entry of entries) {
-          const id = entry.target instanceof HTMLElement ? entry.target.dataset.message : undefined;
-          const size = entry.borderBoxSize[0]?.blockSize ?? 0;
-          if (!id || !size || prior.get(id) === Math.round(size + gap)) continue;
+        for (const { id, size } of sizes) {
+          if (!id || !size || prior.get(id) === size + gap) continue;
           next ??= new Map(prior);
-          next.set(id, Math.round(size + gap));
+          next.set(id, size + gap);
         }
         return next ?? prior;
       });
-    });
-    for (const row of box.querySelectorAll<HTMLElement>(":scope > [data-message]")) observer.observe(row);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const row of rows) observer.observe(row);
     return () => observer.disconnect();
-  }, [held, drawn.start, drawn.end]);
+  }, [held.messages, drawn.start, drawn.end, selected, openFolds, font, shown]);
 
   useLayoutEffect(() => {
     heldValue.current = held;
     settle();
     const box = list.current;
     if (box && shownValue.current && box.scrollTop < OLDER_WITHIN_PX) readOlder();
-  }, [held, settle, readOlder]);
+  }, [held, rowHeights, drawn.start, drawn.end, isAtEnd, settle, readOlder]);
   useLayoutEffect(() => {
     shownValue.current = shown;
+    if (shown && list.current) observedTop.current = list.current.scrollTop;
     settle();
   }, [shown, settle]);
   useLayoutEffect(() => {
@@ -333,7 +407,7 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       const box = list.current;
       if (box) setView((prior) => prior.height === box.clientHeight ? prior : { ...prior, height: box.clientHeight });
     });
-    for (const box of [list.current, items.current]) if (box) observer.observe(box);
+    if (list.current) observer.observe(list.current);
     return () => observer.disconnect();
   }, [settle]);
   const zoom = useCallback((size: number) => {
@@ -378,10 +452,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   const jump = () => {
     const box = list.current;
     if (!box) return;
+    isJumping.current = true;
     following.current = true;
     setAtEnd(true);
-    box.scrollTop = box.scrollHeight;
+    setHeld(latest.current);
+    box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
     pinnedTo.current = box.scrollTop;
+    observedTop.current = box.scrollTop;
     box.focus({ preventScroll: true });
   };
   const keys = (event: KeyboardEvent<HTMLElement>) => {
@@ -405,11 +482,16 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
       zoom(size);
     }
   };
-  const picture = useCallback((id: string) => address({ picture: id }), [address]);
+  const picture = useCallback((id: string) => address({ picture: id, conversation: held.conversation }), [address, held.conversation]);
   const taskID = task?.id;
   const keptPicture = useCallback((path: string) => keptFileAddress(instance, taskID, path), [instance, taskID]);
   useEffect(() => { onChildValue.current = onChild; }, [onChild]);
-  const openChild = useCallback((child: TreeNode, source: HTMLElement) => onChildValue.current(child, source), []);
+  const taskValue = useRef(task);
+  useLayoutEffect(() => { taskValue.current = task; }, [task]);
+  const openChild = useCallback((child: TreeNode, source: HTMLElement) => {
+    const current = taskValue.current?.tree?.children.find((each) => each.id === child.id);
+    if (current) onChildValue.current(current, source);
+  }, []);
   useLayoutEffect(() => {
     const box = list.current;
     if (!box || !focusedRow.current || document.activeElement !== document.body) return;
@@ -421,12 +503,9 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     document.addEventListener("pointerdown", away);
     return () => document.removeEventListener("pointerdown", away);
   }, []);
-  const readings = usageReadings(harness, held.usage, subscriptions, spend);
-  // What he sent the session himself, oldest first, in the words he typed:
-  // Up in the box brings them back as the terminal's history does.
-  const his = held.messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [{ at: message.at, text: (message.source === "shell" ? "!" : "") + message.text }] : []);
-  const history = his.map((row) => row.text);
-  const ends = turnEnds(held.messages, isWorking);
+  const readings = usageReadings(harness, composing.usage, subscriptions, spend);
+  const his = ownPrompts(held.messages);
+  const ends = turnEnds(held.messages, held.isWorking);
   const reachesEnd = spans[spans.length - 1].end === held.messages.length;
   // Once the session's record shows his words, written since the board took
   // them, its row is his message, and the board's copy goes, so it shows once
@@ -439,10 +518,10 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
   // loaded. A send the board has not taken yet names no time, so an earlier
   // message of the same words never hides it.
   const rows = [...his];
-  const waiting = [...pending, ...sending.filter((send) => send.task === (task?.id ?? "") && !pending.some((action) => action.id === send.id)).map((send) =>
+  const waiting = [...held.pending, ...held.sending.filter((send) => send.task === (held.task?.id ?? "") && !held.pending.some((action) => action.id === send.id)).map((send) =>
     parseAction({ id: send.id, kind: "message", task_id: send.task, text: send.text, status: "running", message: "Reaching the board.", send_now_why: "It is still reaching the board." }))];
   const read = new Set<string>();
-  const owners = sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
+  const owners = held.sent.filter((action) => action.created_at && (action.status === "queued" || action.status === "running" || action.status === "succeeded"));
   for (const action of owners.sort((one, other) => Date.parse(one.created_at) - Date.parse(other.created_at))) {
     const row = rows.findIndex((each) => Date.parse(each.at) >= Date.parse(action.created_at) && (action.status !== "succeeded" || Date.parse(each.at) <= Date.parse(action.updated_at)) && sameWords(each.text, action.text));
     if (row < 0) continue;
@@ -450,6 +529,13 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
     read.add(action.id);
   }
   const queued = waiting.filter((action) => !read.has(action.id));
+  const queuedIDs = queued.map((action) => action.id).join("\0");
+  useLayoutEffect(() => {
+    const observer = new ResizeObserver(settle);
+    for (const row of items.current?.querySelectorAll<HTMLElement>(":scope > .reply-working, :scope > [data-queued]") ?? []) observer.observe(row);
+    settle();
+    return () => observer.disconnect();
+  }, [queuedIDs, held.isWorking, reachesEnd, phase, shown, settle]);
   return <MessageDocumentScope query={query} instance={instance}><section className={"messages-view" + (box ? " has-box" : "")} hidden={!shown} aria-label="Messages" onKeyDown={keys}>
     {/* Connecting is a plain line above the conversation, never a cover over
         the box he types into. */}
@@ -465,21 +551,22 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
             ...at > 0 ? [<div key="room-between" className="conversation-room" style={{ height: heightOf(spans[at - 1].end, span.start) }} />] : [],
             ...held.messages.slice(span.start, span.end).map((message) => <MessageRow key={message.id} message={message} openFolds={openFolds.get(message.id) ?? NO_FOLDS} onFold={foldRow}
               harness={harness} isTurnEnd={ends.has(message.id)}
-              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
+              task={message.kind === "reply" && message.blocks.some((block) => block.kind === "call" && block.agent) ? held.task : undefined} picture={picture} keptPicture={keptPicture} onChild={openChild} />),
           ])}
           <div className="conversation-room" style={{ height: heightOf(spans[spans.length - 1].end, held.messages.length) }} />
           {/* While the view connects it shows nothing that waits on the
               session's reading, the dither included (the Overlord,
               2026-10-28: "connecting screens don't need to display the dither
               or usage unavailable"). */}
-          {shown && phase === "live" && isWorking && reachesEnd && <ReplyWorking terminal={terminal} canStop={!(task && takesMessages(task))} ink={harnessInk(harness)} />}
+          {shown && held.isLive && held.isWorking && reachesEnd && <ReplyWorking terminal={terminal} task={task?.id ?? ""} said={held.said} canStop={held.canStop}
+            stopWhy={!isWorking ? "It is no longer working." : canStop ? "" : link?.held || "It cannot be stopped from here now."} ink={harnessInk(harness)} />}
           {/* His messages not yet in the session's record, at the
               conversation's end in its one scroll (the Overlord, 2026-10-29:
               "the double scrolls and having its own little scroll for queued
               messages doesn't really work"), so whatever the session prints
               comes before them and the list, following its end, keeps them
               right above the box. */}
-          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} instance={instance} name={name} variant="pane" />)}
+          {queued.map((action) => <QueuedMessage key={"queued-" + action.id} action={action} liveAction={pending.find((each) => each.id === action.id) ?? null} instance={instance} name={name} variant="pane" />)}
         </div>
       </div>
       {phase === "live" && !held.messages.length && !queued.length && <p className="messages-empty" role="status">No messages yet</p>}
@@ -501,9 +588,27 @@ export function MessagesView({ query, instance, name, task, terminal, harness, m
           box"), only once the view is live and holds a real reading, never
           while it connects ("connecting screens don't need to display the
           dither or usage unavailable"). */}
-      {box?.(held.usage?.model || model, history, held.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
+      {box?.(composing.usage?.model || model, composing.history, composing.usage?.effort || effort, phase === "live" && <UsageBar readings={readings} />)}
     </div>}
   </section></MessageDocumentScope>;
+}
+
+// ownPrompts is what he sent the session himself, oldest first, in the words
+// he typed: Up in the box brings them back as the terminal's history does.
+function ownPrompts(messages: MessagePage["messages"]): { at: string; text: string }[] {
+  return messages.flatMap((message) => message.kind === "prompt" && message.text && (message.source === "overlord" || message.source === "slash" || message.source === "shell") ? [{ at: message.at, text: (message.source === "shell" ? "!" : "") + message.text }] : []);
+}
+
+// composerOf is what the box shows of page, prior itself while that is the
+// same, so a streamed reply he reads past draws nothing.
+function composerOf(prior: Composing, page: MessagePage): Composing {
+  const history = ownPrompts(page.messages).map((row) => row.text);
+  return prior.usage === page.usage && isSameList(prior.history, history) ? prior : { usage: page.usage, history };
+}
+
+// isSameList says two lists hold the same items in the same order.
+function isSameList<T>(one: readonly T[], other: readonly T[]): boolean {
+  return one.length === other.length && one.every((item, index) => item === other[index]);
 }
 
 // sameWords says two texts hold the same words, however a harness wrapped or

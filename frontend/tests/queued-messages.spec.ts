@@ -256,7 +256,7 @@ test.describe("his messages in the chat's one scroll", () => {
     relay.say({ type: "screen", asking: false, open: false, working: true });
 
     // Act: the session's record holds nothing.
-    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: [], more: false });
+    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })), { messages: [], conversation: "empty-conversation", more: false });
 
     // Assert
     await expect(log(page).locator("[data-message]")).toHaveCount(0);

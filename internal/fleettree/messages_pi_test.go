@@ -1,6 +1,7 @@
 package fleettree
 
 import (
+	"errors"
 	"reflect"
 	"strconv"
 	"testing"
@@ -219,7 +220,7 @@ func TestAPiReadAnswersOnlyWhatChangedAndAnewAfterATreeSwitch(t *testing.T) {
 
 	// Act: the tree moves back to the abandoned answer.
 	appendLines(t, path, piMessageEntry("u4", "a3", "user", object{"content": "Back to it"}))
-	switched, _, isAnew, err := reader.MessagesSince(path, MessageCursor{now.epoch, now.revision})
+	switched, _, isAnew, err := reader.MessagesSince(path, now)
 	// Assert
 	if err != nil {
 		t.Fatal(err)
@@ -232,6 +233,28 @@ func TestAPiReadAnswersOnlyWhatChangedAndAnewAfterATreeSwitch(t *testing.T) {
 	}
 	if again := readPi(t, &reader, path); len(again.Messages) != 7 || again.Messages[6].ID != "u4" {
 		t.Fatalf("the switched branch reads %+v", again.Messages)
+	}
+}
+
+func TestPiPictureRejectsAnUnpublishedBranchSwitch(t *testing.T) {
+	home := t.TempDir()
+	path := piSession(t, home, piHeader(),
+		piMessageEntry("u1", "", "user", object{"content": []object{{"type": "image", "data": "cGljdHVyZSBB", "mimeType": "image/png"}}}),
+		piMessageEntry("a1", "u1", "assistant", object{"content": "first reply"}),
+		piMessageEntry("u2", "a1", "user", object{"content": "first branch"}),
+	)
+	reader := Reader{}
+	page := readPi(t, &reader, path)
+	if len(page.Messages) == 0 || len(page.Messages[0].Pictures) != 1 {
+		t.Fatalf("initial page: %+v", page)
+	}
+	id := page.Messages[0].Pictures[0].ID
+	if _, data, err := reader.MessagePicture(path, page.Conversation, id); err != nil || string(data) != "picture A" {
+		t.Fatalf("current picture: %q %v", data, err)
+	}
+	appendLines(t, path, piMessageEntry("u3", "u1", "user", object{"content": "other branch"}))
+	if _, data, err := reader.MessagePicture(path, page.Conversation, id); !errors.Is(err, ErrNoRecord) || len(data) != 0 {
+		t.Fatalf("stale branch picture returned %q, %v", data, err)
 	}
 }
 
@@ -262,7 +285,7 @@ func TestAPiPicturesInAPromptAndAResultReadBack(t *testing.T) {
 	if kept.MediaType != "image/png" || kept.Bytes != 16 {
 		t.Fatalf("the picture reads as %+v, want 16 bytes of PNG", kept)
 	}
-	mediaType, data, err := reader.MessagePicture(path, kept.ID)
+	mediaType, data, err := reader.MessagePicture(path, page.Conversation, kept.ID)
 	if err != nil || mediaType != "image/png" || len(data) == 0 {
 		t.Fatalf("the picture reads back as %q %d bytes, %v", mediaType, len(data), err)
 	}
@@ -306,10 +329,10 @@ func TestAPiKeepsOnlyThePictureTypesTheBoardMayServe(t *testing.T) {
 		t.Fatalf("the result keeps %+v, want nothing the board may not serve", result.Pictures)
 	}
 	// The refused block's place is still its own, so no other picture answers it.
-	if _, _, err := reader.MessagePicture(path, "u1:1"); err == nil {
+	if _, _, err := reader.MessagePicture(path, page.Conversation, "u1:1"); err == nil {
 		t.Fatal("a picture the board may not serve reads back")
 	}
-	if _, _, err := reader.MessagePicture(path, "u1:3"); err != nil {
+	if _, _, err := reader.MessagePicture(path, page.Conversation, "u1:3"); err != nil {
 		t.Fatalf("the allowed picture no longer reads: %v", err)
 	}
 }
@@ -353,7 +376,7 @@ func TestAPiUnchangedPollsParseNothingAndRebuildNothing(t *testing.T) {
 		if _, _, err := reader.MessagePage(path, -1); err != nil {
 			t.Fatal(err)
 		}
-		_, _, isAnew, err := reader.MessagesSince(path, MessageCursor{epoch, revision})
+		_, _, isAnew, err := reader.MessagesSince(path, MessageCursor{epoch, revision, log.incarnation})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -493,8 +516,8 @@ func TestAPiCursorAfterIdleEvictionIsNotAnsweredFromTheNewLog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if now.epoch == cursor.epoch {
-		t.Fatalf("a log made again after eviction reused epoch %d", now.epoch)
+	if now.epoch != cursor.epoch || now.incarnation == cursor.incarnation {
+		t.Fatalf("eviction changed identity or reused cursor: before %+v after %+v", cursor, now)
 	}
 	if !isAnew {
 		t.Fatal("a view holding the evicted log's cursor was answered as if its page still stood")

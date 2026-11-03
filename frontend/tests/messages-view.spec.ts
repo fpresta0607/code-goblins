@@ -46,8 +46,8 @@ const exchange = (seq: number) => seq % 2
   ? reply(seq, { kind: "text", text: `Answer ${seq}\n\nIt runs over a few lines\nso the page has height to read up in.` })
   : message(seq, { source: "overlord", text: "Question " + seq });
 const range = (from: number, to: number) => Array.from({ length: to - from }, (_, at) => exchange(from + at));
-const NEWEST = { messages: range(50, 100), more: true };
-const OLDER = { messages: range(0, 50), more: false };
+const NEWEST = { messages: range(50, 100), conversation: "fixture-conversation", more: true };
+const OLDER = { messages: range(0, 50), conversation: "fixture-conversation", more: false };
 
 interface Board {
   resizes: { cols: number; rows: number }[]; older: string[];
@@ -109,7 +109,7 @@ async function open(page: Page): Promise<Board> {
       // A snapshot goes to the board alone, which is where a test changes it.
       if (type === "snapshot") for (const source of boards) if (source.readyState === 1) source.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) }));
     });
-  }, { snapshot: JSON.stringify(SNAPSHOT), pages: { cfo: NEWEST, goblin: { messages: TALK, more: false } } });
+  }, { snapshot: JSON.stringify(SNAPSHOT), pages: { cfo: NEWEST, goblin: { messages: TALK, conversation: "fixture-conversation", more: false } } });
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/messages" && url.searchParams.get("token") === "fixture" && url.searchParams.get("picture") === "pic1") await route.fulfill({ body: PNG, contentType: "image/png" });
@@ -156,6 +156,7 @@ async function open(page: Page): Promise<Board> {
 const pill = (page: Page) => page.locator(".context-pane .panel-pill");
 const list = (page: Page, name: string) => page.getByRole("log", { name: "Messages of " + name });
 const send = (page: Page, type: string, data: unknown) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent("fixture-stream", { detail })), { type, data });
+const sendMessages = (page: Page, messages: unknown) => send(page, "messages", { conversation: "fixture-conversation", messages });
 const clipboard = async (page: Page) => (await page.evaluate(() => navigator.clipboard.readText())).replaceAll("\r\n", "\n");
 const streams = (page: Page) => page.evaluate(() => (window as unknown as { messageStreams: unknown[] }).messageStreams.length);
 const olderPage = (url: URL) => url.pathname === "/api/messages" && url.searchParams.has("before");
@@ -298,7 +299,7 @@ test("a message that changes takes its place, and a new one shows at the end he 
   await expect(talk).toContainText("Answer 99");
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
 
-  await send(page, "messages", [{ ...exchange(99), blocks: [{ kind: "text", text: "Answer 99, finished" }] }, exchange(100), exchange(101)]);
+  await sendMessages(page, [{ ...exchange(99), blocks: [{ kind: "text", text: "Answer 99, finished" }] }, exchange(100), exchange(101)]);
 
   await expect(talk.locator('[data-message="m99"]')).toHaveText(/Answer 99, finished/);
   await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
@@ -317,17 +318,18 @@ test("reading up, new and changed messages move nothing, and Jump to latest retu
   const { end: was } = await scroll(talk);
 
   // One message above where he reads grows, and two arrive below it.
-  await send(page, "messages", [{ ...exchange(51), blocks: [{ kind: "text", text: "Answer 51\n\nnow\nmuch\nlonger\nthan\nit\nwas" }] }, exchange(100), exchange(101)]);
+  await sendMessages(page, [{ ...exchange(51), blocks: [{ kind: "text", text: "Answer 51\n\nnow\nmuch\nlonger\nthan\nit\nwas" }] }, exchange(100), exchange(101)]);
 
-  await expect.poll(async () => (await scroll(talk)).end, "the two that arrived below add their room").toBeGreaterThan(was);
+  expect((await scroll(talk)).end, "pending messages leave the displayed history's room unchanged").toBe(was);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
   await page.getByRole("button", { name: "Jump to latest" }).click();
+  await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
   await expect.poll(async () => { const { top, end } = await scroll(talk); return end - top; }).toBeLessThanOrEqual(1);
   await expect(page.getByRole("button", { name: "Jump to latest" })).toHaveCount(0);
 });
 
-// A message that arrives while he reads up is not drawn, so the list keeps it
-// a room of an estimated height; Jump to latest draws it at its own (#1753).
+// A message that arrives while he reads up stays pending; Jump to latest
+// publishes it, then draws and measures its own height (#1753).
 test("Jump to latest lands at the end of a reply taller than its estimate that arrived while he read up", async ({ page }) => {
   // Arrange
   await open(page);
@@ -339,8 +341,8 @@ test("Jump to latest lands at the end of a reply taller than its estimate that a
   await expect(jump).toBeVisible();
   const { end: was } = await scroll(talk);
   const findings = Array.from({ length: 30 }, (_, at) => `Finding ${at + 1} of the review`);
-  await send(page, "messages", [reply(100, { kind: "text", text: ["Answer 100", ...findings].join("\n\n") })]);
-  await expect.poll(async () => (await scroll(talk)).end).toBeGreaterThan(was);
+  await sendMessages(page, [reply(100, { kind: "text", text: ["Answer 100", ...findings].join("\n\n") })]);
+  expect((await scroll(talk)).end).toBe(was);
 
   // Act
   await jump.click();
@@ -369,15 +371,19 @@ test("older messages are read a page at a time as he reads up, and his place is 
   await scrollTo(talk, 0);
   const before = await offset(talk, "m50");
   const { end: was } = await scroll(talk);
+  await sendMessages(page, [reply(51, { kind: "text", text: "Changed while reading older history" }), exchange(100), exchange(101)]);
   release();
 
   await expect.poll(async () => (await scroll(talk)).end, "the older page's room is above").toBeGreaterThan(was);
   expect(board.older).toEqual(["50"]);
   await expect.poll(() => moved(talk, "m50", before)).toBeLessThan(2);
+  await expect(talk.locator('[data-message="m51"]')).toContainText("Answer 51");
   await scrollTo(talk, 0);
   await page.waitForTimeout(300);
   expect(board.older, "no page is asked for once none is older").toEqual(["50"]);
   await expect(talk.locator("[data-message]").first()).toHaveText(/Question 0/);
+  await page.getByRole("button", { name: "Jump to latest" }).click();
+  await expect(talk.locator("[data-message]").last()).toContainText("Answer 101");
 });
 
 test("an older page that fails to arrive goes to the CFO and is asked for again on his next approach to the top five seconds later", async ({ page }) => {
@@ -448,7 +454,7 @@ test("Copy puts a message's words on the clipboard, and its text can be selected
   await command.getByRole("button", { name: "Copy" }).click();
   await expect.poll(() => clipboard(page)).toBe("git status\n\nnothing to commit");
   // The turn ends, so its last reply carries Copy.
-  await send(page, "messages", [message(11, { kind: "interrupt", text: "[Request interrupted by user]" })]);
+  await sendMessages(page, [message(11, { kind: "interrupt", text: "[Request interrupted by user]" })]);
   const last = talk.locator(".message-reply").last();
   await last.hover();
   await last.getByRole("button", { name: "Copy" }).click();
@@ -488,7 +494,7 @@ test.describe("on a phone's touch screen", () => {
 
     // Two replies after the last one, one with a path that breaks across the
     // whole width and one led by a call, and the turn ends.
-    await send(page, "messages", [
+    await sendMessages(page, [
       reply(11, { kind: "text", text: "Changed frontend/src/terminal-touch-handlers/hand-a-vertical-swipe-to-the-history-and-keep-a-long-press-for-paste.ts" }),
       reply(12, { kind: "call", tool: "Bash", subject: "npx playwright test phone-terminal.spec.ts", state: "running" }, { kind: "text", text: "Running the phone terminal spec." }),
       message(13, { kind: "interrupt", text: "[Request interrupted by user]" }),
@@ -521,7 +527,7 @@ test("a message Claude Code took while it worked carries no Queued, and has the 
   const talk = list(page, "Zeke - Touch Wrangler");
 
   // Act
-  await send(page, "messages", [message(11, { source: "overlord", queued: true, text: "also check the iPad" })]);
+  await sendMessages(page, [message(11, { source: "overlord", queued: true, text: "also check the iPad" })]);
 
   // Assert
   const sent = talk.locator(".message-prompt").filter({ hasText: "also check the iPad" });
@@ -602,7 +608,7 @@ test("a message stream that falls silent says Reconnecting and opens again with 
       watch.disconnect();
     });
     watch.observe(view, { subtree: true, childList: true, characterData: true });
-  }, { messages: range(52, 102), more: true });
+  }, { messages: range(52, 102), conversation: "fixture-conversation", more: true });
 
   // Act: 15 s pass with no word from the stream, and the stream opened again
   // sends its page.
@@ -854,7 +860,7 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   const who = "Pia - Pi Pilot";
   await keepActions(page, []);
   // A conversation long enough to read up in, then the hold.
-  await send(page, "messages", range(100, 140));
+  await sendMessages(page, range(100, 140));
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
   const talk = list(page, who);
   await expect(talk).toContainText("Answer 139");
@@ -866,10 +872,10 @@ test("Modern: a held chat opens at the bottom, stays where he reads, and keeps i
   await scrollTo(talk, Math.round((await scroll(talk)).end / 2));
   const { read, before } = await readingAt(talk);
   const { end: was } = await scroll(talk);
-  await send(page, "messages", [reply(200, { kind: "text", text: "More arrived." })]);
+  await sendMessages(page, [reply(200, { kind: "text", text: "More arrived." })]);
 
   // Assert: his place is kept rather than snapped to the end.
-  await expect.poll(async () => (await scroll(talk)).end, "the reply below adds its room").toBeGreaterThan(was);
+  expect((await scroll(talk)).end, "the pending reply changes no displayed room").toBe(was);
   await expect.poll(() => moved(talk, read, before)).toBeLessThan(2);
 
   // Act and Assert: the input stays reachable through a maximize and a phone.

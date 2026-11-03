@@ -87,7 +87,13 @@ export interface SessionUsage {
   effort: string;
 }
 
-export interface MessagePage { messages: SessionMessage[]; more: boolean; usage?: SessionUsage }
+export interface MessagePage { conversation: string; messages: SessionMessage[]; more: boolean; usage?: SessionUsage }
+
+export function parseConversation(value: unknown): string {
+  const conversation = string(value);
+  if (!conversation) throw new Error("Invalid conversation");
+  return conversation;
+}
 
 export function parseUsage(value: unknown): SessionUsage | undefined {
   if (value == null) return undefined;
@@ -98,7 +104,7 @@ export function parseUsage(value: unknown): SessionUsage | undefined {
 
 export function parsePage(value: unknown): MessagePage {
   const page = object(value);
-  return { messages: parseMessages(page.messages), more: boolean(page.more), usage: parseUsage(page.usage) };
+  return { conversation: parseConversation(page.conversation), messages: parseMessages(page.messages), more: boolean(page.more), usage: parseUsage(page.usage) };
 }
 
 // changeMessages puts each changed message in place of the one with its id,
@@ -115,18 +121,19 @@ export function changeMessages(held: SessionMessage[], changed: SessionMessage[]
 // the page, so a stream renewed every ten minutes keeps them. more is
 // whether older messages come before the first it holds.
 export function pageMessages(held: MessagePage, page: MessagePage): MessagePage {
+  if (held.conversation !== page.conversation) return page;
   const first = page.messages[0];
-  const isSame = !!first && held.messages.some((message) => message.id === first.id && message.seq === first.seq);
-  if (!isSame) return page;
+  if (!first || !held.messages.some((message) => message.id === first.id && message.seq === first.seq)) return page;
   const older = held.messages.filter((message) => message.seq < first.seq);
-  return { messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage };
+  return { conversation: page.conversation, messages: [...older, ...page.messages], more: older.length ? held.more : page.more, usage: page.usage };
 }
 
 // olderMessages puts a page read before the first message a view holds in
 // front of it.
 export function olderMessages(held: MessagePage, page: MessagePage): MessagePage {
+  if (!held.conversation || held.conversation !== page.conversation) return held;
   const first = held.messages[0]?.seq ?? Infinity;
-  return { messages: [...page.messages.filter((message) => message.seq < first), ...held.messages], more: page.more, usage: held.usage };
+  return { conversation: held.conversation, messages: [...page.messages.filter((message) => message.seq < first), ...held.messages], more: page.more, usage: held.usage };
 }
 
 // messagesHarness says whether the board reads a harness's session as messages,

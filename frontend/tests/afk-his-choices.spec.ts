@@ -33,7 +33,7 @@ async function open(page: Page) {
       constructor(address: string | URL) {
         super();
         const isMessages = new URL(address, location.href).pathname === "/api/messages";
-        const [type, data] = isMessages ? ["page", JSON.stringify({ messages: [], more: false })] : ["snapshot", snapshot];
+        const [type, data] = isMessages ? ["page", JSON.stringify({ messages: [], conversation: "fixture-conversation", more: false })] : ["snapshot", snapshot];
         setTimeout(() => this.dispatchEvent(new MessageEvent(type, { data })));
         // A message stream says alive every five seconds, as the supervisor's
         // does while it has nothing to send.

@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -18,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -229,9 +232,10 @@ const (
 // older messages come before its first, with what the session's usage says
 // as far as the conversation records it.
 type MessagePage struct {
-	Messages []Message `json:"messages"`
-	More     bool      `json:"more"`
-	Usage    *Usage    `json:"usage,omitempty"`
+	Conversation string    `json:"conversation"`
+	Messages     []Message `json:"messages"`
+	More         bool      `json:"more"`
+	Usage        *Usage    `json:"usage,omitempty"`
 }
 
 // Usage is what a session has spent, read from its own conversation: its
@@ -269,7 +273,75 @@ func (u *Usage) add(input, output, cacheRead int64, model string) {
 // of the conversation it last had messages from and how many changes it had
 // seen by then.
 type MessageCursor struct {
-	epoch, revision uint64
+	epoch, revision, incarnation uint64
+}
+
+var messageIdentitySeed = rand.Text()
+
+var messageEpoch atomic.Uint64
+
+func (cursor MessageCursor) Conversation() string {
+	if cursor.epoch == 0 {
+		return "empty"
+	}
+	return fmt.Sprintf("%s-%x", messageIdentitySeed, cursor.epoch)
+}
+
+type messageFileState struct {
+	info                 os.FileInfo
+	size                 int64
+	prefix, tail         [32]byte
+	prefixOffset         int64
+	prefixSize, tailSize int64
+}
+
+type messageCheckpoint struct {
+	epoch     uint64
+	fileState messageFileState
+	piOffset  int64
+	piLeaf    string
+}
+
+func (state *messageFileState) changed(file io.ReaderAt, info os.FileInfo, allowedFrom int64) (bool, error) {
+	if state.info == nil {
+		return false, nil
+	}
+	if !os.SameFile(state.info, info) || info.Size() < state.size || (info.Size() == state.info.Size() && !info.ModTime().Equal(state.info.ModTime())) {
+		return true, nil
+	}
+	for _, sample := range []struct {
+		offset, size int64
+		hash         [32]byte
+	}{{state.prefixOffset, state.prefixSize, state.prefix}, {state.size - state.tailSize, state.tailSize, state.tail}} {
+		if sample.size == 0 || sample.offset < allowedFrom {
+			continue
+		}
+		data := make([]byte, sample.size)
+		if _, err := file.ReadAt(data, sample.offset); err != nil {
+			return false, err
+		}
+		if sha256.Sum256(data) != sample.hash {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (state *messageFileState) capture(file io.ReaderAt, info os.FileInfo, from, size int64) error {
+	prefixSize := min(size-from, int64(4096))
+	tailSize := min(size-from, int64(4096))
+	prefix := make([]byte, prefixSize)
+	tail := make([]byte, tailSize)
+	if prefixSize > 0 {
+		if _, err := file.ReadAt(prefix, from); err != nil {
+			return err
+		}
+		if _, err := file.ReadAt(tail, size-tailSize); err != nil {
+			return err
+		}
+	}
+	*state = messageFileState{info: info, size: size, prefix: sha256.Sum256(prefix), tail: sha256.Sum256(tail), prefixOffset: from, prefixSize: prefixSize, tailSize: tailSize}
+	return nil
 }
 
 // messageLog is one Claude Code conversation read as messages, kept between
@@ -281,7 +353,9 @@ type messageLog struct {
 	path  string
 	asked time.Time
 
-	mu sync.Mutex
+	mu          sync.Mutex
+	incarnation uint64
+	fileState   messageFileState
 	messageState
 }
 
@@ -393,50 +467,144 @@ type pictureSource struct {
 // it sent its model, copies of what the conversation already holds.
 var apiRequest = []byte(`{"type":"api-request`)
 
+type messageBatchLine struct {
+	offset int64
+	data   []byte
+}
+
+type messageBatch struct {
+	reset           bool
+	from, end, size int64
+	state           messageFileState
+	lines           []messageBatchLine
+}
+
+func readMessageBatch(ctx context.Context, path string, open func(string) (messageReadFile, error), previous messageFileState, offset, from, reach int64) (messageBatch, error) {
+	forceReset := false
+	for attempt := 0; attempt < 2; attempt++ {
+		batch, changed, err := func() (messageBatch, bool, error) {
+			file, err := open(path)
+			if err != nil {
+				return messageBatch{}, false, err
+			}
+			defer file.Close()
+			info, err := file.Stat()
+			if err != nil {
+				return messageBatch{}, false, err
+			}
+			allowedFrom := int64(0)
+			if reach > 0 {
+				allowedFrom = max(0, info.Size()-reach)
+			}
+			changed, err := previous.changed(file, info, allowedFrom)
+			if err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			batch := messageBatch{reset: forceReset || changed || info.Size() < offset, from: from, size: info.Size()}
+			start := offset
+			if batch.reset {
+				start, batch.from = 0, 0
+			}
+			var guard messageFileState
+			if err := guard.capture(file, info, allowedFrom, info.Size()); err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			if !batch.reset {
+				changed, err = previous.changed(file, info, allowedFrom)
+				if err != nil {
+					return messageBatch{}, errors.Is(err, io.EOF), err
+				}
+				if changed {
+					return messageBatch{}, true, nil
+				}
+			}
+			if start == 0 && reach > 0 && info.Size() > reach {
+				batch.from, err = entryAfter(file, info.Size()-reach, info.Size())
+				if err != nil {
+					return messageBatch{}, errors.Is(err, io.EOF), err
+				}
+				start = batch.from
+			}
+			// A read whose ctx ends stops at the last whole entry it read,
+			// which the batch still holds once the file is checked, so its
+			// caller keeps what it read before it reports the end.
+			batch.end, err = readOn(ctx, file, start, info.Size(), func(at int64, lines [][]byte) (int64, error) {
+				for _, line := range lines {
+					if err := ctx.Err(); err != nil {
+						return at, err
+					}
+					batch.lines = append(batch.lines, messageBatchLine{offset: at, data: bytes.Clone(line)})
+					at += int64(len(line)) + 1
+				}
+				return at, nil
+			})
+			if err != nil && ctx.Err() == nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			if err := batch.state.capture(file, info, min(batch.end, max(batch.from, allowedFrom)), batch.end); err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			current, err := os.Stat(path)
+			if err != nil {
+				return messageBatch{}, false, err
+			}
+			changed, err = guard.changed(file, current, allowedFrom)
+			if err != nil {
+				return messageBatch{}, errors.Is(err, io.EOF), err
+			}
+			if changed {
+				return messageBatch{}, true, nil
+			}
+			return batch, false, nil
+		}()
+		if changed {
+			forceReset = true
+			continue
+		}
+		if err != nil {
+			return messageBatch{}, err
+		}
+		return batch, nil
+	}
+	return messageBatch{}, errors.New("conversation changed during read")
+}
+
 // update parses the entries written since the last read. A conversation that
-// shrank was replaced, and is read again from its start as a read of its own.
+// shrank, or whose file is another or was rewritten (messageFileState), was
+// replaced, and is read again from its start as a read of its own.
 // A first read of a conversation longer than reach, when reach is not 0,
 // begins at the first entry of its last reach bytes, and the whole
 // conversation is read beside it. The caller holds l.mu.
 func (l *messageLog) update(ctx context.Context, epoch func() uint64, reach int64) error {
-	file, err := fsx.OpenContext(ctx, l.path)
+	return l.updateWith(ctx, epoch, reach, openMessageFileContext(ctx))
+}
+
+func (l *messageLog) updateWith(ctx context.Context, epoch func() uint64, reach int64, open func(string) (messageReadFile, error)) error {
+	batch, err := readMessageBatch(ctx, l.path, open, l.fileState, l.read, l.from, reach)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	if info.Size() < l.read {
+	if batch.reset {
 		l.reset(epoch())
 	}
-	if l.read == 0 && reach > 0 && info.Size() > reach {
-		if l.from, err = entryAfter(file, info.Size()-reach); err != nil {
-			return err
-		}
-		l.read = l.from
+	startWhole := l.read == 0 && batch.from > 0
+	l.from = batch.from
+	for _, line := range batch.lines {
+		l.entry(line.data, line.offset)
+	}
+	l.read, l.fileState = batch.end, batch.state
+	if startWhole {
 		l.readWhole(epoch)
 	}
-	l.read, err = readOn(ctx, file, l.read, info.Size(), func(start int64, lines [][]byte) (int64, error) {
-		for _, line := range lines {
-			if err := ctx.Err(); err != nil {
-				return start, err
-			}
-			l.entry(line, start)
-			start += int64(len(line)) + 1
-		}
-		return start, nil
-	})
-	return err
+	return ctx.Err()
 }
 
 // entryAfter is where the first entry at or after offset begins: just past
 // the newline before it.
-func entryAfter(file *os.File, offset int64) (int64, error) {
+func entryAfter(file io.ReaderAt, offset, size int64) (int64, error) {
 	buffer := make([]byte, 64<<10)
-	for next := offset - 1; ; {
-		count, err := file.ReadAt(buffer, next)
+	for next := offset - 1; next < size; {
+		count, err := file.ReadAt(buffer[:min(int64(len(buffer)), size-next)], next)
 		if i := bytes.IndexByte(buffer[:count], '\n'); i >= 0 {
 			return next + int64(i) + 1, nil
 		}
@@ -448,6 +616,7 @@ func entryAfter(file *os.File, offset int64) (int64, error) {
 			return 0, err
 		}
 	}
+	return size, nil
 }
 
 // readWhole reads the whole conversation beside the read of its tail, and
@@ -474,7 +643,38 @@ func (l *messageLog) readWhole(epoch func() uint64) {
 			l.wholeErr = err
 			return
 		}
+		file, err := fsx.Open(l.path)
+		if err != nil {
+			l.wholeErr = err
+			return
+		}
+		info, err := file.Stat()
+		if err == nil {
+			var changed bool
+			changed, err = whole.fileState.changed(file, info, 0)
+			if err == nil && changed {
+				err = errors.New("conversation changed during whole read")
+			}
+		}
+		if err == nil {
+			var changed bool
+			changed, err = l.fileState.changed(file, info, 0)
+			if err == nil && changed && whole.epoch == 0 {
+				whole.epoch = epoch()
+			}
+		}
+		file.Close()
+		if err != nil {
+			l.wholeErr = err
+			return
+		}
+		if whole.epoch != 0 {
+			l.messageState = whole.messageState
+			l.fileState = whole.fileState
+			return
+		}
 		l.adopt(whole.messageState, epoch)
+		l.fileState = whole.fileState
 	}()
 }
 
@@ -657,7 +857,7 @@ func (l *messageLog) user(entry messageEntry, id string, offset int64) {
 			}
 			texts = append(texts, block.Text)
 		case "image":
-			if picture, ok := l.picture(block.Source, pictureAt{offset, i, -1}); ok {
+			if picture, ok := l.picture(block.Source, pictureAt{offset: offset, block: i, part: -1}); ok {
 				pictures = append(pictures, picture)
 			}
 		}
@@ -888,7 +1088,7 @@ func (l *messageLog) result(entry messageEntry, block messageBlock, offset int64
 	var pictures []Picture
 	for i, content := range parts {
 		if content.Type == "image" {
-			if picture, ok := l.picture(content.Source, pictureAt{offset, part, i}); ok {
+			if picture, ok := l.picture(content.Source, pictureAt{offset: offset, block: part, part: i}); ok {
 				pictures = append(pictures, picture)
 			}
 		}
@@ -1066,7 +1266,7 @@ func (r *Reader) messageLog(ctx context.Context, path string, reach int64) (*mes
 	if r.Now != nil {
 		now = r.Now()
 	}
-	epoch := func() uint64 { return r.messageEpoch.Add(1) }
+	epoch := func() uint64 { return messageEpoch.Add(1) }
 	if err := lockMessages(ctx, &r.messagesMu); err != nil {
 		return nil, err
 	}
@@ -1075,8 +1275,15 @@ func (r *Reader) messageLog(ctx context.Context, path string, reach int64) (*mes
 	}
 	log := r.messageLogs[path]
 	if log == nil {
-		log = &messageLog{path: path}
-		log.reset(epoch())
+		log = &messageLog{path: path, incarnation: messageEpoch.Add(1)}
+		checkpoint, ok := r.messageCheckpoints[path]
+		if ok {
+			log.reset(checkpoint.epoch)
+			log.fileState = checkpoint.fileState
+			delete(r.messageCheckpoints, path)
+		} else {
+			log.reset(epoch())
+		}
 		r.messageLogs[path] = log
 	}
 	log.asked = now
@@ -1107,6 +1314,12 @@ func (r *Reader) messageLog(ctx context.Context, path string, reach int64) (*mes
 func (r *Reader) forgetIdleMessages(now time.Time) {
 	for path, log := range r.messageLogs {
 		if now.Sub(log.asked) > messageLogIdle {
+			log.mu.Lock()
+			if r.messageCheckpoints == nil {
+				r.messageCheckpoints = map[string]messageCheckpoint{}
+			}
+			r.messageCheckpoints[path] = messageCheckpoint{epoch: log.epoch, fileState: log.fileState}
+			log.mu.Unlock()
 			delete(r.messageLogs, path)
 		}
 	}
@@ -1135,7 +1348,10 @@ func (r *Reader) messagePage(ctx context.Context, path string, before int, reach
 		if err := ctx.Err(); err != nil {
 			return MessagePage{}, MessageCursor{}, err
 		}
-		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+		cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
+		page := log.page(before)
+		page.Conversation = cursor.Conversation()
+		return page, cursor, nil
 	}
 	if isCodexRollout(path) {
 		log, err := r.codexLog(ctx, path)
@@ -1146,7 +1362,10 @@ func (r *Reader) messagePage(ctx context.Context, path string, before int, reach
 		if err := ctx.Err(); err != nil {
 			return MessagePage{}, MessageCursor{}, err
 		}
-		return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+		cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
+		page := log.page(before)
+		page.Conversation = cursor.Conversation()
+		return page, cursor, nil
 	}
 	log, err := r.messageLog(ctx, path, reach)
 	if err != nil {
@@ -1163,7 +1382,7 @@ func (r *Reader) messagePage(ctx context.Context, path string, before int, reach
 				log.mu.Unlock()
 				return MessagePage{}, MessageCursor{}, err
 			}
-			log.readWhole(func() uint64 { return r.messageEpoch.Add(1) })
+			log.readWhole(func() uint64 { return messageEpoch.Add(1) })
 			isRetried = true
 		}
 		whole := log.whole
@@ -1181,7 +1400,36 @@ func (r *Reader) messagePage(ctx context.Context, path string, before int, reach
 	if err := ctx.Err(); err != nil {
 		return MessagePage{}, MessageCursor{}, err
 	}
-	return log.page(before), MessageCursor{log.epoch, log.revision}, nil
+	cursor := MessageCursor{log.epoch, log.revision, log.incarnation}
+	page := log.page(before)
+	page.Conversation = cursor.Conversation()
+	return page, cursor, nil
+}
+
+func (r *Reader) UsageAt(path string, cursor MessageCursor) *Usage {
+	r.messagesMu.Lock()
+	pi, codex, claude := r.piLogs[path], r.codexLogs[path], r.messageLogs[path]
+	r.messagesMu.Unlock()
+	if pi != nil {
+		pi.mu.Lock()
+		defer pi.mu.Unlock()
+		if pi.epoch == cursor.epoch && pi.incarnation == cursor.incarnation {
+			return usageOf(pi.usage, pi.window)
+		}
+	} else if codex != nil {
+		codex.mu.Lock()
+		defer codex.mu.Unlock()
+		if codex.epoch == cursor.epoch && codex.incarnation == cursor.incarnation {
+			return usageOf(codex.usage, codex.usage.ContextWindow)
+		}
+	} else if claude != nil {
+		claude.mu.Lock()
+		defer claude.mu.Unlock()
+		if claude.epoch == cursor.epoch && claude.incarnation == cursor.incarnation && claude.from == 0 {
+			return usageOf(claude.usage, claude.window)
+		}
+	}
+	return nil
 }
 
 // MessagesSince reads the Claude Code conversation at path on and returns
@@ -1213,8 +1461,8 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		return nil, MessageCursor{}, false, err
 	}
 	defer log.mu.Unlock()
-	now = MessageCursor{log.epoch, log.revision}
-	if cursor.epoch != log.epoch {
+	now = MessageCursor{log.epoch, log.revision, log.incarnation}
+	if cursor.epoch != log.epoch || cursor.incarnation != log.incarnation {
 		return nil, now, true, nil
 	}
 	for i, changed := range log.changed {
@@ -1223,47 +1471,6 @@ func (r *Reader) MessagesSince(path string, cursor MessageCursor) (messages []Me
 		}
 	}
 	return messages, now, false, nil
-}
-
-// Usage is what the conversation at path says the session spent, as its last
-// read found it: nil while no read has found any usage. It reads nothing anew,
-// so a stream that already read the messages can tell the board what the
-// session has spent without parsing the file again.
-func (r *Reader) Usage(path string) *Usage {
-	if isCodexRollout(path) {
-		r.messagesMu.Lock()
-		log := r.codexLogs[path]
-		r.messagesMu.Unlock()
-		if log == nil {
-			return nil
-		}
-		log.mu.Lock()
-		defer log.mu.Unlock()
-		return usageOf(log.usage, log.usage.ContextWindow)
-	}
-	if isPiSession(path) {
-		r.messagesMu.Lock()
-		log := r.piLogs[path]
-		r.messagesMu.Unlock()
-		if log == nil {
-			return nil
-		}
-		log.mu.Lock()
-		defer log.mu.Unlock()
-		return usageOf(log.usage, log.window)
-	}
-	r.messagesMu.Lock()
-	log := r.messageLogs[path]
-	r.messagesMu.Unlock()
-	if log == nil {
-		return nil
-	}
-	log.mu.Lock()
-	defer log.mu.Unlock()
-	if log.from > 0 {
-		return nil
-	}
-	return usageOf(log.usage, log.window)
 }
 
 // usageOf is what a log holds as a page's usage, nil while it records none.
@@ -1278,12 +1485,21 @@ func usageOf(held Usage, window int64) *Usage {
 // MessagePicture is the picture id of the conversation at path, as a read of
 // its messages found it: its media type and its bytes, read back from its
 // entry. It is ErrNoRecord for a picture no read found.
-func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
+func (r *Reader) MessagePicture(path, conversation, id string) (string, []byte, error) {
+	return r.messagePicture(path, conversation, id, openMessageFile)
+}
+
+// messagePicture is MessagePicture reading the picture's entry through open.
+// Each reader holds its conversation's lock only to bring the log up to date
+// and find the picture, and again to check the conversation is still the one
+// it was found in, never while the entry is read and decoded, so the
+// conversation's stream never waits on a picture, however large its entry.
+func (r *Reader) messagePicture(path, conversation, id string, open func(string) (messageReadFile, error)) (string, []byte, error) {
 	if isCodexRollout(path) {
-		return r.codexMessagePicture(path, id)
+		return r.codexMessagePicture(path, conversation, id, open)
 	}
 	if isPiSession(path) {
-		return r.piMessagePicture(path, id)
+		return r.piMessagePicture(path, conversation, id, open)
 	}
 	r.messagesMu.Lock()
 	log := r.messageLogs[path]
@@ -1292,39 +1508,110 @@ func (r *Reader) MessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
+	err := log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
+	isCurrent := conversation != "" && conversation == (MessageCursor{epoch: log.epoch}).Conversation()
 	at, isKept := log.pictures[id]
+	state := log.fileState
 	log.mu.Unlock()
-	if !isKept {
+	if err != nil {
+		return "", nil, err
+	}
+	if !isCurrent || !isKept {
 		return "", nil, ErrNoRecord
 	}
-	file, err := fsx.Open(path)
+	file, err := open(path)
 	if err != nil {
 		return "", nil, err
 	}
 	defer file.Close()
-	line, err := bufio.NewReader(io.NewSectionReader(file, at.offset, pictureEntryReach)).ReadBytes('\n')
-	if err != nil {
-		return "", nil, fmt.Errorf("the picture's entry cannot be read: %w", err)
-	}
-	var entry messageEntry
-	var blocks []messageBlock
-	if json.Unmarshal(line, &entry) != nil || json.Unmarshal(entry.Message.Content, &blocks) != nil || at.block >= len(blocks) {
-		return "", nil, ErrNoRecord
-	}
-	block := blocks[at.block]
-	if at.part >= 0 {
-		var parts []messageBlock
-		if json.Unmarshal(block.Content, &parts) != nil || at.part >= len(parts) {
-			return "", nil, ErrNoRecord
+	media, data, err := resolvePicture(file, path, state, at.offset, func(line []byte) (string, string, bool) {
+		var entry messageEntry
+		var blocks []messageBlock
+		if json.Unmarshal(line, &entry) != nil || json.Unmarshal(entry.Message.Content, &blocks) != nil || at.block >= len(blocks) {
+			return "", "", false
 		}
-		block = parts[at.part]
+		block := blocks[at.block]
+		if at.part >= 0 {
+			var parts []messageBlock
+			if json.Unmarshal(block.Content, &parts) != nil || at.part >= len(parts) {
+				return "", "", false
+			}
+			block = parts[at.part]
+		}
+		return block.Source.MediaType, block.Source.Data, block.Type == "image" && block.Source.Type == "base64" && slices.Contains(pictureTypes, block.Source.MediaType)
+	})
+	if err != nil {
+		return "", nil, err
 	}
-	if block.Type != "image" || block.Source.Type != "base64" || !slices.Contains(pictureTypes, block.Source.MediaType) {
+	log.mu.Lock()
+	err = log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) }, messageTailReach)
+	isCurrent = conversation == (MessageCursor{epoch: log.epoch}).Conversation()
+	log.mu.Unlock()
+	if err != nil {
+		return "", nil, err
+	}
+	if !isCurrent {
 		return "", nil, ErrNoRecord
 	}
-	data, err := base64.StdEncoding.DecodeString(block.Source.Data)
-	if err != nil {
-		return "", nil, fmt.Errorf("the picture's data cannot be read: %w", err)
+	return media, data, nil
+}
+
+type messageReadFile interface {
+	pictureFile
+	io.Closer
+}
+
+func openMessageFile(path string) (messageReadFile, error) {
+	return fsx.Open(path)
+}
+
+// openMessageFileContext opens a conversation's file as openMessageFile
+// does, with its retries bounded by ctx.
+func openMessageFileContext(ctx context.Context) func(string) (messageReadFile, error) {
+	return func(path string) (messageReadFile, error) { return fsx.OpenContext(ctx, path) }
+}
+
+type pictureFile interface {
+	io.ReaderAt
+	Stat() (os.FileInfo, error)
+}
+
+func resolvePicture(file pictureFile, path string, state messageFileState, offset int64, extract func([]byte) (string, string, bool)) (string, []byte, error) {
+	validate := func() error {
+		info, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		current, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		changed, err := state.changed(file, info, state.prefixOffset)
+		if err != nil {
+			return err
+		}
+		if changed || !os.SameFile(info, current) {
+			return ErrNoRecord
+		}
+		return nil
 	}
-	return block.Source.MediaType, data, nil
+	if err := validate(); err != nil {
+		return "", nil, err
+	}
+	line, err := bufio.NewReader(io.NewSectionReader(file, offset, pictureEntryReach)).ReadBytes('\n')
+	if err != nil {
+		return "", nil, err
+	}
+	if err := validate(); err != nil {
+		return "", nil, err
+	}
+	media, encoded, ok := extract(line)
+	if !ok {
+		return "", nil, ErrNoRecord
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(data) == 0 {
+		return "", nil, ErrNoRecord
+	}
+	return media, data, nil
 }
