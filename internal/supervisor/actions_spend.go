@@ -31,8 +31,13 @@ func (s *Service) readActionsSpend(ctx context.Context, now time.Time) {
 	}
 }
 
+// actionsSpendClockSkew is how far a device's clock may run from the
+// supervisor's and still have its calendar month accepted, so a device a
+// moment ahead at its local midnight is not refused its new month.
+const actionsSpendClockSkew = 5 * time.Minute
+
 func isActionsSpendMonth(now time.Time, month string) bool {
-	return month >= now.UTC().Add(-12*time.Hour).Format("2006-01") && month <= now.UTC().Add(14*time.Hour).Format("2006-01")
+	return month >= now.UTC().Add(-12*time.Hour-actionsSpendClockSkew).Format("2006-01") && month <= now.UTC().Add(14*time.Hour+actionsSpendClockSkew).Format("2006-01")
 }
 
 // readActionsSpendMonth returns month's reading, reading it again when its

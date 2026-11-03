@@ -2734,7 +2734,7 @@ The separate `style-src-attr 'unsafe-inline'` directive permits CSS style attrib
 This is a page-wide CSS-attribute compatibility allowance; style elements still require the page nonce or a same-origin source, and script, connection and framing restrictions remain unchanged.
 
 `GET /api/actions-spend?month=YYYY-MM` requires the board's current `X-CFO-Token` as well as the existing Host, Origin and cross-site checks; a missing or invalid token returns 403.
-Only the one or two calendar months possible at the real request time across UTC-12 through UTC+14 are accepted, and malformed or out-of-range months return 400 before any billing read.
+Only the one or two calendar months possible across UTC-12 through UTC+14 within five minutes of the real request time are accepted, so a device clock slightly ahead of or behind the supervisor's still gets its month at a month's start and end; malformed or out-of-range months return 400 before any billing read.
 The snapshot's `actions_spend` remains the UTC month's report; the board requests this endpoint when its selected month differs, using the existing page clock to check refresh eligibility.
 It asks again an hour after the reading's `checked_at`, kept between the device's next whole minute and an hour after the answer arrived, so a device clock ahead of or behind the supervisor's neither asks on every update nor keeps a reading for hours.
 The existing billing reader receives the selected report month separately from the real reading time and requests that exact GitHub monthly report.
