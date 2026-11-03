@@ -112,6 +112,34 @@ const baby = (page: Page, name: string): Locator => page.locator(".tree-child").
 const measure = async (cards: Locator) => Promise.all((await cards.all()).map((one) => one.evaluate(fit, PARTS)));
 const describe = (seen: Fit) => seen.parts.map((part) => part.part + ": " + part.text);
 
+for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`the CFO's subscription dials and spend never overlap at fit zoom at ${size.width}px`, async ({ page }, testInfo) => {
+    // Arrange
+    await page.setViewportSize(size);
+    const isPhone = size.width === 390;
+    await page.goto("/tests/fixtures/orchestration-card-text.html?crowded&view=" + (isPhone ? "lineage" : "canvas"));
+    await page.evaluate(() => document.fonts.ready);
+    const cfo = page.locator(isPhone ? ".workflow-node.role-cfo" : ".flow-node").filter({ has: page.locator("strong", { hasText: /^CFO$/ }) });
+    await expect(cfo.locator(".subscription-dial")).toHaveCount(3);
+
+    // Act
+    const overlaps = await cfo.evaluate((node) => {
+      const frame = node.getBoundingClientRect();
+      const parts = [...node.querySelectorAll(".subscription-ring, .subscription-percent, .key-spend-spent, .key-spend-budget, .card-harness, .icon-button")]
+        .filter((element) => element.getClientRects().length)
+        .map((element) => ({ name: element.classList.value, box: element.getBoundingClientRect() }));
+      return parts.flatMap((one, index) => [
+        ...parts.slice(index + 1).filter((other) => one.box.left < other.box.right - .5 && other.box.left < one.box.right - .5 && one.box.top < other.box.bottom - .5 && other.box.top < one.box.bottom - .5).map((other) => one.name + " overlaps " + other.name),
+        ...(one.box.left < frame.left - .5 || one.box.right > frame.right + .5 || one.box.top < frame.top - .5 || one.box.bottom > frame.bottom + .5 ? [one.name + " leaves the card"] : []),
+      ]);
+    });
+
+    // Assert
+    expect(overlaps).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`cfo-dials-${size.width}.png`) });
+  });
+}
+
 // The Overlord's screenshot of Woody's card: the first line of its title stood
 // above the card's top border and the last of its status, "4:05 AM", hung
 // below the bottom one. A card holds all of what it says.

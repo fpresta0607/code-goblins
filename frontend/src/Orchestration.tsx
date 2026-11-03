@@ -1,6 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { BoardActivity, FleetTree, Snapshot, Task, TreeNode } from "./types";
-import { Avatar } from "./Avatar";
 import { activityDisplay, EFFECT_MS, playFrom, presentationShownOn, type ActivityEffect } from "./activity";
 import { Chevron } from "./Chevron";
 import { Icon } from "./Icon";
@@ -12,6 +11,7 @@ import { BABY_HEIGHT, BABY_WIDTH, babies, babyName, branchLayout, elbows, hasRun
 import { TreeCount } from "./TreeCount";
 import { TreeChild } from "./TreeChild";
 import { CardFacts } from "./card-facts";
+import { OrchestrationCard } from "./orchestration-card";
 import { CfoCardFacts } from "./cfo-card-facts";
 import { ConnectorEffect } from "./connector-effect";
 import { withDepartures } from "./tree-traffic";
@@ -19,6 +19,7 @@ import { travel, useGlide, useTreeMotion, type Point as Place } from "./use-tree
 
 // The phases a goblin is at work in, whose card glows.
 const WORKING = new Set(["working", "busy", "active", "started"]);
+const NodeFacts = memo(CardFacts);
 
 // v1 saved every card's place at each drag, which pinned the whole canvas.
 const layoutKey = "cfo-orchestration-layout-v2";
@@ -305,7 +306,7 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
         panned.current = false;
       }}>
       {!nodes.length && <div className="empty-state"><h2>No sessions reported yet</h2><p>Native parent relationships will appear here as work starts.</p></div>}
-      <div className={"flow-world" + (motion.isSettling && !view && !held ? " settling" : "")} style={{ transform: `translate(${shown.x}px, ${shown.y}px) scale(${scale})` }}>
+      <div className={"flow-world" + (scale < .7 ? " compact-dials" : "") + (motion.isSettling && !view && !held ? " settling" : "")} style={{ transform: `translate(${shown.x}px, ${shown.y}px) scale(${scale})` }}>
         <svg className="flow-connections" width={fitLeft + fitWidth} height={fitTop + fitHeight} aria-hidden="true">
           {connectors.map(({ node, path, end }) => <g key={node.id} className={"connection-line relation-" + node.relation + (lit === node.id ? " lit" : "")}>
             <path d={path} /><circle cx={end.x} cy={end.y} r={4} />
@@ -395,12 +396,11 @@ export function Orchestration({ snapshot, selected, connected, effects, onSelect
               onClick={(event) => { if (ignoreClick.current) { ignoreClick.current = false; return; } onSelect(node, event.currentTarget); }} aria-pressed={selected === node.id}
               aria-label={node.title + ". " + status + ". " + (parent ? "Parent: " + parent.title : node.relation)} aria-describedby="canvas-help"
               data-tip={owner && node.task?.goblin_name ? taskName(node.task) : undefined}>
-              <Avatar persona={node.cfo ? "cfo" : personaFor(node.task, node.session)} />
-              <span className="card-copy"><strong>{node.title}</strong>{presentations.some(a=>presentationShownOn(a,node.session,node.task))&&<span className="browser-indicator">Browser active</span>}{node.task?.project && <span className="project-label">{node.task.project}</span>}<span className={"plain-status phase-" + phase}><span className="status-dot" /><span className="card-status-text">{status}</span></span>
-                {!node.parent && node.session?.role !== "cfo" && !node.cfo && <small>{node.relation}</small>}
-              </span>
+              <OrchestrationCard title={node.title} status={status} phase={phase} persona={node.cfo ? "cfo" : personaFor(node.task, node.session)}
+                project={node.task?.project || ""} relation={!node.parent && node.session?.role !== "cfo" && !node.cfo ? node.relation : ""}
+                isPresenting={presentations.some((presentation) => presentationShownOn(presentation, node.session, node.task))} />
             </button>
-            {owner && node.task && <div className="flow-node-foot"><CardFacts task={node.task} now={now} /></div>}
+            {owner && node.task && <div className="flow-node-foot"><NodeFacts task={node.task} now={now} /></div>}
             {hasCfoFacts && <div className="flow-node-foot"><CfoCardFacts snapshot={snapshot} now={freshNow} onOpenCfo={onOpenCfo} /></div>}
             {children && <button className="node-disclosure" aria-label={(collapsed.has(node.id) ? "Expand" : "Collapse") + " descendants of " + node.title} aria-expanded={!collapsed.has(node.id)} onClick={() => toggle(node.id)}><Chevron collapsed={collapsed.has(node.id)} /></button>}
           </article>;
