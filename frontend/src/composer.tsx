@@ -643,9 +643,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     window.addEventListener(TAKE_BACK_MESSAGE, takeBack);
     return () => window.removeEventListener(TAKE_BACK_MESSAGE, takeBack);
   });
-  // What a press on one of this session's queued messages could not do says
-  // so over the box, as the box's own refusals do, but only there: it is no
-  // refusal of the draft, so it never keeps the box.
+  // What a press on one of this session's queued messages, or on its working
+  // row's Stop, could not do says so over the box, as the box's own refusals
+  // do, but only there: it is no refusal of the draft, so it never keeps the
+  // box.
   useEffect(() => {
     const refused = (event: Event) => {
       if (event instanceof CustomEvent && event.detail.task === (task?.id ?? "")) setNotice((prior) => ({ text: event.detail.text, from: "queued", count: prior.count + 1 }));

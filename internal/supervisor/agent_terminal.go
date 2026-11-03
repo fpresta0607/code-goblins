@@ -291,9 +291,10 @@ const unreadMessages = "The session's messages cannot be read"
 // streamMessages streams a session's messages: a page event with its newest
 // page, then a messages event with each message that began or changed, read
 // every half second, which a view puts in place of the one with the same id
-// or adds by its seq. A page event again replaces everything the view holds:
-// the session moved to another conversation, or its conversation was
-// replaced. The session is located again as often as a terminal view's
+// or adds by its seq. Each messages and usage event names its page's
+// conversation. A page event of another conversation replaces everything the
+// view holds: the session moved to another conversation, or its conversation
+// was replaced. The session is located again as often as a terminal view's
 // binding is checked, and an unavailable event says why it no longer runs, or
 // cannot be read, before the stream ends. A stream that sent nothing for as
 // long sends an alive event, so a board that hears nothing for longer knows

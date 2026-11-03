@@ -136,9 +136,9 @@ func (l *codexMessageLog) reset(epoch uint64) {
 	l.pictures = map[string]codexPictureAt{}
 }
 
-// update parses the entries written since the last read. A rollout that shrank
-// was replaced, and is read again from its start as a read of its own. The
-// caller holds l.mu.
+// update parses the entries written since the last read. A rollout that shrank,
+// or whose file is another or was rewritten (messageFileState), was replaced,
+// and is read again from its start as a read of its own. The caller holds l.mu.
 func (l *codexMessageLog) update(ctx context.Context, epoch func() uint64) error {
 	return l.updateWith(ctx, epoch, openMessageFileContext(ctx))
 }

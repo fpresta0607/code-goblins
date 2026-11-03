@@ -568,7 +568,8 @@ func readMessageBatch(ctx context.Context, path string, open func(string) (messa
 }
 
 // update parses the entries written since the last read. A conversation that
-// shrank was replaced, and is read again from its start as a read of its own.
+// shrank, or whose file is another or was rewritten (messageFileState), was
+// replaced, and is read again from its start as a read of its own.
 // A first read of a conversation longer than reach, when reach is not 0,
 // begins at the first entry of its last reach bytes, and the whole
 // conversation is read beside it. The caller holds l.mu.
