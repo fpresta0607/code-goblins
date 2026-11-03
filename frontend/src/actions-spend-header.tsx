@@ -35,21 +35,21 @@ export const ActionsSpendHeader = memo(function ActionsSpendHeader({ usage, mont
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         reportToCfo("reading GitHub Actions usage", message(error));
-        setSelected({ reading: { status: "unavailable", month, total_usd: null, repositories: [], read_at: "", checked_at: "", detail: "Could not read this month's GitHub Actions usage." }, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
+        setSelected({ reading: { status: "unavailable", month, total: null, repositories: [], read_at: "", checked_at: "", detail: "Could not read this month's GitHub Actions usage." }, instance, refreshAt: Date.now() + REFRESH_INTERVAL_MS });
       });
     return () => controller.abort();
   }, [shouldRequest, month, instance, now]);
   if (!usage) return null;
   const reading = usage.month === month ? usage : cached?.reading;
-  const amount = reading?.total_usd;
-  const hasTotal = amount != null && (reading?.status === "available" || reading?.status === "stale");
+  const total = reading?.status === "available" || reading?.status === "stale" ? reading.total : null;
   const isOld = reading?.status === "stale";
-  const total = hasTotal ? DOLLARS.format(amount) : "Unavailable";
-  const label = hasTotal ? total + " this month" + (isOld ? " (old)" : "") : "unavailable";
+  const billed = total ? DOLLARS.format(total.billed_usd) : "Unavailable";
+  const used = total && DOLLARS.format(total.used_usd) + " used";
+  const label = total ? `${billed} billed, ${used} this month` + (isOld ? " (old)" : "") : "unavailable";
   return <>
     <button className="actions-spend-header" aria-label={"GitHub Actions spend: " + label} aria-haspopup="dialog" aria-expanded={isOpen} onClick={() => setIsOpen(true)}>
       <svg className="icon brand-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d={BRAND_MARKS.github.path} /></svg>
-      <span>{total}</span>{isOld && <span className="actions-spend-old">Old</span>}
+      <span className={total ? "actions-spend-billed" : undefined}>{billed}</span>{used && <span className="actions-spend-used">{used}</span>}{isOld && <span className="actions-spend-old">Old</span>}
     </button>
     {isOpen && createPortal(<Suspense fallback={<p role="status" className="actions-spend-loading">Opening Actions spend...</p>}>
       <ActionsSpendPanel usage={reading} month={month} onClose={() => setIsOpen(false)} />
