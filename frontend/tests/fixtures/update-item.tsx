@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -32,7 +32,7 @@ function Page() {
   const [shown, setShown] = useState<keyof typeof snapshots>("ready");
   useEffect(() => { window.updateStep = setShown; }, []);
   return <main data-step={shown} style={{ minHeight: "100vh", padding: 24, display: "grid", alignContent: "start", gap: 12 }}>
-    <CommandCenter snapshot={snapshots[shown]} connected presentations={[]} focus={null} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={snapshots[shown]} connected presentations={[]} focus={null} onUnsent={ignore} />
   </main>;
 }
 

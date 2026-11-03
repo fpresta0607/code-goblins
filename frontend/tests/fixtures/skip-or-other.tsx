@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -25,7 +26,7 @@ function SkipOrOther() {
     <button onClick={() => open("review:waiting-shop-signup-8")}>Open the wait</button>
     <button onClick={() => open("question:q-shop-plan")}>Open the question</button>
     <button onClick={() => open("credential:cred-4444444444444444")}>Open the credential</button>
-    <CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

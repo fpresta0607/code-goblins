@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { CommandCenter } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -23,7 +23,7 @@ const review = {
 const snapshot = parseSnapshot({ healthy: true, instance: "fixture", revision: 1, cfo_runs: true, actions: [], tasks: [bernie], questions: [asked, settled], reviews: [review] });
 
 function AnswerDictation() {
-  return <main><CommandCenter snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<AnswerDictation />);

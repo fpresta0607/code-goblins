@@ -190,6 +190,7 @@ for (const decision of [
     const wait = { ...followUp, follows: decision.question.id };
     await boardAsked(page, { questions: [decision.question], reviews: [wait] });
     await badge(page).click();
+    await expect(waitingList(page)).toBeVisible();
 
     // Act
     const rows = await waitingList(page).locator("li").allInnerTexts();

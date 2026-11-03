@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -26,7 +26,7 @@ const acked = { ...base, revision: 2, questions: [{ ...question, status: "succee
 function QuestionAcked() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));
   window.ackByCFO = () => setSnapshot(parseSnapshot(acked));
-  return <main><CommandCenter snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<QuestionAcked />);

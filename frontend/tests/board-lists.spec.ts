@@ -17,12 +17,17 @@ const PAUSED = numbered(12, (number) => task("paused-" + number, "paused", { at:
 const DONE = numbered(20, (number) => task("finished:done-" + number, "done", { archived: true, merged: true, verified: true, generation: "", branch: "fix/done-" + number, at: since }));
 const ids = (tasks: Record<string, unknown>[]) => tasks.map((item) => item.id as string);
 
+// The browser draws only the In progress cards near the view, and a trace's
+// DOM snapshot reads every element's scroll position, which lays out each card
+// it skipped: a second an action on these lists, and a drag takes many.
+test.use({ trace: { mode: "retain-on-failure", snapshots: false } });
+
 interface Posted { path: string; body: Record<string, unknown> }
 
 // posted collects what the board asked the supervisor to change.
-async function open(page: Page, posted: Posted[] = []) {
+async function open(page: Page, posted: Posted[] = [], tasks = [...QUEUED, ...WORKING, ...PAUSED, ...DONE]) {
   await page.addInitScript(() => localStorage.setItem("cfo-first-open", "shown"));
-  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, tasks: [...QUEUED, ...WORKING, ...PAUSED, ...DONE] };
+  const snapshot = { healthy: true, instance: "fixture", cfo_runs: true, revision: 1, attention: [], memory, tasks };
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "POST") {
@@ -167,6 +172,36 @@ test("a board of 30 goblins in progress shows them all and runs no animation onc
   const asked = (await page.evaluate(() => window.framesAsked))!;
   await page.waitForTimeout(500);
   expect((await page.evaluate(() => window.framesAsked))! - asked).toBeLessThan(5);
+});
+
+// In progress never pages, so on main every working goblin's card was laid out
+// and painted on every change, out of view too (#1599). The browser draws only
+// the cards in or near the view, each one coming in as the board scrolls to it.
+test("In progress draws only the cards in or near the view", async ({ page }) => {
+  // Arrange
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, [], numbered(60, (number) => task("working-" + number, "working", { harness: "claude" })));
+  const cards = column(page, "In progress").locator(".task-card");
+  await expect(cards).toHaveCount(60);
+  const drawn = (card: Element) => card.checkVisibility({ contentVisibilityAuto: true });
+
+  // Act
+  const drawnAtTop = await cards.evaluateAll((all) => all.filter((card) => card.checkVisibility({ contentVisibilityAuto: true })).length);
+
+  // Assert
+  expect(drawnAtTop).toBeGreaterThan(0);
+  expect(drawnAtTop).toBeLessThanOrEqual(30);
+  expect(await cards.last().evaluate(drawn)).toBe(false);
+
+  // Act: a card drawn as it comes in can move the cards under it, so the
+  // board is scrolled to the last card until it stays in view.
+  await expect.poll(async () => {
+    await cards.last().scrollIntoViewIfNeeded();
+    return cards.last().evaluate(drawn);
+  }).toBe(true);
+
+  // Assert
+  expect(await cards.first().evaluate(drawn)).toBe(false);
 });
 
 declare global {

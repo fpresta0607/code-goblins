@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -65,7 +66,7 @@ function QuestionClarity() {
     <button onClick={() => open("question:notify-ci-simplify-1015292")}>Open the screenshot question</button>
     <button onClick={() => open("question:ci-review-repair")}>Open the clear question</button>
     <button onClick={() => open("question:hostile-markup")}>Open the hostile question</button>
-    <CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 
