@@ -17,8 +17,8 @@ import (
 // to the pipeline alone, whatever the brief it was started with says.
 func TestAStrictStartOfADirectPRRequestNamesItsOneValidationOwner(t *testing.T) {
 	for _, test := range []struct{ name, brief string }{
-		{"queued row", fleet.QueuedBriefText(fleet.QueuedTask{Row: fleet.BacklogRow{ID: "task-7", Repo: "northwind", Title: "Say why a billing sync fails", Mode: "direct-PR"}})},
-		{"pre-upgrade root brief", "# Brief task-7\n\n## Task\n\n> Fix the report.\n\n## Verification\n\nBefore each push run `cfo verify task-7`. Fix that before you push.\n\n## Delivery\n\nkind: ship\nmode: direct-PR\n"},
+		{"queued row", fleet.QueuedBriefText(fleet.QueuedTask{Row: fleet.BacklogRow{ID: "task-7", Repo: "northwind", Title: "Say why a billing sync fails", Mode: "direct-PR"}}, nil)},
+		{"pre-upgrade root brief", "# Brief task-7\n\n## Task\n\n> Fix the report.\n\n## Acceptance criteria\n\nThe report is fixed.\n\n## Constraints\n\nChange only what this root needs.\n\n## Verification\n\nBefore each push run `cfo verify task-7`. Fix that before you push.\n\n## Authentication\n\ncredentials: none\nmcp: none\n\n## Delivery\n\nkind: ship\nmode: direct-PR\nready: true\n"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange

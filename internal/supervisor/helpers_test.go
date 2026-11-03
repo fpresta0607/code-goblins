@@ -15,7 +15,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/wake"
 )
 
-const helperBrief = "Write the migration for the accounts table.\n"
+const helperBrief = "## Task\nWrite the migration for the accounts table.\n## Authentication\ncredentials: none\nmcp: none\n"
 
 // helperBoard is a supervisor whose goblin g1 works on branch feat/x in a
 // real repository, on a machine with available memory and ample disk and

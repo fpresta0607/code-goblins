@@ -96,6 +96,23 @@ async function settled(sizes: { cols: number; rows: number }[]) {
   }, { intervals: [400] }).toBe(true);
 }
 
+// boxSettled waits until the page fits the room the keyboard left and
+// Modern's box stops moving in it. Modern draws no terminal, so it asks the
+// terminal for no size (issue 1597).
+async function boxSettled(page: Page) {
+  let seen = "";
+  await expect.poll(async () => {
+    const place = await page.evaluate(() => {
+      const shell = document.querySelector(".app-shell")!.getBoundingClientRect();
+      const field = [...document.querySelectorAll<HTMLTextAreaElement>(".composer textarea")].find((element) => element.checkVisibility());
+      return field && shell.bottom <= window.visualViewport!.height + 1 ? JSON.stringify(field.getBoundingClientRect()) : "";
+    });
+    const isQuiet = place !== "" && place === seen;
+    seen = place;
+    return isQuiet;
+  }, { intervals: [400] }).toBe(true);
+}
+
 // writing returns where the line being written ends, and the lowest point
 // the page shows of it: the visual viewport's foot, or a clipping box's.
 function writing(): { line: number; shown: number; isAtEnd: boolean } {
@@ -135,7 +152,11 @@ for (const [view, style] of [["the terminal view", "classic"], ["Modern's box", 
 
     // Act: the keyboard opens and the message grows past the room.
     await keyboard(page, KEYBOARD);
-    await settled(sizes);
+    if (style === "classic") await settled(sizes);
+    else {
+      await boxSettled(page);
+      expect(sizes).toEqual([]);
+    }
     const seen: { line: number; shown: number; isAtEnd: boolean }[] = [];
     for (const [index, word] of MESSAGE.entries()) {
       await page.keyboard.insertText(word + " ");

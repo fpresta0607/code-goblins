@@ -26,6 +26,7 @@ export interface Relay {
   resizes: { cols: number; rows: number }[];
   views: number;
   submissions: string[];
+  acknowledged: number[];
   addresses: string[];
   inputs: { address: string; text: string }[];
   write: (text: string) => void;
@@ -42,8 +43,8 @@ export interface Relay {
   accept: () => void;
 }
 
-export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n"): Promise<Relay> {
-  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
+export async function open(page: Page, first: object = snapshot(), heard = "rebase onto main", messages: object = PAGE, output = "> ready\r\n", shouldRepaint = true): Promise<Relay> {
+  const relay: Relay = { typed: [], resizes: [], views: 0, submissions: [], acknowledged: [], addresses: [], inputs: [], write: () => {}, end: () => {}, say: () => {}, drop: () => {}, refuse: () => {}, accept: () => {} };
   let isRefused = false;
   let goblinSpoke = false;
   await page.addInitScript(() => {
@@ -93,6 +94,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
   await page.routeWebSocket("**/api/terminal/native?*", (socket) => {
     relay.views++;
     relay.addresses.push(socket.url());
+    if (!histories.has(socket.url())) histories.set(socket.url(), Buffer.from("\x1b[?2004h" + output));
     const isGoblin = new URL(socket.url()).searchParams.get("task") === GOBLIN.id;
     let submission = ""
     const print = (text: string) => {
@@ -126,6 +128,10 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
     socket.onMessage((data) => {
       if (typeof data !== "string") { const text = data.toString("utf8"); relay.typed.push(text); relay.inputs.push({ address: socket.url(), text }); return; }
       const sent: unknown = JSON.parse(data);
+      if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "ack" && "bytes" in sent && typeof sent.bytes === "number") {
+        relay.acknowledged.push(sent.bytes);
+        return;
+      }
       if (typeof sent === "object" && sent !== null && "type" in sent && sent.type === "submit" && "submission" in sent && typeof sent.submission === "string") {
         submission = sent.submission
         relay.submissions.push(submission)
@@ -136,7 +142,7 @@ export async function open(page: Page, first: object = snapshot(), heard = "reba
       relay.resizes.push(size);
       socket.send(JSON.stringify({ type: "size", ...size }));
       // A program that turned bracketed paste on, as Claude Code does.
-      print("\x1b[?2004h" + output);
+      if (shouldRepaint) print("\x1b[?2004h" + output);
     });
   });
   await page.goto("/");

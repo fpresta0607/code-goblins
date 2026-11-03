@@ -5,7 +5,9 @@
 package spawn
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -42,9 +44,11 @@ const (
 // Request is the complete local task creation input. Ship delivery posture is
 // explicit while scouts deliberately omit it.
 type Request struct {
-	ID          string
-	Project     string
-	BriefPath   string
+	ID        string
+	Project   string
+	BriefPath string
+	// BriefHash binds CLI routing and delivery choices to the admitted brief.
+	BriefHash   [sha256.Size]byte
 	Kind        string
 	Mode        string
 	Delivery    *project.DeliverySelection
@@ -187,7 +191,21 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := requireBrief(req); err != nil {
 		return Result{}, err
 	}
-	if err := validateDeliveryContract(req); err != nil {
+	admittedBrief, err := fsx.ReadFile(req.BriefPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read brief: %w", err)
+	}
+	validateBrief := fleet.ValidateBriefReadiness
+	if req.Parent != "" {
+		validateBrief = fleet.ValidateHelperBrief
+	}
+	if err := validateBrief(admittedBrief); err != nil {
+		return Result{}, err
+	}
+	if req.BriefHash != ([sha256.Size]byte{}) && req.BriefHash != sha256.Sum256(admittedBrief) {
+		return Result{}, fmt.Errorf("%w: the brief changed after routing; retry with its final choices", fleet.ErrBriefNotReady)
+	}
+	if err := validateDeliveryContract(req, admittedBrief); err != nil {
 		return Result{}, err
 	}
 	if err := validateHelperRequest(req); err != nil {
@@ -202,7 +220,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 			return Result{}, err
 		}
 	}
-	isServicesNeeded, err := s.briefNeedsServices(req.BriefPath, project)
+	isServicesNeeded, err := s.briefNeedsServices(admittedBrief, project)
 	if err != nil {
 		return Result{}, err
 	}
@@ -258,7 +276,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	// start without a credential it needs costs no terminal and no worktree.
 	// Dispatching anyway is what let a stale DATABASE_URL reach a goblin, so
 	// a red blocking service stops here; --yolo is the existing override.
-	need, err := s.spawnNeed(req)
+	need, err := s.spawnNeed(req, admittedBrief)
 	if err != nil {
 		return Result{}, err
 	}
@@ -322,6 +340,13 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		if err := s.Admit(); err != nil {
 			return Result{}, err
 		}
+	}
+	currentBrief, err := fsx.ReadFile(req.BriefPath)
+	if err != nil {
+		return Result{}, fmt.Errorf("spawn: read brief at admission: %w", err)
+	}
+	if !bytes.Equal(currentBrief, admittedBrief) {
+		return Result{}, fmt.Errorf("%w: the brief changed during admission; retry with its final choices", fleet.ErrBriefNotReady)
 	}
 	var helper helperBase
 	if req.Parent != "" {
@@ -798,13 +823,9 @@ func requireBrief(req Request) error {
 	return nil
 }
 
-func validateDeliveryContract(req Request) error {
+func validateDeliveryContract(req Request, data []byte) error {
 	if req.Kind != "ship" {
 		return nil
-	}
-	data, err := fsx.ReadFile(req.BriefPath)
-	if err != nil {
-		return fmt.Errorf("spawn: read brief delivery contract: %w", err)
 	}
 	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		mode, found := strings.CutPrefix(line, "Delivery contract: mode=")
@@ -1047,11 +1068,7 @@ func dependencyInstruction(worktree string, install []string, refused string) st
 // task needs its project's local services (services: needed), and refuses
 // one that says so for a project that declares none, or a services line
 // spawn does not know.
-func (s Service) briefNeedsServices(briefPath, project string) (bool, error) {
-	data, err := fsx.ReadFile(briefPath)
-	if err != nil {
-		return false, fmt.Errorf("spawn: read brief: %w", err)
-	}
+func (s Service) briefNeedsServices(data []byte, project string) (bool, error) {
 	isNeeded, section := false, ""
 	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		if heading, found := strings.CutPrefix(line, "## "); found {
@@ -1070,7 +1087,7 @@ func (s Service) briefNeedsServices(briefPath, project string) (bool, error) {
 	if !isNeeded {
 		return false, nil
 	}
-	_, err = services.LoadManifest(s.Worktrees.DataDir, project)
+	_, err := services.LoadManifest(s.Worktrees.DataDir, project)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("spawn: the brief needs %s's local services, but the project declares none: write %s", auth.ProjectName(project), services.ManifestPath(s.Worktrees.DataDir, project))
 	}
@@ -1127,7 +1144,7 @@ func notifyInstruction(meta state.TaskMeta) string {
 			ticket += " Your gate opens your pull request ready, so every push to it runs CI again: push a later round, your own commits included, once, whole, and only once the pull request's CI has ended, since a push while it runs cancels it after it billed its minutes."
 		}
 	}
-	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the CFO reads it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. cfo drain renders those as the decision's options; the CFO answers it, and his answer arrives here as a message. Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, a gate run, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"; a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CFO alone; a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
+	return " Report outcomes to the CFO: on completion with a PR run: " + exe + " notify " + id + " --done --pr <url>. When blocked on a decision run: " + exe + " notify " + id + " --blocked \"<question>\"; the CFO reads it as body text, so lead with one short sentence that is the actual question, put the details on lines of their own that start with \"- \" (a real line break, such as `n in PowerShell), and mark with **two asterisks** only the verdict or the blocking item, never the whole question; those lines say in plain words what you recommend and why and what each choice does, and run IDs, finding codes, paths and other evidence go after a line that reads only Details:, which the board folds away; when the question has a fixed set of choices, name them after one literal options: marker separated by |, as in \"<question> options: Fix it next (Recommended) | Keep 300 s\", ending the choice you recommend with (Recommended); each choice is the answer itself as a short phrase, never a bare letter or number like a, b or 2, which notify refuses, and details stay in the \"- \" lines. cfo drain renders those as the decision's options; the CFO answers it, and his answer arrives here as a message. Never wait on the CFO for a choice you can undo: take the better option, say which with --working, and keep going; a choice you cannot undo or make yourself is a question for --blocked, never one asked in your reply. On failure run: " + exe + " notify " + id + " --failed \"<reason>\". To say you are back at work or what you are doing run: " + exe + " notify " + id + " --working \"<what>\"; when you wait on another task, a gate run, CI, a deploy or the Overlord personally (his sign-in, his click, his page) instead of asking a question run: " + exe + " notify " + id + " --waiting-on <task-id|run-id|overlord|ci|deploy|memory> \"<why>\"; a wait on the Overlord becomes a card in his Command Center only with what he acts on, --lavish <html-file>, --run <command.ps1> or --link <https-url>, and one with none reaches the CFO alone; a choice the CFO can make, such as whether to start something now or later, is a question, not a wait on the Overlord: ask it with --blocked and options." +
 		" When the Overlord must answer on a Scrawl page (his review page; call it Scrawl when you name it to him), open it with lavish-axi <html-file> --no-open, then run: " + exe + " notify " + id + " --waiting-on overlord \"<why>\" --lavish <html-file>, and never run lavish-axi poll yourself: the supervisor polls the page, and his answer reaches you through the CFO." +
 		" When the page asks him to pick, declare its choices in it with a <script type=\"application/json\" data-lavish-choices> block as the lavish skill shows, each option the answer itself as a short phrase: the page draws them as a radio list and his pick reaches you as the option's exact text; a page without it shows him no choices." +
 		" When your browser or computer-use work reaches a step only the Overlord can take, such as creating an account, signing in, a CAPTCHA, accepting terms, an identity check or a token to copy, never take it yourself, and never send it as a chat message or a Scrawl walkthrough: send him one Command Center card and wait on it, with the wait run in the background so you go on the moment the card closes: " + exe + " auth request --project <project> --task " + id + " --why \"<what the step is for>\" --link <the exact https page> [--step \"<a click he makes>\"]... [--plain NAME --label NAME=\"<a few words>\"]... [SECRET_NAME]... --wait." +

@@ -1,4 +1,5 @@
 import { createElement, Fragment, type ReactNode } from "react";
+import { documentLinks, type DocumentLink } from "./document-links.ts";
 import { scrawlLink } from "./scrawl-link.ts";
 
 // A question or message as its asker wrote it, with the little structure the
@@ -33,35 +34,51 @@ export const isWebLink = (value: string) => /^https?:\/\/[^\s<>"'`]+$/.test(valu
 // the displayed and copied address stays as the asker wrote it.
 export const webLink = (address: string, key: number): ReactNode => createElement("a", { key, className: "message-link", href: scrawlLink(address), target: "_blank", rel: "noreferrer" }, address);
 
+// A document link that starts inside a web address is part of the address.
+function documentsOutsideWebLinks(text: string): DocumentLink[] {
+  const webLinks = [...text.matchAll(WEB_LINK)];
+  return documentLinks(text).filter((link) => !webLinks.some((web) => web.index < link.start && web.index + web[0].length > link.start));
+}
+
+function coverDocuments(text: string, hasDocuments: boolean): string {
+  if (!hasDocuments) return text;
+  let covered = text;
+  for (const link of documentsOutsideWebLinks(text)) covered = covered.slice(0, link.start) + "~".repeat(link.end - link.start) + covered.slice(link.end);
+  return covered;
+}
+
 // Text with each address in it a link span of its own.
-function linkSpans(text: string, bold: boolean): Span[] {
+function linkSpans(text: string, bold: boolean, hasDocuments = false): Span[] {
   const out: Span[] = [];
   let at = 0;
-  for (const match of text.matchAll(WEB_LINK)) {
+  for (const match of coverDocuments(text, hasDocuments).matchAll(WEB_LINK)) {
     if (match.index > at) out.push({ text: text.slice(at, match.index), bold });
-    out.push({ text: match[0], bold, link: true });
+    out.push({ text: text.slice(match.index, match.index + match[0].length), bold, link: true });
     at = match.index + match[0].length;
   }
   if (at < text.length) out.push({ text: text.slice(at), bold });
   return out;
 }
 
-function spans(text: string): Span[] {
-  const codes = [...text.matchAll(CODE)];
+function spans(text: string, hasDocuments = false): Span[] {
+  // A code value inside a document link belongs to its label, so the link
+  // stays whole for its card, while a link inside a code value stays code.
+  const documents = hasDocuments ? documentsOutsideWebLinks(text) : [];
+  const codes = [...text.matchAll(CODE)].filter((code) => !documents.some((link) => link.start < code.index && code.index + code[0].length <= link.end));
   const out: Span[] = [];
   const add = (from: number, to: number, bold: boolean) => {
     for (const code of codes) {
       const end = code.index + code[0].length;
       if (end <= from || code.index >= to) continue;
-      if (code.index > from) out.push(...linkSpans(text.slice(from, code.index), bold));
+      if (code.index > from) out.push(...linkSpans(text.slice(from, code.index), bold, hasDocuments));
       out.push({ text: code[1], bold, code: true });
       from = end;
     }
-    if (from < to) out.push(...linkSpans(text.slice(from, to), bold));
+    if (from < to) out.push(...linkSpans(text.slice(from, to), bold, hasDocuments));
   };
   // Bold is looked for with each code value covered, so marks inside a value
   // stay its own and a bold phrase can run across one.
-  const covered = text.replace(CODE, (value) => "x".repeat(value.length));
+  const covered = coverDocuments(text.replace(CODE, (value) => "x".repeat(value.length)), hasDocuments);
   let at = 0;
   for (const match of covered.matchAll(BOLD)) {
     add(at, match.index, false);
@@ -73,9 +90,9 @@ function spans(text: string): Span[] {
     if (span.code || span.link) return [span];
     const parts: Span[] = [];
     let from = 0;
-    for (const match of span.text.matchAll(ITALIC)) {
+    for (const match of coverDocuments(span.text, hasDocuments).matchAll(ITALIC)) {
       if (match.index > from) parts.push({ ...span, text: span.text.slice(from, match.index) });
-      parts.push({ ...span, text: match[1], italic: true });
+      parts.push({ ...span, text: span.text.slice(match.index + 1, match.index + match[0].length - 1), italic: true });
       from = match.index + match[0].length;
     }
     if (from < span.text.length) parts.push({ ...span, text: span.text.slice(from) });
@@ -83,16 +100,16 @@ function spans(text: string): Span[] {
   });
 }
 
-const cells = (row: string) => row.slice(1, -1).split("|").map((cell) => spans(cell.trim()));
+const cells = (row: string, hasDocuments: boolean) => row.slice(1, -1).split("|").map((cell) => spans(cell.trim(), hasDocuments));
 
-export function messageBlocks(text: string): Block[] {
+export function messageBlocks(text: string, hasDocuments = false): Block[] {
   const blocks: Block[] = [];
   for (const part of text.replace(/\r\n?/g, "\n").split(/\n\s*\n/)) {
     let prose: string[] = [];
     let items: Span[][] = [];
     let start: number | undefined;
     const flush = () => {
-      if (prose.length) blocks.push({ kind: "paragraph", spans: spans(prose.join("\n")) });
+      if (prose.length) blocks.push({ kind: "paragraph", spans: spans(prose.join("\n"), hasDocuments) });
       if (items.length) blocks.push({ kind: "list", items, ...(start !== undefined ? { start } : {}) });
       prose = [];
       items = [];
@@ -104,14 +121,14 @@ export function messageBlocks(text: string): Block[] {
       if (TABLE_ROW.test(line) && TABLE_SEPARATOR.test(lines[n + 1] || "")) {
         flush();
         const rows: Span[][][] = [];
-        for (n += 2; n < lines.length && TABLE_ROW.test(lines[n]); n++) rows.push(cells(lines[n]));
+        for (n += 2; n < lines.length && TABLE_ROW.test(lines[n]); n++) rows.push(cells(lines[n], hasDocuments));
         n--;
-        blocks.push({ kind: "table", header: cells(line), rows });
+        blocks.push({ kind: "table", header: cells(line, hasDocuments), rows });
       } else if (bullet) {
         const isOrdered = bullet[1] !== undefined;
         if (prose.length || items.length && isOrdered !== (start !== undefined)) flush();
         if (!items.length) start = isOrdered ? Number(bullet[1]) : undefined;
-        items.push(spans(line.slice(bullet[0].length).trim()));
+        items.push(spans(line.slice(bullet[0].length).trim(), hasDocuments));
       } else {
         if (items.length) flush();
         prose.push(line);
@@ -131,6 +148,20 @@ const plainCode: CodeRenderer = (value, key) => isWebLink(value) ? webLink(value
 // link that opens it in File Explorer; as an icon alone beside a code value,
 // which keeps its own button that copies it.
 export type PathRenderer = (path: string, key: number, isIcon?: boolean) => ReactNode;
+export type DocumentRenderer = (label: string, target: string, key: number) => ReactNode;
+
+function documentElements(text: string, document: DocumentRenderer): ReactNode[] {
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const link of documentLinks(text)) {
+    if (link.start < at) continue;
+    if (link.start > at) out.push(text.slice(at, link.start));
+    out.push(document(spans(link.label).map((span) => span.text).join(""), link.target, out.length));
+    at = link.end;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
 
 // A local file or folder path, found by the rules the supervisor opens one by
 // (internal/supervisor/card_paths.go): a drive letter, a colon and a
@@ -169,11 +200,12 @@ export function pathElements(text: string, path: PathRenderer): ReactNode[] {
 // bold phrase. With path, each local path is drawn by it; a code value that
 // is one keeps its own button, which copies it, with the path's icon beside
 // it, since a command can start the way a path does.
-function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer): ReactNode[] {
+function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer, document?: DocumentRenderer): ReactNode[] {
   const out: ReactNode[] = [];
   const content = (at: number) => parts[at].code
     ? path && CODE_PATH.test(parts[at].text) ? createElement(Fragment, { key: at }, code(parts[at].text, 0), path(parts[at].text, 1, true)) : code(parts[at].text, at)
     : parts[at].link ? webLink(parts[at].text, at)
+    : document ? createElement(Fragment, { key: at }, ...documentElements(parts[at].text, document))
     : path ? createElement(Fragment, { key: at }, ...pathElements(parts[at].text, path)) : parts[at].text;
   const piece = (at: number) => parts[at].italic ? createElement("em", { key: at }, content(at)) : content(at);
   for (let n = 0; n < parts.length; n++) {
@@ -187,14 +219,14 @@ function inline(parts: Span[], code: CodeRenderer, path?: PathRenderer): ReactNo
   return out;
 }
 
-export function messageElements(text: string, code: CodeRenderer = plainCode, path?: PathRenderer): ReactNode {
-  return createElement(Fragment, null, ...messageBlocks(text).map((block, n) => block.kind === "paragraph"
-    ? createElement("p", { key: n }, ...inline(block.spans, code, path))
+export function messageElements(text: string, code: CodeRenderer = plainCode, path?: PathRenderer, document?: DocumentRenderer): ReactNode {
+  return createElement(Fragment, null, ...messageBlocks(text, document !== undefined).map((block, n) => block.kind === "paragraph"
+    ? createElement("p", { key: n }, ...inline(block.spans, code, path, document))
     : block.kind === "list"
-      ? createElement(block.start === undefined ? "ul" : "ol", { key: n, start: block.start }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path))))
+      ? createElement(block.start === undefined ? "ul" : "ol", { key: n, start: block.start }, ...block.items.map((item, i) => createElement("li", { key: i }, ...inline(item, code, path, document))))
       : createElement("div", { key: n, className: "message-table" }, createElement("table", null,
-        createElement("thead", null, createElement("tr", null, ...block.header.map((cell, i) => createElement("th", { key: i }, ...inline(cell, code, path))))),
-        createElement("tbody", null, ...block.rows.map((row, r) => createElement("tr", { key: r }, ...row.map((cell, i) => createElement("td", { key: i }, ...inline(cell, code, path))))))))));
+        createElement("thead", null, createElement("tr", null, ...block.header.map((cell, i) => createElement("th", { key: i }, ...inline(cell, code, path, document))))),
+        createElement("tbody", null, ...block.rows.map((row, r) => createElement("tr", { key: r }, ...row.map((cell, i) => createElement("td", { key: i }, ...inline(cell, code, path, document))))))))));
 }
 
 // A message's lead, its first line, as inline text for a card's heading, and
@@ -206,7 +238,22 @@ export function leadAndRest(text: string): { lead: string; rest: string } {
   return TABLE_ROW.test(lead) ? { lead: "", rest: lines.join("\n") } : { lead, rest: lines.slice(1).join("\n") };
 }
 
-export const inlineElements = (text: string, code: CodeRenderer = plainCode, path?: PathRenderer): ReactNode => createElement(Fragment, null, ...inline(spans(text), code, path));
+// A question's decision and the evidence its asker put after a line that
+// reads only "Details:", which a card folds away so he reads the decision
+// first. Trailing spaces or tabs on that line, which a PowerShell `n break
+// can leave, still count. The stored text stays whole. A text without that
+// line, or with nothing before or after it, is all decision, exactly as written.
+const DETAILS_LINE = /^Details:[ \t]*$/m;
+
+export function decisionAndDetails(text: string): { decision: string; details: string } {
+  const lines = text.replace(/\r\n?/g, "\n");
+  const marker = DETAILS_LINE.exec(lines);
+  const decision = marker ? lines.slice(0, marker.index).trim() : "";
+  const details = marker ? lines.slice(marker.index + marker[0].length).trim() : "";
+  return decision && details ? { decision, details } : { decision: text, details: "" };
+}
+
+export const inlineElements = (text: string, code: CodeRenderer = plainCode, path?: PathRenderer, document?: DocumentRenderer): ReactNode => createElement(Fragment, null, ...inline(spans(text, document !== undefined), code, path, document));
 
 // Plain text, such as a History row's line, with each address in it a link.
 export const linkedText = (text: string): ReactNode => createElement(Fragment, null, ...inline(linkSpans(text, false), plainCode));

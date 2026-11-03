@@ -226,6 +226,29 @@ test("Back to messages returns to the messages with the keyboard in the box, and
   expect(typed(relay)).toBe("1");
 });
 
+test("Classic chosen in the maximized panel's Workspace after Back to messages keeps the keyboard there and types nothing", async ({ page }) => {
+  // Arrange: the terminal was shown once and put back behind the messages.
+  const relay = await open(page);
+  await openGoblin(page);
+  relay.say(asking(PANELS.claude));
+  await list(page).getByRole("button", { name: "Show the terminal" }).click();
+  await expect(terminal(page)).toBeFocused();
+  await back(page).click();
+  await expect(messages(page)).toBeVisible();
+  await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
+  await page.locator(".panel-side .workspace-details > summary").click();
+  const classic = page.getByRole("radiogroup", { name: "Chat style", exact: true }).getByRole("radio", { name: "Classic", exact: true });
+
+  // Act
+  await classic.check();
+  await expect(terminal(page)).toBeVisible();
+  await page.keyboard.type("x");
+
+  // Assert
+  await expect(classic).toBeFocused();
+  expect(typed(relay)).toBe("");
+});
+
 test("Modern chat in Classic's row saves Modern, so the conversation stays after the switch", async ({ page }) => {
   // Arrange: this browser draws its conversations as Classic, so the panel
   // opens on the harness's terminal alone, with no Back to messages bar.
@@ -273,14 +296,22 @@ test("a phone's tall task panel scrolls, and the conversation returns with its d
   await expect(field(page)).toBeFocused();
 });
 
-test("stepping in and out asks the terminal for no new size, counted at the relay", async ({ page }) => {
+test("the first terminal request sizes it and later switches keep that size, counted at the relay", async ({ page }) => {
   // Arrange
   const relay = await open(page);
   await openGoblin(page);
-  let seen = -1;
-  await expect.poll(() => { const isQuiet = relay.resizes.length > 0 && relay.resizes.length === seen; seen = relay.resizes.length; return isQuiet; }, { intervals: [500] }).toBe(true);
+  expect(relay.resizes).toEqual([]);
+  await expect(page.locator(".xterm")).toHaveCount(0);
 
   // Act
+  relay.say(asking(PANELS.claude));
+  await list(page).getByRole("button", { name: "Show the terminal" }).click();
+  await expect(terminal(page)).toBeFocused();
+  let seen = -1;
+  await expect.poll(() => { const isQuiet = relay.resizes.length > 0 && relay.resizes.length === seen; seen = relay.resizes.length; return isQuiet; }, { intervals: [500] }).toBe(true);
+  relay.say(closed);
+  await expect(messages(page)).toBeVisible();
+  await expect(page.locator(".xterm")).toHaveCount(0);
   relay.say(asking(PANELS.claude));
   await list(page).getByRole("button", { name: "Show the terminal" }).click();
   await expect(back(page)).toBeVisible();
@@ -291,6 +322,7 @@ test("stepping in and out asks the terminal for no new size, counted at the rela
 
   // Assert
   expect(relay.resizes.length).toBe(seen);
+  expect(relay.views).toBe(1);
 });
 
 for (const [label, width, height] of [["desktop", 1440, 960], ["phone", 390, 844]] as const) {

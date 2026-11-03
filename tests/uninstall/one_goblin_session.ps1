@@ -64,6 +64,42 @@ if ((& goblins brief demo-goblin -h 2>&1 | Out-String) -match "-surface") {
 }
 $brief = & goblins brief demo-goblin --project $Project --mode local-only @assessment
 if ($LASTEXITCODE -ne 0) { throw "goblins brief exited with code $LASTEXITCODE" }
+# An update job runs this under a published release from before brief
+# readiness, whose brief has no ready: line and spawns as it was written.
+if (Select-String -LiteralPath $brief -Pattern '^ready:' -Quiet) {
+    @"
+# Brief demo-goblin
+
+## Project
+
+$Project
+
+## Task
+
+Remain available for the uninstall smoke test without changing the project.
+
+## Acceptance criteria
+
+Start in an isolated worktree so the uninstall test can verify retained work.
+
+## Constraints
+
+Do not change project files or use project credentials or MCP servers.
+
+## Authentication
+
+credentials: none
+mcp: none
+
+## Delivery
+
+kind: ship
+mode: local-only
+ready: false
+"@ | Set-Content -LiteralPath $brief
+    & goblins brief ready demo-goblin
+    if ($LASTEXITCODE -ne 0) { throw "goblins brief ready exited with code $LASTEXITCODE" }
+}
 & goblins spawn demo-goblin --project $Project --brief $brief --harness pi --mode local-only --title "Demo goblin"
 Write-Host "goblins spawn exited with code $LASTEXITCODE"
 Stop-Process -Id $standIn.Id -ErrorAction SilentlyContinue

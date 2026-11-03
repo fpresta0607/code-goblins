@@ -9,17 +9,25 @@ import (
 
 // ReadFileContext bounds contention retries opening a fleet file.
 func ReadFileContext(ctx context.Context, path string) ([]byte, error) {
+	file, err := OpenContext(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
+}
+
+func OpenContext(ctx context.Context, path string) (*os.File, error) {
+	if ctx.Done() == nil {
+		return Open(path)
+	}
 	var file *os.File
 	err := retryTransientContext(ctx, func() (err error) {
 		file, err = open(path)
 		return err
 	})
 	opens.Add(1)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	return io.ReadAll(file)
+	return file, err
 }
 
 // CreateNewContext bounds contention retries creating an exclusive file.

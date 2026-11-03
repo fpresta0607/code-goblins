@@ -10,7 +10,7 @@ func TestStrictQueuedBriefAssignsChecksToOnePipelineOwner(t *testing.T) {
 	queued := QueuedTask{Row: BacklogRow{ID: "task", Repo: "demo", Title: "Change an approved report", Mode: "no-mistakes"}}
 
 	// Act: the emitted brief is the worker's owned instruction interface.
-	brief := QueuedBriefText(queued)
+	brief := QueuedBriefText(queued, nil)
 	_, verification, _ := strings.Cut(brief, "## Verification\n\n")
 	verification, _, _ = strings.Cut(verification, "\n\n## Authentication")
 

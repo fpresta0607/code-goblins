@@ -39,7 +39,7 @@ func newOverlapSpawn(t *testing.T, task string) *overlapSpawn {
 		t.Fatal(err)
 	}
 	fixture.brief = filepath.Join(t.TempDir(), "brief.md")
-	if err := os.WriteFile(fixture.brief, []byte("# Brief nw-sync\n\n## Task\n\n"+task+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(fixture.brief, []byte(strings.ReplaceAll(completedCommandBrief, "do the work", task)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return fixture

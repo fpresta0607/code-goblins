@@ -6,8 +6,8 @@ import { Icon } from "./Icon";
 import { age } from "./presentation";
 import { changeWarning, standingAnswer, standingWho } from "./commandQueue";
 import { questionAnswer, questionChoices } from "./questionChoices";
-import { inlineElements, messageElements } from "./messageText";
-import { copyValues } from "./CopyValue";
+import { inlineElements } from "./messageText";
+import { QuestionText } from "./question-text";
 import { personaFor } from "./workflow";
 import type { Draft } from "./QuestionCard";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
@@ -40,7 +40,7 @@ export function ChangeCard({ question, snapshot, connected, draft, onDraft, onCh
   const pick = (selection: string) => onDraft({ selection, error: "" });
   return <form className="question-card change-card" aria-labelledby={"change-" + question.id} onSubmit={(event) => { event.preventDefault(); if (payload && !isStanding) onChange(); }}>
     <p className="asker"><Avatar persona={question.task ? personaFor(task) : "cfo"} small /><span><strong>{asker}</strong> asked · {age(question.created_at)}</span></p>
-    <div className="question-body" id={"change-" + question.id} tabIndex={-1}>{messageElements(question.text, copyValues)}</div>
+    <QuestionText id={"change-" + question.id} text={question.text} />
     <fieldset><legend className="sr-only">Choose your answer</legend>
       {questionChoices(question).map((option) => <label className="question-choice" key={option.value}>
         <input type="radio" name={"change-" + question.id} checked={shown.selection === "option:" + option.value} onChange={() => pick("option:" + option.value)} />

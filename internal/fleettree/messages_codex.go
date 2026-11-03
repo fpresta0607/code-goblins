@@ -3,8 +3,10 @@ package fleettree
 import (
 	"bufio"
 	"cmp"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"math"
@@ -140,8 +142,8 @@ func (l *codexMessageLog) reset(epoch uint64) {
 // update parses the entries written since the last read. A rollout that shrank
 // was replaced, and is read again from its start as a read of its own. The
 // caller holds l.mu.
-func (l *codexMessageLog) update(epoch func() uint64) error {
-	file, err := fsx.Open(l.path)
+func (l *codexMessageLog) update(ctx context.Context, epoch func() uint64) error {
+	file, err := fsx.OpenContext(ctx, l.path)
 	if err != nil {
 		return err
 	}
@@ -153,11 +155,15 @@ func (l *codexMessageLog) update(epoch func() uint64) error {
 	if info.Size() < l.read {
 		l.reset(epoch())
 	}
-	l.read, err = readOn(file, l.read, info.Size(), func(start int64, lines [][]byte) {
+	l.read, err = readOn(ctx, file, l.read, info.Size(), func(start int64, lines [][]byte) (int64, error) {
 		for _, line := range lines {
+			if err := ctx.Err(); err != nil {
+				return start, err
+			}
 			l.entry(line, start)
 			start += int64(len(line)) + 1
 		}
+		return start, nil
 	})
 	return err
 }
@@ -537,13 +543,15 @@ func isCodexRollout(path string) bool {
 
 // codexLog is the log of the rollout at path, read on to its end, with its mu
 // held for the caller to unlock.
-func (r *Reader) codexLog(path string) (*codexMessageLog, error) {
+func (r *Reader) codexLog(ctx context.Context, path string) (*codexMessageLog, error) {
 	now := time.Now()
 	if r.Now != nil {
 		now = r.Now()
 	}
 	epoch := func() uint64 { return r.messageEpoch.Add(1) }
-	r.messagesMu.Lock()
+	if err := lockMessages(ctx, &r.messagesMu); err != nil {
+		return nil, err
+	}
 	if r.codexLogs == nil {
 		r.codexLogs = map[string]*codexMessageLog{}
 	}
@@ -556,10 +564,17 @@ func (r *Reader) codexLog(path string) (*codexMessageLog, error) {
 	log.asked = now
 	r.forgetCodexLogs(now)
 	r.messagesMu.Unlock()
-	log.mu.Lock()
-	if err := log.update(epoch); err != nil {
+	if err := lockMessages(ctx, &log.mu); err != nil {
+		return nil, err
+	}
+	if err := log.update(ctx, epoch); err != nil {
 		log.mu.Unlock()
-		r.messagesMu.Lock()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		if lockErr := lockMessages(ctx, &r.messagesMu); lockErr != nil {
+			return nil, lockErr
+		}
 		if r.codexLogs[path] == log {
 			delete(r.codexLogs, path)
 		}

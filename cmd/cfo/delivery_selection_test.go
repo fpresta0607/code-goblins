@@ -16,16 +16,16 @@ import (
 )
 
 func TestSpawnSelectsDeliveryFromProjectPostureAndChangeSurface(t *testing.T) {
-	for _, test := range []struct{ posture, surface, risk, mode string }{
-		{"no-mistakes-prod-only", "internal", "low", "direct-PR"},
-		{"no-mistakes-prod-only", "product", "low", "no-mistakes"},
-		{"no-mistakes-prod-only", "mixed", "low", "no-mistakes"},
-		{"no-mistakes-prod-only", "unknown", "low", "no-mistakes"},
-		{"no-mistakes-prod-only", "internal", "credentials", "no-mistakes"},
-		{"direct-PR", "product", "low", "direct-PR"},
-		{"local-only", "product", "low", "local-only"},
-		{"direct-PR", "product", "authorization", "no-mistakes"},
-		{"local-only", "product", "migration", "no-mistakes"},
+	for _, test := range []struct{ posture, asked, surface, risk, mode string }{
+		{"no-mistakes-prod-only", "direct-PR", "internal", "low", "direct-PR"},
+		{"no-mistakes-prod-only", "direct-PR", "product", "low", "no-mistakes"},
+		{"no-mistakes-prod-only", "direct-PR", "mixed", "low", "no-mistakes"},
+		{"no-mistakes-prod-only", "direct-PR", "unknown", "low", "no-mistakes"},
+		{"no-mistakes-prod-only", "direct-PR", "internal", "credentials", "no-mistakes"},
+		{"direct-PR", "direct-PR", "product", "low", "direct-PR"},
+		{"local-only", "local-only", "product", "low", "local-only"},
+		{"direct-PR", "direct-PR", "product", "authorization", "no-mistakes"},
+		{"local-only", "local-only", "product", "migration", "no-mistakes"},
 	} {
 		t.Run(test.posture+"/"+test.surface+"/"+test.risk, func(t *testing.T) {
 			// Arrange
@@ -40,7 +40,7 @@ func TestSpawnSelectsDeliveryFromProjectPostureAndChangeSurface(t *testing.T) {
 				t.Fatal(err)
 			}
 			brief := filepath.Join(t.TempDir(), "brief.md")
-			if err := os.WriteFile(brief, []byte("## Delivery\nsurface: "+test.surface+"\nrisk: "+test.risk+"\nreason: change the approved output\n"), 0o600); err != nil {
+			if err := os.WriteFile(brief, []byte(strings.ReplaceAll(completedCommandBrief, "mode: no-mistakes", "mode: "+test.asked+"\nsurface: "+test.surface+"\nrisk: "+test.risk+"\nreason: change the approved output")), 0o600); err != nil {
 				t.Fatal(err)
 			}
 
@@ -58,10 +58,10 @@ func TestSpawnSelectsDeliveryFromProjectPostureAndChangeSurface(t *testing.T) {
 
 func TestSpawnKeepsAnUnauthorizedNarrowerModeStrictAndSaysWhy(t *testing.T) {
 	for _, test := range []struct{ name, posture, brief, mode string }{
-		{"unconfigured project", "", "## Task\n\nShow the demo.\n", "local-only"},
-		{"unconfigured project", "", "## Task\n\nShow the demo.\n", "direct-PR"},
-		{"queued row", "direct-PR", fleet.QueuedBriefText(fleet.QueuedTask{Row: fleet.BacklogRow{ID: "task", Repo: "demo", Title: "Show the demo", Mode: "direct-PR"}}), "direct-PR"},
-		{"pre-upgrade root brief", "local-only", "## Task\n\n> Fix the report.\n\n## Delivery\n\nkind: ship\nmode: direct-PR\n", "direct-PR"},
+		{"unconfigured project", "", strings.ReplaceAll(completedCommandBrief, "mode: no-mistakes", "mode: local-only"), "local-only"},
+		{"unconfigured project", "", strings.ReplaceAll(completedCommandBrief, "mode: no-mistakes", "mode: direct-PR"), "direct-PR"},
+		{"queued row", "direct-PR", fleet.QueuedBriefText(fleet.QueuedTask{Row: fleet.BacklogRow{ID: "task", Repo: "demo", Title: "Show the demo", Mode: "direct-PR"}}, nil), "direct-PR"},
+		{"pre-upgrade root brief", "local-only", "## Task\n\n> Fix the report.\n\n## Acceptance criteria\n\nThe report is fixed.\n\n## Constraints\n\nChange only what this root needs.\n\n## Authentication\n\ncredentials: none\nmcp: none\n\n## Delivery\n\nkind: ship\nmode: direct-PR\nready: true\n", "direct-PR"},
 	} {
 		t.Run(test.name+"/"+test.mode, func(t *testing.T) {
 			// Arrange

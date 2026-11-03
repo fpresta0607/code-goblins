@@ -167,8 +167,9 @@ test("reopening with the saved CFO running keeps the board and its Restart contr
 });
 
 // besideTheBoard is the default view: the Board with the CFO's panel on its
-// Terminal view, its messages, to the right of it, neither covering the
-// other, its terminal whole behind the messages.
+// Chat view, its messages, to the right of it, neither covering the other,
+// its terminal connected behind the messages with nothing drawn until it is
+// asked for (issue 1597).
 async function besideTheBoard(page: Page) {
   await expect(page.getByRole("group", { name: "Workspace view" }).getByRole("button", { name: "Board" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#panel-title")).toHaveText("CFO");
@@ -177,7 +178,7 @@ async function besideTheBoard(page: Page) {
   await expect(cfoBox(page)).toBeVisible();
   await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
   await expect(page.getByText("Connecting to the terminal", { exact: true })).toHaveCount(0);
-  await expect(page.locator(".terminal-view .xterm-rows")).toContainText("READY");
+  await expect(page.locator(".xterm")).toHaveCount(0);
   const [left, right] = [(await board(page).boundingBox())!, (await panel(page).boundingBox())!];
   expect(left.x + left.width).toBeLessThanOrEqual(right.x);
   expect(Math.abs(left.y - right.y)).toBeLessThan(2);

@@ -29,7 +29,7 @@ func TestRunSpawnPassesValidatedRequestAndEnvironment(t *testing.T) {
 	if err := os.WriteFile(policyPath, []byte(`{"project":"project","delivery":{"posture":"direct-PR"},"verification":{"fast":[["git","status"]]}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(brief, []byte("## Task\nDo the work.\n## Delivery\nsurface: internal\nrisk: low\nreason: change the approved report output\n"), 0o600); err != nil {
+	if err := os.WriteFile(brief, []byte(strings.ReplaceAll(completedCommandBrief, "mode: no-mistakes", "mode: direct-PR\nsurface: internal\nrisk: low\nreason: change the approved report output")), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var gotHome home.Home
@@ -240,12 +240,14 @@ func TestRunSpawnOmitsSpeedHintWhenTelemetryHasNone(t *testing.T) {
 // reports after the spawned line: the operator's flag won, nothing was routed.
 const explicitRouteLine = "routed lane=explicit class=implementation risk=normal source=--harness flag\n"
 
+const completedCommandBrief = "# Brief g\n\n## Task\n\ndo the work\n\n## Acceptance criteria\nThe requested behavior works.\n\n## Constraints\nChange only the requested behavior.\n\n## Authentication\ncredentials: none\nmcp: none\n\n## Delivery\nmode: no-mistakes\nready: true\n"
+
 // briefFile writes a real brief, because a spawn reads it to classify the
 // task before anything else happens.
 func briefFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "brief.md")
-	if err := os.WriteFile(path, []byte("# Brief g\n\n## Task\n\ndo the work\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(completedCommandBrief), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path

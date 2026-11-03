@@ -3,6 +3,9 @@
 `cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--delivery-exception "<authority and reason>"] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]`
 
 Dispatch one goblin (ship task).
+Prepare and finalize its brief under the [brief readiness contract](brief.md), which applies to automatic and explicit starts.
+A helper's spawn, which the supervisor runs with `--parent`, checks the [helper contract](../contract/dispatch.md#helper-goblins) instead.
+A brief changed during admission refuses this attempt before task, worktree or policy state is published; review its final choices before retrying.
 Resolve delivery from the project's `delivery.posture` and the brief's explicit surface, risk and reason, as [Delivery intake](../contract/delivery.md#delivery) specifies.
 Missing or uncertain configuration selects no-mistakes.
 An explicit `--mode` cannot narrow the selected rigor on its own: without a qualifying assessment or a concrete Overlord exception recorded with `--delivery-exception "<authority and reason>"`, a narrower mode selects no-mistakes and the spawn prints why on stderr.

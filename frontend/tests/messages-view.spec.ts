@@ -642,36 +642,43 @@ test("Back from a goblin's panel returns to the CFO's messages", async ({ page }
   await expect(list(page, "CFO")).toBeVisible();
 });
 
-// The Messages view lies in the box the terminal fills, so no switch between
-// messages and terminal asks the terminal for another size: counted at the relay, for the
-// CFO and a goblin, beside the board and maximized.
+// The first request for a terminal sizes it to the conversation's box;
+// subsequent switches in that box keep the size, for the CFO and a goblin.
 for (const [who, choose] of [["the CFO", openCfo], ["a goblin", openGoblin]] as const) {
-  test(`stepping ${who}'s terminal in and out sends no resize, beside the board and maximized`, async ({ page }) => {
+  test(`stepping ${who}'s terminal in and out keeps its requested size, beside the board and maximized`, async ({ page }) => {
     const board = await open(page);
     await choose(page);
     await expect(page.locator(".terminal-view:not(.staged)")).toHaveCount(1);
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
+    expect(board.resizes).toEqual([]);
+    await expect(page.locator(".xterm")).toHaveCount(0);
 
     for (const isMaximized of [false, true]) {
       if (isMaximized) await page.getByRole("button", { name: "Maximize the panel", exact: true }).click();
-      const asked = await settled(board);
       const deck = await page.locator(".terminal-deck").boundingBox();
       board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
       await page.getByRole("button", { name: "Show the terminal" }).click();
       await expect(page.getByRole("button", { name: "Back to messages" })).toBeVisible();
       await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeHidden();
-      await page.waitForTimeout(300);
-      expect(board.resizes.slice(asked), "stepping in sent no resize").toEqual([]);
+      const asked = await settled(board);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
       board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
       await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
+      await expect(page.locator(".xterm")).toHaveCount(0);
       await page.waitForTimeout(300);
       expect(await page.locator(".messages-view").boundingBox(), "the messages take the terminal's box").toEqual(deck);
 
       expect(board.resizes.slice(asked), `${isMaximized ? "maximized" : "beside the board"}, the switches sent no resize`).toEqual([]);
       expect(await page.locator(".terminal-deck").boundingBox()).toEqual(deck);
+      board.say({ type: "screen", asking: true, open: true, working: false, submission: "", panel: { rows: ["Resume a conversation"], choices: [{ text: "Fix the board", number: 1, focused: true }] } });
+      await page.getByRole("button", { name: "Show the terminal" }).click();
+      await expect(page.getByRole("textbox", { name: "Terminal input", exact: true })).toBeFocused();
+      await page.waitForTimeout(300);
+      expect(board.resizes.slice(asked), "showing the requested terminal again sends no resize").toEqual([]);
+      board.say({ type: "screen", asking: false, open: false, working: false, submission: "" });
+      await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
     }
   });
 }
@@ -802,6 +809,7 @@ test("a held goblin keeps its queued message past a picker, and what he types at
   await openGoblin(page, "Pia - Pi Pilot");
   const who = "Pia - Pi Pilot";
   await board.sayTo("cg-pi", { type: "held", reason: "pipeline: native custody status check failed" });
+  await expect(messageBox(page, who)).toHaveAttribute("data-queues", "");
 
   // Act: he sends while the hold is up.
   await boxField(page, who).fill("queued past the picker");
