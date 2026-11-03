@@ -215,6 +215,10 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 400, "before names no message")
 			return
 		}
+		if query.Get("conversation") == "" {
+			apiError(w, 400, "conversation is required for older messages")
+			return
+		}
 	}
 	if h.Service.Options.Tree == nil {
 		apiError(w, 503, "Messages cannot be read")
@@ -232,7 +236,11 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case query.Has("picture"):
-		mediaType, data, err := h.Service.Options.Tree.MessagePicture(path, query.Get("picture"))
+		if query.Get("conversation") == "" {
+			apiError(w, http.StatusBadRequest, "conversation is required for pictures")
+			return
+		}
+		mediaType, data, err := h.Service.Options.Tree.MessagePicture(path, query.Get("conversation"), query.Get("picture"))
 		if err != nil {
 			messagesError(w, err)
 			return
@@ -247,6 +255,10 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 			messagesError(w, err)
 			return
 		}
+		if before >= 0 && page.Conversation != query.Get("conversation") {
+			apiError(w, http.StatusConflict, "Conversation changed")
+			return
+		}
 		respond(w, 200, page)
 	}
 }
@@ -256,7 +268,8 @@ func (h *HTTP) messages(w http.ResponseWriter, r *http.Request) {
 // conversation.
 func (h *HTTP) messagePage(path string, before int) (fleettree.MessagePage, fleettree.MessageCursor, error) {
 	if path == "" {
-		return fleettree.MessagePage{Messages: []fleettree.Message{}}, fleettree.MessageCursor{}, nil
+		cursor := fleettree.MessageCursor{}
+		return fleettree.MessagePage{Conversation: cursor.Conversation(), Messages: []fleettree.Message{}}, cursor, nil
 	}
 	return h.Service.Options.Tree.MessagePage(path, before)
 }
@@ -278,9 +291,10 @@ const unreadMessages = "The session's messages cannot be read"
 // streamMessages streams a session's messages: a page event with its newest
 // page, then a messages event with each message that began or changed, read
 // every half second, which a view puts in place of the one with the same id
-// or adds by its seq. A page event again replaces everything the view holds:
-// the session moved to another conversation, or its conversation was
-// replaced. The session is located again as often as a terminal view's
+// or adds by its seq. Each messages and usage event names its page's
+// conversation. A page event of another conversation replaces everything the
+// view holds: the session moved to another conversation, or its conversation
+// was replaced. The session is located again as often as a terminal view's
 // binding is checked, and an unavailable event says why it no longer runs, or
 // cannot be read, before the stream ends. A stream that sent nothing for as
 // long sends an alive event, so a board that hears nothing for longer knows
@@ -320,8 +334,11 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 	// usage tells the board what the session has spent, from what the last read
 	// already found, so the footer's stats keep up with its turns.
 	usage := func() bool {
-		if held := h.Service.Options.Tree.Usage(path); held != nil && (lastUsage == nil || *held != *lastUsage) {
-			if !send("usage", held) {
+		if held := h.Service.Options.Tree.UsageAt(path, cursor); held != nil && (lastUsage == nil || *held != *lastUsage) {
+			if !send("usage", struct {
+				Conversation string           `json:"conversation"`
+				Usage        *fleettree.Usage `json:"usage"`
+			}{cursor.Conversation(), held}) {
 				return false
 			}
 			lastUsage = held
@@ -391,7 +408,10 @@ func (h *HTTP) streamMessages(w http.ResponseWriter, r *http.Request, locate fun
 				}
 			default:
 				cursor = now
-				if len(messages) > 0 && !send("messages", messages) {
+				if len(messages) > 0 && !send("messages", struct {
+					Conversation string              `json:"conversation"`
+					Messages     []fleettree.Message `json:"messages"`
+				}{cursor.Conversation(), messages}) {
 					return
 				}
 				if !usage() {

@@ -79,7 +79,7 @@ async function open(page: Page, snapshot: Record<string, unknown>) {
       constructor(address: string) {
         super();
         if (new URL(address, location.href).pathname === "/api/messages") {
-          setTimeout(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify({ messages: [], more: false }) })));
+          setTimeout(() => this.dispatchEvent(new MessageEvent("page", { data: JSON.stringify({ messages: [], conversation: "idle-conversation", more: false }) })));
           return;
         }
         streams.push(this);

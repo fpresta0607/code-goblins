@@ -16,7 +16,7 @@ for (const state of ["held", "reconnecting", "ended"] as const) {
         localStorage.setItem("cfo-chat-style", "classic");
         sessionStorage.setItem("cfo-draft:cg-touch", "keep my draft");
       });
-      const messages = { messages: Array.from({ length: 80 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + " " + "readable text ".repeat(15) })), more: false };
+      const messages = { messages: Array.from({ length: 80 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + " " + "readable text ".repeat(15) })), conversation: "fixture-conversation", more: false };
       const relay = await open(page, snapshot({ actions: [pending] }, { harness: "codex" }), "", messages, "\x1b[?1049h" + HISTORY);
       await card(page, NAME).click();
       const terminal = page.locator(".terminal-view:not(.staged) > .xterm .xterm-screen");
@@ -258,7 +258,7 @@ for (const phone of [false, true]) {
     for (const style of ["classic", "modern"] as const) {
       test(`${style} history scrolls while busy, held, reconnected and ended`, async ({ page }, testInfo) => {
         await page.addInitScript((style) => localStorage.setItem("cfo-chat-style", style), style);
-        const messages = { messages: Array.from({ length: 80 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + " " + "readable text ".repeat(15) })), more: false };
+        const messages = { messages: Array.from({ length: 80 }, (_, seq) => ({ ...PAGE.messages[0], id: "m" + seq, seq, text: "History " + seq + " " + "readable text ".repeat(15) })), conversation: "fixture-conversation", more: false };
         const relay = await open(page, snapshot({}, { harness: "codex", runtime: { state: "working", at } }), "", messages, HISTORY);
         await card(page, NAME).click();
         const surface = page.locator(style === "modern" ? ".conversation" : ".terminal-view:not(.staged) > .xterm .xterm-screen");

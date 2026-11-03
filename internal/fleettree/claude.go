@@ -138,7 +138,7 @@ func (l *claudeLog) update() error {
 // each, a read's entries at a time with the offset of the first, and returns
 // the offset after the last entry handed. An entry still being written, with
 // no newline yet, is left for the next read.
-func readOn(ctx context.Context, file *os.File, offset, size int64, each func(start int64, lines [][]byte) (int64, error)) (int64, error) {
+func readOn(ctx context.Context, file io.ReaderAt, offset, size int64, each func(start int64, lines [][]byte) (int64, error)) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return offset, err
 	}

@@ -1,13 +1,10 @@
 package fleettree
 
 import (
-	"bufio"
 	"cmp"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"maps"
 	"math"
 	"path/filepath"
@@ -16,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/fpresta0607/code-goblins/internal/fsx"
 )
 
 // A Codex rollout is a JSONL file Codex appends to as its session runs: its
@@ -111,15 +106,17 @@ type codexChange struct {
 // last asked for it, is guarded by the Reader's messagesMu, and everything
 // else by mu.
 type codexMessageLog struct {
-	mu    sync.Mutex
-	path  string
-	asked time.Time
+	mu          sync.Mutex
+	incarnation uint64
+	path        string
+	asked       time.Time
 
-	read     int64
-	epoch    uint64
-	messages []Message
-	changed  []uint64
-	revision uint64
+	read      int64
+	fileState messageFileState
+	epoch     uint64
+	messages  []Message
+	changed   []uint64
+	revision  uint64
 	// reply is the message the assistant's next block belongs to, -1 when
 	// the next block begins one, and model the model of the turn being read.
 	reply    int
@@ -139,33 +136,26 @@ func (l *codexMessageLog) reset(epoch uint64) {
 	l.pictures = map[string]codexPictureAt{}
 }
 
-// update parses the entries written since the last read. A rollout that shrank
-// was replaced, and is read again from its start as a read of its own. The
-// caller holds l.mu.
+// update parses the entries written since the last read. A rollout that shrank,
+// or whose file is another or was rewritten (messageFileState), was replaced,
+// and is read again from its start as a read of its own. The caller holds l.mu.
 func (l *codexMessageLog) update(ctx context.Context, epoch func() uint64) error {
-	file, err := fsx.OpenContext(ctx, l.path)
+	return l.updateWith(ctx, epoch, openMessageFileContext(ctx))
+}
+
+func (l *codexMessageLog) updateWith(ctx context.Context, epoch func() uint64, open func(string) (messageReadFile, error)) error {
+	batch, err := readMessageBatch(ctx, l.path, open, l.fileState, l.read, 0, 0)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return err
-	}
-	if info.Size() < l.read {
+	if batch.reset {
 		l.reset(epoch())
 	}
-	l.read, err = readOn(ctx, file, l.read, info.Size(), func(start int64, lines [][]byte) (int64, error) {
-		for _, line := range lines {
-			if err := ctx.Err(); err != nil {
-				return start, err
-			}
-			l.entry(line, start)
-			start += int64(len(line)) + 1
-		}
-		return start, nil
-	})
-	return err
+	for _, line := range batch.lines {
+		l.entry(line.data, line.offset)
+	}
+	l.read, l.fileState = batch.end, batch.state
+	return ctx.Err()
 }
 
 // entry folds one rollout entry, at offset in the file, into the log.
@@ -351,14 +341,14 @@ func (l *codexMessageLog) keepPictures(parts []codexPart, offset int64, isOutput
 			continue
 		}
 		id := strconv.FormatInt(offset, 10) + ":" + strconv.Itoa(index)
-		l.pictures[id] = codexPictureAt{offset, index, isOutput}
+		l.pictures[id] = codexPictureAt{offset: offset, index: index, isOutput: isOutput}
 		size := len(data)/4*3 - (len(data) - len(strings.TrimRight(data, "=")))
 		pictures = append(pictures, Picture{ID: id, MediaType: media, Bytes: size})
 	}
 	return pictures
 }
 
-func (r *Reader) codexMessagePicture(path, id string) (string, []byte, error) {
+func (r *Reader) codexMessagePicture(path, conversation, id string, open func(string) (messageReadFile, error)) (string, []byte, error) {
 	r.messagesMu.Lock()
 	log := r.codexLogs[path]
 	r.messagesMu.Unlock()
@@ -366,37 +356,47 @@ func (r *Reader) codexMessagePicture(path, id string) (string, []byte, error) {
 		return "", nil, ErrNoRecord
 	}
 	log.mu.Lock()
+	err := log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) })
+	isCurrent := conversation != "" && conversation == (MessageCursor{epoch: log.epoch}).Conversation()
 	at, isKept := log.pictures[id]
+	state := log.fileState
 	log.mu.Unlock()
-	if !isKept {
+	if err != nil {
+		return "", nil, err
+	}
+	if !isCurrent || !isKept {
 		return "", nil, ErrNoRecord
 	}
-	file, err := fsx.Open(path)
+	file, err := open(path)
 	if err != nil {
 		return "", nil, err
 	}
 	defer file.Close()
-	line, err := bufio.NewReader(io.NewSectionReader(file, at.offset, pictureEntryReach)).ReadBytes('\n')
+	media, data, err := resolvePicture(file, path, state, at.offset, func(line []byte) (string, string, bool) {
+		var entry codexEntry
+		if json.Unmarshal(line, &entry) != nil {
+			return "", "", false
+		}
+		parts := entry.Payload.Item.Content
+		if at.isOutput && json.Unmarshal(entry.Payload.Output, &parts) != nil {
+			return "", "", false
+		}
+		if at.index >= len(parts) {
+			return "", "", false
+		}
+		return codexPictureData(parts[at.index])
+	})
 	if err != nil {
 		return "", nil, err
 	}
-	var entry codexEntry
-	if json.Unmarshal(line, &entry) != nil {
-		return "", nil, ErrNoRecord
+	log.mu.Lock()
+	err = log.update(context.Background(), func() uint64 { return messageEpoch.Add(1) })
+	isCurrent = conversation == (MessageCursor{epoch: log.epoch}).Conversation()
+	log.mu.Unlock()
+	if err != nil {
+		return "", nil, err
 	}
-	parts := entry.Payload.Item.Content
-	if at.isOutput && json.Unmarshal(entry.Payload.Output, &parts) != nil {
-		return "", nil, ErrNoRecord
-	}
-	if at.index >= len(parts) {
-		return "", nil, ErrNoRecord
-	}
-	media, encoded, isPicture := codexPictureData(parts[at.index])
-	if !isPicture {
-		return "", nil, ErrNoRecord
-	}
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil || len(data) == 0 {
+	if !isCurrent {
 		return "", nil, ErrNoRecord
 	}
 	return media, data, nil
@@ -522,8 +522,8 @@ func (l *codexMessageLog) page(before int) MessagePage {
 // since is every message that began or changed after cursor, with where the
 // reader then stands.
 func (l *codexMessageLog) since(cursor MessageCursor) ([]Message, MessageCursor, bool) {
-	now := MessageCursor{l.epoch, l.revision}
-	if cursor.epoch != l.epoch {
+	now := MessageCursor{l.epoch, l.revision, l.incarnation}
+	if cursor.epoch != l.epoch || cursor.incarnation != l.incarnation {
 		return nil, now, true
 	}
 	var messages []Message
@@ -548,7 +548,7 @@ func (r *Reader) codexLog(ctx context.Context, path string) (*codexMessageLog, e
 	if r.Now != nil {
 		now = r.Now()
 	}
-	epoch := func() uint64 { return r.messageEpoch.Add(1) }
+	epoch := func() uint64 { return messageEpoch.Add(1) }
 	if err := lockMessages(ctx, &r.messagesMu); err != nil {
 		return nil, err
 	}
@@ -557,8 +557,15 @@ func (r *Reader) codexLog(ctx context.Context, path string) (*codexMessageLog, e
 	}
 	log := r.codexLogs[path]
 	if log == nil {
-		log = &codexMessageLog{path: path}
-		log.reset(epoch())
+		log = &codexMessageLog{path: path, incarnation: messageEpoch.Add(1)}
+		checkpoint, ok := r.messageCheckpoints[path]
+		if ok {
+			log.reset(checkpoint.epoch)
+			log.fileState = checkpoint.fileState
+			delete(r.messageCheckpoints, path)
+		} else {
+			log.reset(epoch())
+		}
 		r.codexLogs[path] = log
 	}
 	log.asked = now
@@ -589,6 +596,12 @@ func (r *Reader) codexLog(ctx context.Context, path string) (*codexMessageLog, e
 func (r *Reader) forgetCodexLogs(now time.Time) {
 	for path, log := range r.codexLogs {
 		if now.Sub(log.asked) > messageLogIdle {
+			log.mu.Lock()
+			if r.messageCheckpoints == nil {
+				r.messageCheckpoints = map[string]messageCheckpoint{}
+			}
+			r.messageCheckpoints[path] = messageCheckpoint{epoch: log.epoch, fileState: log.fileState}
+			log.mu.Unlock()
 			delete(r.codexLogs, path)
 		}
 	}

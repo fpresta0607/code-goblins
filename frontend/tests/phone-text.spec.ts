@@ -31,7 +31,7 @@ const TALK = { messages: [
   ] },
   { id: "p2", seq: 2, at: at(2), kind: "prompt", source: "overlord", text: "Working?" },
   { id: "r3", seq: 3, at: at(3), kind: "reply", blocks: [{ kind: "text", text: "Yes, the board is healthy." }] },
-], more: false };
+], conversation: "fixture-conversation", more: false };
 
 const log = (page: Page) => page.getByRole("log");
 const row = (page: Page, id: string) => log(page).locator(`[data-message="${id}"]`);
@@ -133,7 +133,7 @@ test("a long message he opened stays open after its row leaves the window and co
   // page as he reads at its end.
   const filler = Array.from({ length: 200 }, (_, seq) => ({ id: "f" + seq, seq: seq + 1, at: at(seq + 1), kind: "reply", blocks: [{ kind: "text", text: "Answer " + seq }] }));
   await page.setViewportSize({ width: 393, height: 852 });
-  await open(page, snapshot({}, { phase: "settled" }), "", { messages: [{ id: "p0", seq: 0, at: at(0), kind: "prompt", source: "overlord", text: PASTE }, ...filler], more: false });
+  await open(page, snapshot({}, { phase: "settled" }), "", { messages: [{ id: "p0", seq: 0, at: at(0), kind: "prompt", source: "overlord", text: PASTE }, ...filler], conversation: "fixture-conversation", more: false });
   await openGoblin(page);
   await expect(log(page)).toContainText("Answer 199");
   await log(page).evaluate((element) => { element.scrollTop = 0; });

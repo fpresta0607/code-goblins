@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fpresta0607/code-goblins/internal/fsx"
@@ -80,13 +79,12 @@ type Reader struct {
 	usualAt      time.Time
 
 	// messagesMu guards the conversations read as messages, by path, apart
-	// from mu, so a view's reads never wait on a tree's, and messageEpoch
-	// counts their reads.
-	messagesMu   sync.Mutex
-	messageLogs  map[string]*messageLog
-	piLogs       map[string]*piMessageLog
-	codexLogs    map[string]*codexMessageLog
-	messageEpoch atomic.Uint64
+	// from mu, so a view's reads never wait on a tree's.
+	messagesMu         sync.Mutex
+	messageLogs        map[string]*messageLog
+	piLogs             map[string]*piMessageLog
+	codexLogs          map[string]*codexMessageLog
+	messageCheckpoints map[string]messageCheckpoint
 }
 
 // Goblin is one goblin to read: its task record, the process its terminal

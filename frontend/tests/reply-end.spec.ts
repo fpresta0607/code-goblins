@@ -26,7 +26,7 @@ const TALK = { messages: [
   reply(3, [{ kind: "text", text: "Fixed the swipe." }]),
   { id: "p4", seq: 4, at: minute(4), kind: "prompt", source: "overlord", text: "Now run the phone spec" },
   reply(5, [{ kind: "text", text: "Running it." }]),
-], more: false };
+], conversation: "fixture-conversation", more: false };
 
 const row = (page: Page, id: string) => page.locator(`[data-message="${id}"]`);
 const times = (page: Page) => page.getByRole("log").locator(".message-reply time");
@@ -89,7 +89,7 @@ test("a turn in progress shows no Copy, not even beside a short text between its
   const going = { messages: [...TALK.messages,
     reply(6, [{ kind: "call", tool: "Bash", subject: "npx playwright test phone", state: "done" }, { kind: "text", text: "One more." }, { kind: "call", tool: "Read", subject: "tests/phone.spec.ts", state: "done" }]),
     reply(7, [{ kind: "text", text: "The phone spec passes." }]),
-  ], more: false };
+  ], conversation: "fixture-conversation", more: false };
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", going);
   await openGoblin(page);
   const copies = page.getByRole("log").locator(".message-reply .message-copy");
@@ -161,7 +161,7 @@ test("while the session works the dither takes the time's place at the reply in 
 
 test("with no reply yet the dither sits at the reply's place under his message, and held typing shows it without Stop", async ({ page }) => {
   // Arrange
-  const asked = { messages: [...TALK.messages, { id: "p6", seq: 6, at: minute(6), kind: "prompt", source: "overlord", text: "And the iPhone one" }], more: false };
+  const asked = { messages: [...TALK.messages, { id: "p6", seq: 6, at: minute(6), kind: "prompt", source: "overlord", text: "And the iPhone one" }], conversation: "fixture-conversation", more: false };
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", asked);
   await openGoblin(page);
 
