@@ -68,8 +68,13 @@ func (s *Service) deliverMessage(ctx context.Context, a Action) (Evaluation, err
 		// at its next step, as it takes one typed into its terminal (the
 		// Overlord, 2026-10-28: "It should just be a direct message that gets
 		// queued up and sent with the clawed code session. The terminal
-		// already handles this.").
-		return s.Options.CFO.sendNative(ctx, identity, strings.TrimSpace(a.Text))
+		// already handles this."). What keeps it from the CFO's terminal keeps
+		// it from Send now too.
+		result, err := s.Options.CFO.sendNative(ctx, identity, strings.TrimSpace(a.Text))
+		if errors.Is(err, ErrDeferred) {
+			result.SendNowWhy = "Its terminal is not ready to take it yet."
+		}
+		return result, err
 	}
 	text := fromOverlord(a.Text)
 	stateDir := s.Store.Home.State
@@ -410,7 +415,7 @@ func (s *Store) withdrawMessage(a Action) (Action, error) {
 			return queued.ID == a.Target && queued.Kind == "message" && queued.Status == "queued" && queued.TaskID == a.TaskID
 		})
 		if at < 0 {
-			return Action{}, errors.New("that queued message is no longer waiting, so nothing was deleted")
+			return Action{}, s.noLongerHeld(a.Target, a.TaskID)
 		}
 		delete(s.deferredUntil, s.db.Actions[at].ID)
 		s.db.Actions = slices.Delete(s.db.Actions, at, at+1)

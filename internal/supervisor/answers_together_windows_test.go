@@ -245,7 +245,7 @@ func TestACFOThatIsBusyOrRestartingGetsTheAnswersOnceWhenItsInputIsReady(t *test
 		// Act
 		heAnswersTheSitting(t, s, identity, func() []string { return terminal.lines(t) })
 		s.process(context.Background())
-		typed := overlordMessages(terminal.lines(t))
+		typed := overlordMessages(terminal.waitForLines(t, 2))
 		sent := store.Snapshot().Actions
 		if len(typed) > 0 {
 			takenInRecord(t, records, "claude", "session-1", "", typed[0])
@@ -357,7 +357,8 @@ func runsWhatCanRun(t *testing.T, store *Store) []string {
 
 // What he sends the CFO keeps the order he sent it in: an answer never waits
 // behind a message of his own that he sent after it, and an answer he gave
-// after that message never goes ahead of it.
+// after that message never goes ahead of it, even while the message waits
+// out its undo window.
 func TestHisMessageToTheCFOKeepsItsPlaceAmongHisAnswers(t *testing.T) {
 	// Arrange: the CFO runs, since a delivery to a closed one waits, and a
 	// third question still waits on him, so his answers wait for his next.
@@ -373,15 +374,16 @@ func TestHisMessageToTheCFOKeepsItsPlaceAmongHisAnswers(t *testing.T) {
 	}
 	heAnswers(t, store, identity, sitting[1])
 	atOnce := runsWhatCanRun(t, store)
+	pastUndoWindow(t, store)
 	passes(store, answerBatchWindow)
 	later := runsWhatCanRun(t, store)
 
 	// Assert
-	if want := []string{"cfo_answer " + sitting[0].id, "message"}; !slices.Equal(atOnce, want) {
-		t.Errorf("at once the CFO was handed %q, want %q: his first answer, which nothing can join ahead of his message, then the message", atOnce, want)
+	if want := []string{"cfo_answer " + sitting[0].id}; !slices.Equal(atOnce, want) {
+		t.Errorf("at once the CFO was handed %q, want %q: his first answer, which nothing can join ahead of his message", atOnce, want)
 	}
-	if want := []string{"cfo_answer " + sitting[1].id}; !slices.Equal(later, want) {
-		t.Errorf("once the window ended the CFO was handed %q, want %q: the answer he gave after his message", later, want)
+	if want := []string{"message", "cfo_answer " + sitting[1].id}; !slices.Equal(later, want) {
+		t.Errorf("once the windows ended the CFO was handed %q, want %q: his message, then the answer he gave after it", later, want)
 	}
 }
 

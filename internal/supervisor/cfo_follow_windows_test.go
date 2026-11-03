@@ -592,7 +592,7 @@ func TestARunResultSubmittedBehindTheCFOsTurnIsToldOnce(t *testing.T) {
 	if finishErr != nil || retellErr != nil {
 		t.Fatalf("finishing = %v, telling again = %v, want neither to fail", finishErr, retellErr)
 	}
-	if typed := cfo.lines(t); len(typed) != 1 || !strings.Contains(typed[0], "Run item cfo-run-0004") {
+	if typed := cfo.waitForLines(t, 1); len(typed) != 1 || !strings.Contains(typed[0], "Run item cfo-run-0004") {
 		t.Errorf("the CFO in a turn was sent %q, want the result once", typed)
 	}
 	if told := store.Snapshot().Runs[0]; told.Untold != "" || told.Reason != "" {

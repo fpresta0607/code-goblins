@@ -503,6 +503,131 @@ func TestTypedTextShowsByItsEndOrAsAPaste(t *testing.T) {
 	}
 }
 
+// On 2026-11-02 the board typed the Overlord's "?" into the CFO's Claude Code,
+// which took the key as its shortcut help and left its prompt line empty, and
+// read the "?" as typed from the footer's "? for shortcuts", so it pressed
+// Enter on nothing and the message stranded as sent. Typed text shows only in
+// a composer it can read, never in the conversation or the footer around it.
+func TestTypedTextShowsOnlyInAComposerItCanRead(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏸ manual mode on · ? for shortcuts"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		typed  string
+		shows  bool
+	}{
+		"claude footer hint":         {Claude, []string{"● Shall I merge it?", "", rule, "❯ ", rule, claudeFooter}, "?", false},
+		"claude composer":            {Claude, []string{"● Shall I merge it?", "", rule, "❯ ?", rule, claudeFooter}, "?", true},
+		"claude queued above":        {Claude, []string{"✽ Reticulating… (esc to interrupt)", "  yes", "", rule, "❯ Press up to edit queued messages", rule, claudeFooter}, "yes", false},
+		"claude paste placeholder":   {Claude, []string{"● Here is a ?", "", rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, "?", true},
+		"codex footer hint":          {Codex, []string{"• Is it merged?", "", "› Ask Codex to do anything", "", "  ? for shortcuts                    100% context left"}, "?", false},
+		"codex composer":             {Codex, []string{"• Is it merged?", "", "› ?", "", "  ? for shortcuts                    100% context left"}, "?", true},
+		"pi conversation":            {Pi, []string{"Is it merged?", rule, "", rule, piFooter}, "?", false},
+		"pi composer":                {Pi, []string{"Is it merged?", rule, "?", rule, piFooter}, "?", true},
+		"claude composer unreadable": {Claude, []string{"❯ ?"}, "?", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			shows := screens.Shows(test.screen, test.typed)
+
+			// Assert
+			if shows != test.shows {
+				t.Errorf("Shows(%q, %q) = %v, want %v", test.screen, test.typed, shows, test.shows)
+			}
+		})
+	}
+}
+
+// A turn he stops hands the lines typed into it back to the prompt line,
+// where the supervisor submits them only while they are all it holds,
+// whitespace aside: one line, or several joined. Words of his before or after
+// them, even words that end as a lone "?" does, a paste he added, or the line
+// anywhere but the composer, never match.
+func TestAHandedBackLineMatchesOnlyAComposerHoldingItAlone(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
+	codexFooter := "100% context left"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind    Kind
+		screen  []string
+		typed   string
+		matches bool
+	}{
+		"claude words":                   {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, "stop and rebase", true},
+		"claude two lines joined":        {Claude, []string{rule, "❯ check the tests", "  stop and rebase", rule, claudeFooter}, "check the tests\nstop and rebase", true},
+		"claude his words after":         {Claude, []string{rule, "❯ stop and rebase and the", rule, claudeFooter}, "stop and rebase", false},
+		"claude his words before":        {Claude, []string{rule, "❯ and then stop and rebase", rule, claudeFooter}, "stop and rebase", false},
+		"claude a lone ?":                {Claude, []string{rule, "❯ ?", rule, claudeFooter}, "?", true},
+		"claude his question after a ?":  {Claude, []string{rule, "❯ ? is the build green?", rule, claudeFooter}, "?", false},
+		"claude his question before a ?": {Claude, []string{rule, "❯ is the build green ?", rule, claudeFooter}, "?", false},
+		"claude his paste after":         {Claude, []string{rule, "❯ stop and rebase[Pasted text #1 +3 lines]", rule, claudeFooter}, "stop and rebase", false},
+		"claude only above the composer": {Claude, []string{"❯ stop and rebase", "", rule, "❯ and the", rule, claudeFooter}, "stop and rebase", false},
+		"claude composer unreadable":     {Claude, []string{"❯ stop and rebase"}, "stop and rebase", false},
+		"codex words":                    {Codex, []string{"› stop and rebase", "", codexFooter}, "stop and rebase", true},
+		"codex wrapped words":            {Codex, []string{"› check the tests and then stop", "  and rebase", "", codexFooter}, "check the tests and then stop and rebase", true},
+		"codex his words after":          {Codex, []string{"› stop and rebase and the", "", codexFooter}, "stop and rebase", false},
+		"pi words":                       {Pi, []string{rule, "stop and rebase", rule, piFooter}, "stop and rebase", true},
+		"pi his paste after":             {Pi, []string{rule, "stop and rebase[paste #1 +12 lines]", rule, piFooter}, "stop and rebase", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			matches := screens.ComposerMatches(test.screen, test.typed)
+
+			// Assert
+			if matches != test.matches {
+				t.Errorf("ComposerMatches(%q, %q) = %v, want %v", test.screen, test.typed, matches, test.matches)
+			}
+		})
+	}
+}
+
+// A line typed as a paste can come back as its harness's placeholder, which
+// is handed back only while that one placeholder is all the composer holds:
+// words or a second paste beside it are somebody else's.
+func TestAComposerHoldsOnePasteOnlyWhileItsPlaceholderIsAllThere(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
+	codexFooter := "100% context left"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind   Kind
+		screen []string
+		holds  bool
+	}{
+		"claude one paste":             {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, true},
+		"claude a second paste":        {Claude, []string{rule, "❯ [Pasted text #1 +3 lines][Pasted text #2 +5 lines]", rule, claudeFooter}, false},
+		"claude his words after":       {Claude, []string{rule, "❯ [Pasted text #1 +3 lines] and the", rule, claudeFooter}, false},
+		"claude his words before":      {Claude, []string{rule, "❯ and the [Pasted text #1 +3 lines]", rule, claudeFooter}, false},
+		"claude words alone":           {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, false},
+		"claude composer unreadable":   {Claude, []string{"❯ [Pasted text #1 +3 lines]"}, false},
+		"codex one paste":              {Codex, []string{"› [Pasted Content 1200 chars]", "", codexFooter}, true},
+		"pi one paste":                 {Pi, []string{rule, "[paste #1 +12 lines]", rule, piFooter}, true},
+		"pi his words after the paste": {Pi, []string{rule, "[paste #1 +12 lines] and the", rule, piFooter}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			holds := screens.ComposerHoldsOnePaste(test.screen)
+
+			// Assert
+			if holds != test.holds {
+				t.Errorf("ComposerHoldsOnePaste(%q) = %v, want %v", test.screen, holds, test.holds)
+			}
+		})
+	}
+}
+
 func TestOnlyACompleteRetainedComposerCanBeSubmittedAfterADialog(t *testing.T) {
 	rule := strings.Repeat("─", 80)
 	instruction := "Read the saved instruction and continue the unfinished work."

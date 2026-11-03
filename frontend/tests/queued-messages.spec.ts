@@ -39,13 +39,13 @@ const unlabelled = (row: ReturnType<Page["locator"]>) => expect(row.locator(":sc
 // The Overlord, 2026-10-29: "the user can't really tell what's been sent and
 // what's getting sent. And the double scrolls and having its own little
 // scroll for queued messages doesn't really work." One scroll, the chat's: a
-// message he typed while the session works is his own bubble at the chat's
-// end, dimmed, with Queued and its controls under it, and turns solid with
-// no label in place once the harness takes it, as its record shows; one sent
-// while it is idle is solid with Sent until then (the Overlord, 2026-10-30:
-// "id ratehr it just say qeued"). A goblin's
-// record reads the stamps the board types his words behind as his, so its
-// row is his own words, as a CFO's is.
+// message the board holds is his own bubble at the chat's end, dimmed, with
+// Queued and its controls under it (the Overlord, 2026-10-30: "id ratehr it
+// just say qeued"); typed into its session, it is solid with Sent and no
+// controls (the CFO, 2026-11-02); and it turns solid with no label in place
+// once the harness takes it, as its record shows. A goblin's record reads
+// the stamps the board types his words behind as his, so its row is his own
+// words, as a CFO's is.
 test.describe("his messages in the chat's one scroll", () => {
   const LONG = Array.from({ length: 30 }, (_, line) => "line " + (line + 1) + " of the plan he wrote while it worked").join("\n");
 
@@ -102,26 +102,35 @@ test.describe("his messages in the chat's one scroll", () => {
     for (const name of ["Send now", "Edit", "Cancel"]) await expect(page.locator(".messages-view:not([hidden])").getByRole("button", { name, exact: true })).toHaveCount(0);
   });
 
-  test("a message sent while the session is idle is solid with Sent as it goes, and has no label once its record shows it", async ({ page }) => {
-    // Arrange
-    const words = "start on the invoices";
-    await open(page, snapshot({ actions: [queued({ text: words, status: "running", message: "Typing it into the terminal." })] }, { phase: "settled" }));
-    await openGoblin(page);
+  // Typed, it is its harness's to take, whether the session works or not, so
+  // Edit and Cancel go rather than fail (the Overlord, 2026-11-02: "delay
+  // here when I try to cancel; if it's actually picked up that's something
+  // that should be reflected").
+  for (const isWorking of [false, true]) {
+    test(`a message typed into ${isWorking ? "a working" : "an idle"} session is solid with Sent and no controls, and has no label once its record shows it`, async ({ page }) => {
+      // Arrange
+      const words = "start on the invoices";
+      const relay = await open(page, snapshot({ actions: [queued({ text: words, status: "running", message: "Typed into the terminal.", awaiting: { task: GOBLIN.id, since: "2026-10-22T09:01:00Z" }, created_at: "2026-10-22T09:01:00Z" })] }, { phase: "settled" }));
+      await openGoblin(page);
 
-    // Assert: on its way.
-    await expect(entry(page).locator(".queued-state")).toHaveText("Sent");
-    expect(Number(await entry(page).locator(".queued-bubble").evaluate((element) => getComputedStyle(element).opacity))).toBe(1);
-    await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
+      // Act
+      relay.say({ type: "screen", asking: false, open: false, working: isWorking });
 
-    // Act: its prompt starts the turn.
-    await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
-      { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at, kind: "prompt", source: "overlord", text: words }] });
+      // Assert: on its way, out of his hands.
+      await expect(entry(page).locator(".queued-state")).toHaveText("Sent");
+      expect(Number(await entry(page).locator(".queued-bubble").evaluate((element) => getComputedStyle(element).opacity))).toBe(1);
+      await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
 
-    // Assert
-    await unlabelled(log(page).locator(".message-prompt", { hasText: words }));
-    await expect(entry(page)).toHaveCount(0);
-    await expect(log(page).getByText(words, { exact: true })).toHaveCount(1);
-  });
+      // Act: the harness takes it.
+      await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+        { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: "2026-10-22T09:05:00Z", kind: "prompt", source: "overlord", text: words }] });
+
+      // Assert
+      await unlabelled(log(page).locator(".message-prompt", { hasText: words }));
+      await expect(entry(page)).toHaveCount(0);
+      await expect(log(page).getByText(words, { exact: true })).toHaveCount(1);
+    });
+  }
 
   // His record already holds "Read the brief" from 09:00. Sent again later,
   // even five milliseconds later, or still on its way with no time of its
@@ -187,7 +196,7 @@ test.describe("his messages in the chat's one scroll", () => {
     const relay = await open(page, snapshot({ actions: [older, newer] }));
     await openGoblin(page);
     relay.say({ type: "screen", asking: false, open: false, working: true });
-    await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
+    await expect(entry(page).locator(".queued-state")).toHaveText("Sent");
 
     // Act: the harness takes the new one.
     const taken = "2026-10-22T09:05:00Z";
@@ -362,47 +371,86 @@ test("Send now and Cancel each reach the board once, however often he presses th
   expect(posts.map((post) => post.kind)).toEqual(["message_now", "message_withdraw"]);
 });
 
-// One already typed waits in its harness's own queue, out of the board's
-// reach to take back or cancel, so it offers Send now alone, which has the
-// harness take it at once by its own key, and only where the harness has one:
-// Claude Code's Ctrl+X Ctrl+S (the Overlord, 2026-10-30: "when sent now it
-// actually sends now same way termianl expereince down with ctrl x crtl s").
-for (const [harness, canSendNow] of [["Claude Code", true], ["Codex or pi", false]] as const) {
-  test(`a message already typed into a working ${harness} session says the turn takes it, and offers ${canSendNow ? "Send now alone" : "nothing to do with it"}`, async ({ page }) => {
-    // Arrange
-    const relay = await open(page, snapshot({ actions: [queued({ status: "running", awaiting: { task: "cg-touch" }, can_send_now: canSendNow, send_now_why: "", message: "Typed while it was working; it takes the message at its next tool call, or as its current turn ends." })] }));
-    const posts: string[] = [];
-    await page.route("**/api/actions", (route) => {
-      posts.push((route.request().postDataJSON() as { kind: string }).kind);
-      return route.fulfill({ status: 202, json: { status: "ok" } });
-    });
-    await openGoblin(page);
+// His message to the CFO waits out a short undo window on the board, where
+// Edit and Cancel work, and is then typed into the CFO's turn, where they go
+// (the CFO, 2026-11-02: "The bubble shows each real state: held (Edit and
+// Cancel), typed into the turn, taken. Once typed, Edit and Cancel go away
+// instead of failing.").
+test("his message to the CFO is Queued with its controls while held, Sent with none once typed into the turn, and gone once taken", async ({ page }) => {
+  // Arrange
+  const words = "rebase onto main first";
+  const held = queued({ id: "c1", task_id: "", generation: "", text: words, can_send_now: true, send_now_why: "", message: "Queued for a moment, so you can still edit or cancel it.", created_at: "2026-10-22T09:01:00Z", updated_at: "2026-10-22T09:01:00Z" });
+  const relay = await open(page, snapshot({ actions: [held] }));
+  await page.keyboard.press("Control+Alt+1");
+  await expect(page.locator("#panel-title")).toHaveText("CFO");
+  relay.say({ type: "screen", asking: false, open: false, working: true });
+  const bubble = page.locator(".queued-message.pane").filter({ hasText: words });
 
-    // Act
+  // Assert: held.
+  await expect(bubble.locator(".queued-state")).toHaveText(WAITING);
+  for (const name of ["Send now", "Edit", "Cancel"]) await expect(bubble.getByRole("button", { name, exact: true })).toBeVisible();
+
+  // Act: the undo window ends and the board types it into the CFO's turn.
+  await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })),
+    snapshot({ revision: 2, actions: [{ ...held, status: "running", can_send_now: false, message: "Typed while the CFO works; it takes the message at its next tool call, or as its turn ends.", awaiting: { since: "2026-10-22T09:01:10Z" }, updated_at: "2026-10-22T09:01:10Z" }] }));
+
+  // Assert: typed, with nothing left to press.
+  await expect(bubble.locator(".queued-state")).toHaveText("Sent");
+  await expect(bubble.locator(".queued-actions")).toHaveCount(0);
+  await expect(bubble.locator(".queued-bubble")).toHaveAccessibleDescription(/takes the message at its next tool call/);
+
+  // Act: the CFO takes it, as its record shows.
+  await page.evaluate((data) => window.dispatchEvent(new CustomEvent("fixture-messages", { detail: { type: "page", data } })),
+    { ...PAGE, messages: [...PAGE.messages, { id: "m9", seq: 9, at: "2026-10-22T09:02:00Z", kind: "prompt", source: "overlord", queued: true, text: words }] });
+
+  // Assert
+  await expect(bubble).toHaveCount(0);
+  await unlabelled(log(page).locator(".message-prompt", { hasText: words }));
+});
+
+// The Overlord, 2026-11-02: "In AFK the queued functionality where it has the
+// edit and the clear should still be there." Turning AFK on wakes the CFO, so
+// a message he queued a moment before was typed into the turn that started,
+// and the board kept calling it Queued with Send now alone. AFK changes
+// nothing here: a message the board holds keeps all three controls, and one
+// typed into a turn reads Sent.
+for (const [whose, task] of [["the CFO", ""], ["a goblin", GOBLIN.id]] as const) {
+  test(`with AFK on, his message to ${whose} keeps Send now, Edit and Cancel while held, and one typed into the turn reads Sent`, async ({ page }) => {
+    // Arrange
+    const afk = { state: "on", since: new Date().toISOString(), from: "his own board (goblins-window.exe pid 4242)", decided: 0, held: [] };
+    const mine = { task_id: task, generation: task ? GOBLIN.generation : "", can_send_now: true, send_now_why: "" };
+    const held = queued({ ...mine, id: "h1", text: "close the third app too", message: "Queued for a moment, so you can still edit or cancel it." });
+    const typedIn = queued({ ...mine, id: "t1", text: "check the WebView memory", status: "running", can_send_now: false,
+      message: "Typed while it works; it takes the message at its next tool call, or as its turn ends.", awaiting: task ? { task, since: "2026-10-22T09:00:30Z" } : { since: "2026-10-22T09:00:30Z" }, created_at: "2026-10-22T08:59:00Z" });
+    const relay = await open(page, snapshot({ afk, actions: [typedIn, held], sessions: [{ id: "cfo-1", harness: "claude", role: "cfo", model: "claude-opus-5-5", phase: "working" }] }));
+    if (task) await openGoblin(page);
+    else {
+      await page.keyboard.press("Control+Alt+1");
+      await expect(page.locator("#panel-title")).toHaveText("CFO");
+    }
+
+    // Act: its turn runs, as the wake AFK sends the CFO starts one.
     relay.say({ type: "screen", asking: false, open: false, working: true });
 
     // Assert
-    await expect(entry(page).locator(".queued-state")).toHaveText(WAITING);
-    await expect(entry(page).locator(".queued-bubble")).toHaveAccessibleDescription(/takes the message at its next tool call/);
-    if (!canSendNow) {
-      await expect(entry(page).locator(".queued-actions")).toHaveCount(0);
-      return;
-    }
-    await expect(entry(page).locator(".queued-actions").getByRole("button")).toHaveCount(1);
-    await entry(page).getByRole("button", { name: "Send now", exact: true }).click();
-    await expect.poll(() => posts).toEqual(["message_now"]);
+    const heldBubble = entry(page).filter({ hasText: "close the third app too" });
+    await expect(heldBubble.locator(".queued-state")).toHaveText(WAITING);
+    for (const name of ["Send now", "Edit", "Cancel"]) await expect(heldBubble.getByRole("button", { name, exact: true })).toBeVisible();
+    const typedBubble = entry(page).filter({ hasText: "check the WebView memory" });
+    await expect(typedBubble.locator(".queued-state")).toHaveText("Sent");
+    await expect(typedBubble.locator(".queued-actions")).toHaveCount(0);
   });
 }
 
-// A Send now the supervisor refuses, as over words he typed into the
-// terminal's own prompt line, is a refusal of his click: it is said over the
+// A Send now the supervisor refuses, as for a message it typed a moment
+// before the board showed it, is a refusal of his click: it is said over the
 // box, and the CFO is not woken for it, since the supervisor answered. One
 // that never reached the supervisor is the board's own failure, and the CFO
 // hears of that one.
 test("a Send now the supervisor refuses is said over the box and not reported to the CFO, while one that never reached it is", async ({ page }) => {
   // Arrange
-  const REFUSED = "Its prompt line holds words that were never sent.";
-  const relay = await open(page, snapshot({ actions: [queued({ status: "running", awaiting: { task: "cg-touch" }, can_send_now: true, send_now_why: "", message: "Sent. The goblin takes it at its next tool call, or as its current turn ends." })] }));
+  const REFUSED = "It was already typed into " + GOBLIN.id + "'s turn.";
+  const relay = await open(page, snapshot({ actions: [queued({ can_send_now: true, send_now_why: "" })] }));
   const reports: string[] = [];
   await page.route("**/api/cfo/report", (route) => {
     const report = route.request().postDataJSON() as { where: string; text: string };
@@ -426,6 +474,40 @@ test("a Send now the supervisor refuses is said over the box and not reported to
 
   // Assert
   expect(lost).toBeTruthy();
+  await expect.poll(() => reports).toEqual([lost]);
+});
+
+// An Edit the supervisor refuses, as for a message it typed into the turn as
+// he pressed, is said over the box and goes no further: the CFO is not woken
+// for it, since the supervisor answered. One that never reached the
+// supervisor is the board's own failure, and the CFO hears of that one.
+test("an Edit the supervisor refuses is said over the box and not reported to the CFO, while one that never reached it is", async ({ page }) => {
+  // Arrange
+  const REFUSED = "It was already typed into " + GOBLIN.id + "'s turn.";
+  await open(page, snapshot({ actions: [queued()] }));
+  const reports: string[] = [];
+  await page.route("**/api/cfo/report", (route) => {
+    const report = route.request().postDataJSON() as { where: string; text: string };
+    if (report.where.startsWith("taking back a message to ")) reports.push(report.text);
+    return route.fulfill({ status: 202, json: { reported: true } });
+  });
+  let isAnswered = true;
+  await page.route("**/api/actions", (route) => isAnswered ? route.fulfill({ status: 409, json: { error: REFUSED } }) : route.abort("connectionrefused"));
+  await openGoblin(page);
+  const banner = box(page).locator(".composer-banner");
+  const edit = entry(page).getByRole("button", { name: "Edit", exact: true });
+
+  // Act: one press the supervisor refuses, then one that never reaches it.
+  await edit.click();
+  await expect(banner).toHaveText("Not taken back. " + REFUSED);
+  isAnswered = false;
+  await edit.click();
+  await expect(banner).not.toHaveText("Not taken back. " + REFUSED);
+  const lost = (await banner.textContent() ?? "").replace(/^Not taken back\. /, "");
+
+  // Assert
+  expect(lost).toBeTruthy();
+  await expect(field(page)).toHaveValue("");
   await expect.poll(() => reports).toEqual([lost]);
 });
 

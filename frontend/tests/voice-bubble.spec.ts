@@ -456,6 +456,26 @@ test("a note under the open list never covers it", async ({ page }) => {
   await expect(bubble).toBeFocused();
 });
 
+// Only Modern Chat's Speech history closes on a press off it or on Escape
+// anywhere: a terminal's list stays open while he works in the terminal,
+// whose Escape is the harness's own.
+test("a press or Escape in the terminal leaves the bubble's list open", async ({ page }) => {
+  // Arrange
+  const { bubble } = await openPane(page);
+  await bubble.click();
+  const recent = page.getByRole("dialog", { name: "Recent messages" });
+  await expect(recent).toBeVisible();
+  const terminal = page.getByRole("textbox", { name: "Terminal input" });
+
+  // Act
+  await terminal.click({ position: { x: 20, y: 20 } });
+  await page.keyboard.press("Escape");
+
+  // Assert
+  await expect(terminal).toBeFocused();
+  await expect(recent).toBeVisible();
+});
+
 test("a multiline message pastes as one line, so it never presses Enter, and copies whole", async ({ page }) => {
   const { bubble } = await openPane(page, { dictations: [{ text: "run the tests\nthen commit", at: 1790000700000 }] });
   await bubble.click();

@@ -28,6 +28,15 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 	if strings.HasPrefix(mode, "claude-") {
 		harness, mode = "claude", strings.TrimPrefix(mode, "claude-")
 	}
+	// A manual-mode Claude Code shows "? for shortcuts" in its footer, under a
+	// conversation that asked a question, takes a lone "?" key at an empty
+	// prompt line as its shortcut help rather than words, and does nothing
+	// with Enter at an empty one, as the live CFO did on 2026-11-02.
+	isManual := strings.HasPrefix(mode, "manual")
+	if isManual {
+		mode = strings.TrimPrefix(strings.TrimPrefix(mode, "manual"), "-")
+	}
+	isHelp := false
 	record := func(value string) {
 		file, err := os.OpenFile(events, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -69,9 +78,14 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 	// burst longer than claudeRead bytes are taken as a paste of the first
 	// claudeRead bytes and keys after them, and a turn's queue then keeps
 	// only the keys, as the live CFO's did on 2026-10-29 (#1740).
-	paste, readAsPaste, isPasting := "", "", false
-	hasQueued := false
-	composer := func() string { return paste + readAsPaste + line }
+	// A bracketed paste goes where the cursor is, after what the prompt line
+	// already held, which typedBefore keeps.
+	paste, readAsPaste, isPasting, typedBefore := "", "", false, ""
+	// A busy fixture is in a turn, which takes what is typed into its queue,
+	// until Escape interrupts it and, as Claude Code, Codex and pi do, puts
+	// what its queue held back on the prompt line, unsent.
+	isBusy, hasQueued, held := mode == "busy", false, ""
+	composer := func() string { return typedBefore + paste + readAsPaste + line }
 	draw := func(isWorking bool) {
 		rows := []string{}
 		// A daybreak-stuck offer keeps its rows once Escape dismissed it, as
@@ -83,7 +97,10 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			fmt.Print("\x1b[2J\x1b[H" + strings.Join([]string{"Do you trust the contents of this directory?", "› 1. Yes, continue", "  2. No, quit", "", "Press enter to continue"}, "\r\n"))
 			return
 		}
-		if isWorking || mode == "busy" {
+		if isManual {
+			rows = append(rows, "● Shall I merge it?", "")
+		}
+		if isWorking || isBusy {
 			if harness == "claude" {
 				rows = append(rows, "✻ Working…")
 			} else {
@@ -92,18 +109,25 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		}
 		if harness == "claude" {
 			rule := strings.Repeat("─", 80)
-			shown := line
+			shown := typedBefore + line
 			if paste != "" || readAsPaste != "" {
-				shown = "[Pasted text #1]" + line
+				shown = typedBefore + "[Pasted text #1]" + line
 			}
 			// Claude Code 2.1.314 drew this hint in its empty prompt line while a
 			// line waited in its queue, live, on 2026-10-30.
 			if shown == "" && hasQueued {
 				shown = "Press up to edit queued messages"
 			}
-			rows = append(rows, rule, "❯ "+shown, rule, "⏵⏵ bypass permissions on (shift+tab to cycle)")
+			footer := "⏵⏵ bypass permissions on (shift+tab to cycle)"
+			switch {
+			case isHelp:
+				footer = "! for bash mode      / for commands      double tap esc to clear input"
+			case isManual:
+				footer = "⏸ manual mode on · ? for shortcuts"
+			}
+			rows = append(rows, rule, "❯ "+shown, rule, footer)
 		} else {
-			text := line
+			text := typedBefore + line
 			if text == "" {
 				text = "Ask Codex to do anything"
 			}
@@ -150,12 +174,21 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				switch sequence {
 				case "[200~":
 					isPasting = true
+					if paste == "" && readAsPaste == "" {
+						typedBefore, line = line, ""
+					}
 				case "[201~":
 					isPasting = false
 					draw(false)
 				default:
 					hasPasteEnded = true
 				}
+				continue
+			}
+			if isBusy && hasQueued {
+				record("interrupted")
+				isBusy, hasQueued, line, held = false, false, held, ""
+				draw(false)
 				continue
 			}
 			record("escape")
@@ -175,10 +208,14 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				record("paste-ended")
 				continue
 			}
-			if mode == "busy" {
-				queued := paste + line
+			if isManual && composer() == "" {
+				record("empty-enter")
+				continue
+			}
+			if isBusy {
+				queued := typedBefore + paste + line
 				record("queued " + queued)
-				hasQueued = true
+				hasQueued, held = true, queued
 				go func(text string) {
 					for {
 						if _, err := os.Stat(events + ".accept"); err == nil {
@@ -192,7 +229,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			} else {
 				record("accepted " + composer())
 			}
-			line, paste, readAsPaste = "", "", ""
+			line, paste, readAsPaste, typedBefore = "", "", "", ""
 			draw(true)
 		default:
 			if offer && composer() == "" {
@@ -202,6 +239,13 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				paste += string(key)
 				continue
 			}
+			if isManual && key == '?' && composer() == "" && reader.Buffered() == 0 {
+				isHelp = !isHelp
+				record("shortcuts")
+				draw(false)
+				continue
+			}
+			isHelp = false
 			line += string(key)
 			if harness == "claude" && readAsPaste == "" && len(line) >= claudeRead {
 				readAsPaste, line = line, ""
@@ -248,7 +292,7 @@ func nativeCFOComposer(t *testing.T, stateDir, mode string) hostedTerminal {
 			t.Fatal(err)
 		}
 		screen, err := host.ReadScreen(record)
-		if err == nil && (strings.Contains(strings.Join(screen, " "), "100% context left") || strings.Contains(strings.Join(screen, " "), "bypass permissions on") || mode == "display-model" && strings.Contains(strings.Join(screen, " "), "? for shortcuts")) {
+		if err == nil && (strings.Contains(strings.Join(screen, " "), "100% context left") || strings.Contains(strings.Join(screen, " "), "bypass permissions on") || strings.Contains(strings.Join(screen, " "), "manual mode on") || mode == "display-model" && strings.Contains(strings.Join(screen, " "), "? for shortcuts")) {
 			return terminal
 		}
 		if time.Now().After(deadline) {
