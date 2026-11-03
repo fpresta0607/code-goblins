@@ -35,8 +35,10 @@ async function open(page: Page, phase: string, posts: unknown[], error = "", val
   });
   await page.goto("/");
   await page.locator(".task-board .task-card").filter({ hasText: "Choose the task engine" }).click();
-  // A task with a terminal opens on it; the selectors are on its Task view.
-  await expect(page.locator("#panel-title")).toHaveText("Choose the task engine");
+  // A task with a terminal opens on it; the selectors are on its Task view. A
+  // queued task with no goblin named yet is headed by its id, since its title
+  // is its task line under the heading (#1600).
+  await expect(page.locator("#panel-title")).toHaveText(phase === "queued" ? "engine-task" : "Choose the task engine");
   await openTaskList(page);
   const harness = page.locator("details.harness > summary");
   if (await harness.count()) await harness.click();

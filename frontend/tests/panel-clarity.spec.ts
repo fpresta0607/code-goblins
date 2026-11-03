@@ -28,13 +28,17 @@ async function open(page: Page, calls: string[] = []) {
 const panel = (page: Page) => page.locator(".goblin-panel");
 
 // A card is found by the start of its title, so a test fails on what it
-// checks rather than on finding its card.
+// checks rather than on finding its card. Its panel holds that title in its
+// heading, or on the task line under it for a queued task with no goblin
+// named yet, which is headed by its id (#1600); the CFO's panel lists queued
+// titles too, so the panel must first be another's.
 async function select(page: Page, title: string) {
   // On a phone an open panel covers the board, and Back returns to it.
   const back = page.getByRole("button", { name: "Back to Board", exact: true });
   if (await back.count()) await back.click();
   await page.locator(".task-card").filter({ has: page.locator(".card-title").filter({ hasText: title }) }).first().click();
-  await expect(page.locator("#panel-title")).toContainText(title);
+  await expect(page.locator("#panel-title")).not.toHaveText("CFO");
+  await expect(panel(page)).toContainText(title);
   return openTaskList(page);
 }
 

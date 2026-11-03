@@ -41,9 +41,11 @@ async function open(page: Page, tasks: object[], overrides: object = {}) {
   return posts;
 }
 
+// A queued task with no goblin named yet is headed by its id, since its title
+// is its task line under the heading (#1600), and a started one by its title.
 async function openTask(page: Page) {
   await page.locator(".task-card").filter({ hasText: "Choose the task engine" }).first().click();
-  await expect(page.locator("#panel-title")).toHaveText("Choose the task engine");
+  await expect(page.locator("#panel-title")).toHaveText(/^(?:engine-task|Choose the task engine)$/);
   await openTaskList(page);
 }
 
