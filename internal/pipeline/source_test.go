@@ -75,7 +75,7 @@ INSERT INTO runs VALUES('run','repo','main',` + sqlString(managed) + `,` + sqlSt
 					if output, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
 						t.Fatalf("record source: %s (%v)", output, err)
 					}
-					reader := Reader{Root: root, Commands: execx.OSRunner{}}
+					reader := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
 
 					source, err := reader.CommandSource(t.Context(), directory, "run", baseCommit)
 
@@ -112,7 +112,7 @@ INSERT INTO runs VALUES(` + sqlString(filepath.Base(worktree)) + `,'repo','feat/
 			if output, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
 				t.Fatalf("write unmanaged source: %s (%v)", output, err)
 			}
-			reader := Reader{Root: root, Commands: execx.OSRunner{}}
+			reader := Reader{Root: root, Commands: fixtureCommands{execx.OSRunner{}}}
 
 			// Act
 			source, err := reader.WorktreeSource(context.Background(), worktree)

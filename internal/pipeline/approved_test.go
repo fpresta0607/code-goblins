@@ -41,7 +41,7 @@ INSERT INTO step_rounds VALUES
 	if out, err := exec.Command(sqlite, filepath.Join(dir, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("fixture: %s %v", out, err)
 	}
-	reader := Reader{Root: dir, Commands: execx.OSRunner{}}
+	reader := Reader{Root: dir, Commands: fixtureCommands{execx.OSRunner{}}}
 
 	// Act
 	summaries, err := reader.ApprovedGateSummaries(context.Background())
