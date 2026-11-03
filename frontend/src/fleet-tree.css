@@ -103,6 +103,7 @@ button.tree-child:hover { border-color: var(--glass-border-hover); }
 .tree-lineage > .tree-count { max-width: 100%; flex-wrap: wrap; white-space: normal; }
 
 /* What's working in the goblin's panel. */
+.whats-working { container: whats-working / inline-size; }
 .working-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: 0 0 14px; font-weight: 700; color: #c4d4df; }
 .working-summary .plain-status { font-size: .9375rem; }
 .working-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
@@ -119,9 +120,12 @@ button.tree-child:hover { border-color: var(--glass-border-hover); }
 .whats-working .working-finished > .disclosure-content { padding: 0; }
 .working-finished .working-list { margin-top: 8px; }
 
-/* At phone width a row puts its state, time and memory on a line of their
-   own under what it does. */
-@media (max-width: 720px) {
+/* A row too narrow for its state, time and memory beside a label of 12
+   characters puts them on a line of their own under what it does (#1600). The
+   picture, chips, gaps and padding take 348px of a row, and 12 characters of
+   its label about 115px, so it reads the width of the list, never of the
+   window, since a panel beside the board is narrow on a wide screen. */
+@container whats-working (max-width: 30rem) {
   .working-row { grid-template-columns: 44px minmax(0, 1fr); }
   .working-meta { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px 14px; justify-items: start; font-size: .875rem; }
 }
