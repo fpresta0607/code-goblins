@@ -1414,33 +1414,38 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
    the rest of the panel. */
 .goblin-panel.showing-terminal { flex: 0 1 auto; min-height: 0; }
 /* The session panel's header is one short row (the Overlord, 2026-10-29:
-   "Minimize height and maximize the space"): its small picture, its name, its
-   harness's mark and a goblin's task id, cut short when the row is narrow,
-   the task id first, then the selector, then the panel's controls. The
-   identity, the picture with it, and the controls share the room either side
-   of the selector equally, so it sits in the middle while both fit. Past
-   that the controls keep what they show (see PanelRow), and give a control to
-   More only once the name is down to its first letters, and never what always
-   shows: the AFK switch, More and Close or Back. The identity never narrows
-   past its picture, and cuts the name and the mark at its own edge, so
-   neither is drawn under the selector. */
-.panel-header.one-row { display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
-.panel-header.one-row .panel-identity > .goblin-avatar, .panel-header.one-row .panel-home > .goblin-avatar { flex: none; width: 32px; height: 32px; }
-/* The CFO's picture is Home (see PanelHeader): a button no bigger than the
-   picture, so the row keeps its room, with its focus ring drawn inside it,
-   where the identity does not cut it. */
-.panel-home { display: grid; place-items: center; flex: none; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: none; }
-.panel-home:focus-visible { outline-offset: -3px; }
+   "Minimize height and maximize the space"): its small picture and its name,
+   cut short only when the row is narrow, then the selector, then the panel's
+   controls. The identity, the picture with it, and the controls share the
+   room either side of the selector equally, so it sits in the middle while
+   both fit. Past that the controls keep what they show (see PanelRow), and
+   give a control to More only once the name is down to its first letters,
+   and never what always shows: the AFK switch, More and Close or Back. The
+   identity never narrows past its picture, and cuts the name at its own
+   edge, so it is never drawn under the selector. */
+.panel-header.one-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 4px 8px; border-bottom: 1px solid var(--glass-border); }
+.panel-header.one-row .panel-identity > .goblin-avatar, .panel-header.one-row .panel-style-button > .goblin-avatar { flex: none; width: 32px; height: 32px; }
+/* The picture that opens the choice of chat style (see PanelStyleMenu) is a
+   44 px target around the same small picture, with its focus ring drawn
+   inside it, where the identity does not cut it, and its menu hangs from the
+   header under it, past the identity's edge (#1987). */
+.panel-style { display: flex; flex: none; }
+.panel-style-button { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 50%; background: none; }
+.panel-style-button:focus-visible { outline-offset: -3px; }
+.panel-style-menu { right: auto; left: 8px; top: calc(100% - 2px); }
 .one-row > .panel-identity { display: flex; flex: 1 1 0; align-items: center; gap: 6px; min-width: 32px; overflow: hidden; }
+.one-row > .panel-identity:has(> .panel-style) { min-width: 44px; }
 .one-row h2 { flex: 0 1 auto; min-width: 0; font-size: 1.25rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.one-row .panel-identity > .mark { flex: none; width: 26px; height: 26px; }
-.one-row .panel-identity > .mark :is(svg, .icon) { width: 15px; height: 15px; }
-.one-row .panel-goblin-task { flex: 0 100 auto; min-width: 0; color: var(--muted); font-size: .875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .one-row > .panel-top { flex: 1 1 0; padding: 0; }
 .one-row .panel-leading { display: flex; flex: none; }
+/* In a narrow panel the CFO's AFK switch is one 44 px target, its word over
+   its track, so the row keeps room for the name beside Open in Windows
+   Terminal, which a phone's row holds while the box shows (#1987). */
+@container goblin-panel (max-width: 36rem) {
+  .one-row .afk-toggle { flex-direction: column; justify-content: center; gap: 2px; width: 44px; min-height: 44px; padding: 0; }
+  .one-row .afk-toggle-label { font-size: .625rem; line-height: 1; }
+}
 .fills-phone .panel-header.one-row { padding: 4px 6px; }
-.fills-phone .one-row .panel-identity > .mark { width: 22px; height: 22px; }
-.fills-phone .one-row .panel-identity > .mark :is(svg, .icon) { width: 13px; height: 13px; }
 /* The CFO's rare states, Restart PC, Update and the words for a switch that
    cannot be read, take a line of their own under its header's row, at the
    row's end, and the line takes no room while none of them shows. */
@@ -1452,12 +1457,13 @@ a.wait-open, a.open-page { min-height: 44px; border: 1px solid var(--accent-gree
 .panel-whole-name { margin: 0; color: #c4d4df; font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
 /* The selector between the panel's conversation and its task panel: a
    segmented control of two icons in the header's own row, never a fold, a
-   dropdown or a row of its own. */
-.panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 3px; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
+   dropdown or a row of its own, each icon a 44 px target 8 px from the other,
+   as every control of a panel keeps from the next. */
+.panel-view-switch { display: flex; flex: none; align-self: center; gap: 8px; padding: 0; border: 1px solid var(--glass-border); border-radius: 999px; background: var(--field-bg); }
 .goblin-panel > .panel-top { order: 0; }
 .goblin-panel > :is(.panel-header, .cfo-header-line) { order: 1; }
 .goblin-panel > .panel-task { order: 3; }
-.panel-view-switch > button { display: inline-grid; place-items: center; width: 38px; min-height: 34px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
+.panel-view-switch > button { display: inline-grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border-color: transparent; border-radius: 999px; background: transparent; color: var(--muted); }
 .panel-view-switch .icon { width: 17px; height: 17px; }
 .panel-view-switch > button:hover { color: #edf4f3; }
 .panel-view-switch > button[aria-pressed="true"] { color: #f4fbff; background: var(--glass-bg-hover) padding-box, linear-gradient(var(--hero-surface), var(--hero-surface)) padding-box, var(--electric-ring) border-box; box-shadow: var(--electric-glow); }

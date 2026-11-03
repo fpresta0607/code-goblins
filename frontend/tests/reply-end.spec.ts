@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "./site";
-import { holdMessages, open, openGoblin, releaseMessages, snapshot, typed } from "./session-board";
+import { box, field, holdMessages, open, openGoblin, releaseMessages, snapshot, typed } from "./session-board";
 
 // The Overlord, 2026-10-27: "We don't need to print the date after every
 // response. We only need to print it at the end of a message, and the dither
-// will take that place as it's running. And then the stop would be something
-// like an icon when you're hovering the dither, that you can then stop the
-// agent", and of "Sent just now / Replied just now": "this goes under my
-// messages, not above the chat bar". A turn's replies show one time, at the
-// turn's end; while the session works the dither takes that place, with Stop
-// on it that stops the turn through Modern Chat's own interrupt. Since
+// will take that place as it's running", and of "Sent just now / Replied
+// just now": "this goes under my messages, not above the chat bar". A turn's
+// replies show one time, at the turn's end; while the session works the
+// dither takes that place, with no Stop beside it since 2026-11-03 ("The stop
+// button next to the When I'm the verb icon bothers me. Remove it."; #1987):
+// the box's Stop and Escape stop the turn. Since
 // 2026-10-28 nothing shows under his message until he points at it ("It
 // shouldn't be static ... Only when you hover in that position where it says
 // 'Sent just now', that's where the timestamp and copy icon come"), and Copy
@@ -113,7 +113,7 @@ test("a turn in progress shows no Copy, not even beside a short text between its
   for (const id of ["r1", "r2", "r5", "r6"]) await expect(row(page, id).locator(".message-copy")).toHaveCount(0);
 });
 
-test("while the session works the dither takes the time's place at the reply in progress, and Stop on it stops the turn with no terminal shown", async ({ page }) => {
+test("while the session works the dither takes the time's place at the reply in progress with no Stop, and the box's Stop and Escape stop the turn with no terminal shown", async ({ page }) => {
   // Arrange
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
   await openGoblin(page);
@@ -126,27 +126,25 @@ test("while the session works the dither takes the time's place at the reply in 
   await expect(row(page, "r5").locator("time")).toHaveCount(0);
   expect(await follows(page, '[data-message="r5"]', ".reply-working"), "the dither follows the reply in progress").toBe(true);
   await expect(page.locator(".composer-dock")).not.toContainText(/Sent|Replied/);
-  const stop = working(page).getByRole("button", { name: "Stop", exact: true });
-  const mark = stop.locator(".icon");
-  await expect(mark).toHaveCSS("opacity", "0");
 
   // Act: he points at the dither.
-  await stop.hover();
+  await working(page).hover();
 
-  // Assert: Stop shows on it.
-  await expect(mark).toHaveCSS("opacity", "1");
+  // Assert: the row holds the dither and its words alone.
+  await expect(working(page).getByRole("button")).toHaveCount(0);
+  await expect(working(page).locator(".working-indicator")).toBeVisible();
+  await expect(working(page).locator(".reply-doing")).toBeVisible();
 
-  // Act
-  await stop.click();
+  // Act: the box's Stop.
+  await box(page).getByRole("button", { name: "Stop", exact: true }).click();
 
   // Assert: Escape went to the harness, and no terminal was shown.
   await expect.poll(() => typed(relay)).toBe("\x1b");
   await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Back to messages" })).toHaveCount(0);
 
-  // Act: the keyboard reaches it too.
-  await stop.focus();
-  await page.keyboard.press("Enter");
+  // Act: Escape in the box stops it too.
+  await field(page).press("Escape");
 
   // Assert
   await expect.poll(() => typed(relay)).toBe("\x1b\x1b");
@@ -159,7 +157,7 @@ test("while the session works the dither takes the time's place at the reply in 
   await expect(row(page, "r5").locator("time")).toHaveCount(1);
 });
 
-test("with no reply yet the dither sits at the reply's place under his message, and held typing shows it without Stop", async ({ page }) => {
+test("with no reply yet the dither sits at the reply's place under his message without Stop, held typing or not", async ({ page }) => {
   // Arrange
   const asked = { messages: [...TALK.messages, { id: "p6", seq: 6, at: minute(6), kind: "prompt", source: "overlord", text: "And the iPhone one" }], conversation: "fixture-conversation", more: false };
   const relay = await open(page, snapshot({}, { phase: "settled" }), "", asked);
@@ -171,7 +169,7 @@ test("with no reply yet the dither sits at the reply's place under his message, 
   // Assert
   await expect(working(page)).toHaveCount(1);
   expect(await follows(page, '[data-message="p6"]', ".reply-working"), "the dither follows his message").toBe(true);
-  await expect(working(page).getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(working(page).getByRole("button")).toHaveCount(0);
 
   // Act: a review holds his typing.
   relay.say({ type: "held", reason: "pipeline owns this task" });
@@ -497,14 +495,14 @@ test.describe("under reduced motion", () => {
   });
 });
 
-// The Overlord, 2026-10-28, from his phone: "dither stream on mobile stop icon
-// is automatically displayed however on mobile put the button on the end of
-// it". On a touch screen Stop shows at the end of the dither's row, after its
-// words, and a tap stops the turn.
+// On a touch screen too the dither's row is the dither and its words alone
+// (the Overlord, 2026-11-03: "The stop button next to the When I'm the verb
+// icon bothers me. Remove it."; #1987), and a tap on the box's Stop stops the
+// turn.
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
 
-  test("Stop sits at the end of the dither's row, after its words, and a tap stops the turn", async ({ page }) => {
+  test("the dither's row ends with its words and holds no Stop, and a tap on the box's Stop stops the turn", async ({ page }) => {
     // Arrange
     const relay = await open(page, snapshot({}, { phase: "settled" }), "", TALK);
     await openGoblin(page);
@@ -513,18 +511,16 @@ test.describe("on a phone", () => {
     relay.say(screen(true, "Cogitating"));
 
     // Assert
-    const stop = working(page).getByRole("button", { name: "Stop", exact: true });
-    await expect(stop).toBeVisible();
-    await expect(stop.locator(".icon")).toHaveCSS("opacity", "1");
-    const [dither, words, button] = await Promise.all([".working-indicator", ".reply-doing", ".reply-stop"].map((selector) => working(page).locator(selector).boundingBox()));
-    expect(dither && words && button, "all three drawn").toBeTruthy();
-    if (!dither || !words || !button) return;
+    await expect(firstWord(page).locator(":scope > span")).toHaveText("Cogitating");
+    await expect(working(page).getByRole("button")).toHaveCount(0);
+    const [dither, words] = await Promise.all([".working-indicator", ".reply-doing"].map((selector) => working(page).locator(selector).boundingBox()));
+    expect(dither && words, "both drawn").toBeTruthy();
+    if (!dither || !words) return;
     expect(words.x).toBeGreaterThanOrEqual(dither.x + dither.width);
-    expect(button.x, "Stop after the words").toBeGreaterThanOrEqual(words.x + words.width);
-    for (const part of [dither, words]) expect(Math.abs(part.y + part.height / 2 - (button.y + button.height / 2)), "one row").toBeLessThan(6);
+    expect(Math.abs(dither.y + dither.height / 2 - (words.y + words.height / 2)), "one row").toBeLessThan(6);
 
     // Act
-    await stop.tap();
+    await box(page).getByRole("button", { name: "Stop", exact: true }).tap();
 
     // Assert
     await expect.poll(() => typed(relay)).toBe("\x1b");
@@ -532,8 +528,8 @@ test.describe("on a phone", () => {
 
   // A heading Codex names its step by, which the relay cuts at 48 letters,
   // is wider than a phone's row: it types out to the row's end and ends
-  // there in an ellipsis, before Stop.
-  test("a heading wider than the row types to the row's end and ends in an ellipsis before Stop", async ({ page }) => {
+  // there in an ellipsis.
+  test("a heading wider than the row types to the row's end and ends in an ellipsis there", async ({ page }) => {
     // Arrange
     const heading = "Tracing how the phone terminal turns each swipe…";
     const relay = await open(page, snapshot({}, { phase: "settled", harness: "codex" }), "", TALK);
@@ -554,10 +550,11 @@ test.describe("on a phone", () => {
     expect(typing.shifts[0], "the window starts at the row's end, not the heading's").toBeLessThanOrEqual(drawn.width + 0.5);
     expect(typing.shifts.every((shift, at) => at === 0 || shift <= typing.shifts[at - 1]), JSON.stringify(typing.shifts)).toBe(true);
     expect(typing.shifts.at(-1)).toBe(0);
-    const [words, stop] = await Promise.all([".reply-doing", ".reply-stop"].map((selector) => working(page).locator(selector).boundingBox()));
-    expect(words && stop, "both drawn").toBeTruthy();
-    if (!words || !stop) return;
-    expect(words.x + words.width, "the words end before Stop").toBeLessThanOrEqual(stop.x);
+    const [words, row] = await Promise.all([working(page).locator(".reply-doing").boundingBox(), working(page).boundingBox()]);
+    expect(words && row, "both drawn").toBeTruthy();
+    if (!words || !row) return;
+    expect(words.x + words.width, "the words end at the row's end").toBeLessThanOrEqual(row.x + row.width + 0.5);
+    await expect(working(page).getByRole("button")).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no sideways scroll").toBe(true);
   });
 });

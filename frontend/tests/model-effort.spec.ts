@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "./site";
-import { box, boxMenu, GOBLIN, NAME, open, openGoblin, PAGE, snapshot } from "./session-board";
+import { box, GOBLIN, NAME, open, openGoblin, PAGE, snapshot } from "./session-board";
 
 // The Overlord, 2026-10-28, on the build he runs: "claude-opus-5-5 is not
 // proper case, effort type that's running is not shown", "Max effort is a
@@ -92,7 +92,7 @@ test("Close on speech history closes it", async ({ page }) => {
   // Arrange
   await open(page, snapshot({}, { phase: "settled" }));
   await openGoblin(page);
-  await (await boxMenu(page)).getByRole("button", { name: "Speech history", exact: true }).click();
+  await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
   const history = page.getByRole("dialog", { name: "Speech history", exact: true });
   await expect(history).toBeVisible();
 

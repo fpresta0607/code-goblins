@@ -1,15 +1,16 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { NAME, open, openGoblin, snapshot } from "./session-board";
+import { NAME, open, openGoblin, pressRow, snapshot } from "./session-board";
 
 // The Overlord, 2026-10-29: "Minimize height and maximize the space", and of
 // the Chat and Task switch, "also put the switch in the middle less wide". A
-// panel's header is one short row: the session's small picture, its name and
-// its harness's mark at the left, the switch in the middle and only as wide
-// as its two icons, and the panel's controls at the right, led on the CFO's
-// by the AFK switch. He kept the picture and the mark ("I like the avatar and
-// the icon") and moved the last AFK report into the Task view ("could be
-// something that you know is part of like the task panel"). No status line:
-// the working line in the conversation says what the session does.
+// panel's header is one short row: the session's small picture and its name
+// at the left, the switch in the middle and only as wide as its two icons,
+// and the panel's controls at the right, led on the CFO's by the AFK switch.
+// He kept the picture ("I like the avatar and the icon") and moved the last
+// AFK report into the Task view ("could be something that you know is part
+// of like the task panel"), and the harness's mark moved there too, as the
+// harness, model and effort in words (#1987). No status line: the working
+// line in the conversation says what the session does.
 
 const ROW_PX = 56;
 const REPORT = "/api/afk/report/index.html";
@@ -42,7 +43,7 @@ for (const width of [1440, 393, 360]) {
       expect(row.height).toBeLessThanOrEqual(ROW_PX);
       await expect(page.locator(".goblin-panel > .panel-top")).toHaveCount(0);
       await expect(header(page).locator(".panel-status")).toHaveCount(0);
-      const parts = [".goblin-avatar", "#panel-title", ".panel-identity > .mark", ".panel-view-switch", ".panel-corner"];
+      const parts = [".goblin-avatar", "#panel-title", ".panel-view-switch", ".panel-corner"];
       if (who === "CFO") parts.push(".afk-header");
       for (const part of parts) {
         const each = await box(header(page).locator(part));
@@ -56,12 +57,13 @@ for (const width of [1440, 393, 360]) {
       // Assert: the switch is only as wide as its two icons, between the
       // name and the controls, in the middle while both sides leave room,
       // and otherwise as near it as the controls leave room for, right
-      // against them. In the panel's default width beside the board every
-      // control shows, and the CFO's name is whole.
+      // against them. In the panel's default width beside the board the
+      // picture offers the chat style and each row shows every control, the
+      // CFO's beside its AFK switch with its name whole (#1987).
       const views = header(page).locator(".panel-view-switch");
       const switchBox = await box(views);
       const icons = await views.getByRole("button").evaluateAll((buttons) => buttons.reduce((sum, button) => sum + button.getBoundingClientRect().width, 0));
-      expect(switchBox.width).toBeLessThanOrEqual(icons + 8 + 2 * 3 + 2 + 1);
+      expect(switchBox.width).toBeLessThanOrEqual(icons + 8 + 2 + 1);
       const identity = await box(header(page).locator(".panel-identity"));
       const controls = await box(header(page).locator(".panel-top"));
       expect(switchBox.x).toBeGreaterThanOrEqual(identity.x + identity.width);
@@ -71,19 +73,76 @@ for (const width of [1440, 393, 360]) {
       const isAgainstControls = Math.abs(controls.x - (switchBox.x + switchBox.width) - gap) <= 1;
       expect(Math.abs(offset) <= 2 || (offset < 0 && isAgainstControls), `the switch ${offset} px from the middle`).toBe(true);
       if (width === 1440) {
-        await expect(header(page).getByRole("button", { name: "More", exact: true })).toHaveCount(0);
+        await expect(header(page).getByRole("button", { name: "Chat style", exact: true })).toBeVisible();
         if (who === "CFO") expect(await header(page).locator("#panel-title").evaluate((title) => title.scrollWidth - title.clientWidth)).toBe(0);
+        await expect(header(page).getByRole("button", { name: "More", exact: true })).toHaveCount(0);
       }
       await testInfo.attach(`header-${who}-${width}.png`, { body: await page.screenshot({ clip: { x: row.x, y: row.y, width: row.width, height: row.height } }), contentType: "image/png" });
     });
   }
 }
 
+// The session's picture opens its chat style menu (#1987). The header's
+// identity cuts what overflows it, so the picture's focus ring, its outline
+// grown out by its width and offset, lies inside the identity, and the menu
+// hangs from the header instead, drawn whole and over the panel, maximized or
+// not.
+for (const who of ["CFO", "goblin"] as const) {
+  test(`the ${who}'s picture draws its focus ring inside the identity and opens its chat style menu whole, maximized or not`, async ({ page }) => {
+    // Arrange
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    // Opened from the keyboard, so the picture's focus draws its ring.
+    await page.keyboard.press(who === "CFO" ? "Control+Alt+1" : "Control+Alt+2");
+    await expect(page.locator("#panel-title")).toHaveText(who === "CFO" ? "CFO" : NAME);
+    const picture = header(page).getByRole("button", { name: "Chat style", exact: true });
+
+    // Act
+    await picture.focus();
+
+    // Assert
+    const ring = await picture.evaluate((button) => {
+      const style = getComputedStyle(button);
+      const grown = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+      const box = button.getBoundingClientRect(), identity = button.closest(".panel-identity")!.getBoundingClientRect();
+      return {
+        isFocusVisible: button.matches(":focus-visible"), outline: style.outlineStyle, width: box.width, height: box.height,
+        past: Math.max(identity.left - (box.left - grown), identity.top - (box.top - grown), box.right + grown - identity.right, box.bottom + grown - identity.bottom),
+      };
+    });
+    expect(ring.isFocusVisible).toBe(true);
+    expect(ring.outline).toBe("solid");
+    expect(ring.past).toBeLessThanOrEqual(0);
+    expect(Math.min(ring.width, ring.height), "a 44 px target").toBeGreaterThanOrEqual(44);
+    await expect(picture.locator(".goblin-avatar")).toBeVisible();
+
+    for (const isMaximized of [false, true]) {
+      // Act
+      if (isMaximized) await pressRow(page, "Maximize the panel", "Maximize");
+      await picture.click();
+
+      // Assert: every item is drawn whole, and on top at its corners, each
+      // probed inside its rounding, which a press there does not reach.
+      const items = header(page).getByRole("menuitemradio");
+      await expect(items).toHaveText(["Modern chat", "Terminal"]);
+      for (const item of await items.all()) {
+        const isOnTop = await item.evaluate((element) => {
+          const box = element.getBoundingClientRect(), inset = parseFloat(getComputedStyle(element).borderTopLeftRadius) + 1;
+          return [[box.left + inset, box.top + inset], [box.right - inset, box.bottom - inset]].every(([x, y]) => element.contains(document.elementFromPoint(x, y)));
+        });
+        expect(isOnTop, (await item.innerText()) + (isMaximized ? " maximized" : "")).toBe(true);
+      }
+      await page.keyboard.press("Escape");
+      await expect(items).toHaveCount(0);
+    }
+  });
+}
+
 // Where the row is narrowest, the CFO's panel dragged to its narrowest beside
 // the board and a phone, in both chat styles and with an update waiting or
-// not, what always shows still fits: the picture stays whole, the name and
-// the mark are cut at the identity's own edge and never drawn under the
-// switch, every control of the row, AFK and Close or Back with them, lies in
+// not, what always shows still fits: the picture stays whole, the name is
+// cut at the identity's own edge and never drawn under the switch, every
+// control of the row, AFK and Close or Back with them, lies in
 // the panel, and Update takes the line under the row.
 const UPDATE = { harness: "claude", line: "✓ Update installed · Restart to update", installed: "2026-10-29T08:00:00Z", pending: true };
 const NARROWEST = [
@@ -94,7 +153,7 @@ const NARROWEST = [
 for (const { where, viewport, pane } of NARROWEST) {
   for (const style of ["classic", "modern"]) {
     for (const isUpdateWaiting of [false, true]) {
-      test(`the CFO's header row on ${where} in ${style}${isUpdateWaiting ? " with an update waiting" : ""} keeps its picture whole, its name and mark off the switch, and every control in the panel`, async ({ page }) => {
+      test(`the CFO's header row on ${where} in ${style}${isUpdateWaiting ? " with an update waiting" : ""} keeps its picture whole, its name off the switch, and every control in the panel`, async ({ page }) => {
         // Arrange
         await page.setViewportSize(viewport);
         await page.addInitScript(({ style, pane }) => {

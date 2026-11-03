@@ -219,9 +219,12 @@ test("a connecting terminal's loader sits outside its box and covers no part of 
   expect(line.height).toBeLessThan(surface.height);
 });
 
-// A window on the PC means nothing on a phone, so there the CFO's panel has
-// no Open in terminal; the desktop keeps it. The board is stacked there, so
-// the panel takes half the window and its row holds every control.
+// A window on the PC means little on a phone, so there the CFO's terminal,
+// drawn in Classic with no box under it, has no Open in terminal; the desktop
+// keeps it. A phone offers it only while the box shows, as the box's own menu
+// did before the header took it (#1987, tests/panel-header-wrap.spec.ts). The
+// board is stacked there, so the panel takes half the window and its row
+// holds every control.
 for (const [size, viewport, isShown] of [["a phone", { width: 390, height: 844 }, false], ["the desktop", { width: 1440, height: 900 }, true]] as const) {
   test(`on ${size} the CFO's terminal ${isShown ? "keeps" : "has no"} Open in terminal`, async ({ page }) => {
     // Arrange

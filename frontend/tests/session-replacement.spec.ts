@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { at, box, card, field, GOBLIN, NAME, open, PAGE, pasted, snapshot, typed } from "./session-board";
+import { at, box, card, field, GOBLIN, NAME, open, PAGE, pasted, pickStyle, snapshot, typed } from "./session-board";
 
 test.use({ launchOptions: { args: ["--disable-webgl"] } });
 
@@ -88,10 +88,11 @@ test("Classic full-screen Codex opens readable history with wheel while ended th
 });
 
 // Reading back out of Classic shows the conversation and its box while the
-// saved style stays Classic, so Classic chosen in that box must bring the
-// terminal back: the read-back outlived the choice, and the view stayed as it
-// was (the Overlord, 2026-10-28: "speech bubble doesnt chagne the screen").
-test("Classic chosen in the box while reading back out of Classic returns the terminal at once", async ({ page }) => {
+// saved style stays Classic, so Classic chosen in the panel's header must
+// bring the terminal back: the read-back outlived the choice, and the view
+// stayed as it was (the Overlord, 2026-10-28: "speech bubble doesnt chagne the
+// screen").
+test("Terminal chosen on the header's picture while reading back out of Classic returns the terminal at once", async ({ page }) => {
   // Arrange
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
   const relay = await open(page, snapshot({}, { harness: "codex" }), "", PAGE, "[?1049h" + HISTORY);
@@ -106,8 +107,7 @@ test("Classic chosen in the box while reading back out of Classic returns the te
   await expect(conversation).toBeVisible();
 
   // Act
-  await box(page, NAME).getByRole("button", { name: "Style: classic", exact: true }).click();
-  await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).click();
+  await pickStyle(page, "Terminal");
 
   // Assert
   await expect(terminal).toBeVisible();

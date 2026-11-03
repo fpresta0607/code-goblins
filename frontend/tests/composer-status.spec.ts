@@ -1,5 +1,5 @@
 import { expect, test } from "./site";
-import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, send, snapshot, typed } from "./session-board";
+import { box, card, field, GOBLIN, NAME, open, openGoblin, pasted, pickStyle, send, snapshot, typed } from "./session-board";
 
 test.use({ permissions: ["microphone"], launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"], args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"] } });
 
@@ -265,8 +265,7 @@ for (const style of ["modern"]) {
         relay.say({ type: "held", reason: "" });
         await expect(recording).toBeVisible();
         if (width === 390) {
-          await box(page).getByRole("button", { name: "Style: modern", exact: true }).tap();
-          await page.getByRole("group", { name: "Chat style", exact: true }).getByRole("button", { name: "Classic", exact: true }).tap();
+          await pickStyle(page, "Terminal");
           await expect(recording).toBeVisible();
           await expect(field(page)).toBeFocused();
         }
@@ -275,11 +274,11 @@ for (const style of ["modern"]) {
         else await page.mouse.up();
 
         // Assert: recording finished into the same draft without sending. On
-        // the phone, Classic, chosen while it recorded, puts the box away once
-        // the recording ends, and Modern shows the words in its draft.
+        // the phone, Terminal, chosen while it recorded, puts the box away
+        // once the recording ends, and Modern shows the words in its draft.
         if (width === 390) {
           await expect(box(page)).toBeHidden();
-          await page.locator(".context-pane").getByRole("button", { name: "Switch to Modern chat", exact: true }).tap();
+          await pickStyle(page, "Modern chat");
         }
         await expect(field(page)).toHaveValue("please rebase onto main");
         expect(typed(relay)).toBe("");

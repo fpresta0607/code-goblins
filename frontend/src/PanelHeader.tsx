@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { message, request } from "./api";
 import { type Session, type Snapshot, type Task } from "./types";
 import { Avatar } from "./Avatar";
-import { HarnessMark } from "./harness-mark";
+import { PanelStyleMenu, type StyleChoice } from "./panel-style-menu";
 import { BRAND_MARKS } from "./brandMarks";
 import { Icon } from "./Icon";
 import { Notice } from "./notice";
@@ -32,24 +32,26 @@ import { TaskAdjustment } from "./task-adjustment";
 // Who the goblin is, what it is doing now and what the Overlord can do about
 // it. The header is one short row, so the conversation gets the room (the
 // Overlord, 2026-10-29: "Minimize height and maximize the space"): the
-// session's small picture, its name, its harness's mark and a goblin's task
-// id, each cut short when the row is narrow, then switcher, the panel's Chat
-// and Task icons, centred between them and the row's end, then row, the
-// panel's controls with Close or Back, led on the CFO's panel by its AFK
-// switch. The CFO's rare states take a line of their own under the row, at
-// its end, only while one shows: Restart PC while the kernel's pools are past
-// their line, Update while an update of the CFO's harness waits, and the
-// words for a switch that cannot be read, so the row keeps its room.
-// The CFO's picture is Home, onHome, which goes back to the board (the
-// Overlord, 2026-10-29: "just click on the CFO in the top, the CFO avatar,
-// and that should take us back to the home screen").
+// session's small picture and its name, cut short only when the row is narrow,
+// then switcher, the panel's Chat and Task icons, centred between them and the
+// row's end, then row, the panel's controls with Close or Back, led on the
+// CFO's panel by its AFK switch. The CFO's rare states take a line of their own
+// under the row, at its end, only while one shows: Restart PC while the
+// kernel's pools are past their line, Update while an update of the CFO's
+// harness waits, and the words for a switch that cannot be read, so the row
+// keeps its room.
+// While the Chat view shows a conversation both styles can draw, the picture,
+// the CFO's and every goblin's, opens the choice of chat style, styleChoice,
+// with the style shown chosen (PanelStyleMenu); Close or Back goes back to
+// the board, as the CFO's picture did before (#1987).
 // Everything else is the details, isDetails, at the top of the Task view: the
-// goblin's whole name and task id, its status, the one place the panel says
-// the task's state, with one plain sentence under it and the words that
-// sentence leaves out behind Details, where a failure links to the task's
-// log, the task's buttons, and on the CFO's panel the last AFK report and
-// what a press of Update waits for.
-export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, onAnswer, onOpenTask, onOpenLog, onHome }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void; onHome?: () => void }) {
+// goblin's whole name and task id, its harness with the model and effort it
+// runs, which the Terminal style shows nowhere else (#1987), its status, the
+// one place the panel says the task's state, with one plain sentence under it
+// and the words that sentence leaves out behind Details, where a failure links
+// to the task's log, the task's buttons, and on the CFO's panel the last AFK
+// report and what a press of Update waits for.
+export function PanelHeader({ task, node, snapshot, isDetails = false, switcher, row, styleChoice, onAnswer, onOpenTask, onOpenLog }: { task?: Task; node?: Session; snapshot: Snapshot; isDetails?: boolean; switcher?: ReactNode; row?: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onOpenLog: () => void }) {
   const [opening, setOpening] = useState(false);
   const [feedback, showFeedback] = useClickFeedback();
   const cfo = !task && !node;
@@ -65,6 +67,7 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
     : cfo ? { text: nodeStatus({ id: "cfo", title, session: cfoSession, relation: "", status: snapshot.registration ? "Registration stale" : cfoSession ? undefined : "Supervising" }), phase: snapshot.registration ? "stale" : cfoSession?.runtime?.state || cfoSession?.phase || "working" }
       : { text: nodeStatus({ id: title, title, task, session: node, relation: "" }, false, snapshot.tasks, trains), phase: node?.runtime?.state || node?.phase || "" };
   const harness = (task && task.harness) || (node && node.harness) || (cfo ? snapshot.cfo_harness : "");
+  const engine = harness ? harnessTip(harness, cfo ? cfoSession?.model || "" : task?.model || node?.model || "", task?.effort || "") : "";
   const goblinTask = owner && task.phase !== "queued" && task.goblin_name ? task.id : "";
   // A helper names the goblin it helps here, since its card on the board is
   // one row with no room for it.
@@ -117,6 +120,7 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
   if (isDetails) return <div className="panel-header-details">
     {owner && task.phase === "queued" && <TaskAdjustment key={task.id} task={task} snapshot={snapshot} />}
     {goblinTask && <p className="panel-whole-name">{title} · {goblinTask}</p>}
+    {engine && <p className="muted">{engine}</p>}
     {projectLine}{helper}{partOf}
     {!cfo && <p className={"panel-status plain-status phase-" + phase}><span className="status-dot" />{status}{awaitedLink}</p>}
     {evidence && <p className="muted">{evidence}</p>}
@@ -124,13 +128,12 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
     {cfo && snapshot.afk.state === "off" && snapshot.afk.page && <div className="panel-actions"><button className="labelled-button" onClick={() => window.dispatchEvent(new Event(OPEN_AFK_REPORT))}><Icon name="file" /><span>Open your last AFK report</span></button></div>}
     {cfo && snapshot.cfo_update?.pending && <Notice tone="warning" icon="clock">Restarts onto the {harnessName(snapshot.cfo_update.harness)} update when its turn ends.</Notice>}
   </div>;
+  const picture = <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />;
   return <>
     <header className="panel-header one-row">
       <div className="panel-identity">
-        {cfo && onHome ? <button className="panel-home" aria-label="Home" onClick={onHome}><Avatar persona="cfo" small /></button> : <Avatar persona={cfo ? "cfo" : personaFor(task, node)} small />}
+        {styleChoice ? <PanelStyleMenu picture={picture} {...styleChoice} /> : picture}
         <h2 id="panel-title">{title}</h2>
-        {harness && <HarnessMark harness={harness} label={harnessTip(harness, cfo ? cfoSession?.model || "" : task?.model || node?.model || "", task?.effort || "")} />}
-        {goblinTask && <p className="panel-goblin-task">{goblinTask}</p>}
       </div>
       {switcher}
       {row && <PanelRow {...row} isShared leading={cfo && <AfkToggle afk={snapshot.afk} instance={snapshot.instance} />} />}

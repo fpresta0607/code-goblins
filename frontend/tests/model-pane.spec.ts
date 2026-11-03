@@ -52,17 +52,17 @@ for (const [label, width, isTouch] of [["the desktop", 1280, false], ["a phone",
   test.describe(`on ${label}`, () => {
     test.use({ viewport: { width, height: 852 }, hasTouch: isTouch, isMobile: isTouch });
 
-    test("the box's row holds only +, Style, the model and the microphone, and the model's pane holds the checked model on top, the efforts and the mode", async ({ page }) => {
+    test("the box's row holds only +, Speech history, on a phone Clear message, the model and the microphone, and the model's pane holds the checked model on top, the efforts and the mode", async ({ page }) => {
       // Arrange
       const { control, pane, flyout } = await setUp(page);
 
       // Act
-      const row = await box(page).locator(".composer-row button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")));
+      const row = await box(page).locator(".composer-row button").evaluateAll((buttons) => buttons.filter((button) => button.getClientRects().length).map((button) => button.getAttribute("aria-label")));
       if (isTouch) await control.tap();
       else await control.click();
 
       // Assert
-      expect(row).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate"]);
+      expect(row).toEqual(["Add files", "Speech history", ...isTouch ? ["Clear message"] : [], "Change model", isTouch ? "Dictate" : "Hold to dictate"]);
       const models = pane.locator("[data-model]");
       await expect(models).toHaveCount(3);
       await expect(models.first()).toHaveAccessibleName("Opus 5.5");

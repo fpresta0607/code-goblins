@@ -98,7 +98,7 @@ for (const ordering of ["response first", "stream first"] as const) {
 }
 
 for (const owner of ["CFO", "goblin"] as const) {
-  test(`${owner} keeps its working word while reading, and its Stop stops only a session still working`, async ({ page }) => {
+  test(`${owner} keeps its working word while reading, with no Stop beside it`, async ({ page }) => {
     const tail = { id: "working-tail", kind: "message", task_id: owner === "CFO" ? "" : GOBLIN.id, status: "queued", text: "A queued message below the working indicator\nwith another line", created_at: at, updated_at: at };
     const relay = await open(page, snapshot({ actions: [tail] }, { phase: "settled" }), "", pageOf());
     if (owner === "CFO") await page.keyboard.press("Control+Alt+1"); else await openGoblin(page);
@@ -108,30 +108,17 @@ for (const owner of ["CFO", "goblin"] as const) {
     await expect.poll(() => relay.views).toBeGreaterThan(0);
     relay.say({ type: "screen", asking: false, open: false, working: true, doing: "Cogitating" });
     await expect(talk.getByRole("status", { name: "Cogitating" })).toBeVisible();
-    const stop = talk.getByRole("button", { name: "Stop", exact: true });
-    await expect(stop).toHaveCount(1);
+    // The working row holds no Stop: stopping is the box's (#1987).
+    await expect(talk.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
     const place = await readNearEnd(talk, page);
     const rows = await captureRows(talk);
-    // While the session works, Stop he reads near presses Escape through the
-    // live relay; while its typing is held it says why and types nothing.
-    await expect(stop).not.toHaveAttribute("aria-disabled", "true");
-    await stop.evaluate((button: HTMLButtonElement) => button.click());
-    await expect.poll(() => typed(relay)).toBe("\x1b");
-    relay.say({ type: "held", reason: "held" });
-    await expect(stop).toHaveAttribute("aria-disabled", "true");
-    await expect(stop).toHaveCSS("opacity", "0.55");
-    await pressGated(page, stop, "held", name);
-    // Once the turn ends, the row he reads stays, and its Stop says the
-    // session no longer works instead of typing Escape into an idle harness.
-    relay.say({ type: "held", reason: "" });
+    // Once the turn ends, the row he reads stays as it was.
     relay.say({ type: "screen", asking: false, open: false, working: false });
     await expect(talk.getByRole("status", { name: "Cogitating" })).toBeVisible();
     expect(await reading(talk)).toEqual(place);
     expect(await currentRows(talk)).toEqual({ sameNodes: true, rows });
-    await expect(stop).toHaveAttribute("aria-disabled", "true");
-    await expect(stop).toHaveCSS("opacity", "0.55");
-    await pressGated(page, stop, "It is no longer working.", name);
-    expect(typed(relay)).toBe("\x1b");
+    await expect(talk.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+    expect(typed(relay)).toBe("");
     await page.getByRole("button", { name: "Jump to latest" }).click();
     await expect(talk.getByRole("status", { name: "Cogitating" })).toHaveCount(0);
   });
