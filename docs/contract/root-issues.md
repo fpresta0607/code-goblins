@@ -24,7 +24,9 @@ The scheduler checks both again before it starts a picked-up task, and refuses t
 It starts a picked-up task only once GitHub reads its issue open, and a closed issue holds its row: you are told once with a `root_reconciliation:` notify to reconcile the old brief or queue new work under a new id, and the row raises no idle wake while it stays queued.
 The issue is read again every 30 minutes, so one reopened starts as any other, and one that cannot be read waits as other work the scheduler could not start does.
 Each issue it takes becomes task `root-<repository>-<number>` with a brief built from the issue, its text quoted so no line of it is read as a setting, whose acceptance criteria ask for a fix at the cause, a test that is red before it, and `Fixes #<number>` in the pull request so the issue closes when it merges.
-Its Delivery says `mode: direct-PR`, so its goblin pushes, opens the pull request and lets CI judge, on any harness and with no gate daemon to stall on.
+New automatic briefs select `mode: no-mistakes` with unknown surface and risk, since an issue's report does not establish a low-risk change assessment.
+The [delivery intake](delivery.md#delivery) contract governs any concrete assessment before dispatch.
+A started task keeps its mode and history; a queued one, including a brief picked up before this rule that names `mode: direct-PR`, is selected at its start, where a narrower mode with neither a qualifying assessment nor a CFO-authorized exception selects no-mistakes and the spawn says why.
 Its row goes to the bottom of `## Queued` with `(priority: ops-root)`, and the scheduler starts it behind every other queued task, as memory allows.
 At most two picked-up issues of one repository wait or run at a time, and a notify starting `picked up:` tells you of each.
 An issue on record is never picked up again, even when its task ends without fixing it: dispatch it yourself, or close it.

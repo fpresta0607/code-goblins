@@ -1,10 +1,14 @@
 # cfo brief
 
-`cfo brief <id> --project <p> [--kind <kind>] [--mode <m>]`
+`cfo brief <id> --project <p> [--kind <kind>] [--mode <m>] [--surface <s>] [--risk <r>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]`
 
 `cfo brief ready <id>`
 
 Scaffold a task brief at `data/<id>/brief.md`.
+`--surface internal|product|mixed|unknown`, `--risk low|<sensitive-surface>` and `--reason "<assessment>"` describe the concrete change for the project's delivery posture.
+Omitted or uncertain inputs select no-mistakes; `--mode` can request stricter validation, and a narrower exception needs explicit Overlord authority recorded with `--delivery-exception` at brief and spawn.
+A narrower `--mode` with neither a qualifying assessment nor that exception writes no-mistakes and prints why on stderr.
+The Delivery section records this assessment for the spawn's resolver; see [Delivery intake](../contract/delivery.md#delivery).
 The brief records the resolved checkout, so a bare name and its path write the same brief.
 Scaffolds created by `cfo brief <id>` start with `ready: false` in Delivery.
 Replace every TASK, ACCEPTANCE and CONSTRAINTS placeholder, finish the credentials and launch settings, then run `cfo brief ready <id>`.

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -49,18 +51,24 @@ type Plan struct {
 	Unknown []string
 	// Vet and Tests are the packages Level vets and tests, as import paths
 	// or ./... for every package, and Left is each test run Level leaves to
-	// a broader level, with why.
+	// a broader level or to another platform, with why.
 	Vet, Tests []string
 	Left       []Deferred
 	// Alone are the packages Level tests that the policy runs after Tests,
 	// in a turn of their own and one at a time, as import paths.
-	Alone []string
+	Alone  []string
+	Guards []Step
 }
 
 // listFields are the fields of a package the plan reads. Asking go list for
 // these alone spares it loading every package's dependencies, which took it
 // 10 to 65 seconds for this repository on a loaded machine.
 const listFields = "ImportPath,Dir,Imports,TestImports,XTestImports,EmbedPatterns,TestEmbedPatterns,XTestEmbedPatterns"
+
+// StepTestArgs start the go tests cfo gate test runs of a plan's Tests and
+// Guards. The step has no run limit of its own, so go test's ends a test
+// that hangs.
+var StepTestArgs = []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}
 
 // Read works out the plan for the branch checked out in dir: the files that
 // differ from where it left the default branch (origin/HEAD, else
@@ -213,6 +221,27 @@ func build(found findings, asked Level) Plan {
 	}
 	plan.Vet, plan.Tests, plan.Left = scope(plan.Level, plan.Choices, plan.Everything, slow)
 	plan.Tests, plan.Alone = apart(plan.Tests, found.packages, pathsIn(found.root, found.packages, policy.AlonePackages))
+	for _, guard := range policy.Guards {
+		if guard.GOOS != "" && guard.GOOS != runtime.GOOS {
+			plan.Left = append(plan.Left, Deferred{Check: "guard tests of " + named(guard.Package), Why: "requires " + guard.GOOS + "; this run is " + runtime.GOOS})
+			continue
+		}
+		guardPaths := pathsIn(found.root, found.packages, []string{guard.Package})
+		for importPath := range guardPaths {
+			if slices.Contains(plan.Tests, "./...") || slices.Contains(plan.Tests, importPath) || slices.Contains(plan.Alone, importPath) {
+				continue
+			}
+			command := append(slices.Clone(StepTestArgs), importPath)
+			if len(guard.Tests) > 0 {
+				tests := make([]string, len(guard.Tests))
+				for index, test := range guard.Tests {
+					tests[index] = regexp.QuoteMeta(test)
+				}
+				command = append(slices.Clone(StepTestArgs), "-run", "^("+strings.Join(tests, "|")+")$", importPath)
+			}
+			plan.Guards = append(plan.Guards, Step{What: "guard tests of " + named(guard.Package), Why: guard.Why, Detail: guard.Tests, Command: command})
+		}
+	}
 	return plan
 }
 

@@ -345,9 +345,8 @@ func rootRowTitle(issue tickets.OpenRoot) string {
 // rootBrief is the brief of the task a root issue becomes: the issue's own
 // text as its Task, a pull request that closes the issue as its outcome. The
 // text is quoted, so no heading or setting line in it, such as "mode:", is
-// read as the brief's own. Its delivery is direct-PR: the goblin pushes and
-// CI judges, which works on every harness, where the gated pipeline needs a
-// harness a gate runs on and the machine's shared daemon running.
+// read as the brief's own. Automatic intake has no reviewed change assessment,
+// so it selects strict delivery instead of assuming the issue is low risk.
 func rootBrief(name, id string, issue tickets.OpenRoot, services []string) string {
 	credentials := auth.NoServices
 	if len(services) > 0 {
@@ -400,9 +399,12 @@ Never name an AI product, company, model, agent or assistant identity as a commi
 ## Delivery
 
 kind: ship
-mode: direct-PR
+mode: no-mistakes
+surface: unknown
+risk: unknown
+reason: automatic issue intake has no reviewed change assessment
 ready: true
-`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), credentials, fleet.BriefStepCards())
+`, id, name, issue.Number, issue.URL, body, issue.Number, issue.Number, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id, "no-mistakes"), credentials, fleet.BriefStepCards())
 }
 
 func readRootPickups(stateDir string) ([]rootPickup, error) {

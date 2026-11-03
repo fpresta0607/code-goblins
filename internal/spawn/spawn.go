@@ -30,6 +30,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/host"
 	"github.com/fpresta0607/code-goblins/internal/lock"
 	"github.com/fpresta0607/code-goblins/internal/pipeline"
+	"github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/services"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
@@ -50,6 +51,7 @@ type Request struct {
 	BriefHash   [sha256.Size]byte
 	Kind        string
 	Mode        string
+	Delivery    *project.DeliverySelection
 	Yolo        bool
 	Harness     harness.Kind
 	Model       string
@@ -209,6 +211,15 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	if err := validateHelperRequest(req); err != nil {
 		return Result{}, err
 	}
+	deliveryText, deliveryHash := "", ""
+	if req.Delivery != nil {
+		if req.Delivery.Mode != req.Mode {
+			return Result{}, errors.New("spawn: delivery selection differs from requested mode")
+		}
+		if deliveryText, deliveryHash, err = req.Delivery.Encode(); err != nil {
+			return Result{}, err
+		}
+	}
 	isServicesNeeded, err := s.briefNeedsServices(admittedBrief, project)
 	if err != nil {
 		return Result{}, err
@@ -233,7 +244,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 		// no gate can run on is refused here, before anything is built.
 		if policy.Version > 5 {
 			if err := pipeline.GateHarness(string(req.Harness)); err != nil {
-				return Result{}, fmt.Errorf("spawn: %w. Spawn it on another harness, or with --mode direct-PR, which needs no gate", err)
+				return Result{}, fmt.Errorf("spawn: %w. Spawn it on another harness, or select a mode that needs no gate through a low-risk delivery assessment under a direct-PR or local-only project posture or a CFO-authorized --delivery-exception", err)
 			}
 		}
 		selection = &chosen
@@ -384,6 +395,7 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	result.Meta.GoblinName, result.Meta.GoblinTitle = goblin.Name, goblin.Title
 	result.Meta.Credentials, result.Meta.HasCredentials = recordedServices(preflight.Grant), true
 	result.Meta.MCPServers = need.MCPServers
+	result.Meta.DeliveryHash = deliveryHash
 
 	// Publish metadata as soon as the worktree exists, before the harness can
 	// start: a task whose launch later fails is then addressable and cleanable
@@ -447,6 +459,11 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 
 	if err := os.MkdirAll(taskTmp, 0o755); err != nil {
 		return fail(result, fmt.Errorf("spawn: create task temporary directory: %w", err))
+	}
+	if deliveryText != "" {
+		if err := fsx.AtomicWriteFile(filepath.Join(taskTmp, "delivery.json"), []byte(deliveryText)); err != nil {
+			return fail(result, err)
+		}
 	}
 	if err := createScratch(scratch); err != nil {
 		return fail(result, fmt.Errorf("spawn: create the task's scratch folder: %w", err))
@@ -559,6 +576,9 @@ func (s Service) Spawn(ctx context.Context, req Request) (result Result, err err
 	}
 
 	result.Output = successOutput(result.Meta) + "\ngoblin: " + goblin.String()
+	if req.Delivery != nil {
+		result.Output += fmt.Sprintf("\ndelivery: mode=%s posture=%s surface=%s risk=%s reason=%s", req.Delivery.Mode, req.Delivery.Posture, req.Delivery.Surface, req.Delivery.Risk, req.Delivery.Reason)
+	}
 	if notice := containedNotice(nativeHost); notice != "" {
 		result.Output += "\n" + notice
 	}
@@ -971,7 +991,17 @@ func (s Service) ensureProjectSeeded(ctx context.Context, project string) error 
 // then report outcomes through cfo notify so the CFO is woken with the real
 // payload rather than a guess from its screen.
 func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, refused string) string {
-	return harness.BriefInstruction(briefPath) + dependencyInstruction(meta.Worktree, install, refused) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
+	return harness.BriefInstruction(briefPath) + deliveryInstruction(meta) + dependencyInstruction(meta.Worktree, install, refused) + heavyRunInstruction() + processInstruction() + notifyInstruction(meta)
+}
+
+// deliveryInstruction names the frozen delivery mode of a task and the one
+// validation owner that mode gives it, over whatever its brief says, and
+// keeps its ask-user findings the CFO's.
+func deliveryInstruction(meta state.TaskMeta) string {
+	if meta.DeliveryHash == "" {
+		return ""
+	}
+	return " Your delivery mode is " + meta.Mode + ", frozen at " + filepath.Join(meta.TaskTmp, "delivery.json") + " before validation: it supersedes the brief's mode line and Verification section. " + fleet.BriefVerification(meta.ID, meta.Mode) + " Follow only this path and its required checks, and add no manual review gate. The implementation worker never decides its own ask-user finding: report it to the CFO and apply the returned decision through cfo pipeline respond."
 }
 
 // heavyRunInstruction tells a goblin that one heavy run goes at a time on the

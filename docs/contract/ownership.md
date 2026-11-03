@@ -85,7 +85,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo auth revoke <task-id> --mcp <server> [<server>...]` | [cfo help auth revoke](../commands/auth/revoke.md) |
 | `cfo auth refresh <task-id>` | [cfo help auth refresh](../commands/auth/refresh.md) |
 | `cfo project check <project> [--area <area>] [--json] [--draft <file>]` \| `check --unfiled [--json]` \| `show <project>` \| `init <project>` | [cfo help project](../commands/project.md) |
-| `cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]` | [cfo help spawn](../commands/spawn.md) |
+| `cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--delivery-exception "<authority and reason>"] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]` | [cfo help spawn](../commands/spawn.md) |
 | `cfo title <id> "<short title>"` | [cfo help title](../commands/title.md) |
 | `cfo switch <id> [--harness <h>] [--model <m>] [--effort <e>] [--force-dirty] [--restart]` | [cfo help switch](../commands/switch.md) |
 | `cfo pipeline config-drift \| config-apply \| migrate <id> \| run <id> [--branch <b>] --intent-file <file> \| respond <id> [--branch <b> \| --run <run>] --action <fix\|approve> [--findings <ids>] [--instructions <text>] [--accept <ids>] [--reason <text>] \| recover <id> [--branch <b> \| --run <run>]` | [cfo help pipeline](../commands/pipeline.md) |
@@ -104,7 +104,7 @@ The extraction preserves the existing obligations, including gate budgets, merge
 | `cfo tickets <project> [--brief <file>] [--files <paths>] [--json]` | [cfo help tickets](../commands/tickets.md) |
 | `cfo tickets <project> --allow-public-tickets` | [cfo help tickets](../commands/tickets.md) |
 | `cfo issue file --project <p> --title <t> [--body-file <f>] [--evidence <text>]... [--root <key>]` | [cfo help issue file](../commands/issue/file.md) |
-| `cfo brief <id> --project <p> [--kind <kind>] [--mode <m>]` | [cfo help brief](../commands/brief.md) |
+| `cfo brief <id> --project <p> [--kind <kind>] [--mode <m>] [--surface <s>] [--risk <r>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]` | [cfo help brief](../commands/brief.md) |
 | `cfo pr check <id> <url>` | [cfo help pr check](../commands/pr/check.md) |
 | `cfo pr merge <url> [--method <m>] [--delete-branch] [--verified "<what verified it>"]` | [cfo help pr merge](../commands/pr/merge.md) |
 | `cfo pr train <project>` | [cfo help pr train](../commands/pr/train.md) |
@@ -141,8 +141,8 @@ No upstream runtime, Relay, secondmate or terminal-backend behavior is activated
 | Session start, complete digest and recovery interpretation | cfo-supervision and cfo session-start/native hooks retain custody and hook trust; [memory](memory.md) owns warm composition and bounded state. |
 | Warm retrieved context, cold archive and authoritative memory tiers | [Memory](memory.md) and cfo memory own source coverage, selective retrieval, budgets and lossless dry runs; active for a verified catalog, with no automatic legacy migration. |
 | Required Stow pass and capture receipts | The shared `stow` skill owns tier clocks, independent evidence, pending capture, open records and individually approved pinned offload; [memory](memory.md) owns its data interfaces. |
-| Validation supervision and ask-user findings | [Delivery](delivery.md), `cfo-delivery` and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CFO decisions; active when the delivery follow-up lands. |
-| Project intake and verification selection | [Delivery](delivery.md), `cfo-delivery`, project-check, project records and cfo verify own selection at task intake and scout completion; routing is active, while simple/intensive selection implementation remains with the delivery follow-up. |
+| Validation supervision and ask-user findings | [Delivery](delivery.md), `cfo-delivery` and docs/pipeline.md own adaptive verification with preserved frozen policy, run custody and CFO decisions; active. |
+| Project intake and verification selection | [Delivery](delivery.md), `cfo-delivery`, project-check, project records and cfo verify own selection at task intake and scout completion; routing and delivery selection are active for newly spawned tasks. |
 | Landing and cleanup | cfo-delivery and cfo-worktrees preserve merge authority and unlanded-work custody. |
 | Away supervision and user decisions | cfo-afk, cfo-decisions and step-card preserve the native board and explicit switch authority. |
 

@@ -49,7 +49,20 @@ while ($true) {
     catch { if ((Get-Date) -gt $deadline) { throw "the stand-in model did not answer within 30 seconds" }; Start-Sleep -Milliseconds 250 }
 }
 
-$brief = & goblins brief demo-goblin --project $Project --mode local-only
+# A build that selects delivery at intake takes local-only from the demo
+# project's record, a local-only posture with a check it can run, and the
+# task's low-risk internal assessment, as the CFO records them. An earlier
+# release, as the update job runs, takes the mode alone, and its loader
+# refuses a record that names a posture.
+$assessment = @()
+if ((& goblins brief demo-goblin -h 2>&1 | Out-String) -match "-surface") {
+    $name = Split-Path -Leaf $Project
+    $record = Join-Path $env:CFO_HOME "data\projects\$name\project.json"
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $record) | Out-Null
+    [IO.File]::WriteAllText($record, '{"project":' + (ConvertTo-Json $name) + ',"delivery":{"posture":"local-only"},"verification":{"fast":[["git","status"]]}}')
+    $assessment = @("--surface", "internal", "--risk", "low", "--reason", "a demo goblin in a disposable checkout")
+}
+$brief = & goblins brief demo-goblin --project $Project --mode local-only @assessment
 if ($LASTEXITCODE -ne 0) { throw "goblins brief exited with code $LASTEXITCODE" }
 # An update job runs this under a published release from before brief
 # readiness, whose brief has no ready: line and spawns as it was written.

@@ -18,6 +18,7 @@ import (
 	"github.com/fpresta0607/code-goblins/internal/fsx"
 	"github.com/fpresta0607/code-goblins/internal/home"
 	"github.com/fpresta0607/code-goblins/internal/lock"
+	projectcfg "github.com/fpresta0607/code-goblins/internal/project"
 	"github.com/fpresta0607/code-goblins/internal/state"
 	"github.com/fpresta0607/code-goblins/internal/worktree"
 )
@@ -40,7 +41,11 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) (
 	fs := flag.NewFlagSet("brief", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	project := fs.String("project", "", "project checkout path")
-	mode := fs.String("mode", "no-mistakes", "no-mistakes, direct-PR, or local-only")
+	mode := fs.String("mode", "", "no-mistakes, direct-PR, or local-only; otherwise project posture and change risk")
+	surface := fs.String("surface", "unknown", "internal, product, mixed or unknown change surface")
+	risk := fs.String("risk", "unknown", "low or the concrete high-risk surface")
+	reason := fs.String("reason", "", "concrete reason for the change assessment")
+	deliveryException := fs.String("delivery-exception", "", "explicit Overlord authority for a narrower delivery path")
 	kind := fs.String("kind", "ship", "ship or scout")
 	if !parseFlags(fs, args[1:]) {
 		return 2
@@ -53,7 +58,7 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) (
 		fmt.Fprintln(stderr, "cfo brief: --kind must be ship or scout")
 		return 2
 	}
-	if !validSpawnMode(*mode) {
+	if *mode != "" && !validSpawnMode(*mode) {
 		fmt.Fprintln(stderr, "cfo brief: --mode must be no-mistakes, direct-PR, or local-only")
 		return 2
 	}
@@ -100,6 +105,16 @@ func runBrief(args []string, stdout, stderr io.Writer, runtime commandRuntime) (
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	assessment := fmt.Sprintf("## Delivery\nsurface: %s\nrisk: %s\nreason: %s\n", *surface, *risk, *reason)
+	manifest, _, loadErr := projectcfg.LoadForCheckout(h.Data, checkout)
+	if loadErr != nil {
+		manifest = projectcfg.Manifest{}
+	}
+	selected := projectcfg.SelectDelivery(manifest, assessment, *mode, *deliveryException)
+	if *mode != "" && selected.Mode != *mode {
+		fmt.Fprintf(stderr, "cfo brief: --mode %s was not selected: %s\n", *mode, selected.Reason)
+	}
+	*mode = selected.Mode
 	body := fmt.Sprintf(`# Brief %s
 
 ## Project
@@ -144,8 +159,11 @@ Run cfo brief ready %s after requirements, credentials and launch settings are c
 Keep ready: false while editing so the supervisor and explicit spawn wait.
 kind: %s
 mode: %s
+surface: %s
+risk: %s
+reason: %s
 ready: false
-`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id), briefAuthentication(h.Data, *project), "`Co-Authored-By`", id, *kind, *mode)
+`, id, *project, fleet.BriefProcesses(), fleet.BriefRootIssues(), fleet.BriefVerification(id, *mode), briefAuthentication(h.Data, *project), "`Co-Authored-By`", id, *kind, *mode, *surface, *risk, *reason)
 	if err := fsx.AtomicWriteFile(path, []byte(body)); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1

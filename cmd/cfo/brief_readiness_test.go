@@ -123,8 +123,18 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 			t.Fatalf("draft froze policy: %v", err)
 		}
 	}
+	// The project's local-only posture, with a fast check, lets the assessed
+	// low-risk internal change take the local-only mode its brief authors.
+	manifestPath := filepath.Join(h.Data, "projects", filepath.Base(project), "project.json")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte(`{"project":"`+filepath.Base(project)+`","delivery":{"posture":"local-only"},"verification":{"fast":[["git","status"]]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	content = bytes.ReplaceAll(content, []byte("credentials: none"), []byte("credentials: github"))
 	content = bytes.ReplaceAll(content, []byte("mode: no-mistakes"), []byte("mode: local-only\nharness: codex\nmodel: gpt-6.1-sol\neffort: high"))
+	content = bytes.ReplaceAll(content, []byte("surface: unknown\nrisk: unknown\nreason: \n"), []byte("surface: internal\nrisk: low\nreason: an internal draft fixture\n"))
 	content = bytes.ReplaceAll(content, []byte("ready: false"), []byte("ready: true"))
 	if err := fsx.AtomicWriteFile(path, content); err != nil {
 		t.Fatal(err)
@@ -219,7 +229,7 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 			return nil
 		}
 		hasEdited = true
-		raceBrief = bytes.ReplaceAll(bytes.ReplaceAll(raceBrief, []byte("mode: local-only"), []byte("mode: direct-PR")), []byte("credentials: github"), []byte("credentials: none"))
+		raceBrief = bytes.ReplaceAll(bytes.ReplaceAll(raceBrief, []byte("mode: local-only"), []byte("mode: no-mistakes")), []byte("credentials: github"), []byte("credentials: none"))
 		return fsx.AtomicWriteFile(racePath, raceBrief)
 	}
 	scan("race-task")
@@ -232,7 +242,7 @@ func TestBriefDraftWaitsForFinalLaunchChoicesThroughTheSupervisor(t *testing.T) 
 	mutex.Lock()
 	launched, selectedNeeds = append([]spawn.Request(nil), requests...), append([]auth.Need(nil), needs...)
 	mutex.Unlock()
-	if len(launched) != 3 || launched[2].ID != "race-task" || launched[2].Mode != "direct-PR" || len(selectedNeeds[2].Services) != 0 {
+	if len(launched) != 3 || launched[2].ID != "race-task" || launched[2].Mode != "no-mistakes" || len(selectedNeeds[2].Services) != 0 {
 		t.Fatalf("changed brief did not retry once with final choices: %+v %+v", launched, selectedNeeds)
 	}
 }

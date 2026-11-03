@@ -61,8 +61,8 @@ func TestSpawnRefusesAGatedTaskOnAHarnessNoGateRunsOn(t *testing.T) {
 
 		_, err := f.service.Spawn(context.Background(), f.request)
 
-		if err == nil || !strings.Contains(err.Error(), `"grok"`) || !strings.Contains(err.Error(), "--mode direct-PR") {
-			t.Fatalf("error = %v, want the grok task refused with the mode that needs no gate", err)
+		if err == nil || !strings.Contains(err.Error(), `"grok"`) || !strings.Contains(err.Error(), "delivery assessment") || !strings.Contains(err.Error(), "--delivery-exception") || strings.Contains(err.Error(), "--mode direct-PR") {
+			t.Fatalf("error = %v, want the grok task refused with the assessment or exception route to a mode that needs no gate", err)
 		}
 		if _, readErr := state.ReadTaskMeta(f.stateDir, f.request.ID); !errors.Is(readErr, os.ErrNotExist) {
 			t.Fatalf("the refused spawn left a task record: %v", readErr)
