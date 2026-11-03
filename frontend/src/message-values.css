@@ -15,3 +15,13 @@
 .message-table .copy-value code { min-width: 12ch; }
 .copy-value .icon-button { flex: none; }
 .copy-value .icon-button.copied { color: var(--mint); border-color: var(--mint); }
+
+.message-document { display: inline-flex; box-sizing: border-box; align-items: flex-start; gap: 12px; width: 100%; max-width: 32rem; margin: 8px 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field-bg); vertical-align: middle; white-space: normal; }
+.message-document-icon { display: grid; flex: none; justify-items: center; gap: 4px; color: var(--mint); font: 700 .75rem var(--font-mono); }
+.message-document-body { display: grid; min-width: 0; gap: 6px; }
+.message-document-label { font-weight: 600; overflow-wrap: anywhere; }
+.message-document-actions { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.message-document-actions a, .message-document-actions button { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; color: var(--mint); font: inherit; text-decoration: underline; cursor: pointer; }
+.message-document-actions button:disabled { color: var(--muted); cursor: default; }
+.message-document-actions :focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; border-radius: 3px; }
+.message-document [role="status"] { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
