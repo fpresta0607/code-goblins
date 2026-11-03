@@ -17,6 +17,18 @@ When the question puts a goblin's decision to him, add `--for <task>`: while it 
 When it comes with a message he sends himself, such as an email, add `--message-file <file>` in the form `cfo auth request` takes: his card shows it with Copy.
 While [AFK mode](afk.md#afk-mode) is on `cfo question` refuses: nothing is asked of him then.
 Write every question to the Overlord, the CFO's `--text` and a goblin's `--blocked` alike, to be read rather than scanned: lead with one short sentence that is the actual question, put the details on lines of their own that start with `- ` (a real line break, such as `` `n `` in PowerShell), and wrap only the verdict or the blocking item in `**two asterisks**`, never the whole question.
+Write it for a person who has not followed the work: those lines give the recommendation and its material reason, what each choice does in practice, and any risk, cost or missing evidence, in plain words without run IDs, finding codes, hashes or command names.
+Put that evidence, with every finding, identifier, receipt and doubt it rests on, after a line that reads only `Details:`: the card folds it under Technical details, and the CFO's wake and History keep the whole text.
+
+```text
+Fix the three review findings in one managed round?
+- **Recommended: fix them now.** One finding is a real bug: the test runner can skip a registered test, so CI could pass without running it.
+- Fix them now: one bounded repair round on four test files, then the gate goes on to CI. No workflow or deploy change.
+- Keep it parked: nothing changes, and the pull request stays held at Review with the bug in it.
+Details:
+- registry-parser-divergence | error | tools/select_tests.py:279, run 01M6EASKNZ3NNDFC6PWCBFHY7R on head f77bd7ee.
+```
+
 The Command Center shows it as body text: a blank line starts a paragraph, a `- ` line is a bullet, `**text**` is bold, and anything else, markup included, is shown exactly as written.
 Other always accepts a written answer, and no answer is selected automatically.
 Run publication from the registered primary session's shell and reuse the same ID/content for an uncertain retry.
