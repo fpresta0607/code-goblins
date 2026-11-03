@@ -162,7 +162,7 @@ func runGateTest(args []string, dir string, stdout, stderr io.Writer, runtime co
 	if len(plan.Tests) > 0 {
 		// -json has go test say what became of each package and each test, which
 		// the run prints as go test prints without it and records by package.
-		commands = append(commands, append([]string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}, plan.Tests...))
+		commands = append(commands, append(slices.Clone(gatetest.StepTestArgs), plan.Tests...))
 	}
 	if len(plan.Alone) > 0 {
 		// The packages the policy runs alone take a turn of their own, one at

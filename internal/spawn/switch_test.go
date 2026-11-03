@@ -261,7 +261,7 @@ func TestARelaunchKeepsTheFrozenDeliveryRule(t *testing.T) {
 				t.Fatalf("submitted = %q, want the relaunched harness's instruction", submitted)
 			}
 			instruction := delivered(t, submitted[0])
-			if !strings.Contains(instruction, "Read the frozen delivery selection at "+filepath.Join(f.meta.TaskTmp, "delivery.json")) || !strings.Contains(instruction, "never decides its own ask-user finding") {
+			if !strings.Contains(instruction, "Your delivery mode is no-mistakes, frozen at "+filepath.Join(f.meta.TaskTmp, "delivery.json")) || !strings.Contains(instruction, "never decides its own ask-user finding") {
 				t.Errorf("instruction = %q, want the frozen delivery selection and the ask-user rule", instruction)
 			}
 		})

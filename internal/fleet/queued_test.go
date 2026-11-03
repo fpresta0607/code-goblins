@@ -250,34 +250,39 @@ func TestUnreadableCompletionEvidenceRefusesQueuedDispatch(t *testing.T) {
 	}
 }
 
-// A brief written from a queued row, as the board's Start writes one, tells
-// its goblin what to run before each push, as a brief cfo brief writes does.
-func TestAQueuedBriefTellsTheGoblinToRunTheProjectsCheckBeforeEachPush(t *testing.T) {
-	// Arrange
-	h := home.Home{State: t.TempDir(), Data: t.TempDir()}
-	if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **nw-sync** - Say why a billing sync fails (repo: northwind) (mode: direct-PR)\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	queued, err := ReadQueuedTask(h, "nw-sync")
-	if err != nil {
-		t.Fatal(err)
-	}
+// A brief written from a queued row, as the board's Start writes one, carries
+// no change assessment, so its task starts strict whatever mode the row asks
+// for: its Verification section gives the checks to the pipeline alone and
+// starts no cfo verify beside it.
+func TestAQueuedBriefGivesItsChecksToThePipelineWhateverModeItsRowAsks(t *testing.T) {
+	for _, mode := range []string{"direct-PR", "local-only"} {
+		t.Run(mode, func(t *testing.T) {
+			// Arrange
+			h := home.Home{State: t.TempDir(), Data: t.TempDir()}
+			if err := os.WriteFile(filepath.Join(h.Data, "backlog.md"), []byte("## Queued\n- **nw-sync** - Say why a billing sync fails (repo: northwind) (mode: "+mode+")\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			queued, err := ReadQueuedTask(h, "nw-sync")
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// Act
-	if err := WriteQueuedBrief(h, queued); err != nil {
-		t.Fatal(err)
-	}
+			// Act
+			if err := WriteQueuedBrief(h, queued); err != nil {
+				t.Fatal(err)
+			}
 
-	// Assert
-	body, err := os.ReadFile(filepath.Join(h.Data, "nw-sync", "brief.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	brief := strings.Join(strings.Fields(string(body)), " ")
-	for _, want := range []string{"## Verification Before each push run `cfo verify nw-sync`.", "Do not pick tests to run by name in its place"} {
-		if !strings.Contains(brief, want) {
-			t.Errorf("the queued brief is missing %q:\n%s", want, brief)
-		}
+			// Assert
+			body, err := os.ReadFile(filepath.Join(h.Data, "nw-sync", "brief.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, verification, _ := strings.Cut(string(body), "## Verification\n\n")
+			verification, _, _ = strings.Cut(verification, "\n\n## Authentication")
+			if !strings.Contains(verification, "Drive `cfo pipeline run nw-sync --intent-file <file>`") || !strings.Contains(verification, "Do not start a separate cfo verify") || strings.Contains(verification, "Before each push run") {
+				t.Errorf("the queued brief's Verification section = %q, want the pipeline as its one check owner", verification)
+			}
+		})
 	}
 }
 

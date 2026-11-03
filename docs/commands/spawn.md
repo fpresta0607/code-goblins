@@ -1,6 +1,6 @@
 # cfo spawn
 
-`cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]`
+`cfo spawn <id> --project <p> --brief <b> [--harness <h>] [--mode <m>] [--delivery-exception "<authority and reason>"] [--model <m>] [--effort <e>] [--class <c>] [--title "<short title>"] [--yolo] [--overlap-ok "<why>"]`
 
 Dispatch one goblin (ship task).
 Resolve delivery from the project's `delivery.posture` and the brief's explicit surface, risk and reason, as [Delivery intake](../contract/delivery.md#delivery) specifies.

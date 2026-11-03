@@ -65,6 +65,11 @@ type Plan struct {
 // 10 to 65 seconds for this repository on a loaded machine.
 const listFields = "ImportPath,Dir,Imports,TestImports,XTestImports,EmbedPatterns,TestEmbedPatterns,XTestEmbedPatterns"
 
+// StepTestArgs start the go tests cfo gate test runs of a plan's Tests and
+// Guards. The step has no run limit of its own, so go test's ends a test
+// that hangs.
+var StepTestArgs = []string{"go", "test", "-json", "-count=1", "-p", "2", "-timeout", "45m"}
+
 // Read works out the plan for the branch checked out in dir: the files that
 // differ from where it left the default branch (origin/HEAD, else
 // origin/main), committed, uncommitted or untracked, with a rename counted at
@@ -226,13 +231,13 @@ func build(found findings, asked Level) Plan {
 			if slices.Contains(plan.Tests, "./...") || slices.Contains(plan.Tests, importPath) || slices.Contains(plan.Alone, importPath) {
 				continue
 			}
-			command := append(slices.Clone(testArgs), importPath)
+			command := append(slices.Clone(StepTestArgs), importPath)
 			if len(guard.Tests) > 0 {
 				tests := make([]string, len(guard.Tests))
 				for index, test := range guard.Tests {
 					tests[index] = regexp.QuoteMeta(test)
 				}
-				command = append(slices.Clone(testArgs), "-run", "^("+strings.Join(tests, "|")+")$", importPath)
+				command = append(slices.Clone(StepTestArgs), "-run", "^("+strings.Join(tests, "|")+")$", importPath)
 			}
 			plan.Guards = append(plan.Guards, Step{What: "guard tests of " + named(guard.Package), Why: guard.Why, Detail: guard.Tests, Command: command})
 		}

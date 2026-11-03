@@ -98,7 +98,9 @@ func WriteQueuedBrief(h home.Home, queued QueuedTask) error {
 }
 
 // QueuedBriefText is the brief WriteQueuedBrief writes for a queued row, so
-// what routes the task before its brief exists reads what spawn will.
+// what routes the task before its brief exists reads what spawn will. A row
+// carries no change assessment, so its task starts in no-mistakes whatever
+// mode the row asks for, and its Verification section is that mode's.
 func QueuedBriefText(queued QueuedTask) string {
 	row := queued.Row
 	mode := row.Mode
@@ -109,7 +111,7 @@ func QueuedBriefText(queued QueuedTask) string {
 	if kind == "" {
 		kind = "ship"
 	}
-	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID, mode), BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
+	return fmt.Sprintf("# Brief %s\n\n## Project\n\n%s\n\n## Task\n\n%s\n\n%s\n\n## Acceptance criteria\n\nDeliver the task described above and verify its behavior.\n\n## Constraints\n\nFollow the project's instructions and the task detail above. %s %s\n\n## Verification\n\n%s\n\n## Authentication\n\nThis brief names no service, so the task carries the credentials of the services the project's manifest marks default and of no other. The CFO grants another with cfo auth grant. %s\n\n## Commits\n\nNever name an AI product, company, model, agent or assistant identity as a commit co-author.\n\n## Delivery\n\nkind: %s\nmode: %s\nharness: %s\nmodel: %s\neffort: %s\n", row.ID, row.Repo, row.Title, queued.Detail, BriefProcesses(), BriefRootIssues(), BriefVerification(row.ID, "no-mistakes"), BriefStepCards(), kind, mode, row.Harness, row.Model, row.Effort)
 }
 
 // AppendQueuedTask adds row, the backlog row of task id, at the bottom of the

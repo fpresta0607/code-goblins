@@ -35,6 +35,7 @@ A goblin started before this keeps the `TMP` it was started with until it is res
   A queued field saved as Automatic writes an explicit empty row override, keeping the brief and the other preferences intact.
   Start is refused under 5 GB of free memory or of free commit (RAM plus page file), while its row waits for something that has not cleared, or for good once the task already finished, which its card says.
   A task with no brief gets one written from its queued row first, with a `brief created: ...` notify so you can amend it.
+  A row carries no change assessment, so its task starts strict, and that brief's Verification section gives the checks to the pipeline whatever mode the row names.
   It puts the task at the top of In progress and wakes you with a notify: `started: the Overlord started this from the board, ...` means it is dispatched, so update its backlog row as after your own dispatch.
   A `start failed: ...` names why `cfo spawn` refused.
 

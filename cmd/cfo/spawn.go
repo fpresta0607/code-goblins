@@ -130,8 +130,6 @@ func runSpawn(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 			fmt.Fprintf(stderr, "cfo spawn: --mode %s was not selected: %s\n", *mode, selected.Reason)
 		}
 		*mode, delivery = selected.Mode, &selected
-	} else if *mode == "" {
-		*mode = "local-only"
 	}
 	// A dispatch never waits on GitHub: a read that fails or runs past its
 	// bound starts the task unchecked and says so. A project with no GitHub

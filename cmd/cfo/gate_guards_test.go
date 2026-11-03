@@ -48,6 +48,9 @@ func TestSlowUnrelated(t *testing.T) { t.Fatal("unrelated slow test ran") }
 				for _, result := range check.Packages {
 					if result.Package == "example.com/m/c" {
 						guardRuns++
+						if limit := slices.Index(check.Command, "-timeout"); limit < 0 || limit+1 == len(check.Command) || check.Command[limit+1] != "45m" {
+							t.Fatalf("guard ran as %q; want the Test step's go test -timeout 45m, which ends a guard that hangs", check.Command)
+						}
 						if result.Tests != 1 || !slices.Equal(result.Failed, test.failed) || len(result.Unfinished) != 0 {
 							t.Fatalf("fast validation must run only the required guard: %+v", result)
 						}

@@ -1,6 +1,6 @@
 # cfo brief
 
-`cfo brief <id> --project <p> [--kind <kind>] [--mode <m>]`
+`cfo brief <id> --project <p> [--kind <kind>] [--mode <m>] [--surface <s>] [--risk <r>] [--reason "<assessment>"] [--delivery-exception "<authority and reason>"]`
 
 Scaffold a task brief at `data/<id>/brief.md`.
 `--surface internal|product|mixed|unknown`, `--risk low|<sensitive-surface>` and `--reason "<assessment>"` describe the concrete change for the project's delivery posture.

@@ -309,7 +309,7 @@ cfo gate test --plan              # print the plan and run nothing
 | `full` | every package | every package |
 
 At every level, `cfo gate test` also selects the trusted policy's `guards`, even when no Go package changed.
-A guard runs separately before vet and package tests only when those package tests do not already cover its whole package, including packages scheduled alone.
+A guard runs separately before vet and package tests, with their `go test` arguments and `-timeout 45m`, only when those package tests do not already cover its whole package, including packages scheduled alone.
 A guard with named `tests` runs exactly those tests, so selecting it does not run unrelated slow tests; without `tests`, it runs its whole package.
 An optional `goos` restricts the guard to that operating system; other platforms list it as deferred with the required and current platforms, never as executed, and its platform's CI remains required.
 `cfo gate prepush` uses the same guard declarations and platform rules, omitting a separate guard run when its selected whole-package tests already cover it.

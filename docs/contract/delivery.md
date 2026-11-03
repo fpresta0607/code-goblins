@@ -20,6 +20,7 @@ An explicit no-mistakes mode can always increase rigor.
 `cfo brief` and `cfo spawn` use the same resolver.
 Before the worker starts, spawn saves `state/tasktmp/<id>/delivery.json` with the mode, posture, surface, risk, reason and project checks.
 The task record binds its bytes by `delivery_hash` and keeps its mode separately.
+The worker's first instruction, and every relaunch's, names the frozen mode and that mode's validation owner, which supersede the brief's mode line and Verification section.
 `cfo verify` refuses a missing or changed receipt or a mismatching mode.
 `cfo verify` uses the frozen verification tiers, time limits and declared reuse inputs without loading the live project record, even if that record is later removed or invalid.
 Tasks without a delivery receipt still read verification configuration from the live project record.

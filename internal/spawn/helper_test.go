@@ -114,20 +114,24 @@ func TestHelperStartRefusesWhatCannotHaveAHelper(t *testing.T) {
 }
 
 func TestSpawnRefusesAHelperOutsideLocalOnlyBeforeAnyMutation(t *testing.T) {
-	// Arrange
-	f := newFixture(t)
-	f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h1", "direct-PR"
-	writeFile(t, f.brief, "Do the work.\n")
+	for _, mode := range []string{"direct-PR", "no-mistakes", ""} {
+		t.Run("mode "+mode, func(t *testing.T) {
+			// Arrange
+			f := newFixture(t)
+			f.request.Parent, f.request.ID, f.request.Mode = "g1", "g1-h1", mode
+			writeFile(t, f.brief, "Do the work.\n")
 
-	// Act
-	_, err := f.service.Spawn(context.Background(), f.request)
+			// Act
+			_, err := f.service.Spawn(context.Background(), f.request)
 
-	// Assert
-	if err == nil || !strings.Contains(err.Error(), "local-only") {
-		t.Errorf("Spawn = %v, want a helper refused outside local-only", err)
-	}
-	if slices.Contains(f.events, "worktree-acquire") {
-		t.Errorf("events = %v, want nothing acquired", f.events)
+			// Assert
+			if err == nil || !strings.Contains(err.Error(), "local-only") {
+				t.Errorf("Spawn = %v, want a helper refused outside local-only", err)
+			}
+			if slices.Contains(f.events, "worktree-acquire") {
+				t.Errorf("events = %v, want nothing acquired", f.events)
+			}
+		})
 	}
 }
 
