@@ -3,9 +3,9 @@ import { carLook, isTrainOver, trainLook, type Tone } from "./merge-train.ts";
 import type { MergeTrain, Task } from "./types.ts";
 
 // PullRequestTest is where a goblin's pull request stands under test, read
-// the same in its panel, its canvas node and its train's card, and on its
-// card while it only waits on it: the words, their tone, the page a click
-// opens, the detail in its tip, and whether a merge train says it.
+// the same in its panel and its train's card, and in the tone of its card
+// and canvas node while it only waits on it: the words, their tone, the page
+// a click opens, the detail in its tip, and whether a merge train says it.
 export interface PullRequestTest { text: string; tone: Tone; url: string; tip: string; isOnTrain: boolean }
 
 // pullRequestTest is where a goblin's pull request stands under test. On a
@@ -50,8 +50,8 @@ const AWAITING = new Set(["idle", "review", "ready", "unavailable", "unknown"]);
 export const isAwaitingTest = (task: Task): boolean =>
   !!task.pr && !task.archived && task.report === "done" && AWAITING.has(task.phase) && !(task.phase === "review" && task.gate_step) && !task.comeback;
 
-// awaitedTest is the test a goblin's card, panel and canvas node draw in
-// place of its own state while all it waits on is that test.
+// awaitedTest is the test whose tone a goblin's card, panel and canvas node
+// draw in place of its own phase while all it waits on is that test.
 export function awaitedTest(task: Task, trains: MergeTrain[]): PullRequestTest | undefined {
   return isAwaitingTest(task) ? pullRequestTest(task, trains) : undefined;
 }

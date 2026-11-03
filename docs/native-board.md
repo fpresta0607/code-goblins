@@ -465,7 +465,7 @@ The panel has no Terminal or Task switch, no explanatory lines and no yellow, an
 A pull request under test reads one state with one link on every surface (`frontend/src/pull-request-test.ts`).
 On a train, its goblin's pull request chip in the panel says what the train's card says of it, in the same tone, and opens the train's pull request: the running train that carries it, else the newest finished one while the pull request's head is still the one that rode.
 Off a train, the chip is its hosted checks above.
-A live goblin idle since it reported the pull request done, which waits only on that test, says the same words as its status on its card, in its panel's Task view with no line under it, and on its node on the Orchestration canvas, whose tip is its card's.
+A live goblin idle since it reported the pull request done, which waits only on that test, reads Landing as [above](#board-and-orchestration), in the test's tone, or the test's own words once it failed, was cancelled or landed, as its status on its card, in its panel's Task view with no line under it, and on its node on the Orchestration canvas, whose tip is its card's.
 Paused so, its terminal view says the same words in place of Session paused.
 A goblin at work, blocked, asking or waiting on something else says that itself, and only its chip reads the test.
 The supervisor keeps the trains its CI poll reads, so a card follows its train within one poll.
