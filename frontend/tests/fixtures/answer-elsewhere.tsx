@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -26,7 +26,7 @@ const inChat = { ...base, revision: 2, questions: [{ ...strays, status: "succeed
 function AnswerElsewhere() {
   const [snapshot, setSnapshot] = useState(() => parseSnapshot(base));
   window.recordInChat = () => setSnapshot(parseSnapshot(inChat));
-  return <main><CommandCenter snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<AnswerElsewhere />);

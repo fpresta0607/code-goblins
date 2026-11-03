@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import { useItemState } from "../../src/use-item-state";
 import "../../src/styles.css";
@@ -26,7 +27,7 @@ function SignInFixture() {
   };
   return <main>
     <button onClick={() => setFocus({ key: "browser-signin:signin-stripe", at: Date.now() })}>Open</button>
-    {snapshot && <CommandCenter snapshot={snapshot} connected={isConnected} presentations={[]} focus={focus} onUnsent={() => {}} />}
+    {snapshot && <CommandCenterMenu snapshot={snapshot} connected={isConnected} presentations={[]} focus={focus} onUnsent={() => {}} />}
   </main>;
 }
 

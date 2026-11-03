@@ -1,9 +1,14 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { message, request } from "./api";
-import { HostTerminal } from "./HostTerminal";
+import { boardPage } from "./board-page";
 import { Icon } from "./Icon";
 import type { Run } from "./types";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
+
+// The terminal loads xterm, so it arrives the first time a command's terminal
+// is shown, as the terminal deck does: the Workspace settings' fixes and the
+// Command Center's cards draw this view.
+const HostTerminal = boardPage(() => import("./HostTerminal").then((module) => module.HostTerminal), "terminals");
 
 // A command's live terminal on its card, as the Overlord asked on 2026-10-08:
 // "why can we not render terminal right in command center in place of the
@@ -28,7 +33,9 @@ export function RunTerminal({ run, instance, connected }: { run: Run; instance: 
     }
   };
   return <section className="run-live">
-    <HostTerminal query={"run=" + encodeURIComponent(run.id)} harness="" label={"Terminal of " + run.title} reportAs={"the terminal of the command " + run.title} instance={instance} visible={connected} shown focus={1} hasMicrophone={false} />
+    <Suspense fallback={<p className="loading" role="status">Connecting to the terminal…</p>}>
+      <HostTerminal query={"run=" + encodeURIComponent(run.id)} harness="" label={"Terminal of " + run.title} reportAs={"the terminal of the command " + run.title} instance={instance} visible={connected} shown focus={1} hasMicrophone={false} />
+    </Suspense>
     <div className="run-live-actions">
       <ClickFeedback text={feedback} />
       <button type="button" disabled={!connected || stopping} onClick={() => void stop()}><Icon name="stop-circle" />{stopping ? "Stopping" : "Stop"}</button>

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { message, reportToCfo, request, useResource } from "./api";
+import { message, request, useResource } from "./api";
 import { object, parseAction, parseClosedItems, string, type BoardActivity, type BrowserSignIn, type CredentialRequest, type Question, type Review, type Run, type Snapshot } from "./types";
 import { deliveryMark, runMark, submissionFor } from "./feedback";
 import { Avatar } from "./Avatar";
@@ -24,13 +24,12 @@ import { EMPTY_DRAFT, QuestionCard, type Draft } from "./QuestionCard";
 import { ReviewCard, reviewImages } from "./ReviewCard";
 import { ImageGallery } from "./ImageGallery";
 import { Disclosure } from "./Disclosure";
-import { countedTitle, showBadge } from "./arrivals";
+import { CommandCenterButton } from "./command-center-button";
 import { DoneCard } from "./DoneCard";
 import { HistoryMark } from "./history-mark";
 import { HistoryStoredCard } from "./history-stored-card";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { ChangeCard } from "./ChangeCard";
-import "./lantern.css";
 import { goblinName } from "./task-words";
 
 // A sent item's check shows this long before the next item.
@@ -63,8 +62,12 @@ const outsideDialog = (event: MouseEvent<HTMLDialogElement>) => {
 // last one ends on "You're all done" before the Command Center closes. It
 // tells onUnsent whether any card keeps an answer not yet sent, and onSent
 // what he sent for an item the moment he sends it, then null if the
-// supervisor refused it.
-export function CommandCenter({ snapshot, connected, presentations, focus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
+// supervisor refused it. Its code arrives the first time he opens it, and it
+// takes the place of the button the board drew until then
+// (CommandCenterMenu), which counts what waits on him, needing, in the tab's
+// title and the app's badge: isInboxOpen is whether he opened its inbox with
+// that button, and hasFocus whether the button had the focus.
+export function CommandCenter({ snapshot, connected, presentations, focus, needing, isInboxOpen, hasFocus, onUnsent, onSent }: { snapshot: Snapshot; connected: boolean; presentations: BoardActivity[]; focus: CommandFocus | null; needing: number; isInboxOpen: boolean; hasFocus: boolean; onUnsent: (unsent: boolean) => void; onSent?: (key: string, sent: Sent | null) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
@@ -84,9 +87,14 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [kept, setKept] = useState<Set<string>>(new Set());
-  const [lastFocus, setLastFocus] = useState<CommandFocus | null>(focus);
+  // A focus it is first drawn for opens its item too: one that brought its
+  // code in, as from a card's Answer or a notification.
+  const [lastFocus, setLastFocus] = useState<CommandFocus | null>(null);
   const [gallery, setGallery] = useState<number | null>(null);
-  const [inbox, setInbox] = useState(false);
+  const [inbox, setInbox] = useState(isInboxOpen);
+  useLayoutEffect(() => {
+    if (hasFocus) menu.current?.querySelector("summary")?.focus({ preventScroll: true });
+  }, [hasFocus]);
   const [sent, setSent] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState("");
   const [allDone, setAllDone] = useState(false);
@@ -157,16 +165,6 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   // A presentation reaches him only when its goblin asks him to watch it; a
   // goblin's own test run stays off the Command Center.
   const watching = presentations.filter((event) => event.watch);
-  const needing = waiting.length + watching.length;
-  const baseTitle = useRef(document.title);
-  useEffect(() => {
-    document.title = countedTitle(baseTitle.current, needing);
-    showBadge(needing)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
-  }, [needing]);
-  useEffect(() => () => {
-    document.title = baseTitle.current;
-    showBadge(0)?.catch((error: unknown) => reportToCfo("the app badge", message(error)));
-  }, []);
   if (focus !== lastFocus) {
     setLastFocus(focus);
     // A focus on an item he already answered or cleared, as from a
@@ -432,7 +430,7 @@ export function CommandCenter({ snapshot, connected, presentations, focus, onUns
   }
   return <>
     <details ref={menu} className="command-center-menu" open={inbox} onToggle={(event) => setInbox(event.currentTarget.open)}>
-      <summary className="icon-button" aria-label={"Command Center" + (needing ? ", " + needing + " waiting on you" : "")}><Icon name="command-center" />{needing > 0 && <span className="count-badge" aria-hidden="true">{needing}</span>}</summary>
+      <CommandCenterButton needing={needing} />
       <div className="command-center-updates">
         <h2><Avatar persona="cfo" small />Command Center</h2>
         <section aria-label={WAITING_ON_YOU}>

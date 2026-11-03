@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -41,7 +42,7 @@ function CredentialCards() {
   };
   return <main>
     <button onClick={() => setFocus({ key: "credential:cred-0123456789abcdef", at: Date.now() })}>Open</button>
-    <CommandCenter snapshot={parseSnapshot(state)} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={parseSnapshot(state)} connected presentations={[]} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

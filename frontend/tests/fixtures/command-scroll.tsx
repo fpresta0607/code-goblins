@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -30,7 +31,7 @@ function CommandScroll() {
   return <main style={{ paddingTop: 600, minHeight: 2400 }}>
     <button onClick={() => setFocus({ key: card, at: Date.now() })}>Open</button>
     <button onClick={() => setMounted(false)}>Remove Command Center</button>
-    {isMounted && <CommandCenter snapshot={shown} connected presentations={[]} focus={focus} onUnsent={() => {}} />}
+    {isMounted && <CommandCenterMenu snapshot={shown} connected presentations={[]} focus={focus} onUnsent={() => {}} />}
   </main>;
 }
 

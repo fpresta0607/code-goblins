@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -50,7 +51,7 @@ function StepCards() {
   };
   return <main>
     {cards.map((card) => <button key={String(card.id)} onClick={() => setFocus({ key: "credential:" + String(card.id), at: Date.now() })}>{"Open " + String(card.id)}</button>)}
-    <CommandCenter snapshot={parseSnapshot(state)} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={parseSnapshot(state)} connected presentations={[]} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 

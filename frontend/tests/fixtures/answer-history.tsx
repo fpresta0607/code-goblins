@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -64,7 +65,7 @@ function AnswerReopen() {
     }),
   });
   window.changeDelivered = (actionID) => next({ actions: raw.actions.map((action) => action.id === actionID ? { ...action, status: "succeeded" } : action) });
-  return <main><CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} /></main>;
+  return <main><CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} /></main>;
 }
 
 createRoot(document.getElementById("root")!).render(<AnswerReopen />);

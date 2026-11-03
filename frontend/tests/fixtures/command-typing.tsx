@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CommandCenter } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -21,7 +21,7 @@ function CommandTyping() {
   window.ask = (id) => setSnapshot((prior) => parseSnapshot({ ...base, revision: prior.revision + 1, questions: [...(prior.questions || []), question(id)] }));
   return <main>
     <label>Comment to the CFO <textarea aria-label="Comment to the CFO" rows={3} /></label>
-    <CommandCenter snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={null} onUnsent={() => {}} />
   </main>;
 }
 

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Alerts } from "../../src/Alerts";
 import { CfoPin } from "../../src/CfoPin";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { watchTips } from "../../src/tips";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
@@ -35,7 +36,7 @@ function Page() {
   useEffect(() => { const timer = setTimeout(() => setSnapshot(later), 50); return () => clearTimeout(timer); }, []);
   const terminal = (source: HTMLElement) => setSaid("opened the CFO's terminal from its " + (source.className.includes("portrait") ? "portrait" : "icon"));
   const center = () => { setSaid("opened the Command Center"); setFocus({ key: "", at: Date.now() }); };
-  return <main style={{ display: "grid", alignContent: "start", gap: 28, minHeight: "100vh", boxSizing: "border-box", padding: 24, background: "linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.png') right bottom / cover" }}>
+  return <main style={{ display: "grid", alignContent: "start", gap: 28, minHeight: "100vh", boxSizing: "border-box", padding: 24, background: "linear-gradient(#07101565, #07101565), url('/assets/goblin-workshop.webp') right bottom / cover" }}>
     <div className="canvas-region">
       <section className="task-board" aria-label="Task board">
         <CfoPin snapshot={asking} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
@@ -45,7 +46,7 @@ function Page() {
     <CfoPin snapshot={quiet} now={Date.now()} onOpen={terminal} onCommand={center} onStart={() => setSaid("started the CFO")} />
     <output aria-label="Opened">{said}</output>
     <Alerts snapshot={snapshot} onOpen={(key) => setSaid("opened the Command Center at " + key)} />
-    <CommandCenter snapshot={reviewing} connected presentations={[]} focus={focus} onUnsent={ignore} />
+    <CommandCenterMenu snapshot={reviewing} connected presentations={[]} focus={focus} onUnsent={ignore} />
   </main>;
 }
 

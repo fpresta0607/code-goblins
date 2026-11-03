@@ -460,8 +460,8 @@ test.describe("AFK report layout", () => {
     await page.setViewportSize({ width, height: 900 });
     await open(page, snapshot({ afk: on(), questions: QUESTIONS }));
     await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
-    await page.route("**/api/afk/report/afk-fixture/*.png", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
-    await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.png" }));
+    await page.route("**/api/afk/report/afk-fixture/*.{png,webp}", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
+    await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.webp" }));
     await openCfoPanel(page);
     await toggle(page).click();
     await push(page, snapshot({ afk: KEPT, questions: QUESTIONS }));
@@ -501,8 +501,8 @@ test.describe("AFK report layout", () => {
     test("what needs him wears the Command Center's waiting row, and a click anywhere on it opens the Command Center on that item with its controls", async ({ page, context }, testInfo) => {
       await open(page, snapshot({ afk: KEPT, questions: [QUESTIONS[0]] }));
       await page.route("**" + PAGE, (route) => route.fulfill({ contentType: "text/html", body: html }));
-      await page.route("**/api/afk/report/afk-fixture/*.png", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
-      await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.png" }));
+      await page.route("**/api/afk/report/afk-fixture/*.{png,webp}", (route) => route.fulfill({ path: join("public/assets", new URL(route.request().url()).pathname.split("/").at(-1)!) }));
+      await page.route("**/pictures/*.png", (route) => route.fulfill({ path: "public/assets/goblin-workshop.webp" }));
       const menu = page.locator(".command-center-menu > summary");
       await menu.click();
       const board = await look(page.locator(".command-center-updates .inbox-list.waiting li").first());

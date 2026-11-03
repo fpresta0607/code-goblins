@@ -179,6 +179,9 @@ A full bound makes room by dropping its oldest succeeded, failed or unconfirmed 
 ## Board and orchestration
 
 The header switches between Board and Orchestration, with one main view visible at a time and one contextual pane on the right.
+The first load fetches only what the first screen draws, under 1.5 MB at a phone's width, with its pictures as WebP (#1599).
+Orchestration and the family tree that takes its place on a small screen, the Command Center, a file's diff and a command's terminal each fetch their code the first time they are shown; until the Command Center's code arrives its button counts what waits on him, as the tab's title and the app's badge do.
+`frontend/tests/first-paint.spec.ts` measures that load: on main at 83505e5de it fetched 4.7 MB, a 1.3 MB script and 3.1 MB of PNG pictures.
 Board groups actual tasks into Tasks, In progress and Completed, side by side as a kanban by default.
 Paused means on the bench and Waiting means live and on standby (the Overlord, 2026-10-16: "paused does it means youre on the bench to be resumed", "waiting doesn't mean you're stopped").
 Every paused goblin sits at the bottom of In progress, under a thin Paused divider with its count, like a page break, whatever its pause waits for: memory, the Overlord's own Pause, another task, a date, his answer, an allowance reset, CI, a deploy or a pull request, its own included.
@@ -210,6 +213,8 @@ After verifying delivery and returning the worktree with cleanup, the CFO runs `
 The command refuses live metadata, missing or unreadable delivery evidence, duplicate source rows and parked work, and repeating a completed closeout changes nothing.
 Tasks and In progress are in priority order, top first, and every list of tasks the board shows follows it; Completed stays newest first, by when each piece of work finished: a stop when it stopped, delivered work when its goblin reported done, and a merged pull request no goblin reported when it merged.
 In progress never pages: every goblin's card is in the column at once, in priority order, and the board scrolls when they run past the screen, with the Paused group after the last of them.
+The browser draws only the In progress cards in or near the view, and each card out of it keeps the room it took when last drawn, so a long fleet costs a scroll no more than the cards it shows (#1599).
+A Playwright trace's DOM snapshot reads every element's scroll position, which lays out each card the browser skipped, about a second an action on a long list, so the tests that hold one keep their traces without DOM snapshots.
 Tasks, the Paused group and Completed show a list of up to ten cards whole, with no pager, and the board scrolls when they run past the screen.
 Past ten, each of them shows a page: as many of its cards as fit, Completed its newest, in the visible board below the list when the columns are side by side and in one screen below the column's heading when they are stacked, less room for the pager, and never fewer than five cards, when the board scrolls; each page holds as many of its own cards as fit, row by row with each row as tall as its tallest card, and starts where the page before it ended, so a tall card shortens only its own page.
 The floor of five is there because the page was once sized by the visible height alone, and on 2 October 2026 the memory meter and tall cards left a page of 19 queued tasks room for two.
@@ -739,7 +744,7 @@ An interrupted external delivery becomes uncertain and is not replayed automatic
 A goblin panel shows a task in a native terminal from its host, as described after this Herdr view, and the CFO and a task in Herdr through Herdr.
 A panel with no terminal to show says why without opening any view: No CFO is running while no CFO runs (the snapshot's `cfo_runs`), the task's status, such as Queued or Starting, for a task with no terminal yet, and This child has no separate terminal, with **Open owning task**, for a child session.
 The installed Herdr build `0.9.0-preview.2026-09-08-62431dbd033b` exposes `terminal session observe` and `terminal session control` over NDJSON.
-The browser renders its real ANSI screen frames using xterm, loaded the first time a panel shows a terminal.
+The browser renders its real ANSI screen frames using xterm, loaded the first time a panel or a command's card shows a terminal.
 A goblin panel's view of a Herdr pane is a live view of the pane, and it never resumes or answers an agent.
 An open view keeps its pane live and sized to the panel at all times (the Overlord: "it should always be live"): once the view is shown it takes the pane's controller (`terminal session control --takeover`) and sizes the pane to the panel at the chosen text size, 20 px unless Ctrl+Plus, Ctrl+Minus or Ctrl+0 chose another, which native terminals share, and keeps it whether or not the board's window has the focus and while another view is shown; a Herdr window shows the pane at the board's size.
 The panel keeps an even inset around the screen, and a panel that changes size asks for the grid that fills it at once, then at most every 40 ms while it keeps changing and once more when it holds still.

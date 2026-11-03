@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CfoPin } from "../../src/CfoPin";
-import { CommandCenter, type CommandFocus } from "../../src/CommandCenter";
+import { CommandCenterMenu } from "../../src/command-center-menu";
+import type { CommandFocus } from "../../src/CommandCenter";
 import { parseSnapshot } from "../../src/types";
 import "../../src/styles.css";
 
@@ -32,7 +33,7 @@ function ReviewCardLook() {
   useEffect(() => { if (!isBox) setFocus({ key: "review:" + shown.id, at: 1 }); }, []);
   return <main style={{ display: "grid", alignContent: "start", gap: 28, padding: 24 }}>
     {isBox && <section className="task-board" aria-label="Task board"><CfoPin snapshot={snapshot} now={NOW} onOpen={() => {}} onCommand={() => {}} onStart={() => {}} /></section>}
-    <CommandCenter snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
+    <CommandCenterMenu snapshot={snapshot} connected presentations={[]} focus={focus} onUnsent={() => {}} />
   </main>;
 }
 
