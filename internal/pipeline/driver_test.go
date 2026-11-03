@@ -414,3 +414,63 @@ func TestApprovedTestExceptionCarriesTheOperatorReason(t *testing.T) {
 		})
 	}
 }
+
+func TestRequiredEnvironmentRefusalRequiresRetryInsteadOfApproval(t *testing.T) {
+	selection, err := testPolicy(t).Select("high-risk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The isolated real-daemon fixture's native engine recorded these
+	// findings for its refused runs, kept verbatim but for machine paths.
+	recorded := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	for _, report := range []struct {
+		name, findings, finding string
+	}{
+		{"recorded native refusal", recorded("native-environment-refusal.json"), "test-command-no-turn"},
+		{"recorded native refusal through verify", recorded("native-environment-refusal-through-verify.json"), "test-command-no-turn"},
+		{"before admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment: .venv is missing. Respond with fix to run it again."}]}`, "test-command-no-turn"},
+		{"after admission", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: the command did not start: required test environment changed while waiting; verify the project binding and retry."}]}`, "test-command-no-turn"},
+		{"base attribution", `{"findings":[{"id":"test-1","action":"ask-user","description":"configured test command exited with code 7"}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: cfo gate turn: the command did not start: required test environment: .venv is missing); every failure is attributed to this change."}`, "test-1"},
+	} {
+		t.Run(report.name, func(t *testing.T) {
+			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: report.findings}
+			for _, response := range []Response{
+				{Action: "approve"},
+				{Action: "approve", Accept: report.finding},
+				{Action: "approve", Reason: "the environment is repaired"},
+				{Action: "approve", Accept: report.finding, Reason: "the environment is repaired"},
+			} {
+				args, err := ResponseArgs(selection, gate, response)
+				if err == nil || len(args) != 0 || !strings.Contains(err.Error(), "--action fix --findings "+report.finding) {
+					t.Fatalf("response=%+v args=%v err=%v; want required-binding refusal left unresolved with a concrete retry", response, args, err)
+				}
+			}
+
+			args, err := ResponseArgs(selection, gate, Response{Action: "fix", Findings: report.finding})
+			if err != nil || strings.Join(args, " ") != "axi respond --step test --action fix --findings "+report.finding {
+				t.Fatalf("retry args=%v err=%v", args, err)
+			}
+		})
+	}
+	for _, report := range []struct {
+		name, findings string
+	}{
+		{"unrelated no-turn refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The test command ` + "`echo required test environment`" + ` was given no turn. The wrapper reported: cfo gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}]}`},
+		{"unrelated base refusal", `{"findings":[{"id":"test-command-no-turn","action":"ask-user","description":"The wrapper reported: cfo gate turn: this run takes no turn: it took no turn within its wait of 1m0s."}],"summary":"Base attribution unavailable (test command was given no turn on the base checkout: cfo gate turn: this run takes no turn: queue timeout); every failure is attributed to this change.\nTest output mentions required test environment."}`},
+	} {
+		t.Run(report.name, func(t *testing.T) {
+			gate := Gate{RunID: "run", StepID: "step", Step: "test", Status: "awaiting_approval", Round: 1, Findings: report.findings}
+			args, err := ResponseArgs(selection, gate, Response{Action: "approve", Accept: "test-command-no-turn", Reason: "the operator accepts the queue timeout"})
+			if err != nil || len(args) == 0 {
+				t.Fatalf("args=%v err=%v; want the existing unrelated approval available", args, err)
+			}
+		})
+	}
+}
