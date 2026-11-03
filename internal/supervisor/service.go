@@ -53,6 +53,7 @@ import (
 type ProgressReader interface {
 	Progress(context.Context, string, string) (pipeline.Progress, error)
 	CanSteer(context.Context, string, string, string) error
+	CanTypeFreshDetached(context.Context, string) error
 }
 
 type Options struct {
@@ -1372,12 +1373,19 @@ func (s *Service) execute(ctx context.Context, a Action) (Evaluation, error) {
 
 func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMeta) error {
 	if meta.Mode == "no-mistakes" {
-		branch, err := s.Git.Branch(ctx, meta.Worktree)
-		if err != nil {
-			return err
-		}
 		if s.Options.Gate == nil {
 			return errors.New("cannot verify pipeline custody")
+		}
+		branch, err := s.Git.Branch(ctx, meta.Worktree)
+		// A new task's worktree starts on a detached HEAD, before its goblin
+		// makes a branch, and no custody can be read on a branch it does not
+		// have. One the gate proves no run of its own works in, and whose
+		// HEAD has not moved since it was made, takes typing (#1987).
+		if errors.Is(err, errDetachedHead) {
+			return s.Options.Gate.CanTypeFreshDetached(ctx, meta.Worktree)
+		}
+		if err != nil {
+			return err
 		}
 		if err := s.Options.Gate.CanSteer(ctx, meta.Project, meta.Worktree, branch); err != nil {
 			return err
@@ -1387,12 +1395,12 @@ func (s *Service) validateTerminalControl(ctx context.Context, meta state.TaskMe
 }
 
 // boardTerminalControl is validateTerminalControl as the board's terminal
-// views say it. Its decision stands, and a refusal on a detached HEAD, which
-// no gate custody can be read for, names the commit in place of Git's failure
-// (#1015).
+// views say it. Its decision stands. A gate's hold reads as one whatever HEAD
+// is, and any other refusal on a detached HEAD names the commit and why it is
+// held (#1015, #1987).
 func (s *Service) boardTerminalControl(ctx context.Context, meta state.TaskMeta) error {
 	err := s.validateTerminalControl(ctx, meta)
-	if err == nil || ctx.Err() != nil {
+	if err == nil || ctx.Err() != nil || errors.Is(err, pipeline.ErrCustodyHeld) || errors.Is(err, pipeline.ErrCustodyNotReturned) {
 		return err
 	}
 	if detached, detachedErr := s.Git.Detached(ctx, meta.Worktree); detachedErr != nil || !detached {
@@ -1402,7 +1410,7 @@ func (s *Service) boardTerminalControl(ctx context.Context, meta state.TaskMeta)
 	if headErr != nil {
 		return err
 	}
-	return fmt.Errorf("HEAD is detached at %s, and no gate custody can be read for a detached HEAD, so typing is held", head[:min(len(head), 12)])
+	return fmt.Errorf("HEAD is detached at %s, so typing is held: %w", head[:min(len(head), 12)], err)
 }
 
 func (s *Service) previewGit(meta state.TaskMeta) Git {
