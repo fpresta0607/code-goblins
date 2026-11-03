@@ -452,3 +452,73 @@ func TestReadBacklogReadsATasksAxiHold(t *testing.T) {
 		})
 	}
 }
+
+// A blocked-by in a hold's reason is the hold's words, as tasks-axi reads it,
+// never a wait of the row's own nor the end of its title (#1600). The first
+// three rows have the shape of live rows of a private project, its words
+// replaced: two queued rows the board audit pictured on 2026-10-27, whose
+// panels ended "(repo: ...) (priority: ops-root) (hold:" and "(repo: ...)
+// (kind: scout) (hold:" and whose cards said "Starts Wed" and "Starts Nov 14"
+// for a hold that never ends by itself, and a step of the Overlord's held on
+// 2026-11-03 whose reason names him. The last row is the backlog's own as it
+// stood on 2026-11-03.
+func TestReadBacklogReadsATitleAndItsWaitsApartFromEveryAnnotation(t *testing.T) {
+	cases := []struct {
+		name, line, title, kind, priority string
+		blockers                          []Blocker
+	}{
+		{
+			name:     "a root issue held with a time in its reason",
+			line:     "- [ ] root-northwind-cover-map - Report cover map no longer fits on the cover page (repo: northwind) (priority: ops-root) (hold: waits for the cover page rework to land blocked-by: until 2026-10-28T14:00Z) (hold-kind: future)",
+			title:    "Report cover map no longer fits on the cover page",
+			priority: "ops-root",
+			blockers: []Blocker{{Kind: "hold", Target: "waits for the cover page rework to land blocked-by: until 2026-10-28T14:00Z"}},
+		},
+		{
+			name:     "a scout held with a time in its reason",
+			line:     "- [ ] scout-northwind-archive - Ask the Overlord whether to delete the old database archive, after its month of keeping (repo: northwind) (kind: scout) (hold: the archive is kept a month blocked-by: until 2026-11-14T15:00Z) (hold-kind: future)",
+			title:    "Ask the Overlord whether to delete the old database archive, after its month of keeping",
+			kind:     "scout",
+			blockers: []Blocker{{Kind: "hold", Target: "the archive is kept a month blocked-by: until 2026-11-14T15:00Z"}},
+		},
+		{
+			name:     "a step of the Overlord's held with a person in its reason",
+			line:     "- [ ] his-northwind-sign-ins - Overlord: when you are back, the fleet pauses so you sign the harnesses out and back in; the old helper is retired (10-22 11:54Z), so this and the rest of his own steps are on his checklist page, saved at data/northwind-steps/checklist.html (repo: northwind) (kind: his) (hold: blocked-by: overlord - needs his own sign-ins, AFK since 2026-10-21 23:27Z)",
+			title:    "Overlord: when you are back, the fleet pauses so you sign the harnesses out and back in; the old helper is retired (10-22 11:54Z), so this and the rest of his own steps are on his checklist page, saved at data/northwind-steps/checklist.html",
+			kind:     "his",
+			blockers: []Blocker{{Kind: "hold", Target: "blocked-by: overlord - needs his own sign-ins, AFK since 2026-10-21 23:27Z"}},
+		},
+		{
+			name:     "a row that waits on two tasks before its annotations and is held after them",
+			line:     "- [ ] cg-human-triggered-menus - Show selection menus only for human-triggered actions blocked-by: cfo-human-menu-ownership-20261030 blocked-by: cg-goblin-chat-parity (repo: code-goblins) (kind: ship) (priority: 0) (since 2026-10-30) (hold: Consolidated acceptance scope under existing cg-goblin-chat-parity owner. Preserve full brief and findings; no separate goblin or validation run. Close only after verified delivered coverage.) (hold-kind: parked)",
+			title:    "Show selection menus only for human-triggered actions",
+			kind:     "ship",
+			priority: "0",
+			blockers: []Blocker{
+				{Kind: "task", Target: "cfo-human-menu-ownership-20261030"},
+				{Kind: "task", Target: "cg-goblin-chat-parity"},
+				{Kind: "hold", Target: "Consolidated acceptance scope under existing cg-goblin-chat-parity owner. Preserve full brief and findings; no separate goblin or validation run. Close only after verified delivered coverage."},
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			// Act
+			row := parseBacklogRow(c.line)
+
+			// Assert
+			if row.Title != c.title {
+				t.Errorf("title = %q, want %q", row.Title, c.title)
+			}
+			if !reflect.DeepEqual(row.Blockers, c.blockers) {
+				t.Errorf("blockers = %+v, want %+v", row.Blockers, c.blockers)
+			}
+			if row.BlockedReason != "" {
+				t.Errorf("blocked reason = %q, want none: no wait of the row's own has a reason", row.BlockedReason)
+			}
+			if row.Kind != c.kind || row.Priority != c.priority {
+				t.Errorf("kind, priority = %q, %q, want %q, %q", row.Kind, row.Priority, c.kind, c.priority)
+			}
+		})
+	}
+}

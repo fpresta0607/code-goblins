@@ -55,7 +55,9 @@ export function PanelHeader({ task, node, snapshot, isDetails = false, switcher,
   const cfo = !task && !node;
   const owner = !!task && ownsTaskSession(node, task);
   const cfoSession = liveCfoSession(snapshot);
-  const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task ? goblinName(task) : "";
+  // A queued task's title is its task line under the heading, so one with no
+  // goblin named yet is headed by its id, never by its title twice (#1600).
+  const title = cfo ? "CFO" : node ? sessionTitle(node, task) : task?.phase === "queued" && !task.goblin_name ? task.id : task ? goblinName(task) : "";
   const trains = snapshot.merge_trains ?? [];
   // A goblin's own panel reads its task's one status, as its card does; the
   // CFO and a child session read their sessions'.
