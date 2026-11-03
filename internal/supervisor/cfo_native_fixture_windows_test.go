@@ -78,12 +78,14 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 	// burst longer than claudeRead bytes are taken as a paste of the first
 	// claudeRead bytes and keys after them, and a turn's queue then keeps
 	// only the keys, as the live CFO's did on 2026-10-29 (#1740).
-	paste, readAsPaste, isPasting := "", "", false
+	// A bracketed paste goes where the cursor is, after what the prompt line
+	// already held, which typedBefore keeps.
+	paste, readAsPaste, isPasting, typedBefore := "", "", false, ""
 	// A busy fixture is in a turn, which takes what is typed into its queue,
 	// until Escape interrupts it and, as Claude Code, Codex and pi do, puts
 	// what its queue held back on the prompt line, unsent.
 	isBusy, hasQueued, held := mode == "busy", false, ""
-	composer := func() string { return paste + readAsPaste + line }
+	composer := func() string { return typedBefore + paste + readAsPaste + line }
 	draw := func(isWorking bool) {
 		rows := []string{}
 		// A daybreak-stuck offer keeps its rows once Escape dismissed it, as
@@ -107,9 +109,9 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 		}
 		if harness == "claude" {
 			rule := strings.Repeat("─", 80)
-			shown := line
+			shown := typedBefore + line
 			if paste != "" || readAsPaste != "" {
-				shown = "[Pasted text #1]" + line
+				shown = typedBefore + "[Pasted text #1]" + line
 			}
 			// Claude Code 2.1.314 drew this hint in its empty prompt line while a
 			// line waited in its queue, live, on 2026-10-30.
@@ -125,7 +127,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			}
 			rows = append(rows, rule, "❯ "+shown, rule, footer)
 		} else {
-			text := line
+			text := typedBefore + line
 			if text == "" {
 				text = "Ask Codex to do anything"
 			}
@@ -172,6 +174,9 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				switch sequence {
 				case "[200~":
 					isPasting = true
+					if paste == "" && readAsPaste == "" {
+						typedBefore, line = line, ""
+					}
 				case "[201~":
 					isPasting = false
 					draw(false)
@@ -208,7 +213,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 				continue
 			}
 			if isBusy {
-				queued := paste + line
+				queued := typedBefore + paste + line
 				record("queued " + queued)
 				hasQueued, held = true, queued
 				go func(text string) {
@@ -224,7 +229,7 @@ func TestNativeCFOComposerProgram(t *testing.T) {
 			} else {
 				record("accepted " + composer())
 			}
-			line, paste, readAsPaste = "", "", ""
+			line, paste, readAsPaste, typedBefore = "", "", "", ""
 			draw(true)
 		default:
 			if offer && composer() == "" {

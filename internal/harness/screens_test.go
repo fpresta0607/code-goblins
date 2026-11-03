@@ -543,6 +543,54 @@ func TestTypedTextShowsOnlyInAComposerItCanRead(t *testing.T) {
 	}
 }
 
+// A turn he stops hands each line typed into it back to the prompt line,
+// where the supervisor submits it only while the composer ends with one: its
+// words, or, for a line typed as a paste, one placeholder that is all the
+// composer holds. Words or a paste he added after it, or the line anywhere
+// but the composer, never read as handed back.
+func TestOnlyTypedTextAtTheComposersEndReadsAsHandedBack(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	claudeFooter := "⏵⏵ bypass permissions on (shift+tab to cycle)"
+	codexFooter := "100% context left"
+	piFooter := "↑8.4k ↓357 R15k CH91.8% $0.001 0.8%/1.0M (auto)"
+	for name, test := range map[string]struct {
+		kind     Kind
+		screen   []string
+		isPasted bool
+		ends     bool
+	}{
+		"claude words":                       {Claude, []string{rule, "❯ stop and rebase", rule, claudeFooter}, false, true},
+		"claude words after an earlier line": {Claude, []string{rule, "❯ check the tests", "  stop and rebase", rule, claudeFooter}, false, true},
+		"claude his words after":             {Claude, []string{rule, "❯ stop and rebase and the", rule, claudeFooter}, false, false},
+		"claude his paste after":             {Claude, []string{rule, "❯ stop and rebase[Pasted text #1 +3 lines]", rule, claudeFooter}, false, false},
+		"claude his paste alone":             {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, false, false},
+		"claude pasted line":                 {Claude, []string{rule, "❯ [Pasted text #1 +3 lines]", rule, claudeFooter}, true, true},
+		"claude his paste after a paste":     {Claude, []string{rule, "❯ [Pasted text #1 +3 lines][Pasted text #2 +5 lines]", rule, claudeFooter}, true, false},
+		"claude his words after a paste":     {Claude, []string{rule, "❯ [Pasted text #1 +3 lines] and the", rule, claudeFooter}, true, false},
+		"claude only above the composer":     {Claude, []string{"❯ stop and rebase", "", rule, "❯ and the", rule, claudeFooter}, false, false},
+		"claude composer unreadable":         {Claude, []string{"❯ stop and rebase"}, false, false},
+		"codex words":                        {Codex, []string{"› stop and rebase", "", codexFooter}, false, true},
+		"codex wrapped words":                {Codex, []string{"› check the tests and then stop", "  and rebase", "", codexFooter}, false, true},
+		"codex his words after":              {Codex, []string{"› stop and rebase and the", "", codexFooter}, false, false},
+		"codex pasted line":                  {Codex, []string{"› [Pasted Content 1200 chars]", "", codexFooter}, true, true},
+		"pi words":                           {Pi, []string{rule, "stop and rebase", rule, piFooter}, false, true},
+		"pi his paste after":                 {Pi, []string{rule, "stop and rebase[paste #1 +12 lines]", rule, piFooter}, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			screens, _ := NativeScreens(test.kind)
+
+			// Act
+			ends := screens.ComposerEndsWith(test.screen, "stop and rebase", test.isPasted)
+
+			// Assert
+			if ends != test.ends {
+				t.Errorf("ComposerEndsWith(%q, pasted %v) = %v, want %v", test.screen, test.isPasted, ends, test.ends)
+			}
+		})
+	}
+}
+
 func TestOnlyACompleteRetainedComposerCanBeSubmittedAfterADialog(t *testing.T) {
 	rule := strings.Repeat("─", 80)
 	instruction := "Read the saved instruction and continue the unfinished work."

@@ -406,6 +406,42 @@ func TestHisOwnWordsOnTheCFOsPromptLineAreNeverSubmittedForHim(t *testing.T) {
 	}
 }
 
+// A paste of his after his message, which a turn he stopped handed back to
+// the CFO's prompt line, is never submitted for him: the line goes only while
+// it ends with the message.
+func TestHisPasteAfterAHandedBackMessageIsNeverSubmittedForHim(t *testing.T) {
+	// Arrange
+	useConversations(t)
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "claude-busy")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	if _, err := store.Queue(Action{ID: "m1", Kind: "message", Text: "stop and rebase"}); err != nil {
+		t.Fatal(err)
+	}
+	pastUndoWindow(t, store)
+	if err := store.ProcessOne(context.Background(), service.execute); err != nil {
+		t.Fatal(err)
+	}
+	terminal.waitForLines(t, 2)
+	typeIntoCFO(t, home.State, "\x1b", "❯ stop and rebase")
+	typeIntoCFO(t, home.State, "\x1b[200~and a note of mine\x1b[201~", "❯ stop and rebase[Pasted text #1]")
+
+	// Act
+	err := service.submitHandedBack(context.Background())
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if lines := terminal.lines(t); !slices.Equal(lines[1:], []string{"queued stop and rebase", "interrupted"}) {
+		t.Errorf("terminal input = %q; want nothing submitted over his paste", lines)
+	}
+	if sent := actionOf(store, "m1"); sent.Status != "running" || sent.Message != sentToCFO {
+		t.Errorf("after his paste = %+v; want it still awaiting the CFO, never submitted again", sent)
+	}
+}
+
 func TestNativeCFOAnswerPathsPreserveRepliesWhileItIsTyping(t *testing.T) {
 	for _, harness := range []string{"codex", "claude"} {
 		for _, kind := range []string{"cfo_answer", "review_answer", "question_clear", "run_result"} {

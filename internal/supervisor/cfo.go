@@ -594,7 +594,8 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 	// shortcut help rather than writing itself, as the live CFO's Claude Code
 	// did with the Overlord's lone "?" on 2026-11-02, so a line that starts with
 	// one goes as a paste, which every harness writes as it is.
-	if strings.HasPrefix(instruction, "?") || primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !isHarnessCommand(instruction) {
+	isPasted := strings.HasPrefix(instruction, "?") || primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !isHarnessCommand(instruction)
+	if isPasted {
 		typed = herdr.CleanPaste("\x1b[200~" + instruction + "\x1b[201~")
 		instruction = strings.TrimSuffix(strings.TrimPrefix(typed, "\x1b[200~"), "\x1b[201~")
 	}
@@ -637,7 +638,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 		return Evaluation{}, errors.New("The CFO's input changed before submission. Inspect its terminal; nothing was submitted.")
 	}
 	submit := "\r"
-	if primary.Agent == "codex" {
+	if screens.PasteTakesEnter {
 		// End flushes Codex's paste burst without changing the text; otherwise
 		// Enter can join that paste instead of submitting it. It is pressed
 		// once: a Codex can take it late, its text still showing, and an Enter
@@ -676,7 +677,7 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 			if dialog || !busy && !screens.IsWorking(screen) && !screens.ComposerEmpty(screen) {
 				return Evaluation{}, errors.New("The answer remains in the CFO's input without confirmation that it was submitted. Inspect its terminal before sending again.")
 			}
-			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session, Typed: instruction}}, nil
+			return Evaluation{Reason: sentToCFO, Awaiting: &Awaiting{Host: primary.Host, Harness: primary.Agent, Since: submitted, Digest: digest, Session: session, Typed: instruction, Pasted: isPasted}}, nil
 		}
 		select {
 		case <-time.After(nativeConfirmPoll):

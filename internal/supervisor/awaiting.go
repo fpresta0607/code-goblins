@@ -34,6 +34,9 @@ type Awaiting struct {
 	// Typed is the line as typed, which its terminal's prompt line shows
 	// again when its harness hands it back unsent.
 	Typed string `json:"typed,omitempty"`
+	// Pasted says Typed went as a bracketed paste, which its harness may
+	// hand back as a paste's placeholder rather than as its words.
+	Pasted bool `json:"pasted,omitempty"`
 	// QuietSince is the last time the terminal's screen showed a turn under
 	// way, or Since when it has shown none.
 	QuietSince time.Time `json:"quiet_since"`
@@ -217,15 +220,12 @@ func (s *Service) submitHandedBack(ctx context.Context) error {
 }
 
 // submitOnto presses the submit key in terminal when its harness waits idle
-// with one of deliveries, all typed into it, back on its prompt line, and
-// reports whether it did. Nothing else types into the CFO's terminal
-// meanwhile.
+// with one of deliveries, all typed into it, at the end of its prompt line,
+// and reports whether it did. The screen is read without the CFO's typing
+// lock, which a delivery to the CFO holds for seconds, and read again under
+// it before the key, so nothing else types into the CFO's terminal meanwhile.
 func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []Awaiting) bool {
 	first := deliveries[0]
-	if first.Host != "" && s.Options.CFO != nil {
-		s.Options.CFO.typing.Lock()
-		defer s.Options.CFO.typing.Unlock()
-	}
 	if first.Task != "" {
 		if meta, err := state.ReadTaskMeta(s.Store.Home.State, first.Task); err != nil || meta.SpawnGen != first.Generation {
 			return false
@@ -236,9 +236,19 @@ func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []
 	if !readable || err != nil || !host.Running(record) {
 		return false
 	}
-	rows, err := host.ReadScreen(record)
-	if err != nil || !screens.IsReady(rows) || !screens.ComposerHoldsText(rows) || !slices.ContainsFunc(deliveries, func(a Awaiting) bool { return screens.Shows(rows, a.Typed) }) {
+	isHandedBack := func() bool {
+		rows, err := host.ReadScreen(record)
+		return err == nil && screens.IsReady(rows) && screens.ComposerHoldsText(rows) && slices.ContainsFunc(deliveries, func(a Awaiting) bool { return screens.ComposerEndsWith(rows, a.Typed, a.Pasted) })
+	}
+	if !isHandedBack() {
 		return false
+	}
+	if first.Host != "" && s.Options.CFO != nil {
+		s.Options.CFO.typing.Lock()
+		defer s.Options.CFO.typing.Unlock()
+		if !isHandedBack() {
+			return false
+		}
 	}
 	client, err := host.Dial(record)
 	if err != nil {
@@ -246,7 +256,7 @@ func (s *Service) submitOnto(ctx context.Context, terminal string, deliveries []
 	}
 	defer client.Close()
 	submit := "\r"
-	if first.Harness == "codex" {
+	if screens.PasteTakesEnter {
 		submit = "\x1b[F\r"
 	}
 	return ctx.Err() == nil && client.Input([]byte(submit)) == nil
