@@ -157,7 +157,7 @@ func (s *Service) runTrain(ctx context.Context, runner execx.Runner, github *git
 	if done := doneAndOpen(goblins, open); len(done) == 0 || len(done) < minimumRiders && !hasWaitedAlone(goblins, done[0], min(loneRiderWait, repository.LoneRiderWait)) {
 		return listErr
 	}
-	viewer, err := githubAccount(ctx, github)
+	viewer, err := GitHubAccount(ctx, github)
 	if err != nil {
 		return errors.Join(listErr, w.failing("train viewer:"+repo, fmt.Errorf("merge train: read the account gh works as in %s: %w", repo, err)))
 	}

@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-// ListFields is the --json field list of gh pr list that Riders reads.
-const ListFields = "number,url,title,headRefName,headRefOid,baseRefName,isDraft,isCrossRepository,mergeable,reviewDecision,labels,statusCheckRollup,author"
-
 // PullRequest is one open pull request as gh pr list reports it.
 type PullRequest struct {
 	Number            int     `json:"number"`

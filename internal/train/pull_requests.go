@@ -11,9 +11,8 @@ import (
 )
 
 // pullRequestFields selects what Riders, a train and the supervisor read of a
-// pull request in GitHub's GraphQL API: the fields gh pr list --json
-// ListFields names, and the check rollup of its head as gh's own query asks
-// for it.
+// pull request in GitHub's GraphQL API: the fields PullRequest holds, and the
+// check rollup of its head as gh's own query asks for it.
 const pullRequestFields = `number url title headRefName headRefOid baseRefName isDraft isCrossRepository mergeable reviewDecision author{login} labels(first:100){nodes{name}} commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{__typename ...on CheckRun{name status conclusion startedAt completedAt detailsUrl checkSuite{workflowRun{workflow{name}}}} ...on StatusContext{context state targetUrl createdAt}}}}}}}`
 
 const listPullRequestsQuery = `query($owner:String!,$name:String!,$base:String,$head:String){repository(owner:$owner,name:$name){pullRequests(states:OPEN,baseRefName:$base,headRefName:$head,first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{` + pullRequestFields + `}}}}`

@@ -27,10 +27,10 @@ import (
 
 // trainForge is a GitHub repository o/r on a scratch remote: the project's
 // origin names GitHub and git reaches the scratch remote in its place, gh
-// lists the open pull requests, opens the train's pull request and merges it
-// into main with a merge commit, and GitHub's API (ServeHTTP) finds and
-// reads it with green CI. As GitHub does, it shows a pull request merged
-// once main holds its head.
+// opens the train's pull request and merges it into main with a merge commit,
+// and GitHub's API (ServeHTTP) names the account, lists the open pull
+// requests, and finds and reads the train's with green CI. As GitHub does, it
+// shows a pull request merged once main holds its head.
 type trainForge struct {
 	t        *testing.T
 	remote   string
@@ -129,17 +129,9 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 		return execx.OSRunner{}.Run(ctx, request)
 	}
 	args := request.Args
-	f.calls = append(f.calls, strings.Join(args, " "))
-	answer := func(value any) (execx.Result, error) {
-		data, err := json.Marshal(value)
-		return execx.Result{Stdout: data}, err
-	}
+	f.calls = append(f.calls, request.Name+" "+strings.Join(args, " "))
 	switch {
 	case request.Name != "gh":
-	case args[0] == "pr" && args[1] == "list":
-		return answer(f.unmerged())
-	case args[0] == "api" && args[1] == "user":
-		return execx.Result{Stdout: []byte("fleet\n")}, nil
 	case args[0] == "pr" && args[1] == "create":
 		f.branch, f.trainURL = args[slices.Index(args, "--head")+1], "https://github.com/o/r/pull/900"
 		return execx.Result{Stdout: []byte(f.trainURL + "\n")}, nil
@@ -166,14 +158,19 @@ func (f *trainForge) Run(ctx context.Context, request execx.Request) (execx.Resu
 	return execx.Result{ExitCode: 1, Stderr: []byte("unexpected " + request.Name + " " + strings.Join(args, " "))}, nil
 }
 
-// ServeHTTP answers the reads a train makes of GitHub's API: it finds the
-// train's open pull request by its branch, reads it with green CI, lists the
-// open pull requests, lists no push run of main and names the test that
-// failed once.
+// ServeHTTP answers the reads a train makes of GitHub's API: it names fleet
+// as the account it works as, finds the train's open pull request by its
+// branch, reads it with green CI, lists the open pull requests, lists no push
+// run of main and names the test that failed once. A list of the open pull
+// requests into a base is recorded with that base.
 func (f *trainForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	if path != "graphql" {
 		f.calls = append(f.calls, r.Method+" "+path)
+		if r.Method == http.MethodGet && path == "user" {
+			githubtest.Write(w, http.StatusOK, map[string]any{"login": "fleet"})
+			return
+		}
 		if r.Method == http.MethodGet && strings.HasPrefix(path, "repos/o/r/actions/runs") {
 			// Main has no deploy run for a green train to wait on.
 			githubtest.Write(w, http.StatusOK, map[string]any{"workflow_runs": []any{}})
@@ -187,7 +184,11 @@ func (f *trainForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		githubtest.Refuse(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	f.calls = append(f.calls, "graphql")
+	call := "graphql"
+	if base := variables["base"]; base != nil {
+		call += fmt.Sprintf(" into %v", base)
+	}
+	f.calls = append(f.calls, call)
 	switch {
 	case strings.Contains(query, "annotations(") && f.onceTest != "":
 		_, _ = fmt.Fprintf(w, `{"data":{"repository":{"object":{"checkSuites":{"nodes":[{"checkRuns":{"nodes":[{"annotations":{"nodes":[{"title":"Failed once","message":%q}]}}]}}]}}}}}`, f.onceTest)
@@ -256,9 +257,10 @@ func TestPRTrainFilesRootsOnTheProjectIssueRepository(t *testing.T) {
 			runtime.trainEvery = time.Millisecond
 			runtime.github = gh
 			runtime.repositoryOf = tickets.GitHub{Commands: gh}.RepositoryOf
-			// The train reads its pull requests and runs from the forge, and
-			// files its roots through the issue fake.
+			// The train reads its account, pull requests and runs from the
+			// forge, and files its roots through the issue fake.
 			api := http.NewServeMux()
+			api.Handle("/user", forge)
 			api.Handle("/graphql", forge)
 			api.Handle("/repos/o/r/actions/", forge)
 			api.Handle("/", gh)
@@ -327,8 +329,17 @@ func TestPRTrainLandsTheGoblinsGreenPullRequestsWithOneRun(t *testing.T) {
 			t.Fatalf("stdout = %s, want %q", stdout.String(), want)
 		}
 	}
-	if list := forge.calls[0]; !strings.Contains(list, "pr list --repo o/r --state open --base main") {
-		t.Fatalf("first gh call = %q, want the open pull requests into main", list)
+	// It reads GitHub through the API alone, as the supervisor's train does:
+	// the first thing it asks is the open pull requests into main, and each
+	// gh it starts is one of the train's writes.
+	if forge.calls[0] != "graphql into main" {
+		t.Fatalf("first call = %q, want the API's list of the open pull requests into main", forge.calls[0])
+	}
+	trainWrites := []string{"pr create", "pr edit", "label create", "run rerun", "pr close", "pr merge"}
+	for _, call := range forge.calls {
+		if strings.HasPrefix(call, "gh ") && !slices.ContainsFunc(trainWrites, func(write string) bool { return strings.HasPrefix(call, "gh "+write+" ") }) {
+			t.Fatalf("cfo pr train started %q, want gh started for the train's writes alone", call)
+		}
 	}
 	trains, err := train.List(h.State)
 	if err != nil || len(trains) != 1 || trains[0].State != train.StateLanded {
@@ -372,6 +383,7 @@ func TestPRTrainStartsNothingWithoutAGoblinsFinishedPullRequest(t *testing.T) {
 	h := testHome(t)
 	forge.pull(21, "feat/a", "a.txt")
 	runtime := testCommandRuntimeForHome(h)
+	runtime.githubAPI = githubtest.Client(forge)
 	var stdout, stderr bytes.Buffer
 
 	// Act
@@ -381,7 +393,7 @@ func TestPRTrainStartsNothingWithoutAGoblinsFinishedPullRequest(t *testing.T) {
 	if code != 0 || !strings.Contains(stdout.String(), "stays off: #21 no goblin reported it done") || !strings.Contains(stdout.String(), "no train starts") {
 		t.Fatalf("cfo pr train = %d, stdout %s, stderr %s", code, stdout.String(), stderr.String())
 	}
-	if slices.ContainsFunc(forge.calls, func(call string) bool { return strings.HasPrefix(call, "pr create") }) {
+	if slices.ContainsFunc(forge.calls, func(call string) bool { return strings.HasPrefix(call, "gh pr create") }) {
 		t.Fatal("a train pull request was opened with nothing to ride")
 	}
 }

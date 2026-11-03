@@ -41,7 +41,7 @@ func (o *fleetOwners) owns(ctx context.Context, github *githubapi.Client, pr ghP
 func (o *fleetOwners) account(ctx context.Context, github *githubapi.Client) (string, error) {
 	if !o.isRead {
 		o.isRead = true
-		o.viewer, o.err = githubAccount(ctx, github)
+		o.viewer, o.err = GitHubAccount(ctx, github)
 	}
 	return o.viewer, o.err
 }
@@ -53,9 +53,9 @@ func (o *fleetOwners) isAccount(ctx context.Context, github *githubapi.Client, l
 	return err == nil && strings.EqualFold(viewer, login)
 }
 
-// githubAccount is the login of the account GitHub's API works as: the one
+// GitHubAccount is the login of the account GitHub's API works as: the one
 // gh is signed in as, whose token it sends.
-func githubAccount(ctx context.Context, github *githubapi.Client) (string, error) {
+func GitHubAccount(ctx context.Context, github *githubapi.Client) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
 	var user struct {

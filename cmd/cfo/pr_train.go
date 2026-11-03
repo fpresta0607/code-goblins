@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -129,19 +128,18 @@ func runPRTrain(args []string, stdout, stderr io.Writer, commands execx.Runner, 
 			fmt.Fprintf(stdout, "train %s is already running on %s (%s); waiting on it\n", t.ID, repository.Slug, t.PR)
 			break
 		}
-		listed, err := ghText(ctx, commands, "pr", "list", "--repo", repository.Slug, "--state", "open", "--base", repository.Base, "--limit", "100", "--json", train.ListFields)
+		listed, err := train.ListPullRequests(ctx, runtime.githubAPI, repository.Slug, repository.Base, "")
 		if err != nil {
 			fmt.Fprintf(stderr, "cfo pr train: list the open pull requests of %s: %v\n", repository.Slug, err)
 			return 1
 		}
-		var open []train.PullRequest
-		if err := json.Unmarshal([]byte(listed), &open); err != nil {
-			fmt.Fprintf(stderr, "cfo pr train: gh listed the open pull requests of %s in a shape it cannot read: %v\n", repository.Slug, err)
-			return 1
+		open := make([]train.PullRequest, 0, len(listed))
+		for _, pr := range listed {
+			open = append(open, pr.PullRequest())
 		}
-		viewer, err := ghText(ctx, commands, "api", "user", "--jq", ".login")
+		viewer, err := supervisor.GitHubAccount(ctx, runtime.githubAPI)
 		if err != nil {
-			fmt.Fprintf(stderr, "cfo pr train: read the account gh works as: %v\n", err)
+			fmt.Fprintf(stderr, "cfo pr train: read the account GitHub's API works as: %v\n", err)
 			return 1
 		}
 		riders, left := train.Riders(open, repository.Base, viewer, supervisor.TrainGoblins(h.State, checkout), trains)
