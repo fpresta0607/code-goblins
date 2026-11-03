@@ -25,13 +25,15 @@ func isNativeHook(hook registeredHook) bool {
 // Every Claude Code session the fleet starts, a goblin's and the CFO's,
 // carries its native session hooks in its own launch settings, so it reports
 // its session as a Codex or Pi session does, and nothing is written to the
-// user's settings, which every Claude Code session on the machine loads.
+// user's settings, which every Claude Code session on the machine loads. A
+// goblin's after every tool call posts to the board, which reports it.
 func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
+	board := "http://127.0.0.1:4310"
 	for _, test := range []struct {
 		name     string
 		settings func(root, stateDir string) ([]byte, error)
 	}{
-		{"a goblin", GoblinSettings},
+		{"a goblin", func(root, stateDir string) ([]byte, error) { return GoblinSettings(root, stateDir, board) }},
 		{"the CFO", CFOSettings},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -48,16 +50,16 @@ func TestEveryFleetClaudeSessionCarriesItsNativeSessionHooks(t *testing.T) {
 			}
 
 			// Act
-			hooks := slices.DeleteFunc(registeredHooks(t, path), func(hook registeredHook) bool { return !isNativeHook(hook) })
+			hooks := slices.DeleteFunc(registeredHooks(t, path), func(hook registeredHook) bool { return !isNativeHook(hook) && hook.URL != board+GoblinToolPath })
 
 			// Assert
 			var events []string
 			for _, hook := range hooks {
-				want := []string{"native-hook", "claude", "--home", root, "--state", stateDir}
-				// A goblin's after a tool call raises the key alarm too.
-				if test.name == "a goblin" && hook.Event == "PostToolUse" {
-					want = append(want, "--key-alarm")
+				if test.name == "a goblin" && hook.Event == "PostToolUse" && hook.URL == board+GoblinToolPath {
+					events = append(events, hook.Event)
+					continue
 				}
+				want := []string{"native-hook", "claude", "--home", root, "--state", stateDir}
 				if hook.Command != filepath.Join(root, home.BinDir, "cfo.exe") || !slices.Equal(hook.Args, want) || hook.Shell || hook.Matcher != "" {
 					t.Errorf("native hook = %+v, want the home's cfo.exe run with %q and no shell for every tool", hook, want)
 				}

@@ -28,6 +28,7 @@ func TestSpawnStartsAClaudeGoblinWithTheGoblinHooks(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange
 			f := newFixture(t)
+			f.service.Board = "http://127.0.0.1:4310"
 			f.service.Harness.Adapters[test.kind] = fixtureAdapter{events: &f.events, specs: &f.specs, buildErr: errors.New("nothing starts in this test")}
 			f.request.Harness = test.kind
 
@@ -52,7 +53,7 @@ func TestSpawnStartsAClaudeGoblinWithTheGoblinHooks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want, err := install.GoblinSettings(f.service.HomeRoot, f.service.StateDir)
+			want, err := install.GoblinSettings(f.service.HomeRoot, f.service.StateDir, f.service.Board)
 			if err != nil {
 				t.Fatal(err)
 			}

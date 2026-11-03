@@ -20,7 +20,9 @@ func TestTheCFOsAndAGoblinsTerminalsCompactWithinA400KWindow(t *testing.T) {
 		want     any
 	}{
 		{name: "the CFO's", settings: CFOSettings, want: json.Number("400000")},
-		{name: "a goblin's", settings: GoblinSettings, want: json.Number("400000")},
+		{name: "a goblin's", settings: func(root, stateDir string) ([]byte, error) {
+			return GoblinSettings(root, stateDir, "http://127.0.0.1:4310")
+		}, want: json.Number("400000")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange

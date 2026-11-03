@@ -17,6 +17,13 @@ type registeredHook struct {
 	Args    []string
 	Shell   bool
 	Timeout int
+	// URL is where an HTTP hook posts, with the headers it carries from
+	// the variables Claude Code lets it read, and OnFailure what it does
+	// when nothing answers there.
+	URL            string
+	Headers        map[string]string
+	AllowedEnvVars []string
+	OnFailure      string
 }
 
 // terminalHooks is every hook in the settings a Claude Code CFO's terminal
@@ -44,9 +51,14 @@ func registeredHooks(t *testing.T, path string) []registeredHook {
 		Hooks map[string][]struct {
 			Matcher string `json:"matcher"`
 			Hooks   []struct {
-				Command string    `json:"command"`
-				Args    *[]string `json:"args"`
-				Timeout int       `json:"timeout"`
+				Type           string            `json:"type"`
+				Command        string            `json:"command"`
+				Args           *[]string         `json:"args"`
+				Timeout        int               `json:"timeout"`
+				URL            string            `json:"url"`
+				Headers        map[string]string `json:"headers"`
+				AllowedEnvVars []string          `json:"allowedEnvVars"`
+				OnFailure      string            `json:"onFailure"`
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
@@ -57,7 +69,7 @@ func registeredHooks(t *testing.T, path string) []registeredHook {
 	for event, groups := range document.Hooks {
 		for _, group := range groups {
 			for _, entry := range group.Hooks {
-				hook := registeredHook{Event: event, Matcher: group.Matcher, Command: entry.Command, Shell: entry.Args == nil, Timeout: entry.Timeout}
+				hook := registeredHook{Event: event, Matcher: group.Matcher, Command: entry.Command, Shell: entry.Type != "http" && entry.Args == nil, Timeout: entry.Timeout, URL: entry.URL, Headers: entry.Headers, AllowedEnvVars: entry.AllowedEnvVars, OnFailure: entry.OnFailure}
 				if entry.Args != nil {
 					hook.Args = *entry.Args
 				}

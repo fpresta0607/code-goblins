@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 	"strings"
 	"unicode"
@@ -21,8 +20,9 @@ import (
 
 // goblinKeyAlarm consumes output only in memory. Its durable notice contains
 // a hashed call identity and the detector's fixed names, never output text.
-func goblinKeyAlarm(harnessName, stateDir string, stdin io.Reader, stderr io.Writer) int {
-	if os.Getenv(harness.RoleVariable) != harness.RoleGoblin {
+// getenv reads the goblin's environment.
+func goblinKeyAlarm(harnessName, stateDir string, getenv func(string) string, stdin io.Reader, stderr io.Writer) int {
+	if getenv(harness.RoleVariable) != harness.RoleGoblin {
 		return 0
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, nativehook.MaxInputBytes+1))
@@ -67,7 +67,7 @@ func goblinKeyAlarm(harnessName, stateDir string, stdin io.Reader, stderr io.Wri
 	if len(kinds) == 0 {
 		return 0
 	}
-	task := os.Getenv("CFO_TASK_ID")
+	task := getenv("CFO_TASK_ID")
 	if state.ValidTaskID(task) != nil || payload.Session == "" || payload.Call == "" || len(payload.Session) > 4096 || len(payload.Call) > 4096 {
 		fmt.Fprintln(stderr, "key alarm needs a task, session and tool call identity")
 		return 1

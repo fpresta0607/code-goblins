@@ -333,6 +333,7 @@ func runServe(args []string, stdout, stderr io.Writer, runtime commandRuntime) i
 		go remoteSetting.FollowBoard(ctx, func(line string) { fmt.Fprintln(stderr, line) })
 	}
 	handler := supervisor.NewHTTP(s, listener.Addr().String(), assets)
+	handler.GoblinHooks = goblinHookHandler{home: h}
 	// After an update to a build that pins a newer speech model, the board
 	// replaces the earlier one now rather than at the first dictation.
 	handler.ReplaceDictation()

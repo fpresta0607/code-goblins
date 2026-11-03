@@ -40,20 +40,32 @@ func hookGoblinSeal(name string, stdin io.Reader, stdout, stderr io.Writer) int 
 	if name == "goblin-seal" {
 		worktree, deny = os.Getenv("CLAUDE_PROJECT_DIR"), func(message string) int { return claudehook.DenyPreTool(stderr, message) }
 	}
-	if refusal := startHookRefusal(worktree, os.Getenv("CFO_TASK_ID")); refusal != "" {
+	if refusal := goblinSeal(worktree, os.Getenv("CFO_TASK_ID"), payload.Command); refusal != "" {
 		return deny(refusal)
 	}
-	if !strings.Contains(strings.ToLower(payload.Command), "chrome-devtools-axi") {
-		return 0
+	return 0
+}
+
+// goblinSeal is what the goblin of task, whose harness started in worktree,
+// is told of command, the shell command it is about to run, which waits, or
+// empty when command runs. Its Claude Code asks the board for it
+// (goblinHookHandler), and every other harness's hook command
+// (hookGoblinSeal).
+func goblinSeal(worktree, task, command string) string {
+	if refusal := startHookRefusal(worktree, task); refusal != "" {
+		return refusal
+	}
+	if !strings.Contains(strings.ToLower(command), "chrome-devtools-axi") {
+		return ""
 	}
 	h, err := home.Resolve()
 	if err != nil {
-		return 0
+		return ""
 	}
-	if isSealed, _ := browserlogin.Sealed(h.State, os.Getenv("CFO_TASK_ID"), time.Now()); !isSealed {
-		return 0
+	if isSealed, _ := browserlogin.Sealed(h.State, task, time.Now()); !isSealed {
+		return ""
 	}
-	return deny(goblinSealRefusal)
+	return goblinSealRefusal
 }
 
 // startHookRefusal is what a goblin is told of a shell command that waits

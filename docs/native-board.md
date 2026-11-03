@@ -2541,15 +2541,20 @@ The paste fields and the terminal stay.
 ### The seal and the key alarm
 
 Every Claude Code goblin starts with two hooks of its own, handed to it with `--settings`, beside the CFO's: `state\goblin-claude-settings.json`, written anew at each spawn and switch.
-Each of a goblin's hooks runs the home's `cfo-hook.exe`, the same `cfo` built as a program with no console, where it is the same build as the home's `cfo.exe`, and `cfo.exe` otherwise: Claude Code starts every hook hidden, which gives a console program a console host of its own, a second process for each hook, while Windows starts a windowed one alone and it reads the hook's payload and answers through the same pipes.
-`cfo hook goblin-seal` runs before each Bash, PowerShell or Monitor call and refuses a chrome-devtools-axi command while a fetch reads in the browser the goblin's task holds.
-It also refuses every call while a Python environment of the goblin's worktree, the folder its Claude Code started in (`CLAUDE_PROJECT_DIR`), holds code that runs at every Python start that no known package ships and the CFO did not accept, and wakes the CFO with the file and its package ([Code that runs at every Python start](contract/worktrees.md#code-that-runs-at-every-python-start)).
+The two that run at every tool call post to the board, which does their work in its own process, so no tool call starts a process for them (#1610).
+They post to the board the home's board record names when the goblin starts, or else to the address the home's board listens at.
+Each of a goblin's other hooks runs the home's `cfo-hook.exe`, the same `cfo` built as a program with no console, where it is the same build as the home's `cfo.exe`, and `cfo.exe` otherwise: Claude Code starts every hook hidden, which gives a console program a console host of its own, a second process for each hook, while Windows starts a windowed one alone and it reads the hook's payload and answers through the same pipes.
+The seal runs before each Bash, PowerShell or Monitor call, as a post to the board's `/api/goblin-hook/seal`, and refuses a chrome-devtools-axi command while a fetch reads in the browser the goblin's task holds.
+It also refuses every call while a Python environment of the goblin's worktree, the folder its Claude Code started in, which its task record names, holds code that runs at every Python start that no known package ships and the CFO did not accept, and wakes the CFO with the file and its package ([Code that runs at every Python start](contract/worktrees.md#code-that-runs-at-every-python-start)).
 The seal is a file under `state\browser-seals`, written before the key page loads and removed once the keys are hidden.
 A seal left behind lifts by itself three minutes after it was written, a minute past a fetch's own bound, a starting supervisor clears any left, and one that cannot be read refuses.
-The key alarm runs after every tool call, inside the goblin's native hook (`cfo native-hook claude ... --key-alarm`), and wakes the CFO once per call whose output holds a secret key, naming the goblin, the tool and the kind of key, never the key, so the key can be rolled.
+A seal the board does not answer refuses too: Claude Code blocks the call when the post fails (`onFailure: block`).
+The key alarm runs after every tool call, beside the goblin's native hook, as a post to the board's `/api/goblin-hook/tool`, and wakes the CFO once per call whose output holds a secret key, naming the goblin, the tool and the kind of key, never the key, so the key can be rolled.
 It matches each kind of secret key by its prefix and its length, and most kinds by their mix of letters and digits too, so a commit hash, a UUID, a publishable key or a masked key never wakes it, though a long name that starts like a key can.
-A Bash, PowerShell or Monitor call starts the hook program twice, the seal before it and the native hook after it, any other call once, and an ordinary call in a worktree with no Python environment reads no file.
-The native hook and the alarm were two hook entries, a third process after every call; one process runs both now, the native hook still held to its own three seconds and the alarm to Claude Code's default of ten minutes, a part past its limit left unfinished as Claude Code would have ended it.
+The native hook is still held to its own limit and the alarm to Claude Code's default of ten minutes, a part past its limit left unfinished as Claude Code would have ended it.
+Each post carries the goblin's variables in headers Claude Code fills from its terminal's environment, such as `X-CFO-TASK-ID`.
+The board does a post's work only when the terminal's id and proof it carries (`CFO_HOST_ID`, `CFO_HOST_PROOF`) prove it came from the goblin's own terminal, and only for a post from this PC, so no web page, other goblin or other machine can speak for a goblin.
+So each post reads the terminal's proofs, and each seal the goblin's task record too, files the board reads in its own process.
 
 A Codex or pi goblin runs the same seal, and no key alarm yet (#1366).
 A Codex goblin's launch carries it as a `hooks.PreToolUse` override matching Bash, the name Codex gives a shell command and an `exec_command` call alike, which runs `cfo hook goblin-seal-codex` with the home's `cfo.exe` under Codex's own limit for a hook, as Claude Code's is for its seal.
