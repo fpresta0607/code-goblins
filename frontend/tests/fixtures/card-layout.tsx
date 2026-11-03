@@ -58,7 +58,7 @@ function Fixture() {
   }, []);
   const board = <Board snapshot={snapshot} layout="stacked" selected={selected} now={now} freshNow={now} presentations={presentations} onSelect={select} onSelectTrain={() => {}} onOpenCfo={() => {}} onOpenCommand={() => {}} onStartCfo={() => {}} />;
   if (search.has("queue")) return <aside className="context-pane" style={{ width: "calc(100vw - 16px)" }}><div className="panel-content"><section className="cfo-queue" aria-label="Queued tasks">
-    <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} onSelect={select} />
+    <QueuedTasks snapshot={snapshot} selected={selected} now={now} presentations={presentations} hasMeters onSelect={select} />
   </section></div></aside>;
   return <main className="canvas-region" style={width ? { width } : undefined}>{board}</main>;
 }

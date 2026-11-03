@@ -26,7 +26,7 @@ function RenderErrors() {
   return <main>
     <button onClick={() => setHasFailure(false)}>Repair fixture</button>
     <section aria-label="Affected list">
-      {mode === "queued" ? <QueuedTasks snapshot={hasFailure ? failing : snapshot} now={0} presentations={[]} onSelect={() => {}} /> : mode === "ranked" ? <RankedCards tasks={snapshot.tasks} list="progress" instance="fixture" revision={0} empty={null} renderCard={card} />
+      {mode === "queued" ? <QueuedTasks snapshot={hasFailure ? failing : snapshot} now={0} presentations={[]} hasMeters onSelect={() => {}} /> : mode === "ranked" ? <RankedCards tasks={snapshot.tasks} list="progress" instance="fixture" revision={0} empty={null} renderCard={card} />
         : <FitList items={snapshot.tasks} keyOf={(task) => task.id} empty={null} renderItem={card} />}
     </section>
     <section aria-label="Unaffected list">Another usable list</section>

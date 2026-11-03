@@ -63,19 +63,24 @@ for (const [where, viewport, deviceScaleFactor] of [["in the Overlord's window, 
   });
 }
 
-test("the CFO's Task view lists an empty queue the same way", async ({ page }) => {
+// The CFO's Task view draws the meters only where no Tasks column shows them
+// (#1598): beside the board an empty queue adds nothing to it, and in
+// Orchestration it shows the meters and no words, as the column does.
+test("the CFO's Task view adds nothing for an empty queue beside the board, and shows the meters alone in Orchestration", async ({ page }) => {
   // Arrange
   await board(page);
   await page.keyboard.press("Control+Alt+1");
   await openTaskList(page);
   const queue = page.getByRole("region", { name: "Queued tasks", exact: true });
+  await expect(queue).toHaveCount(0);
 
   // Act
+  await page.getByRole("button", { name: "Orchestration", exact: true }).click();
+  await openTaskList(page);
   await expect(queue).toBeVisible();
   const words = await wordsBesideTheMeters(queue);
 
   // Assert
-  await expect(queue.locator(".column-count")).toHaveText("0");
   await expectMeters(queue);
   expect(words).toEqual([]);
 });

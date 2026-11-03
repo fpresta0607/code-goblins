@@ -7,19 +7,22 @@ import { cardFacts, TaskCard } from "./TaskCard";
 import { nextInOrder, startOrder } from "./start";
 
 // The queue in the order the supervisor starts it, top first, as the Tasks
-// column and the CFO's Task tab both show it: free memory against the mark at which the CFO starts the next task, free
-// disk against its floor, and each queued task with its rank and its drag;
-// its Start is in its panel. The subscription dials are on the CFO's bar, not here. An empty
+// column and the CFO's Task tab both show it: each queued task with its rank
+// and its drag; its Start is in its panel. hasMeters puts the machine meters
+// over it, free memory against the mark at which the CFO starts the next task
+// and free disk against its floor: the Tasks column has them, and the CFO's
+// Task tab only where no Tasks column shows them, so they are on screen once
+// (#1598). The subscription dials are on the CFO's bar, not here. An empty
 // queue shows its meters and no words: its count already says it is empty.
-export function QueuedTasks({ snapshot, selected, now, presentations, onSelect }: {
-  snapshot: Snapshot; selected?: string; now: number; presentations: BoardActivity[];
+export function QueuedTasks({ snapshot, selected, now, presentations, hasMeters, onSelect }: {
+  snapshot: Snapshot; selected?: string; now: number; presentations: BoardActivity[]; hasMeters: boolean;
   onSelect: (task: Task, source: HTMLElement) => void;
 }) {
   const memory = snapshot.memory;
   const tasks = startOrder(snapshot);
   const next = nextInOrder(snapshot, now);
   return <>
-    {(memory || snapshot.disk) && <div className="task-meters">
+    {hasMeters && (memory || snapshot.disk) && <div className="task-meters">
       {memory && <MemoryMeter memory={memory} disk={snapshot.disk ?? null} processors={snapshot.processors ?? null} gpu={snapshot.gpu ?? null} />}
       {!memory && snapshot.disk && <div className="memory"><DiskMeter disk={snapshot.disk} /></div>}
     </div>}
