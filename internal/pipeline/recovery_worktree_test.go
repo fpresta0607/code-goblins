@@ -152,7 +152,7 @@ type gateRecoveryRunner struct {
 
 func (runner *gateRecoveryRunner) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
 	if request.Name != "no-mistakes" {
-		return execx.OSRunner{}.Run(ctx, request)
+		return fixtureCommands{execx.OSRunner{}}.Run(ctx, request)
 	}
 	switch command := strings.Join(request.Args, " "); command {
 	case "axi sync --check":
