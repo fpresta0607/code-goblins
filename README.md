@@ -98,6 +98,7 @@ Modern Chat presents prompts, replies, folded thinking and tool results as a con
 Type in the message box and press **Enter** to send; **Shift+Enter** adds a line.
 The composer offers files, the session's permission mode, model and effort, plus local dictation where available.
 Type `/` for harness commands or `@` for files.
+**Clear message**, the trash button beside the input, clears the whole unsent typed or dictated draft without sending it, interrupting the session or touching queued messages; text already in the native Terminal's input is edited there.
 
 Use the composer's **Style** menu to choose **Classic** and return to the native Terminal.
 When a harness question or picker appears in Modern Chat, **Show the terminal** opens that screen and **Back to messages** returns to the conversation.
@@ -216,6 +217,7 @@ See [conversation recovery and fresh starts](docs/native-board.md#a-cfo-whose-te
 Use `cfo help` to list topics, then ask for one command, such as `cfo help auth request`.
 The [help reference](docs/commands/help.md), [operator contract](AGENTS.md) and [pipeline guide](docs/pipeline.md) cover fleet operation and verification levels.
 See the [update command reference](docs/commands/update.md) for installing a candidate build and recovering an update.
+See the [memory command reference](docs/commands/memory.md) for startup memory retrieval, budget reports and read-only migration inventories.
 
 For persistent Command Center reviews:
 

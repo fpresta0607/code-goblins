@@ -110,7 +110,7 @@ func nativeHookEvent(harnessName, root, dir string, input io.Reader, stdout, std
 			} `json:"hookSpecificOutput"`
 		}
 		reply.Output.Event = "SessionStart"
-		reply.Output.Context = fmt.Sprintf("CFO compact continuation: before further fleet action, read %s, %s and %s. Read the saved handoff for each active item and use cfo fleet-view to reconcile current work. Preserve held and answered states; recover only durable on-disk state. Run cfo drain and ack only wakes actually read. Use the existing stow contract before another context reset. This hook has not read those files; conversational holds absent from disk cannot be recovered.", filepath.Join(root, "AGENTS.md"), filepath.Join(root, "data", "overlord.md"), filepath.Join(root, "data", "memory", "MEMORY.md"))
+		reply.Output.Context = fmt.Sprintf("CFO compact continuation: before further fleet action, read %s and run cfo session-start for the freshly validated operating map, resolving memory diagnostics before dependent action. Retrieve relevant cold authority and facts with cfo memory retrieve --project <name> --task <id> --topic <topic>, or --id <id>. Read the saved handoff for each active item and use cfo fleet-view to reconcile current work. Preserve held and answered states; recover only durable on-disk state. Run cfo drain and ack only wakes actually read. Use the existing stow contract before another context reset. This hook has not delivered source memory; conversational holds absent from disk cannot be recovered.", filepath.Join(root, "AGENTS.md"))
 		if err := json.NewEncoder(stdout).Encode(reply); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
@@ -153,10 +153,10 @@ func compactNativeCFO(h home.Home, e nativehook.Event, now time.Time) error {
 	// compaction, which writes a new one first.
 	path, written, isFresh := digest.FreshCheckpoint(h.State, now)
 	identity := fmt.Sprintf("compact/%s/%s/%d", e.Harness, e.SessionID, written.UnixNano())
-	detail := fmt.Sprintf("compacted: the %s CFO's context was just compacted; read %s, written %s as it began, then cfo fleet-view and cfo drain before any fleet action", e.Harness, path, written.UTC().Format(time.RFC3339))
+	detail := fmt.Sprintf("compacted: the %s CFO's context was just compacted; read %s, written %s as it began, then cfo session-start for freshly validated memory, cfo fleet-view and cfo drain before any fleet action", e.Harness, path, written.UTC().Format(time.RFC3339))
 	if !isFresh {
 		identity = fmt.Sprintf("compact/%s/%s/%s", e.Harness, e.SessionID, e.TurnID)
-		detail = fmt.Sprintf("compacted: the %s CFO's context was just compacted and no fresh checkpoint was written for it; reconcile from cfo fleet-view and cfo drain before any fleet action", e.Harness)
+		detail = fmt.Sprintf("compacted: the %s CFO's context was just compacted and no fresh checkpoint was written for it; run cfo session-start for freshly validated memory, then reconcile from cfo fleet-view and cfo drain before any fleet action", e.Harness)
 	}
 	if _, err := wake.AppendOnce(h.State, identity, "check", "compact", detail); err != nil {
 		return err

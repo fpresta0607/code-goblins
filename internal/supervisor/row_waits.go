@@ -24,7 +24,7 @@ type rowReading struct {
 	now    time.Time
 	memory *Memory
 	pulls  map[string]string
-	root   func(rootStart) string
+	root   func(rootStart) StartRefusal
 }
 
 // rowReading reads queued rows' waits at now against memory, with the pull

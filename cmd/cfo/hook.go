@@ -916,12 +916,6 @@ func hookStopAutoarmWithConfig(h home.Home, program proc.Entry, payload claudeho
 	return 2
 }
 
-// sessionStartNudgeLine is the SessionStart routing shortcut's exact
-// stdout for a resume/reload/fork whose completion marker already names the
-// CURRENT custody's owner: printing a full digest again would just repeat
-// what an earlier SessionStart under the same lock already showed.
-const sessionStartNudgeLine = "CFO: operational input may be waiting; run cfo drain if supervision was active. For an explicit user decision, publish cfo question --id <stable-id> --text <question> [--option <choice>] [--recommend <exact-choice>] from the registered primary shell. Answers return as normal messages to the same CFO, not native prompt-tool responses."
-
 // withAFKBanner is text followed, while AFK mode is on, by its banner on a
 // line of its own: a rewake and a resumed session each tell the CFO it is on
 // and where its terms are.
@@ -945,15 +939,6 @@ func withAFKBanner(stateDir, text string) string {
 // this hook runs in: custody of the session lock is taken for it and no
 // other process.
 //
-// Routing: startup, new, clear, compact, empty, or any source this build
-// does not recognize all take the same single code path below, the brief
-// digest, with no marker consulted. resume, reload, and fork take the
-// short-circuit nudge instead, but only when state\.session-start-complete
-// names THIS owner and lock.HeldBy confirms that owner still holds the
-// home; otherwise they fall through to the same brief digest, so a session
-// resuming into a home that never received a digest under this custody, as
-// one whose lock another session took meanwhile, does not start blind.
-//
 // The digest is the brief one for every source because Claude Code hands a
 // session a hook's output whole only up to digest.Limit: the long digest
 // arrived as a preview of its first 2 KB, a session lock and a few wake
@@ -964,15 +949,9 @@ func hookSessionStart(h home.Home, program proc.Entry, payload claudehook.Payloa
 	isResumed := false
 	switch payload.Source {
 	case "resume", "reload", "fork":
-		if markerPID, ok := digest.ReadCompleteMarker(h.State); ok && markerPID == ownerPID && lock.HeldBy(h.State, ownerPID) {
-			fmt.Fprintln(stdout, withAFKBanner(h.State, sessionStartNudgeLine))
-			registerPrimary(h, ownerPID, "claude", payload.SessionID, stdout)
-			return 0
-		}
-		// A CFO brought back on the conversation the home last registered has
-		// read the long digest in it already.
+		_, hasMarker := digest.ReadCompleteMarker(h.State)
 		conversation, err := supervisor.ReadCFOConversation(h.State)
-		isResumed = err == nil && conversation.Session == payload.SessionID
+		isResumed = hasMarker && err == nil && conversation.Session == payload.SessionID
 	}
 
 	if err := digest.ComposeBrief(h, ownerPID, payload.SessionID, payload.Source == "compact", isResumed, stdout); err != nil {

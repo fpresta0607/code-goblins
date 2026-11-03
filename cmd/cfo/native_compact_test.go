@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,10 +70,13 @@ func TestCodexCompactStartRehydratesOnlyTheCFO(t *testing.T) {
 			if reply.Output.Event != "SessionStart" {
 				t.Fatalf("compact reply = %s, want context for the immediate SessionStart continuation", output.String())
 			}
-			for _, required := range []string{filepath.Join(root, "AGENTS.md"), filepath.Join(root, "data", "overlord.md"), filepath.Join(root, "data", "memory", "MEMORY.md"), "handoff", "held", "cfo drain", "ack", "stow"} {
+			for _, required := range []string{filepath.Join(root, "AGENTS.md"), "cfo session-start", "cfo memory retrieve", "handoff", "held", "cfo drain", "ack", "stow"} {
 				if !strings.Contains(reply.Output.Context, required) {
 					t.Errorf("compact context misses %q: %s", required, reply.Output.Context)
 				}
+			}
+			if strings.Contains(reply.Output.Context, "overlord.md") || strings.Contains(reply.Output.Context, "MEMORY.md") {
+				t.Fatal("compact recovery requested full cold history")
 			}
 			if bytes.Contains(output.Bytes(), []byte(`"decision"`)) || bytes.Contains(output.Bytes(), []byte(`"continue"`)) {
 				t.Fatalf("rehydration changed continuation policy: %s", output.String())
@@ -85,6 +89,57 @@ func TestCodexCompactStartRehydratesOnlyTheCFO(t *testing.T) {
 				if _, err := os.Stat(filepath.Join(stateDir, name)); !os.IsNotExist(err) {
 					t.Fatalf("compact context changed custody or digest file %s: %v", name, err)
 				}
+			}
+		})
+	}
+}
+
+func TestCodexCompactRecoveryReadsFreshSelectiveAuthority(t *testing.T) {
+	for _, isCorrupt := range []bool{false, true} {
+		t.Run(fmt.Sprint(isCorrupt), func(t *testing.T) {
+			clearNativeCFOEnvironment(t)
+			root := newCFOHome(t)
+			t.Setenv("CFO_ROLE", "cfo")
+			t.Setenv("CFO_TASK_ID", "")
+			dataDir := filepath.Join(root, "data")
+			writeMemoryCatalog(t, dataDir, "Old ruling.\n", "Approved cold history.\n")
+			var previous, diagnostics bytes.Buffer
+			if exit := run([]string{"session-start"}, &previous, &diagnostics); exit != 0 {
+				t.Fatal(diagnostics.String())
+			}
+			if isCorrupt {
+				if err := os.WriteFile(filepath.Join(dataDir, "overlord.md"), []byte("Changed ruling.\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				writeMemoryCatalog(t, dataDir, "Changed ruling.\n", "Approved cold history.\n")
+			}
+			var reply bytes.Buffer
+			payload, err := json.Marshal(map[string]string{"hook_event_name": "SessionStart", "source": "compact", "session_id": "same-thread", "cwd": root})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if exit := runNativeHook([]string{"codex", "--home", root, "--state", filepath.Join(root, "state")}, bytes.NewReader(payload), &reply, &diagnostics, commandRuntime{}); exit != 0 {
+				t.Fatal(diagnostics.String())
+			}
+			var output bytes.Buffer
+			if exit := run([]string{"session-start"}, &output, &diagnostics); exit != 0 {
+				t.Fatal(diagnostics.String())
+			}
+
+			if !strings.Contains(reply.String(), "cfo session-start") || !strings.Contains(reply.String(), "cfo memory retrieve") {
+				t.Fatalf("compact did not route through current composition: %s", reply.String())
+			}
+			if strings.Contains(output.String(), "Approved cold history.") || strings.Contains(output.String(), "Old ruling.") {
+				t.Fatalf("compact recovery reread old or cold memory: %s", output.String())
+			}
+			if isCorrupt {
+				if !strings.Contains(output.String(), "MEMORY UNREADABLE") || strings.Contains(output.String(), "Changed ruling.") {
+					t.Fatal("compact recovery concealed invalid authority")
+				}
+			} else if !strings.Contains(output.String(), "Changed ruling.") {
+				t.Fatal("compact recovery used the saved stale digest")
 			}
 		})
 	}
@@ -143,7 +198,7 @@ func TestNativeCFOCompactWritesACheckpointThenWakesOnce(t *testing.T) {
 			if len(pending) != 1 {
 				t.Fatalf("pending wakes = %+v, want exactly one after a second post-compact event", pending)
 			}
-			if !strings.Contains(pending[0].Detail, checkpoint) || !strings.Contains(pending[0].Detail, "cfo drain") || strings.Contains(pending[0].Detail, "must-not-persist") {
+			if !strings.Contains(pending[0].Detail, checkpoint) || !strings.Contains(pending[0].Detail, "cfo drain") || !strings.Contains(pending[0].Detail, "cfo session-start") || strings.Contains(pending[0].Detail, "must-not-persist") {
 				t.Fatalf("post-compact wake = %q, want the checkpoint path and the next step without prompt text", pending[0].Detail)
 			}
 
@@ -170,7 +225,7 @@ func TestNativeCompactWithoutACheckpointSaysSo(t *testing.T) {
 	if err != nil || len(pending) != 1 {
 		t.Fatalf("pending wakes = %+v, %v; want one", pending, err)
 	}
-	if !strings.Contains(pending[0].Detail, "no fresh checkpoint") || !strings.Contains(pending[0].Detail, "cfo drain") {
+	if !strings.Contains(pending[0].Detail, "no fresh checkpoint") || !strings.Contains(pending[0].Detail, "cfo drain") || !strings.Contains(pending[0].Detail, "cfo session-start") {
 		t.Fatalf("post-compact wake without a checkpoint = %q", pending[0].Detail)
 	}
 }

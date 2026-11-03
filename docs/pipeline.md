@@ -777,7 +777,7 @@ Until then every brief said to run the touched tests by name and let CI run the 
 The pick is the gate step's plan and more, in the order a failure is likeliest and cheapest to find:
 
 1. The imports of every package the change reaches and of its tests, by `go list -test`, which builds nothing, takes seconds and is where an import cycle shows.
-2. The guards: the tests the policy names under `guards` in `config/verify.json`. They read the whole tree, as the two that read every command `main.go` dispatches do, so a change anywhere can fail them, and they run whatever changed. A new whole-tree guard is named there. A test of the policy fails a guard whose test is gone, since it would run nothing and pass.
+2. The guards: the tests the policy names under `guards` in `config/verify.json`. They read the whole tree, so a change anywhere can fail them, and they run whatever changed. A new whole-tree guard is named there. A test of the policy fails a guard whose test is gone, since it would run nothing and pass.
 3. The changed packages that are quick to test, and the packages a contract names for a changed file, each whole.
 4. For a change under `frontend`, the type check, the lint, the unit tests and the browser specs the change touched or names.
 5. The changed packages the policy lists as slow, without their slowest tests. They come after the board's checks because a busy machine can spend the whole limit in them: on 2026-10-10 the replays of two pull requests were ended by the limit inside the quick tests of `cmd/cfo` and `internal/supervisor`.
@@ -835,21 +835,18 @@ It prints the pick before it runs anything, and `--plan` prints it with each che
 This is the pick for a change to three files of `internal/supervisor`:
 
 ```text
-cfo gate prepush: 3 files changed since 3301d7c9, which picks 10 checks to run within 15m0s
+cfo gate prepush: 3 files changed since 3301d7c9, which picks 9 checks to run within 15m0s
 1. imports of 5 packages and their tests (an import cycle fails every test of its package)
 2. guard tests of the root package (its tests read every link of the contract, the workflows and the shipped skills, and every tracked file for a real tailnet's name)
-3. guard tests of cmd/cfo (they read every command main.go dispatches)
-   - TestEveryCommandSaysWhetherItActsAsTheCFO
-   - TestEveryCommandIsAControlOrStaysAtNormalOnPurpose
-4. guard tests of internal/gatetest (they read every tracked file against this policy)
+3. guard tests of internal/gatetest (they read every tracked file against this policy)
    - TestTheRepositoryPolicyAccountsForEveryTrackedFile
    - TestTheRepositoryPolicyNamesOnlyFieldsAndPackagesThatExist
-5. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
-6. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
-7. tests of internal/supervisor but for 179 slower ones (changed)
-8. go vet of 5 packages (they build against what changed)
-9. tests of internal/digest (imports internal/supervisor)
-10. tests of cmd/cfo but for 152 slower ones (imports internal/supervisor)
+4. tests of internal/execx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+5. tests of internal/fsx (the read and process-start guards scan every Go file: internal/supervisor/error_wakes.go and 2 more)
+6. tests of internal/supervisor but for 179 slower ones (changed)
+7. go vet of 5 packages (they build against what changed)
+8. tests of internal/digest (imports internal/supervisor)
+9. tests of cmd/cfo but for 152 slower ones (imports internal/supervisor)
 left to CI:
 - 179 tests of internal/supervisor (they take 2s or longer each here, 29m2s in all, and are in files the change did not touch)
 - 152 tests of cmd/cfo (they take 2s or longer each here, 1h10m23s in all)
@@ -859,7 +856,7 @@ policy: config/verify.json version 1 at 3301d7c9
 The first check that fails ends the run with exit 1, and its last line names the check and the tests:
 
 ```text
-cfo gate prepush: failed at check 7 of 10, tests of internal/supervisor but for 179 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
+cfo gate prepush: failed at check 6 of 9, tests of internal/supervisor but for 179 slower ones: TestOverlapReadThatKeepsFailingWakesTheCFOOnTheThirdPassInARow failed. CI would fail on it too, so fix it before you push.
 ```
 
 A test that fails runs once more by itself before it fails the push.

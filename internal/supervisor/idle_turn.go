@@ -29,7 +29,7 @@ type idleTurn struct {
 // that clears or needs the CFO to fix it, so the CFO's Stop hook keeps
 // watching for the wakes it raises though no goblin is in flight.
 func WorkWaits(h home.Home) bool {
-	finished, reading := readFinishedWork(h, nil), rowReading{now: time.Now().UTC()}
+	finished, reading := readFinishedWork(h, nil), rowReading{now: time.Now().UTC(), root: persistedRootStartReader(h)}
 	for _, id := range queuedCandidates(h) {
 		_, err := planStart(h, id, finished, reading)
 		var refusal StartRefusal
@@ -72,7 +72,7 @@ func IdleTurnWake(h home.Home, memory Memory, now time.Time) (string, error) {
 		}
 	}
 	finished := readFinishedWork(h, nil)
-	reading := rowReading{now: now, memory: &memory}
+	reading := rowReading{now: now, memory: &memory, root: persistedRootStartReader(h)}
 	queued := startableQueued(h, finished, reading)
 	var next string
 	var steps, waiting []string
