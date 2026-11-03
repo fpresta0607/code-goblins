@@ -30,7 +30,6 @@ import { HistoryMark } from "./history-mark";
 import { HistoryStoredCard } from "./history-stored-card";
 import { ClickFeedback, useClickFeedback } from "./click-feedback";
 import { ChangeCard } from "./ChangeCard";
-import "./lantern.css";
 import { goblinName } from "./task-words";
 
 // A sent item's check shows this long before the next item.

@@ -201,10 +201,10 @@ test("at phone width a baby goblin on its rail opens its panel too", async ({ pa
 test("baby goblins are named after their goblin in the order they started, each with a title from its own description", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Orchestration", exact: true }).click();
-  const names = (label: string) => page.getByRole("list", { name: "What runs under " + label }).locator(".tree-child strong").allTextContents();
-  expect(await names("Grub - Tree Surgeon")).toEqual(["Grub Jr. - Plumbing Mapper", "Grub II - OAuth Researcher", "Grub III - Test Runner", "Grub IV - Server Reviewer"]);
-  expect(await names("Kip - Echo Chaser")).toEqual(["Kip Jr. - Export Tracer"]);
-  expect(await names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toEqual(["Moss Jr. - Branch Measurer", "Moss II - List Checker", "Pip - Rail Fitter"]);
+  const names = (label: string) => page.getByRole("list", { name: "What runs under " + label }).locator(".tree-child strong");
+  await expect(names("Grub - Tree Surgeon")).toHaveText(["Grub Jr. - Plumbing Mapper", "Grub II - OAuth Researcher", "Grub III - Test Runner", "Grub IV - Server Reviewer"]);
+  await expect(names("Kip - Echo Chaser")).toHaveText(["Kip Jr. - Export Tracer"]);
+  await expect(names("Moss - Pixel Wrangler"), "a helper goblin keeps its own name").toHaveText(["Moss Jr. - Branch Measurer", "Moss II - List Checker", "Pip - Rail Fitter"]);
 });
 
 test("working subagents open their panels and processes have no baby card", async ({ page }) => {

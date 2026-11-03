@@ -24,6 +24,7 @@ async function answerTheCFO(page: Page): Promise<string> {
 async function history(page: Page) {
   await page.locator(".command-center-menu > summary").click();
   const list = page.locator(".inbox-history");
+  await expect(list).toBeVisible();
   if (!(await list.locator(".disclosure-content").count())) await list.locator("summary").click();
   return list;
 }
