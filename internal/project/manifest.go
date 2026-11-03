@@ -50,6 +50,10 @@ type Verification struct {
 	Reuse          *Reuse    `json:"reuse,omitempty"`
 }
 
+type TestEnvironment struct {
+	PythonVersion string `json:"python_version"`
+}
+
 // Reuse declares what a tier's checks read besides the files git sees, so
 // that a pass of the tier on the same source with the same of these is taken
 // again instead of run (verify.ReadReuseKey). A tier with none declared runs
@@ -134,6 +138,7 @@ type Manifest struct {
 	Deployment      Deployment        `json:"deployment,omitempty"`
 	Verification    Verification      `json:"verification,omitempty"`
 	Delivery        DeliveryPolicy    `json:"delivery,omitzero"`
+	TestEnvironment *TestEnvironment  `json:"test_environment,omitempty"`
 	Security        Security          `json:"security,omitempty"`
 	Hygiene         Hygiene           `json:"hygiene,omitempty"`
 	Trains          Trains            `json:"trains,omitzero"`
@@ -142,6 +147,7 @@ type Manifest struct {
 }
 
 var issueRepository = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$`)
+var exactPythonVersion = regexp.MustCompile(`^3\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 
 func Path(dataDir, projectName string) string {
 	return filepath.Join(dataDir, "projects", projectName, "project.json")
@@ -177,6 +183,9 @@ func (m Manifest) Validate() error {
 	}
 	if strings.TrimSpace(m.Project) == "" {
 		return errors.New("project manifest: project is required")
+	}
+	if m.TestEnvironment != nil && !exactPythonVersion.MatchString(m.TestEnvironment.PythonVersion) {
+		return errors.New("project manifest: test_environment.python_version must be an exact Python 3 version, such as 3.12.10")
 	}
 	if m.IssueRepository != "" {
 		_, name, _ := strings.Cut(m.IssueRepository, "/")

@@ -303,6 +303,15 @@ func pipelineCommand(ctx context.Context, h home.Home, root string, commands exe
 			}
 		}
 	} else {
+		environment, err := pipeline.ProjectTestEnvironment(ctx, commands, h.Data, meta.Project, meta.Worktree)
+		if err != nil {
+			return err
+		}
+		if len(environment) != 0 {
+			if err := pipeline.CheckTestEnvironmentWrapper(root); err != nil {
+				return err
+			}
+		}
 		check, err := reader.CheckStart(ctx, meta.Project, gated, branch, intent, selection.Policy)
 		if err != nil {
 			return err

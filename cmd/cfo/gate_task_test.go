@@ -36,10 +36,14 @@ func gateTaskFixture(t *testing.T, holder string, earlier ...string) (project, g
 	git(project, "worktree", "add", filepath.Join(project, ".worktrees", "gb-"+holder), "feature")
 	gateRoot = t.TempDir()
 	worktree = filepath.Join(gateRoot, "worktrees", "repo", "run")
-	if output, err := exec.Command("git", "clone", "--no-hardlinks", project, worktree).CombinedOutput(); err != nil {
+	git(project, "remote", "add", "origin", "https://example.invalid/project.git")
+	bare := filepath.Join(gateRoot, "repos", "repo.git")
+	if output, err := exec.Command("git", "clone", "--bare", "--no-hardlinks", project, bare).CombinedOutput(); err != nil {
 		t.Fatalf("clone gate fixture: %s (%v)", output, err)
 	}
-	git(worktree, "checkout", "--detach", "origin/feature")
+	git(project, "--git-dir="+bare, "remote", "set-url", "origin", "https://example.invalid/project.git")
+	git(project, "--git-dir="+bare, "update-ref", "refs/remotes/origin/main", "main")
+	git(project, "--git-dir="+bare, "worktree", "add", "--detach", worktree, "feature")
 	t.Chdir(worktree)
 	t.Setenv("CFO_TASK_ID", "cg-misleading")
 	t.Setenv("NO_MISTAKES_GATE", "")
@@ -81,16 +85,21 @@ func TestAnUnknownGateRunNeverNamesTheDaemonsTask(t *testing.T) {
 	}
 }
 
-func writeGateSource(t *testing.T, root, project, worktree, branch string) {
+func writeGateSource(t *testing.T, root, project, worktree, branch string) string {
 	t.Helper()
+	base, err := exec.Command("git", "-C", worktree, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
 	sql := `CREATE TABLE repos(id TEXT,working_path TEXT);
-CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,worktree_dir TEXT);
+CREATE TABLE runs(id TEXT,repo_id TEXT,branch TEXT,worktree_dir TEXT,base_sha TEXT,head_sha TEXT);
 INSERT INTO repos VALUES('repo',` + quote(project) + `);
-INSERT INTO runs VALUES('run','repo',` + quote(branch) + `,` + quote(worktree) + `);`
+INSERT INTO runs VALUES('run','repo',` + quote(branch) + `,` + quote(worktree) + `,` + quote(strings.TrimSpace(string(base))) + `,` + quote(strings.TrimSpace(string(base))) + `);`
 	if output, err := exec.Command("sqlite3", filepath.Join(root, "state.sqlite"), sql).CombinedOutput(); err != nil {
 		t.Fatalf("write gate source: %s (%v)", output, err)
 	}
+	return strings.TrimSpace(string(base))
 }
 
 func TestAGateRunNamesItsOwnerDespiteTheInheritedTask(t *testing.T) {
