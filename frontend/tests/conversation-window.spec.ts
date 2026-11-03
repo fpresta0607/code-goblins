@@ -454,18 +454,29 @@ test("a snapshot that changes nothing in the conversation draws its view once, w
   await openGoblin(page);
   await expect(log(page)).toContainText("Answer 999");
   await expect(log(page).locator(".queued-message")).toContainText("queued while busy");
-  await page.waitForTimeout(1000);
   const draws = () => page.evaluate(() => (window as unknown as { counted: { draws: number } }).counted.draws);
+  // settled waits until the view has drawn nothing for three frames in a row
+  // and says how often it has drawn.
+  const settled = () => page.evaluate(async () => {
+    const counted = (window as unknown as { counted: { draws: number } }).counted;
+    let prior = -1, quiet = 0;
+    for (let frame = 0; frame < 120; frame++) {
+      await new Promise(requestAnimationFrame);
+      quiet = counted.draws === prior ? quiet + 1 : 0;
+      prior = counted.draws;
+      if (quiet === 3) return prior;
+    }
+    throw new Error("The view kept drawing for 120 frames");
+  });
 
   // Act: five snapshots, each a new revision with nothing in the
   // conversation changed.
   const drawn: number[] = [];
   for (let revision = 2; revision < 7; revision++) {
-    const before = await draws();
+    const before = await settled();
     await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), snapshot({ revision, actions }));
     await expect.poll(draws).toBeGreaterThan(before);
-    await page.waitForTimeout(300);
-    drawn.push(await draws() - before);
+    drawn.push(await settled() - before);
   }
 
   // Assert: each drew the view once, as the panel drew it again.
