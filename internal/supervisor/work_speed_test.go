@@ -832,6 +832,86 @@ func TestPassesThatReadNoGoblinWakeTheCFOOnceTheyLastAStall(t *testing.T) {
 	}
 }
 
+// A pass with no goblin to read, every goblin ended or paused, hides no stall,
+// so it ends the blind spell: the fleet that comes back is told of its own
+// spell once that has lasted as long as a stall takes to tell, whether or not
+// the spell before it woke the CFO.
+func TestAPassWithNoGoblinToReadEndsTheBlindSpell(t *testing.T) {
+	for _, quiet := range []struct {
+		name              string
+		goQuiet, comeBack func(t *testing.T, h home.Home, at time.Time)
+	}{
+		{"every goblin ended", func(t *testing.T, h home.Home, _ time.Time) {
+			for _, meta := range liveTasks(h.State) {
+				if err := os.Remove(state.TaskMetaPath(h.State, meta.ID)); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}, func(t *testing.T, h home.Home, _ time.Time) {
+			liveGoblin(t, h, "d-task", h.Root)
+			liveGoblin(t, h, "e-task", h.Root)
+		}},
+		{"every goblin paused", func(t *testing.T, h home.Home, at time.Time) {
+			for _, meta := range liveTasks(h.State) {
+				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "pause-" + meta.ID, Action: "pause", Phase: "paused", Pause: &state.PauseCondition{Reason: "overlord", At: at}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}, func(t *testing.T, h home.Home, _ time.Time) {
+			for _, meta := range liveTasks(h.State) {
+				if err := state.WriteLifecycle(h.State, state.Lifecycle{ID: meta.ID, Generation: meta.SpawnGen, Operation: "resume-" + meta.ID, Action: "resume", Phase: "running"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}},
+	} {
+		for _, spell := range []struct {
+			name   string
+			lasted time.Duration
+			wakes  int
+		}{
+			{"a spell that had not woken", 10 * time.Minute, 0},
+			{"a spell that had woken", 20 * time.Minute, 1},
+		} {
+			t.Run(quiet.name+" after "+spell.name, func(t *testing.T) {
+				// Arrange
+				service, h := fleetService(t)
+				for _, id := range []string{"a-task", "b-task", "c-task"} {
+					liveGoblin(t, h, id, h.Root)
+				}
+				head := strings.Repeat("a", 40)
+				service.Options.Progress = &slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}
+				start := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
+				back := time.Date(2026, 11, 4, 9, 1, 0, 0, time.UTC)
+				pass := func(at time.Time, wakes int) {
+					t.Helper()
+					if err := service.checkFleet(t.Context(), at); err != nil {
+						t.Fatalf("at %s: %v", at.Format("15:04Z"), err)
+					}
+					if got := progressUnreadWakes(t, h); len(got) != wakes {
+						t.Fatalf("at %s progress_unread wakes = %d, want %d: %q", at.Format("15:04Z"), len(got), wakes, got)
+					}
+				}
+				pass(start, 0)
+				pass(start.Add(spell.lasted), spell.wakes)
+				quiet.goQuiet(t, h, start.Add(26*time.Minute))
+				pass(start.Add(26*time.Minute), spell.wakes)
+				pass(back.Add(-2*time.Minute), spell.wakes)
+				quiet.comeBack(t, h, back)
+
+				// Act and assert: the fleet's first pass runs out, and so does
+				// every pass for the 20 minutes after it.
+				pass(back, spell.wakes)
+				pass(back.Add(19*time.Minute), spell.wakes)
+				pass(back.Add(20*time.Minute), spell.wakes+1)
+				if wakes := progressUnreadWakes(t, h); !strings.Contains(wakes[len(wakes)-1], "since 09:01Z") {
+					t.Fatalf("wake %q, want the spell that began with the fleet's first pass at 09:01Z", wakes[len(wakes)-1])
+				}
+			})
+		}
+	}
+}
+
 // A goblin whose read keeps running out of time while the others are read in
 // the same pass is the goblin's own failure, and wakes the CFO naming it once
 // it failed failingPasses passes in a row. A pass whose every read ran out

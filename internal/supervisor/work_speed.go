@@ -252,7 +252,7 @@ measuring:
 		}
 		return problems
 	}
-	if len(measured) > 0 {
+	if len(measured) > 0 || reads == 0 {
 		watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
 	}
 	// A memory low slows every read at once: on 2026-10-08 the supervisor
