@@ -684,6 +684,180 @@ func TestAProgressReadAMemoryLowSlowsIsNoSupervisorError(t *testing.T) {
 	}
 }
 
+// slowGit is goblins' worktrees whose reads run out of time: every one's
+// while isEverySlow says so, and else each one slow names.
+type slowGit struct {
+	progressGit
+	isEverySlow bool
+	slow        map[string]bool
+}
+
+func (git *slowGit) Run(ctx context.Context, request execx.Request) (execx.Result, error) {
+	if git.isEverySlow || git.slow[request.Dir] {
+		return execx.Result{}, context.DeadlineExceeded
+	}
+	return git.progressGit.Run(ctx, request)
+}
+
+// progressUnreadWakes are the details of the check wakes raised for passes
+// that read no goblin's progress.
+func progressUnreadWakes(t *testing.T, h home.Home) []string {
+	t.Helper()
+	var details []string
+	for _, record := range fleetWakeRecords(t, h, "check") {
+		if record.Key == "progress" && strings.HasPrefix(record.Detail, "progress_unread:") {
+			details = append(details, record.Detail)
+		}
+	}
+	return details
+}
+
+// On 2026-11-04 at 01:10Z every goblin's progress read ran out of time in one
+// pass while two test runs held the machine, and each became an error of its
+// own (#1630). Reads that all ran out together say the machine was slow, not
+// any goblin: no goblin's read is an error, even one that failed on the
+// passes before, and its run of failed passes waits for a pass that can tell.
+func TestAPassWhoseEveryReadRanOutIsNoGoblinsError(t *testing.T) {
+	head := strings.Repeat("a", 40)
+	for _, test := range []struct {
+		name    string
+		reading func(worktrees []string) execx.Runner
+	}{
+		{"reads that came back having run out", func([]string) execx.Runner {
+			return &slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}
+		}},
+		{"reads still running at the pass's deadline", func(worktrees []string) execx.Runner {
+			return &stalledGit{progressGit: progressGit{head: head, pushed: head}, stalledDirectories: worktrees}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			service, h := fleetService(t)
+			reads := []string{"progress:a-task", "progress:b-task", "progress:c-task"}
+			for _, read := range reads {
+				liveGoblin(t, h, strings.TrimPrefix(read, "progress:"), h.Root)
+			}
+			var worktrees []string
+			for _, meta := range liveTasks(h.State) {
+				worktrees = append(worktrees, meta.Worktree)
+			}
+			if len(worktrees) <= len(reads) {
+				t.Fatalf("live goblins' worktrees = %q, want the board's own goblin beside the three", worktrees)
+			}
+			failedBefore(t, h, reads...)
+			service.Options.Progress = test.reading(worktrees)
+
+			// Act
+			err := service.checkFleet(t.Context(), time.Now().UTC())
+
+			// Assert
+			if err != nil {
+				t.Fatalf("errors = %v, want none for a pass whose every read ran out", err)
+			}
+			watched, err := readFleetWakes(h.State)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, read := range reads {
+				if watched.Failing[read] != failingPasses-1 {
+					t.Errorf("%s failed passes = %d, want the %d before it kept", read, watched.Failing[read], failingPasses-1)
+				}
+			}
+			if wakes := fleetWakeRecords(t, h, "check"); len(wakes) != 0 {
+				t.Fatalf("check wakes = %+v, want none after one pass", wakes)
+			}
+		})
+	}
+}
+
+// Passes on which every read runs out leave the stall check blind. The CFO
+// is told once, when they have lasted as long as a stall takes to tell, and
+// told again only after a pass that read a goblin ended them.
+func TestPassesThatReadNoGoblinWakeTheCFOOnceTheyLastAStall(t *testing.T) {
+	// Arrange
+	service, h := fleetService(t)
+	for _, id := range []string{"a-task", "b-task", "c-task"} {
+		liveGoblin(t, h, id, h.Root)
+	}
+	head := strings.Repeat("a", 40)
+	git := &slowGit{progressGit: progressGit{head: head, pushed: head}}
+	service.Options.Progress = git
+	start := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
+
+	for _, step := range []struct {
+		at          time.Duration
+		isEverySlow bool
+		wakes       int
+	}{
+		{0, true, 0}, {19 * time.Minute, true, 0}, {20 * time.Minute, true, 1}, {21 * time.Minute, true, 1}, {40 * time.Minute, true, 1},
+		{41 * time.Minute, false, 1},
+		{42 * time.Minute, true, 1}, {61 * time.Minute, true, 1}, {62 * time.Minute, true, 2},
+	} {
+		git.isEverySlow = step.isEverySlow
+
+		// Act
+		if err := service.checkFleet(t.Context(), start.Add(step.at)); err != nil {
+			t.Fatalf("at %s: %v", step.at, err)
+		}
+
+		// Assert
+		wakes := progressUnreadWakes(t, h)
+		if len(wakes) != step.wakes {
+			t.Fatalf("at %s (every read running out: %t) progress_unread wakes = %d, want %d: %q", step.at, step.isEverySlow, len(wakes), step.wakes, wakes)
+		}
+		for _, detail := range wakes {
+			if strings.Contains(detail, "-task") || strings.Contains(detail, "task-1") {
+				t.Fatalf("wake %q names a goblin, want the machine", detail)
+			}
+		}
+	}
+}
+
+// A goblin whose read keeps running out of time while the others are read in
+// the same pass is the goblin's own failure, and wakes the CFO naming it once
+// it failed failingPasses passes in a row. A pass whose every read ran out
+// between them tells nothing of it and does not end that run.
+func TestAGoblinWhoseReadKeepsRunningOutWhileOthersAreReadWakesTheCFO(t *testing.T) {
+	// Arrange
+	handler, h := startBoard(t, 8*gigabyte, &spawnRecorder{})
+	service := handler.Service
+	service.work, service.subscribers = make(chan struct{}, 1), map[chan struct{}]struct{}{}
+	for _, id := range []string{"a-slow-task", "b-task", "c-task"} {
+		liveGoblin(t, h, id, h.Root)
+	}
+	head := strings.Repeat("a", 40)
+	git := &slowGit{progressGit: progressGit{head: head, pushed: head}, slow: map[string]bool{filepath.Join(h.Root, ".worktrees", "gb-a-slow-task"): true}}
+	service.Options.Progress = git
+	start := time.Now().UTC().Truncate(time.Minute)
+
+	for pass, step := range []struct {
+		isEverySlow bool
+		wakes       int
+	}{{false, 0}, {true, 0}, {false, 0}, {false, 1}} {
+		git.isEverySlow = step.isEverySlow
+
+		// Act
+		_ = service.checkFleet(t.Context(), start.Add(time.Duration(pass)*time.Minute))
+		service.cycle(t.Context(), true)
+
+		// Assert
+		var wakes []string
+		for _, detail := range supervisorErrorWakes(t, service) {
+			if strings.Contains(detail, "progress for") {
+				wakes = append(wakes, detail)
+			}
+		}
+		if len(wakes) != step.wakes {
+			t.Fatalf("after pass %d (every read running out: %t) the CFO had %d progress wakes, want %d: %q", pass+1, step.isEverySlow, len(wakes), step.wakes, wakes)
+		}
+		for _, detail := range wakes {
+			if !strings.Contains(detail, "progress for a-slow-task: context deadline exceeded") || strings.Contains(detail, "b-task") || strings.Contains(detail, "c-task") || strings.Contains(detail, "task-1") {
+				t.Fatalf("wake %q, want it to name the slow goblin alone", detail)
+			}
+		}
+	}
+}
+
 // While memory reads under the floor the monitor's look at a screen and the
 // board's reading of a family tree go stale as every read slows, and a goblin
 // working through it would read as still. A goblin whose evidence went unread

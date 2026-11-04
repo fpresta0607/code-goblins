@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -128,6 +129,11 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	// three goblins' reads ran out of time once and woke the CFO twice in
 	// minutes. It is an error once it failed failingPasses passes in a row.
 	failed := map[string]bool{}
+	// ranOut holds why each read that ran out of time at this pass failed,
+	// which is told only once the pass shows whether the machine or the
+	// goblin was slow.
+	ranOut := map[string]error{}
+	reads := len(pending)
 	gateSteps := map[string]fleettree.GateStep{}
 	waits := map[string][]string{}
 	measured := map[string]bool{}
@@ -145,18 +151,14 @@ measuring:
 		case observed = <-observations:
 			delete(pending, observed.meta.ID)
 		case <-probe.Done():
-			// A memory low slows every read at once: on 2026-10-08 the
-			// supervisor woke the CFO with every goblin's read run out of
-			// time while 1.9 GB was free. Those goblins wait for a reading
-			// that can see them.
-			if watched.MemoryLow {
-				break measuring
-			}
 			for id := range pending {
-				failed[id] = true
-				problems = errors.Join(problems, watched.failing("progress:"+id, fmt.Errorf("progress for %s: %w", id, probe.Err())))
+				ranOut[id] = fmt.Errorf("progress for %s: %w", id, probe.Err())
 			}
 			break measuring
+		}
+		if errors.Is(observed.err, context.DeadlineExceeded) {
+			ranOut[observed.meta.ID] = observed.err
+			continue
 		}
 		if observed.err != nil {
 			failed[observed.meta.ID] = true
@@ -226,6 +228,38 @@ measuring:
 		phase, _, target, isReported := reportedProgress(s.statusTail, meta.ID, database.Reviews, standingAt, standing)
 		if helper, isHelper := helpers[strings.ToLower(target)]; isReported && phase == "waiting" && isHelper && strings.EqualFold(helper.Parent, meta.ID) {
 			awaitedHelper[meta.ID] = helper.ID
+		}
+	}
+	// Every read of a pass starts at once against its one deadline, so when
+	// every read ran out together the machine was slow, not any goblin: on
+	// 2026-11-04 at 01:10Z ten goblins' reads ran out in one pass while two
+	// test runs held the machine (#1630). Such a pass tells nothing of any
+	// goblin, so it neither counts nor ends a goblin's run of failed passes,
+	// and the CFO hears of it once, when it has lasted as long as a stall
+	// takes to tell: until then no stall it hid is overdue. One read alone
+	// cannot tell the machine from its goblin and stays the goblin's.
+	if len(ranOut) > 1 && len(ranOut) == reads {
+		if watched.ProgressUnreadSince.IsZero() {
+			watched.ProgressUnreadSince = now
+		}
+		if lasted := now.Sub(watched.ProgressUnreadSince); lasted >= PROGRESS_THRESHOLD && !watched.ProgressUnreadWoke {
+			detail := fmt.Sprintf("progress_unread: every live goblin's progress read has run out of time together on every pass for %d minutes, since %s, so the machine is too slow to read any of them, not any one goblin, and no stall has been judged since; next: see what holds the machine with cfo runtime", int(lasted/time.Minute), watched.ProgressUnreadSince.UTC().Format("15:04Z"))
+			if err := raiseFleetWake(s.Store.Home.State, "check", "progress", detail); err != nil {
+				problems = errors.Join(problems, err)
+			} else {
+				watched.ProgressUnreadWoke = true
+			}
+		}
+		return problems
+	}
+	watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
+	// A memory low slows every read at once: on 2026-10-08 the supervisor
+	// woke the CFO with every goblin's read run out of time while 1.9 GB was
+	// free. Those goblins wait for a reading that can see them.
+	if !watched.MemoryLow {
+		for _, id := range slices.Sorted(maps.Keys(ranOut)) {
+			failed[id] = true
+			problems = errors.Join(problems, watched.failing("progress:"+id, ranOut[id]))
 		}
 	}
 	watched.stillFailing("progress:", failed)
