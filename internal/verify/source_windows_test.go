@@ -2,8 +2,10 @@ package verify
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
@@ -19,7 +21,16 @@ func TestReadSourceOpensNoFileTheWorktreesIndexKnowsUnchanged(t *testing.T) {
 	// Arrange
 	dir := sourceWorktree(t)
 	tree := gitIn(t, dir, "rev-parse", "HEAD^{tree}")
-	name, err := windows.UTF16PtrFromString(filepath.Join(dir, "a.txt"))
+	// A file written within the second its index was written in is racily
+	// clean, which git must open to know unchanged, so a.txt's times are set
+	// well before the index's, as a file's are that has not changed since.
+	file := filepath.Join(dir, "a.txt")
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(file, past, past); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "update-index", "--refresh")
+	name, err := windows.UTF16PtrFromString(file)
 	if err != nil {
 		t.Fatal(err)
 	}
