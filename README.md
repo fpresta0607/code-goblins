@@ -105,7 +105,7 @@ The native terminal keeps the harness's own keyboard controls and prompts.
 **Open in Windows Terminal** offers another view of the same session on the PC.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="Example task in Classic: the native terminal beside its Task details, with the Modern chat option in the header" width="1000" />
+  <img src="docs/images/goblin-panel.webp" alt="Example task in Classic: the native terminal beside its Task details" width="1000" />
   <br />
   <sub>Example workspace: Classic shows the harness's terminal; Modern is a saved display choice.</sub>
 </p>
