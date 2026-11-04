@@ -590,14 +590,14 @@ func (c *CFOConnection) sendNative(ctx context.Context, identity, line string) (
 		return Evaluation{Reason: "The CFO's input is not empty and ready. Your answer is queued; nothing was sent."}, ErrDeferred
 	}
 	instruction := oneLine(line)
-	typed := instruction
+	typed := screens.Submittable(instruction)
 	// A "?" typed at an empty prompt line opens Claude Code's and Codex's
 	// shortcut help rather than writing itself, as the live CFO's Claude Code
 	// did with the Overlord's lone "?" on 2026-11-02, so a line that starts with
 	// one goes as a paste, which every harness writes as it is.
 	isPasted := strings.HasPrefix(instruction, "?") || primary.Agent == "claude" && len(instruction) > claudeTypedUpTo && !isHarnessCommand(instruction)
 	if isPasted {
-		typed = herdr.CleanPaste("\x1b[200~" + instruction + "\x1b[201~")
+		typed = herdr.CleanPaste("\x1b[200~" + typed + "\x1b[201~")
 		instruction = strings.TrimSuffix(strings.TrimPrefix(typed, "\x1b[200~"), "\x1b[201~")
 	}
 	submitted := time.Now()

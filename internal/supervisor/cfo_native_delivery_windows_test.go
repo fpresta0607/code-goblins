@@ -78,6 +78,29 @@ func TestBoardCommandsReachTheCFOWithoutAProsePrefix(t *testing.T) {
 	}
 }
 
+// Codex 0.160 lists its skills while its line ends in a $ word and takes an
+// Enter then as a pick from that list, so his message that ends in a mention
+// reaches a Codex CFO with a space after it, and the Enter submits it.
+func TestHisMessageEndingInAMentionIsSubmittedToACodexCFO(t *testing.T) {
+	// Arrange
+	store, home := testStore(t)
+	terminal := nativeCFOComposer(t, home.State, "ready")
+	service := &Service{Store: store, Options: Options{CFO: &CFOConnection{State: home.State}}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	// Act
+	_, err := service.deliverMessage(ctx, Action{Kind: "message", Text: "use $alpha-notes"})
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := terminal.lines(t); len(lines) != 2 || lines[1] != "accepted use $alpha-notes " {
+		t.Fatalf("terminal input = %q; want the message submitted once with its trailing space", lines)
+	}
+}
+
 // On 2026-11-02 the Overlord sent the CFO a lone "?". Its Claude Code took
 // the key as its shortcut help, the board read the "?" in the footer's "? for
 // shortcuts" as typed and pressed Enter on an empty prompt line, and the

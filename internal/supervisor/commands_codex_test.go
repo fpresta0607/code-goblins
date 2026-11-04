@@ -129,6 +129,8 @@ func TestCodexConfigurationIsReadInEachFormItTakes(t *testing.T) {
 		{"a plugin turned back off", "[plugins.\"kit@mkt\"]\nenabled = true\n\n[plugins]\n\"kit@mkt\".enabled = false\n", []string{bundled}},
 		{"a multi-line string", "instructions = \"\"\"\n[plugins.\"kit@mkt\"]\nenabled = true\n\"\"\"\n", []string{bundled}},
 		{"a multi-line array", "notify = [\n  [\"plugins\"],\n  \"[skills.bundled]\",\n]\n[skills.bundled]\nenabled = true\n", []string{bundled}},
+		{"an inline table that wraps an array", "[mcp_servers]\nfoo = { command = \"npx\", args = [\n \"-y\", \"pkg\"\n] }\n[plugins.\"kit@mkt\"]\n", []string{bundled, plugin}},
+		{"values of other kinds", "started = 1979-05-27 07:32:00Z\nretries = 3\nnote = '''\n[skills.bundled]\n'''\nlist = [ # first\n 1, { a = [2] }, # more\n]\n[plugins.\"kit@mkt\"]\nenabled = true\n", []string{bundled, plugin}},
 	} {
 		t.Run(c.what, func(t *testing.T) {
 			// Arrange
@@ -166,6 +168,8 @@ func TestCodexSkillRulesApplyInOrder(t *testing.T) {
 		{"by path", "[[skills.config]]\npath = 'skills/beta/SKILL.md'\nenabled = false\n", []string{"alpha"}},
 		{"back on by a later rule", "[[skills.config]]\nname = \"alpha\"\nenabled = false\n\n[[skills.config]]\npath = 'skills/alpha/SKILL.md'\nenabled = true\n", []string{"alpha", "beta"}},
 		{"a rule that names no skill", "[[skills.config]]\nenabled = false\n", []string{"alpha", "beta"}},
+		{"an array of inline tables", "skills.config = [\n { name = \"alpha\", enabled = false },\n]\n", []string{"beta"}},
+		{"an array in the skills table", "[skills]\nconfig = [{ path = 'skills/beta/SKILL.md', enabled = false }]\n", []string{"alpha"}},
 		{"an unreadable configuration", "[skills\n", []string{}},
 	} {
 		t.Run(c.what, func(t *testing.T) {

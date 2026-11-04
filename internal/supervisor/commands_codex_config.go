@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -43,19 +44,33 @@ func (config codexConfig) isSkillEnabled(skill codexSkill) bool {
 	return isEnabled
 }
 
-// tomlPair is one key a TOML line sets, as its dotted path below the table it
-// is in, and its value: the text of a string, or a bare word such as true.
-type tomlPair struct {
-	path     []string
-	value    string
+// tomlValue is one value config.toml holds: a string's text or a bare word,
+// an array's items, or the keys an inline table sets. A multi-line string is
+// none of them.
+type tomlValue struct {
+	text     string
 	isString bool
+	items    []tomlValue
+	keys     []tomlPair
 }
 
+// tomlPair is one key an inline table sets, as its dotted path below the
+// table, and its value.
+type tomlPair struct {
+	path  []string
+	value tomlValue
+}
+
+// tomlWord matches a bare word, such as true, 3 or a date, and reads a date
+// and a time joined by one space as one word.
+var tomlWord = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d)?[^\s,\]}#]*`)
+
 // readCodexConfig reads the settings of codexConfig from config.toml in home.
-// It reads the TOML Codex and its users write for them: table and array
-// table headers, dotted and quoted keys, string and boolean values and
-// inline tables of them. Other values, multi-line strings and arrays among
-// them, are passed over.
+// It reads the whole file as TOML: table and array table headers and keys,
+// dotted or quoted, each ending its line but for a comment, set to a one-line
+// or multi-line string, a bare word, an array or an inline table, the last two
+// of which may span lines and hold comments. A file it cannot read is an
+// error, as Codex refuses to start with one.
 func readCodexConfig(home string) (codexConfig, error) {
 	config := codexConfig{isBundledEnabled: true, plugins: map[string]bool{}}
 	data, err := fsx.ReadFile(filepath.Join(home, "config.toml"))
@@ -65,71 +80,58 @@ func readCodexConfig(home string) (codexConfig, error) {
 	if err != nil {
 		return config, err
 	}
+	unreadable := errors.New("unreadable Codex config.toml")
 	var table []string
 	rule := -1
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	for index := 0; index < len(lines); index++ {
-		line := strings.TrimSpace(lines[index])
-		if line == "" || line[0] == '#' {
-			continue
-		}
-		if line[0] == '[' {
-			isArray := strings.HasPrefix(line, "[[")
-			path, rest, ok := tomlKeyPath(strings.TrimLeft(line, "["))
-			if !ok || !strings.HasPrefix(rest, "]") {
-				return config, errors.New("unreadable Codex table header: " + line)
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	for text = tomlGap(text); text != ""; text = tomlGap(text) {
+		var ok bool
+		if text[0] == '[' {
+			closing := "]"
+			if strings.HasPrefix(text, "[[") {
+				closing = "]]"
 			}
-			table, rule = path, -1
-			if isArray && slices.Equal(path, []string{"skills", "config"}) {
+			if table, text, ok = tomlKeyPath(text[len(closing):]); !ok || !strings.HasPrefix(text, closing) {
+				return config, unreadable
+			}
+			text, rule = text[len(closing):], -1
+			if closing == "]]" && slices.Equal(table, []string{"skills", "config"}) {
 				config.skillRules = append(config.skillRules, codexSkillRule{isEnabled: true})
 				rule = len(config.skillRules) - 1
 			}
-			config.set(home, tomlPair{path: path}, rule)
-			continue
-		}
-		key, rest, ok := tomlKeyPath(line)
-		if !ok || !strings.HasPrefix(rest, "=") {
-			return config, errors.New("unreadable Codex setting: " + line)
-		}
-		value := strings.TrimSpace(rest[1:])
-		if delimiter := value[:min(3, len(value))]; delimiter == `"""` || delimiter == "'''" {
-			for !strings.Contains(value[3:], delimiter) && index+1 < len(lines) {
-				index++
-				value = "   " + lines[index]
+			config.set(home, table, tomlValue{}, rule)
+		} else {
+			var key []string
+			if key, text, ok = tomlKeyPath(text); !ok || !strings.HasPrefix(text, "=") {
+				return config, unreadable
 			}
-			continue
-		}
-		if strings.HasPrefix(value, "[") {
-			for depth := tomlArrayDepth(value, 0); depth > 0 && index+1 < len(lines); {
-				index++
-				depth = tomlArrayDepth(lines[index], depth)
+			var value tomlValue
+			if value, text, ok = readTOMLValue(tomlSpace(text[1:])); !ok {
+				return config, unreadable
 			}
-			continue
+			config.set(home, append(slices.Clone(table), key...), value, rule)
 		}
-		pairs, _, ok := tomlValue(value)
-		if !ok {
-			continue
-		}
-		for _, pair := range pairs {
-			pair.path = append(append(slices.Clone(table), key...), pair.path...)
-			config.set(home, pair, rule)
+		if text = tomlSpace(text); text != "" && text[0] != '#' && text[0] != '\n' {
+			return config, unreadable
 		}
 	}
 	return config, nil
 }
 
-// set records one key the configuration sets, by its full path, inside the
-// [[skills.config]] entry rule when there is one.
-func (config *codexConfig) set(home string, pair tomlPair, rule int) {
-	path, isTrue := pair.path, !pair.isString && pair.value == "true"
-	isBool := !pair.isString && (pair.value == "true" || pair.value == "false")
+// set records the value the configuration sets at path, and each key below it
+// an inline table sets, inside the [[skills.config]] entry rule when there is
+// one. An array at skills.config makes each of its inline tables a
+// [[skills.config]] entry, in order.
+func (config *codexConfig) set(home string, path []string, value tomlValue, rule int) {
+	isTrue := !value.isString && value.text == "true"
+	isBool := !value.isString && (value.text == "true" || value.text == "false")
 	switch {
 	case rule >= 0 && len(path) == 3:
 		switch {
-		case path[2] == "name" && pair.isString:
-			config.skillRules[rule].name = strings.TrimSpace(pair.value)
-		case path[2] == "path" && pair.isString:
-			skillPath := pair.value
+		case path[2] == "name" && value.isString:
+			config.skillRules[rule].name = strings.TrimSpace(value.text)
+		case path[2] == "path" && value.isString:
+			skillPath := value.text
 			if !filepath.IsAbs(skillPath) {
 				skillPath = filepath.Join(home, skillPath)
 			}
@@ -150,13 +152,76 @@ func (config *codexConfig) set(home string, pair tomlPair, rule int) {
 			config.plugins[path[1]] = isTrue
 		}
 	}
+	for _, pair := range value.keys {
+		config.set(home, append(slices.Clone(path), pair.path...), pair.value, rule)
+	}
+	if slices.Equal(path, []string{"skills", "config"}) {
+		for _, item := range value.items {
+			config.skillRules = append(config.skillRules, codexSkillRule{isEnabled: true})
+			config.set(home, path, item, len(config.skillRules)-1)
+		}
+	}
+}
+
+// readTOMLValue reads the value that opens text, and the text after it.
+func readTOMLValue(text string) (tomlValue, string, bool) {
+	switch {
+	case strings.HasPrefix(text, `"""`) || strings.HasPrefix(text, "'''"):
+		rest, ok := tomlMultiLineString(text)
+		return tomlValue{}, rest, ok
+	case strings.HasPrefix(text, `"`) || strings.HasPrefix(text, "'"):
+		value, rest, ok := tomlString(text)
+		return tomlValue{text: value, isString: true}, rest, ok
+	case strings.HasPrefix(text, "["):
+		var array tomlValue
+		rest, ok := tomlItems(text[1:], "]", func(item string) (string, bool) {
+			value, rest, ok := readTOMLValue(item)
+			array.items = append(array.items, value)
+			return rest, ok
+		})
+		return array, rest, ok
+	case strings.HasPrefix(text, "{"):
+		var table tomlValue
+		rest, ok := tomlItems(text[1:], "}", func(item string) (string, bool) {
+			key, rest, ok := tomlKeyPath(item)
+			if !ok || !strings.HasPrefix(rest, "=") {
+				return "", false
+			}
+			value, rest, ok := readTOMLValue(tomlSpace(rest[1:]))
+			table.keys = append(table.keys, tomlPair{path: key, value: value})
+			return rest, ok
+		})
+		return table, rest, ok
+	}
+	word := tomlWord.FindString(text)
+	return tomlValue{text: word}, text[len(word):], word != ""
+}
+
+// tomlItems reads the items of an array or an inline table, each with read,
+// up to the closing bracket that ends them, and returns the text after it.
+// Commas part the items, one may follow the last, and newlines and comments
+// may come between them.
+func tomlItems(text, closing string, read func(string) (string, bool)) (string, bool) {
+	for text = tomlGap(text); !strings.HasPrefix(text, closing); {
+		rest, ok := read(text)
+		if !ok {
+			return "", false
+		}
+		text = tomlGap(rest)
+		if strings.HasPrefix(text, ",") {
+			text = tomlGap(text[1:])
+		} else if !strings.HasPrefix(text, closing) {
+			return "", false
+		}
+	}
+	return text[1:], true
 }
 
 // tomlKeyPath reads the dotted key that opens text, and the text after it.
 func tomlKeyPath(text string) ([]string, string, bool) {
 	var path []string
 	for {
-		text = strings.TrimSpace(text)
+		text = tomlSpace(text)
 		var segment string
 		switch {
 		case text == "":
@@ -180,7 +245,7 @@ func tomlKeyPath(text string) ([]string, string, bool) {
 			segment, text = text[:end], text[end:]
 		}
 		path = append(path, segment)
-		text = strings.TrimSpace(text)
+		text = tomlSpace(text)
 		if !strings.HasPrefix(text, ".") {
 			return path, text, true
 		}
@@ -188,12 +253,12 @@ func tomlKeyPath(text string) ([]string, string, bool) {
 	}
 }
 
-// tomlString reads the basic or literal string that opens text, and the text
-// after it.
+// tomlString reads the one-line basic or literal string that opens text, and
+// the text after it.
 func tomlString(text string) (string, string, bool) {
 	if text[0] == '\'' {
-		end := strings.IndexByte(text[1:], '\'')
-		if end < 0 {
+		end := strings.IndexAny(text[1:], "'\n")
+		if end < 0 || text[end+1] == '\n' {
 			return "", "", false
 		}
 		return text[1 : end+1], text[end+2:], true
@@ -210,63 +275,36 @@ func tomlString(text string) (string, string, bool) {
 	return "", "", false
 }
 
-// tomlValue reads the value that opens text: a string, a bare word, or an
-// inline table of them, each key it sets by its path below the value.
-func tomlValue(text string) ([]tomlPair, string, bool) {
-	switch {
-	case text == "":
-		return nil, "", false
-	case text[0] == '"' || text[0] == '\'':
-		value, rest, ok := tomlString(text)
-		return []tomlPair{{value: value, isString: true}}, rest, ok
-	case text[0] == '{':
-		var pairs []tomlPair
-		rest := strings.TrimSpace(text[1:])
-		for !strings.HasPrefix(rest, "}") {
-			key, after, ok := tomlKeyPath(rest)
-			if !ok || !strings.HasPrefix(after, "=") {
-				return nil, "", false
-			}
-			values, after, ok := tomlValue(strings.TrimSpace(after[1:]))
-			if !ok {
-				return nil, "", false
-			}
-			for _, value := range values {
-				value.path = append(slices.Clone(key), value.path...)
-				pairs = append(pairs, value)
-			}
-			rest = strings.TrimSpace(after)
-			if strings.HasPrefix(rest, ",") {
-				rest = strings.TrimSpace(rest[1:])
-			} else if !strings.HasPrefix(rest, "}") {
-				return nil, "", false
-			}
+// tomlMultiLineString passes over the multi-line basic or literal string that
+// opens text, and returns the text after it. Up to two quotes just inside its
+// closing delimiter are its own.
+func tomlMultiLineString(text string) (string, bool) {
+	delimiter := text[:3]
+	for index := 3; index < len(text); index++ {
+		if text[index] == '\\' && delimiter == `"""` {
+			index++
+			continue
 		}
-		return pairs, rest[1:], true
+		if strings.HasPrefix(text[index:], delimiter) {
+			quotes := len(text[index:]) - len(strings.TrimLeft(text[index:], delimiter[:1]))
+			return text[index+min(quotes, 5):], true
+		}
 	}
-	end := strings.IndexAny(text, " \t,}#")
-	if end < 0 {
-		end = len(text)
-	}
-	return []tomlPair{{value: text[:end]}}, text[end:], end > 0
+	return "", false
 }
 
-// tomlArrayDepth is how many arrays are still open after text, given depth
-// open before it, its strings and comments passed over.
-func tomlArrayDepth(text string, depth int) int {
-	for index := 0; index < len(text); index++ {
-		switch text[index] {
-		case '[':
-			depth++
-		case ']':
-			depth--
-		case '#':
-			return depth
-		case '"', '\'':
-			if _, rest, ok := tomlString(text[index:]); ok {
-				index = len(text) - len(rest) - 1
-			}
+// tomlSpace passes over the spaces and tabs that open text.
+func tomlSpace(text string) string {
+	return strings.TrimLeft(text, " \t")
+}
+
+// tomlGap passes over the spaces, tabs, newlines and comments that open text.
+func tomlGap(text string) string {
+	for {
+		text = strings.TrimLeft(text, " \t\n")
+		if !strings.HasPrefix(text, "#") {
+			return text
 		}
+		_, text, _ = strings.Cut(text, "\n")
 	}
-	return depth
 }
