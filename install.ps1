@@ -697,6 +697,46 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         }
     }
 
+    # Get-ForkBuildOrder orders a version of a Code Goblins fork's build, such
+    # as 0.1.40-codegoblins.3, by its release and then its build, and gives
+    # $null for a version that names no such build, as an upstream release's
+    # does.
+    function Get-ForkBuildOrder([string]$Version) {
+        $parts = [regex]::Match($Version, '^v?(\d+)\.(\d+)\.(\d+)-codegoblins\.(\d+)$')
+        if (-not $parts.Success) {
+            return $null
+        }
+        return [version]("{0}.{1}.{2}.{3}" -f $parts.Groups[1].Value, $parts.Groups[2].Value, $parts.Groups[3].Value, $parts.Groups[4].Value)
+    }
+
+    # Test-ForkBuild says why the build of $Tool, an npm-file tool, that its
+    # command runs is replaced with the tool's release file, or "" when it is
+    # kept: cfo doctor's check fails a build older than the file and one that
+    # is not the fork's, such as the upstream package of the same name or one
+    # that does not run, and passes the file's build and a later one of the
+    # fork's. The build is the last word of the first line the command
+    # prints for --version, and the file's is in its name, as npm pack names
+    # the file. The command runs as cfo doctor finds it, by an extension
+    # PATHEXT names, such as npm's .cmd shim: the execution policy may refuse
+    # npm's .ps1 shim, and Windows would ask how to open its extensionless
+    # shell script.
+    function Test-ForkBuild($Tool) {
+        $file = Split-Path -Leaf $Tool.Cmd
+        $pinned = $file.Substring($Tool.Name.Length + 1, $file.Length - $Tool.Name.Length - 1 - ".tgz".Length)
+        $extensions = @($env:PATHEXT -split ';' | Where-Object { $_ })
+        $program = Get-Command $Tool.Name -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $extensions -contains [IO.Path]::GetExtension($_.Source) } | Select-Object -First 1
+        $line = if ($program) { "$(& $program.Source --version 2>$null | Select-Object -First 1)" } else { "" }
+        $version = @($line.Trim() -split '\s+')[-1]
+        $build = Get-ForkBuildOrder $version
+        if (-not $build) {
+            return "$($Tool.Name) $(if ($version) { "is $version" } else { "reports no version" }), not the Code Goblins build $pinned"
+        }
+        if ($build -lt (Get-ForkBuildOrder $pinned)) {
+            return "$($Tool.Name) is $version, older than the Code Goblins build $pinned"
+        }
+        return ""
+    }
+
     # The toolchain mirrors `cfo doctor`; its hints are the source of truth for
     # where each tool comes from, except no-mistakes, which comes from the
     # release pinned above. npm is called as npm.cmd, which runs under any
@@ -706,9 +746,12 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
     #   winget     - a winget package (needs winget), for this user alone,
     #                so its installer asks for no administrator
     #   npm        - a global npm package (needs npm, i.e. Node.js)
-    #   npm-file   - a global npm package from a release file, which npm would
-    #                install unchecked: the file is downloaded here and handed
-    #                to npm only when it matches the SHA256 pinned beside it
+    #   npm-file   - a global npm package from a release file of a Code
+    #                Goblins fork, which npm would install unchecked: the file
+    #                is downloaded here and handed to npm only when it matches
+    #                the SHA256 pinned beside it. A build already there is
+    #                replaced with it when it is older or not the fork's, as
+    #                Test-ForkBuild says
     #   powershell - an official install.ps1, saved to a file and run from it
     #                in a child shell, so its own `exit` cannot kill this
     #                install. It is never run as a download-and-run one-liner
@@ -727,7 +770,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
         @{ Name = "quota-axi";           Kind = "npm";        Cmd = "npm.cmd install -g quota-axi@0.1.58" },
         @{ Name = "no-mistakes";         Kind = "release";    Cmd = $(if ($Dev) { "tools\build-no-mistakes.ps1, $noMistakesRepository at $noMistakesCommit" } else { "$releaseBase/no-mistakes.exe" }) },
         @{ Name = "gh-axi";              Kind = "npm";        Cmd = "npm.cmd install -g gh-axi@0.1.35" },
-        @{ Name = "chrome-devtools-axi"; Kind = "npm";        Cmd = "npm.cmd install -g chrome-devtools-axi@0.1.39" },
+        @{ Name = "chrome-devtools-axi"; Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/chrome-devtools-axi/releases/download/v0.1.40-codegoblins.3/chrome-devtools-axi-0.1.40-codegoblins.3.tgz"; Sha256 = "382D38195D120A02B5F86631E6E31F2A1B28D09814AB6C628C5C8F7FBD1F8247" },
         @{ Name = "lavish-axi";          Kind = "npm-file";   Cmd = "https://github.com/fpresta0607/lavish-axi/releases/download/v0.1.79-codegoblins.19/lavish-axi-0.1.79-codegoblins.19.tgz"; Sha256 = "AFEADA08E260F0EF38792D28B65B8A5D79B200C9C89F9BCD916837345679E714" }
     )
 
@@ -771,6 +814,18 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
                     }
                     $found = Get-Command $noMistakesProgram
                 }
+            }
+        }
+        # A tool from a fork's release file keeps no build of its command
+        # that cfo doctor would fail, and the one that replaces it stays out
+        # of the record, so the uninstall leaves the command in place.
+        $isReplacing = $false
+        if ($found -and $tool.Kind -eq "npm-file") {
+            $problem = Test-ForkBuild $tool
+            if ($problem) {
+                Write-Detail ("update   {0,-20} {1}" -f $tool.Name, $problem)
+                $found = $null
+                $isReplacing = $true
             }
         }
         if ($found) {
@@ -852,7 +907,9 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             elseif ($tool.Kind -eq "npm-file") {
                 $package = $tool.Name
             }
-            $fetchedTools.Add([ordered]@{ name = $tool.Name; kind = $tool.Kind; package = $package })
+            if (-not $isReplacing) {
+                $fetchedTools.Add([ordered]@{ name = $tool.Name; kind = $tool.Kind; package = $package })
+            }
         }
         catch {
             Write-Detail ("WARN     {0,-20} install failed: {1}" -f $tool.Name, $_.Exception.Message)

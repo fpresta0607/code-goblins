@@ -103,7 +103,8 @@ func TestOneLineInstallAddsSkillsWithoutNpxInstallingAPackage(t *testing.T) {
 		"@exit /b 0\r\n"
 
 	// Act
-	output, _, temp := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), map[string]string{"npm": npm, "npx": npx})
+	run := runInstallWithForkDownload(t, []byte("not the release the script pins"), nil, map[string]string{"npm": npm, "npx": npx})
+	output, temp := run.output, run.temp
 
 	// Assert
 	fetched, err := os.ReadFile(cli)
@@ -156,7 +157,7 @@ func TestOneLineInstallNamesEverySkillWhenTheSkillsCliCannotBeFetched(t *testing
 	npx := "@echo %*>>\"" + calls + "\"\r\n@exit /b 0\r\n"
 
 	// Act
-	output, _, _ := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), map[string]string{"npm": npm, "npx": npx})
+	output := runInstallWithForkDownload(t, []byte("not the release the script pins"), nil, map[string]string{"npm": npm, "npx": npx}).output
 
 	// Assert
 	fetched, err := os.ReadFile(cli)
@@ -197,7 +198,7 @@ func TestOneLineInstallTriesASkillAgainAndNamesOneThatStillFails(t *testing.T) {
 		"@exit /b 1\r\n"
 
 	// Act
-	output, _, _ := runInstallWithLavishDownload(t, installScript(t), []byte("not the release the script pins"), map[string]string{"npx": npx})
+	output := runInstallWithForkDownload(t, []byte("not the release the script pins"), nil, map[string]string{"npx": npx}).output
 
 	// Assert
 	recorded, err := os.ReadFile(calls)
