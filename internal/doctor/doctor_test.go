@@ -236,15 +236,10 @@ func TestRunChromeDevtoolsAxiThatIsNotTheForkReleaseIsMissing(t *testing.T) {
 	}
 }
 
-// The doctor's hint for each tool from a fork names the release at its floor,
-// the release file the install script downloads for it, so a machine the
-// install set up meets the floor the doctor checks.
-func TestInstallScriptInstallsTheReleaseTheDoctorNames(t *testing.T) {
+// The doctor's hint for each tool from a fork installs the release at its
+// floor, so a machine that follows the hint meets the floor the doctor checks.
+func TestHintInstallsTheForkReleaseAtItsFloor(t *testing.T) {
 	// Arrange
-	script, err := os.ReadFile(filepath.Join("..", "..", "install.ps1"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	forks := map[string]string{"chrome-devtools-axi": ChromeDevtoolsRelease, "lavish-axi": LavishRelease}
 
 	for _, tool := range tools {
@@ -257,18 +252,12 @@ func TestInstallScriptInstallsTheReleaseTheDoctorNames(t *testing.T) {
 			continue
 		}
 
-		// Act
-		entry := regexp.MustCompile(`@\{ Name = "` + regexp.QuoteMeta(tool.name) + `";\s+Kind = "([^"]+)";\s+Cmd = "([^"]+)"`).FindSubmatch(script)
-
 		// Assert
 		if want := "/v" + tool.floor + "/" + tool.name + "-" + tool.floor + ".tgz"; !strings.HasSuffix(release, want) {
 			t.Errorf("%s's release is %s, want the release at its %s floor, ending %s", tool.name, release, tool.floor, want)
 		}
 		if tool.hint != "npm install -g "+release {
 			t.Errorf("%s's hint is %q, want the command that installs %s", tool.name, tool.hint, release)
-		}
-		if entry == nil || string(entry[1]) != "npm-file" || string(entry[2]) != release {
-			t.Errorf("install.ps1 installs %s as %q, want the release file %s", tool.name, entry, release)
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -126,19 +127,26 @@ func assertNpmGotTheCheckedFile(t *testing.T, run forkInstall, tool string) {
 }
 
 // A tool from a fork comes from a release file, which npm installs without
-// checking it. The install downloads the file the doctor's hint names itself
-// and hands it to npm only when it matches the SHA256 pinned in the script.
-// The comparison is the script's own, the same whichever PowerShell runs it,
-// so Windows PowerShell alone checks it.
+// checking it. The install downloads the files the doctor's hints name, and
+// no other, itself and hands each to npm only when it matches the SHA256
+// pinned in the script. The comparison is the script's own, the same
+// whichever PowerShell runs it, so Windows PowerShell alone checks it.
 func TestOneLineInstallRefusesAForkReleaseThatDoesNotMatchItsPin(t *testing.T) {
 	// Act
 	run := runInstallWithForkDownload(t, []byte("not the release the script pins"), nil, nil)
 
 	// Assert
-	for tool, release := range forkReleases {
-		if !strings.Contains(run.recorded, "download "+release) {
-			t.Errorf("the install did not download %s, the release the doctor names for %s:\n%s\n%s", release, tool, run.recorded, run.output)
+	var downloaded []string
+	for _, line := range strings.Split(run.recorded, "\r\n") {
+		if release, isDownload := strings.CutPrefix(line, "download "); isDownload && strings.HasSuffix(release, ".tgz") {
+			downloaded = append(downloaded, release)
 		}
+	}
+	slices.Sort(downloaded)
+	if want := slices.Sorted(maps.Values(forkReleases)); !slices.Equal(downloaded, want) {
+		t.Errorf("the install downloaded the release files %v, want the ones the doctor names, %v:\n%s\n%s", downloaded, want, run.recorded, run.output)
+	}
+	for tool, release := range forkReleases {
 		if !strings.Contains(run.output, "The downloaded "+path.Base(release)+" does not match the SHA256 this install pins") {
 			t.Errorf("the install does not say the download of %s failed its pin:\n%s", tool, run.output)
 		}
@@ -171,9 +179,6 @@ func TestOneLineInstallHandsNpmTheForkReleaseThatMatchesItsPin(t *testing.T) {
 	source, err := os.ReadFile(installScript(t))
 	if err != nil {
 		t.Fatal(err)
-	}
-	if pins := len(regexp.MustCompile(`Sha256 = "[0-9A-Fa-f]{64}"`).FindAll(source, -1)); pins != len(forkReleases) {
-		t.Fatalf("install.ps1 pins %d SHA256 values for a release file, want one for each of %v", pins, forkReleases)
 	}
 	for tool := range forkReleases {
 		t.Run(tool, func(t *testing.T) {
