@@ -426,7 +426,9 @@ async function readRobots(origin) {
 // them, and returns the pages they list and what each sitemap gave, each one
 // it did not read with why.
 async function readSitemaps(robots, origin, isAllowed) {
-  const queue = [...robots.file.getSitemaps(), new URL("/sitemap.xml", origin).href];
+  // Crawlee keeps only the robots.txt sitemaps on the site's own hostname
+  // unless asked for all, so the check below sees, and reports, the others.
+  const queue = [...robots.file.getSitemaps({ enqueueStrategy: "all" }), new URL("/sitemap.xml", origin).href];
   const seen = new Set();
   const pages = [];
   const read = [];

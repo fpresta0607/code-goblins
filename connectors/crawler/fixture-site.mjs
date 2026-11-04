@@ -1,8 +1,9 @@
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 
-// A made-up site for the crawler's tests and its live proof: a sitemap index
-// that names more sitemaps than the crawl reads and one on a second site, a
+// A made-up site for the crawler's tests and its live proof: a robots.txt
+// that names a sitemap on another hostname, a sitemap index that names more
+// sitemaps than the crawl reads and one on a second site, a
 // page a script draws whose only link to a product page is drawn too, and
 // whose script asks for data robots.txt disallows, directly and through a
 // redirect, and starts a service worker that would ask for more, a page only
@@ -65,10 +66,13 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
   let maxInFlight = 0;
   let origin = "";
   let offSiteOrigin = "";
+  // The second site by another hostname, as the www twin of a site or its
+  // CDN is.
+  let otherHostOrigin = "";
   const extra = Array.from({ length: extraPages }, (_, index) => `/more/${index + 1}`);
   const archives = Array.from({ length: SITEMAP_ARCHIVES }, (_, index) => `/sitemap-archive-${index + 1}.xml`);
   const routes = {
-    "/robots.txt": () => ["text/plain", `User-agent: *\nDisallow: /private/\n\nSitemap: ${origin}/sitemap.xml\n`],
+    "/robots.txt": () => ["text/plain", `User-agent: *\nDisallow: /private/\n\nSitemap: ${origin}/sitemap.xml\nSitemap: ${otherHostOrigin}/sitemap.xml\n`],
     "/sitemap.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${[...["/sitemap-pages.xml", ...archives].map((route) => origin + route), `${offSiteOrigin}/sitemap.xml`].map((sitemap) => `<sitemap><loc>${sitemap}</loc></sitemap>`).join("")}</sitemapindex>`],
     "/sitemap-pages.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/workshops", "/visit/"].map((route) => `<url><loc>${origin}${route}</loc></url>`).join("")}</urlset>`],
     "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/docs/old-price-list.pdf">Last year's price list (PDF)</a> <a href="/docs/kites/care.pdf">Care guide (PDF)</a> <a href="/docs/kites-care.pdf">Care sheet (PDF)</a> <a href="/visit">Visit us</a> <a href="/staff">Staff room</a> <a href="/private/notes">Staff notes</a> <a href="/live">Live wind</a> <a href="/welcome">Welcome</a> <a href="/loop">Kite loop</a> <a href="/kite-cam">Kite cam</a><a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
@@ -156,9 +160,11 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
   return Promise.all([listen(server), listen(offSite)]).then(([siteOrigin, otherOrigin]) => {
     origin = siteOrigin;
     offSiteOrigin = otherOrigin;
+    otherHostOrigin = otherOrigin.replace("//127.0.0.1:", "//localhost:");
     return {
       url: `${origin}/`,
       offSiteUrl: `${offSiteOrigin}/`,
+      otherHostUrl: `${otherHostOrigin}/`,
       requests,
       offSiteRequests,
       maxInFlight: () => maxInFlight,
