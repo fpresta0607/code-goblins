@@ -54,26 +54,27 @@
 .composer textarea:focus-visible { outline: none; }
 .composer :is(button, input):focus { outline: none; }
 .composer :is(button, input):focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
-/* The row inside the box: adding files and the style menu at its start, then
-   the session's model with the effort it runs, the microphone and Send at
-   its end. The model's button opens the one pane for the session's settings,
-   its mode among them (engine-pane.tsx), so no other control crowds the row
-   (the Overlord, 2026-10-28: "you don't need an effort button inside the
-   mobile view. It's too crowded"). Every control keeps its full words. */
+/* The row inside the box: adding files, Speech history and, on a phone,
+   Clear message at its start, then the session's model with the effort it
+   runs, the microphone and the usage pies at its end. The model's button
+   opens the one pane for the session's settings, its mode among them
+   (engine-pane.tsx), so no other control crowds the row (the Overlord,
+   2026-10-28: "you don't need an effort button inside the mobile view. It's
+   too crowded"). Every control keeps its full words, but for the model's
+   button where the row has no room for them, as on a 360 px phone or while
+   he dictates (below). */
 .composer-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-width: 0; container-type: inline-size; }
 .composer-row-start { position: relative; display: flex; align-items: center; gap: 2px; flex: none; }
-.composer-row-end { display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: none; margin-left: auto; }
+.composer-row-end { display: flex; align-items: center; justify-content: flex-end; gap: 2px; flex: 0 1 auto; min-width: 0; margin-left: auto; }
 .composer-control, .composer-input .voice-bubble { display: inline-flex; align-items: center; justify-content: center; flex: none; gap: 5px; height: 36px; min-height: 36px; min-width: 36px; padding: 0 6px; white-space: nowrap; border: 0; border-radius: 6px; background: transparent; box-shadow: none; color: var(--muted); font-size: .875rem; }
 .composer-control::before, .composer-input .voice-bubble::before { content: none; }
 .composer-control:hover, .composer-input .voice-bubble:hover { color: var(--bone); background: transparent; }
 .composer-control .icon, .composer-input .voice-bubble .icon { width: 18px; height: 18px; }
 .composer-input .voice-bubble.recording { color: var(--amber); }
 .composer-file-input { display: none; }
-.composer-style-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 13rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
-.composer-style-choices { display: grid; gap: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--glass-border); }
-.composer-style-popover button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
-.composer-style-popover button .icon { width: 16px; height: 16px; color: var(--muted); }
-.composer-style-popover button[aria-pressed="true"] { background: var(--glass-bg-hover); color: #f4fbff; border-color: var(--glass-border); }
+.composer-add-popover { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 4px; min-width: 13rem; padding: 6px; border: 1px solid var(--glass-border-hover); border-radius: var(--radius); background: var(--hero-surface); box-shadow: var(--glass-shadow-hover); }
+.composer-add-popover button { display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; border-radius: 8px; padding: 8px 10px; }
+.composer-add-popover button .icon { width: 16px; height: 16px; color: var(--muted); }
 /* A notice of the box, a small banner over what is just above it that fades
    a few seconds after it shows (composer-banner.tsx). It moves nothing and
    takes no press, so whatever is under it stays as it was. A refusal looks
@@ -88,7 +89,6 @@
    chat input"). A finger reaches it a little past its edge. */
 .composer-line { display: flex; align-items: flex-end; gap: 4px; min-width: 0; }
 .composer-line textarea { flex: 1 1 0; }
-.composer-line .composer-clear { align-items: flex-end; width: 44px; min-width: 44px; height: 44px; min-height: 44px; margin-right: 4px; padding-bottom: 5px; }
 .composer-clear:disabled { opacity: .4; cursor: default; }
 .composer-send { position: relative; display: grid; place-items: center; flex: none; width: 32px; min-width: 32px; height: max(1.5em, calc(1lh + .3em)); min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font: inherit; line-height: normal; }
 .composer-send::after { content: ""; position: absolute; inset: -8px -6px -4px; }
@@ -106,6 +106,14 @@
   .fills-phone .composer textarea { max-height: 4.5em; }
   .fills-phone .composer-sent { max-height: 5rem; }
 }
+/* Clear message is a phone's alone, beside Speech history (the Overlord,
+   2026-11-03: "trash button only needed on mobile"; #1987). Its target is
+   44 px, and it takes no more of the row's height than the controls beside
+   it. */
+.composer-clear { display: none; }
+@media (max-width: 40rem) {
+  .composer-row .composer-clear { display: inline-flex; width: 44px; min-width: 44px; height: 44px; min-height: 44px; margin-block: -4px; }
+}
 /* A narrow chat, a phone's or a narrow side panel's, gives the box the room
    its edge would take, so the whole row fits inside its border. */
 @container (max-width: 480px) {
@@ -122,3 +130,17 @@
    small and without its tile (harness-mark.tsx). */
 .engine-control .mark { width: 16px; height: 16px; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .engine-control .mark svg, .engine-control .mark .icon { width: 15px; height: 15px; }
+/* While he dictates the microphone is its red dot and level bars, wider than
+   the microphone (dictation-button.tsx), at the box's own size rather than
+   the terminal's wider bubble (styles.css). Where the row then has no room,
+   as on a 360 px phone even before he dictates, the model's button gives
+   way, its name first and then its effort, each ending in an ellipsis, and
+   the row stays inside the box's border with the harness's mark, the usage
+   pies, the recording control and every other button whole (the Overlord,
+   2026-11-03: "Whenever I start the dictation, it gets clipped"; #1987). */
+.composer-input .voice-bubble.recording { min-width: 36px; }
+.composer-row .engine-control { flex: 0 1 auto; min-width: 0; }
+.engine-control > .mark { flex: none; }
+.engine-control-model, .engine-control > .effort-level { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.engine-control-model { flex-shrink: 100; }
+.composer-row-end > .usage-bar { flex: none; }

@@ -336,6 +336,14 @@ export function liveCfoSession(snapshot: Pick<Snapshot, "sessions" | "cfo_sessio
   return snapshot.cfo_session ? running.find((session) => session.id === snapshot.cfo_session) : running.at(-1);
 }
 
+// cfoEffort is the effort the CFO runs: its saved engine's once that applied
+// to the CFO's own harness, with no change pending and no problem, and none
+// otherwise.
+export function cfoEffort(snapshot: Pick<Snapshot, "cfo_engine" | "cfo_harness">): string {
+  const engine = snapshot.cfo_engine;
+  return engine && !engine.pending && !engine.problem && engine.harness === snapshot.cfo_harness ? engine.effort : "";
+}
+
 // isInProgress says a task's goblin works or waits, as the board's In progress
 // column holds it: the canvas and the lineage list draw only these goblins.
 export const isInProgress = (task: Task): boolean => taskColumn(task) === "In progress";

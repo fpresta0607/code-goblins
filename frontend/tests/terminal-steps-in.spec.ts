@@ -1,5 +1,5 @@
 import { expect, openTaskList, test, type Page } from "./site";
-import { at, box, card, field, NAME, open, openGoblin, pasted, type Relay, snapshot, typed } from "./session-board";
+import { at, box, card, field, NAME, open, openGoblin, pasted, pickStyle, type Relay, snapshot, typed } from "./session-board";
 
 // A screen of the harness's own, a question, a permission prompt, a picker or
 // a panel, is drawn in Modern Chat above the box as a list he picks from, and
@@ -249,7 +249,7 @@ test("Classic chosen in the maximized panel's Workspace after Back to messages k
   expect(typed(relay)).toBe("");
 });
 
-test("Modern chat in Classic's row saves Modern, so the conversation stays after the switch", async ({ page }) => {
+test("Modern chat in Classic's header saves Modern, so the conversation stays after the switch", async ({ page }) => {
   // Arrange: this browser draws its conversations as Classic, so the panel
   // opens on the harness's terminal alone, with no Back to messages bar.
   await page.addInitScript(() => localStorage.setItem("cfo-chat-style", "classic"));
@@ -260,7 +260,7 @@ test("Modern chat in Classic's row saves Modern, so the conversation stays after
   await expect(back(page)).toHaveCount(0);
 
   // Act
-  await page.getByRole("button", { name: "Switch to Modern chat", exact: true }).click();
+  await pickStyle(page, "Modern chat");
 
   // Assert: he stands in the conversation, and the board keeps Modern from
   // then on, on the same session, with its history and the box ready.

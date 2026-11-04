@@ -262,6 +262,12 @@ func (f fakeProgress) Progress(context.Context, string, string) (pipeline.Progre
 	return f.value, f.err
 }
 
+// errNotProvedFresh is a test gate's answer for a detached HEAD: it proves no
+// worktree fresh, so typing there stays held.
+var errNotProvedFresh = errors.New("this test gate proves no detached worktree fresh")
+
+func (fakeProgress) CanTypeFreshDetached(context.Context, string) error { return errNotProvedFresh }
+
 func (f fakeProgress) CanSteer(context.Context, string, string, string) error {
 	if errors.Is(f.err, pipeline.ErrNoProgress) {
 		return nil
@@ -491,6 +497,78 @@ func TestBoardTerminalOnADetachedHeadHoldsTypingAndSaysWhy(t *testing.T) {
 	}
 	if detailErr != nil || details.Branch != "detached at "+commit || slices.Contains(details.Notes, "Branch information is unavailable.") {
 		t.Errorf("workspace = %+v, %v; want detached at %s with no unavailable note", details, detailErr, commit)
+	}
+}
+
+// A new no-mistakes task's worktree starts on a detached HEAD, before its
+// goblin makes a branch. Typing into its terminal and his board messages for
+// it go through once the gate proves no run of its own works there and HEAD
+// has not moved since git made the worktree. A worktree a gate run works in,
+// one whose custody cannot be read and one whose HEAD has moved stay held,
+// each saying why (#1987).
+func TestADetachedWorktreeTakesTypingOnlyWhenTheGateProvesItFresh(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 is not installed")
+	}
+	for _, test := range []struct {
+		name       string
+		custody    gateState
+		wantPrefix string
+	}{
+		{name: "fresh", custody: gateClear},
+		{name: "a gate run works in it", custody: gateHeld, wantPrefix: pipeline.ErrCustodyHeld.Error()},
+		{name: "its custody cannot be read", custody: gateUnknown, wantPrefix: "HEAD is detached at "},
+		{name: "its HEAD moved", custody: gateUnknown, wantPrefix: "HEAD is detached at "},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			store, h := testStore(t)
+			meta, err := state.ReadTaskMeta(h.State, "task-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			git := func(dir string, args ...string) {
+				t.Helper()
+				if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+			}
+			meta.Project, meta.Worktree = gitFixture(t), filepath.Join(t.TempDir(), "task")
+			git(meta.Project, "worktree", "add", "-q", "--detach", meta.Worktree, "HEAD")
+			if test.name == "its HEAD moved" {
+				git(meta.Worktree, "switch", "-q", "--create", "feat/previous")
+				git(meta.Worktree, "switch", "-q", "--detach")
+			}
+			root := t.TempDir()
+			database := filepath.Join(root, "state.sqlite")
+			runs := "CREATE TABLE runs(id TEXT, repo_id TEXT, worktree_dir TEXT);"
+			if test.name == "a gate run works in it" {
+				runs += "INSERT INTO runs VALUES('run-one','repo-one','" + strings.ReplaceAll(meta.Worktree, "'", "''") + "');"
+			}
+			if test.name == "its custody cannot be read" {
+				if err := os.WriteFile(database, []byte("not a database"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			} else if out, err := exec.Command("sqlite3", database, runs).CombinedOutput(); err != nil {
+				t.Fatalf("disposable gate records: %v\n%s", err, out)
+			}
+			service := &Service{Store: store, Options: Options{Gate: pipeline.Reader{Root: root, Commands: execx.OSRunner{}}}}
+
+			// Act
+			typing := service.boardTerminalControl(t.Context(), meta)
+			custody, _ := gateCustody(t.Context(), service, meta)
+
+			// Assert
+			if test.wantPrefix == "" && typing != nil {
+				t.Errorf("typing into a fresh detached worktree = %v, want it taken", typing)
+			}
+			if test.wantPrefix != "" && (typing == nil || !strings.HasPrefix(typing.Error(), test.wantPrefix)) {
+				t.Errorf("typing = %v, want it held with a reason starting %q", typing, test.wantPrefix)
+			}
+			if custody != test.custody {
+				t.Errorf("message custody = %v, want %v", custody, test.custody)
+			}
+		})
 	}
 }
 

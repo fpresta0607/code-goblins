@@ -106,8 +106,8 @@ type relaySize struct {
 }
 
 // heldNotice tells a view whether typing is held, by custody, and why: a gate
-// that owns the task, or a worktree on a detached HEAD. An empty reason says
-// typing is no longer held.
+// that owns the task, or a worktree on a detached HEAD it cannot prove fresh
+// (#1987). An empty reason says typing is no longer held.
 func heldNotice(custody error) []byte {
 	notice := struct {
 		Type   string `json:"type"`

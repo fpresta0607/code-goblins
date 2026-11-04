@@ -14,6 +14,7 @@ import { LifecycleDetails } from "./lifecycle-details";
 import { PanelRow, type PanelControl } from "./panel-row";
 import { BabyHeader } from "./baby-header";
 import { PanelViewSwitch } from "./panel-view-switch";
+import type { StyleChoice } from "./panel-style-menu";
 
 export type PanelView = "terminal" | "task";
 
@@ -35,12 +36,13 @@ export type PanelView = "terminal" | "task";
 // draws them only otherwise, and under no heading of that column (#1598). A
 // goblin's baby goblin (child) has the same panel, with its name and its task
 // above its terminal, which is all it shows.
-export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, onHome, row }: {
+export function GoblinPanel({ task, node, child, snapshot, connected, reviews, view, views, onView, maximized, side, isBoardShown, now, presentations, cardStart, onAnswer, onOpenTask, row, styleChoice }: {
   task?: Task; node?: Session; child?: TreeNode; snapshot: Snapshot; connected: boolean; reviews: ReviewControls;
   view: PanelView; views: PanelView[]; onView: (view: PanelView) => void; maximized: boolean; side: HTMLElement | null; isBoardShown: boolean;
-  now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void; onHome: () => void;
-  // row is the top row's controls, corner button and notice (see PanelRow).
-  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode };
+  now: number; presentations: BoardActivity[]; onAnswer: (key: string) => void; onOpenTask: (task: Task) => void;
+  // row is the top row's controls, corner button and notice (see PanelRow),
+  // and styleChoice the chat style its picture offers (see PanelHeader).
+  cardStart: CardStarter; row: { controls: PanelControl[]; corner: ReactNode; notice?: ReactNode }; styleChoice?: StyleChoice;
 }) {
   const owner = !!task && ownsTaskSession(node, task);
   // A failure's Open the log opens the Activity section and brings it into view.
@@ -80,7 +82,7 @@ export function GoblinPanel({ task, node, child, snapshot, connected, reviews, v
     {createPortal(taskList, taskHost)}
   </>;
   return <section className={"goblin-panel" + (view === "terminal" && !child ? " showing-terminal" : "")} aria-labelledby="panel-title">
-    {child && task ? <><PanelRow {...row} /><BabyHeader goblin={task} child={child} now={now} /></> : <PanelHeader task={task} node={node} snapshot={snapshot} row={row} switcher={!maximized && <PanelViewSwitch view={view} views={views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} onHome={onHome} />}
+    {child && task ? <><PanelRow {...row} /><BabyHeader goblin={task} child={child} now={now} /></> : <PanelHeader task={task} node={node} snapshot={snapshot} row={row} switcher={!maximized && <PanelViewSwitch view={view} views={views} onView={onView} />} onAnswer={onAnswer} onOpenTask={onOpenTask} onOpenLog={openLog} styleChoice={styleChoice} />}
     {list}
   </section>;
 }

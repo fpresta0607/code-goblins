@@ -135,17 +135,13 @@ for (const owner of ["CFO", "goblin"]) {
       await talk.evaluate((element) => { element.scrollTop -= 30; });
       const place = await reading(talk);
       await expect(page.getByRole("button", { name: "Jump to latest" })).toBeVisible();
-      // Stop can act before the snapshot ends the turn, once the session's
-      // terminal link is up, so the change the snapshot makes is its own.
-      const stop = talk.locator(".reply-working").getByRole("button", { name: "Stop", exact: true });
-      if (isWorking) await expect(stop).toHaveAttribute("aria-disabled", "false");
       await watch(page);
 
       await page.evaluate((next) => window.dispatchEvent(new CustomEvent("fixture-snapshot", { detail: next })), board(!isWorking, 2));
       expect(await reading(talk)).toEqual(place);
-      expect(await changes(page)).toEqual(isWorking ? ["outside a message:attributes:aria-disabled"] : []);
+      expect(await changes(page)).toEqual([]);
       await expect(talk.locator(".reply-working")).toHaveCount(isWorking ? 1 : 0);
-      if (isWorking) await expect(stop).toHaveAttribute("aria-disabled", "true");
+      await expect(talk.locator(".reply-working").getByRole("button")).toHaveCount(0);
       await expect(talk.locator('[data-message="m999"] .message-reply-actions')).toHaveCount(isWorking ? 0 : 1);
       await expect(talk.locator('[data-queued="working-tail"] .queued-state')).toHaveText("Sent");
       await expect(talk.locator('[data-queued="working-tail"]').getByRole("button", { name: "Send now" })).toHaveCount(0);

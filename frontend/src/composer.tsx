@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { Action, Snapshot, Task } from "./types";
 import { message, reportToCfo, request, useResource } from "./api";
-import { useChatStyle } from "./chat-style";
 import { ComposerAttachments } from "./composer-attachments";
 import { ComposerBanner } from "./composer-banner";
 import { DictationButton } from "./dictation-button";
@@ -27,7 +26,7 @@ import { TOUCH_SCREEN } from "./small-screen";
 import { useTerminalLink, watchLink } from "./terminal-link";
 import { readClipboard } from "./terminal-keys";
 import { keepFile } from "./terminal-image";
-import { isDetachedHold } from "./terminalInput";
+import { detachedHoldReason } from "./terminalInput";
 import { appendDictation, useDictation } from "./useDictation";
 import "./composer.css";
 
@@ -43,12 +42,11 @@ const MENTION_WAIT_MS = 120;
 // name the mode he picked.
 const CODEX_PICKER_WAIT_MS = 8000;
 // The box's notes, each from its own source, in the order its status line
-// reads the first that says anything: what Open in terminal met, the files
-// being added, the terminal's own feedback, dictation's, and why a goblin's
-// messages wait.
-const NOTE_SOURCES = ["terminal", "adding", "feedback", "dictation", "queue"] as const;
+// reads the first that says anything: the files being added, the terminal's
+// own feedback, dictation's, and why a goblin's messages wait.
+const NOTE_SOURCES = ["adding", "feedback", "dictation", "queue"] as const;
 type NoteSource = typeof NOTE_SOURCES[number];
-const NO_NOTES: Record<NoteSource, string> = { terminal: "", adding: "", feedback: "", dictation: "", queue: "" };
+const NO_NOTES: Record<NoteSource, string> = { adding: "", feedback: "", dictation: "", queue: "" };
 // What he wrote and has not sent, kept per session for this tab's life, so a
 // switch to another view or session, a reconnect and a reload of the board
 // all find it where he left it.
@@ -102,8 +100,8 @@ function storeAttached(key: string, paths: string[]): void {
 // the box lists his latest with where each is, and those a paused goblin's
 // resume will carry, each of which can be deleted. Its microphone, held or
 // tapped on a touch screen, and Ctrl+Shift+Space in the box dictate into it,
-// and a click on the microphone, or Speech history in the style menu, opens
-// the board's recent dictations.
+// and a click on the microphone, or Speech history beside the +, opens the
+// board's recent dictations.
 //
 // A picture pasted into this box, a file dropped on it or added to it, is kept
 // where the session he writes to reads it and shows in the box as a thumbnail
@@ -122,9 +120,9 @@ function storeAttached(key: string, paths: string[]): void {
 // harness's interrupt, and a paste the board cannot keep says so here. On a
 // touch screen the + opens Paste a picture, since an iPhone's own Paste in a
 // text box takes text alone, and Photos or files, the phone's own picker.
-export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, onOpenTerminal, terminalFeedback, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
+export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerminal, model, effort, hasConversation = false, isTerminalShown = false, isShown = true, isWorking = false, history = [], usage, onActive }: {
   snapshot: Snapshot; task?: Task; name: string; hasConversation?: boolean;
-  model?: string; onOpenTerminal?: () => void; terminalFeedback?: string;
+  model?: string;
   // model and effort are what the session's own record last says it runs.
   effort?: string;
   // terminal is the terminal deck's key of the session's terminal, and
@@ -170,7 +168,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     setNotice((prior) => text ? { text, from: "box", count: prior.count + 1 } : prior.from === "box" && prior.text ? { ...prior, text: "" } : prior);
   };
   const [isRecentOpen, setRecentOpen] = useState(false);
-  const [isStyleOpen, setStyleOpen] = useState(false);
   // A touch screen's + opens a menu of its two ways to add a picture.
   const [isAddOpen, setAddOpen] = useState(false);
   // Which of the board's own setting panes is open over the row, if one is.
@@ -210,11 +207,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // Escape and a pick hand it back to the box.
   const closePane = useCallback(() => setPane(null), []);
   const modelControl = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLButtonElement>(null);
+  const speechHistory = useRef<HTMLButtonElement>(null);
   const composerBox = useRef<HTMLDivElement>(null);
   const files = useRef<HTMLInputElement>(null);
-  const [style, chooseStyle] = useChatStyle();
-  const closeRecent = () => { setRecentOpen(false); menu.current?.focus(); };
+  const closeRecent = () => { setRecentOpen(false); speechHistory.current?.focus(); };
   // The box is one mounted composer moved to the surface on screen, so a
   // switch asks for its keyboard a frame or two before the move lands and the
   // browser cannot focus a node that is not in the page yet. Ask again, a few
@@ -283,8 +279,8 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // the relay could not read, is never mirrored above the box, whether a turn
   // finished, failed or the view reconnected (the Overlord, 2026-10-28: "the
   // terminal window that appears above chat input on mobile randomly I
-  // thought we got rid of that"); his messages wait for it, and the style
-  // menu's Classic and Windows Terminal show it.
+  // thought we got rid of that"); his messages wait for it, and the panel's
+  // Terminal style and Open in Windows Terminal show it.
   const isScreenOpen = !!live?.screen?.isOpen;
   const screenPanel = isScreenOpen ? live?.screen?.panel ?? null : null;
   const panel = screenPanel && screenPanel.choices.length > 0 ? screenPanel : null;
@@ -643,10 +639,9 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
     window.addEventListener(TAKE_BACK_MESSAGE, takeBack);
     return () => window.removeEventListener(TAKE_BACK_MESSAGE, takeBack);
   });
-  // What a press on one of this session's queued messages, or on its working
-  // row's Stop, could not do says so over the box, as the box's own refusals
-  // do, but only there: it is no refusal of the draft, so it never keeps the
-  // box.
+  // What a press on one of this session's queued messages could not do says
+  // so over the box, as the box's own refusals do, but only there: it is no
+  // refusal of the draft, so it never keeps the box.
   useEffect(() => {
     const refused = (event: Event) => {
       if (event instanceof CustomEvent && event.detail.task === (task?.id ?? "")) setNotice((prior) => ({ text: event.detail.text, from: "queued", count: prior.count + 1 }));
@@ -698,10 +693,10 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         return;
       }
     }
-    // Escape with the box's own pane, speech history, style or add menu open
-    // closes it (the box's handler below), and reaches neither the harness
-    // nor its screen.
-    if (event.key === "Escape" && (pane || isRecentOpen || isStyleOpen || isAddOpen)) return;
+    // Escape with the box's own pane, speech history or add menu open closes
+    // it (the box's handler below), and reaches neither the harness nor its
+    // screen.
+    if (event.key === "Escape" && (pane || isRecentOpen || isAddOpen)) return;
     // An open screen of the harness's own takes the terminal's keys from an
     // empty box, so it is answered here as in the terminal.
     const keysForPanel = panel && !isHeld && !draft ? panelKey(event, panel) : null;
@@ -727,9 +722,11 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
   // A message sent while the session works, or while a review holds it, is
   // queued, and he assumes it, so no note says so (the Overlord, 2026-10-28:
   // "this text not needed on working goblins resumes are assumed"); a goblin
-  // with no branch to work on says why its messages wait.
-  const queueNote = live?.held && isDetachedHold(live.held) ? "Detached worktree. Send to queue until a branch is ready." : "";
-  const notes: Record<NoteSource, string> = { terminal: terminalFeedback ?? "", adding: adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : "",
+  // whose detached worktree holds typing says why its messages wait, in the
+  // gate's words.
+  const detachedWhy = live?.held ? detachedHoldReason(live.held) : "";
+  const queueNote = detachedWhy ? `Detached worktree. Send to queue while typing is held: ${detachedWhy}.` : "";
+  const notes: Record<NoteSource, string> = { adding: adding ? "Adding " + (adding > 1 ? adding + " files" : "the file") + "…" : "",
     feedback: live?.feedback ?? "", dictation: dictation.note, queue: queueNote };
   const note = NOTE_SOURCES.map((source) => notes[source]).find(Boolean) ?? "";
   // Each note shows over the box as it starts or changes to new words, from
@@ -780,7 +777,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
       if (event.key !== "Escape") return;
       if (pane) { event.stopPropagation(); setPane(null); field.current?.focus(); }
       else if (isRecentOpen) { event.stopPropagation(); closeRecent(); }
-      else if (isStyleOpen) { event.stopPropagation(); setStyleOpen(false); }
       else if (isAddOpen) { event.stopPropagation(); setAddOpen(false); }
     }}>
       {listOptions.length > 0 && <PopupList label={commandOptions.length ? "Commands" : "Files"} options={listOptions} pick={picked} onChoose={choose} />}
@@ -792,8 +788,6 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         <div className="composer-line">
           <textarea ref={field} aria-label={"Message " + name} placeholder={"Message " + name} rows={1} value={draft} disabled={isSending}
             onChange={(event) => { const value = event.target.value; setCaret(event.target.selectionStart); write(() => value); }} onSelect={(event) => setCaret(event.currentTarget.selectionStart)} onKeyDown={keys} onPaste={paste} onKeyUp={(event) => { dictation.key(event.nativeEvent); }} />
-          <button type="button" className="composer-control composer-clear" aria-label="Clear message" aria-description="Clears only this message field" disabled={isSending || !draft && !dictation.hasPending}
-            onPointerDown={(event) => event.preventDefault()} onClick={clear}><Icon name="trash" /></button>
           {canStop ? <button type="button" className="composer-send stop" aria-label="Stop" aria-keyshortcuts="Escape" onClick={() => live?.escape()}><Icon name="stop-circle" /></button>
             : <button type="button" className="composer-send" aria-label={isSending ? "Sending" : "Send"} aria-keyshortcuts="Enter" data-active={canSend || undefined} disabled={!canSend} onClick={() => void send()}>
               <Icon name={isSending ? "clock" : "send"} />
@@ -803,22 +797,18 @@ export function Composer({ snapshot, task, name, terminal, focus = 0, onShowTerm
         <div className="composer-row">
           <div className="composer-row-start">
             <button type="button" className="composer-control" aria-label="Add files" aria-haspopup={isTouch ? "true" : undefined} aria-expanded={isTouch ? isAddOpen : undefined} disabled={adding > 0}
-              onClick={() => { if (!isTouch) { files.current?.click(); return; } setStyleOpen(false); setAddOpen((prior) => !prior); }}><Icon name="plus" /></button>
-            {/* It wears the style menu's look. */}
-            {isAddOpen && <div className="composer-style-popover">
+              onClick={() => { if (!isTouch) { files.current?.click(); return; } setAddOpen((prior) => !prior); }}><Icon name="plus" /></button>
+            {isAddOpen && <div className="composer-add-popover">
               <button type="button" onClick={() => { setAddOpen(false); void pastePicture(); }}><Icon name="paste" />Paste a picture</button>
               <button type="button" onClick={() => { setAddOpen(false); files.current?.click(); }}><Icon name="images" />Photos or files</button>
             </div>}
-            <button ref={menu} type="button" className="composer-control" aria-haspopup="true" aria-expanded={isStyleOpen} aria-label={"Style: " + style}
-              onClick={() => { setAddOpen(false); setStyleOpen((prior) => !prior); }}><Icon name={style === "classic" ? "terminal" : "comment"} /></button>
-            {isStyleOpen && <div className="composer-style-popover">
-              <div className="composer-style-choices" role="group" aria-label="Chat style">
-                <button type="button" aria-pressed={style === "modern"} onClick={() => { chooseStyle("modern"); setStyleOpen(false); field.current?.focus(); }}><Icon name="comment" />Modern</button>
-                <button type="button" aria-pressed={style === "classic"} onClick={() => { chooseStyle("classic"); setStyleOpen(false); field.current?.focus(); }}><Icon name="terminal" />Classic</button>
-              </div>
-              <button type="button" onClick={() => { setStyleOpen(false); setRecentOpen(true); menu.current?.focus(); }}><Icon name="clock" />Speech history</button>
-              {onOpenTerminal && <button type="button" onClick={() => { setStyleOpen(false); onOpenTerminal(); }}><Icon name="external" />Open in Windows Terminal</button>}
-            </div>}
+            {/* The chat style is the panel header's choice (#1987); Speech history
+                keeps its place here, and a press while it shows leaves it shown.
+                Clear message follows it, on a phone only (composer.css). */}
+            <button ref={speechHistory} type="button" className="composer-control" aria-label="Speech history"
+              onClick={() => { setAddOpen(false); setRecentOpen(true); }}><Icon name="clock" /></button>
+            <button type="button" className="composer-control composer-clear" aria-label="Clear message" aria-description="Clears only this message field" disabled={isSending || !draft && !dictation.hasPending}
+              onPointerDown={(event) => event.preventDefault()} onClick={clear}><Icon name="trash" /></button>
           </div>
           <div className="composer-row-end">
             <button ref={modelControl} type="button" className="composer-control engine-control" aria-label="Change model" aria-haspopup="menu" aria-expanded={!!pane} disabled={!canChangeEngine}

@@ -141,11 +141,12 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
 
     }
 
+    // At the panel's narrowest the CFO's row keeps its AFK switch and Close
+    // and puts both of its controls in More.
     test("More holds what the row cannot, by keyboard", async ({ page }) => {
-      await open(page, 430);
+      await open(page, 360);
       await page.keyboard.press("Control+Alt+1");
       const row = pane(page).locator(".panel-top");
-      await row.evaluate((element) => { element.style.width = "35%"; });
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
       await page.keyboard.press("Enter");
@@ -167,10 +168,9 @@ for (const [where, viewport, deviceScaleFactor] of [["his window", { width: 1707
     // once the choice gave the row room for every control and More went.
     test("a choice in More by keyboard leaves Escape closing the panel", async ({ page }) => {
       const posted: Posted[] = [];
-      await open(page, 430, posted);
+      await open(page, 360, posted);
       await page.keyboard.press("Control+Alt+1");
       const row = pane(page).locator(".panel-top");
-      await row.evaluate((element) => { element.style.width = "35%"; });
       const more = row.getByRole("button", { name: "More", exact: true });
       await more.focus();
       await page.keyboard.press("Enter");

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "./site";
-import { box, boxMenu, field, open, openGoblin, PAGE, send, snapshot } from "./session-board";
+import { box, field, open, openGoblin, PAGE, send, snapshot } from "./session-board";
 
 // What he types and what pops up over the box always fit the window (the
 // Overlord, 2026-10-27): "as I'm typing in very, very long messages ... I
@@ -56,7 +56,7 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
     await openGoblin(page);
 
     // Act
-    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
 
     // Assert: the card is whole in the window, its title the topmost thing
     // where it is drawn, and a list longer than the room scrolls inside it.
@@ -84,7 +84,7 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
     await openGoblin(page);
 
     // Act
-    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
 
     // Assert
     const history = page.getByRole("dialog", { name: "Speech history" });
@@ -123,7 +123,7 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
     await open(page);
     await page.route("**/api/dictations", (route) => route.fulfill({ json: { messages: DICTATIONS } }));
     await openGoblin(page);
-    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
     const history = page.getByRole("dialog", { name: "Speech history" });
 
     // Act and Assert: a press on a record's words keeps it.
@@ -137,7 +137,7 @@ for (const [label, width, height] of [["the smallest desktop panel", 1280, 420],
 
     // Act and Assert: opened again, Escape closes it with the keyboard on
     // the page rather than in the box.
-    await (await boxMenu(page)).getByRole("button", { name: "Speech history" }).click();
+    await box(page).getByRole("button", { name: "Speech history", exact: true }).click();
     await expect(history).toBeVisible();
     await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
     await page.keyboard.press("Escape");
@@ -192,13 +192,17 @@ test("a long message keeps its last lines in view while dictation adds to it", a
 // and on a phone's touch screen. The hover labels went with item 42, which
 // keeps tips out of the box, and the usage pies end the row since the
 // Overlord, 2026-10-28: "The usage circle goes in place of the arrow in the box".
+// Since 2026-11-03 a phone's row also holds Speech history and Clear message
+// beside its + ("trash button only needed on mobile and you can put it next
+// to plus icon"; #1987), so on a 360 px phone the model's name gives way with
+// an ellipsis, its mark and effort whole; from a 390 px phone up it is whole.
 const USAGE = { input_tokens: 1_400_000, output_tokens: 289_000, cache_read_tokens: 208_000_000, cost_usd: 3.209, context_tokens: 593_000, context_window: 1_000_000, model: "claude-opus-5-5" };
 const WEEK = { provider: "claude", status: "available", percent_remaining: 12, read_at: "2026-10-28T09:00:00Z", resets_at: "2026-11-02T09:00:00Z", source: "oauth", floor_percent: 5 };
 for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 960, false], ["a phone", 390, 844, true], ["a small phone", 360, 640, true]] as const) {
   test.describe(`on ${label}`, () => {
     test.use({ viewport: { width, height }, hasTouch: isTouch, isMobile: isTouch });
 
-    test("the box's controls and usage pies lie in one row inside its border, the model whole", async ({ page }) => {
+    test(`the box's controls and usage pies lie in one row inside its border, the model's name ${width === 360 ? "giving way" : "whole"}`, async ({ page }) => {
       // Arrange: a Claude Code session in auto mode, its effort and usage known.
       const relay = await open(page, snapshot({ subscriptions: [WEEK] }), "rebase onto main", { ...PAGE, usage: USAGE });
       await openGoblin(page);
@@ -211,7 +215,7 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       const row = await box(page).locator(".composer-input").evaluate((input) => {
         const border = input.getBoundingClientRect();
         const text = input.querySelector("textarea")!.getBoundingClientRect();
-        return [...input.querySelectorAll(".composer-row button, .composer-row .usage-bar")].map((control) => {
+        return [...input.querySelectorAll(".composer-row button, .composer-row .usage-bar")].filter((control) => control.getClientRects().length).map((control) => {
           const bounds = control.getBoundingClientRect();
           return {
             name: control.getAttribute("aria-label"),
@@ -222,11 +226,17 @@ for (const [label, width, height, isTouch] of [["the desktop side panel", 1440, 
       });
 
       // Assert
-      expect(row.map((control) => control.name)).toEqual(["Add files", "Style: modern", "Change model", isTouch ? "Dictate" : "Hold to dictate", "Usage"]);
+      expect(row.map((control) => control.name)).toEqual(["Add files", "Speech history", ...isTouch ? ["Clear message"] : [], "Change model", isTouch ? "Dictate" : "Hold to dictate", "Usage"]);
       expect(row.filter((control) => !control.isInside).map((control) => control.name), "every control inside the box's border, under the words").toEqual([]);
       expect(new Set(row.map((control) => control.middle)).size, "one row").toBe(1);
       expect(row.filter((control) => control.isCut).map((control) => control.name), "no control's words cut").toEqual([]);
       await expect(box(page).locator(".composer-tools")).toHaveCount(0);
+      const words = await model.evaluate((button) => [".mark", ".engine-control-model", ".effort-level"].map((part) => {
+        const element = button.querySelector(part)!;
+        return { isCut: element.scrollWidth > element.clientWidth + 0.5, end: getComputedStyle(element).textOverflow };
+      }));
+      expect(words.map((part) => part.isCut), "the mark, the name and the effort, each whole or not").toEqual([false, width === 360, false]);
+      expect(words[1].end, "a name that gives way ends in an ellipsis").toBe("ellipsis");
       // A phone's row has room for the two pies alone, the side panel's for
       // their percentages too.
       await expect(box(page).locator(".usage-percent:visible")).toHaveCount(isTouch ? 0 : 2);

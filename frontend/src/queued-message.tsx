@@ -10,9 +10,9 @@ import type { Action } from "./types";
 // the box of its session to take it back (composer.tsx).
 export const TAKE_BACK_MESSAGE = "cfo-take-back-message";
 
-// QUEUED_NOTICE names the event a queued message, or Stop on the working row
-// he reads, sends with its task's ID and what a press on it could not do, for
-// the box of its session to say over itself (composer.tsx).
+// QUEUED_NOTICE names the event a queued message sends with its task's ID and
+// what a press on it could not do, for the box of its session to say over
+// itself (composer.tsx).
 export const QUEUED_NOTICE = "cfo-queued-notice";
 
 // One message the board holds for delivery, shown where it waits: its words,

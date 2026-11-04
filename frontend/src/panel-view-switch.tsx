@@ -11,9 +11,11 @@ import { Icon, type IconName } from "./Icon";
 // named for a screen reader, with no words and no tip, in the panel header's
 // own row beside the CFO's and AFK's controls, never a row of its own (the
 // Overlord, 2026-10-28: "chat and task doesn't need to be full width, it can
-// fit inline with cfo and afk and just be the icons").
+// fit inline with cfo and afk and just be the icons"). Chat is a book, so it
+// is never taken for the header's switch of chat style, a speech bubble or a
+// terminal (#1987).
 const LABELS: Record<PanelView, string> = { terminal: "Chat", task: "Task" };
-const ICONS: Record<PanelView, IconName> = { terminal: "comment", task: "task" };
+const ICONS: Record<PanelView, IconName> = { terminal: "book", task: "task" };
 
 export function PanelViewSwitch({ view, views, onView }: { view: PanelView; views: PanelView[]; onView: (view: PanelView) => void }) {
   if (views.length < 2) return null;

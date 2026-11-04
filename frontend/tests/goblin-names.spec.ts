@@ -103,10 +103,11 @@ for (const viewport of [{ name: "in his window", width: 1707, height: 1067 }, { 
       await open(page);
       await jerry(page).locator(".card-title").click();
       await expect(page.locator("#panel-title")).toHaveText("Jerry - Code Designer");
-      // The compact header keeps the task id while the task list opens.
-      await expect(page.locator(".panel-goblin-task")).toHaveText("nw-sync");
+      // The header keeps the name alone, and the task list has the task id
+      // beside the whole name.
+      await expect(page.locator(".goblin-panel > .panel-header")).not.toContainText("nw-sync");
       await openTaskList(page);
-      await expect(page.locator(".panel-goblin-task")).toHaveText("nw-sync");
+      await expect(page.locator(".panel-whole-name")).toHaveText("Jerry - Code Designer · nw-sync");
     });
 
     test("the canvas names each goblin with its avatar, and its task in its tip or under its name", async ({ page }) => {

@@ -68,7 +68,7 @@ See [installation, prerequisites and fresh-PC checks](docs/install.md).
    Closing a panel or the window leaves the work running.
 
 The desktop opens with **Classic**, the harness's native terminal.
-For **Modern Chat**, use **Switch to Modern chat** in the panel header, or **More → Modern chat** when space is tight.
+For **Modern Chat**, click the session's picture in the panel header and choose **Modern chat**; **Terminal** in the same menu goes back to the native terminal.
 You can also choose Modern under **Task → Workspace → Chat**.
 The hero above shows Modern selected.
 
@@ -98,15 +98,14 @@ Modern Chat presents prompts, replies, folded thinking and tool results as a con
 Type in the message box and press **Enter** to send; **Shift+Enter** adds a line.
 The composer offers files, the session's permission mode, model and effort, plus local dictation where available.
 Type `/` for harness commands or `@` for files.
-**Clear message**, the trash button beside the input, clears the whole unsent typed or dictated draft without sending it, interrupting the session or touching queued messages; text already in the native Terminal's input is edited there.
+On a phone, **Clear message**, the trash button beside **Speech history**, clears the whole unsent typed or dictated draft without sending it, interrupting the session or touching queued messages; text already in the native Terminal's input is edited there.
 
-Use the composer's **Style** menu to choose **Classic** and return to the native Terminal.
 When a harness question or picker appears in Modern Chat, **Show the terminal** opens that screen and **Back to messages** returns to the conversation.
 The native terminal keeps the harness's own keyboard controls and prompts.
 **Open in Windows Terminal** offers another view of the same session on the PC.
 
 <p align="center">
-  <img src="docs/images/goblin-panel.webp" alt="Example task in Classic: the native terminal beside its Task details, with the Modern chat option in the header" width="1000" />
+  <img src="docs/images/goblin-panel.webp" alt="Example task in Classic: the native terminal beside its Task details" width="1000" />
   <br />
   <sub>Example workspace: Classic shows the harness's terminal; Modern is a saved display choice.</sub>
 </p>
