@@ -10,5 +10,5 @@ A goblin takes as they stand only findings that are not correctness, security or
 Under policy version 6 `run` starts the gate on the task's own harness, with that task's model and effort, as a launch selection no-mistakes proves before any agent starts, prints it on a `pipeline gate agent:` line, and names a second harness only when the operator named it as the policy's fallback and it is signed in.
 A live run of the same branch, head and intent is reattached to when its bounded hold ends with no decision, so repeating the command starts no new run and resets no review budget, and none of a new start's checks, such as origin's tracking ref, stops it, while a start of other work is still refused.
 Mode eligibility follows [Task classes](../pipeline.md#task-classes).
-Never auto-approves and never skips a step; exit 3 means unresolved work needs your decision.
+Never auto-approves and never skips a step; exit 3 means unresolved work, and its refusal names who decides it.
 Full contract in [docs/pipeline.md](../pipeline.md)

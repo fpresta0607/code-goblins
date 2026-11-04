@@ -1000,7 +1000,8 @@ func spawnInstruction(briefPath string, meta state.TaskMeta, install []string, r
 
 // deliveryInstruction names the frozen delivery mode of a task and the one
 // validation owner that mode gives it, over whatever its brief says, and
-// keeps its ask-user findings the CFO's.
+// keeps its ask-user findings the CFO's until its run's review repair cycles
+// are spent.
 func deliveryInstruction(meta state.TaskMeta) string {
 	if meta.DeliveryHash == "" {
 		return ""

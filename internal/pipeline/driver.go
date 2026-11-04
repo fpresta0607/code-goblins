@@ -430,8 +430,9 @@ func (r Reader) RunBranch(ctx context.Context, project, run string) (string, err
 }
 
 // Response is one answer to a parked gate. Accept names the open ask-user and
-// auto-fix findings the CFO takes as they stand, with approve only, and Reason
-// is the operator's rationale, which only an approved Test exception keeps.
+// auto-fix findings the CFO, or on a spent review the task's own goblin, takes
+// as they stand, with approve only, and Reason is the operator's rationale,
+// which only an approved Test exception keeps.
 type Response struct{ Action, Findings, Instructions, Accept, Reason string }
 type finding struct {
 	ID          string `json:"id"`
