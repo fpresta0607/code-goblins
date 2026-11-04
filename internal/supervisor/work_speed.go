@@ -75,7 +75,10 @@ func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now ti
 	}
 	// A blind spell counts only time the supervisor watched: a gap from one
 	// reading's end to the next reading, the supervisor stopped or the
-	// machine asleep, starts it again, as it does memory's readings.
+	// machine asleep, starts it again, as it does memory's readings. Unlike
+	// memory's stamp, this one is a reading's end, so the next reading can
+	// start at that same moment, or a few milliseconds before it on a slewed
+	// clock: only a clock stepped back as far as such a gap starts it again.
 	if gap := now.Sub(watched.ProgressPassAt); gap > 2*fleetWatchEvery || gap < -2*fleetWatchEvery {
 		watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
 	}
