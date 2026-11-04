@@ -122,21 +122,23 @@ func ReadSource(ctx context.Context, commands execx.Runner, dir string) (source 
 	environment = append(environment, "GIT_INDEX_FILE="+index, "GIT_OBJECT_DIRECTORY="+objectStore, "GIT_ALTERNATE_OBJECT_DIRECTORIES="+objects)
 	// The index becomes the commit's tree, keeping what the worktree's index
 	// knew of each file on disk wherever that index held the commit's own
-	// content for it.
-	if _, err := git("read-tree", "--reset", commit); err != nil {
-		return Source{}, err
-	}
-	// A file that index was told to overlook, as assume-unchanged and
-	// skip-worktree mark one, keeps its mark, which would hide a change on
-	// disk, so an index with one is read from the commit alone.
+	// content for it. A file that index was told to overlook, which ls-files
+	// tags S for skip-worktree or in lowercase for assume-unchanged, would
+	// keep its mark, which hides a change on disk, and git refuses to reset
+	// one whose staged content is not the commit's once it changed on disk,
+	// so an index with one is read from the commit alone.
 	entries, err := git("ls-files", "-v", "-z")
 	if err != nil {
 		return Source{}, err
 	}
-	if slices.ContainsFunc(strings.Split(entries, "\x00"), func(entry string) bool { return entry != "" && !strings.HasPrefix(entry, "H ") }) {
-		if _, err := git("read-tree", commit); err != nil {
-			return Source{}, err
-		}
+	readTree := []string{"read-tree", "--reset", commit}
+	if slices.ContainsFunc(strings.Split(entries, "\x00"), func(entry string) bool {
+		return entry != "" && (entry[0] == 'S' || ('a' <= entry[0] && entry[0] <= 'z'))
+	}) {
+		readTree = []string{"read-tree", commit}
+	}
+	if _, err := git(readTree...); err != nil {
+		return Source{}, err
 	}
 	if _, err := git("add", "--all"); err != nil {
 		return Source{}, err

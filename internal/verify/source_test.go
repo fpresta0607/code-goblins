@@ -136,13 +136,33 @@ func TestReadSourceIsTheTreeOfACommitOfExactlyWhatWasOnDisk(t *testing.T) {
 
 // A file the worktree's own index is told to overlook, as assume-unchanged
 // and skip-worktree mark one, is read all the same: its change is in the
-// tree.
+// tree, also when the index stages another change to it, as git add does
+// under core.ignoreStat, which marks what it stages assume-unchanged.
 func TestReadSourceSeesAChangeTheWorktreesIndexIsToldToOverlook(t *testing.T) {
-	for _, mark := range []string{"assume-unchanged", "skip-worktree"} {
-		t.Run(mark, func(t *testing.T) {
+	for name, row := range map[string]struct {
+		mark          string
+		isStaged      bool
+		isStatIgnored bool
+	}{
+		"assume-unchanged":                    {mark: "assume-unchanged"},
+		"skip-worktree":                       {mark: "skip-worktree"},
+		"assume-unchanged on a staged change": {mark: "assume-unchanged", isStaged: true},
+		"skip-worktree on a staged change":    {mark: "skip-worktree", isStaged: true},
+		"a change staged under ignoreStat":    {mark: "assume-unchanged", isStaged: true, isStatIgnored: true},
+	} {
+		t.Run(name, func(t *testing.T) {
 			// Arrange
 			dir := sourceWorktree(t)
-			gitIn(t, dir, "update-index", "--"+mark, "a.txt")
+			if row.isStatIgnored {
+				gitIn(t, dir, "config", "core.ignoreStat", "true")
+			}
+			if row.isStaged {
+				writeSource(t, dir, "a.txt", "staged\n")
+				gitIn(t, dir, "add", "a.txt")
+			}
+			if !row.isStatIgnored {
+				gitIn(t, dir, "update-index", "--"+row.mark, "a.txt")
+			}
 			writeSource(t, dir, "a.txt", "changed\n")
 
 			// Act
@@ -152,7 +172,7 @@ func TestReadSourceSeesAChangeTheWorktreesIndexIsToldToOverlook(t *testing.T) {
 			if err != nil || !source.IsComplete || source.Tree == source.CommitTree {
 				t.Fatalf("ReadSource = %+v, %v; want a complete tree with the change to a.txt", source, err)
 			}
-			gitIn(t, dir, "update-index", "--no-"+mark, "a.txt")
+			gitIn(t, dir, "update-index", "--no-"+row.mark, "a.txt")
 			gitIn(t, dir, "add", "--all")
 			gitIn(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "what was tested")
 			if committed := gitIn(t, dir, "rev-parse", "HEAD^{tree}"); committed != source.Tree {
