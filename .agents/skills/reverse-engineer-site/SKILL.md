@@ -27,7 +27,7 @@ goblin-crawl <start address> --out <a folder in your task's scratch> [--max-page
 ```
 
 It reads robots.txt and every sitemap the site names, opens each page in headless Chrome so a page a script draws is read as a person sees it, follows every link on the site, and downloads every file the pages link to.
-It reads at most 500 pages unless `--max-pages` says otherwise, and every route past the limit is reported, never dropped.
+It reads at most 500 pages unless `--max-pages` says otherwise, counting only the pages it reads, and every route past the limit is reported, never dropped.
 It ends with one line that counts the pages read, the files downloaded and the routes unread, and exits 1 with one line saying why when nothing could be crawled, such as a robots.txt the site cannot serve.
 
 The folder then holds:
@@ -73,6 +73,8 @@ List every unread route from `report.json` with its reason, in the site's words 
 - `it redirects to <address>, which robots.txt disallows`
 - `the site answered HTTP <status>`
 - `it redirects off the site, to <address>`
+- `it redirects in a loop, through <address>`
+- `it redirects more than 20 times`
 - `past the page limit of <n>`
 - a page that did not load in time, or a file that did not download
 

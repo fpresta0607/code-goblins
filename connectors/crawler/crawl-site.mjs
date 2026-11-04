@@ -30,8 +30,13 @@ const FILE_EXTENSIONS = new Set([
 
 // What a page loads that its content and its links never need: the crawl
 // records each image's address and alt text from the page instead, and asks
-// the site for less.
-const BLOCKED_RESOURCES = new Set(["image", "media", "font"]);
+// the site for less. An event stream never ends, so it would hold a slot for
+// as long as its page is open.
+const BLOCKED_RESOURCES = new Set(["image", "media", "font", "eventsource"]);
+
+// The headers that describe a request's body, which a request turned into a
+// GET by a redirect no longer has.
+const BODY_HEADERS = new Set(["content-encoding", "content-language", "content-location", "content-type", "content-length"]);
 
 // Crawlee scales its work to the machine's load, which it measures by listing
 // every process on it, through a PowerShell it starts every second on
@@ -91,13 +96,26 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
     return "";
   };
 
+  // redirectsBackTo says whether the redirects the crawl recorded from target
+  // lead back to url.
+  const redirectsBackTo = (target, url) => {
+    const seen = new Set();
+    let at = target;
+    while (at && !seen.has(at)) {
+      if (at === url) return true;
+      seen.add(at);
+      const route = routes.get(at);
+      at = route?.status === "redirect" ? route.landed_on : "";
+    }
+    return false;
+  };
+
   const sitemaps = await readSitemaps(robots, origin, isAllowed);
 
   const crawler = new PlaywrightCrawler({
     log: log.child({ prefix: "goblin-crawl", level: LogLevel.ERROR }),
     minConcurrency: MAX_IN_FLIGHT,
     maxConcurrency: MAX_IN_FLIGHT,
-    maxRequestsPerCrawl: maxPages,
     maxRequestRetries: 1,
     navigationTimeoutSecs: NAVIGATION_TIMEOUT_SECS,
     requestHandlerTimeoutSecs: 90,
@@ -116,44 +134,62 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
         },
       ],
     },
-    // The crawler sends each request the browser makes to the site, from any
-    // page it has open, itself: one redirect step at a time, each step
-    // checked against robots.txt and holding one slot while it is fetched.
-    // The browser follows no redirect of its own, and a crawled page that
-    // redirects is a redirect to the page it names, queued as a link.
+    // The crawler sends each request the browser makes to the site, from the
+    // crawled page, a frame in it or a window it opens, itself: one redirect
+    // step at a time, each step checked against robots.txt and holding one
+    // slot while it is fetched. The browser follows no redirect of its own,
+    // and a crawled page that redirects elsewhere is a redirect to the page
+    // it names, queued as a link. Each page has a context of its own, so the
+    // context's routes cover that page and nothing else, and no page opens a
+    // WebSocket to the site, which no route sees.
     preNavigationHooks: [
       async ({ page, request: crawled }) => {
-        const fetchStep = async (route, url) => {
+        const context = page.context();
+        const fetchStep = async (route, hop) => {
           await slots.take();
           try {
-            return page.isClosed() ? null : await route.fetch({ url, maxRedirects: 0 });
+            return page.isClosed() ? null : await route.fetch({ ...hop, maxRedirects: 0 });
           } finally {
             slots.release();
           }
         };
-        await page.route("**/*", async (route) => {
+        await context.routeWebSocket((url) => url.host === start.host, (socket) => socket.close());
+        await context.route("**/*", async (route) => {
           const request = route.request();
           if (BLOCKED_RESOURCES.has(request.resourceType())) return route.abort();
           if (new URL(request.url()).origin !== origin) return route.continue();
           if (!isAllowed(request.url())) return route.abort("blockedbyclient");
           const isCrawledPage = request.isNavigationRequest() && normalize(request.url()) === crawled.uniqueKey && request.frame() === page.mainFrame();
-          let url = request.url();
+          let hop = { url: request.url() };
+          let method = request.method();
           for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
             let response;
             try {
-              response = await fetchStep(route, url);
+              response = await fetchStep(route, hop);
             } catch {
               return route.abort("failed");
             }
             if (!response) return;
-            const target = redirectTarget(response.status(), response.headers().location, url);
+            const target = redirectTarget(response.status(), response.headers().location, hop.url);
             if (!target) return route.fulfill({ response });
-            if (isCrawledPage) {
+            // A page that redirects to itself, as one that sets a cookie
+            // first does, is followed here, where the cookie is kept.
+            if (isCrawledPage && target !== crawled.uniqueKey) {
               await followRedirect(routes.get(crawled.uniqueKey), response.status(), target);
               return route.fulfill({ contentType: "text/html", body: "" });
             }
             if (!isAllowed(target)) return route.abort("blockedbyclient");
-            url = target;
+            if (isTurnedIntoGet(response.status(), method)) {
+              method = "GET";
+              hop = { method, postData: "", headers: withoutBodyHeaders(request.headers()) };
+            }
+            hop = { ...hop, url: target };
+          }
+          if (isCrawledPage) {
+            const crawledRoute = routes.get(crawled.uniqueKey);
+            crawledRoute.status = "unread";
+            crawledRoute.reason = `it redirects more than ${MAX_REDIRECTS} times`;
+            return route.fulfill({ contentType: "text/html", body: "" });
           }
           return route.abort("failed");
         });
@@ -185,6 +221,11 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
       }
       await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
       const facts = await page.evaluate(readPage);
+      // The page limit counts pages read: a page past it stays queued, to be
+      // reported unread, and the crawl starts no request once it is reached.
+      if (pageCount >= maxPages) return;
+      pageCount += 1;
+      if (pageCount === maxPages) crawler.stop();
       // A route that redirects within the site is the page it lands on, read
       // once.
       let read = route;
@@ -193,7 +234,6 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
         route.landed_on = landed.href;
         read = noteRoute(landed.href, request.uniqueKey);
       }
-      pageCount += 1;
       const name = savedName(pageCount, read.url);
       await writeFile(path.join(outDir, "pages", `${name}.html`), await page.content());
       await writeFile(path.join(outDir, "pages", `${name}.json`), JSON.stringify({ url: request.uniqueKey, landed_on: landed.href, status: status, ...facts }, null, 2));
@@ -249,7 +289,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
   // so the page it names is read once, by its own address.
   async function followRedirect(route, status, target) {
     route.status_code = status;
-    const reason = whyNotFollowed(target);
+    const reason = whyNotFollowed(target) || (redirectsBackTo(target, route.url) ? `it redirects in a loop, through ${target}` : "");
     if (reason) {
       route.status = "unread";
       route.reason = reason;
@@ -340,6 +380,17 @@ function redirectTarget(status, location, url) {
   const target = new URL(location, url);
   target.hash = "";
   return target.href;
+}
+
+// isTurnedIntoGet says whether a redirect of status turns a request of method
+// into a GET without its body, as a browser's does: a POST answered 301 or
+// 302, or anything but a GET or HEAD answered 303.
+function isTurnedIntoGet(status, method) {
+  return ((status === 301 || status === 302) && method === "POST") || (status === 303 && method !== "GET" && method !== "HEAD");
+}
+
+function withoutBodyHeaders(headers) {
+  return Object.fromEntries(Object.entries(headers).filter(([name]) => !BODY_HEADERS.has(name.toLowerCase())));
 }
 
 // readRobots reads the site's robots.txt. A site with none, or one that

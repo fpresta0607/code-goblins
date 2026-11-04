@@ -50,7 +50,7 @@ describe("a crawl of the fixture site", () => {
 
   test("reads every route, those only the sitemap or a script names included", () => {
     const read = report.routes.filter((entry) => entry.kind === "page" && entry.status === "read").map((entry) => new URL(entry.url).pathname).sort();
-    assert.deepEqual(read, ["/", "/about", "/catalog", "/catalog/box-kite", "/live", "/visit/", "/workshops"]);
+    assert.deepEqual(read, ["/", "/about", "/catalog", "/catalog/box-kite", "/live", "/visit/", "/welcome", "/workshops"]);
     assert.deepEqual(route("/workshops").found_by, ["sitemap"]);
     assert.deepEqual(route("/catalog/box-kite").found_by, [new URL("/catalog", site.url).href]);
   });
@@ -93,6 +93,15 @@ describe("a crawl of the fixture site", () => {
     assert.equal(report.counts.pages_read, saved.length);
   });
 
+  test("reads a page that redirects to itself to set a cookie, and reports a redirect loop unread", () => {
+    const routeAt = (address) => report.routes.find((entry) => entry.url === new URL(address, site.url).href);
+    assert.ok(site.requests.filter((request) => request.path === "/welcome").length > 1, "/welcome was read at its first request, so it never redirected to itself");
+    assert.equal(routeAt("/welcome").status, "read");
+    assert.equal(routeAt("/loop").status, "redirect");
+    assert.equal(routeAt("/loop?check=1").status, "unread");
+    assert.equal(routeAt("/loop?check=1").reason, `it redirects in a loop, through ${new URL("/loop", site.url).href}`);
+  });
+
   test("obeys robots.txt: a disallowed route is never asked for and is reported unread", () => {
     assert.ok(site.requests.some((request) => request.path === "/robots.txt"), "the crawl never read robots.txt");
     assert.ok(site.requests.some((request) => request.path === "/api/stock"), "the catalog's script never asked for its stock, so it asked for nothing a redirect sends into a disallowed path");
@@ -104,6 +113,16 @@ describe("a crawl of the fixture site", () => {
     assert.equal(route("/staff").status, "unread");
     assert.equal(route("/staff").reason, `it redirects to ${new URL("/private/staff-room", site.url).href}, which robots.txt disallows`);
     assert.equal(route("/staff").page, undefined);
+  });
+
+  test("opens no event stream or WebSocket to the site, which would hold a slot as long as its page is open", () => {
+    assert.ok(site.requests.some((request) => request.path === "/api/stock"), "the catalog's script never ran, so it opened nothing");
+    assert.deepEqual(site.requests.map((request) => request.path).filter((pathname) => pathname === "/events" || pathname === "/live/socket"), []);
+  });
+
+  test("follows a redirect of a script's POST as a GET without its body, as a browser does", () => {
+    assert.deepEqual(site.requests.filter((request) => request.path === "/search").map((request) => request.method), ["POST"], "the catalog's script never posted its search");
+    assert.deepEqual(site.requests.filter((request) => request.path === "/search/results").map((request) => request.method), ["GET"]);
   });
 
   test("names itself honestly on every request, the browser's own included", () => {
@@ -149,8 +168,8 @@ test("a crawl keeps at most a few requests in flight at a time, the browser's ow
 
     // Assert
     assert.ok(asked("/live/data") > MAX_IN_FLIGHT, "the live page never asked for more data than the crawl has slots, so none of its requests waited when it closed");
-    assert.equal(report.counts.pages_read, 7 + extraPages, "the crawl did not read every page");
-    assert.deepEqual(report.routes.filter((entry) => entry.status === "unread").map((entry) => new URL(entry.url).pathname).sort(), ["/docs/old-price-list.pdf", "/private/notes", "/staff"]);
+    assert.equal(report.counts.pages_read, 8 + extraPages, "the crawl did not read every page");
+    assert.deepEqual(report.routes.filter((entry) => entry.status === "unread").map((entry) => new URL(entry.url)).map((url) => url.pathname + url.search).sort(), ["/docs/old-price-list.pdf", "/loop?check=1", "/private/notes", "/staff"]);
     for (let number = 1; number <= extraPages; number += 1) {
       assert.equal(asked(`/more/${number}`), 1, `/more/${number} was not read at its first navigation`);
     }
@@ -161,6 +180,28 @@ test("a crawl keeps at most a few requests in flight at a time, the browser's ow
     assert.ok(asked("/assets/menu.js") >= extraPages, "the browser did not load each extra page's scripts, so this test measured only the crawler's own requests");
     assert.ok(site.maxInFlight() > 1, `the crawl never had two requests in flight, so this test measured nothing (${site.maxInFlight()})`);
     assert.ok(site.maxInFlight() <= MAX_IN_FLIGHT, `the crawl had ${site.maxInFlight()} requests in flight, more than ${MAX_IN_FLIGHT}`);
+  } finally {
+    await site.close();
+    await rm(outDir, { recursive: true, force: true });
+  }
+});
+
+test("the page limit counts pages read, not redirects, and reports every page past it unread", async () => {
+  // Arrange
+  const site = await startFixtureSite();
+  const outDir = await mkdtemp(path.join(os.tmpdir(), "goblin-crawl-"));
+
+  try {
+    // Act
+    const report = await crawlSite({ startUrl: new URL("/visit", site.url).href, outDir, maxPages: 1 });
+
+    // Assert
+    const routeOf = (pathname) => report.routes.find((entry) => new URL(entry.url).pathname === pathname);
+    assert.equal(routeOf("/visit").status, "redirect", "the start route did not redirect, so the limit was never asked to leave a redirect out");
+    assert.equal(report.counts.pages_read, 1);
+    const past = report.routes.filter((entry) => entry.reason === "past the page limit of 1");
+    assert.ok(past.length > 0, "no page was left past the limit, so the limit was never reached");
+    assert.deepEqual(report.routes.filter((entry) => entry.kind === "page" && entry.status === "found").map((entry) => entry.url), [], "a page was left with no outcome");
   } finally {
     await site.close();
     await rm(outDir, { recursive: true, force: true });

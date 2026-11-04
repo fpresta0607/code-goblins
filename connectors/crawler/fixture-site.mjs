@@ -9,8 +9,12 @@ import { pathToFileURL } from "node:url";
 // that redirects into a disallowed folder, a page whose script never stops
 // asking for data, linked PDFs, two of them at addresses that differ only in
 // a slash, one that redirects into a disallowed folder, and a folder
-// robots.txt disallows. It records every request it is sent, with its user
-// agent and when it came, and the most requests it had in flight at once.
+// robots.txt disallows. The catalog's script also posts a search a redirect
+// answers, and opens an event stream, a WebSocket and a window into the
+// disallowed folder. A page redirects to itself until it is asked with the
+// cookie it sets, and two routes redirect to each other. It records every
+// request it is sent, WebSocket handshakes included, with its method, its
+// user agent and when it came, and the most requests it had in flight at once.
 
 export const PDF = Buffer.from(
   "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n",
@@ -35,6 +39,7 @@ const REDIRECTS = {
   "/visit": "/visit/",
   "/staff": "/private/staff-room",
   "/api/stock": "/private/stock.json",
+  "/search": "/search/results",
   "/docs/old-price-list.pdf": "/private/price-list.pdf",
 };
 
@@ -54,13 +59,16 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
     "/robots.txt": () => ["text/plain", `User-agent: *\nDisallow: /private/\n\nSitemap: ${origin}/sitemap.xml\n`],
     "/sitemap.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><sitemap><loc>${origin}/sitemap-pages.xml</loc></sitemap></sitemapindex>`],
     "/sitemap-pages.xml": () => ["application/xml", `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${["/", "/about", "/workshops", "/visit/"].map((route) => `<url><loc>${origin}${route}</loc></url>`).join("")}</urlset>`],
-    "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/docs/old-price-list.pdf">Last year's price list (PDF)</a> <a href="/docs/kites/care.pdf">Care guide (PDF)</a> <a href="/docs/kites-care.pdf">Care sheet (PDF)</a> <a href="/visit">Visit us</a> <a href="/staff">Staff room</a> <a href="/private/notes">Staff notes</a> <a href="/live">Live wind</a> <a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
+    "/": () => ["text/html", page("Fernwood Kites", `${NAV}<main><h1>Fernwood Kites</h1><p>Hand-sewn kites since 1987.</p><p><a href="/docs/price-list.pdf">Price list (PDF)</a> <a href="/docs/old-price-list.pdf">Last year's price list (PDF)</a> <a href="/docs/kites/care.pdf">Care guide (PDF)</a> <a href="/docs/kites-care.pdf">Care sheet (PDF)</a> <a href="/visit">Visit us</a> <a href="/staff">Staff room</a> <a href="/private/notes">Staff notes</a> <a href="/live">Live wind</a> <a href="/welcome">Welcome</a> <a href="/loop">Kite loop</a><a href="https://example.org/partner">Our partner</a></p>${extra.map((route) => `<a href="${route}">${route}</a>`).join(" ")}</main><footer>Fernwood Kites, a made-up shop</footer>`)],
     "/about": () => ["text/html", page("About", `${NAV}<main><h1>About us</h1><img src="/images/workshop.jpg" alt="The workshop"><table><tr><th>Day</th><th>Hours</th></tr><tr><td>Saturday</td><td>9 to 17</td></tr></table></main>`)],
     "/catalog": () => ["text/html", page("Catalog", `${NAV}<main id="catalog"><h1>Catalog</h1><p>Loading...</p></main><script src="/catalog.js"></script>`)],
-    "/catalog.js": () => ["text/javascript", `document.getElementById("catalog").innerHTML = '<h1>Catalog</h1><ul><li><a href="/catalog/box-kite">Box kite</a></li></ul>'; fetch("/private/stock.json").catch(() => {}); fetch("/api/stock").catch(() => {}); Promise.resolve(navigator.serviceWorker?.register("/sw.js")).catch(() => {});`],
+    "/catalog.js": () => ["text/javascript", `document.getElementById("catalog").innerHTML = '<h1>Catalog</h1><ul><li><a href="/catalog/box-kite">Box kite</a></li></ul>'; fetch("/private/stock.json").catch(() => {}); fetch("/api/stock").catch(() => {}); Promise.resolve(navigator.serviceWorker?.register("/sw.js")).catch(() => {}); fetch("/search", { method: "POST", body: "q=box kite" }).catch(() => {}); new EventSource("/events"); new WebSocket(\`ws://\${location.host}/live/socket\`); window.open("/private/popup");`],
     "/sw.js": () => ["text/javascript", `self.addEventListener("install", (event) => event.waitUntil(fetch("/private/worker.json").catch(() => {})));`],
     "/live": () => ["text/html", page("Live wind", `${NAV}<main><h1>Live wind</h1><p>Wind at the kite field, as it changes.</p></main><script>${POLL}</script>`)],
     "/live/data": () => ["application/json", `{"wind_knots": 12}`],
+    "/search/results": () => ["application/json", `{"kites": ["Box kite"]}`],
+    "/events": () => ["text/event-stream", "data: calm\n\n"],
+    "/welcome": () => ["text/html", page("Welcome", `${NAV}<main><h1>Welcome</h1><p>Read once the shop's cookie is set.</p></main>`)],
     "/catalog/box-kite": () => ["text/html", page("Box kite", `${NAV}<main><h1>Box kite</h1><p>A kite drawn only by the catalog's script.</p></main>`)],
     "/workshops": () => ["text/html", page("Workshops", `${NAV}<main><h1>Workshops</h1><p>Only the sitemap links here.</p></main>`)],
     "/visit/": () => ["text/html", page("Visit us", `${NAV}<main><h1>Visit us</h1><p>The shop is open on Saturdays.</p></main>`)],
@@ -77,9 +85,13 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
   };
   for (const route of extra) routes[route] = () => ["text/html", page(route, `${NAV}<main><h1>${route}</h1></main>${ASSETS}`)];
 
+  const record = (request) => {
+    const url = new URL(request.url, origin);
+    requests.push({ path: url.pathname, method: request.method, userAgent: request.headers["user-agent"] ?? "", at: performance.now() });
+    return url;
+  };
   const server = http.createServer((request, response) => {
-    const pathname = new URL(request.url, origin).pathname;
-    requests.push({ path: pathname, userAgent: request.headers["user-agent"] ?? "", at: performance.now() });
+    const { pathname, search } = record(request);
     inFlight += 1;
     maxInFlight = Math.max(maxInFlight, inFlight);
     response.on("close", () => {
@@ -90,6 +102,14 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
         response.writeHead(302, { location: REDIRECTS[pathname] }).end();
         return;
       }
+      if (pathname === "/welcome" && !/(^|;\s*)visited=1/.test(request.headers.cookie ?? "")) {
+        response.writeHead(302, { location: "/welcome", "set-cookie": "visited=1; Path=/" }).end();
+        return;
+      }
+      if (pathname === "/loop") {
+        response.writeHead(302, { location: search ? "/loop" : "/loop?check=1" }).end();
+        return;
+      }
       const route = routes[pathname];
       if (!route) {
         response.writeHead(404, { "content-type": "text/plain" }).end("not found");
@@ -98,6 +118,10 @@ export function startFixtureSite({ delayMs = 0, extraPages = 0 } = {}) {
       const [contentType, body] = route();
       response.writeHead(200, { "content-type": contentType }).end(body);
     }, delayMs);
+  });
+  server.on("upgrade", (request, socket) => {
+    record(request);
+    socket.destroy();
   });
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
