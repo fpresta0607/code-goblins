@@ -228,7 +228,7 @@ test("Up in an empty box recalls what he sent before, newest first, and Down wal
     { id: "p3", seq: 3, at: at2, kind: "prompt", source: "slash", text: "/cost", output: "Total cost: $0.12" },
     { id: "p4", seq: 4, at: at2, kind: "prompt", source: "overlord", text: "Now fix the swipe" },
   ], conversation: "fixture-conversation", more: false });
-  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [{ name: "cost", description: "Show the session's cost", source: "builtin" }] } }));
+  await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [{ name: "cost", description: "Show the session's cost", source: "builtin", sigil: "/" }] } }));
   await openGoblin(page);
 
   // Act and Assert: a recalled command keeps the slash list closed, so Up
@@ -554,10 +554,10 @@ for (const harness of ["claude", "codex", "pi"] as const) {
     // Arrange
     const relay = await open(page, snapshot({}, { harness }));
     await page.route("**/api/commands**", (route) => route.fulfill({ json: { commands: [
-      { name: "compact", description: "Free up context by summarizing the conversation", source: "builtin" },
-      { name: "context", description: "Visualize current context usage", source: "builtin" },
-      { name: "cost", description: "", source: "builtin" },
-      { name: "deploy-check", description: "Check what a deploy costs", source: "skill" },
+      { name: "compact", description: "Free up context by summarizing the conversation", source: "builtin", sigil: "/" },
+      { name: "context", description: "Visualize current context usage", source: "builtin", sigil: "/" },
+      { name: "cost", description: "", source: "builtin", sigil: "/" },
+      { name: "deploy-check", description: "Check what a deploy costs", source: "skill", sigil: "/" },
     ] } }));
     await openGoblin(page);
     const list = page.getByRole("listbox", { name: "Commands", exact: true });

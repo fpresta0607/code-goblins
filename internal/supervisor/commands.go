@@ -37,12 +37,15 @@ type commandsRefused struct {
 func (refused commandsRefused) Error() string { return refused.reason }
 
 // command is one entry of the composer's "/" list: the name the harness runs
-// it by, what it does, and where it comes from, "builtin" for one the harness
-// builds in, "command" for a command file or prompt template, and "skill".
+// it by, what it does, where it comes from, "builtin" for one the harness
+// builds in, "command" for a command file or prompt template, and "skill",
+// and the sigil the harness takes it behind in a message: "/" for a command,
+// and "$" for a Codex skill, which Codex takes as a mention.
 type command struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Source      string `json:"source"`
+	Sigil       string `json:"sigil"`
 }
 
 // commands answers the slash commands one session's harness offers it: its
@@ -137,28 +140,34 @@ func (h *HTTP) commandSession(query url.Values) (commandSession, error) {
 
 // harnessCommands reads the commands the session's harness offers it: first
 // its own, as that harness offers them, from where the user's configuration
-// of that harness keeps them: Claude Code's command files and skills, and
-// pi's prompt templates and skills. Codex reads no command files of its own,
-// and its skills are mentions rather than commands. Then the harness's
-// built-in commands, but for one the session's own command of that name
-// replaces.
+// of that harness keeps them: Claude Code's command files and skills and its
+// enabled plugins' commands and skills, Codex's skills, which it takes as $
+// mentions, and pi's prompt templates and skills. Then the harness's built-in
+// commands, but for one the session's own command of that name replaces.
 func harnessCommands(session commandSession, roots harnessmap.Map) []command {
 	root, _ := roots.Harness(session.harness)
 	var own []command
+	sigil := "/"
 	switch session.harness {
 	case "claude":
 		own = append(own, claudeCommands(filepath.Join(session.folder, ".claude"))...)
 		if root.Present {
 			own = append(own, claudeCommands(root.Path)...)
 		}
+		own = append(own, claudePluginCommands(session.folder, root.Path, cmp.Or(os.Getenv("CLAUDE_CODE_PLUGIN_CACHE_DIR"), filepath.Join(root.Path, "plugins")))...)
+	case "codex":
+		own, sigil = codexSkills(session.folder, root, roots.SharedSkills), "$"
 	case "pi":
 		own = append(own, piCommands(session.folder, root, roots.SharedSkills)...)
 	}
 	own = uniqueSorted(own)
+	for index := range own {
+		own[index].Sigil = sigil
+	}
 	var builtins []command
 	for name, description := range builtinCommands[session.harness] {
-		if !slices.ContainsFunc(own, func(entry command) bool { return entry.Name == name }) {
-			builtins = append(builtins, command{Name: name, Description: description, Source: "builtin"})
+		if !slices.ContainsFunc(own, func(entry command) bool { return entry.Sigil == "/" && entry.Name == name }) {
+			builtins = append(builtins, command{Name: name, Description: description, Source: "builtin", Sigil: "/"})
 		}
 	}
 	slices.SortFunc(builtins, func(a, b command) int { return strings.Compare(a.Name, b.Name) })
