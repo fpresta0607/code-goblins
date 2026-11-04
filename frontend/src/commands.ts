@@ -27,8 +27,9 @@ export function parseCommands(value: unknown): HarnessCommand[] {
 // the start of the box, none once he has typed a space and gone on to its
 // arguments: after a / every command and skill the harness takes, and after
 // a $ the skills Codex takes as mentions. The one named what he typed comes
-// first, then those whose name starts with it, then those whose name holds
-// it, then those whose description does, each group in the harness's order.
+// first, behind the sigil he typed before one behind another, then those
+// whose name starts with it, then those whose name holds it, then those whose
+// description does, each group in the harness's order.
 export function slashOptions(commands: HarnessCommand[], draft: string): HarnessCommand[] {
   const sigil = SIGILS.find((known) => draft.startsWith(known));
   if (!sigil) return [];
@@ -36,7 +37,8 @@ export function slashOptions(commands: HarnessCommand[], draft: string): Harness
   if (/\s/.test(word)) return [];
   const offered = sigil === "/" ? commands : commands.filter((command) => command.sigil === sigil);
   const named = offered.filter((command) => command.name.toLowerCase().startsWith(word));
-  const starts = [...named.filter((command) => command.name.toLowerCase() === word), ...named.filter((command) => command.name.toLowerCase() !== word)];
+  const exact = named.filter((command) => command.name.toLowerCase() === word);
+  const starts = [...exact.filter((command) => command.sigil === sigil), ...exact.filter((command) => command.sigil !== sigil), ...named.filter((command) => !exact.includes(command))];
   const holds = offered.filter((command) => !starts.includes(command) && command.name.toLowerCase().includes(word));
   const describes = offered.filter((command) => !starts.includes(command) && !holds.includes(command) && command.description.toLowerCase().includes(word));
   return [...starts, ...holds, ...describes];

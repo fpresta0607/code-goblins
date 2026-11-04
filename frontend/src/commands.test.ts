@@ -44,6 +44,7 @@ test("a slash offers Codex's skills beside its commands, and a dollar its skills
 
   // Act and Assert
   assert.deepEqual(offered("/"), ["$alpha-notes", "$kit:find-notes", "$model", "/model", "/new"]);
+  assert.deepEqual(offered("/model"), ["/model", "$model"], "the command he named comes before a skill of its name");
   assert.deepEqual(offered("/notes"), ["$alpha-notes", "$kit:find-notes"]);
   assert.deepEqual(offered("$"), ["$alpha-notes", "$kit:find-notes", "$model"]);
   assert.deepEqual(offered("$mod"), ["$model"]);

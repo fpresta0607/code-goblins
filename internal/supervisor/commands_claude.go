@@ -75,8 +75,8 @@ func claudePluginCommands(folder, claudeRoot, pluginsRoot string) []command {
 		if !isEnabled {
 			continue
 		}
-		marketplaceName, _, _ := strings.Cut(id, "@")
-		commands = append(commands, claudePluginEntries(path, cmp.Or(manifest.Name, marketplaceName), manifest)...)
+		pluginName, _, _ := strings.Cut(id, "@")
+		commands = append(commands, claudePluginEntries(path, cmp.Or(manifest.Name, pluginName), manifest)...)
 	}
 	return commands
 }
