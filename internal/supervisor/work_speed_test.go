@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fpresta0607/code-goblins/internal/defender"
 	"github.com/fpresta0607/code-goblins/internal/execx"
 	"github.com/fpresta0607/code-goblins/internal/fleettree"
 	"github.com/fpresta0607/code-goblins/internal/herdr"
@@ -971,11 +972,12 @@ func TestAGapInThePassesStartsTheBlindSpellAgain(t *testing.T) {
 	}
 }
 
-// On a loaded machine a reading's CI poll can hold it past two minutes, and
-// the next reading starts as it ends. Its progress pass follows the one before
-// with no gap, so the blind spell those passes make is kept and wakes the CFO
-// once it has lasted as long as a stall takes to tell.
-func TestPassesInReadingsSlowerThanTheGapKeepTheBlindSpell(t *testing.T) {
+// A reading's checks after its progress pass are part of the reading: on a
+// loaded machine its Defender read can hold it for minutes, and the next
+// reading starts as it ends. The gap that starts a blind spell again runs from
+// the reading's end, after those checks, to the next reading's start, so no
+// check of the reading can open one.
+func TestAReadAfterTheProgressPassIsNoGapInThePasses(t *testing.T) {
 	// Arrange
 	service, h := fleetService(t)
 	for _, id := range []string{"a-task", "b-task", "c-task"} {
@@ -983,34 +985,37 @@ func TestPassesInReadingsSlowerThanTheGapKeepTheBlindSpell(t *testing.T) {
 	}
 	head := strings.Repeat("a", 40)
 	service.Options.Progress = &slowGit{progressGit: progressGit{head: head, pushed: head}, isEverySlow: true}
-	start := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
-	var watched fleetWakes
-
-	// A reading starts every 3 minutes and takes them all, its progress pass
-	// ending in the reading's last second.
-	for minute := 0; minute <= 21; minute += 3 {
-		at := start.Add(time.Duration(minute) * time.Minute)
-		ended := at.Add(3*time.Minute - time.Second)
-
-		// Act
-		if err := service.checkProgress(t.Context(), &watched, at, func() time.Time { return ended }); err != nil {
-			t.Fatalf("at minute %d: %v", minute, err)
-		}
-
-		// Assert
-		if !watched.ProgressUnreadSince.Equal(start) {
-			t.Fatalf("at minute %d blind spell since %s, want the spell from %s kept", minute, watched.ProgressUnreadSince.Format("15:04Z"), start.Format("15:04Z"))
-		}
-		wantWakes := 0
-		if minute >= 20 {
-			wantWakes = 1
-		}
-		if wakes := progressUnreadWakes(t, h); len(wakes) != wantWakes {
-			t.Fatalf("at minute %d progress_unread wakes = %d, want %d: %q", minute, len(wakes), wantWakes, wakes)
-		}
+	at := time.Date(2026, 11, 4, 1, 10, 0, 0, time.UTC)
+	if err := writeFleetWakes(h.State, fleetWakes{DefenderSince: at.Add(-time.Hour), Woke: map[string]time.Time{"defender": at.Add(-defenderEvery - time.Minute)}}); err != nil {
+		t.Fatal(err)
 	}
-	if wakes := progressUnreadWakes(t, h); !strings.Contains(wakes[0], "for 21 minutes, since 01:10Z") {
-		t.Fatalf("wake %q, want the spell that began with the first pass at 01:10Z", wakes[0])
+	var started time.Time
+	var readBegan time.Duration
+	isRead := false
+	service.Options.Defender = func(context.Context, time.Time) (defender.Report, error) {
+		readBegan, isRead = time.Since(started), true
+		// A tenth of a second stands for the minutes a loaded machine holds it.
+		time.Sleep(100 * time.Millisecond)
+		return defender.Report{}, nil
+	}
+
+	// Act
+	started = time.Now()
+	err := service.checkFleet(t.Context(), at)
+
+	// Assert
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isRead {
+		t.Fatal("Defender was not read, want its read due in this reading")
+	}
+	watched, err := readFleetWakes(h.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readAt := at.Add(readBegan); !watched.ProgressPassAt.After(readAt) {
+		t.Errorf("progress pass at %s, want the reading's end, after its Defender read began at %s", watched.ProgressPassAt.Format(time.RFC3339Nano), readAt.Format(time.RFC3339Nano))
 	}
 }
 

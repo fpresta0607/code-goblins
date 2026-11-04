@@ -69,17 +69,16 @@ type WorkProgress struct {
 	Woken   bool      `json:"woken,omitempty"`
 }
 
-func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now time.Time, currentTime func() time.Time) error {
+func (s *Service) checkProgress(ctx context.Context, watched *fleetWakes, now time.Time) error {
 	if s.Options.Progress == nil {
 		return nil
 	}
 	// A blind spell counts only time the supervisor watched: a gap from one
-	// pass's end to the next, the supervisor stopped or the machine asleep,
-	// starts it again, as it does memory's readings.
+	// reading's end to the next reading, the supervisor stopped or the
+	// machine asleep, starts it again, as it does memory's readings.
 	if now.Sub(watched.ProgressPassAt) > 2*fleetWatchEvery || !now.After(watched.ProgressPassAt) {
 		watched.ProgressUnreadSince, watched.ProgressUnreadWoke = time.Time{}, false
 	}
-	defer func() { watched.ProgressPassAt = currentTime() }()
 	probe, cancel := context.WithTimeout(ctx, PROGRESS_PASS_TIMEOUT)
 	defer cancel()
 	if watched.Progress == nil {
