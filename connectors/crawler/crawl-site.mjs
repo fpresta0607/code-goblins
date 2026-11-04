@@ -40,6 +40,8 @@ const BLOCKED_RESOURCES = new Set(["image", "media", "font"]);
 // and a memory budget so it never asks the machine for its total.
 const CRAWLEE_MEMORY_MBYTES = 4096;
 
+export const NAVIGATION_TIMEOUT_SECS = 30;
+
 const MAX_SITEMAPS = 50;
 const MAX_REDIRECTS = 20;
 const FETCH_TIMEOUT_MS = 30_000;
@@ -81,6 +83,14 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
     return route;
   };
 
+  // whyNotFollowed says why the crawl does not follow a redirect to target,
+  // or "" when it does.
+  const whyNotFollowed = (target) => {
+    if (new URL(target).origin !== origin) return `it redirects off the site, to ${target}`;
+    if (!isAllowed(target)) return `it redirects to ${target}, which robots.txt disallows`;
+    return "";
+  };
+
   const sitemaps = await readSitemaps(robots, origin, isAllowed);
 
   const crawler = new PlaywrightCrawler({
@@ -89,53 +99,69 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
     maxConcurrency: MAX_IN_FLIGHT,
     maxRequestsPerCrawl: maxPages,
     maxRequestRetries: 1,
-    navigationTimeoutSecs: 30,
+    navigationTimeoutSecs: NAVIGATION_TIMEOUT_SECS,
     requestHandlerTimeoutSecs: 90,
     useSessionPool: false,
     retryOnBlocked: false,
     // One browser, a fresh context for each page: Crawlee's default, one
     // persistent context, launches a second Chrome only to read its version.
     launchContext: { launcher: chromium, useChrome: true, useIncognitoPages: true, userAgent: USER_AGENT, launchOptions: { headless: true } },
-    browserPoolOptions: { useFingerprints: false },
-    // Every request the browser makes to the site, from any page it has
-    // open, waits for a slot and holds it until it ends, and one robots.txt
-    // disallows is never sent. Playwright follows a redirect without routing
-    // it, so a redirect passes its slot to the request that follows it.
+    // Playwright never routes a service worker's requests, so no page may
+    // start one.
+    browserPoolOptions: {
+      useFingerprints: false,
+      prePageCreateHooks: [
+        (pageId, browserController, pageOptions) => {
+          pageOptions.serviceWorkers = "block";
+        },
+      ],
+    },
+    // The crawler sends each request the browser makes to the site, from any
+    // page it has open, itself: one redirect step at a time, each step
+    // checked against robots.txt and holding one slot while it is fetched.
+    // The browser follows no redirect of its own, and a crawled page that
+    // redirects is a redirect to the page it names, queued as a link.
     preNavigationHooks: [
-      async ({ page }) => {
-        const held = new Set();
-        const release = (request) => {
-          if (held.delete(request)) slots.release();
+      async ({ page, request: crawled }) => {
+        const fetchStep = async (route, url) => {
+          await slots.take();
+          try {
+            return page.isClosed() ? null : await route.fetch({ url, maxRedirects: 0 });
+          } finally {
+            slots.release();
+          }
         };
-        page.on("request", (request) => {
-          const from = request.redirectedFrom();
-          if (from && held.delete(from)) held.add(request);
-        });
-        page.on("requestfinished", (request) => {
-          if (!isRedirect(request.existingResponse())) release(request);
-        });
-        page.on("requestfailed", release);
-        page.on("close", () => {
-          for (const request of held) release(request);
-        });
         await page.route("**/*", async (route) => {
           const request = route.request();
           if (BLOCKED_RESOURCES.has(request.resourceType())) return route.abort();
           if (new URL(request.url()).origin !== origin) return route.continue();
           if (!isAllowed(request.url())) return route.abort("blockedbyclient");
-          await slots.take();
-          held.add(request);
-          try {
-            await route.continue();
-          } catch (error) {
-            release(request);
-            throw error;
+          const isCrawledPage = request.isNavigationRequest() && normalize(request.url()) === crawled.uniqueKey && request.frame() === page.mainFrame();
+          let url = request.url();
+          for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+            let response;
+            try {
+              response = await fetchStep(route, url);
+            } catch {
+              return route.abort("failed");
+            }
+            if (!response) return;
+            const target = redirectTarget(response.status(), response.headers().location, url);
+            if (!target) return route.fulfill({ response });
+            if (isCrawledPage) {
+              await followRedirect(routes.get(crawled.uniqueKey), response.status(), target);
+              return route.fulfill({ contentType: "text/html", body: "" });
+            }
+            if (!isAllowed(target)) return route.abort("blockedbyclient");
+            url = target;
           }
+          return route.abort("failed");
         });
       },
     ],
     requestHandler: async ({ request, page, response }) => {
       const route = routes.get(request.uniqueKey);
+      if (route.status !== "found") return;
       const status = response?.status() ?? 0;
       route.status_code = status;
       const contentType = response?.headers()["content-type"] ?? "";
@@ -151,14 +177,10 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
       }
       const landed = new URL(page.url());
       landed.hash = "";
-      if (landed.origin !== origin) {
+      const reason = whyNotFollowed(landed.href);
+      if (reason) {
         route.status = "unread";
-        route.reason = `it redirects off the site, to ${landed.href}`;
-        return;
-      }
-      if (!isAllowed(landed.href)) {
-        route.status = "unread";
-        route.reason = `it redirects to ${landed.href}, which robots.txt disallows`;
+        route.reason = reason;
         return;
       }
       await page.waitForLoadState("networkidle", { timeout: SETTLE_TIMEOUT_MS }).catch(() => {});
@@ -185,6 +207,7 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
     },
     failedRequestHandler: async ({ request }, error) => {
       const route = routes.get(request.uniqueKey);
+      if (route.status !== "found") return;
       if (isDownload(error)) {
         route.kind = "file";
         route.status = "found";
@@ -219,6 +242,22 @@ export async function crawlSite({ startUrl, outDir, maxPages = DEFAULT_MAX_PAGES
       requests.push({ url, uniqueKey: url });
     }
     if (requests.length > 0) await crawler.addRequests(requests);
+  }
+
+  // followRedirect records that route, which answered status, redirects to
+  // target. A redirect within the site is queued as a link the route found,
+  // so the page it names is read once, by its own address.
+  async function followRedirect(route, status, target) {
+    route.status_code = status;
+    const reason = whyNotFollowed(target);
+    if (reason) {
+      route.status = "unread";
+      route.reason = reason;
+      return;
+    }
+    route.status = "redirect";
+    route.landed_on = target;
+    await enqueue([target], route.url);
   }
 
   await enqueue([start.href], "start");
@@ -285,15 +324,22 @@ async function fetchAsCrawler(url, isAllowed) {
   let current = url;
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     const response = await fetch(current, { headers: { "user-agent": USER_AGENT }, redirect: "manual", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-    const location = response.headers.get("location");
-    if (response.status < 300 || response.status >= 400 || !location) return response;
+    const target = redirectTarget(response.status, response.headers.get("location"), current);
+    if (!target) return response;
     await response.body?.cancel();
-    const next = new URL(location, current);
-    next.hash = "";
-    if (!isAllowed(next.href)) throw new Error(`it redirects to ${next.href}, which robots.txt disallows`);
-    current = next.href;
+    if (!isAllowed(target)) throw new Error(`it redirects to ${target}, which robots.txt disallows`);
+    current = target;
   }
   throw new Error(`it redirects more than ${MAX_REDIRECTS} times`);
+}
+
+// redirectTarget is where an answer of status, with location, sends a
+// request for url, or "" when the answer is no redirect.
+function redirectTarget(status, location, url) {
+  if (status < 300 || status >= 400 || !location || !URL.canParse(location, url)) return "";
+  const target = new URL(location, url);
+  target.hash = "";
+  return target.href;
 }
 
 // readRobots reads the site's robots.txt. A site with none, or one that
@@ -422,11 +468,6 @@ function slotsOf(size) {
       else free += 1;
     },
   };
-}
-
-function isRedirect(response) {
-  const status = response?.status() ?? 0;
-  return status >= 300 && status < 400 && Boolean(response.headers().location);
 }
 
 function reportMarkdown(report) {

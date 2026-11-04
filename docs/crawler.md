@@ -15,9 +15,9 @@ goblin-crawl <url> [--out <folder>] [--max-pages <n>]
 ```
 
 - It reads the site's `robots.txt` first and never requests a path it disallows.
-  The browser's own requests are held to it too: a request a page's script, style or link makes to a disallowed path is stopped before it is sent.
-  It follows a redirect one step at a time and never into a disallowed path.
-  The browser follows a page's redirect itself, before the crawler sees where it leads, so a page whose redirect lands on a disallowed path is reported unread and nothing of it is kept.
+  The browser's own requests are held to it too: the crawler sends each request a page's script, style or link makes to the site itself, and never one to a disallowed path.
+  It follows every redirect one step at a time, the browser's included, and never into a disallowed path, and it lets no page start a service worker, whose requests the browser would send unseen.
+  A page that redirects within the site is queued as the page it redirects to, and one that redirects off the site or into a disallowed path is reported unread.
   A site that answers robots.txt with a server error, or not at all, is not crawled, and one that has none, or answers 4xx, allows everything, as the robots.txt standard says.
 - It reads every sitemap robots.txt names and `/sitemap.xml`, sitemap indexes included, on the site only.
 - It opens each page in headless Chrome, waits for the page to settle, and reads it as drawn, so a route only a script links to is found and a page a script fills is read with its content.
@@ -26,14 +26,14 @@ goblin-crawl <url> [--out <folder>] [--max-pages <n>]
 - It downloads every file the pages link to, such as PDFs, documents, archives and images.
 - It starts no process but its browser: it keeps its requests in flight whatever the machine's load, rather than measuring the load by listing the machine's processes, as Crawlee would.
 - It sends at most 3 requests to the site at a time, pages and downloads alike, as `CodeGoblinsCrawler/<version> (+https://github.com/fpresta0607/code-goblins/blob/main/docs/crawler.md)`, the browser's own requests included.
-  Each request the browser makes to the site, from whichever page it has open, waits its turn and holds it until it ends, its redirects included.
+  Each request the browser makes to the site, from whichever page it has open, is sent by the crawler one redirect step at a time, and each step waits its turn.
 - It reads at most 500 pages unless `--max-pages` says otherwise.
 - It reports every route it could not read, with why: robots.txt disallows it, it redirects into a path robots.txt disallows, the site answered an HTTP error, it redirects off the site, it is past the page limit, or it did not load in time.
 
 It writes, in `--out`, which is `crawl-<host>` in the current folder unless named:
 
 - `report.md` and `report.json`: every route with its kind, its status, how it was found and the file it was saved as, then the unread routes, the sitemaps and the links off the site, with counts.
-  A route that redirects within the site is a `redirect` to the page it lands on, which is read, and counted, once.
+  A route that redirects within the site is a `redirect` to the page it names, which is read, and counted, once, by its own address.
 - `pages/`: each page's rendered HTML and a JSON file of its facts: title, description, language, headings, text, tables, images, links and layout landmarks.
 - `files/`: every file it downloaded, each under a name of its own, its number in the crawl before its address.
 
@@ -103,6 +103,6 @@ To move to newer versions, change the pins there, run `npm install` in that fold
 
 ## Its tests
 
-`npm test` in `connectors\crawler` crawls a made-up site, `fixture-site.mjs`, served on loopback: a sitemap index, a page only the sitemap names, a page whose only link to a product page is drawn by its script, which also asks for data in a folder robots.txt disallows, a page that redirects within the site and one that redirects into the disallowed folder, a table, an image, linked PDFs, two of them at addresses that differ only in a slash and one that redirects into the disallowed folder, pages that each load a stylesheet and three scripts, and a link off the site.
-The tests check that the crawl finds and reads every route, counts a redirect within the site as the one page it lands on, starts no process but its browser, downloads each PDF byte for byte under a name of its own, never requests what robots.txt disallows, the script's request and the PDF's redirect included, reports the page whose redirect lands in the disallowed folder unread, names itself on every request, the browser's included, keeps at most three requests in flight, the browser's own for each page's scripts included, and lists every unread route in its report.
+`npm test` in `connectors\crawler` crawls a made-up site, `fixture-site.mjs`, served on loopback: a sitemap index, a page only the sitemap names, a page whose only link to a product page is drawn by its script, which also asks for data in a folder robots.txt disallows, directly and through a redirect, and tries to start a service worker that would ask for more, a page that redirects to one the sitemap names and one that redirects into the disallowed folder, a page whose script never stops asking for data, a table, an image, linked PDFs, two of them at addresses that differ only in a slash and one that redirects into the disallowed folder, pages that each load a stylesheet and three scripts, and a link off the site.
+The tests check that the crawl finds and reads every route, reads the page a redirect names once, by its own address, starts no process but its browser, downloads each PDF byte for byte under a name of its own, never requests what robots.txt disallows, the script's requests, the service worker and every redirect included, reports the routes that redirect into the disallowed folder unread, names itself on every request, the browser's included, keeps at most three requests in flight, the browser's own for each page's scripts included, reads every page after the one that never settles at its first navigation, and lists every unread route in its report.
 CI runs them in the frontend job, and the Go tests prove each harness's goblin finds `goblin-crawl` on its PATH and that `connectors: none` leaves it out.

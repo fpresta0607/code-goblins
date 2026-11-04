@@ -33,7 +33,7 @@ It ends with one line that counts the pages read, the files downloaded and the r
 The folder then holds:
 
 - `report.md`, for a person: every route with its kind, its status and how it was found, then the unread routes, the sitemaps and the links off the site.
-- `report.json`, the same for you to read: `routes` (each with `url`, `kind` page or file, `status` read, redirect, downloaded or unread, `reason`, `found_by`, `landed_on` for a redirect within the site, which is read once as the page it lands on, and the file it was saved as), `sitemaps`, `external_links`, `robots_txt` and `counts`.
+- `report.json`, the same for you to read: `routes` (each with `url`, `kind` page or file, `status` read, redirect, downloaded or unread, `reason`, `found_by`, `landed_on` for a redirect within the site, the page it names, which is its own route, read once, and the file it was saved as), `sitemaps`, `external_links`, `robots_txt` and `counts`.
 - `pages/`, for each page read, its rendered HTML and a JSON file of its facts: `title`, `description`, `language`, `headings`, `text`, `tables` as rows of cells, `images` with their address and alt text, `links`, and `layout`, its landmarks (`header`, `nav`, `main`, `aside`, `footer`, `section`, `article`, `form`) in page order.
 - `files/`, every file the pages link to, as the site served it.
 
